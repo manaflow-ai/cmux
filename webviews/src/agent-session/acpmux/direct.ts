@@ -105,6 +105,8 @@ export const PREWARM_METHOD = "_acpmux/prewarm";
 const COMMANDS_KIND = "available_commands_update";
 /// How much of the context window the session has used; not transcript, so attach asks for it by kind.
 const USAGE_KIND = "usage_update";
+/// The agent's own change of a config option (a reasoning level, a model): the whole option list.
+const CONFIG_KIND = "config_option_update";
 
 export function permissionFromMessage(message: any, selectedSessionId: string): AcpmuxPermission | undefined {
   const envelope = message ?? {};
@@ -499,6 +501,10 @@ export class AcpmuxDirectClient {
   /// The selection generation whose attach reply has landed; lag resync waits for it.
   private attachedGeneration = -1;
   private historyExhausted = false;
+  /// The daemon's harness list or a harness's models changed (`_acpmux/harnesses_changed`: a
+  /// profile written, live model lists refreshed); the catalog re-reads (catalog.ts
+  /// followHarnessChanges).
+  onHarnessesChanged?: () => void;
 
   private constructor(
     host: AcpmuxHostConfig,
@@ -733,6 +739,7 @@ export class AcpmuxDirectClient {
     else if (notification.method === "_acpmux/session_changed") this.sessionChanged(notification.params);
     else if (notification.method === "_acpmux/permission_pending") this.applyPermission(notification.params);
     else if (notification.method === "_acpmux/lagged") this.resyncAfterLag(notification.params);
+    else if (notification.method === "_acpmux/harnesses_changed") this.onHarnessesChanged?.();
   }
 
   /// The daemon dropped events for this client. Fetch what came after the last
@@ -942,7 +949,7 @@ export class AcpmuxDirectClient {
     const result = await this.request("_acpmux/attach", {
       sessionId,
       limit: 400,
-      kinds: ["transcript", COMMANDS_KIND, USAGE_KIND],
+      kinds: ["transcript", COMMANDS_KIND, USAGE_KIND, CONFIG_KIND],
       eventStream: true,
     });
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
@@ -1149,6 +1156,10 @@ export class AcpmuxDirectClient {
       const used = Number(update.used);
       const size = Number(update.size);
       if (Number.isFinite(used) && Number.isFinite(size) && size > 0) this.usage = { used, size };
+      return;
+    }
+    if (update?.sessionUpdate === CONFIG_KIND) {
+      if (Array.isArray(update.configOptions)) this.summary = { ...this.summary, configOptions: update.configOptions };
       return;
     }
     if (event.dir === "mux") {
@@ -1492,6 +1503,8 @@ export class AcpmuxDirectClient {
       // a sender that holds its prompt (`accepted`) keeps every refused one: the prompt never
       // went, so it leaves no bubble, and the pane keeps it in (or puts it back in) the composer.
       const held = !taken && accepted !== undefined;
+      // The folder's trust question (the one route); the pane's sender adds the re-send.
+      this.routeTrustRefusal(error);
       if (isTrustRefusal(error) || held) {
         this.rows.delete(rowId);
         this.optimisticPromptRows.delete(promptId);
@@ -1592,10 +1605,47 @@ export class AcpmuxDirectClient {
     await this.attach(sessionId, generation);
     return generation === this.selectionGeneration && this.selectedSessionId === sessionId ? sessionId : undefined;
   }
+  /// The one route of a trust refusal (cx-nn3e): acpmux refuses `session/new`, `session/prompt`
+  /// and a prewarm in a folder without a Trust answer (`trust_gate.rs`). Every caller hands its
+  /// refusal here with the step to re-run after Trust; the pane shows the folder's one question.
+  /// A refusal that comes before the pane set its route (an adopt while connecting) waits for it.
+  get onTrustRefused(): TrustRoute | undefined {
+    return this.trustRoute;
+  }
+  set onTrustRefused(route: TrustRoute | undefined) {
+    this.trustRoute = route;
+    const waiting = this.waitingTrust;
+    this.waitingTrust = undefined;
+    if (route && waiting) route(waiting.refusal, waiting.again);
+  }
+  private trustRoute?: TrustRoute;
+  private waitingTrust?: { refusal: TrustRefusal; again?: () => void };
+  /// True when `error` is a trust refusal, which then went to the route.
+  routeTrustRefusal(error: unknown, again?: () => void): boolean {
+    const refusal = trustRefusal(error);
+    if (!refusal) return false;
+    if (this.trustRoute) this.trustRoute(refusal, again);
+    else this.waitingTrust = { refusal, again };
+    return true;
+  }
+  /// `session/new` for every caller: a trust refusal goes to the one route, then rejects as before.
+  private async newSession(params: Record<string, unknown>, again?: () => void): Promise<any> {
+    try {
+      return await this.request("session/new", params);
+    } catch (error) {
+      this.routeTrustRefusal(error, again);
+      throw error;
+    }
+  }
   /// A new session, in `cwd` when given; otherwise in the inherited cwd, then where acpmux defaults.
   create(harness?: string, cwd?: string, peer?: string): Promise<string | undefined> {
     const started = (async () => {
-      const sessionId = await this.startSession(harness, cwd, peer);
+      const sessionId = await this.startSession(
+        harness,
+        cwd,
+        peer,
+        () => void this.create(harness, cwd, peer).catch(() => undefined),
+      );
       return sessionId ? this.select(sessionId) : undefined;
     })();
     const tracked = started.finally(() => {
@@ -1608,10 +1658,11 @@ export class AcpmuxDirectClient {
   }
   /// `session/new` without showing it: a harness switch starts the session behind the pane's
   /// new chat and shows it once it is ready (harnessSwitch.ts).
-  async startSession(harness?: string, cwd?: string, peer?: string): Promise<string | undefined> {
-    const result = await this.request(
-      "session/new",
+  /// `again` re-runs the caller's step after a Trust answer (the trust route).
+  async startSession(harness?: string, cwd?: string, peer?: string, again?: () => void): Promise<string | undefined> {
+    const result = await this.newSession(
       newSessionParams(cwd ? { cwd, peer } : { ...this.host, peer }, harness),
+      again,
     );
     // The inherited cwd is the first default chat's; later ones start where acpmux defaults.
     if (result?.sessionId && !cwd) this.host = { ...this.host, cwd: undefined };
@@ -1662,7 +1713,16 @@ export class AcpmuxDirectClient {
   /// awaited; a refusal (the pool is off, a failed start) is ignored.
   prewarm(harness: string, cwd?: string): void {
     if (!this.prewarmSupported) return;
-    void this.request(PREWARM_METHOD, cwd ? { harness, cwd } : { harness }).catch(() => undefined);
+    // A prewarm in a folder without a Trust answer asks the question early (nothing to re-run).
+    void this.request(PREWARM_METHOD, cwd ? { harness, cwd } : { harness }).catch((error: unknown) => {
+      this.routeTrustRefusal(error);
+    });
+  }
+  /// Resumes `adopt` in this pane now (a chat whose folder was missing, after Choose Folder): the
+  /// same path as an adopt on connect, so a trust refusal asks the question (the trust route).
+  async resume(adopt: AcpmuxAdopt): Promise<string | undefined> {
+    await this.adoptChat(adopt);
+    return this.adopted;
   }
   /** The session an adopt on connect resumed, for the host to keep as the tab's session. */
   adopted?: string;
@@ -1674,9 +1734,15 @@ export class AcpmuxDirectClient {
     this.host = { ...this.host, adopt: undefined };
     let result: any;
     try {
-      result = await this.request("session/new", newSessionParams({ adopt }));
+      // After Trust the same chat is adopted again.
+      result = await this.newSession(
+        newSessionParams({ adopt }),
+        () => void this.adoptChat(adopt).catch(() => undefined),
+      );
     } catch (error) {
       if (this.socket?.readyState !== WebSocket.OPEN) throw error;
+      // The trust route asks about the folder; this is no failure to resume.
+      if (trustRefusal(error)) return;
       if (error instanceof AcpmuxRpcError && error.reason === "adopt.live" && !adopt.ifLive) {
         this.liveAdopt = { adopt, ...liveDetails((error as { details?: unknown }).details) };
         this.emit();
@@ -1767,14 +1833,20 @@ export class AcpmuxDirectClient {
         ...gestureMeta(ticket),
       });
   }
+  /// The session's summary reads the agent's answer, its whole option list: acpmux sends no
+  /// session change for it, so without this the chip and menu keep the old level.
   async setConfig(configId: string, value: string, ticket?: string): Promise<void> {
-    if (this.selectedSessionId)
-      await this.request("session/set_config_option", {
-        sessionId: this.selectedSessionId,
-        configId,
-        value,
-        ...gestureMeta(ticket),
-      });
+    const sessionId = this.selectedSessionId;
+    if (!sessionId) return;
+    const result = await this.request("session/set_config_option", {
+      sessionId,
+      configId,
+      value,
+      ...gestureMeta(ticket),
+    });
+    if (sessionId !== this.selectedSessionId || !Array.isArray(result?.configOptions)) return;
+    this.summary = { ...this.summary, configOptions: result.configOptions };
+    this.emit();
   }
   /** The harness and model catalog. Server state the pane caches with TanStack Query (catalog.ts), so connect does not wait on it.
    *  With `cwd` (the chat's folder) it also holds that folder's harness profiles (`folder` entries,
@@ -1856,8 +1928,19 @@ const gestureMeta = (ticket?: string) => (ticket ? { _meta: { cmuxGesture: ticke
 /// Why acpmux says a harness will not start: its launcher check, else its failed model probe.
 /// A prompt acpmux refused because the session's folder has no Trust answer (`trust_gate.rs`).
 export function isTrustRefusal(error: unknown): boolean {
-  const reason = (error as { reason?: unknown } | null)?.reason;
-  return reason === "trust.pending" || reason === "trust.untrusted";
+  return trustRefusal(error) !== undefined;
+}
+
+/// What a trust refusal names: its reason and the folder acpmux asks about.
+export type TrustRefusal = { reason: "trust.pending" | "trust.untrusted"; cwd?: string };
+/// The pane's handler of every trust refusal (`AcpmuxDirectClient.onTrustRefused`).
+export type TrustRoute = (refusal: TrustRefusal, again?: () => void) => void;
+
+export function trustRefusal(error: unknown): TrustRefusal | undefined {
+  const fields = error as { reason?: unknown; cwd?: unknown } | null;
+  const reason = fields?.reason;
+  if (reason !== "trust.pending" && reason !== "trust.untrusted") return undefined;
+  return { reason, ...(typeof fields?.cwd === "string" && fields.cwd ? { cwd: fields.cwd } : {}) };
 }
 
 export function harnessRefusal(entry: { unavailable?: unknown; probeError?: unknown } | undefined): string | undefined {

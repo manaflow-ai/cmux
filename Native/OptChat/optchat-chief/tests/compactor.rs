@@ -58,6 +58,7 @@ fn spec(dir: &std::path::Path) -> CompactorSpec {
         timeout: Duration::from_secs(30),
         chief: "h0me".into(),
         user_env: Default::default(),
+        fast: false,
     }
 }
 
@@ -1958,4 +1959,77 @@ fn a_line_stuck_on_an_exhausted_route_posts_no_notice() {
     assert_eq!(stuck_notice(&status(exhausted)), None);
     let bad = r#"API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"cache_control.ttl"}}"#;
     assert!(stuck_notice(&status(bad)).is_some());
+}
+
+/// E2: each capacity wait of the compactor is one trace event
+/// (`compactor.capacity`: the route, its retry-after, and the route it fails
+/// over to, or null), so the dogfood counts errors by class from traces.
+#[test]
+fn a_capacity_wait_is_one_trace_event_with_its_route_wait_and_failover() {
+    let dir = tempfile::tempdir().unwrap();
+    let traces = dir.path().join("traces");
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: pasted a deploy log")));
+    let exhausted = r#"session/new: model "claude-haiku-5-5" for claude-sr: API error: 503 no non-exhausted claude accounts available; next account frees up in 1h (retry after 3596s)"#;
+    agents
+        .inner
+        .lock()
+        .unwrap()
+        .session_errors
+        .insert("claude-sr".into(), exhausted.into());
+    let trace = optchat_chief::trace::Trace::open(&traces, false).unwrap();
+    let with_alt = compactor(&agents, dir.path())
+        .with_alternate_harness(Some("claude".into()))
+        .with_trace(trace.clone());
+    run_node(&with_alt, &request(1)).unwrap();
+    let without = compactor(&agents, dir.path()).with_trace(trace);
+    assert!(run_node(&without, &request(2)).is_err());
+    let mut events = Vec::new();
+    for entry in std::fs::read_dir(&traces).unwrap().flatten() {
+        let text = std::fs::read_to_string(entry.path()).unwrap();
+        events.extend(
+            text.lines()
+                .map(|l| serde_json::from_str::<Value>(l).unwrap()),
+        );
+    }
+    let capacity: Vec<&Value> = events
+        .iter()
+        .filter(|e| e["ev"] == "compactor.capacity")
+        .collect();
+    assert_eq!(capacity.len(), 2, "{events:?}");
+    assert_eq!(capacity[0]["route"], "claude-sr");
+    assert_eq!(capacity[0]["retry_after_s"], 3596);
+    assert_eq!(capacity[0]["failover"], "claude");
+    assert_eq!(capacity[0]["status"], 503);
+    assert_eq!(capacity[1]["failover"], Value::Null);
+}
+
+/// Engine speed: a compactor slot never inherits the user's codex
+/// service_tier (cmux-lawrence-2's config says "fast"): the slot sets its
+/// own, fast for compactor_speed fast, none (the default) otherwise.
+#[test]
+fn a_codex_compactor_slot_sets_its_own_service_tier() {
+    use optchat_chief::compactor::codex_compactor_config_at;
+    let user = "model = \"gpt-6-astra\"\nservice_tier = \"fast\"\n";
+    let off: toml::Table = codex_compactor_config_at(Some(user), false).unwrap().parse().unwrap();
+    assert!(off.get("service_tier").is_none(), "{off:?}");
+    let on: toml::Table = codex_compactor_config_at(Some(user), true).unwrap().parse().unwrap();
+    assert_eq!(on["service_tier"].as_str(), Some("fast"));
+    let bare: toml::Table = codex_compactor_config_at(None, true).unwrap().parse().unwrap();
+    assert_eq!(bare["service_tier"].as_str(), Some("fast"));
+}
+
+/// Engine speed: a fast compactor asks for the fast tier on each session.
+#[test]
+fn a_fast_compactor_starts_fast_sessions() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: pasted a deploy log")));
+    let spec = CompactorSpec {
+        harness: "codex".into(),
+        family: Family::Codex,
+        fast: true,
+        ..spec(dir.path())
+    };
+    let compactor = AcpmuxCompactor::new(agents.clone(), spec, Slots::new(COMPACTOR_SESSIONS));
+    run_node(&compactor, &request(1)).unwrap();
+    assert!(agents.inner.lock().unwrap().specs.iter().all(|s| s.fast));
 }

@@ -253,7 +253,7 @@ enum CustomRows {
         let y = v.collection.contentOffset.y - v.layout.rowsTop
         var ids: [ID] = []
         for i in v.model.range(y - margin, y + v.cvHeight + margin) {
-            let s = v.model.rows[i].spec
+            guard let s = v.model.rows[checked: i]?.spec else { continue } // cmux: checked
             guard s.estimated, case let .part(p) = s.kind, case .custom = p.part else { continue }
             if ids.last != p.ref.messageId { ids.append(p.ref.messageId) }
         }

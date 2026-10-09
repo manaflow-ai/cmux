@@ -1,6 +1,6 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/Model.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/Model.swift
-@@ -221,7 +221,13 @@
+@@ -240,7 +240,13 @@
      }()
      /// Timestamps keep the conversation's offset (-07:00) so rendering is
      /// independent of the machine's zone.
@@ -15,7 +15,16 @@
      private static let writer: ISO8601DateFormatter = {
          let f = ISO8601DateFormatter()
          f.formatOptions = [.withInternetDateTime]
-@@ -305,7 +311,9 @@
+@@ -268,7 +274,7 @@
+         guard b.count == 20 || b.count == 25 else { return nil }
+         func num(_ i: Int, _ n: Int) -> Int? {
+             var v = 0
+-            for k in i..<(i + n) { let c = b[k]; guard c >= 48, c <= 57 else { return nil }; v = v * 10 + Int(c - 48) }
++            for c in b.slice(i, i + n) { guard c >= 48, c <= 57 else { return nil }; v = v * 10 + Int(truncatingIfNeeded: c - 48) } // cmux: no index math
+             return v
+         }
+         guard b[4] == 45, b[7] == 45, b[10] == 84, b[13] == 58, b[16] == 58,
+@@ -324,7 +330,9 @@
  enum Fixtures {
      /// conversation.json and assets/ from shared/ are bundled (not copied
      /// into this variant's sources).
@@ -26,7 +35,7 @@
      /// The repo's shared/ directory, for the large generated stores that are
      /// not bundled.
      static var repoShared: URL {
-@@ -314,12 +322,17 @@
+@@ -333,12 +341,17 @@
      }
      static func loadConversation() -> Conversation {
          let url = sharedDirectory.appendingPathComponent("conversation.json")

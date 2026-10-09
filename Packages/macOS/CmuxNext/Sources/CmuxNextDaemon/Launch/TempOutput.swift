@@ -21,8 +21,10 @@ final class TempOutput {
         let fd = handle.fileDescriptor
         let size = lseek(fd, 0, SEEK_END)
         guard size > 0 else { return Data() }
-        var data = Data(count: Int(size))
-        let count = data.withUnsafeMutableBytes { pread(fd, $0.baseAddress, Int(size), 0) }
+        // off_t is 64-bit, as Int is on every platform cmux runs on: exact.
+        let byteCount = Int(clamping: size)
+        var data = Data(count: byteCount)
+        let count = data.withUnsafeMutableBytes { pread(fd, $0.baseAddress, byteCount, 0) }
         return count > 0 ? data.prefix(count) : Data()
     }
 }

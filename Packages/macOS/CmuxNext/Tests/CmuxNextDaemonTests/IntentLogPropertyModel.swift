@@ -117,8 +117,10 @@ struct RefState: Equatable, CustomStringConvertible {
             let members = remaining.filter { workspaces[$0].group == group }
             var new = old
             if let last = members.last {
-                let target = index < members.count ? members[index] : last
-                new = (remaining.firstIndex(of: target) ?? old) + (index < members.count ? 0 : 1)
+                // A negative section index means the front (IntentOverlay.sectionPlacement).
+                let section = max(index, 0)
+                let target = section < members.count ? members[section] : last
+                new = (remaining.firstIndex(of: target) ?? old) + (section < members.count ? 0 : 1)
             }
             return place(from: old, to: min(new, workspaces.count - 1), group: group)
         case .setWorkspaceGroupCollapsed(let id, let collapsed):

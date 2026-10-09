@@ -131,15 +131,10 @@ fn projected_effect_holds_writer_fence_through_commit_and_publishes_once() {
     assert_eq!(snapshot.workspaces[0].name, original_name);
     let events = registry.resource_events_after(before_revision).unwrap();
     assert_eq!(events.batches.len(), 1);
+    // The public fold drops upserts the journal already states, so the
+    // projection of an unchanged tree journals no public change.
     let changes = events.batches[0].changes.as_array().unwrap();
-    assert!(!changes.is_empty());
-    for (sequence, change) in changes.iter().enumerate() {
-        assert_eq!(change["sequence"], sequence);
-        assert!(matches!(change["kind"].as_str(), Some("upsert" | "delete")));
-        assert!(change["resource"].is_string());
-        assert!(change["id"].is_string());
-        assert!(change.get("event").is_none());
-    }
+    assert!(changes.is_empty(), "an unchanged tree restated {changes:?}");
     surface.kill();
 }
 

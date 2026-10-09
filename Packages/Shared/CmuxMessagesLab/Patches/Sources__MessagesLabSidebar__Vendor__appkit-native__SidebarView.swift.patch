@@ -23,10 +23,10 @@
 +    private(set) var tileLayers: [SidebarRowLayer] = []
 +    // cmux: the pin drag in progress (Cmux/SidebarPinDrag.swift).
 +    let pinDragState = SidebarPinDragState()
-     private let hoverLayer = CALayer()
      private let menuRing = CALayer()
-     private var hovered: Hit?
-@@ -110,7 +113,7 @@
+     private var lastVisible: Range<Int> = 0..<0
+     private var lastTop: CGFloat = 0
+@@ -108,7 +111,7 @@
      /// A pinned tile's laid-out parts in tile coordinates (tests): the unread dot (nil: hidden),
      /// the bubble without its tail (nil: none shown), the avatar and the tile's bounds.
      func tileGeometry(_ t: Int) -> (dot: CGRect?, bubble: CGRect?, avatar: CGRect, bounds: CGRect) {
@@ -35,7 +35,33 @@
          let b = l.time.isHidden ? nil : CGRect(x: l.time.frame.minX + 1, y: l.time.frame.minY, width: l.time.frame.width - 1, height: l.time.frame.height - 5)
          return (l.dot.isHidden ? nil : l.dot.frame, b, l.avatar.frame, l.bounds)
      }
-@@ -208,18 +211,20 @@
+@@ -145,8 +148,13 @@
+         scrollView.documentView = document
+         document.controller = self
+         root.addSubview(scrollView)
+-        NotificationCenter.default.addObserver(self, selector: #selector(clipMoved), name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
+-        NotificationCenter.default.addObserver(self, selector: #selector(colorsChanged), name: NSColor.systemColorsDidChangeNotification, object: nil)
++        // cmux: block observers on queue: .main (inline for a post on main), not selectors: a selector into
++        // this main-actor controller trapped on a post off main (crash program).
++        let nc = NotificationCenter.default
++        clipObservers = [
++            nc.addObserver(forName: NSView.boundsDidChangeNotification, object: scrollView.contentView, queue: .main) { [weak self] _ in self?.clipMoved() },
++            nc.addObserver(forName: NSColor.systemColorsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in self?.colorsChanged() },
++        ]
+ 
+         menuRing.cornerRadius = SidebarMetrics.selectionRadius
+         menuRing.borderWidth = 2
+@@ -163,7 +171,8 @@
+         root.addSubview(noResults)
+     }
+ 
+-    deinit { NotificationCenter.default.removeObserver(self) }
++    private var clipObservers: [NSObjectProtocol] = []  // cmux
++    deinit { clipObservers.forEach { NotificationCenter.default.removeObserver($0) } }  // cmux
+ 
+     // MARK: Data
+ 
+@@ -201,18 +210,20 @@
          init(pinned: [Int], rows: [Int], count: Int, searching: Bool) {
              self.pinned = pinned; self.rows = rows; self.searching = searching
              rowOf = [Int32](repeating: -1, count: count)
@@ -60,7 +86,7 @@
  
      private func applyRows(_ list: RowList) {
          let t0 = beginWork()
-@@ -238,6 +243,7 @@
+@@ -231,6 +242,7 @@
          layoutDocument()
          tile(force: true)
          updateAccessibility()
@@ -68,7 +94,7 @@
      }
  
      // MARK: Geometry
-@@ -291,10 +297,10 @@
+@@ -284,10 +296,10 @@
              return nil
          }
          if let h = sectionHeaderRect, h.contains(p) { return nil }
@@ -81,7 +107,7 @@
      func rect(_ h: Hit) -> CGRect {
          switch h { case let .tile(t): return tileRect(t).insetBy(dx: 2, dy: 2); case let .row(r): return selectionRect(r) }
      }
-@@ -302,7 +308,8 @@
+@@ -300,7 +312,8 @@
      func position(of id: ConversationID) -> Hit? {
          guard let i = indexByID[id] else { return nil }
          if let t = pinnedItems.firstIndex(of: i) { return .tile(t) }
@@ -91,9 +117,12 @@
          return r >= 0 ? .row(r) : nil
      }
  
-@@ -342,18 +349,21 @@
+@@ -338,20 +351,23 @@
  
-     @objc private func clipMoved() { tile(force: false) }
+     // MARK: Tiling (O(visible))
+ 
+-    @objc private func clipMoved() { tile(force: false) }
++    private func clipMoved() { tile(force: false) }  // cmux: no selector
  
 -    private var renderContext: SidebarRenderContext {
 +    var renderContext: SidebarRenderContext { // cmux: internal, the pin drag draws its tile
@@ -118,7 +147,7 @@
  
      /// Lays out the rows the clip view shows, with a margin of a few rows; renders missing
      /// visible bitmaps now and the next screen's in the background.
-@@ -361,8 +371,10 @@
+@@ -359,8 +375,10 @@
          guard !rowItems.isEmpty || !rowLayers.isEmpty else { return }
          let clip = scrollView.contentView.bounds
          let margin = 3
@@ -131,7 +160,7 @@
          let range = first < last ? first..<last : 0..<0
          let direction: CGFloat = clip.minY >= lastTop ? 1 : -1
          lastTop = clip.minY
-@@ -372,7 +384,7 @@
+@@ -370,7 +388,7 @@
          CATransaction.begin(); CATransaction.setDisableActions(true)
          batching = true
          for (r, l) in rowLayers where !range.contains(r) { recycle(l); rowLayers[r] = nil }
@@ -140,7 +169,7 @@
          for r in range {
              // A row already laid out keeps its layer as is (selection and data changes
              // reconfigure it through refresh); only new rows cost work.
-@@ -414,7 +426,10 @@
+@@ -411,10 +429,13 @@
          var out = [(time: CGImage, text: CGImage)?](repeating: nil, count: work.count)
          let cachedTimes = work.map { cache.image(timeKey($0.1)) }
          out.withUnsafeMutableBufferPointer { o in
@@ -150,9 +179,14 @@
 +                if let slot = o.checkedIndex(j) { o[slot] = job(w.2, w.1, cachedTimes[checked: j] ?? nil) }
 +            }
          }
-         for (j, (l, k, _)) in work.enumerated() {
-             guard let r = out[j] else { continue }
-@@ -426,11 +441,13 @@
+-        for (j, (l, k, _)) in work.enumerated() {
+-            guard let r = out[j] else { continue }
++        for ((l, k, _), result) in zip(work, out) { // cmux: no index math
++            guard let r = result else { continue }
+             stats.syncRenders += 1
+             cache.insert(timeKey(k), r.time)
+             cache.insert(k, r.text)
+@@ -423,11 +444,13 @@
      }
  
      /// Renders a row's time and text from values only (any thread).
@@ -169,7 +203,7 @@
              return (t, x)
          }
      }
-@@ -464,11 +481,10 @@
+@@ -461,11 +484,10 @@
      }
  
      private func configure(_ l: SidebarRowLayer, row r: Int, sync: Bool) {
@@ -183,7 +217,7 @@
          l.frame = frame
          // The text column (show() sets the same frame; it is skipped when the bitmap is unchanged).
          l.content.frame = CGRect(x: SidebarMetrics.textX, y: 0, width: metrics.textWidth, height: SidebarMetrics.rowHeight)
-@@ -477,7 +493,7 @@
+@@ -474,7 +496,7 @@
          l.selection.isHidden = !selected
          l.selection.backgroundColor = windowActive ? palette.selectionActive : palette.selectionInactive
          // The separator under the text, hidden next to the selection (as NSTableView does).
@@ -192,7 +226,7 @@
          l.separator.isHidden = selected || nextSelected || r == rowItems.count - 1 || r + 1 == extraStart
          let s = 1 / max(1, document.window?.backingScaleFactor ?? 2)
          l.separator.frame = CGRect(x: SidebarMetrics.textX, y: frame.height - s, width: frame.width - SidebarMetrics.textX - SidebarMetrics.separatorInsetRight, height: s)
-@@ -513,8 +529,7 @@
+@@ -510,8 +532,7 @@
              // Drawn with the other visible rows of this pass, in parallel (flushBatch).
              l.shownKey = nil
              batch.append((l, k, c))
@@ -202,7 +236,7 @@
              stats.syncRenders += 1
              cache.insert(timeKey(k), r.time); cache.insert(k, r.text)
              show(l, k, time: r.time, text: r.text)
-@@ -526,21 +541,22 @@
+@@ -523,21 +544,22 @@
  
      /// Background render of a row's time and text; the result goes to whichever layer shows that key.
      private func request(_ k: SidebarBitmapKey, item i: Int) {
@@ -228,7 +262,7 @@
                      self.show(l, k, time: r.time, text: r.text)
                  }
                  CATransaction.commit()
-@@ -552,8 +568,7 @@
+@@ -549,8 +571,7 @@
          var r = start
          for _ in 0..<count {
              guard r >= 0, r < rowItems.count else { return }
@@ -238,7 +272,7 @@
              if !cache.contains(k) { request(k, item: i) }
              r += direction
          }
-@@ -575,15 +590,17 @@
+@@ -572,17 +593,19 @@
          let ctx = renderContext
          var work: [(SidebarBitmapKey, ConversationSummary)] = []
          if !metrics.compact {
@@ -258,9 +292,12 @@
 +                    if let w = work[checked: j], let slot = out.checkedIndex(j) { out[slot] = SidebarController.tilePart(w.0, w.1, ctx) } // cmux
 +                }
              }
-             for (j, w) in work.enumerated() { if let img = images[j] { cache.insert(w.0, img); stats.tiles += 1 } }
+-            for (j, w) in work.enumerated() { if let img = images[j] { cache.insert(w.0, img); stats.tiles += 1 } }
++            for (w, image) in zip(work, images) { if let img = image { cache.insert(w.0, img); stats.tiles += 1 } } // cmux: no index math
          }
-@@ -600,8 +617,9 @@
+         for t in pinnedItems.indices { configureTile(t) }
+         CATransaction.commit()
+@@ -597,8 +620,9 @@
          return n
      }
      /// The keys of a tile's name and bubble (nil: no bubble) at the current width.
@@ -272,7 +309,7 @@
          return SidebarController.tileKeys(c, natural: n, tileWidth: tw, emphasized: emphasized(i), generation: generation)
      }
      static func tileKeys(_ c: ConversationSummary, natural n: (name: CGFloat, bubble: CGFloat), tileWidth tw: CGFloat,
-@@ -614,20 +632,20 @@
+@@ -611,20 +635,20 @@
          return (name, bubble)
      }
      /// Renders one tile part for its key (any thread).
@@ -297,7 +334,7 @@
          let f = tileRect(t)
          let s = renderContext.scale
          l.frame = f
-@@ -658,16 +676,15 @@
+@@ -655,16 +679,15 @@
              l.content.isHidden = true
              l.time.isHidden = true
          } else {
@@ -317,7 +354,7 @@
                  let bw = CGFloat(b.width) / s, bh = CGFloat(b.height) / s
                  let bottom = ar.minY + ar.height * 0.30
                  l.time.isHidden = false
-@@ -740,8 +757,9 @@
+@@ -736,8 +759,9 @@
          }
          let next = cur < 0 ? (delta > 0 ? 0 : order - 1) : min(order - 1, max(0, cur + delta))
          guard next != cur else { return }
@@ -329,7 +366,7 @@
      }
  
      // MARK: Search
-@@ -804,8 +822,8 @@
+@@ -800,8 +824,8 @@
                                                      pinned: false, muted: false, typing: false, lastReaction: nil)
                          var h = Hasher(); h.combine(r.title); h.combine(r.subtitle); h.combine(r.avatar)
                          c.version = h.finalize()
@@ -340,7 +377,7 @@
                          m.append(shown.items.count)
                          shown.items.append(c)
                      }
-@@ -853,20 +871,20 @@
+@@ -849,20 +873,20 @@
                                   emphasized: c.id == selected, generation: ctx.generation)
              }
              let ph = m.pinnedHeight(count: list.pinned.count)
@@ -366,7 +403,7 @@
                  let k = SidebarController.tileKeys(c, natural: SidebarDraw.tileNatural(c), tileWidth: m.tileWidth, emphasized: c.id == selected, generation: ctx.generation)
                  return [k.name, k.bubble].compactMap { $0 }.map { ($0, c) }
              }.filter { !cached.contains($0.0) }
-@@ -878,11 +896,10 @@
+@@ -874,17 +898,16 @@
              rowsOut.withUnsafeMutableBufferPointer { ro in
                  tilesOut.withUnsafeMutableBufferPointer { to in
                      DispatchQueue.concurrentPerform(iterations: n) { j in
@@ -381,7 +418,15 @@
                          }
                      }
                  }
-@@ -922,7 +939,7 @@
+             }
+-            for (j, w) in rowWork.enumerated() { if let r = rowsOut[j] { out.rows.append((w.0, r.time, r.text)) } }
+-            for (j, w) in tileWork.enumerated() { if let img = tilesOut[j] { out.tiles.append((w.0, img)) } }
++            for (w, result) in zip(rowWork, rowsOut) { if let r = result { out.rows.append((w.0, r.time, r.text)) } } // cmux
++            for (w, image) in zip(tileWork, tilesOut) { if let img = image { out.tiles.append((w.0, img)) } } // cmux
+             return out
+         }
+     }
+@@ -918,7 +941,7 @@
          case #selector(NSResponder.moveDown(_:)): moveSelection(1); return true
          case #selector(NSResponder.moveUp(_:)): moveSelection(-1); return true
          case #selector(NSResponder.insertNewline(_:)):
@@ -390,33 +435,7 @@
              view.window?.makeFirstResponder(document)
              return true
          case #selector(NSResponder.cancelOperation(_:)):
-@@ -936,6 +953,9 @@
- 
-     // MARK: Hover
- 
-+    /// cmux: off (Messages shows no hover on rows or tiles).
-+    static let showsHover = false
-+
-     func mouseMoved(_ p: CGPoint?) {
-         let h = p.flatMap(hit)
-         guard h != hovered else { return }
-@@ -945,11 +965,14 @@
-     private func updateHover() {
-         CATransaction.begin(); CATransaction.setDisableActions(true)
-         defer { CATransaction.commit() }
-+        // cmux: Messages draws no hover highlight on a row or a pinned tile (decision
-+        // 2026-10-07), so the hover fill stays hidden.
-+        guard Self.showsHover else { hoverLayer.isHidden = true; return }
-         // The hovered row or tile may be gone (unpinned, filtered out): check before reading it.
-         guard let h = hovered else { hoverLayer.isHidden = true; return }
-         if case let .row(r) = h, r >= rowItems.count { hoverLayer.isHidden = true; return }
-         if case let .tile(t) = h, t >= pinnedItems.count { hoverLayer.isHidden = true; return }
--        guard item(h) < snapshot.items.count, snapshot.items[item(h)].id != highlightID else { hoverLayer.isHidden = true; return }
-+        guard let i = item(h), i < snapshot.items.count, let c = snapshot.items[checked: i], c.id != highlightID else { hoverLayer.isHidden = true; return } // cmux
-         hoverLayer.frame = rect(h)
-         hoverLayer.cornerRadius = { if case .tile = h { return SidebarMetrics.pinSelectionRadius }; return SidebarMetrics.selectionRadius }()
-         hoverLayer.backgroundColor = palette.hover
-@@ -960,8 +983,7 @@
+@@ -934,8 +957,7 @@
  
      private var menuTarget: ConversationID?
      func menu(at p: CGPoint) -> NSMenu? {
@@ -426,7 +445,16 @@
          // The host's extra search rows have no menu.
          guard !Self.isExtra(c.id) else { return nil }
          menuTarget = c.id
-@@ -1053,7 +1075,8 @@
+@@ -990,7 +1012,7 @@
+         bellSelected = Self.bell(NSColor.white, view.effectiveAppearance, scale: renderContext.scale)
+         invalidateAll()
+     }
+-    @objc private func colorsChanged() {
++    private func colorsChanged() {  // cmux: no selector
+         guard isViewLoaded else { return }
+         palette = resolvePalette()
+         invalidateAll()
+@@ -1027,7 +1049,8 @@
          var img: CGImage?
          appearance.performAsCurrentDrawingAppearance {
              let r = NSRect(origin: .zero, size: sym.size)
@@ -436,7 +464,7 @@
                                         bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)
              rep?.size = sym.size
              if let rep, let g = NSGraphicsContext(bitmapImageRep: rep) {
-@@ -1082,8 +1105,8 @@
+@@ -1056,8 +1079,8 @@
      /// One element per pinned tile and visible row (the rows are layers).
      private func buildAccessibility() -> [NSAccessibilityElement] {
          var out: [NSAccessibilityElement] = []
@@ -447,7 +475,7 @@
              let e = SidebarAccessibilityRow(controller: self, id: c.id)
              e.setAccessibilityRole(.row)
              var parts = [c.title]
-@@ -1099,8 +1122,8 @@
+@@ -1072,8 +1095,8 @@
              e.setAccessibilityParent(document)
              return e
          }
@@ -458,7 +486,7 @@
          return out
      }
  }
-@@ -1175,8 +1198,9 @@
+@@ -1151,8 +1174,9 @@
      private func point(_ e: NSEvent) -> CGPoint { convert(e.locationInWindow, from: nil) }
      override func mouseDown(with event: NSEvent) {
          window?.makeFirstResponder(self)
@@ -470,7 +498,7 @@
      }
      override func menu(for event: NSEvent) -> NSMenu? { controller?.menu(at: point(event)) }
      override func keyDown(with event: NSEvent) {
-@@ -1186,6 +1210,7 @@
+@@ -1162,6 +1186,7 @@
          default: interpretKeyEvents([event])
          }
      }

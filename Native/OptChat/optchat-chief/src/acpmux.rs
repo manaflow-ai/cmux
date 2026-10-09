@@ -31,6 +31,9 @@ pub struct SessionSpec {
     /// Per-session env (acpmux `_meta.acpmux.env`, unix socket only, an
     /// allowlist: CMUX_WORKSPACE_ID); empty for none.
     pub env: BTreeMap<String, String>,
+    /// The fast service tier (codex-acp's `fast-mode` config option, set
+    /// right after session/new); false: the harness's default speed.
+    pub fast: bool,
 }
 
 /// The tag on every session the Chief itself runs (its turns and its
@@ -60,6 +63,18 @@ pub enum Family {
     Codex,
     /// Any other harness: the codex layout without codex's settings.
     Other,
+}
+
+/// The codex-acp mode without codex's workspace-write sandbox. Its
+/// sandbox denies connect(2) to the cmux app and daemon sockets, so a
+/// codex session the Chief runs under approve-all (the posture of its
+/// Claude sessions, which run unsandboxed) takes this mode (E6).
+pub const CODEX_FULL_ACCESS_MODE: &str = "agent-full-access";
+
+/// The mode a fresh Chief session (a turn or a subagent) takes on `family`
+/// under `policy`: full access for codex under approve-all, else its own.
+pub fn chief_session_mode(family: Family, policy: &str) -> Option<&'static str> {
+    (family == Family::Codex && policy == "approve-all").then_some(CODEX_FULL_ACCESS_MODE)
 }
 
 impl Family {
@@ -133,6 +148,9 @@ pub enum AgentEvent {
     },
 }
 
+/// The wait for a steer's answer (`AgentPort::start_steer`).
+pub type SteerWait = Box<dyn FnOnce() -> Result<(), String> + Send>;
+
 /// The acpmux operations the Chief needs. Implemented over the socket here
 /// and by in-process fakes in tests.
 pub trait AgentPort: Send + Sync {
@@ -161,6 +179,10 @@ pub trait AgentPort: Send + Sync {
     fn cancel(&self, _session: &str) -> Result<(), String> {
         Err("cancel is not supported".into())
     }
+    /// Sets `session`'s harness mode (`session/set_mode`).
+    fn set_mode(&self, _session: &str, _mode: &str) -> Result<(), String> {
+        Err("set_mode is not supported".into())
+    }
     /// The daemon's `_acpmux/harnesses` answer: every profile with its kind,
     /// command and family (`harness_gate::admit` reads it before each Chief
     /// session). A port without one refuses every Chief session.
@@ -178,12 +200,24 @@ pub trait AgentPort: Send + Sync {
     ) -> Result<(), String> {
         Err("answering permissions is not supported".into())
     }
-    /// Delivers `blocks` into `session`'s running turn between its tool
-    /// calls (a steered `session/prompt`, `steerOnly`): Ok once the harness
-    /// read them. Err: the session could not take them now (no running turn,
-    /// a harness that does not steer); nothing was delivered.
-    fn steer(&self, _session: &str, _blocks: Vec<Value>, _prompt_id: &str) -> Result<(), String> {
+    /// Sends `blocks` into `session`'s running turn, to be read between its
+    /// tool calls (a steered `session/prompt`, `steerOnly`), and returns at
+    /// once with the wait for acpmux's answer: Ok once the harness took
+    /// them (Claude Code at its next tool boundary; codex-acp at the turn's
+    /// end). Err: the session could not take them (no running turn, a
+    /// harness that does not steer); nothing was delivered. Calls on one
+    /// thread reach the harness in call order.
+    fn start_steer(
+        &self,
+        _session: &str,
+        _blocks: Vec<Value>,
+        _prompt_id: &str,
+    ) -> Result<SteerWait, String> {
         Err("steering is not supported".into())
+    }
+    /// `start_steer`, then its wait.
+    fn steer(&self, session: &str, blocks: Vec<Value>, prompt_id: &str) -> Result<(), String> {
+        self.start_steer(session, blocks, prompt_id)?()
     }
     /// Hints acpmux's session pool (`_acpmux/prewarm`) to start a hidden
     /// session of `harness` and `preset` in `cwd`, so the next `session/new`
@@ -656,6 +690,9 @@ pub fn events(client: &RpcClient, session: &str, after: u64) -> Result<Vec<Acpmu
     }
 }
 
+/// codex-acp's config option for the fast (priority) service tier.
+pub const FAST_MODE_OPTION: &str = "fast-mode";
+
 /// `session/new` with acpmux's name, harness, policy, model and preset.
 pub fn new_session(
     client: &RpcClient,
@@ -693,6 +730,20 @@ pub fn new_session(
     {
         let _ = client.request("_acpmux/kill", json!({"sessionId": id, "purge": true}));
         return Err(format!("tagging session {}: {e}", spec.name));
+    }
+    // The fast service tier: codex-acp's `fast-mode` config option (the
+    // priority tier); a session that cannot take it does not stay.
+    if spec.fast
+        && let Err(e) = client.request(
+            "session/set_config_option",
+            json!({"sessionId": id, "configId": FAST_MODE_OPTION, "value": "on"}),
+        )
+    {
+        let _ = client.request("_acpmux/kill", json!({"sessionId": id, "purge": true}));
+        return Err(format!(
+            "setting the fast tier of session {}: {e}",
+            spec.name
+        ));
     }
     Ok(id)
 }
@@ -792,6 +843,16 @@ impl AgentPort for Acpmux {
             .map_err(|e| format!("cancel: {e}"))
     }
 
+    fn set_mode(&self, session: &str, mode: &str) -> Result<(), String> {
+        self.client()?
+            .request(
+                "session/set_mode",
+                json!({"sessionId": session, "modeId": mode}),
+            )
+            .map(|_| ())
+            .map_err(|e| format!("set_mode {mode}: {e}"))
+    }
+
     fn harness_catalog(&self) -> Result<Value, String> {
         self.client()?
             .request("_acpmux/harnesses", json!({}))
@@ -814,19 +875,25 @@ impl AgentPort for Acpmux {
             .map_err(|e| format!("permission_respond: {e}"))
     }
 
-    fn steer(&self, session: &str, blocks: Vec<Value>, prompt_id: &str) -> Result<(), String> {
-        // No timeout: acpmux answers when the harness reads the message, at
-        // its next tool boundary, however long the running tool takes.
+    fn start_steer(
+        &self,
+        session: &str,
+        blocks: Vec<Value>,
+        prompt_id: &str,
+    ) -> Result<SteerWait, String> {
+        // Written now, on the caller's thread: steers keep their order.
         let answer = self.client()?.start(
             "session/prompt",
             json!({"sessionId": session, "prompt": blocks, "_meta": {"acpmux": {"promptId": prompt_id, "steer": true, "steerOnly": true}}}),
         );
-        match answer.recv() {
-            Ok(Ok(v)) if v.get("stopReason").and_then(Value::as_str) == Some("steered") => Ok(()),
-            Ok(Ok(v)) => Err(format!("acpmux did not steer the message ({v})")),
+        // No timeout: acpmux answers when the harness took the message,
+        // however long the running tool (or the codex turn) takes.
+        Ok(Box::new(move || match answer.recv() {
+            // Claude Code: `steered` at its echo; codex-acp: its own answer.
+            Ok(Ok(_)) => Ok(()),
             Ok(Err(e)) => Err(format!("steer: {e}")),
             Err(_) => Err("steer: the acpmux connection closed".into()),
-        }
+        }))
     }
 
     fn prewarm(

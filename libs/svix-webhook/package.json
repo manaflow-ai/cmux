@@ -1,0 +1,11 @@
+{
+  "name": "@cmux/svix-webhook",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "GPL-3.0-or-later",
+  "description": "Svix webhook signature check (Stack Auth delivers through Svix), shared by the cmux VM Worker and the cmux-next API Worker. Pure: Web Crypto only, no dependencies.",
+  "exports": {
+    ".": "./src/svix.ts"
+  }
+}

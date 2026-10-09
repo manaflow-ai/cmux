@@ -53,6 +53,8 @@ on:
     types: [opened, synchronize, reopened, labeled, unlabeled]
     paths:
       - workers/cmux-vm/**
+      # The Stack webhook signature check shared with the cmux-next API Worker.
+      - libs/svix-webhook/**
       - .github/workflows/cmux-vm.yml
   push:
     # Lane branches deploy the preview Worker (decision V6). The preview
@@ -61,6 +63,8 @@ on:
     branches: [main, feat-cmux-next, "feat-cmux-vm-*"]
     paths:
       - workers/cmux-vm/**
+      # The Stack webhook signature check shared with the cmux-next API Worker.
+      - libs/svix-webhook/**
       - .github/workflows/cmux-vm.yml
   workflow_dispatch:
     inputs:

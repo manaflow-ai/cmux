@@ -272,7 +272,7 @@ pub fn session_env(
     // Every `cmux` call reaches this app's daemon (see cmux_env).
     let socket = crate::cmux_env::app_daemon_socket(daemon_socket, inherited);
     let bundled = crate::cmux_env::bundled_bin(exe);
-    crate::cmux_env::pin(&mut session_env, &socket, bundled.as_deref());
+    crate::cmux_env::pin(&mut session_env, &socket, daemon_socket, bundled.as_deref());
     session_env
 }
 
@@ -630,12 +630,30 @@ fn start(
     // Compactor sessions require their own presets and configuration, which
     // OPTCHAT_CHIEF_ISOLATE never turns off: without them, every node would
     // run the user's hooks, MCP servers and auto-memory on the chat's text.
+    // The compactor's speed (OPTCHAT_COMPACTOR_SPEED, else engine.json's
+    // compactor_speed), fixed at host start like its harness.
+    let compactor_speed =
+        env("OPTCHAT_COMPACTOR_SPEED").or_else(|| engine_choice_file.compactor_speed.clone());
+    let compactor_fast = match compactor_speed.as_deref() {
+        Some(speed) => match crate::engine::check_speed(speed, compactor_family) {
+            Ok(()) => crate::engine::is_fast(Some(speed)),
+            Err(reason) => {
+                log(format!("compactor: {reason}; it runs at the default speed"));
+                false
+            }
+        },
+        None => false,
+    };
     let mut required = Vec::new();
     if route == CompactRoute::Acpmux {
         crate::compactor::prepare_config(&paths.compactor_config)
             .map_err(|e| format!("creating {}: {e}", paths.compactor_config.display()))?;
         if compactor_family == Family::Codex {
-            crate::compactor::prepare_codex_homes(paths, &crate::compactor::user_codex_home())?;
+            crate::compactor::prepare_codex_homes_at(
+                paths,
+                &crate::compactor::user_codex_home(),
+                compactor_fast,
+            )?;
         }
         required.extend(compactor_presets(
             paths,
@@ -751,6 +769,7 @@ fn start(
                 let spec = compactor_spec(paths, home, &compactor_harness, compactor_family, model);
                 let spec = crate::compactor::CompactorSpec {
                     effort: compactor_effort.clone().or(spec.effort.clone()),
+                    fast: compactor_fast,
                     ..spec
                 };
                 AcpmuxCompactor::new(port.clone(), spec, slots.clone())
@@ -865,6 +884,15 @@ fn start(
                     .map(|v| v.to_string())
                     .map_err(late)
             }
+            ControlRequest::StopSubagent(name) => {
+                let (reply, answer) = channel();
+                tx.send(Input::StopSubagent { name, reply })
+                    .map_err(stopping)?;
+                answer
+                    .recv_timeout(wait)
+                    .map(|v| v.to_string())
+                    .map_err(late)
+            }
             ControlRequest::Stop => {
                 let (reply, answer) = channel();
                 tx.send(Input::Stop { reply }).map_err(stopping)?;
@@ -912,6 +940,7 @@ fn start(
                 harness: sub_harness.clone(),
                 policy: env("MUX_POLICY").unwrap_or_else(|| "approve-all".into()),
                 model: env("OPTCHAT_SUBAGENT_MODEL"),
+                effort: None,
                 preset: Some(sub_preset_name.clone()),
                 cwd: paths.subagent.clone(),
                 prefix: format!("optchat-sub-{}", crate::paths::home_id(home)),
@@ -1048,6 +1077,12 @@ fn start(
         turn_prefix: format!("optchat-{}", crate::paths::home_id(home)),
         agent_gap: Duration::from_millis(cmux_chief::rules::AGENT_GAP_RETRY_MS),
         turn_limit: (turn_limit > 0).then(|| Duration::from_secs(turn_limit * 60)),
+        turn_idle_limit: {
+            let minutes = env("OPTCHAT_CHIEF_TURN_IDLE_MIN")
+                .and_then(|v| v.trim().parse::<u64>().ok())
+                .unwrap_or(crate::turn::DEFAULT_TURN_IDLE.as_secs() / 60);
+            (minutes > 0).then(|| Duration::from_secs(minutes * 60))
+        },
         engine,
         turn_preset: claude_installed.then_some(claude_preset_name),
         chief_id: crate::paths::home_id(home),

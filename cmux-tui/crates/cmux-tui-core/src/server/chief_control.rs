@@ -107,14 +107,20 @@ pub(super) fn tool_line(
         ResourceOperation::ChiefEngineGet => json!({"tool": "engine", "action": "show"}),
         ResourceOperation::ChiefEngineSet => {
             let mut line = json!({"tool": "engine", "action": "set"});
-            for key in ["harness", "model", "effort"] {
+            for key in ["harness", "model", "effort", "speed", "compactor_speed"] {
                 if let Some(value) = fields.get(key) {
                     line[key] = value.clone();
                 }
             }
             line
         }
-        _ => json!({"tool": "stop"}),
+        _ => {
+            let mut line = json!({"tool": "stop"});
+            if let Some(name) = fields.get("name") {
+                line["name"] = name.clone();
+            }
+            line
+        }
     }
 }
 
@@ -137,7 +143,15 @@ pub(super) fn result(
     let value = match operation {
         ResourceOperation::ChiefEngineGet => return Ok(answer),
         ResourceOperation::ChiefStop => {
-            json!({"stopped": answer.get("stopped").and_then(Value::as_bool).unwrap_or(false)})
+            let mut value =
+                json!({"stopped": answer.get("stopped").and_then(Value::as_bool).unwrap_or(false)});
+            // A named stop's subagents and note (the brain's own words).
+            for key in ["subagents", "note"] {
+                if let Some(v) = answer.get(key).filter(|v| !v.is_null()) {
+                    value[key] = v.clone();
+                }
+            }
+            value
         }
         _ => answer,
     };

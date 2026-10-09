@@ -520,11 +520,13 @@ impl Brain {
                 preset,
                 tags: crate::acpmux::chief_tags(&self.settings.chief_id, "turn"),
                 env: Default::default(),
+                fast: self.turn_fast(&engine, family),
             },
             blocks,
             system_prompt,
             key,
             limit: self.settings.turn_limit,
+            idle_limit: self.settings.turn_idle_limit,
         })
     }
 
@@ -538,6 +540,10 @@ impl Brain {
         items: &[Queued],
         update: impl FnOnce(&mut HostState, &Appended),
     ) -> Option<Appended> {
+        // Items logged already (a failed steer on a harness that answers at
+        // the turn's end) are not logged again.
+        let fresh: Vec<Queued> = items.iter().filter(|q| !q.logged).cloned().collect();
+        let items = &fresh[..];
         let main = self.state.conversation.clone().unwrap_or_default();
         let entries: Vec<NewMessage<'_>> = items
             .iter()
@@ -625,7 +631,11 @@ impl Brain {
         // the interrupt is answered. Only the items ahead of the first one
         // of another conversation go (G9 fairness: an item that waits for
         // its turn is never passed by later ones).
-        self.interrupt.clear();
+        // Messages never set the interrupt now; only chief.stop does, and a
+        // boundary must not clear it.
+        if !self.owner_stopped {
+            self.interrupt.clear();
+        }
         let side = self.turn_side();
         let take = self
             .queue
@@ -691,9 +701,11 @@ impl Brain {
         if self.phase != Phase::Running {
             return;
         }
-        // Decision 2026-10-09: a subagent report never stops the turn. It
-        // is steered in when the turn can take it, else it waits for the
-        // next turn. Only a human message stops a turn it cannot reach.
+        // Decision 2026-10-09 (interruptions, parity with the reference): a
+        // message never stops a turn, on any engine. acpmux: it is steered
+        // in between tool calls when the session steers, else it waits and
+        // the next turn starts the moment this one ends. Native: the engine
+        // delivers it after the next tool results. Only chief.stop stops.
         let side = self.turn_side();
         let human = self
             .queue
@@ -702,20 +714,12 @@ impl Brain {
             .any(|q| matches!(q.source, Source::Message { .. }));
         if human {
             // A pending approval holds the tool call: a newer message denies
-            // it, so the turn can take the message or stop.
+            // it, so the turn reaches its next tool boundary and reads it.
             self.deny_pending("a newer message");
         }
         if matches!(self.settings.engine, Engine::Acpmux) {
-            // Parity item 7: between tool calls, when the session steers.
-            if self.try_steer() || !human {
-                return;
-            }
-            self.stop_wanted = true;
-        } else if !human {
-            // The native engine takes reports at its next tool boundary.
-            return;
+            self.try_steer();
         }
-        self.interrupt.request();
     }
 
     /// An acpmux turn's session id and fold position, saved so a host that
@@ -724,10 +728,15 @@ impl Brain {
         let Some(turn) = self.state.turn.as_mut().filter(|t| t.key == key) else {
             return;
         };
+        let first = turn.session_id.is_none();
         if turn.session_id.as_deref() != Some(session_id.as_str()) || turn.after != after {
             turn.session_id = Some(session_id);
             turn.after = after;
             self.save();
+        }
+        // Messages that came before the turn's session existed go in now.
+        if first && self.phase == Phase::Running && matches!(self.settings.engine, Engine::Acpmux) {
+            self.try_steer();
         }
     }
 
@@ -811,6 +820,22 @@ impl Brain {
 
     /// This turn's engine: engine.json over the defaults. A harness acpmux
     /// does not know keeps the default harness, and says so.
+    /// Whether this turn runs at the fast tier: `speed` fast on a harness
+    /// that has it; on another one the turn runs at the default speed and
+    /// the log says why.
+    fn turn_fast(&self, engine: &crate::engine::TurnEngine, family: crate::acpmux::Family) -> bool {
+        let Some(speed) = engine.speed.as_deref() else {
+            return false;
+        };
+        match crate::engine::check_speed(speed, family) {
+            Ok(()) => crate::engine::is_fast(Some(speed)),
+            Err(reason) => {
+                (self.log)(&format!("{reason}; this turn runs at the default speed"));
+                false
+            }
+        }
+    }
+
     fn turn_engine_choice(&mut self) -> crate::engine::TurnEngine {
         let (engine, unknown) = self.next_engine();
         if let Some(named) = unknown {
@@ -831,6 +856,7 @@ impl Brain {
         Some(crate::subagents::SpawnEngine {
             harness: engine.harness.clone(),
             model: engine.model.clone(),
+            effort: engine.effort.clone(),
             other_family: (family != self.family_of(&self.settings.harness)).then_some(family),
         })
     }
@@ -1014,8 +1040,8 @@ impl Brain {
         if let Some(hook) = &self.after_turn {
             hook(key);
         }
-        self.prewarm_next_turn();
         self.maybe_start_turn();
+        self.prewarm_next_turn();
     }
 }
 

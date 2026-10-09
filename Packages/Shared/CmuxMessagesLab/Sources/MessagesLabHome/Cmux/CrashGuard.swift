@@ -82,7 +82,7 @@ extension Dictionary {
     /// The value for `key`, or nil. A dictionary read never traps; this spelling keeps a
     /// read whose name the crash ratchet cannot type (a name declared otherwise elsewhere
     /// in the module) apart from the index subscripts it counts.
-    func value(for key: Key) -> Value? { index(forKey: key).map { values[$0] } }
+    func value(for key: Key) -> Value? { index(forKey: key).map { values[$0] } } // crash-allow: an index from index(forKey:) of this dictionary
 }
 
 extension Collection {

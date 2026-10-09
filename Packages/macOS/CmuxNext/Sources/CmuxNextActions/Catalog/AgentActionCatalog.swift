@@ -17,23 +17,35 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .contextMenu], targets: [.pane], cliName: "agent toggle-acp-inspector",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [ContextMenuPlacement(.agentChat, .inspect, 0)])
             ),
+            ActionDescriptor(
+                id: "palette.quickAgentChat",
+                title: String(localized: "action.palette.quickAgentChat", defaultValue: "Start Agent…", bundle: .module),
+                keywords: ["agent", "start", "session", "launcher", "new", "chat", "ai", "acpmux", "quick", "composer", "summon"],
+                // Ctrl-Cmd-Return (cx-hkat): Cmd-Shift-Return is Toggle Pane Zoom.
+                defaultShortcut: Shortcut(Shortcut.returnKey, modifiers: [.control, .command]),
+                category: .agents, symbol: "bubble.left.and.text.bubble.right.fill",
+                surfaces: [.palette, .keyboard, .menu], cliName: "agent quick", mainMenu: .file
+            ),
             {
-                var quick = ActionDescriptor(
-                    id: "palette.quickAgentChat",
-                    title: String(localized: "action.palette.quickAgentChat", defaultValue: "Quick Agent Chat…", bundle: .module),
-                    keywords: ["agent", "chat", "ai", "acpmux", "quick", "composer", "global", "hotkey", "summon"],
+                // Start Agent's system-wide key, its own action so it has its own recorder and
+                // stays off until `app.startAgentGlobalHotKey` (GlobalHotKeyService gates it).
+                var anyApp = ActionDescriptor(
+                    id: "palette.startAgentFromAnyApp",
+                    title: String(localized: "action.palette.startAgentFromAnyApp", defaultValue: "Start Agent from Any App", bundle: .module),
+                    keywords: ["agent", "start", "global", "hotkey", "hot key", "summon", "quick", "chat"],
                     // Ctrl-Opt-Cmd-Space: clear of ChatGPT's and Claude's quick-entry defaults.
                     defaultShortcut: Shortcut(Shortcut.spaceKey, modifiers: [.control, .option, .command]),
-                    category: .agents, symbol: "bubble.left.and.text.bubble.right.fill",
-                    surfaces: [.palette, .keyboard, .menu], cliName: "agent quick", mainMenu: .file
+                    category: .agents, symbol: "bubble.left.and.text.bubble.right.fill", surfaces: [.keyboard],
+                    // Start Agent offers the palette row, the menu item and the CLI verb.
+                    surfacePlan: ActionSurfacePlan(palette: .exempt(.familyMember), cli: .exempt(.familyMember),
+                                                   contextMenuExemption: .noObject)
                 )
-                // A floating composer over any app, so the key works while cmux is in the background.
-                quick.isGlobalHotKey = true
-                return quick
+                anyApp.isGlobalHotKey = true
+                return anyApp
             }(),
             ActionDescriptor(
                 id: "palette.addHarness",
-                title: String(localized: "action.palette.addHarness", defaultValue: "Add Harness…", bundle: .module),
+                title: String(localized: "action.palette.addHarness", defaultValue: "Integrate a Harness with an Agent…", bundle: .module),
                 keywords: ["agent", "harness", "integrate", "acp", "acpmux", "custom", "bring your own"],
                 category: .agents, symbol: "puzzlepiece.extension", surfaces: [.palette, .menu], mainMenu: .file,
                 // Opens a chat that walks the user through `cmux harness guide`. Agents and
@@ -191,6 +203,15 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.home.toggleChiefSettings", defaultValue: "Toggle Chief Settings", bundle: .module),
                 keywords: ["chief", "home", "engine", "model", "harness", "settings"], category: .agents,
                 symbol: "sidebar.right", surfaces: [.palette],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
+            // Stops the Home Chief's running turn (chief.stop); the compose bar's
+            // stop button, Esc and Cmd-. in its field run this one action.
+            ActionDescriptor(
+                id: "home.stopChief",
+                title: String(localized: "action.home.stopChief", defaultValue: "Stop the Chief", bundle: .module),
+                keywords: ["chief", "home", "stop", "cancel", "interrupt", "turn"], category: .agents,
+                symbol: "stop.circle", surfaces: [.palette],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
             // The local Chief's memory inspector (optchat-inspector.md): what the

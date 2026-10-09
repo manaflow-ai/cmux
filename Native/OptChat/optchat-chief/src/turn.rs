@@ -135,6 +135,9 @@ pub struct TurnStart {
     /// fails, so a turn that hangs in the harness cannot block every later
     /// message. None: no limit.
     pub limit: Option<Duration>,
+    /// A turn with no harness event for this long ends ([`idle_error`]),
+    /// unless a tool call runs (a long tool sends nothing until it ends).
+    pub idle_limit: Option<Duration>,
 }
 
 /// A turn session that kept running after its acpmux connection was lost:
@@ -296,6 +299,16 @@ pub fn run_with_drafts(
             return refused(trace, start, &reason);
         }
     };
+    // codex under approve-all: no workspace-write sandbox, so the turn's
+    // cmux calls reach the app and daemon sockets (E6). Before the prompt.
+    if let Some(mode) = crate::acpmux::chief_session_mode(admitted.family, &start.session.policy)
+        && let Err(e) = agents.set_mode(&session, mode)
+    {
+        log(&format!(
+            "turn {}: {e}; its cmux calls may be sandboxed",
+            start.key
+        ));
+    }
     folding.replace(Some(session.clone()));
     let drafter = std::cell::RefCell::new(crate::draft::Drafter::new(
         &start.key,
@@ -347,6 +360,7 @@ pub fn run_with_drafts(
     // The prompt's answer arrived (or never will: lost, past the limit).
     let mut answered = false;
     let mut last_cancel: Option<Instant> = None;
+    let mut last_event = Instant::now();
     loop {
         // A newer human message: stop the model at once, but let a running
         // tool call finish (Claude Code's interrupt would abort it), and
@@ -373,7 +387,24 @@ pub fn run_with_drafts(
             last_cancel = Some(Instant::now());
         }
         let resend = last_cancel.filter(|_| stopping).map(|t| t + CANCEL_RESEND);
-        let wake = [deadline, resend, stream_due].into_iter().flatten().min();
+        let idle_at = start
+            .idle_limit
+            .filter(|_| !fold.tool_running() && last_cancel.is_none())
+            .map(|limit| last_event + limit);
+        if idle_at.is_some_and(|at| Instant::now() >= at) {
+            answered = true;
+            let _ = agents.cancel(&session);
+            let _ = fetch(&mut fold);
+            let limit = start.idle_limit.unwrap_or_default();
+            log(&format!("turn {}: {}", start.key, idle_error(limit)));
+            let seq = fold.seq();
+            append_at(fold.finish(Some(idle_error(limit))), seq);
+            break;
+        }
+        let wake = [deadline, resend, stream_due, idle_at]
+            .into_iter()
+            .flatten()
+            .min();
         let signal = match wake {
             None => rx.recv().unwrap_or(TurnSignal::Lost),
             Some(at) => match rx.recv_timeout(at.saturating_duration_since(Instant::now())) {
@@ -403,6 +434,9 @@ pub fn run_with_drafts(
                 Err(RecvTimeoutError::Disconnected) => TurnSignal::Lost,
             },
         };
+        if matches!(signal, TurnSignal::Changed | TurnSignal::Streamed) {
+            last_event = Instant::now();
+        }
         // Streamed text is read at most every STREAM_GAP; a change at once.
         let signal = match signal {
             TurnSignal::Streamed if last_fetch.elapsed() < crate::draft::STREAM_GAP => {
@@ -688,7 +722,8 @@ pub fn capacity_retry_after(error: &str) -> Option<Duration> {
 }
 
 /// Runs `outcome`'s turn again while its route refuses it for want of
-/// capacity: each time it waits the retry-after (a newer message ends the
+/// capacity or cannot be reached ([`transient_retry_after`]): each time it
+/// waits (a newer message ends the
 /// wait, and the turn then stops as for that message), with one log line
 /// and one trace event, and never posts the refusal. Past
 /// [`CAPACITY_MAX_WAIT`] in all, the refusal stays the turn's error.
@@ -703,15 +738,23 @@ pub fn run_after_capacity_waits(
     let mut waited = Duration::ZERO;
     let mut attempt = 0u32;
     loop {
-        let Some(wait) = outcome.error.as_deref().and_then(capacity_retry_after) else {
+        let error = outcome.error.clone().unwrap_or_default();
+        let Some(wait) = transient_retry_after(&error, attempt) else {
             return outcome;
+        };
+        let why = if capacity_retry_after(&error).is_some() {
+            "the model route has no capacity now"
+        } else if is_idle_error(&error) {
+            "the harness stopped sending events"
+        } else {
+            "the model API cannot be reached now"
         };
         if outcome.reply.is_some() || waited + wait > CAPACITY_MAX_WAIT || interrupt.is_set() {
             return outcome;
         }
         attempt += 1;
         log(&format!(
-            "turn {}: the model route has no capacity now; running the turn again in {} s (attempt {attempt})",
+            "turn {}: {why}; running the turn again in {} s (attempt {attempt})",
             start.key,
             wait.as_secs()
         ));
@@ -727,4 +770,72 @@ pub fn run_after_capacity_waits(
         next.prompt_id = format!("{}:capacity{attempt}", start.prompt_id);
         outcome = again(&next);
     }
+}
+
+/// Tries a turn gets after a connection error before the error stands.
+pub const CONNECTION_TRIES: u32 = 8;
+/// The longest wait between two tries after a connection error.
+pub const CONNECTION_MAX_WAIT: Duration = Duration::from_secs(60);
+
+/// Whether `error` says the model API could not be reached at all (DNS,
+/// refused or reset connections, Claude Code's "Can't reach the API
+/// server" once its own retries end).
+pub fn is_connection_error(error: &str) -> bool {
+    let lower = error.to_ascii_lowercase();
+    [
+        "can't reach the api",
+        "connection error",
+        "enotfound",
+        "econnrefused",
+        "econnreset",
+        "etimedout",
+        "eai_again",
+        "getaddrinfo",
+        "fetch failed",
+        "socket hang up",
+        "network error",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle))
+}
+
+/// The wait before try `attempt` (0-based) runs a turn again after a
+/// transient error: a capacity refusal's own retry-after, or for a
+/// connection error 1 s doubling to [`CONNECTION_MAX_WAIT`] for
+/// [`CONNECTION_TRIES`] tries. None for any other error, and once the tries
+/// are spent.
+pub fn transient_retry_after(error: &str, attempt: u32) -> Option<Duration> {
+    if let Some(wait) = capacity_retry_after(error) {
+        return Some(wait);
+    }
+    // A turn the idle watchdog stopped runs once again, at once.
+    if is_idle_error(error) {
+        return (attempt == 0).then_some(Duration::ZERO);
+    }
+    if !is_connection_error(error) || attempt >= CONNECTION_TRIES {
+        return None;
+    }
+    Some(Duration::from_secs(1u64 << attempt.min(16)).min(CONNECTION_MAX_WAIT))
+}
+
+/// The idle watchdog's default: a turn with no harness event for this long
+/// ends (`OPTCHAT_CHIEF_TURN_IDLE_MIN`; 0 turns it off).
+pub const DEFAULT_TURN_IDLE: Duration = Duration::from_secs(10 * 60);
+
+/// The idle watchdog's turn error.
+pub fn idle_error(limit: Duration) -> String {
+    let minutes = limit.as_secs() / 60;
+    if minutes > 0 {
+        format!("the turn made no progress for {minutes} minutes and was stopped")
+    } else {
+        format!(
+            "the turn made no progress for {} ms and was stopped",
+            limit.as_millis()
+        )
+    }
+}
+
+/// Whether `error` is the idle watchdog's.
+pub fn is_idle_error(error: &str) -> bool {
+    error.contains("the turn made no progress for")
 }

@@ -15,10 +15,20 @@ public enum ActionTargetTitles {
         registry.register(action)
     }
 
-    /// Applies the target's title and the target-aware disabled reason
-    /// (Chromium in a build without CEF) to a context menu item.
+    /// Sets whether a bound toggle is on for each target; its context menu
+    /// row shows a checkmark while it is.
+    public static func setState(_ id: ActionID, in registry: ActionRegistry, _ state: @escaping @MainActor (ActionInvocation) -> Bool?) {
+        guard var action = registry.action(for: id) else { return }
+        action.targetState = state
+        registry.register(action)
+    }
+
+    /// Applies the target's title, its toggle state and the target-aware
+    /// disabled reason (Chromium in a build without CEF) to a context menu item.
     static func decorate(_ item: NSMenuItem, id: ActionID, invocation: ActionInvocation, in registry: ActionRegistry) {
-        if let title = registry.action(for: id)?.targetTitle?(invocation) { item.title = title }
+        let action = registry.action(for: id)
+        if let title = action?.targetTitle?(invocation) { item.title = title }
+        if let on = action?.targetState?(invocation) { item.state = on ? .on : .off }
         if let reason = ActionTargetReasons.reason(for: id, invocation: invocation, in: registry) {
             item.subtitle = reason
             item.toolTip = reason
