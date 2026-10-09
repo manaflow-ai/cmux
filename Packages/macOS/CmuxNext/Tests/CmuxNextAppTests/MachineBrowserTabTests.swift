@@ -69,7 +69,7 @@ struct MachineBrowserTabTests {
         #expect(page.queuedURL == URL(string: "https://www.google.com/"))
         #expect(page.state.url == URL(string: "https://www.google.com/"), "the omnibar keeps the typed address")
         page.reload()
-        #expect(retries == 2, "built once, Retry re-checks")
+        #expect(retries == 3, "checked when built, when the address changed, and on Retry")
         page.openLocally()
         #expect(opened == [URL(string: "https://www.google.com/")])
     }
