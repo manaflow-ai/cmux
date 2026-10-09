@@ -67,11 +67,15 @@ final class HostsViewController: UIViewController, UICollectionViewDelegate {
             guard let self else { return }
             self.feature.showEditor(.add(IntentKey()), records: self.records, from: self)
         }
+        let addDirect = UIAction(title: SSHText.directHosts, image: UIImage(systemName: "network")) { [weak self] _ in
+            guard let self else { return }
+            self.feature.showDirectEditor(record: nil, from: self)
+        }
         let importConfig = UIAction(title: SSHText.importConfig, image: UIImage(systemName: "doc.on.clipboard")) { [weak self] _ in
             guard let self else { return }
             self.feature.showImport(records: self.records, from: self)
         }
-        let addItem = UIBarButtonItem(systemItem: .add, menu: UIMenu(children: [add, importConfig]))
+        let addItem = UIBarButtonItem(systemItem: .add, menu: UIMenu(children: [add, addDirect, importConfig]))
         addItem.accessibilityIdentifier = "ssh.hosts.add"
         let keysItem = UIBarButtonItem(image: UIImage(systemName: "key"), primaryAction: UIAction { [weak self] _ in
             self?.feature.showKeys(from: self?.navigationController)
@@ -175,7 +179,7 @@ final class HostsViewController: UIViewController, UICollectionViewDelegate {
         guard let id = dataSource.itemIdentifier(for: indexPath), let row = rows[id] else { return }
         switch row.record.kind {
         case .ssh: feature.openTerminal(row.record, records: records, from: self)
-        case .direct: feature.showEditor(.edit(id), records: records, from: self)
+        case .direct: feature.showDirectEditor(record: row.record, from: self)
         case .pairedMac:
             feature.openPairedMac?(row.record, self, collectionView.cellForItem(at: indexPath))
         }
@@ -196,7 +200,11 @@ final class HostsViewController: UIViewController, UICollectionViewDelegate {
         }
         let edit = UIContextualAction(style: .normal, title: SSHText.edit) { [weak self] _, _, done in
             guard let self else { return done(false) }
-            self.feature.showEditor(.edit(id), records: self.records, from: self)
+            if case .direct = row.record.kind {
+                self.feature.showDirectEditor(record: row.record, from: self)
+            } else {
+                self.feature.showEditor(.edit(id), records: self.records, from: self)
+            }
             done(true)
         }
         edit.backgroundColor = .systemGray
