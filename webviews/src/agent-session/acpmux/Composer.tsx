@@ -40,7 +40,15 @@ import type { Choice } from "./ComposerPickers";
 import type { FileSearchSource } from "./fileSearchModel";
 import { commandArgs, type CmuxCommand } from "./cmuxCommands";
 import { applyCommand, matchCommands, slashQuery, type SlashCommand, type SlashMatch } from "./slashCommands";
-import { readNativePersistedDraft, readPersistedDraft, seededText, writePersistedDraft } from "./composerDraft";
+import {
+  flushPendingDraftWrites,
+  hasPendingDraftWrite,
+  readDurableDraft,
+  readPersistedDraft,
+  seededText,
+  useDraftActionsVersion,
+  writePersistedDraft,
+} from "./composerDraft";
 import { MarkdownField, type MarkdownFieldHandle } from "./MarkdownField";
 import { type StringKey, type Translate, useT } from "./i18n";
 import { remoteComposer } from "./remoteEditing";
@@ -185,6 +193,9 @@ export function Composer({
   blocked,
 }: Props) {
   const t = useT();
+  // The native action map is replaced on reconnect while the session stays the same. Subscribe
+  // so a durable read retries as soon as that map is available again.
+  const draftActionsVersion = useDraftActionsVersion();
   const [findingFiles, setFindingFiles] = useState(false);
   // A new folder (another chat) closes the palette, so no row from the last one stays pickable.
   useEffect(() => setFindingFiles(false), [searchFiles]);
@@ -226,6 +237,7 @@ export function Composer({
   const refocusSend = useRef(false);
   /// The session id owns the prompt. A page can switch sessions without remounting the composer.
   const persistedSession = useRef(sessionId);
+  const hydratedSession = useRef<string | undefined>(undefined);
   const restoringSession = useRef(false);
   const sendButton = useRef<HTMLButtonElement>(null);
   /// Set while the host has not yet taken a prompt the composer still holds: Enter sends no copy.
@@ -321,8 +333,9 @@ export function Composer({
   useEffect(() => {
     if (persistedSession.current === sessionId) return;
     const previous = persistedSession.current;
-    if (previous) writePersistedDraft(previous, field.current?.value() ?? text);
+    if (previous && hydratedSession.current === previous) writePersistedDraft(previous, field.current?.value() ?? text);
     persistedSession.current = sessionId;
+    hydratedSession.current = undefined;
     restoringSession.current = true;
     const restored = readPersistedDraft(sessionId) ?? "";
     setText(restored);
@@ -331,21 +344,32 @@ export function Composer({
   }, [sessionId, text]);
   useEffect(() => {
     let current = true;
-    void readNativePersistedDraft(sessionId).then((restored) => {
-      if (!current || !restored || field.current?.value() || textRef.current) return;
-      setText(restored);
-      setCaret(restored.length);
-      pendingCaret.current = restored.length;
+    void readDurableDraft(sessionId).then((restored) => {
+      if (!current) return;
+      const hasPendingWrite = hasPendingDraftWrite(sessionId);
+      const currentText = field.current?.value() ?? textRef.current;
+      if (!hasPendingWrite && restored && !currentText) {
+        restoringSession.current = true;
+        setText(restored);
+        setCaret(restored.length);
+        pendingCaret.current = restored.length;
+      } else if (!hasPendingWrite && currentText.trim()) {
+        // A local remount cache or keystroke arrived before the daemon read. Preserve it durably.
+        writePersistedDraft(sessionId, currentText);
+      }
+      hydratedSession.current = sessionId;
+      flushPendingDraftWrites();
     });
     return () => {
       current = false;
     };
-  }, [sessionId]);
+  }, [sessionId, draftActionsVersion]);
   useEffect(() => {
     if (restoringSession.current) {
       restoringSession.current = false;
       return;
     }
+    if (hydratedSession.current !== sessionId) return;
     writePersistedDraft(sessionId, text);
   }, [sessionId, text]);
   const commands = snapshot.commands;

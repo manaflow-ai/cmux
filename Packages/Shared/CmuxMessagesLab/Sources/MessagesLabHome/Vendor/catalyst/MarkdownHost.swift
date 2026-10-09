@@ -57,8 +57,8 @@ extension MessagesWindowView {
             o.hover(local)
             if let code = o.copyHit(local) { return .copied(code) }
         }
-        // cmux: re-checked at click time (MarkdownLinkPolicy).
-        if let s = md.link(at: local), let url = MarkdownLinkPolicy.url(s) { return .link(url) }
+        // Only URLs the link policy allows (message text is untrusted; shared/MARKDOWN.md, Security).
+        if let s = md.link(at: local), let safe = MarkdownLinkPolicy.sanitize(s), let url = URL(string: safe) { return .link(url) }
         return nil
     }
 

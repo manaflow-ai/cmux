@@ -181,10 +181,8 @@ public actor CmxIrohCustomPrivatePathStore {
         let configuration = try Self.validatedConfiguration(draft)
         let scope = try storageScope(accountID)
         var state = try state(for: scope)
-        if let index = state.configurations.firstIndex(where: {
-            $0.id == configuration.id
-        }) {
-            state.configurations[index] = configuration
+        if state.configurations.contains(where: { $0.id == configuration.id }) {
+            state.configurations = state.configurations.map { $0.id == configuration.id ? configuration : $0 }
         } else {
             guard state.configurations.count < Self.maximumConfigurationCount else {
                 throw CmxIrohCustomPrivatePathStoreError.tooManyConfigurations
@@ -355,15 +353,9 @@ public actor CmxIrohCustomPrivatePathStore {
                 "\(namespace)\0\(accountScope)\0\(identityComponent)".utf8
             )
         )
-        var encoded = [UInt8]()
-        encoded.reserveCapacity(SHA256.Digest.byteCount * 2)
-        for byte in digest {
-            encoded.append(Self.hexDigits[Int(byte >> 4)])
-            encoded.append(Self.hexDigits[Int(byte & 0x0f)])
-        }
         return try CmxIrohNetworkProfileKey(
             source: .customVPN,
-            profileID: String(decoding: encoded, as: UTF8.self)
+            profileID: digest.map { String(format: "%02x", $0) }.joined()
         )
     }
 
@@ -371,7 +363,6 @@ public actor CmxIrohCustomPrivatePathStore {
         current == .max ? 1 : current + 1
     }
 
-    private static let hexDigits = Array("0123456789abcdef".utf8)
 }
 
 public enum CmxIrohCustomPrivatePathStoreError: Error, Equatable, Sendable {

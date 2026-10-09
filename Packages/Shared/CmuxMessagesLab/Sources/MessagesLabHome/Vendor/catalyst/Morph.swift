@@ -160,6 +160,9 @@ final class MorphBubble {
         mask.frame = sharpClip.bounds
         mask.actions = none
         sharpClip.mask = mask
+        // Hidden until `clipGlass` gives it its region: a masked layer is drawn through an
+        // offscreen pass of its whole area, even with an empty mask.
+        sharpClip.isHidden = true
         insideClip.superlayer?.insertSublayer(sharpClip, above: insideClip)
         build(sp.bubble, sp.body, sp.text, sp.tail, sp.underlay, in: sharpHolder, blurred: nil)
 
@@ -270,7 +273,17 @@ final class MorphBubble {
     func clipGlass(field: CGRect, topFrom: Double, topTo: Double, begin: CFTimeInterval) {
         guard let mask = sharpClip.mask else { return }
         let none: [String: CAAction] = ["bounds": NSNull(), "position": NSNull(), "backgroundColor": NSNull()]
-        let W = sharpClip.bounds.width, H = sharpClip.bounds.height
+        // The sharp copy's mask covers only the flight (the start rect at the field, the
+        // landing slot, padded for the scale pulse and later shifts), not the window: a
+        // mask is an offscreen pass of the masked area every frame (fd13f59 drew two
+        // full-window passes during each send). Child and mask coordinates stay window
+        // coordinates (bounds origin = frame origin).
+        let start = CGRect(x: fieldRect.minX, y: fieldRect.minY, width: fieldRect.width,
+                           height: max(fieldRect.height, flyingRect.height))
+        flight = start.union(flyingRect).insetBy(dx: -24, dy: -24).intersection(sharpClip.frame)
+        place(sharpClip, flight); place(mask, flight)
+        sharpClip.isHidden = false
+        let W = sharpClip.frame.maxX, H = sharpClip.frame.maxY
         func rect(_ r: CGRect) -> CALayer {
             let l = CALayer(); l.actions = none; l.backgroundColor = UIColor.black.cgColor; l.frame = r; mask.addSublayer(l); return l
         }
@@ -285,18 +298,36 @@ final class MorphBubble {
         mask.addSublayer(glassAbove)
         Animate.scalar(glassAbove, "bounds.size.height", from: topFrom, to: topTo, Springs.fieldTop, begin: begin)
         // The main tree (blurred copy fading to sharp) only inside the glass: its
-        // bottom edge fixed, its top edge with the field's.
-        let inside = CALayer()
-        inside.actions = none
-        inside.frame = insideClip.bounds
-        glassInside.actions = none
-        glassInside.backgroundColor = UIColor.black.cgColor
-        glassInside.anchorPoint = CGPoint(x: 0, y: 1)
-        glassInside.position = CGPoint(x: field.minX, y: field.maxY)
-        glassInside.bounds = CGRect(x: 0, y: 0, width: field.width, height: field.maxY - CGFloat(topTo))
-        inside.addSublayer(glassInside)
-        insideClip.mask = inside
-        Animate.scalar(glassInside, "bounds.size.height", from: Double(field.maxY) - topFrom, to: Double(field.maxY) - topTo, Springs.fieldTop, begin: begin)
+        // bottom edge fixed, its top edge with the field's. A rectangular bounds clip
+        // (no mask, no offscreen pass): the top edge moves as the clip's origin and
+        // height together, so its children keep window coordinates.
+        insideClip.masksToBounds = true
+        place(insideClip, CGRect(x: field.minX, y: CGFloat(topTo), width: field.width, height: field.maxY - CGFloat(topTo)))
+        for key in ["position.y", "bounds.origin.y"] {
+            Animate.scalar(insideClip, key, from: topFrom, to: topTo, Springs.fieldTop, begin: begin)
+        }
+        Animate.scalar(insideClip, "bounds.size.height", from: Double(field.maxY) - topFrom, to: Double(field.maxY) - topTo, Springs.fieldTop, begin: begin)
+    }
+
+    /// The sharp copy's clip region in window coordinates (`clipGlass`); empty before it.
+    private var flight = CGRect.null
+
+    /// `layer` covers `r` of its superlayer, with its own coordinates equal to the
+    /// superlayer's (bounds origin = frame origin): its children keep window coordinates.
+    private func place(_ layer: CALayer, _ r: CGRect) {
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        layer.anchorPoint = .zero
+        layer.bounds = r
+        layer.position = r.origin
+        CATransaction.commit()
+    }
+
+    /// The bubble moved by `dy` (a later transcript shift or a user scroll): the
+    /// sharp copy's region grows to keep it.
+    private func extendFlight(by dy: Double) {
+        guard !flight.isNull, let mask = sharpClip.mask, let up = sharpClip.superlayer else { return }
+        flight = flight.union(flight.offsetBy(dx: 0, dy: CGFloat(-dy))).intersection(up.bounds)
+        place(sharpClip, flight); place(mask, flight)
     }
 
     /// A display-scale change during the flight (the window moved to another
@@ -313,6 +344,7 @@ final class MorphBubble {
     /// A later transcript shift moves the target slot: same additive motion as the row.
     func shift(by dy: Double, _ element: SpringElement, begin: CFTimeInterval) {
         guard abs(dy) > 0.01 else { return }
+        extendFlight(by: dy)
         CATransaction.begin(); CATransaction.setDisableActions(true)
         for h in [holder, sharpHolder] { h.position.y -= CGFloat(dy) }
         CATransaction.commit()
@@ -323,6 +355,7 @@ final class MorphBubble {
 
     /// User scroll during the flight (no animation).
     func scroll(by dy: CGFloat) {
+        extendFlight(by: Double(dy))
         CATransaction.begin(); CATransaction.setDisableActions(true)
         holder.position.y -= dy
         sharpHolder.position.y -= dy

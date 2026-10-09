@@ -14,8 +14,8 @@ struct ControlPeerAncestry: Sendable {
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
         guard sysctl(&mib, 4, &info, &size, nil, 0) == 0, size > 0 else { return nil }
         var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
-        let length = proc_pidpath(pid, &buffer, UInt32(buffer.count))
-        let path = length > 0 ? String(decoding: buffer.prefix(Int(length)).map { UInt8(bitPattern: $0) }, as: UTF8.self) : nil
+        let length = proc_pidpath(pid, &buffer, UInt32(clamping: buffer.count))
+        let path = length > 0 ? String(decoding: buffer.prefix(Int(clamping: length)).map { UInt8(bitPattern: $0) }, as: UTF8.self) : nil
         return (info.kp_eproc.e_ppid, path)
     }
 
