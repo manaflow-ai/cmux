@@ -379,8 +379,9 @@ export async function resolveProPlanStatus(
     metadataPlanId,
     hasManualVmPlanOverride,
     metadataChanged,
-    cancelScheduled: billingSource === "stripe" && hasActiveStripePro &&
-      Boolean(stripeBillingStatus?.cancelAtPeriodEnd),
+    ...(billingSource === "stripe" && hasActiveStripePro && stripeBillingStatus?.cancelAtPeriodEnd
+      ? { cancelScheduled: true }
+      : {}),
   };
 }
 
