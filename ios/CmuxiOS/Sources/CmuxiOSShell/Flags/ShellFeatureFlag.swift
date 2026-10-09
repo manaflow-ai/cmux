@@ -30,7 +30,7 @@ public enum ShellFeatureFlag: String, CaseIterable, Hashable, Sendable {
     /// the launch environment can still disable them for a staged rollout.
     public func defaultValue(isDebug: Bool) -> Bool {
         _ = isDebug
-        switch self {
+        return switch self {
         case .feedTab, .workspacesTab, .composeTab, .hostsTab, .searchTab, .cloudTab: true
         case .iPadSidebar: true
         case .billing, .cloudOnboarding, .cloudWorkspaces, .keepAwake: false
