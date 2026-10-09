@@ -624,7 +624,7 @@ nodes never race on one prompt. The prompt changes only when the view
 before the 50k mark changes (a merge of old lines), so consecutive turns
 send byte-identical system prompts. A 4-breakpoint refusal (`A maximum of 4
 blocks with cache_control`) reruns the turn once without the marker, and
-later turns skip it. An acpmux without `systemPrompt` keeps the old layout
+the next 10 turns skip it (`MARK_RETRY_AFTER`); then it is tried again. An acpmux without `systemPrompt` keeps the old layout
 (no marker, CLAUDE.md, host.log says so).
 
 **Cache marks and TTL.** Measured on the requests Claude Code 2.1.287
@@ -868,9 +868,9 @@ Trade-offs and risks:
   every marked prompt fails with that 400. The compactor then ends the
   session, retries the node once in a fresh session without the marker, and
   logs `compactor node <id>: Claude Code refused the cache_control marker
-  (...); retrying without it, and later nodes go without it`; later nodes of
-  that host skip the marker (only the system prompt is cached) until it
-  restarts.
+  (...); retrying without it, and the next 10 nodes go without it`; those
+  nodes skip the marker (only the system prompt is cached), then the next
+  node tries it again.
 - **Feature detection.** The host installs the presets with their args and
   a seed `systemPrompt`; an acpmux that does not know a key refuses it
   (`unknown preset key "systemPrompt"`), host.log says `acpmux refused the

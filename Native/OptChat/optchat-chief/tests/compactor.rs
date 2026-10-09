@@ -1576,3 +1576,33 @@ fn compactor_presets_force_no_ttl_the_slot_settings_pick_it() {
         );
     }
 }
+
+/// A refused mark (Claude Code already used the API's four) is not refused
+/// for good: after 10 nodes without it the compactor tries it again.
+#[test]
+fn a_refused_marker_comes_back_after_ten_nodes() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: a line")));
+    {
+        let mut inner = agents.inner.lock().unwrap();
+        inner.system_prompts = true;
+        inner.answer_error = Some(MARKER_LIMIT.into());
+    }
+    let compactor = compactor(&agents, dir.path());
+    let r = |i| CompactRequest {
+        context: chat_of(150),
+        ..request(i)
+    };
+    // Node 0: refused, then again without the marker.
+    assert_eq!(run_node(&compactor, &r(0)).unwrap(), "user: a line");
+    for i in 1..=10 {
+        assert_eq!(run_node(&compactor, &r(i)).unwrap(), "user: a line");
+    }
+    assert_eq!(run_node(&compactor, &r(11)).unwrap(), "user: a line");
+    let inner = agents.inner.lock().unwrap();
+    assert_eq!(inner.prompts.len(), 13);
+    for k in 1..=11 {
+        assert!(markers(&inner.prompts[k]).is_empty(), "prompt {k}");
+    }
+    assert_eq!(markers(&inner.prompts[12]).len(), 1, "the 12th node tries the mark again");
+}

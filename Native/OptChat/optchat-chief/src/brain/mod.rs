@@ -385,7 +385,7 @@ pub struct Brain {
     noticed: HashSet<String>,
     /// Claude Code refused a turn's cache marker (it placed a fourth
     /// breakpoint of its own): later turns go without it.
-    marker_refused: Arc<std::sync::atomic::AtomicBool>,
+    marker_refused: crate::prompt::MarkLatch,
     /// A route refused a 1-hour cache mark: turns go at 5 minutes until the
     /// host restarts or `cache.ttl` is set again.
     ttl_refused: Arc<std::sync::atomic::AtomicBool>,
@@ -489,7 +489,7 @@ impl Brain {
             steering: None,
             steer_seq: 0,
             draft_failed: false,
-            marker_refused: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            marker_refused: crate::prompt::MarkLatch::default(),
             ttl_refused: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             prewarm_ttl: None,
             ttl_stale: Arc::new(std::sync::atomic::AtomicBool::new(false)),
