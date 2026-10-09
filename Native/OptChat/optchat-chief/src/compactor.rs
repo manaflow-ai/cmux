@@ -852,7 +852,7 @@ impl AcpmuxCompactor {
             started();
         }
         Ok(Reply::text(strip_preamble(
-            fold.final_text().unwrap_or_default(),
+            &fold.final_text().unwrap_or_default(),
         )))
     }
 
