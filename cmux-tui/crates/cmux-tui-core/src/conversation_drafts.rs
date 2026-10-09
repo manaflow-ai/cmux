@@ -33,6 +33,16 @@ impl DraftRefusal {
     }
 }
 
+/// One draft event to admit.
+pub(crate) struct DraftAdmission<'a> {
+    pub conversation: &'a str,
+    pub participant: &'a str,
+    pub turn: &'a str,
+    pub seq: u64,
+    pub fresh: bool,
+    pub text_bytes: usize,
+}
+
 #[derive(Debug)]
 struct TurnGate {
     last_seq: u64,
@@ -42,7 +52,9 @@ struct TurnGate {
 
 #[derive(Debug, Default)]
 pub(crate) struct DraftGate {
-    turns: HashMap<(String, String), TurnGate>,
+    /// Keyed by (conversation, participant, turn): a turn's seqs and rate
+    /// belong to the agent that publishes it.
+    turns: HashMap<(String, String, String), TurnGate>,
 }
 
 impl DraftGate {
@@ -50,18 +62,15 @@ impl DraftGate {
     /// replay (its seq was already published).
     pub(crate) fn admit(
         &mut self,
-        conversation: &str,
-        turn: &str,
-        seq: u64,
-        fresh: bool,
-        text_bytes: usize,
+        draft: DraftAdmission<'_>,
         now: Instant,
     ) -> Result<bool, DraftRefusal> {
+        let DraftAdmission { conversation, participant, turn, seq, fresh, text_bytes } = draft;
         let limit = if fresh { MAX_FRESH_BYTES } else { MAX_DELTA_BYTES };
         if text_bytes > limit {
             return Err(DraftRefusal::TextTooLarge);
         }
-        let key = (conversation.to_owned(), turn.to_owned());
+        let key = (conversation.to_owned(), participant.to_owned(), turn.to_owned());
         if !self.turns.contains_key(&key) && self.turns.len() >= MAX_TURNS {
             self.evict_oldest();
         }
@@ -96,6 +105,19 @@ mod tests {
 
     use super::*;
 
+    fn admit(
+        gate: &mut DraftGate,
+        turn: &str,
+        seq: u64,
+        fresh: bool,
+        text_bytes: usize,
+        now: Instant,
+    ) -> Result<bool, DraftRefusal> {
+        let draft =
+            DraftAdmission { conversation: "c", participant: "a", turn, seq, fresh, text_bytes };
+        gate.admit(draft, now)
+    }
+
     /// One second, for tests that step the clock.
     const SECOND: Duration = Duration::from_secs(1);
 
@@ -103,11 +125,11 @@ mod tests {
     fn a_seq_at_or_below_the_last_published_one_is_a_replay() {
         let mut gate = DraftGate::default();
         let now = Instant::now();
-        assert_eq!(gate.admit("c", "t", 1, true, 3, now), Ok(true));
-        assert_eq!(gate.admit("c", "t", 1, true, 3, now), Ok(false));
-        assert_eq!(gate.admit("c", "t", 2, false, 3, now), Ok(true));
-        assert_eq!(gate.admit("c", "t", 2, false, 3, now), Ok(false));
-        assert_eq!(gate.admit("c", "other", 1, true, 3, now), Ok(true), "turns are separate");
+        assert_eq!(admit(&mut gate, "t", 1, true, 3, now), Ok(true));
+        assert_eq!(admit(&mut gate, "t", 1, true, 3, now), Ok(false));
+        assert_eq!(admit(&mut gate, "t", 2, false, 3, now), Ok(true));
+        assert_eq!(admit(&mut gate, "t", 2, false, 3, now), Ok(false));
+        assert_eq!(admit(&mut gate, "other", 1, true, 3, now), Ok(true), "turns are separate");
     }
 
     #[test]
@@ -115,32 +137,32 @@ mod tests {
         let mut gate = DraftGate::default();
         let now = Instant::now();
         for seq in 1..=10 {
-            assert_eq!(gate.admit("c", "t", seq, false, 1, now), Ok(true));
+            assert_eq!(admit(&mut gate, "t", seq, false, 1, now), Ok(true));
         }
-        assert_eq!(gate.admit("c", "t", 11, false, 1, now), Err(DraftRefusal::RateLimited));
+        assert_eq!(admit(&mut gate, "t", 11, false, 1, now), Err(DraftRefusal::RateLimited));
         // A refused event is not published, so its seq may be sent again.
         let later = now + SECOND / 10;
-        assert_eq!(gate.admit("c", "t", 11, false, 1, later), Ok(true));
-        assert_eq!(gate.admit("c", "t", 12, false, 1, later), Err(DraftRefusal::RateLimited));
+        assert_eq!(admit(&mut gate, "t", 11, false, 1, later), Ok(true));
+        assert_eq!(admit(&mut gate, "t", 12, false, 1, later), Err(DraftRefusal::RateLimited));
         let much_later = now + SECOND * 5;
         for seq in 12..=21 {
-            assert_eq!(gate.admit("c", "t", seq, false, 1, much_later), Ok(true));
+            assert_eq!(admit(&mut gate, "t", seq, false, 1, much_later), Ok(true));
         }
-        assert_eq!(gate.admit("c", "t", 22, false, 1, much_later), Err(DraftRefusal::RateLimited));
+        assert_eq!(admit(&mut gate, "t", 22, false, 1, much_later), Err(DraftRefusal::RateLimited));
     }
 
     #[test]
     fn deltas_above_16_kib_and_fresh_text_above_64_kib_are_refused() {
         let mut gate = DraftGate::default();
         let now = Instant::now();
-        assert_eq!(gate.admit("c", "t", 1, false, MAX_DELTA_BYTES, now), Ok(true));
+        assert_eq!(admit(&mut gate, "t", 1, false, MAX_DELTA_BYTES, now), Ok(true));
         assert_eq!(
-            gate.admit("c", "t", 2, false, MAX_DELTA_BYTES + 1, now),
+            admit(&mut gate, "t", 2, false, MAX_DELTA_BYTES + 1, now),
             Err(DraftRefusal::TextTooLarge)
         );
-        assert_eq!(gate.admit("c", "t", 2, true, MAX_FRESH_BYTES, now), Ok(true));
+        assert_eq!(admit(&mut gate, "t", 2, true, MAX_FRESH_BYTES, now), Ok(true));
         assert_eq!(
-            gate.admit("c", "t", 3, true, MAX_FRESH_BYTES + 1, now),
+            admit(&mut gate, "t", 3, true, MAX_FRESH_BYTES + 1, now),
             Err(DraftRefusal::TextTooLarge)
         );
     }
@@ -151,9 +173,9 @@ mod tests {
         let start = Instant::now();
         for turn in 0..(MAX_TURNS + 10) {
             let at = start + Duration::from_millis(turn as u64);
-            assert_eq!(gate.admit("c", &turn.to_string(), 1, true, 1, at), Ok(true));
+            assert_eq!(admit(&mut gate, &turn.to_string(), 1, true, 1, at), Ok(true));
         }
         assert_eq!(gate.turns.len(), MAX_TURNS);
-        assert!(!gate.turns.contains_key(&("c".to_owned(), "0".to_owned())));
+        assert!(!gate.turns.contains_key(&("c".to_owned(), "a".to_owned(), "0".to_owned())));
     }
 }

@@ -305,7 +305,39 @@ impl Brain {
         let session = format!("{}-{first_id}", self.settings.turn_prefix);
         let conversation = side.clone().or_else(|| self.state.conversation.clone());
         let opening: Vec<Item> = items.iter().map(item).collect();
+        // The engine of this turn, read now (engine.rs): a change applies
+        // from this turn on and is logged as a note after its messages.
+        let engine = self.turn_engine_choice();
+        let family = self.family_of(&engine.harness);
+        // The cached layout on a Claude harness whose acpmux takes a preset
+        // system prompt; else the view and the messages as blocks.
+        let (cached, plain_preset) = self.session_presets(family);
+        let marker = self.marker_refused.take();
+        let ttl = self.turn_cache_ttl();
+        // Our one mark: the last whole block of the view, held within the
+        // API's lookback of the last turn's mark (optchat_core::mark_piece),
+        // which is saved with the messages so a restart keeps it.
+        let mark = cached
+            .as_ref()
+            .filter(|_| marker)
+            .and_then(|_| {
+                let prev = self
+                    .state
+                    .last_mark
+                    .as_ref()
+                    .and_then(|m| m.prefix_of(&view.text));
+                optchat_core::mark_piece(&view.text, prev)
+            })
+            .map(|piece| Mark { piece, ttl });
+        let mark_record = mark.map(|m| {
+            crate::state::MarkRecord::of(
+                &optchat_core::block_pieces(&view.text)[..=m.piece].concat(),
+            )
+        });
         let done = self.log_items(&items, move |next, done| {
+            if let Some(record) = mark_record {
+                next.last_mark = Some(record);
+            }
             let first = done.ids.first().copied().unwrap_or(first_id);
             let stamp = done.stamps.first().map(String::as_str).unwrap_or("");
             next.turn = Some(PendingTurn {
@@ -371,28 +403,10 @@ impl Brain {
         // the new messages. Never logged.
         let at_work = self.at_work_line();
         let prompt_texts: Vec<String> = at_work.iter().chain(texts.iter()).cloned().collect();
-        // The engine of this turn, read now (engine.rs): a change applies
-        // from this turn on and is logged as a note after its messages.
-        let engine = self.turn_engine_choice();
-        let family = self.family_of(&engine.harness);
         self.note_engine(&engine);
-        // The cached layout on a Claude harness whose acpmux takes a preset
-        // system prompt; else the view and the messages as blocks.
-        let (cached, plain_preset) = self.session_presets(family);
         let cached = cached.as_deref();
-        let marker = self.marker_refused.take();
-        let ttl = self.turn_cache_ttl();
-        // Our one mark: the last whole block of the view, held within the
-        // API's lookback of the last turn's mark (optchat_core::mark_piece).
-        let mut mark = None;
         let (blocks, system_prompt, preset) = match cached {
             Some(preset) => {
-                mark = marker
-                    .then(|| optchat_core::mark_piece(&view.text, self.last_mark.as_deref()))
-                    .flatten()
-                    .map(|piece| Mark { piece, ttl });
-                self.last_mark =
-                    mark.map(|m| optchat_core::block_pieces(&view.text)[..=m.piece].concat());
                 // Claude Code's own marks take the same TTL: the API refuses
                 // a 1h mark after a 5m one. A session the pool started
                 // before a cache.ttl change still has the old one.

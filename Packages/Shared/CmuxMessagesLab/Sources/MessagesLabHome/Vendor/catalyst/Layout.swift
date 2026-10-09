@@ -43,8 +43,9 @@ struct TextLayout: Hashable {
     func attributed(color: UIColor, linkColor: UIColor, kern: CGFloat = Fixture.bodyKern) -> NSAttributedString {
         let a = NSMutableAttributedString(string: text, attributes: [.font: Fixture.bodyFont, .foregroundColor: color, .kern: kern])
         for r in runs {
-            let range = NSRange(location: r.start, length: r.length)
-            guard NSMaxRange(range) <= a.length else { continue }
+            // cmux: a run that does not fit this text is skipped: negative, or past the end
+            // without overflowing (NSMaxRange of Int.max traps; addAttribute raises NSRangeException).
+            guard let range = Self.range(r.start, r.length, in: a.length) else { continue }
             var traits: UIFontDescriptor.SymbolicTraits = []
             for s in r.style ?? [] {
                 switch s {
@@ -73,6 +74,13 @@ struct TextLayout: Hashable {
         return a
     }
 
+    /// cmux: `start..<start+length` as a range when it lies inside a text of
+    /// `count` UTF-16 units, else nil. No arithmetic can overflow.
+    static func range(_ start: Int, _ length: Int, in count: Int) -> NSRange? {
+        guard start >= 0, length >= 0, start <= count, length <= count - start else { return nil }
+        return NSRange(location: start, length: length)
+    }
+
     /// A line after a hard newline advances as far as a wrapped line, on both
     /// sides (measured: a received 19-line bubble with 13 newlines is 19 x 16 pt;
     /// the recording's sent 3-line bubble is 14 + 3 x 16 = 62 pt).
@@ -98,6 +106,8 @@ struct TextLayout: Hashable {
         let i = Int(floor(p.y / Fixture.lineHeight))
         guard i >= 0, i < lines.count else { return nil }
         let attr = attributed(color: .white, linkColor: .white)
+        // cmux: lines measured for another text (stale during an edit or a streamed reply) are not read past the end.
+        guard Self.range(lines[i].range.location, lines[i].range.length, in: attr.length) != nil else { return nil }
         let line = CTLineCreateWithAttributedString(attr.attributedSubstring(from: lines[i].range))
         let idx = CTLineGetStringIndexForPosition(line, CGPoint(x: p.x, y: 0)) + lines[i].range.location
         return runs.first { $0.link != nil && idx >= $0.start && idx < $0.start + $0.length }?.link
