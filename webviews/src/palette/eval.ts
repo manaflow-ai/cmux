@@ -41,6 +41,8 @@ export interface EvalCase {
   /** Rank with this usage profile (`profiles` of the cases file). */
   profile?: string;
   note?: string;
+  /** A guard case: its row must stay in the top 3 (palette-eval.test.ts fails otherwise). */
+  guard?: boolean;
 }
 
 export interface EvalCases {
