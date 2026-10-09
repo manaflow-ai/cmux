@@ -63,19 +63,7 @@
  },
  "swift": {
   "assume_isolated": {
-   "CmuxHomeRender": 3,
-   "CmuxMobileSupport": 3,
-   "CmuxNextAgentActivity": 1,
-   "CmuxNextAgentPane": 4,
-   "CmuxNextApp": 33,
-   "CmuxNextDesign": 15,
-   "CmuxNextHome": 1,
-   "CmuxNextOnboarding": 1,
-   "CmuxNextPalette": 1,
-   "CmuxNextRemoteView": 1,
-   "CmuxNextSidebar": 3,
-   "CmuxNextTabs": 5,
-   "CmuxNextTasks": 3
+   "CmuxHomeRender": 3
   },
   "dynamic_dispatch": {
    "CmuxNextAgentActivity": 2,
@@ -92,11 +80,11 @@
   "force_unwrap": {
    "CmuxNextActions": 9,
    "CmuxNextAgentActivity": 1,
-   "CmuxNextAgentPane": 2,
-   "CmuxNextApp": 95,
+   "CmuxNextAgentPane": 1,
+   "CmuxNextApp": 68,
    "CmuxNextApps": 1,
-   "CmuxNextBookmarks": 3,
-   "CmuxNextBrowser": 25,
+   "CmuxNextBookmarks": 2,
+   "CmuxNextBrowser": 11,
    "CmuxNextBrowserAutomation": 1,
    "CmuxNextBrowserImport": 4,
    "CmuxNextCloud": 10,
@@ -104,23 +92,25 @@
    "CmuxNextDesign": 3,
    "CmuxNextFeed": 1,
    "CmuxNextHistory": 1,
-   "CmuxNextLayout": 6,
-   "CmuxNextOnboarding": 22,
-   "CmuxNextPages": 2,
+   "CmuxNextLayout": 5,
+   "CmuxNextOnboarding": 5,
    "CmuxNextRemote": 2,
    "CmuxNextRemoteView": 1,
    "CmuxNextResources": 2,
    "CmuxNextSettings": 6,
-   "CmuxNextSidebar": 8,
+   "CmuxNextSidebar": 3,
    "CmuxNextTabs": 4,
    "CmuxNextTerminal": 1,
-   "MessagesLabHome": 58,
-   "MessagesLabSidebar": 18
+   "MessagesLabHome": 47,
+   "MessagesLabSidebar": 16
   },
   "iuo": {
+   "CmuxNextAgentPane": 1,
    "CmuxNextApp": 27,
-   "CmuxNextBrowser": 8,
+   "CmuxNextBrowser": 14,
+   "CmuxNextLayout": 1,
    "CmuxNextOnboarding": 17,
+   "CmuxNextPages": 2,
    "CmuxNextSidebar": 5,
    "MessagesLabHome": 3,
    "MessagesLabSidebar": 1
@@ -163,7 +153,7 @@
    "MessagesLabSidebar": 2
   },
   "unowned": {
-   "CMUXMobileCore": 3,
+   "CMUXMobileCore": 2,
    "CmuxNextApp": 70,
    "CmuxNextBrowser": 16,
    "CmuxNextOnboarding": 1,
@@ -171,7 +161,7 @@
    "CmuxNextSidebar": 2,
    "CmuxNextTerminal": 1,
    "CmuxNextWakeups": 1,
-   "MessagesLabHome": 12
+   "MessagesLabHome": 11
   }
  }
 }

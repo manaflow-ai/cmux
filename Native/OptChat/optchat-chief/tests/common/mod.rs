@@ -112,6 +112,8 @@ pub struct Owner {
     /// Every op the brain sent, in order: (idempotency key, op).
     pub ops: Vec<(String, Op)>,
     pub typing: Vec<bool>,
+    /// Every draft published: (conversation, draft).
+    pub drafts: Vec<(String, optchat_chief::draft::Draft)>,
     /// Rejections for the next `message.send` ops, in order (None: accept).
     pub rejects: VecDeque<Option<String>>,
     pub reconnects: usize,
@@ -344,6 +346,19 @@ impl ConversationPort for FakeDaemon {
         Ok(())
     }
 
+    fn draft(
+        &mut self,
+        conversation: &str,
+        draft: &optchat_chief::draft::Draft,
+    ) -> Result<(), OpError> {
+        self.0
+            .lock()
+            .unwrap()
+            .drafts
+            .push((conversation.to_owned(), draft.clone()));
+        Ok(())
+    }
+
     fn mux_ack(&mut self, conversation: &str, seq: u64) -> Result<(), OpError> {
         self.0
             .lock()
@@ -440,6 +455,10 @@ pub struct Agents {
     pub responses: Vec<(String, String, Option<String>)>,
     /// Every `_acpmux/prewarm` hint: (harness, preset, cwd).
     pub prewarms: Vec<(String, Option<String>, std::path::PathBuf)>,
+    /// The sessions steer (deliver between tool calls); else a steer fails.
+    pub steering: bool,
+    /// Every steer delivered: (session, blocks).
+    pub steers: Vec<(String, Vec<Value>)>,
 }
 
 /// An `_acpmux/harnesses` answer as a machine with `sr` and `claude` on
@@ -522,6 +541,17 @@ impl FakeAgents {
         let signals = self.inner.lock().unwrap().signals.get(session).cloned();
         if let Some(tx) = signals {
             let _ = tx.send(TurnSignal::Changed);
+        }
+    }
+
+    /// Waits until `n` steers were delivered.
+    pub fn wait_steers(&self, n: usize) {
+        let deadline = std::time::Instant::now() + WAIT;
+        let mut inner = self.inner.lock().unwrap();
+        while inner.steers.len() < n {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            assert!(!left.is_zero(), "no steer {n}");
+            inner = self.changed.wait_timeout(inner, left).unwrap().0;
         }
     }
 
@@ -693,6 +723,17 @@ impl AgentPort for FakeAgents {
         Ok(())
     }
 
+    fn steer(&self, session: &str, blocks: Vec<Value>, _prompt_id: &str) -> Result<(), String> {
+        let mut inner = self.inner.lock().unwrap();
+        if !inner.steering {
+            return Err("steer.unavailable".into());
+        }
+        inner.steers.push((session.to_owned(), blocks));
+        drop(inner);
+        self.changed.notify_all();
+        Ok(())
+    }
+
     fn prewarm(
         &self,
         harness: &str,
@@ -758,6 +799,7 @@ pub fn settings(dir: &Path) -> Settings {
         settings_file: dir.join("settings.json"),
         trace_dir: Some(dir.join("traces")),
         cache_ttl: None,
+        shared_ttl: Default::default(),
     }
 }
 

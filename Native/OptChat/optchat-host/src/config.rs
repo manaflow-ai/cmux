@@ -4,7 +4,7 @@ use std::time::Duration;
 use optchat_core::{CompactPrompt, VIEW};
 
 use crate::report::{stderr_reporter, Reporter};
-use crate::RETRY;
+use crate::RETRY_BASE;
 
 /// The team subrouter, which speaks the Anthropic Messages API and ignores the key.
 pub const DEFAULT_BASE_URL: &str = "http://cmux-lawrences-mac-mini:31415";
@@ -69,7 +69,7 @@ pub struct Config {
     /// sends the turns' system prompt and tools, never called, so it reads
     /// them from the turns' cache entry). None sends no tools.
     pub tools: Option<serde_json::Value>,
-    /// Wait before retrying a failed node.
+    /// A failed node's first retry wait, doubled each try (`RETRY_BASE`).
     pub retry: Duration,
     pub reporter: Reporter,
     /// The memory database; None puts it in the chat directory
@@ -96,7 +96,7 @@ impl Default for Config {
             http_timeout: Duration::from_secs(240),
             budget: VIEW,
             tools: None,
-            retry: RETRY,
+            retry: RETRY_BASE,
             reporter: stderr_reporter(),
             db: None,
         }

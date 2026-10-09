@@ -57,7 +57,8 @@ extension MessagesWindowView {
             o.hover(local)
             if let code = o.copyHit(local) { return .copied(code) }
         }
-        if let s = md.link(at: local), let url = URL(string: s) { return .link(url) }
+        // cmux: re-checked at click time (MarkdownLinkPolicy).
+        if let s = md.link(at: local), let url = MarkdownLinkPolicy.url(s) { return .link(url) }
         return nil
     }
 

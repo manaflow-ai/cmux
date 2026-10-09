@@ -85,4 +85,24 @@ if out="$(ratchet)"; then fail "new string dispatch passed: $out"; fi
 [[ "$out" == *"swift M: dynamic_dispatch 0 -> 2"* ]] || fail "dynamic_dispatch is not reported: $out"
 reset
 
+# 6. False positives (chief, 2026-10-08): string text and comments never count; as! and
+#    try! count only under their own classes; an IUO type in a parameter or return type is
+#    iuo, not force_unwrap; an interpolated unwrap still counts.
+cat > "$app/Sources/M/A.swift" <<'SWIFT'
+let a = "Hello! world" // x! and y!
+let b = "escaped \"quote! here"
+let c = d as? Int /* e! */
+SWIFT
+out="$(ratchet)" || fail "string or comment text counted: $out"
+printf 'let c = try! f()\n' > "$app/Sources/M/A.swift"
+out="$(ratchet)" || fail "try! counted as a force unwrap: $out"
+printf 'func w(_ v: V, didFinish navigation: WKNavigation!) -> Foo! { }\n' > "$app/Sources/M/A.swift"
+if out="$(ratchet)"; then fail "IUO parameter and return types passed: $out"; fi
+[[ "$out" == *"swift M: iuo 0 -> 2"* ]] || fail "IUO types are not reported as iuo: $out"
+[[ "$out" != *"force_unwrap"* ]] || fail "IUO types also counted as force_unwrap: $out"
+printf 'print("\\(value!) ok")\n' > "$app/Sources/M/A.swift"
+if out="$(ratchet)"; then fail "an unwrap inside an interpolation passed: $out"; fi
+[[ "$out" == *"swift M: force_unwrap 0 -> 1"* ]] || fail "the interpolated unwrap is not reported: $out"
+reset
+
 echo "crash-ratchet-v2.test.sh: ok"

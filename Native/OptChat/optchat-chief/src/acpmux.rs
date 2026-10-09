@@ -104,6 +104,9 @@ pub fn query_harnesses(socket: &std::path::Path, log: &dyn Fn(&str)) -> Result<V
 /// What a running turn hears about its session.
 #[derive(Clone, Debug, PartialEq)]
 pub enum TurnSignal {
+    /// Reply text streamed (drafts, `draft.rs`): read soon, at most every
+    /// `draft::STREAM_GAP`.
+    Streamed,
     /// New events that matter for the log (not text chunks, but for a
     /// prompt's first, which says its response started): fetch them.
     Changed,
@@ -174,6 +177,13 @@ pub trait AgentPort: Send + Sync {
         _option: Option<&str>,
     ) -> Result<(), String> {
         Err("answering permissions is not supported".into())
+    }
+    /// Delivers `blocks` into `session`'s running turn between its tool
+    /// calls (a steered `session/prompt`, `steerOnly`): Ok once the harness
+    /// read them. Err: the session could not take them now (no running turn,
+    /// a harness that does not steer); nothing was delivered.
+    fn steer(&self, _session: &str, _blocks: Vec<Value>, _prompt_id: &str) -> Result<(), String> {
+        Err("steering is not supported".into())
     }
     /// Hints acpmux's session pool (`_acpmux/prewarm`) to start a hidden
     /// session of `harness` and `preset` in `cwd`, so the next `session/new`
@@ -510,6 +520,8 @@ fn route(turns: &Mutex<HashMap<String, TurnRoute>>, sink: &Sink, n: Notification
                 turn.spoke |= is_output(kind);
                 if first || !is_noise(kind) {
                     let _ = turn.tx.send(TurnSignal::Changed);
+                } else if kind == "agent_message_chunk" {
+                    let _ = turn.tx.send(TurnSignal::Streamed);
                 }
             }
         }
@@ -735,6 +747,21 @@ impl AgentPort for Acpmux {
             .request("_acpmux/permission_respond", params)
             .map(|_| ())
             .map_err(|e| format!("permission_respond: {e}"))
+    }
+
+    fn steer(&self, session: &str, blocks: Vec<Value>, prompt_id: &str) -> Result<(), String> {
+        // No timeout: acpmux answers when the harness reads the message, at
+        // its next tool boundary, however long the running tool takes.
+        let answer = self.client()?.start(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": blocks, "_meta": {"acpmux": {"promptId": prompt_id, "steer": true, "steerOnly": true}}}),
+        );
+        match answer.recv() {
+            Ok(Ok(v)) if v.get("stopReason").and_then(Value::as_str) == Some("steered") => Ok(()),
+            Ok(Ok(v)) => Err(format!("acpmux did not steer the message ({v})")),
+            Ok(Err(e)) => Err(format!("steer: {e}")),
+            Err(_) => Err("steer: the acpmux connection closed".into()),
+        }
     }
 
     fn prewarm(

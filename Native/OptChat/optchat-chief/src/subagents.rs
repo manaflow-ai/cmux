@@ -25,8 +25,8 @@
 //!   `user` message, `[id] report`.
 //!
 //! Deviation: `tell` reaches a running subagent after its current turn
-//! (acpmux queues the prompt; claude-sr offers no steering), not between its
-//! tool calls.
+//! (acpmux queues the prompt), not between its tool calls; it does not
+//! steer yet.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -479,6 +479,7 @@ impl Spawner {
                             let _ = started.send(());
                         }
                     }
+                    TurnSignal::Streamed => {}
                     TurnSignal::Done(answer) => {
                         let _ = tx.send(Input::SubagentAnswer { id, answer });
                         return;
