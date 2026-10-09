@@ -650,10 +650,26 @@ private extension CloudHomeSource {
                 var object: [String: JSONValue] = ["type": .string("text"), "text": .string(text)]
                 if !runs.isEmpty { object["runs"] = .array(runs) }; return .object(object)
             case .work(let work): return .object(["type": .string("work"), "session": .string(work.session), "status": .string(work.status.rawValue), "preview": work.preview.map(JSONValue.string) ?? .null] as [String: JSONValue])
-            case .attachment(let file): return .object(["type": .string("attachment"), "hash": .string(file.hash), "name": .string(file.name), "mime_type": .string(file.mimeType), "byte_count": .int(Int64(file.byteCount))])
+            case .attachment(let file):
+                var object: [String: JSONValue] = [
+                    "type": .string("attachment"),
+                    "hash": .string(file.hash),
+                    "name": .string(file.name),
+                    "mime_type": .string(file.mimeType),
+                    "byte_count": .int(Int64(file.byteCount)),
+                ]
+                if let width = file.width { object["width"] = .int(Int64(width)) }
+                if let height = file.height { object["height"] = .int(Int64(height)) }
+                if let duration = file.durationMs { object["duration_ms"] = .int(Int64(duration)) }
+                if let poster = file.poster { object["poster"] = wireDerivedImage(poster) }
+                if let preview = file.preview { object["preview"] = wireDerivedImage(preview) }
+                return .object(object)
             default: throw HomeRejection.invalid("unsupported message part")
             }
         })
+    }
+    func wireDerivedImage(_ image: AttachmentDerivedImage) -> JSONValue {
+        .object(["hash": .string(image.hash), "mime_type": .string(image.mimeType), "byte_count": .int(Int64(image.byteCount))])
     }
     func decodePage(_ value: JSONValue, rows: JSONValue? = nil) throws -> ConversationPage {
         let state = value["state"] ?? value
