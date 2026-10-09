@@ -95,6 +95,9 @@ import Testing
 
     @Test func rejectsNonObjectRoot() {
         #expect(throws: JSONC.Failure.rootIsNotObject) { try JSONC.setting(1, at: ["a"], in: "[1]") }
+        // An empty key path used to trap in a precondition; it is refused.
+        #expect(throws: JSONC.Failure.self) { try JSONC.setting(1, at: [], in: "{}") }
+        #expect(throws: JSONC.Failure.self) { try JSONC.removing([], in: "{\"a\": 1}") }
     }
 
     @Test func keyPathsKeepActionIDsWhole() {
