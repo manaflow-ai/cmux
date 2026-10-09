@@ -224,7 +224,7 @@ public actor SSHMachineLink {
             child.terminate()
             if self.child === child { self.child = nil }
             let stderr = child.stderrText
-            let failure = SSHFailure.classify(status: 255, stderr: stderr) ?? .remoteFailed(String(describing: error))
+            let failure = SSHFailure.classifyLink(stderr: stderr) ?? .remoteFailed(String(describing: error))
             logger.error("ssh link for \(self.host.destination.description, privacy: .public) failed: \(stderr, privacy: .public)")
             handle(.failed(failure))
             throw SSHLinkError.ssh(failure)
