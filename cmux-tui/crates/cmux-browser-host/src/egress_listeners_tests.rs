@@ -9,7 +9,9 @@ fn listener(addr: IpAddr, uid: u32) -> Listener {
 
 /// A listener of this user, found by libproc, with its holder.
 fn held(addr: IpAddr, name: &str) -> Held {
-    Held { listener: listener(addr, ME), exe: Some(format!("/usr/local/bin/{name}")) }
+    let path = format!("/usr/local/bin/{name}");
+    let holder = crate::egress_holders::Holder { path, ..Default::default() };
+    Held { listener: listener(addr, ME), holder: Some(holder), family: false }
 }
 
 fn v4() -> SocketAddr {
@@ -77,7 +79,7 @@ fn own_listeners_are_checked_by_executable() {
     for name in ["cmux DEV tag", "Google Chrome", "cmux-tui", "acpmux", "msedge"] {
         assert!(verdict(v4(), &[], &[held(addr, name)], ME, true).is_some(), "{name}");
     }
-    let unreadable = Held { listener: listener(addr, ME), exe: None };
+    let unreadable = Held { listener: listener(addr, ME), holder: None, family: false };
     assert!(verdict(v4(), &[], &[unreadable], ME, true).is_some(), "unreadable");
     let in_table = [listener(addr, ME)];
     assert!(verdict(v4(), &in_table, &[], ME, false).is_some(), "no holder");
@@ -191,7 +193,7 @@ fn the_live_sources_find_a_listener_and_its_holder() {
     let mine: Vec<&Held> = own.iter().filter(|h| h.listener.port == addr.port()).collect();
     assert_eq!(mine.len(), 1, "{mine:?}");
     assert_eq!(mine[0].listener.addr, addr.ip());
-    let exe = mine[0].exe.as_deref().expect("holder readable");
+    let exe = &mine[0].holder.as_ref().expect("holder readable").path;
     let me = std::env::current_exe().unwrap();
     let name = me.file_name().unwrap().to_str().unwrap();
     assert!(exe.ends_with(&format!("/{name}")), "{exe} is not {name}");

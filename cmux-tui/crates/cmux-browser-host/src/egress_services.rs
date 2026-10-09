@@ -68,11 +68,14 @@ fn service_refusal(addr: SocketAddr, connected: bool) -> Option<String> {
         return connected
             .then(|| format!("loopback port {port} is held by a socket this host cannot see"));
     }
-    let (held, exes) = holders(&inodes);
-    if let Some(name) = exes.iter().flatten().find(|name| is_service_name(name)) {
-        return Some(format!("loopback port {port} is the cmux service {name}"));
+    let (held, holders) = holders(&inodes);
+    for holder in holders.iter().flatten() {
+        let family = crate::egress_holders::dir_is_chromium_family(&holder.path);
+        if let Some(why) = crate::egress_holders::holder_refusal(holder, port, family) {
+            return Some(why);
+        }
     }
-    if held < inodes.len() || exes.iter().any(Option::is_none) {
+    if held < inodes.len() || holders.iter().any(Option::is_none) {
         return Some(format!(
             "the process that listens on loopback port {port} cannot be identified"
         ));
@@ -159,9 +162,9 @@ pub fn parse_listening(table: &str, port: u16) -> Vec<u64> {
 }
 
 /// The holders of `inodes`: how many of the inodes some readable process
-/// holds, and each holder's executable name (`None`: unreadable).
+/// holds, and each holder (`None`: unreadable).
 #[cfg(target_os = "linux")]
-fn holders(inodes: &[u64]) -> (usize, Vec<Option<String>>) {
+fn holders(inodes: &[u64]) -> (usize, Vec<Option<crate::egress_holders::Holder>>) {
     let wanted: Vec<String> = inodes.iter().map(|inode| format!("socket:[{inode}]")).collect();
     let mut held = vec![false; wanted.len()];
     let mut exes = Vec::new();
@@ -181,11 +184,7 @@ fn holders(inodes: &[u64]) -> (usize, Vec<Option<String>>) {
             }
         }
         if holds {
-            exes.push(
-                std::fs::read_link(format!("/proc/{pid}/exe"))
-                    .ok()
-                    .and_then(|path| Some(path.file_name()?.to_string_lossy().into_owned())),
-            );
+            exes.push(crate::egress_holders::system_holder(pid));
         }
     }
     (held.iter().filter(|h| **h).count(), exes)

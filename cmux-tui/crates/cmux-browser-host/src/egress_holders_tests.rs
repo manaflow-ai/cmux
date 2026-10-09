@@ -64,10 +64,15 @@ fn a_remote_debugging_port_from_args_is_refused() {
 /// --inspect` passes to its children) and BUN_INSPECT.
 #[test]
 fn an_inspector_from_the_environment_is_refused() {
-    let h = holder(NODE, &["node", "server.js"], &["NODE_OPTIONS=--max-old-space-size=4096 --inspect=9230"]);
+    let h = holder(
+        NODE,
+        &["node", "server.js"],
+        &["NODE_OPTIONS=--max-old-space-size=4096 --inspect=9230"],
+    );
     assert!(holder_refusal(&h, 9230, false).is_some());
     assert_eq!(holder_refusal(&h, 3000, false), None);
-    let h = holder("/usr/local/bin/bun", &["bun", "a.ts"], &["BUN_INSPECT=ws://localhost:6500/abc"]);
+    let h =
+        holder("/usr/local/bin/bun", &["bun", "a.ts"], &["BUN_INSPECT=ws://localhost:6500/abc"]);
     assert!(holder_refusal(&h, 6500, false).is_some());
     let h = holder("/usr/local/bin/bun", &["bun", "a.ts"], &["BUN_INSPECT=1"]);
     assert!(holder_refusal(&h, 3000, false).is_some(), "unknown port");
@@ -94,7 +99,12 @@ fn chromium_family_and_cmux_services_are_refused() {
     let code = holder("/Applications/Visual Studio Code.app/Contents/MacOS/Code", &["Code"], &[]);
     assert!(holder_refusal(&code, 3000, true).is_some());
     assert_eq!(holder_refusal(&code, 3000, false), None, "the family flag decides");
-    for path in ["/x/cmux-tui", "/x/acpmux", "/Applications/cmux.app/Contents/MacOS/cmux", "/x/Google Chrome"] {
+    for path in [
+        "/x/cmux-tui",
+        "/x/acpmux",
+        "/Applications/cmux.app/Contents/MacOS/cmux",
+        "/x/Google Chrome",
+    ] {
         assert!(holder_refusal(&holder(path, &[], &[]), 3000, false).is_some(), "{path}");
     }
 }
@@ -117,7 +127,9 @@ fn bundles_with_electron_or_cef_frameworks_are_chromium_family() {
     let at = |rel: &str| root.join(rel).display().to_string();
     let family = |rel: &str| bundle_is_chromium_family(&at(rel));
     assert!(family("Code.app/Contents/MacOS/Code"));
-    assert!(family("Code.app/Contents/Frameworks/Code Helper (Plugin).app/Contents/MacOS/Code Helper (Plugin)"));
+    assert!(family(
+        "Code.app/Contents/Frameworks/Code Helper (Plugin).app/Contents/MacOS/Code Helper (Plugin)"
+    ));
     assert!(family("Cef.app/Contents/MacOS/Cef"));
     assert!(!family("Docker.app/Contents/MacOS/com.docker.backend"));
     assert!(!family("bin/node"));
