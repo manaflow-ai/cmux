@@ -583,16 +583,16 @@ describe("acpmux composer slash menu", () => {
       ).toEqual(["shot.png", "notes.md"]);
     });
 
-    test("the + menu rises out of the button it opens above", async () => {
+    test("the + menu opens above its button on the shared popup open", async () => {
       await render(snapshot());
       await act(async () => plusButton().click());
       expect(dom.window.document.querySelector(".acpmux-composer-plus .acpmux-menu")?.getAttribute("data-side")).toBe(
         "above",
       );
+      // The open animation is the shared ui-popup-open, which grows from the trigger's side
+      // (ui/popupSurface.css); the + menu adds no animation of its own.
       const css = await Bun.file(new URL("./composerStates.css", import.meta.url)).text();
-      // Above its button, the menu starts a little lower and settles up, never the other way.
-      expect(css).toMatch(/\.acpmux-menu\[data-side="above"\][^}]*animation-name:\s*acpmux-menu-rise/);
-      expect(css).toMatch(/@keyframes acpmux-menu-rise\s*\{\s*from\s*\{[^}]*translateY\(\d/);
+      expect(css).not.toContain("acpmux-menu-rise");
     });
 
     test("a file drop is captured anywhere in the pane and unsupported images explain the refusal", async () => {
