@@ -638,7 +638,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         case let .edit(id, _), let .unsend(id), let .delete(id), let .appendText(id, _), let .setCustomPart(id, _, _):
             guard let i = index(id) else { return nil }
             idx.append(i)
-            if let r = msgs[i].replyTo, let ri = index(r.messageId) { idx.append(ri) }
+            if let r = msgs[checked: i]?.replyTo, let ri = index(r.messageId) { idx.append(ri) } // cmux: checked
         default: return nil
         }
         return idx.min().map { max(0, $0 - 1) }
@@ -663,7 +663,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         }
         func countHead(_ ids: Set<Substring>) -> Int {
             var i = 0
-            while i < rows.count, let o = owner(rows[i].spec.key), ids.contains(o) { i += 1 }
+            while i < rows.count, let o = rows[checked: i].flatMap({ owner($0.spec.key) }), ids.contains(o) { i += 1 } // cmux: checked
             return i
         }
         func countTail(_ ids: Set<Substring>) -> Int {
@@ -977,7 +977,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     private func morphRow(_ m: Message) -> (String, Int)? {
         guard let ti = m.parts.firstIndex(where: { $0.plainText != nil }) else { return nil }
         let key = "part:\(m.id):\(ti)"
-        guard let i = model.index[key], case let .part(p) = model.rows[i].spec.kind, p.text != nil else { return nil }
+        guard let i = model.index[key], case let .part(p)? = model.rows[checked: i]?.spec.kind, p.text != nil else { return nil } // cmux: checked
         return (key, i)
     }
 
@@ -1580,7 +1580,7 @@ extension MessagesWindowView {
         let oldTop = layout.contentTop(i0), oldBody = spec0.height // cmux
         var before: [String: CGFloat] = [:]
         for case let c as RowCell in collection.visibleCells {
-            if let k = c.spec?.key { before[k] = c.convert(c.bounds, to: self).minY }
+            if let k = c.spec?.key { before.updateValue(c.convert(c.bounds, to: self).minY, forKey: k) } // cmux
         }
         let tFold0 = CACurrentMediaTime()
         TiledBody.noMainTiles += 1

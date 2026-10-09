@@ -8,9 +8,16 @@
 # in the step summary, so a red stays visible when a log viewer truncates the
 # step's output. A run that printed Swift Testing output but no "Test run
 # with" summary line fails and names the tests that started and never
-# finished (a crashed or killed test process).
+# finished (a crashed or killed test process). When the test helper dies on a
+# signal it also names the signal and the crashed thread's frames from the
+# crash report the run left (CMUX_NEXT_CRASH_REPORTS_DIR, default
+# ~/Library/Logs/DiagnosticReports), and copies that report to
+# CMUX_NEXT_CRASH_OUT (default $RUNNER_TEMP/swift-test-crash-reports) for the
+# job to upload.
 set -uo pipefail
 limit="${CMUX_NEXT_TEST_HANG_SECONDS:-1200}"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+started_at=$(date +%s)
 log="$(mktemp "${TMPDIR:-/tmp}/swift-test-log.XXXXXX")"
 trap 'rm -f "$log"' EXIT
 exec 3> >(tee "$log")
@@ -104,6 +111,22 @@ report() {
 }
 report
 report_status=$?
+
+# A test helper killed by a signal (5 is a Swift runtime trap) leaves no
+# summary and thousands of unfinished tests; its crash report names the test.
+crash_signal=$(sed -n 's/.*exited with unexpected signal code \([0-9][0-9]*\).*/\1/p' "$log" | head -n 1)
+if [[ -n "$crash_signal" ]]; then
+  crashed=$(python3 "$script_dir/ips-crash-summary.py" \
+    "${CMUX_NEXT_CRASH_REPORTS_DIR:-$HOME/Library/Logs/DiagnosticReports}" \
+    "${CMUX_NEXT_CRASH_OUT:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/swift-test-crash-reports}" \
+    "$started_at" "${CMUX_NEXT_CRASH_WAIT_SECONDS:-20}" 2>&1)
+  printf '::error title=cmux-next swift test crash::the test helper died on signal %s; crashed thread: %s\n' \
+    "$crash_signal" "$(tr '\n' ' ' <<<"${crashed:-no crash report from this run}")"
+  if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+    printf '### The test helper died on signal %s\n\n%s\n\n' "$crash_signal" "${crashed:-No crash report from this run.}" >> "$GITHUB_STEP_SUMMARY"
+  fi
+  (( status != 0 )) || status=1
+fi
 
 if kill -0 "$watcher" 2>/dev/null; then
   kill "$watcher" 2>/dev/null

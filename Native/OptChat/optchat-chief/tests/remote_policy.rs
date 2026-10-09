@@ -416,6 +416,7 @@ fn a_subagent_spawned_during_a_remote_turn_asks_too() {
             harness: "claude-sr".into(),
             policy: "approve-all".into(),
             model: None,
+            effort: None,
             preset: Some("optchat-sub-h0me".into()),
             cwd: h.dir.path().join("subagent"),
             prefix: "optchat-sub-h0me".into(),
