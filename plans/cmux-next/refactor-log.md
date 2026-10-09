@@ -88,6 +88,21 @@ changes its key, so that step also edits the baseline (WINDOW-LITE token).
 cmux-tui/scripts/*.py hold 33 hard-coded cmux-tui-core source paths; each
 step updates the ones it moves.
 
+### Build-time rule (measured at step 1)
+
+A change in a crate below cmux-tui-core still recompiles cmux-tui-core and
+cmux-tui (cargo rebuilds every dependent of a changed path crate). So a leaf
+extraction makes only the leaf's own `cargo test -p` fast (12.2 s -> 0.2 s);
+`cargo build -p cmux-tui` stays about 14 s, the fixed incremental cost of
+cmux-tui-core (295k lines). The build win comes from two moves only:
+(a) shrink cmux-tui-core's own compile, so the biggest movable code first;
+(b) move code that only cmux-tui uses ABOVE cmux-tui-core (a crate that
+depends on core, or into cmux-tui), so edits there never rebuild core.
+Order after step 1 follows that: the platform + terminal-host families
+(about 10.6k together) and terminal_host_runtime (15.8k) before small leaves;
+fs_ops (2.8k) goes next only because it is ready and has no dependents in
+core except server/fs_wire.
+
 ## Phase 2 designs
 
 ### HomeStore owner split (proposed, needs hq-6d agreement)
