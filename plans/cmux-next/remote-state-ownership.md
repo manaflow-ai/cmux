@@ -1,6 +1,6 @@
 # Remote state ownership: what lives where, and why Cmd+D must not wait
 
-Status: design, phase 1 (measure + design), hq-ff lane, 2026-10-09. No code yet. Base: feat-cmux-next
+Status: APPROVED by the chief with amendments (section 0), 2026-10-09, hq-ff lane. Base: feat-cmux-next
 64d57f35a20f; app measured: Release `cmux DEV ffperf1` (tree 4ff26ee0d050).
 Ask (Lawrence, 2026-10-09): "i feel lag when i do cmd+d, we need it to be instant. typing indicator
 needs to respect my local theme too. agent chat on remote workspaces needs to work too. and feel
@@ -10,6 +10,33 @@ This file applies OWNERSHIP-PRINCIPLES.md (binding), layer-ownership.md (binding
 zero-latency.md to remote workspaces. It does not replace them. Where they already decide a point,
 this file cites them. It adds: the measured cost of Cmd+D local and remote, the owner of each piece
 of state for a workspace on another machine, the remote agent chat transport, and the slices.
+
+## 0. Decisions and amendments (chief and coordinator, 2026-10-09)
+
+These override the text below where they differ.
+
+- A1 (D10, decided by the chief, Leo informed; recorded on https://github.com/manaflow-ai/cmux/issues/13742):
+  the user's own Mac app that reaches a remote acpmux through its own daemon over SSH gets
+  LocalApp-equivalent rights, except folder choice outside the workspace roots. Rationale: SSH
+  authenticates the same user to their own machine, and the daemon sees a same-uid local client.
+  This does not apply to shared or team machines: team VMs keep the team policy.
+- A2 Client-minted ids are namespaced per client: client id + UUIDv7. The daemon validates
+  uniqueness and rejects an id in another client's namespace. A remote client can never mint into
+  another client's namespace.
+- A3 Accept-first durability: accept means "applied in memory, journaled in the next batch". After a
+  crash between accept and commit, the client reconciles from the owner's journal and shows a
+  one-line notice when an optimistic pane vanished. Test T4b covers it.
+- A4 The app pushes its theme on connect and on every theme change; the terminal host answers OSC
+  queries from the input-owning client's colors. S5 also fixes the hardcoded dark first frame of the
+  agent pane.
+- A5 The agent install offer on an SSH machine runs only on a user click, never automatically. No
+  local-agent fallback by default.
+- A6 The daemon starts acpmux on the remote machine (open decision 2 closed).
+- A7 S2 reuses the accept-first design of https://github.com/manaflow-ai/cmux/pull/11784 and ports
+  only what split and new-tab need.
+- A8 Each slice reports its numbers against the budgets B1 to B6.
+- Process: CORE slices land one at a time; the coordinator requests each token from a gated SHA.
+  Before S6 the coordinator sends this doc to Leo. This doc lands with the first slice.
 
 ## 1. Measurements
 
@@ -311,6 +338,7 @@ machine (cx-2cob slice 1a). New browser panes use the same provisional split pat
 | T1 `SplitIsProvisionalTests`: fake daemon answers `split` after 300 ms; assert the new pane is in the visible layout, focused, and its surface accepts a key before the reply | Swift (CmuxNext, fake connection) | R1, B1, B2 | pane in layout before any await |
 | T2 `SplitFrameBudgetTests`: same fake, measure key-down to `layoutView` commit with the frame clock | Swift | B1 | 1 frame, fail above 2 |
 | T3 reducer property test: provisional split + random interleaved remote ops + reject/accept converges (invariant 4); ids from the intent equal ids in the echo | Rust `cmux-layout-reducer` proptest | R2, convergence | n/a |
+| T4b `crash_between_accept_and_commit`: kill the daemon after the accept reply and before the journal batch; on restart the client reconciles from the journal, the optimistic pane is gone and the one-line notice shows (A3) | Rust cmux-tui-core + Swift store | A3 | n/a |
 | T4 `split_replies_before_host_ready`: reply arrives while the host is still launching; zero fsync on the request thread (writer assertion); split adopts the spare host | Rust cmux-tui-core | B3 | p99 < 5 ms on a CI host |
 | T5 `attach_waits_for_launching_terminal`: attach by `expected_terminal_id` sent before the terminal exists completes when it is ready | Rust cmux-tui-core | 3.1 step 7 | n/a |
 | T6 link round-trip count: through `cmux-remote` loopback with an injected 50 ms delay, key-to-content for a split costs at most 1 delayed round trip | Rust cmux-remote integration | B5 | <= 1 RTT + 50 ms |
@@ -343,13 +371,6 @@ Leo must review for acpmux: S6 (theme detection), S7 (acpmux started by the daem
 lifetime, upgrade; new session-create path through the daemon; `draft_set` from a relayed client;
 the origin and rights of a daemon-relayed trusted client vs D10's Web rules).
 
-## 6. Open decisions
+## 6. Decisions (closed)
 
-1. D10 for the user's own app over SSH: LocalApp-equivalent rights through the daemon relay, or keep
-   Codex/opencode refused on remote machines (chief + Leo).
-2. Who starts acpmux on a remote machine: the cmux-tui daemon (proposal) or a separate supervisor.
-3. Terminal color answers with two clients: input-owner wins (proposal) or the owning install wins.
-4. Remote harness install: offer install on the machine (proposal) or allow a local agent with remote
-   files as a fallback.
-5. S2 overlaps the open zero-wait work (#11784, IX3) on main: land it on feat-cmux-next as is, or
-   port the split part only.
+All five open decisions of the first draft are closed in section 0 (A1, A6, A4, A5, A7).
