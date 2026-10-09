@@ -128,7 +128,7 @@ final class TranscriptModel {
         let keepEnd = rows.count - dropTail
         guard dropHead <= keepEnd else { return }
         let make = { (s: RowSpec) in Row(spec: s, removedAt: nil, insertedAt: -1) }
-        rows = newHead.map(make) + rows[dropHead..<keepEnd] + newTail.map(make)
+        rows = newHead.map(make) + Array(rows[dropHead..<keepEnd]) + newTail.map(make)
         rebuild()
     }
 
@@ -679,6 +679,7 @@ final class RowCell: UICollectionViewCell {
             MediaPlaceholder.clear(bitmap)
             bitmap.frame = bitmapFrame
             bitmap.contents = img
+            unstretch(bitmapFrame.size)
         } else if RowCell.synchronousBitmaps || (!deferred && !(repaint && showingThisRow)
                                                     && ((RowCell.transitionDepth > 0 && !RowCell.inPaging)
                                                         || (RowCell.mainDrawBudgetLeft() && Images.ready(spec)))) {
@@ -692,6 +693,7 @@ final class RowCell: UICollectionViewCell {
             MediaPlaceholder.clear(bitmap)
             bitmap.frame = bitmapFrame
             bitmap.contents = img
+            unstretch(bitmapFrame.size)
         } else {
             // Palette change: the previous bitmap stays. Over the main-thread
             // budget (a fling faster than the prefetch, about 70,000 pt/s in
@@ -703,7 +705,16 @@ final class RowCell: UICollectionViewCell {
                 MediaPlaceholder.clear(bitmap)
                 bitmap.frame = bitmapFrame
                 bitmap.contents = nil
-            } else if !(repaint && showingThisRow) {
+            } else if showingThisRow {
+                // The same row is on screen with its previous bitmap and its spec changed: a new
+                // width (live resize, the sidebar divider: every visible row at once) or a palette
+                // change. A visible row never shows nothing (dogfood 2026-10-08: empty blue bubbles
+                // and no incoming rows while dragging): the old bitmap stays until the new one lands,
+                // stretched to the new frame with its corners fixed (9-slice), so the bubble's outline
+                // and tail keep their shape and only the middle stretches.
+                RowCell.keptBitmaps += 1
+                if !repaint { stretch(to: bitmapFrame) }
+            } else {
                 RowCell.overBudget += 1
                 Reclaimer.release(bitmap.contents)
                 MediaPlaceholder.clear(bitmap)
@@ -723,6 +734,7 @@ final class RowCell: UICollectionViewCell {
                 MediaPlaceholder.clear(self.bitmap)
                 self.bitmap.frame = bitmapFrame
                 self.bitmap.contents = img
+                self.unstretch(bitmapFrame.size)
                 CATransaction.commit()
             }
         }
@@ -750,7 +762,27 @@ final class RowCell: UICollectionViewCell {
         MediaPlaceholder.clear(bitmap)
         bitmap.frame = CGRect(x: span.lowerBound, y: 0, width: span.upperBound - span.lowerBound, height: spec.height + 2 * RowDraw.margin)
         bitmap.contents = img
+        unstretch(bitmap.frame.size)
         CustomRows.host?.configure(self, spec)
+    }
+
+    /// The point size of the bitmap now in `bitmap.contents` (as drawn: what `stretch` scales).
+    private var drawnSize = CGSize.zero
+    /// Rows that kept their previous bitmap, stretched, until a new one arrived (bench evidence).
+    static var keptBitmaps = 0
+    /// A bitmap drawn for its frame: shown 1:1 (custom rows set their own 9-slice after this).
+    private func unstretch(_ size: CGSize) {
+        drawnSize = size
+        bitmap.contentsCenter = CGRect(x: 0, y: 0, width: 1, height: 1)
+    }
+    /// The previous bitmap at a new frame: the corners (60 pt wide, 30 pt tall at most, the bubble's
+    /// radius, tail, badge and margins) keep their size, the middle stretches.
+    private func stretch(to f: CGRect) {
+        let d = drawnSize
+        bitmap.frame = f
+        guard d.width > 1, d.height > 1 else { return }
+        let ix = min(60, d.width * 0.45) / d.width, iy = min(30, d.height * 0.45) / d.height
+        bitmap.contentsCenter = CGRect(x: ix, y: iy, width: 1 - 2 * ix, height: 1 - 2 * iy)
     }
 
     private func setTyping(_ on: Bool, _ spec: RowSpec) {

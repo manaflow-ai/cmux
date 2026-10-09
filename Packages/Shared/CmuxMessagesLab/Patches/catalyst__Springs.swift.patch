@@ -19,7 +19,7 @@
              }
              out[name] = SpringElement(name: name, from: e["from"] as? Double ?? 0, to: e["to"] as? Double ?? 0, components: comps)
          }
-@@ -486,7 +487,7 @@
+@@ -491,7 +492,7 @@
                  tau = 0
              }
              let total = k.duration * Double(max(1, k.repeatCount))

@@ -55,7 +55,7 @@
              CATransaction.commit()
              self.spec = nil
          }
-@@ -683,7 +686,7 @@
+@@ -684,7 +687,7 @@
              let t0 = CACurrentMediaTime()
              let img = RowBitmaps.render(spec)
              RowCell.mainDrawSpent += CACurrentMediaTime() - t0
@@ -64,7 +64,7 @@
              RowCell.syncRenders += 1
              Reclaimer.release(bitmap.contents)
              MediaPlaceholder.clear(bitmap)
-@@ -735,7 +738,9 @@
+@@ -747,7 +750,9 @@
          guard let spec else { return }
          let img: CGImage
          if let cached = RowBitmaps.shared.image(for: spec) { img = cached } else {
@@ -75,7 +75,7 @@
              RowBitmaps.shared.insert([(spec, img)])
              RowCell.syncRenders += 1
          }
-@@ -827,12 +832,12 @@
+@@ -859,12 +864,12 @@
              mask.path = PartRenderer.badgePath(center: CGPoint(x: 20, y: 20), side: side, tails: i == 0).cgPath
          }
          let key = "\(kind)|\(Fixture.renderScale)|\(Fixture.paletteGeneration)"
@@ -90,7 +90,7 @@
          }
          glyph.contents = img
          glyph.contentsScale = Fixture.renderScale
-@@ -963,6 +968,16 @@
+@@ -995,6 +1000,16 @@
              RowCell.placeFill(badgeFill, windowTop: windowY + badgeTop, width: badgeFill.bounds.width, span: fillSpan, reachBelow: fillReachBelow)
          }
          CATransaction.commit()

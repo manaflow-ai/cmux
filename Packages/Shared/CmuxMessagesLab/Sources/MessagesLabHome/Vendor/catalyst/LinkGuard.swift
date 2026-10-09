@@ -72,7 +72,10 @@ enum LinkGuard {
 
     static func checkURL(_ u: URL) -> Refusal? {
         if isTestOrigin(u) { return nil }
-        guard let scheme = u.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return .scheme }
+        // http or https only, and only a URL the markdown link policy accepts (no control
+        // characters, no obfuscated scheme; MarkdownParser.swift). Extra host schemes never fetch.
+        guard let scheme = u.scheme?.lowercased(), scheme == "http" || scheme == "https",
+              MarkdownLinkPolicy.allows(u) else { return .scheme }
         if let p = u.port, p != (scheme == "https" ? 443 : 80) { return .port }
         if u.user != nil || u.password != nil { return .credentials }
         guard var host = u.host?.lowercased(), !host.isEmpty else { return .name("(none)") }
