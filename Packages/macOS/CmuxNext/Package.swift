@@ -139,7 +139,6 @@ let package = Package(
         // B4 direct, B2 WebRTC, B3 acceptors, B6 trust store, for CmuxNextMobileConnect.
         .package(path: "../../Shared/CmuxMobileConnect"),
         .package(path: "../../Shared/CmuxPairing"),
-        .package(path: "../../Shared/CmuxInstallAuthCore"),
         .package(path: "../../Shared/CmuxBrowserStream"),
         .package(path: "../../Shared/CmuxRemoteDesktop"),
         .package(path: "../../Shared/CmuxControlPlane"),
