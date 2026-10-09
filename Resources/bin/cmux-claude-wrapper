@@ -1421,11 +1421,10 @@ cmux_claude_sideload_flags_disabled_uncached() {
             if [[ "$flag_value" != "$domain_dump" ]]; then
                 flag_value="${flag_value%%"$newline"*}"
                 # The per-key read printed 1 for true, 1, 1.0 and "1", which
-                # all dump as 1;. For quoted values, ask the key-specific
-                # form only when the whole-domain dump could contain a trailing
-                # newline. Command substitution strips those newlines, matching
-                # the old per-key decision without depending on how this
-                # macOS version escapes backslashes in a whole-domain dump.
+                # all dump as 1;. For quoted values, ask the key-specific form
+                # to preserve the old per-key decision without depending on
+                # how this macOS version escapes backslashes in a whole-domain
+                # dump. Command substitution still strips trailing newlines.
                 [[ "$flag_value" == "1;" ]] && return 0
                 if [[ "$flag_value" == "$quoted_one"*"$quoted_end" ]]; then
                     local per_key_value
