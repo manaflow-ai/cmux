@@ -4,11 +4,11 @@
 //! chat's lock while the model runs.
 
 use std::collections::hash_map::DefaultHasher;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use optchat_core::{
     block_cuts, compact_request, finish_line, size_check_in, CompactRequest, Memory, NodeId,
@@ -81,29 +81,76 @@ pub struct Shared {
 }
 
 /// Single-flight of cache writes (spec 3.3, gist 3c190e0): a call whose
-/// marked prefix another call is writing waits until that call's reply
-/// comes; otherwise both pay to write it. It matters because compactions
-/// start up to 8 at a time on one prefix. The reply stands in for the
-/// response's start: a compaction reply is one short line.
+/// marked prefix another call is writing waits until that call's response
+/// starts (`CompactModel::call_started`), when the cache entry exists;
+/// otherwise both pay to write it. It matters because compactions start
+/// many at a time on one prefix. A model that cannot see its response start
+/// reports it with the reply.
 #[derive(Default)]
 pub struct Flight {
-    writing: Mutex<HashSet<u64>>,
+    state: Mutex<FlightState>,
     done: Condvar,
 }
 
+#[derive(Default)]
+struct FlightState {
+    /// Prefixes a call is writing, its response not started yet.
+    writing: HashSet<u64>,
+    /// Prefixes whose writer's response started, with the last time a call
+    /// went on them: their cache entry exists, so calls go without waiting.
+    written: HashMap<u64, Instant>,
+}
+
+/// How long a written prefix counts as cached after its last call: the
+/// API's default cache lifetime (5 minutes, refreshed by every read). A
+/// call after it writes again.
+pub const FLIGHT_TTL: Duration = Duration::from_secs(300);
+
+/// Written prefixes kept before expired ones are dropped.
+const FLIGHT_KEEP: usize = 1024;
+
 impl Flight {
-    fn enter(&self, key: u64) {
-        let mut w = self.writing.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        while w.contains(&key) {
-            w = self.done.wait(w).unwrap_or_else(std::sync::PoisonError::into_inner);
+    /// Waits while another call writes `key`. True: this call writes it (the
+    /// caller then calls `started` or `leave`); false: it is cached.
+    fn enter(&self, key: u64) -> bool {
+        let mut st = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        loop {
+            if st.writing.contains(&key) {
+                st = self.done.wait(st).unwrap_or_else(std::sync::PoisonError::into_inner);
+                continue;
+            }
+            let now = Instant::now();
+            if let Some(at) = st.written.get_mut(&key) {
+                if now.duration_since(*at) <= FLIGHT_TTL {
+                    *at = now;
+                    return false;
+                }
+            }
+            st.written.remove(&key);
+            st.writing.insert(key);
+            return true;
         }
-        w.insert(key);
     }
 
+    /// The writer's response started: its entry exists, every waiting call goes.
+    fn started(&self, key: u64) {
+        let mut st = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        st.writing.remove(&key);
+        let now = Instant::now();
+        if st.written.len() >= FLIGHT_KEEP {
+            st.written.retain(|_, at| now.duration_since(*at) <= FLIGHT_TTL);
+        }
+        st.written.insert(key, now);
+        drop(st);
+        self.done.notify_all();
+    }
+
+    /// The writer failed before its response started: the next call writes.
     fn leave(&self, key: u64) {
-        self.writing
+        self.state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .writing
             .remove(&key);
         self.done.notify_all();
     }
@@ -120,7 +167,8 @@ pub fn marked_key(request: &CompactRequest) -> u64 {
 }
 
 /// The model behind a `Flight`: a node's first call waits while another
-/// call writes the same marked prefix, and holds it until its reply.
+/// call writes the same marked prefix, and holds it until its response
+/// starts.
 struct Gated<'a> {
     inner: &'a dyn CompactModel,
     flight: &'a Flight,
@@ -132,9 +180,20 @@ impl CompactModel for Gated<'_> {
         if !followups.is_empty() {
             return self.inner.call(request, followups);
         }
-        self.flight.enter(self.key);
-        let reply = self.inner.call(request, followups);
-        self.flight.leave(self.key);
+        if !self.flight.enter(self.key) {
+            return self.inner.call(request, followups);
+        }
+        let begun = std::sync::atomic::AtomicBool::new(false);
+        let started = || {
+            if !begun.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                self.flight.started(self.key);
+            }
+        };
+        let reply = self.inner.call_started(request, followups, &started);
+        if !begun.load(std::sync::atomic::Ordering::SeqCst) {
+            // Failed before its response started: nothing was written.
+            self.flight.leave(self.key);
+        }
         reply
     }
 

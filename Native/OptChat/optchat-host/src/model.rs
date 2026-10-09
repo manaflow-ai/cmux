@@ -76,7 +76,8 @@ pub trait CompactModel: Send + Sync {
     /// `call`, and `started` once the response has begun (the API's
     /// `message_start`, a harness's first streamed output): from then on the
     /// request's cache entry exists, so a call that waits to read it may go
-    /// (single-flight). A model that cannot tell calls it with the reply.
+    /// (single-flight). A model that cannot tell calls it with a reply, never
+    /// after a failure (a failed call may have written nothing).
     fn call_started(
         &self,
         request: &CompactRequest,
@@ -84,7 +85,9 @@ pub trait CompactModel: Send + Sync {
         started: &dyn Fn(),
     ) -> Result<Reply, ModelError> {
         let reply = self.call(request, followups);
-        started();
+        if reply.is_ok() {
+            started();
+        }
         reply
     }
 

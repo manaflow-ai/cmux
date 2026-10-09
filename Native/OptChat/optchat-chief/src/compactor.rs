@@ -447,8 +447,21 @@ impl AcpmuxCompactor {
     }
 
     /// One prompt in the node's session; its reply text.
-    fn prompt(&self, node: NodeId, session: &str, blocks: Vec<Value>) -> Result<Reply, ModelError> {
+    fn prompt(
+        &self,
+        node: NodeId,
+        session: &str,
+        blocks: Vec<Value>,
+        started: &dyn Fn(),
+    ) -> Result<Reply, ModelError> {
         let n = self.prompts.fetch_add(1, Ordering::SeqCst);
+        let before = self
+            .live
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&node)
+            .map_or(0, |l| l.seq);
+        let mut begun = false;
         let prompt_id = format!("optchat-compact:{}:{}:{n}", self.stamp, node.name());
         let (tx, rx) = channel();
         self.port
@@ -457,7 +470,19 @@ impl AcpmuxCompactor {
         let deadline = Instant::now() + self.spec.timeout;
         let answer = loop {
             match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-                Ok(TurnSignal::Changed) => {}
+                Ok(TurnSignal::Changed) => {
+                    // The first streamed output: the response started.
+                    if !begun
+                        && self.port.events(session, before).is_ok_and(|events| {
+                            events
+                                .iter()
+                                .any(|e| crate::acpmux::is_output(&e.kind))
+                        })
+                    {
+                        begun = true;
+                        started();
+                    }
+                }
                 Ok(TurnSignal::Done(answer)) => break answer,
                 Ok(TurnSignal::Lost) | Err(RecvTimeoutError::Disconnected) => {
                     return Err(ModelError::new(
@@ -525,6 +550,10 @@ impl AcpmuxCompactor {
         if let Some(error) = fold.ended().and_then(|e| e.error.clone()) {
             return Err(ModelError::new(format!("compactor turn: {error}")));
         }
+        if !begun {
+            // A reply whose first chunk this call did not see: written too.
+            started();
+        }
         Ok(Reply::text(strip_preamble(
             fold.final_text().unwrap_or_default(),
         )))
@@ -558,7 +587,11 @@ impl AcpmuxCompactor {
     /// A node's first prompt in the cached layout (when the preset carries
     /// its args): the system prompt file, one marker, and one retry without
     /// the marker when Claude Code's own breakpoints leave no room for it.
-    fn first_cached(&self, request: &CompactRequest) -> Result<Reply, ModelError> {
+    fn first_cached(
+        &self,
+        request: &CompactRequest,
+        started: &dyn Fn(),
+    ) -> Result<Reply, ModelError> {
         let node = request.node;
         let marker = !self.marker_refused.load(Ordering::SeqCst);
         let layout = cached_prompt(request, marker);
@@ -567,7 +600,7 @@ impl AcpmuxCompactor {
             .blocks
             .iter()
             .any(|b| b.get("cache_control").is_some());
-        match self.prompt(node, &session, layout.blocks) {
+        match self.prompt(node, &session, layout.blocks, started) {
             Err(e) if has_marker && is_marker_limit_error(&e.message) => {
                 self.marker_refused.store(true, Ordering::SeqCst);
                 self.say(&format!(
@@ -579,7 +612,7 @@ impl AcpmuxCompactor {
                 self.end(request);
                 let layout = cached_prompt(request, false);
                 let session = self.open(node, Some(&layout.system))?;
-                self.prompt(node, &session, layout.blocks)
+                self.prompt(node, &session, layout.blocks, started)
             }
             other => other,
         }
@@ -591,6 +624,7 @@ impl AcpmuxCompactor {
         &self,
         request: &CompactRequest,
         followups: &[Followup],
+        started: &dyn Fn(),
     ) -> Result<Reply, ModelError> {
         let node = request.node;
         let (session, blocks) = match followups.last() {
@@ -598,7 +632,7 @@ impl AcpmuxCompactor {
                 // A fresh conversation: whatever an earlier try left is gone.
                 self.end(request);
                 if self.claude() && self.port.system_prompt(&slot_preset(&self.spec.preset, 0)) {
-                    return self.first_cached(request);
+                    return self.first_cached(request, started);
                 }
                 (self.open(node, None)?, request_blocks(request))
             }
@@ -613,13 +647,22 @@ impl AcpmuxCompactor {
                 (session, vec![text_block(&last.retry)])
             }
         };
-        self.prompt(node, &session, blocks)
+        self.prompt(node, &session, blocks, started)
     }
 }
 
 impl CompactModel for AcpmuxCompactor {
     fn call(&self, request: &CompactRequest, followups: &[Followup]) -> Result<Reply, ModelError> {
-        let result = self.call_inner(request, followups);
+        self.call_started(request, followups, &|| {})
+    }
+
+    fn call_started(
+        &self,
+        request: &CompactRequest,
+        followups: &[Followup],
+        started: &dyn Fn(),
+    ) -> Result<Reply, ModelError> {
+        let result = self.call_inner(request, followups, started);
         if let Some(l) = self
             .live
             .lock()
@@ -708,7 +751,7 @@ impl crate::brain::images::Describe for AcpmuxCompactor {
         let n = self.describes.fetch_add(1, Ordering::SeqCst);
         let node = NodeId::new(0, u64::MAX - n);
         let session = self.open(node, None).map_err(|e| e.message)?;
-        let reply = self.prompt(node, &session, blocks);
+        let reply = self.prompt(node, &session, blocks, &|| {});
         self.end_node(node);
         reply.map(|r| r.text).map_err(|e| e.message)
     }
