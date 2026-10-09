@@ -123,6 +123,107 @@ impl AppWorkspaces {
     }
 }
 
+/// Where a subagent's workspace goes (E17, schemas/chief-cmux-target).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WorkspaceTarget {
+    /// The app runs: its control socket opens the workspace in its daemon.
+    App,
+    /// No app: the Chief's owner daemon; the app shows it when it connects.
+    Owner,
+}
+
+/// `App` while both the app's control socket and its daemon exist as
+/// sockets, else `Owner`: the same rule as the Chief's `cmux` calls.
+pub fn workspace_target(control: &Path, app_daemon: &Path) -> WorkspaceTarget {
+    use std::os::unix::fs::FileTypeExt;
+    let socket = |p: &Path| std::fs::metadata(p).is_ok_and(|m| m.file_type().is_socket());
+    if socket(control) && socket(app_daemon) {
+        WorkspaceTarget::App
+    } else {
+        WorkspaceTarget::Owner
+    }
+}
+
+/// The opener of a Chief host started by the app or by `cmux chief`: each
+/// open picks its target now (the app may start or quit while the host
+/// runs); a rename or close goes where that workspace was opened.
+pub struct TargetWorkspaces {
+    pub app: AppWorkspaces,
+    pub owner: DaemonWorkspaces,
+    opened: std::sync::Mutex<std::collections::HashMap<String, WorkspaceTarget>>,
+}
+
+impl TargetWorkspaces {
+    /// `owner_daemon` is the host's `--daemon-socket`; the tabs name the Chief
+    /// home `home` (`chief:<home id>`) in both targets.
+    pub fn new(
+        app: AppWorkspaces,
+        owner_daemon: PathBuf,
+        home: &Path,
+        harness: Option<String>,
+    ) -> TargetWorkspaces {
+        TargetWorkspaces {
+            app: app.with_home(home),
+            owner: DaemonWorkspaces {
+                daemon: owner_daemon,
+                host: chief_host(home),
+                host_name: host_name(),
+                harness,
+            },
+            opened: std::sync::Mutex::new(std::collections::HashMap::new()),
+        }
+    }
+
+    fn target(&self) -> WorkspaceTarget {
+        workspace_target(&self.app.control, &self.app.daemon)
+    }
+
+    fn of(&self, key: &str) -> WorkspaceTarget {
+        let opened = self
+            .opened
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        opened.get(key).copied().unwrap_or_else(|| self.target())
+    }
+
+    fn backend(&self, target: WorkspaceTarget) -> &dyn Workspaces {
+        match target {
+            WorkspaceTarget::App => &self.app,
+            WorkspaceTarget::Owner => &self.owner,
+        }
+    }
+}
+
+impl Workspaces for TargetWorkspaces {
+    fn open(&self, key: &str, session: &str, name: &str, cwd: &Path) -> Result<String, String> {
+        let target = self.target();
+        let opened = self.backend(target).open(key, session, name, cwd)?;
+        self.opened
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(opened.clone(), target);
+        Ok(opened)
+    }
+
+    fn close(&self, key: &str) -> Result<(), String> {
+        self.backend(self.of(key)).close(key)
+    }
+
+    fn rename(&self, key: &str, name: &str) -> Result<(), String> {
+        self.backend(self.of(key)).rename(key, name)
+    }
+
+    fn place(&self) -> String {
+        match self.target() {
+            WorkspaceTarget::App => self.app.place(),
+            WorkspaceTarget::Owner => {
+                "the Chief's own cmux session on this Mac (the cmux app shows it when it opens)"
+                    .to_owned()
+            }
+        }
+    }
+}
+
 /// The agent tab host of a session in Chief home `home`'s acpmux.
 pub fn chief_host(home: &Path) -> String {
     format!("chief:{}", crate::paths::home_id(home))
@@ -403,6 +504,47 @@ fn rename_by_key(daemon: &Path, key: &str, name: &str) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    /// CLI dogfood 7bf60bcf938a: a Chief that `cmux chief` started without the
+    /// app tried the app's missing control socket for every subagent, and no
+    /// subagent got a workspace. The opener follows E17
+    /// (schemas/chief-cmux-target): the app while its control socket and its
+    /// daemon exist, else the Chief's owner daemon, with host chief:<home id>
+    /// so the app attaches the tab to the Chief home's acpmux when it opens.
+    #[test]
+    fn without_the_app_subagent_workspaces_go_to_the_owner_daemon() {
+        let dir = tempfile::tempdir().unwrap();
+        let control = dir.path().join("app.sock");
+        let app_daemon = dir.path().join("app-daemon.sock");
+        assert_eq!(
+            workspace_target(&control, &app_daemon),
+            WorkspaceTarget::Owner
+        );
+        let _c = std::os::unix::net::UnixListener::bind(&control).unwrap();
+        assert_eq!(
+            workspace_target(&control, &app_daemon),
+            WorkspaceTarget::Owner,
+            "both must exist"
+        );
+        let _d = std::os::unix::net::UnixListener::bind(&app_daemon).unwrap();
+        assert_eq!(
+            workspace_target(&control, &app_daemon),
+            WorkspaceTarget::App
+        );
+        let home = dir.path().join("mux");
+        let w = TargetWorkspaces::new(
+            AppWorkspaces {
+                control: control.clone(),
+                daemon: app_daemon.clone(),
+                home: Some(home.clone()),
+            },
+            dir.path().join("owner.sock"),
+            &home,
+            None,
+        );
+        assert_eq!(w.owner.host, chief_host(&home));
+        assert_eq!(w.owner.daemon, dir.path().join("owner.sock"));
+    }
+
     /// Live proof subp6: the app showed "This chat isn't available" for every
     /// subagent: its panes attach to the app's acpmux, the subagents run in the
     /// Chief home's. The open request names the Chief home as the tab's host.
