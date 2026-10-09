@@ -26,7 +26,33 @@
      override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
          super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
          onMarkedTextChange()
-@@ -166,6 +178,7 @@
+@@ -146,16 +158,20 @@
+         DispatchQueue.main.async { [weak self] in self?.updateCaret(reset: false) }
+         return ok
+     }
++    // cmux: block observers on queue: .main (inline for AppKit's post on main), not selectors:
++    // a selector into this main-actor view trapped on a post off main (crash program).
++    private var keyObservers: [NSObjectProtocol] = []
++    deinit { keyObservers.forEach { NotificationCenter.default.removeObserver($0) } }
+     override func viewDidMoveToWindow() {
+         super.viewDidMoveToWindow()
+         let nc = NotificationCenter.default
+-        nc.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: nil)
+-        nc.removeObserver(self, name: NSWindow.didResignKeyNotification, object: nil)
++        keyObservers.forEach { nc.removeObserver($0) }  // cmux
++        keyObservers = []
+         guard let window else { return }
+-        nc.addObserver(self, selector: #selector(keyChanged), name: NSWindow.didBecomeKeyNotification, object: window)
+-        nc.addObserver(self, selector: #selector(keyChanged), name: NSWindow.didResignKeyNotification, object: window)
++        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {  // cmux
++            keyObservers.append(nc.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in self?.updateCaret() })
++        }
+     }
+-    @objc private func keyChanged() { updateCaret() }
+     override func setFrameSize(_ newSize: NSSize) {
+         super.setFrameSize(newSize)
+         updateCaret(reset: false)
+@@ -166,6 +182,7 @@
  
      override func paste(_ sender: Any?) {
          let pb = pasteboard
@@ -34,7 +60,7 @@
          if pb.string(forType: .string) == nil, let img = NSImage(pasteboard: pb) { onPasteImage(img); return }
          super.paste(sender)
      }
-@@ -180,7 +193,8 @@
+@@ -180,7 +197,8 @@
  /// layer (the shared code removes animations from it).
  final class ComposeTextView {
      let view: FieldTextView
@@ -44,7 +70,7 @@
      var onSend: () -> Void { get { view.onSend } set { view.onSend = newValue } }
      var onEscape: () -> Void { get { view.onEscape } set { view.onEscape = newValue } }
      var text: String { view.string }
-@@ -253,32 +267,34 @@
+@@ -253,32 +271,34 @@
      var onSendPulse: ((CFTimeInterval) -> Void)?
  
      static func height(lines: Int, chips: Bool) -> CGFloat { ComposeMetrics.height(lines: lines, chips: chips) }
@@ -85,7 +111,7 @@
      /// The placeholders, localized once (each `Strings` read is a bundle table lookup; every
      /// commit asked for one).
      private static let placeholders = (field: Strings.placeholder, reply: Strings.replyPlaceholder)
-@@ -305,7 +321,8 @@
+@@ -305,7 +325,8 @@
              l.actions = none; l.contentsScale = DisplayScale.current
          }
          buttons.isUserInteractionEnabled = false
@@ -95,7 +121,7 @@
          addSubview(buttons)
          glass.anchorPoint = CGPoint(x: 0.5, y: 1)
          layer.addSublayer(glass)
-@@ -470,8 +487,9 @@
+@@ -470,8 +491,9 @@
              let grey = NSColor(white: 55 / 255, alpha: 1)
              let space = CGColorSpace(name: CGColorSpace.sRGB)
              for (stops, fromTop) in [(top, true), (bottom, false)] {
@@ -106,7 +132,7 @@
                  c.drawLinearGradient(g, start: CGPoint(x: 0, y: fromTop ? 0 : h), end: CGPoint(x: 0, y: fromTop ? cap : h - cap), options: [])
              }
              c.restoreGState()
-@@ -485,11 +503,11 @@
+@@ -485,11 +507,11 @@
          fmt.opaque = false
          let ph = placeholder
          placeholderLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 30), format: fmt).image { ctx in
@@ -120,7 +146,7 @@
              // Messages' glyph is ChatKit's AudioMessageEntryViewButton waveform at 20 pt
              // (fitted to the lossless stills): 5 capsules 1.818 pt wide, 3.636 pt apart,
              // 3.613 / 7.25 / 14.522 pt tall; centre 557.5 pt from the left of a 628 pt window.
-@@ -550,7 +568,7 @@
+@@ -550,7 +572,7 @@
          placeholderLayer.opacity = text.isEmpty && chips.isEmpty ? 1 : 0
          waveLayer.opacity = text.isEmpty && chips.isEmpty ? 1 : 0
          CATransaction.commit()
@@ -129,7 +155,7 @@
          let old = fieldHeight
          fieldHeight = h
          if attachmentsChanged || placed.map({ $0.0 != h || $0.1 != text.isEmpty || $0.2 != strip.height || $0.3 != bounds.size }) ?? true {
-@@ -589,10 +607,11 @@
+@@ -589,10 +611,11 @@
      /// faded (catalyst's `tintOverBubble`).
      func tintOverBubble(begin: CFTimeInterval, exit: CFTimeInterval) {
          let e = Springs.fieldOpacity
@@ -145,7 +171,7 @@
          let a = CAKeyframeAnimation(keyPath: "opacity")
          a.values = values.map { NSNumber(value: $0) }
          a.keyTimes = (0...n).map { NSNumber(value: Double($0) / Double(n)) }
-@@ -630,7 +649,7 @@
+@@ -630,7 +653,7 @@
              alpha = p < 0.6 ? 1 : p < 0.65 ? 1 - (p - 0.6) / 0.05 : p < 0.95 ? 0 : (p - 0.95) / 0.05
          }
          let f = fieldRect

@@ -5,13 +5,27 @@
   "swift.assume_isolated",
   "swift.fatal_error",
   "swift.force_unwrap",
+  "swift.index_subscript@CMUXMobileCore",
   "swift.index_subscript@CmuxHomeRender",
+  "swift.index_subscript@CmuxIrohTransport",
+  "swift.index_subscript@CmuxIrxTransport",
+  "swift.index_subscript@CmuxNextControl",
+  "swift.index_subscript@CmuxNextDaemon",
+  "swift.index_subscript@CmuxNextMobile",
   "swift.index_subscript@CmuxTerminalSizing",
+  "swift.index_subscript@MessagesLabHome",
   "swift.index_subscript@MessagesLabSidebar",
+  "swift.int_conversion@CMUXMobileCore",
   "swift.int_conversion@CmuxHomeRender",
+  "swift.int_conversion@CmuxIrohTransport",
+  "swift.int_conversion@CmuxNextControl",
+  "swift.int_conversion@CmuxNextDaemon",
+  "swift.int_conversion@CmuxNextMobile",
   "swift.int_conversion@CmuxTerminalSizing",
+  "swift.int_conversion@MessagesLabHome",
   "swift.int_conversion@MessagesLabSidebar",
   "swift.iuo",
+  "swift.objc_observer",
   "swift.objc_selector",
   "swift.precondition",
   "swift.unowned"
@@ -583,6 +597,34 @@
    "count": 4,
    "reason": "Fixture seeding: a and b come from firstIndex on the same items array in the enclosing if-let, with no mutation of items between.",
    "reviewer": "crash-lead 2026-10-09 (per-module ban of index_subscript; moved from inline crash-allow)"
+  },
+  {
+   "path": "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Cmux/CrashGuard.swift",
+   "class": "swift.index_subscript",
+   "count": 4,
+   "reason": "The checked accessors themselves: subscript(checked:) after startIndex <= index < endIndex, slice(_:_:) with lo and hi clamped into startIndex...endIndex, update(at:) after checkedIndex, Dictionary.value(for:) with an index from index(forKey:).",
+   "reviewer": "crash-lead 2026-10-09 (checked accessors themselves)"
+  },
+  {
+   "path": "Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/CheckedAccess.swift",
+   "class": "swift.index_subscript",
+   "count": 2,
+   "reason": "The checked accessors themselves: subscript(checked:) and modify(checked:) read or write self[index] only after startIndex <= index < endIndex on the line above.",
+   "reviewer": "crash-lead 2026-10-09 (checked accessors themselves)"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextControl/CheckedAccess.swift",
+   "class": "swift.index_subscript",
+   "count": 2,
+   "reason": "The checked accessors themselves: subscript(checked:) and modify(checked:) read or write self[index] only after startIndex <= index < endIndex on the line above.",
+   "reviewer": "crash-lead 2026-10-09 (checked accessors themselves)"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/CheckedAccess.swift",
+   "class": "swift.index_subscript",
+   "count": 2,
+   "reason": "The checked accessors themselves: subscript(checked:) and modify(checked:) read or write self[index] only after startIndex <= index < endIndex on the line above.",
+   "reviewer": "crash-lead 2026-10-09 (checked accessors themselves)"
   }
  ]
 }

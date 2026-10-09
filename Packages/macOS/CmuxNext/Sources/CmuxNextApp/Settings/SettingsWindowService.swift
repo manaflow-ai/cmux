@@ -34,7 +34,7 @@ final class SettingsWindowService: InternalPageProvider {
     /// The route the next page view opens on.
     private var pendingRoute: String?
     /// A show that waits for a main window with a workspace.
-    private var waiting: (section: SettingsSection?, setting: String?, focus: Bool)?
+    private var waiting: (section: SettingsSection?, setting: String?, focus: Bool, route: String?)?
     var isWaiting: Bool { waiting != nil }
     /// The page fragment the Settings page shows, or will open with.
     var currentRoute: String? { webPage?.route ?? pendingRoute }
@@ -42,7 +42,9 @@ final class SettingsWindowService: InternalPageProvider {
     /// Shows Settings on `section`, or on `setting` (a cmux.json key path, card or button
     /// `SettingsAnchor(key:)` knows) with its highlight. An unknown setting is refused and opens
     /// nothing. `focus` false (automation) opens the tab without selecting it.
-    func show(section: SettingsSection?, setting: String? = nil, focus: Bool = true) throws {
+    /// `route` opens a page-only place instead (`#/settings/agents?focus=agents.add`, Settings >
+    /// Agents' Add panel), with no section or setting.
+    func show(section: SettingsSection?, setting: String? = nil, focus: Bool = true, route pageRoute: String? = nil) throws {
         guard services.settings != nil else { throw ActionFailure(message: RefusalStrings.settingsNotLoaded) }
         var anchor: SettingsAnchor?
         if let setting {
@@ -59,7 +61,7 @@ final class SettingsWindowService: InternalPageProvider {
             }
             return
         }
-        let route = Self.route(section: target, setting: setting)
+        let route = pageRoute ?? Self.route(section: target, setting: setting)
         // The window's one Settings tab comes back when another workspace of the window holds it
         // (nxdog77: Cmd-, in a second workspace opened a second Settings tab).
         if focus, let window = services.windows.active { revealSettingsTab(of: window) }
@@ -72,7 +74,7 @@ final class SettingsWindowService: InternalPageProvider {
             return
         }
         guard case let windows = services.windows, let window = windows.active, Self.hasPane(window) else {
-            waiting = (target, setting, focus)
+            waiting = (target, setting, focus, pageRoute)
             if case let windows = services.windows, windows.restored, windows.controllers.isEmpty { windows.reopenOrCreateWindow() }
             return
         }
@@ -87,7 +89,7 @@ final class SettingsWindowService: InternalPageProvider {
     func windowDidShowContent() {
         guard let request = waiting, let window = services.windows.active, Self.hasPane(window) else { return }
         waiting = nil
-        try? show(section: request.section, setting: request.setting, focus: request.focus)
+        try? show(section: request.section, setting: request.setting, focus: request.focus, route: request.route)
     }
 
     private static func hasPane(_ window: WindowController) -> Bool {

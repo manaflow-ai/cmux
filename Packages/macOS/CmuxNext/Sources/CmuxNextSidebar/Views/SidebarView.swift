@@ -73,6 +73,7 @@ public final class SidebarView: NSView {
         didSet { if spacesVisibility != oldValue { profileBar.alphaValue = spacesAlpha(revealed: isChromeRevealed) } }
     }
     private var observation: Task<Void, Never>?
+    private var clipObservers: [any NSObjectProtocol] = []
     private var lastState: RenderState?
     public init(model: SidebarModel) {
         self.model = model
@@ -89,6 +90,7 @@ public final class SidebarView: NSView {
     required init?(coder: NSCoder) { fatalError() }
     isolated deinit {
         observation?.cancel()
+        for token in clipObservers { NotificationCenter.default.removeObserver(token) }
     }
     override public var isFlipped: Bool { true }
     // MARK: Public API
@@ -197,10 +199,12 @@ public final class SidebarView: NSView {
         scrollView.contentView.drawsBackground = false
         scrollView.documentView = list
         scrollView.contentView.postsBoundsChangedNotifications = true
-        NotificationCenter.default.addObserver(self, selector: #selector(clipBoundsChanged), name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
         scrollView.contentView.postsFrameChangedNotifications = true
-        NotificationCenter.default.addObserver(self, selector: #selector(clipFrameChanged), name: NSView.frameDidChangeNotification, object: scrollView.contentView)
-        NotificationCenter.default.addObserver(self, selector: #selector(scrollerStyleChanged), name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
+        clipObservers = [ // queue: .main: inline for a post on main; a selector into this view trapped off main
+            NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: scrollView.contentView, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.clipBoundsChanged() } }, // main-proof: observer on queue: .main
+            NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: scrollView.contentView, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.syncListSize() } }, // main-proof: observer on queue: .main
+            NotificationCenter.default.addObserver(forName: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.scrollerStyleChanged() } }, // main-proof: observer on queue: .main
+        ]
         scrollView.onHorizontalScroll = { [weak self] phase, dx, time in self?.spacePaging.scroll(phase, deltaX: dx, time: time) }
         addSubview(edgeFade)
         scrollFit = ScrollFitElasticity(scrollView: scrollView)
@@ -213,16 +217,12 @@ public final class SidebarView: NSView {
         cardSlot.install(in: self)
     }
 
-    @objc private func clipBoundsChanged(_ note: Notification) {
+    private func clipBoundsChanged() {
         list.realizeVisibleRows()
         PointerHover.refresh(in: window)
     }
 
-    @objc private func clipFrameChanged(_ note: Notification) {
-        syncListSize()
-    }
-
-    @objc private func scrollerStyleChanged(_ note: Notification) {
+    private func scrollerStyleChanged() {
         scrollView.scrollerStyle = SystemScrollers.preferredStyle
         syncListSize()
     }

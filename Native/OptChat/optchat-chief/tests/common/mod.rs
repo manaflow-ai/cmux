@@ -435,6 +435,9 @@ pub struct Agents {
     /// The next prompt fails with this JSON-RPC error message, used once
     /// (acpmux answers a refused or failed Claude turn this way).
     pub answer_error: Option<String>,
+    /// The next prompt never answers and sends no more events (a hung
+    /// harness); taken by that prompt.
+    pub answer_never: bool,
     /// Names looked up with `find`, in order.
     pub finds: Vec<String>,
     /// The next this many `cancel` calls are recorded but change nothing
@@ -460,6 +463,8 @@ pub struct Agents {
     pub responses: Vec<(String, String, Option<String>)>,
     /// Every `_acpmux/prewarm` hint: (harness, preset, cwd).
     pub prewarms: Vec<(String, Option<String>, std::path::PathBuf)>,
+    /// Every `set_mode`: (session, mode id, prompts sent before it).
+    pub modes: Vec<(String, String, usize)>,
     /// The sessions steer (deliver between tool calls); else a steer fails.
     pub steering: bool,
     /// Every steer delivered: (session, blocks).
@@ -644,6 +649,9 @@ impl AgentPort for FakeAgents {
                     inner = me.changed.wait(inner).unwrap();
                 }
             }
+            if std::mem::take(&mut me.inner.lock().unwrap().answer_never) {
+                return;
+            }
             let (lose, answer, error, delay) = {
                 let mut inner = me.inner.lock().unwrap();
                 (
@@ -802,6 +810,15 @@ impl AgentPort for FakeAgents {
 
     /// Ends the held turn with stop reason `cancelled`, as acpmux answers a
     /// prompt that `session/cancel` interrupted.
+    fn set_mode(&self, session: &str, mode: &str) -> Result<(), String> {
+        let mut inner = self.inner.lock().unwrap();
+        let prompts = inner.prompts.len();
+        inner
+            .modes
+            .push((session.to_owned(), mode.to_owned(), prompts));
+        Ok(())
+    }
+
     fn cancel(&self, session: &str) -> Result<(), String> {
         let mut inner = self.inner.lock().unwrap();
         inner.cancels.push(session.to_owned());
@@ -841,6 +858,7 @@ pub fn settings(dir: &Path) -> Settings {
         turn_prefix: TURN_PREFIX.into(),
         agent_gap: Duration::from_millis(30),
         turn_limit: None,
+        turn_idle_limit: None,
         engine: Engine::Acpmux,
         turn_preset: Some(TURN_PRESET.into()),
         chief_id: "h0me".into(),

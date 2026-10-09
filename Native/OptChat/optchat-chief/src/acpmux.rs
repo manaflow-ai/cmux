@@ -31,6 +31,9 @@ pub struct SessionSpec {
     /// Per-session env (acpmux `_meta.acpmux.env`, unix socket only, an
     /// allowlist: CMUX_WORKSPACE_ID); empty for none.
     pub env: BTreeMap<String, String>,
+    /// The fast service tier (codex-acp's `fast-mode` config option, set
+    /// right after session/new); false: the harness's default speed.
+    pub fast: bool,
 }
 
 /// The tag on every session the Chief itself runs (its turns and its
@@ -60,6 +63,18 @@ pub enum Family {
     Codex,
     /// Any other harness: the codex layout without codex's settings.
     Other,
+}
+
+/// The codex-acp mode without codex's workspace-write sandbox. Its
+/// sandbox denies connect(2) to the cmux app and daemon sockets, so a
+/// codex session the Chief runs under approve-all (the posture of its
+/// Claude sessions, which run unsandboxed) takes this mode (E6).
+pub const CODEX_FULL_ACCESS_MODE: &str = "agent-full-access";
+
+/// The mode a fresh Chief session (a turn or a subagent) takes on `family`
+/// under `policy`: full access for codex under approve-all, else its own.
+pub fn chief_session_mode(family: Family, policy: &str) -> Option<&'static str> {
+    (family == Family::Codex && policy == "approve-all").then_some(CODEX_FULL_ACCESS_MODE)
 }
 
 impl Family {
@@ -163,6 +178,10 @@ pub trait AgentPort: Send + Sync {
     /// interrupt). The turn then ends with stop reason `cancelled`.
     fn cancel(&self, _session: &str) -> Result<(), String> {
         Err("cancel is not supported".into())
+    }
+    /// Sets `session`'s harness mode (`session/set_mode`).
+    fn set_mode(&self, _session: &str, _mode: &str) -> Result<(), String> {
+        Err("set_mode is not supported".into())
     }
     /// The daemon's `_acpmux/harnesses` answer: every profile with its kind,
     /// command and family (`harness_gate::admit` reads it before each Chief
@@ -671,6 +690,9 @@ pub fn events(client: &RpcClient, session: &str, after: u64) -> Result<Vec<Acpmu
     }
 }
 
+/// codex-acp's config option for the fast (priority) service tier.
+pub const FAST_MODE_OPTION: &str = "fast-mode";
+
 /// `session/new` with acpmux's name, harness, policy, model and preset.
 pub fn new_session(
     client: &RpcClient,
@@ -708,6 +730,20 @@ pub fn new_session(
     {
         let _ = client.request("_acpmux/kill", json!({"sessionId": id, "purge": true}));
         return Err(format!("tagging session {}: {e}", spec.name));
+    }
+    // The fast service tier: codex-acp's `fast-mode` config option (the
+    // priority tier); a session that cannot take it does not stay.
+    if spec.fast
+        && let Err(e) = client.request(
+            "session/set_config_option",
+            json!({"sessionId": id, "configId": FAST_MODE_OPTION, "value": "on"}),
+        )
+    {
+        let _ = client.request("_acpmux/kill", json!({"sessionId": id, "purge": true}));
+        return Err(format!(
+            "setting the fast tier of session {}: {e}",
+            spec.name
+        ));
     }
     Ok(id)
 }
@@ -805,6 +841,16 @@ impl AgentPort for Acpmux {
             .request("session/cancel", json!({"sessionId": session}))
             .map(|_| ())
             .map_err(|e| format!("cancel: {e}"))
+    }
+
+    fn set_mode(&self, session: &str, mode: &str) -> Result<(), String> {
+        self.client()?
+            .request(
+                "session/set_mode",
+                json!({"sessionId": session, "modeId": mode}),
+            )
+            .map(|_| ())
+            .map_err(|e| format!("set_mode {mode}: {e}"))
     }
 
     fn harness_catalog(&self) -> Result<Value, String> {

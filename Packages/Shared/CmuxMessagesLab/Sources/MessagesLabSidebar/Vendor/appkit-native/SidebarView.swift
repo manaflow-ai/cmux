@@ -148,8 +148,13 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         scrollView.documentView = document
         document.controller = self
         root.addSubview(scrollView)
-        NotificationCenter.default.addObserver(self, selector: #selector(clipMoved), name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
-        NotificationCenter.default.addObserver(self, selector: #selector(colorsChanged), name: NSColor.systemColorsDidChangeNotification, object: nil)
+        // cmux: block observers on queue: .main (inline for a post on main), not selectors: a selector into
+        // this main-actor controller trapped on a post off main (crash program).
+        let nc = NotificationCenter.default
+        clipObservers = [
+            nc.addObserver(forName: NSView.boundsDidChangeNotification, object: scrollView.contentView, queue: .main) { [weak self] _ in self?.clipMoved() },
+            nc.addObserver(forName: NSColor.systemColorsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in self?.colorsChanged() },
+        ]
 
         menuRing.cornerRadius = SidebarMetrics.selectionRadius
         menuRing.borderWidth = 2
@@ -166,7 +171,8 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         root.addSubview(noResults)
     }
 
-    deinit { NotificationCenter.default.removeObserver(self) }
+    private var clipObservers: [NSObjectProtocol] = []  // cmux
+    deinit { clipObservers.forEach { NotificationCenter.default.removeObserver($0) } }  // cmux
 
     // MARK: Data
 
@@ -345,7 +351,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
 
     // MARK: Tiling (O(visible))
 
-    @objc private func clipMoved() { tile(force: false) }
+    private func clipMoved() { tile(force: false) }  // cmux: no selector
 
     var renderContext: SidebarRenderContext { // cmux: internal, the pin drag draws its tile
         SidebarRenderContext(metrics: metrics, palette: palette, scale: scale,
@@ -428,8 +434,8 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
                 if let slot = o.checkedIndex(j) { o[slot] = job(w.2, w.1, cachedTimes[checked: j] ?? nil) }
             }
         }
-        for (j, (l, k, _)) in work.enumerated() {
-            guard let r = out[j] else { continue }
+        for ((l, k, _), result) in zip(work, out) { // cmux: no index math
+            guard let r = result else { continue }
             stats.syncRenders += 1
             cache.insert(timeKey(k), r.time)
             cache.insert(k, r.text)
@@ -599,7 +605,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
                     if let w = work[checked: j], let slot = out.checkedIndex(j) { out[slot] = SidebarController.tilePart(w.0, w.1, ctx) } // cmux
                 }
             }
-            for (j, w) in work.enumerated() { if let img = images[j] { cache.insert(w.0, img); stats.tiles += 1 } }
+            for (w, image) in zip(work, images) { if let img = image { cache.insert(w.0, img); stats.tiles += 1 } } // cmux: no index math
         }
         for t in pinnedItems.indices { configureTile(t) }
         CATransaction.commit()
@@ -900,8 +906,8 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
                     }
                 }
             }
-            for (j, w) in rowWork.enumerated() { if let r = rowsOut[j] { out.rows.append((w.0, r.time, r.text)) } }
-            for (j, w) in tileWork.enumerated() { if let img = tilesOut[j] { out.tiles.append((w.0, img)) } }
+            for (w, result) in zip(rowWork, rowsOut) { if let r = result { out.rows.append((w.0, r.time, r.text)) } } // cmux
+            for (w, image) in zip(tileWork, tilesOut) { if let img = image { out.tiles.append((w.0, img)) } } // cmux
             return out
         }
     }
@@ -1006,7 +1012,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         bellSelected = Self.bell(NSColor.white, view.effectiveAppearance, scale: renderContext.scale)
         invalidateAll()
     }
-    @objc private func colorsChanged() {
+    private func colorsChanged() {  // cmux: no selector
         guard isViewLoaded else { return }
         palette = resolvePalette()
         invalidateAll()

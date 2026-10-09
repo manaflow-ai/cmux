@@ -83,6 +83,7 @@ export async function mountSettingsPage(state: SettingsPageVariant, context: Sta
     mock.provider.host = { ...mock.provider.host, theme: { ...mock.provider.host.theme, config } };
   }
   if (state.accounts) mock.provider.accounts = structuredClone(state.accounts);
+  if (state.agents) mock.provider.agents.state = { ...mock.provider.agents.state, ...structuredClone(state.agents) };
   if (state.harnesses) mock.provider.harnesses = structuredClone(state.harnesses);
   window.addEventListener("pagehide", mock.close, { once: true });
   const client: SettingsClient = {
@@ -106,6 +107,8 @@ export async function mountSettingsPage(state: SettingsPageVariant, context: Sta
       "cmux.settings.host.lists",
       "cmux.settings.accounts.state",
       "cmux.settings.accounts.run",
+      "cmux.settings.agents.state",
+      "cmux.settings.agents.run",
       "cmux.settings.harnesses.state",
       "cmux.settings.harnesses.run",
       "cmux.settings.theme.set",
@@ -122,6 +125,7 @@ export async function mountSettingsPage(state: SettingsPageVariant, context: Sta
       "cmux.page.command",
       "cmux.settings.host.changed",
       "cmux.settings.accounts.changed",
+      "cmux.settings.agents.changed",
       "cmux.settings.harnesses.changed",
     ],
   );

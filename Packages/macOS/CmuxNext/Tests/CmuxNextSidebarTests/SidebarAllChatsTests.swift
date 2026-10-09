@@ -35,7 +35,7 @@ import Testing
     /// The header is faded out and takes no clicks until the sidebar is hovered.
     @Test func theHeaderShowsOnlyOnHover() {
         let view = chats()
-        let center = NSPoint(x: view.search.frame.midX, y: view.search.frame.midY)
+        let center = NSPoint(x: view.searchButton.frame.midX, y: view.searchButton.frame.midY)
         #expect(!view.isHeaderRevealed)
         #expect(view.header.alphaValue == 0)
         #expect(view.header.hitTest(center) == nil, "a hidden search field takes no click")
@@ -45,6 +45,46 @@ import Testing
         view.setHoverRevealed(false)
         #expect(!view.isHeaderRevealed)
         #expect(view.header.hitTest(center) == nil)
+    }
+
+    /// At the narrowest sidebar the header still fits: the whole title, then
+    /// icon buttons (search, filter, group), nothing overlapping or cut off. 160 pt is the
+    /// default `sidebarMinWidth`.
+    @Test(arguments: [CGFloat(160), 200, 260])
+    func theHeaderFitsAtEveryWidth(width: CGFloat) {
+        let view = chats([Self.row("codex:a", harness: "codex", folder: "/p/alpha"), Self.row("codex:b", harness: "codex", folder: "/p/beta")])
+        view.frame.size.width = width
+        view.layoutSubtreeIfNeeded()
+        view.layout()
+        #expect(!view.filterButton.isHidden, "two projects: the filter shows too")
+        #expect(view.titleLabel.frame.width >= ceil(view.titleLabel.intrinsicContentSize.width), "the title is not cut off at \(width)")
+        let controls = [view.searchButton, view.filterButton, view.groupButton].map(\.frame)
+        for frame in controls {
+            #expect(frame.minX >= view.titleLabel.frame.maxX && frame.maxX <= width, "\(frame) at \(width)")
+        }
+        for (a, b) in zip(controls, controls.dropFirst()) { #expect(!a.intersects(b)) }
+    }
+
+    /// Search opens a field in the title's place; an empty field closes again.
+    @Test func searchOpensInTheTitlesPlace() {
+        let view = chats()
+        #expect(view.search.isHidden && !view.titleLabel.isHidden)
+        view.openSearch()
+        view.layout()
+        #expect(!view.search.isHidden && view.titleLabel.isHidden && view.searchButton.isHidden)
+        #expect(view.isHeaderRevealed, "an open search keeps the header shown")
+        #expect(view.search.frame.width > 60)
+    }
+
+    /// Group by is a menu with the four groupings; picking one regroups.
+    @Test func groupByIsAMenu() {
+        let view = chats()
+        let menu = view.groupingMenu()
+        #expect(menu.items.count == SidebarChatsGrouping.allCases.count)
+        #expect(menu.items.first?.state == .on, "Newest is checked")
+        menu.performActionForItem(at: 1)
+        #expect(view.selectedGrouping == .harness)
+        #expect(view.numberOfRows(in: NSTableView()) > Self.rows.count, "harness headers appear")
     }
 
     /// A search or project filter in effect keeps the header shown, so missing

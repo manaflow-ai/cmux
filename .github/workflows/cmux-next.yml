@@ -99,6 +99,7 @@ on:
       - scripts/cmux-next/stale-pcm-retry-needed.sh
       - scripts/cmux-next/compile-string-catalogs.sh
       - scripts/cmux-next/swift-test-with-hang-sampler.sh
+      - scripts/cmux-next/ips-crash-summary.py
       - scripts/cmux-next/cef-manifest.json
       - scripts/cmux-next/ensure-cef.sh
       - scripts/cmux-next/build-cef-shim.sh
@@ -211,6 +212,7 @@ on:
       - scripts/cmux-next/stale-pcm-retry-needed.sh
       - scripts/cmux-next/compile-string-catalogs.sh
       - scripts/cmux-next/swift-test-with-hang-sampler.sh
+      - scripts/cmux-next/ips-crash-summary.py
       - scripts/cmux-next/cef-manifest.json
       - scripts/cmux-next/ensure-cef.sh
       - scripts/cmux-next/build-cef-shim.sh
@@ -1243,6 +1245,18 @@ jobs:
           CMUX_NEXT_TEST_HANG_SECONDS: "420"
         run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter TerminalAttachDriverStressTests
 
+      # A test helper that died on a signal leaves its crash report here
+      # (scripts/cmux-next/swift-test-with-hang-sampler.sh): the crashed
+      # thread names the test that trapped.
+      - name: Upload the test helper's crash reports
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: swift-test-crash-reports-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/swift-test-crash-reports
+          if-no-files-found: ignore
+          retention-days: 14
+
   # The live-daemon suites (daemon integration and branch tests, the mobile
   # live daemon and first launch) against this commit's own cmux-tui tree,
   # which the gate above waits for on Linux. Only the daemon tier runs it:
@@ -1419,6 +1433,18 @@ jobs:
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "480"
         run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter BranchStateResourcesTests
+
+      # A test helper that died on a signal leaves its crash report here
+      # (scripts/cmux-next/swift-test-with-hang-sampler.sh): the crashed
+      # thread names the test that trapped.
+      - name: Upload the test helper's crash reports
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: daemon-test-crash-reports-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/swift-test-crash-reports
+          if-no-files-found: ignore
+          retention-days: 14
 
   # Generated files are fresh: the action catalog, surfaces and inventory
   # (ActionSurfaceParityTests and its siblings) and the CI target graph. Its

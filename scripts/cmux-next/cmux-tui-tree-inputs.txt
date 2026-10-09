@@ -32,9 +32,11 @@ blob backend/packages/home-core/conformance/conversation-import-cases.json
 blob backend/packages/home-core/conformance/conversation-search-cases.json
 blob mux/packages/brain/conformance/chief-cases.json
 blob plans/cmux-next/action-surfaces.json
+blob schemas/chief-home/vectors.json
 blob schemas/agent-url-policy/vectors.json
 blob schemas/automation-input/vectors.json
 blob schemas/automation-lease/vectors.json
+blob schemas/chief-home/vectors.json
 blob schemas/ghostty-shell-features/vectors.json
 blob schemas/link-token/keyset-vectors.json
 blob schemas/remote-tab/client.json
