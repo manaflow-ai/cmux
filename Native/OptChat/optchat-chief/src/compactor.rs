@@ -456,6 +456,12 @@ impl AcpmuxCompactor {
         })
     }
 
+    /// The compactor harness to build with while `spec.harness` is exhausted
+    /// (a 429/503/529 with retry-after), until its wait ends.
+    pub fn with_alternate_harness(self, _harness: Option<String>) -> AcpmuxCompactor {
+        self
+    }
+
     /// Keeps up to `n` warm sessions (`WARM_SESSIONS` in the host).
     pub fn with_warm(mut self, n: usize) -> AcpmuxCompactor {
         self.warm = n;
@@ -1548,6 +1554,13 @@ pub fn compactor_effort(family: Family) -> Option<String> {
 /// and runs it; its `haiku` alias is Haiku 4.5 (measured: 52 s and no
 /// prompt caching for one node, against 1.3 s at effort low).
 pub const CLAUDE_CODE_COMPACTOR_MODEL: &str = optchat_host::DEFAULT_MODEL;
+
+/// The compactor's other route when `harness` is exhausted: the user's own
+/// Claude login (`claude`) for a pooled or routed Claude harness, when
+/// acpmux has it (`admitted`). None: no other route.
+pub fn derived_alternate(_harness: &str, _admitted: &[String]) -> Option<String> {
+    None
+}
 
 /// The default compactor model of `family`'s harness (None: the harness's
 /// own default model).

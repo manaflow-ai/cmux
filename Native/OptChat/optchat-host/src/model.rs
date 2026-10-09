@@ -173,9 +173,27 @@ pub fn error_class(message: &str) -> Option<ErrorClass> {
     })
 }
 
+/// How long an exhausted route asks to wait (a 429, 503 or 529, e.g. the
+/// subrouter's "no non-exhausted claude accounts available ... (retry after
+/// 3596s)"): None when `message` is not a capacity error.
+pub fn capacity_wait(_message: &str) -> Option<std::time::Duration> {
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// E2 (hq-6d): the subrouter's exhausted-route error, as acpmux passes it.
+    #[test]
+    fn an_exhausted_route_is_a_capacity_wait() {
+        let e = r#"starting a compactor session: session/new: model "claude-sonnet-5-5" for claude-sr: API error: 503 no non-exhausted claude accounts available; next account frees up in 1h (retry after 3596s)"#;
+        assert_eq!(capacity_wait(e), Some(std::time::Duration::from_secs(3596)));
+        assert_eq!(error_class(e).map(|c| c.status), Some(503));
+        assert!(capacity_wait("HTTP 429: slow down").is_some());
+        assert_eq!(capacity_wait(r#"API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"x"}}"#), None);
+        assert_eq!(capacity_wait("the acpmux connection was lost"), None);
+    }
 
     #[test]
     fn a_request_error_is_permanent_and_a_rate_limit_is_not() {

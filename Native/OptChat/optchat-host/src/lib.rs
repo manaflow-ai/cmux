@@ -30,7 +30,7 @@ pub use config::{
 };
 pub use db::{Appended, NewMessage, StateWrite};
 pub use fault::{fault, FAULT_ENV};
-pub use model::{error_class, CompactModel, ErrorClass, Followup, ModelError, Reply};
+pub use model::{capacity_wait, error_class, CompactModel, ErrorClass, Followup, ModelError, Reply};
 pub use report::{Report, Reporter};
 
 pub use optchat_core::{CompactPrompt, CompactRequest, Kind, NodeId, RenderedView, ZoomError};

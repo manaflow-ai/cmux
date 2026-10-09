@@ -1156,30 +1156,38 @@ fn spawn_probe(
                     ));
                     let _ = tx.send(Input::CompactorStatus(Ok(())));
                 }
-                Err(e) => {
-                    let remedy = match route {
-                        CompactRoute::Acpmux => {
-                            "Check that acpmux runs and that its Claude harness signs in, or set \
-                             OPTCHAT_ANTHROPIC_BASE_URL and OPTCHAT_ANTHROPIC_API_KEY for an endpoint \
-                             that takes Messages API calls."
-                        }
-                        CompactRoute::Api => {
-                            "Check OPTCHAT_ANTHROPIC_BASE_URL and OPTCHAT_ANTHROPIC_API_KEY, or set \
-                             OPTCHAT_COMPACTOR=acpmux to build summaries in acpmux sessions."
-                        }
-                    };
-                    let text = format!(
-                        "The memory compactor cannot build summaries ({} route: {e}). Messages \
-                         that need a summary wait, and so does every reply, until it can. {remedy}",
-                        route.name()
-                    );
-                    let _ = tx.send(Input::CompactorStatus(Err(text)));
-                }
+                Err(e) => match probe_notice(route, &e) {
+                    Some(text) => {
+                        let _ = tx.send(Input::CompactorStatus(Err(text)));
+                    }
+                    None => log(format!("compactor probe: {e}")),
+                },
             }
         });
     if let Err(e) = spawned {
         log(format!("starting the compactor probe: {e}"));
     }
+}
+
+/// The notice a failed start-up probe posts in the Chief conversation;
+/// None posts none (the failure is only logged).
+pub fn probe_notice(route: CompactRoute, error: &str) -> Option<String> {
+    let remedy = match route {
+        CompactRoute::Acpmux => {
+            "Check that acpmux runs and that its Claude harness signs in, or set \
+             OPTCHAT_ANTHROPIC_BASE_URL and OPTCHAT_ANTHROPIC_API_KEY for an endpoint \
+             that takes Messages API calls."
+        }
+        CompactRoute::Api => {
+            "Check OPTCHAT_ANTHROPIC_BASE_URL and OPTCHAT_ANTHROPIC_API_KEY, or set \
+             OPTCHAT_COMPACTOR=acpmux to build summaries in acpmux sessions."
+        }
+    };
+    Some(format!(
+        "The memory compactor cannot build summaries ({} route: {error}). Messages \
+         that need a summary wait, and so does every reply, until it can. {remedy}",
+        route.name()
+    ))
 }
 
 /// The read-only memory inspector (inspect/http.rs) on 127.0.0.1, its

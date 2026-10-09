@@ -20,6 +20,22 @@ use crate::state::{Batch, ChildRef, ChildStatus, HostState, Item, PendingTurn};
 use crate::turn::{self, Interrupt, TurnOutcome, TurnStart};
 use optchat_host::{Appended, NewMessage};
 
+/// The notice for the first stuck view line (its node fails with a request
+/// error on every try); None when no line is stuck.
+pub fn stuck_notice(status: &optchat_host::Status) -> Option<String> {
+    let node = status.stuck.first()?;
+    let class = status
+        .failures
+        .iter()
+        .find(|f| f.node == *node)
+        .and_then(|f| optchat_host::error_class(&f.error))
+        .map_or_else(|| "a request error".to_owned(), |c| c.to_string());
+    Some(format!(
+        "The Chief's memory cannot summarize line {} ({class}). Replies go on without that summary; the line stays unsummarized (zoom opens it) until the compactor can build it.",
+        node.name()
+    ))
+}
+
 impl Brain {
     /// Starts a turn worker when idle with something queued.
     pub(super) fn maybe_start_turn(&mut self) {
@@ -105,17 +121,8 @@ impl Brain {
                     // holds the turn: one notice says so, retracted once
                     // every stuck node is built.
                     let status = chat.status();
-                    if let Some(node) = status.stuck.first() {
-                        let class = status
-                            .failures
-                            .iter()
-                            .find(|f| f.node == *node)
-                            .and_then(|f| optchat_host::error_class(&f.error))
-                            .map_or_else(|| "a request error".to_owned(), |c| c.to_string());
-                        let _ = tx.send(Input::CompactorStatus(Err(format!(
-                            "The Chief's memory cannot summarize line {} ({class}). Replies go on without that summary; the line stays unsummarized (zoom opens it) until the compactor can build it.",
-                            node.name()
-                        ))));
+                    if let Some(text) = stuck_notice(&status) {
+                        let _ = tx.send(Input::CompactorStatus(Err(text)));
                     } else if status.recovered {
                         let _ = tx.send(Input::CompactorStatus(Ok(())));
                     }
