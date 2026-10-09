@@ -63,10 +63,7 @@
  },
  "swift": {
   "as_bang": {
-   "CmuxNextApp": 3,
-   "CmuxNextCloud": 1,
-   "CmuxNextSettings": 4,
-   "MessagesLabHome": 4
+   "CmuxNextSettings": 4
   },
   "assume_isolated": {
    "CmuxHomeRender": 3,
@@ -100,13 +97,13 @@
    "CmuxNextActions": 9,
    "CmuxNextAgentActivity": 1,
    "CmuxNextAgentPane": 2,
-   "CmuxNextApp": 98,
+   "CmuxNextApp": 95,
    "CmuxNextApps": 1,
    "CmuxNextBookmarks": 3,
    "CmuxNextBrowser": 25,
    "CmuxNextBrowserAutomation": 1,
    "CmuxNextBrowserImport": 4,
-   "CmuxNextCloud": 11,
+   "CmuxNextCloud": 10,
    "CmuxNextCodeRouter": 5,
    "CmuxNextDesign": 3,
    "CmuxNextFeed": 1,
@@ -121,7 +118,7 @@
    "CmuxNextSidebar": 8,
    "CmuxNextTabs": 4,
    "CmuxNextTerminal": 1,
-   "MessagesLabHome": 62,
+   "MessagesLabHome": 58,
    "MessagesLabSidebar": 18
   },
   "iuo": {
