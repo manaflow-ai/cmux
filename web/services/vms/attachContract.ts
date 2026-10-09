@@ -6,6 +6,8 @@ import type { VmImageManifestEntry } from "./images/resolver";
 export type VmAttachBlock = {
   readonly transport: "cmux-remote";
   readonly route: string;
+  /** Trusted-carrier listeners authenticate by the carrier marker, so no bearer token is needed. */
+  readonly token: string;
   readonly session: string;
   readonly trustedCarrier: boolean;
   readonly daemonBuild: {
@@ -36,6 +38,7 @@ export function createAttachBlock(input: {
   return {
     transport: "cmux-remote",
     route: freestyleCmuxRemoteRoute({ vpcs: [{ ipv4, ipv6 }] }, entry.providerVmId ?? "unknown"),
+    token: "",
     session: CMUX_TUI_SESSION,
     trustedCarrier: true,
     daemonBuild: { commit: manifestEntry.cmuxdRemoteCommit ?? null, remoteProtocol: null, version: null },
