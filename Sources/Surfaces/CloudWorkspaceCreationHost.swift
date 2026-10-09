@@ -51,7 +51,7 @@ struct CloudWorkspaceCreationHost {
         // A reserved workspace can receive user content while creation waits.
         // Adopt the unique loading card by identity instead of trusting the
         // workspace's current focus, which may now be the user's terminal.
-        let loadingPanels = workspace.panels.filter { $0.value.panelType == .cloudVMLoading }
+        let loadingPanels = workspace.panels.filter { $0.value is CloudVMLoadingPanel }
         guard loadingPanels.count == 1,
               let starter = loadingPanels.first?.key,
               let pane = workspace.paneId(forPanelId: starter),
