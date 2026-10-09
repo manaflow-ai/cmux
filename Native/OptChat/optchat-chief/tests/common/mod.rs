@@ -460,6 +460,8 @@ pub struct Agents {
     pub responses: Vec<(String, String, Option<String>)>,
     /// Every `_acpmux/prewarm` hint: (harness, preset, cwd).
     pub prewarms: Vec<(String, Option<String>, std::path::PathBuf)>,
+    /// Every `set_mode`: (session, mode id, prompts sent before it).
+    pub modes: Vec<(String, String, usize)>,
     /// The sessions steer (deliver between tool calls); else a steer fails.
     pub steering: bool,
     /// Every steer delivered: (session, blocks).
@@ -802,6 +804,15 @@ impl AgentPort for FakeAgents {
 
     /// Ends the held turn with stop reason `cancelled`, as acpmux answers a
     /// prompt that `session/cancel` interrupted.
+    fn set_mode(&self, session: &str, mode: &str) -> Result<(), String> {
+        let mut inner = self.inner.lock().unwrap();
+        let prompts = inner.prompts.len();
+        inner
+            .modes
+            .push((session.to_owned(), mode.to_owned(), prompts));
+        Ok(())
+    }
+
     fn cancel(&self, session: &str) -> Result<(), String> {
         let mut inner = self.inner.lock().unwrap();
         inner.cancels.push(session.to_owned());
