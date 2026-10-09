@@ -27,8 +27,11 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
         public var brand: String?
         public var folder: String?
         public var account: String?
-        public init(id: String, title: String, harness: String, brand: String?, folder: String? = nil, account: String? = nil) {
+        public var updatedAt: Date?
+        public init(id: String, title: String, harness: String, brand: String?, folder: String? = nil, account: String? = nil,
+                    updatedAt: Date? = nil) {
             self.id = id; self.title = title; self.harness = harness; self.brand = brand; self.folder = folder; self.account = account
+            self.updatedAt = updatedAt
         }
     }
 
@@ -39,6 +42,10 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
     }
 
     public var onOpen: ((String) -> Void)?
+    /// The row design (TEMPORARY picker, ``SidebarChatsDesign``); a change redraws the rows.
+    public var design = SidebarChatsDesign.tunable.value { didSet { if design != oldValue { table.reloadData() } } }
+    /// The clock the Age design reads (tests pin it).
+    var now: () -> Date = Date.init
     /// Open in Terminal from a row's right-click menu (the only way a chat opens in a terminal).
     public var onOpenInTerminal: ((String) -> Void)?
     /// The header's right-click menu (Hide Section); the App builds it from the registry.
@@ -371,9 +378,9 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
             return label
         case .chat(let row):
             let identifier = NSUserInterfaceItemIdentifier("chat-row")
-            let view = (tableView.makeView(withIdentifier: identifier, owner: self) as? SidebarItemRowView) ?? SidebarItemRowView()
+            let view = (tableView.makeView(withIdentifier: identifier, owner: self) as? SidebarChatRowView) ?? SidebarChatRowView()
             view.identifier = identifier
-            view.configure(SidebarItemInfo(title: row.title, symbol: "bubble.left", icon: .agentChat, brand: row.brand), style: .builtIn)
+            view.configure(row, design: design, now: now())
             view.onPress = { [weak self] in self?.onOpen?(row.id) }
             view.onContextMenu = { [weak self] event, view in self?.showRowMenu(row.id, event: event, in: view) }
             view.setAccessibilityLabel(row.title)
