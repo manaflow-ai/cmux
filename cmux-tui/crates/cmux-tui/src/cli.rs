@@ -45,6 +45,9 @@ mod screen_help;
 #[cfg(unix)]
 mod script;
 mod shorthand;
+#[cfg(unix)]
+#[allow(dead_code)]
+mod skew;
 mod surface;
 mod topology_help;
 mod wire;
