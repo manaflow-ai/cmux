@@ -297,6 +297,10 @@ path = "tests/test_ci_select_package_tests.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_cargo_affected.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_package_lane_ghostty_sha.py"
 lane = "linux-guard"
 
@@ -1070,10 +1074,6 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_browser_host_release_smoke.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_backend_migrations_plan.py"
 lane = "linux-guard"
 
 [[test]]
