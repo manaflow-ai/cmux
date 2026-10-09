@@ -114,6 +114,17 @@ import Testing
         #expect(scripts == ["window.cmuxAcpmuxBridge?.command?.(\"continueIn\");"])
     }
 
+    /// Switch Model… asks the page to open its model picker on the shared opener path.
+    @Test func switchModelUsesTheFrontendCommand() throws {
+        let page = FileManager.default.temporaryDirectory.appendingPathComponent("agent-pane-switch-model-test.html")
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: MockAgentPaneHost()), source: .bundled(page)))
+        defer { view.close() }
+        var scripts: [String] = []
+        view.evaluateScript = { scripts.append($0) }
+        view.showModelPicker()
+        #expect(scripts == ["window.cmuxAcpmuxBridge?.command?.(\"openModelPicker\");"])
+    }
+
     /// A `#turn-<turnId>` link asks a loaded page to scroll to that turn;
     /// the id reaches the page as a JSON string, never as script text.
     @Test func revealTurnAsksThePageToScrollToTheTurn() async throws {

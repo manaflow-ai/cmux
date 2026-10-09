@@ -35,10 +35,12 @@ export interface Tree {
   /** PlanetScale role (name) that owns the objects; rehearsals act as it when they can. */
   readonly ownerRole: string
   /**
-   * The Postgres role that owns the objects when it is a SQL role without a PlanetScale record
-   * (cmux-vm since 2026-10-09: cmux_vm_migrator, nothing outside cmux_vm). Checked directly.
+   * Per target: the Postgres role that owns the objects when it is a SQL role without a PlanetScale
+   * record (cmux-vm staging since 2026-10-09: cmux_vm_migrator, nothing outside cmux_vm). Checked
+   * directly. A target without one is owned by the PlanetScale role `ownerRole`, looked up with pscale
+   * (cmux-vm production: cmux-vm-owner, created by the PlanetScale API with no inherited roles).
    */
-  readonly ownerPgRole?: string
+  readonly ownerPgRole?: Readonly<Partial<Record<Target, string>>>
   /** PlanetScale role (name) the deployed Worker connects as; its privileges are what the Worker gets. */
   readonly workerRole: string
   /** A database row the tree lacks is a warning (expand-first means the database may be ahead of a branch), not a refusal. */
@@ -59,7 +61,7 @@ export const TREES: Readonly<Record<TreeName, Tree>> = {
     richTracking: true,
     lockKey: 0x636d7576, // "cmuv"
     ownerRole: "cmux-vm-owner",
-    ownerPgRole: "cmux_vm_migrator",
+    ownerPgRole: { development: "cmux_vm_migrator", staging: "cmux_vm_migrator" },
     workerRole: "cmux-vm-worker",
     allowDatabaseAhead: true,
     workers: { staging: "cmux-vm-staging" },
@@ -83,6 +85,9 @@ export const TREES: Readonly<Record<TreeName, Tree>> = {
 
 /** The repository root (this file is scripts/cmux-next/release/trees.ts). */
 export const REPO_ROOT = join(import.meta.dirname, "..", "..", "..")
+
+/** The SQL owner role of `target`, or undefined when the PlanetScale role `ownerRole` owns it. */
+export const ownerPgRoleOf = (tree: Tree, target: Target): string | undefined => tree.ownerPgRole?.[target]
 
 export const treeOf = (name: string | undefined): Tree => {
   if (name === "cmux-vm" || name === "backend") return TREES[name]

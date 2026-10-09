@@ -244,10 +244,7 @@ final class AppServices {
             guard let self, let workspace = workspaceID(ofTab: key) else { return false }
             return windows.isIncognito(workspace: workspace)
         }
-        cache.browserTabs.isIncognitoPane = { [weak self] pane in
-            guard let self, let workspace = daemon.store.workspace(containing: pane)?.id else { return false }
-            return windows.isIncognito(workspace: workspace)
-        }
+        wireBrowserTabMachines()
         cache.browserProfile = { [weak self] key in self?.browserProfiles.engineProfile(forTab: key) }
         cache.profileBadge = { [weak self] key in self?.browserProfiles.omnibarBadge(forTab: key) }
         cache.profileBadgeMenu = { [weak self] key in
@@ -257,7 +254,7 @@ final class AppServices {
         }
         cache.browserTabs.resolveProfile = { [weak self] pane, explicit in
             guard let self else { return explicit }
-            return browserProfiles.profileForNewTab(in: pane, on: daemon, explicit: explicit)
+            return browserProfiles.profileForNewTab(in: pane.handle, on: machines.daemon(forPane: pane), explicit: explicit)
         }
         _ = emptyWorkspaces  // built here, as before
         cache.sessionDelegate = terminalDelegate

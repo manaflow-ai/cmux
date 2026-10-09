@@ -45,8 +45,15 @@ import Testing
 
     /// The daemon's frames of a fork or a handoff that name `marker`, once a later read reached it.
     func forksAndHandoffs(_ rig: Rig, naming marker: String) async -> [String] {
-        let sentinel = await rig.send("_acpmux/events", ["sessionId": "s-sentinel-\(rig.nextID)"])
-        _ = await rig.received(sentinel)
+        // Found by its text, not by `rig.received`'s predicted relay id: a
+        // refused fork or handoff has already taken a relay id, so after a
+        // refusal that prediction misses and the wait ran out its 2 s.
+        let sentinel = "s-sentinel-\(rig.nextID)"
+        await rig.send("_acpmux/events", ["sessionId": sentinel])
+        let reached = await rig.server.wait(seconds: 10) { peers in
+            peers.first?.frames.contains { $0.contains(sentinel) } ?? false
+        }
+        #expect(reached, "the read after the forks and handoffs reached the daemon")
         return (rig.server.peers.first?.frames ?? []).filter {
             ($0.contains("acp.session.fork") || $0.contains("_acpmux/handoff_")) && $0.contains(marker)
         }
