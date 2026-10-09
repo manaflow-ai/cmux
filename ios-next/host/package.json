@@ -1,0 +1,35 @@
+{
+  "name": "cmux-next-host",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Mac-side companion for the cmux-next iOS app: WebRTC link, terminals, ACP agents, Chief and browser tabs.",
+  "type": "module",
+  "bin": {
+    "cmux-next-host": "bin/cmux-next-host.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "start": "tsx src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "probe": "tsx src/tools/probe.ts",
+    "postinstall": "node scripts/postinstall.mjs"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "^1.7.0",
+    "node-datachannel": "^0.33.4",
+    "node-pty": "^1.1.0",
+    "tsx": "^4.23.15",
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "@types/ws": "^8.18.2",
+    "esbuild": "^0.28.2",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.7"
+  }
+}
