@@ -96607,6 +96607,403 @@
           }
         }
       }
+    },
+
+    "picker.searchAllProviders" : {
+  "comment" : "Model picker: search context or inline catalog refresh status.",
+  "extractionState" : "manual",
+  "localizations" : {
+    "en" : {
+      "stringUnit" : {
+        "state" : "translated",
+        "value" : "Search across all providers"
+      }
+    },
+    "ar" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "ابحث في جميع موفّري النماذج"
+      }
+    },
+    "bs" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "Pretražite sve pružaoce usluga"
+      }
+    },
+    "da" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "Søg på tværs af alle udbydere"
+      }
+    },
+    "de" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "Alle Anbieter durchsuchen"
+      }
+    },
+    "es" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "Buscar en todos los proveedores"
+      }
+    },
+    "fr" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "Rechercher chez tous les fournisseurs"
+      }
+    },
+    "it" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "Cerca in tutti i provider"
+      }
+    },
+    "ja" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "すべてのプロバイダーを検索"
+      }
+    },
+    "km" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "ស្វែងរកក្នុងអ្នកផ្តល់សេវាទាំងអស់"
+      }
+    },
+    "ko" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "모든 제공업체에서 검색"
+      }
+    },
+    "nb" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "Søk hos alle leverandører"
+      }
+    },
+    "pl" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "Szukaj u wszystkich dostawców"
+      }
+    },
+    "pt-BR" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "Pesquisar em todos os provedores"
+      }
+    },
+    "ru" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "Поиск по всем провайдерам"
+      }
+    },
+    "th" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "ค้นหาในผู้ให้บริการทั้งหมด"
+      }
+    },
+    "tr" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "Tüm sağlayıcılarda ara"
+      }
+    },
+    "uk" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "Пошук серед усіх постачальників"
+      }
+    },
+    "vi" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "Tìm kiếm trên tất cả nhà cung cấp"
+      }
+    },
+    "zh-Hans" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "搜索所有提供商"
+      }
+    },
+    "zh-Hant" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "搜尋所有供應商"
+      }
+    }
+  }
+},
+    "picker.catalogReady" : {
+  "comment" : "Model picker: search context or inline catalog refresh status.",
+  "extractionState" : "manual",
+  "localizations" : {
+    "en" : {
+      "stringUnit" : {
+        "state" : "translated",
+        "value" : "Model catalog"
+      }
+    },
+    "ar" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "كتالوج النماذج"
+      }
+    },
+    "bs" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "Katalog modela"
+      }
+    },
+    "da" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "Modelkatalog"
+      }
+    },
+    "de" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "Modellkatalog"
+      }
+    },
+    "es" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "Catálogo de modelos"
+      }
+    },
+    "fr" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "Catalogue de modèles"
+      }
+    },
+    "it" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "Catalogo dei modelli"
+      }
+    },
+    "ja" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "モデルカタログ"
+      }
+    },
+    "km" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "កាតាឡុកម៉ូដែល"
+      }
+    },
+    "ko" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "모델 카탈로그"
+      }
+    },
+    "nb" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "Modellkatalog"
+      }
+    },
+    "pl" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "Katalog modeli"
+      }
+    },
+    "pt-BR" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "Catálogo de modelos"
+      }
+    },
+    "ru" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "Каталог моделей"
+      }
+    },
+    "th" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "แค็ตตาล็อกโมเดล"
+      }
+    },
+    "tr" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "Model kataloğu"
+      }
+    },
+    "uk" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "Каталог моделей"
+      }
+    },
+    "vi" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "Danh mục mô hình"
+      }
+    },
+    "zh-Hans" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "模型目录"
+      }
+    },
+    "zh-Hant" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "模型目錄"
+      }
+    }
+  }
+},
+    "picker.catalogCurrent" : {
+  "comment" : "Model picker: search context or inline catalog refresh status.",
+  "extractionState" : "manual",
+  "localizations" : {
+    "en" : {
+      "stringUnit" : {
+        "state" : "translated",
+        "value" : "Models are up to date"
+      }
+    },
+    "ar" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "النماذج محدّثة"
+      }
+    },
+    "bs" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "Modeli su ažurirani"
+      }
+    },
+    "da" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "Modellerne er opdaterede"
+      }
+    },
+    "de" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "Modelle sind aktuell"
+      }
+    },
+    "es" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "Los modelos están actualizados"
+      }
+    },
+    "fr" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "Les modèles sont à jour"
+      }
+    },
+    "it" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "I modelli sono aggiornati"
+      }
+    },
+    "ja" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "モデルは最新です"
+      }
+    },
+    "km" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "ម៉ូដែលត្រូវបានធ្វើបច្ចុប្បន្នភាព"
+      }
+    },
+    "ko" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "모델이 최신 상태입니다"
+      }
+    },
+    "nb" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "Modellene er oppdaterte"
+      }
+    },
+    "pl" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "Modele są aktualne"
+      }
+    },
+    "pt-BR" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "Os modelos estão atualizados"
+      }
+    },
+    "ru" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "Модели обновлены"
+      }
+    },
+    "th" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "โมเดลเป็นเวอร์ชันล่าสุดแล้ว"
+      }
+    },
+    "tr" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "Modeller güncel"
+      }
+    },
+    "uk" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "Моделі оновлено"
+      }
+    },
+    "vi" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "Các mô hình đã được cập nhật"
+      }
+    },
+    "zh-Hans" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "模型已是最新"
+      }
+    },
+    "zh-Hant" : {
+      "stringUnit" : {
+        "state" : "needs_review",
+        "value" : "模型已是最新"
+      }
+    }
+  }
     }
   },
   "version": "1.0"

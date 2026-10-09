@@ -163,3 +163,24 @@
     }
   }
 }
+
+/* The rail picker lets long identities use two lines; controls remain reachable with Tab. */
+.acpmux-mp-row .acpmux-menu-label {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.acpmux-mp :is(button, input):focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -2px;
+}
+.acpmux-mp-row[aria-checked="true"] .acpmux-menu-label {
+  font-weight: 600;
+}
+@media (hover: none) {
+  .acpmux-mp-favorite {
+    opacity: 1;
+  }
+}

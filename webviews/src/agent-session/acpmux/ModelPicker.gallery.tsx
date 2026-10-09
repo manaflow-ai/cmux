@@ -50,9 +50,12 @@ export default componentEntry<ModelPickerProps>({
   id: "agent-pane.model-picker",
   title: "Model picker",
   area: "Agent pane",
-  height: 390,
+  height: 520,
   anchors: [{ selector: ".acpmux-model" }],
-  covers: ["agent-session/acpmux/ModelPicker.tsx#ModelPicker"],
+  covers: [
+    "agent-session/acpmux/ModelPicker.tsx#ModelPicker",
+    "agent-session/acpmux/ModelPickerRefresh.tsx#ModelPickerRefresh",
+  ],
   styles: () => import("./styles.css"),
   load: () => import("./ModelPicker").then((module) => module.ModelPicker),
   variants: {
@@ -60,11 +63,29 @@ export default componentEntry<ModelPickerProps>({
       props: { ...base, catalogRefresh: refresh("idle", "2026-10-07T10:00:00Z") },
       play: async (ctx) => {
         await ctx.click({ role: "button", name: "Model" });
-        await ctx.click({ role: "button", name: "Refresh models" });
       },
     },
     fetching: { props: { ...base, catalogRefresh: refresh("fetching", "2026-10-07T10:00:00Z") } },
     updated: { props: { ...base, catalogRefresh: refresh("updated", "2026-10-07T12:30:00Z") } },
     error: { props: { ...base, catalogRefresh: refresh("error", "2026-10-07T10:00:00Z") } },
+    keyboard: {
+      props: { ...base, catalogRefresh: refresh("idle", "2026-10-07T10:00:00Z") },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Model" });
+        await ctx.type("GPT");
+        await ctx.press("ArrowDown");
+      },
+    },
+    starred: {
+      props: { ...base, catalogRefresh: refresh("idle", "2026-10-07T10:00:00Z") },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Model" });
+        await ctx.click({ role: "button", name: /Starred: Sonnet 5.5/ });
+        await ctx.click({ role: "button", name: "Starred" });
+      },
+    },
+    switching: {
+      props: { ...base, switching: { harness: "codex", name: "Codex" }, catalogRefresh: refresh("idle") },
+    },
   },
 });

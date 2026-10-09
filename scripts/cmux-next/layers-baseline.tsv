@@ -1,6 +1,5 @@
 # path	kind	count (scripts/cmux-next/check-layers.py; may only go down)
 webviews/src/agent-session/acpmux/Inspector.css	z	1
-webviews/src/agent-session/acpmux/ModelPicker.tsx	z	1
 webviews/src/agent-session/acpmux/changes/changes.css	z	1
 webviews/src/agent-session/acpmux/changes/treeMotionDom.ts	z	1
 webviews/src/agent-session/acpmux/composerAttachments.css	z	1
