@@ -632,7 +632,10 @@ def event_names() -> set[str]:
     if cloud.exists():
         names.update(function_event_names(cloud.read_text(), "wire_json"))
 
-    mux = strip_rust_comments((TUI / "crates/cmux-tui-core/src/mux.rs").read_text())
+    # TreeDeltaKind may live in mux.rs or in any module under src/mux/.
+    mux_root = TUI / "crates/cmux-tui-core/src"
+    mux_sources = [mux_root / "mux.rs", *sorted((mux_root / "mux").rglob("*.rs"))]
+    mux = strip_rust_comments("\n".join(path.read_text() for path in mux_sources if path.exists()))
     delta_impl = mux.split("impl TreeDeltaKind", 1)
     if len(delta_impl) != 2:
         fail("cannot find TreeDeltaKind implementation")

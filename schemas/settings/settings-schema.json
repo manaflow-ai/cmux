@@ -16,7 +16,8 @@
             "rows" : [
               "window.titlebar",
               "window.titlebarButtons",
-              "app.globalHotKey"
+              "app.globalHotKey",
+              "app.startAgentGlobalHotKey"
             ],
             "title" : {
               "key" : "settings.group.window",
@@ -1226,6 +1227,58 @@
       "title" : {
         "key" : "settings.app.globalHotKey",
         "text" : "Global Hot Key"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.window",
+        "text" : "Window"
+      },
+      "help" : {
+        "key" : "settings.app.startAgentGlobalHotKey.help",
+        "text" : "Start Agent (⌃⌥⌘Space) works while another app is in front. Change its key in Keyboard Shortcuts."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "app.startAgentGlobalHotKey",
+      "keywords" : [
+        "global",
+        "hotkey",
+        "hot key",
+        "summon",
+        "start agent",
+        "agent",
+        "quick",
+        "chat",
+        "launcher",
+        "system-wide"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "app",
+        "startAgentGlobalHotKey"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.app.startAgentGlobalHotKey",
+        "text" : "Start Agent from Any App"
       },
       "validation" : "portable"
     },
@@ -17251,7 +17304,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "2874a612e33588d56c05061af3e85b4a404143b0ef2d2f34fcd7df4ea8c3a994",
+  "schema_hash" : "08bda11786ad5981022f57f2e2e93a67f34d71401a41b7ffe79d633a2dae17b9",
   "sections" : [
     {
       "id" : "general",
