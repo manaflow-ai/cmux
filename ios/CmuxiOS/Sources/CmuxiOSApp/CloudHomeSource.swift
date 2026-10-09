@@ -366,8 +366,10 @@ final actor CloudHomeSource: HomeSource {
         var result = declared
         result.mimeType = attachment["mime_type"]?.stringValue ?? declared.mimeType
         result.byteCount = Int(attachment["byte_count"]?.intValue ?? Int64(declared.byteCount))
-        if let poster = attachment["poster"] { result.poster = derivedImage(poster) }
-        if let preview = attachment["preview"] { result.preview = derivedImage(preview) }
+        // The owner's first record wins: an `exists` answer may deliberately
+        // have no derived image even when this upload declared one.
+        result.poster = attachment["poster"].flatMap(derivedImage)
+        result.preview = attachment["preview"].flatMap(derivedImage)
         return result
     }
 
