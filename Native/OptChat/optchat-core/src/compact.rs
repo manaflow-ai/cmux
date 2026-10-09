@@ -193,6 +193,9 @@ pub struct CompactRequest {
     /// starts with, saying how much of the message the call did not show
     /// (`finish_line` puts it there). None: the step holds it whole.
     pub cut: Option<String>,
+    /// The node is on the imported side (its last message was imported):
+    /// the host lets the chat's own nodes go first for a model session.
+    pub imported: bool,
 }
 
 /// A node the call needs is built but its text is not in the store: the
@@ -293,6 +296,7 @@ pub fn compact_request(
         context,
         step,
         cut,
+        imported: memory.is_imported(node.end() - 1),
     })
 }
 

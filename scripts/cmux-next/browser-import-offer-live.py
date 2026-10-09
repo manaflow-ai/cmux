@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Live check: the cookie import card and the glass "Did you know" card on a tagged build (cx-367y).
+"""Live check: the browser-data import offer and the glass "Did you know" card on a tagged build.
 
-  scripts/cmux-next/cookie-prompt-live.py --tag <tag> [--capture] [--out DIR]
+  scripts/cmux-next/browser-import-offer-live.py --tag <tag> [--capture] [--out DIR]
 
 Launches the tagged app with no activation, the automation socket, a scratch
-cmux.json and CMUX_NEXT_COOKIE_PROMPT=1 (automation launches never show the
-card otherwise), resets the card's state, then drives the person path:
+cmux.json and CMUX_NEXT_BROWSER_IMPORT_OFFER=1 (automation launches never show
+the card otherwise), resets the offer's state, then drives the person path:
 
-  1. a Chromium tab on https://example.com: when its page finishes, the card
-     must appear by itself (debug.cookie_prompt shown_on), once per launch;
-  2. Not Now closes it and snoozes it; Don't Show Again ends it; Import
-     Cookies opens the import step with only cookies checked;
+  1. a browser tab on https://example.com: when its page finishes, the card
+     must appear by itself (debug.browser_import_offer shown_on), once per launch;
+  2. Not Now closes it and ends it; Import opens the Import from Browser
+     window with bookmarks, history and passwords checked;
   3. the Did you know card (debug.updater tip) sits on Liquid Glass.
 
 With --capture it saves the browser card and the tip card in light, dark,
@@ -27,7 +27,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
 parser.add_argument("--capture", action="store_true",
                     help="save screenshots through the agent capture helper's daemon (scripts/agent-capture-helper.sh start)")
-parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="cookie-prompt-live-"))
+parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="browser-import-offer-live-"))
 parser.add_argument("--app", help="tagged .app (default: found in DerivedData)")
 parser.add_argument("--launch-backdrop", action="store_true",
                     help="launch with a backdrop painting already set and capture the Did you know card first (nxdog76)")
@@ -42,7 +42,7 @@ with open(os.path.join(APP, "Contents/Info.plist"), "rb") as f:
     BINARY = os.path.join(APP, "Contents/MacOS", plistlib.load(f)["CFBundleExecutable"])
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
-SCRATCH = tempfile.mkdtemp(prefix=f"cookie-prompt-{opts.tag}-")
+SCRATCH = tempfile.mkdtemp(prefix=f"browser-import-offer-{opts.tag}-")
 CONFIG = os.path.join(SCRATCH, "cmux.json")
 BASE_ENV = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
             "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"}
@@ -158,7 +158,7 @@ def capture(name):
 
 
 def prompt(action="state", **params):
-    return rpc("debug.cookie_prompt", {"action": action, **params})
+    return rpc("debug.browser_import_offer", {"action": action, **params})
 
 
 def settle(seconds=1.0):
@@ -177,7 +177,7 @@ teardown = TagTeardown(APP)
 teardown.install()
 app = subprocess.Popen([BINARY], env={**BASE_ENV, "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
                                       "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG,
-                                      "CMUX_NEXT_COOKIE_PROMPT": "1",
+                                      "CMUX_NEXT_BROWSER_IMPORT_OFFER": "1",
                                       # The default Ghostty theme follows light and dark (no host config).
                                       "CMUX_NEXT_GHOSTTY_CONFIG": EMPTY_GHOSTTY},
                        stdout=open(os.path.join(opts.out, "app.log"), "w"), stderr=subprocess.STDOUT)
@@ -198,7 +198,7 @@ try:
     wait_for(lambda: not rpc("debug.filepages").get("toasts"), "no window toast before the check", 15)
     state = prompt("reset")
     # A tab restored from an earlier run may already show the card (its page finished at launch).
-    check(not state.get("never_show") and not state.get("imported") and not state.get("snoozed_until"), f"fresh state: {state}")
+    check(not state.get("dismissed") and not state.get("imported"), f"fresh state: {state}")
     rpc("debug.appearance", {"mode": "light"})
     # A browser workspace gives the window a pane with a tab, so openBrowser has a target.
     print("newBrowserWorkspace:", json.dumps(rpc("action.run", {"action": "newBrowserWorkspace", "focus": True}))[:300], flush=True)
@@ -248,26 +248,24 @@ try:
     capture("tip-card-light-backdrop")
     config(None)
 
-    # Answers: Not Now snoozes, a second page in this launch shows nothing.
+    # Answers: Not Now ends it, a second page in this launch shows nothing.
     state = prompt("answer", choice="not_now")
-    check(state.get("snoozed_until") is not None and state.get("shown_on") == [], f"Not Now closes and snoozes: {state}")
+    check(state.get("dismissed") is True and state.get("shown_on") == [], f"Not Now closes and ends it: {state}")
     rpc("debug.omnibar_type", {"text": "https://example.org/"})
     settle(5.0)
-    check(prompt().get("shown_on") == [], "once per launch and snoozed: no second card")
-    state = prompt("answer", choice="never")
-    check(state.get("never_show") is True, f"Don't Show Again ends it: {state}")
+    check(prompt().get("shown_on") == [], "once per launch and dismissed: no second card")
     prompt("reset")
-    shown_tab = (wait_for(lambda: prompt("show").get("shown_on"), "the card again for Import Cookies", 10) or [None])[0]
+    shown_tab = (wait_for(lambda: prompt("show").get("shown_on"), "the card again for Import", 10) or [None])[0]
     state = prompt("answer", choice="import")
     onboarding = rpc("debug.onboarding", {"action": "state"})
-    print("onboarding after Import Cookies:", json.dumps(onboarding)[:600], flush=True)
-    check(onboarding.get("step") == "importData", f"Import Cookies opens the import step: {onboarding.get('step')}")
+    print("onboarding after Import:", json.dumps(onboarding)[:600], flush=True)
+    check(onboarding.get("step") == "importData", f"Import opens the import step: {onboarding.get('step')}")
     kinds = onboarding.get("import", {}).get("kinds") or onboarding.get("kinds")
-    check(kinds == ["cookies"], f"only cookies checked: {kinds}")
+    check(sorted(kinds or []) == ["bookmarks", "history", "passwords"], f"bookmarks, history and passwords checked: {kinds}")
     target = onboarding.get("merge_target")
-    check(target is not None, f"Import Cookies from the card imports into the profile of tab {shown_tab}: merge_target={target}")
+    check(target is not None, f"Import from the card imports into the profile of tab {shown_tab}: merge_target={target}")
     settle()
-    capture("import-step-cookies")
+    capture("import-step-browser-data")
     rpc("debug.onboarding", {"action": "close"})
     prompt("reset")
 finally:

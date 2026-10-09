@@ -9,11 +9,11 @@
 //! as a flag in the tab's end. The owner removes the sidecar on every end of
 //! the host's incarnation.
 
-use std::fs::OpenOptions;
 use std::io::Write;
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
+
+use super::super::sys::{self, PrivateOpen};
 
 /// Largest backtrace kept in the sidecar.
 const MAX_BACKTRACE_BYTES: usize = 64 * 1024;
@@ -25,7 +25,7 @@ const MAX_BACKTRACE_BYTES: usize = 64 * 1024;
 const ABORT_ONCE_TEST_ENV: &str = "CMUX_TUI_TEST_HOST_ABORT_ONCE";
 
 /// Install the crash hook for this host process (once its terminal is known).
-pub(super) fn install(path: PathBuf, terminal_id: &str, incarnation: &str) {
+pub(crate) fn install(path: PathBuf, terminal_id: &str, incarnation: &str) {
     let terminal_id = terminal_id.to_string();
     let incarnation = incarnation.to_string();
     let previous = std::panic::take_hook();
@@ -67,13 +67,7 @@ pub(super) fn install(path: PathBuf, terminal_id: &str, incarnation: &str) {
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
-        if let Ok(mut file) = OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .mode(0o600)
-            .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
-            .open(&temporary)
-        {
+        if let Ok(mut file) = sys::open_private(&temporary, PrivateOpen::CreateNewNoFollow) {
             if file.write_all(record.to_string().as_bytes()).is_ok() {
                 let _ = std::fs::rename(&temporary, &path);
             } else {
@@ -88,6 +82,8 @@ pub(super) fn install(path: PathBuf, terminal_id: &str, incarnation: &str) {
 
 #[cfg(debug_assertions)]
 fn abort_once_for_test() {
+    use std::fs::OpenOptions;
+
     let Some(marker) = std::env::var_os(ABORT_ONCE_TEST_ENV) else { return };
     if OpenOptions::new().write(true).create_new(true).open(&marker).is_err() {
         return;
