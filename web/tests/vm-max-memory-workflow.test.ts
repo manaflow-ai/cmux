@@ -52,7 +52,6 @@ test("Pro rejects a 12-vCPU create shape even when memory is within the plan cei
   const invalidReservation = { vcpus: 12, memoryMb: 16 * 1024, diskMb: 96 * 1024 };
   for (const program of [
     createVm({ ...caller, resourceReservation: invalidReservation }).pipe(Effect.asVoid),
-    openBaseVm({ ...caller, imageSize: { name: "lgx", cpu: 12, memoryMb: 16 * 1024, storageMb: 96 * 1024 } }).pipe(Effect.asVoid),
     resetBaseVm({ ...caller, imageSize: { name: "lgx", cpu: 12, memoryMb: 16 * 1024, storageMb: 96 * 1024 } }).pipe(Effect.asVoid),
   ]) {
     try {
@@ -98,7 +97,7 @@ test("a gateway fork method cannot override the provider capability", async () =
   expect(creates).toBe(0);
 });
 
-test("a native fork retry cannot return a Max-sized row to Pro", async () => {
+test("a native fork retry returns a grandfathered oversized row to Pro", async () => {
   let forks = 0;
   const source = {
     id: "source",
@@ -153,10 +152,7 @@ test("a native fork retry cannot return a Max-sized row to Pro", async () => {
     idempotencyKey: "retry",
   }).pipe(Effect.provide(layer)));
 
-  expect(result._tag).toBe("Failure");
-  if (result._tag === "Failure") {
-    expect(vmWorkflowErrorFromCause(result.cause)?._tag).toBe("VmMemoryPlanError");
-  }
+  expect(result._tag).toBe("Success");
   expect(forks).toBe(0);
 });
 
@@ -260,6 +256,9 @@ test("reopening an existing oversized Base remains usable during migration", asy
       status: "running" as const,
       provider: "freestyle" as const,
       providerVmId: `provider-vm-${vcpus}`,
+      imageId: "snapshot",
+      imageVersion: null,
+      createdAt: new Date("2026-01-01T00:00:00Z"),
       providerMetadata: {
         cmuxResourceReservation: {
           vcpus,
@@ -284,7 +283,10 @@ test("reopening an existing oversized Base remains usable during migration", asy
       Layer.succeed(VmProviderGateway, providers),
       Layer.succeed(VmBillingGateway, noOpVmBillingGateway()),
     );
-    const result = await Effect.runPromiseExit(openBaseVm(caller).pipe(Effect.provide(layer)));
+    const result = await Effect.runPromiseExit(openBaseVm({
+      ...caller,
+      imageSize: { name: `legacy-${vcpus}`, cpu: vcpus, memoryMb: vcpus * 2 * 1024, storageMb: 128 * 1024 },
+    }).pipe(Effect.provide(layer)));
     expect(result._tag).toBe("Success");
   }
 });

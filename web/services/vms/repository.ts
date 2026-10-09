@@ -46,6 +46,7 @@ import {
   VmAccountDeletionInProgressError,
   VmDatabaseError,
   VmLimitExceededError,
+  VmMemoryPlanError,
   VmResizeInProgressError,
   VmResourcePoolExceededError,
   LEGACY_MODEL_PLANE_ENTITLEMENT_FAILURE_CODE,
@@ -428,8 +429,11 @@ export type VmRepositoryShape = {
     readonly maxActiveVms: number | null;
     readonly baseName?: string;
     readonly resourceReservation?: VmResourceReservation;
+    /** Per-machine CPU/RAM ceilings for a new Base generation. */
+    readonly planMaxMemoryMb?: number;
+    readonly planMaxVcpus?: number;
     readonly resourcePool?: VmResourcePoolPolicy | null;
-  }) => Effect.Effect<BeginBaseCreateResult, VmCreateDisabledError | VmAccountDeletionInProgressError | VmDatabaseError | VmLimitExceededError | VmResourcePoolExceededError>;
+  }) => Effect.Effect<BeginBaseCreateResult, VmCreateDisabledError | VmAccountDeletionInProgressError | VmDatabaseError | VmLimitExceededError | VmResourcePoolExceededError | VmMemoryPlanError>;
   readonly beginBaseReset: (input: {
     readonly userId: string;
     readonly billingTeamId: string;
@@ -2100,6 +2104,19 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
               };
             }
 
+            // Existing Base machines are grandfathered. Apply the current
+            // per-machine entitlement only when this transaction is about to
+            // allocate a new generation.
+            const requestedReservation = input.resourceReservation;
+            if (requestedReservation && input.planMaxMemoryMb !== undefined && input.planMaxVcpus !== undefined &&
+              (requestedReservation.memoryMb > input.planMaxMemoryMb || requestedReservation.vcpus > input.planMaxVcpus)) {
+              throw new VmMemoryPlanError({
+                planId: input.billingPlanId,
+                memoryMb: Math.max(requestedReservation.memoryMb, requestedReservation.vcpus * 2 * 1024),
+                maxMemoryMb: input.planMaxMemoryMb,
+              });
+            }
+
             const [active] = await tx
               .select({ total: count() })
               .from(cloudVms)
@@ -2258,7 +2275,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           throw err;
         }
       },
-      catch: (cause) => isVmCreateDisabledError(cause) || isVmAccountDeletionInProgressError(cause) || isVmLimitExceededError(cause) || isVmResourcePoolExceededError(cause)
+      catch: (cause) => cause instanceof VmMemoryPlanError || isVmCreateDisabledError(cause) || isVmAccountDeletionInProgressError(cause) || isVmLimitExceededError(cause) || isVmResourcePoolExceededError(cause)
         ? cause
         : new VmDatabaseError({ operation: "beginBaseOpen", cause }),
     }),

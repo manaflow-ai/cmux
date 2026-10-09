@@ -113,6 +113,7 @@ import {
   resourcePoolPolicyForPlan,
   VM_PLAN_MEMORY_MB_PER_VCPU,
   vmFreeAccessWindowDays,
+  type VmResourcePoolPolicy,
 } from "./entitlements";
 import { getGoVmUsage, GO_INCLUDED_VM_HOURS } from "./goUsage";
 import { GO_PAUSE_INTENT_KEY, pauseGoVm } from "./goPause";
@@ -952,25 +953,7 @@ function requireMemoryPlan(planId: string, memoryMb: number | null, vcpus: numbe
   return Effect.void;
 }
 
-/**
- * A machine larger than the caller's plan (created before a plan change, or
- * on a plan the caller left) stays listed and deletable, but access verbs
- * refuse it. CPU above the plan counts as the ladder memory that carries it.
- * Rows without recorded resources are checked by the provider before access;
- * they must never become an entitlement bypass just because they predate the
- * reservation marker.
- */
-function requireMachineFitsPlan(planId: string, metadata: Record<string, unknown>) {
-  if (!hasVmResourceReservationMetadata(metadata)) return Effect.void;
-  const shape = vmResourceReservationFromMetadata(metadata);
-  const maxMemoryMb = maxMemoryMbForPlan(planId);
-  if (shape.memoryMb <= maxMemoryMb && shape.vcpus <= maxVcpusForPlan(planId)) return Effect.void;
-  const memoryMb = Math.max(shape.memoryMb, shape.vcpus * VM_PLAN_MEMORY_MB_PER_VCPU);
-  return Effect.fail(new VmMemoryPlanError({ planId, memoryMb, maxMemoryMb }));
-}
-
-function requireMeasuredMachineFitsPlan(
-  planId: string,
+function measureMachineReservation(
   providers: VmProviderGatewayShape,
   vm: Pick<CloudVmRow, "provider" | "providerVmId">,
   providerVmId: string,
@@ -1000,33 +983,29 @@ function requireMeasuredMachineFitsPlan(
       const reservation = {
         memoryMb,
         vcpus,
-        // Disk is irrelevant to the memory/CPU entitlement check, but the
-        // reservation parser requires a complete shape.
         diskMb: vmProviderResourceSize("diskMb", stats.diskTotalMb) ?? VM_DISK_MB_MAX,
       } satisfies VmResourceReservation;
-      return requireMachineFitsPlan(planId, {
-        cmuxResourceReservation: reservation,
-      }).pipe(Effect.as(reservation));
+      return Effect.succeed(reservation);
     }),
   );
 }
 
 /**
- * Check an idempotent existing row against the caller's current plan. Legacy
- * rows are measured before access and their provider-confirmed reservation is
- * persisted so a successful retry also repairs the shared-pool claim.
+ * Idempotent retries return the existing machine, including a machine that is
+ * larger than the caller's current plan. Legacy rows are measured when the
+ * repository can do so, but grandfathering never depends on that foreground
+ * provider read succeeding.
  */
-function requireExistingMachineFitsPlan(
-  planId: string,
+function ensureExistingMachineReservation(
   repo: VmRepositoryShape,
   providers: VmProviderGatewayShape,
   existing: CloudVmRow,
 ): Effect.Effect<CloudVmRow, VmWorkflowError> {
-  if (!isPaidVmPlan(planId)) return Effect.succeed(existing);
   if (hasVmResourceReservationMetadata(existing.providerMetadata)) {
-    return requireMachineFitsPlan(planId, existing.providerMetadata).pipe(Effect.as(existing));
+    return Effect.succeed(existing);
   }
-  return requireMeasuredMachineFitsPlan(planId, providers, existing, existing.providerVmId ?? "").pipe(
+  if (!providers.getStats) return Effect.succeed(existing);
+  return measureMachineReservation(providers, existing, existing.providerVmId ?? "").pipe(
     Effect.flatMap((reservation) => {
       if (!repo.setResourceReservation) return Effect.succeed(existing);
       return repo.setResourceReservation({ id: existing.id, reservation }).pipe(
@@ -1223,8 +1202,8 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
           new VmCreateInProgressError({ idempotencyKey: input.idempotencyKey ?? "" }),
         );
       }
-      const entitled = yield* requireExistingMachineFitsPlan(input.billingPlanId, repo, providers, existing);
-      return vmEntryFromRow(entitled);
+      const existingWithReservation = yield* ensureExistingMachineReservation(repo, providers, existing);
+      return vmEntryFromRow(existingWithReservation);
     }
 
     const networkRules = yield* recordCreateNetworkPolicy(repo, providers, input, create.vm.id);
@@ -1541,7 +1520,6 @@ export function openBaseVm(input: {
   readonly timing?: VmTimingSink;
 }): Effect.Effect<BaseVmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
-    yield* requireMemoryPlan(input.billingPlanId, input.imageSize?.memoryMb ?? 0, input.imageSize?.cpu ?? null);
     yield* requireGoShape(input.billingPlanId, input.imageSize ? {
       vcpus: input.imageSize.cpu, memoryMb: input.imageSize.memoryMb, diskMb: input.imageSize.storageMb,
     } : null);
@@ -1549,13 +1527,17 @@ export function openBaseVm(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
-    const beginInput = isPaidVmPlan(input.billingPlanId)
-      ? {
-        ...input,
-        resourceReservation: input.billingPlanId === "go" ? GO_VM_RESERVATION : vmResourceReservationForCreate({ imageSize: input.imageSize }),
-        resourcePool: resourcePoolPolicyForPlan(input.billingPlanId, input.maxActiveVms),
-      }
-      : input;
+    const beginInput = {
+      ...input,
+      planMaxMemoryMb: maxMemoryMbForPlan(input.billingPlanId),
+      planMaxVcpus: maxVcpusForPlan(input.billingPlanId),
+      ...(isPaidVmPlan(input.billingPlanId)
+        ? {
+          resourceReservation: input.billingPlanId === "go" ? GO_VM_RESERVATION : vmResourceReservationForCreate({ imageSize: input.imageSize }),
+          resourcePool: resourcePoolPolicyForPlan(input.billingPlanId, input.maxActiveVms),
+        }
+        : {}),
+    };
     const create = yield* measureVmEffect(
       input.timing,
       "begin_base_open",
@@ -1657,13 +1639,10 @@ function finishBaseCreate(
         return yield* finishBaseCreate(repo, providers, billing, input, replacement);
       }
       // Idempotent retries normally return the existing Base row without
-      // provisioning again. Keep that shortcut from becoming an entitlement
-      // bypass: a Base created on Max (or before the reservation marker was
-      // introduced) still has to fit the caller's current paid plan before it
-      // is handed back. The provider-deleted check above intentionally runs
-      // first so a missing oversized machine can be replaced at the caller's
-      // current default shape.
-      existing = yield* requireExistingMachineFitsPlan(input.billingPlanId, repo, providers, existing);
+      // provisioning again. Existing oversized machines are grandfathered;
+      // the provider-deleted check above intentionally runs first so a
+      // missing machine can be replaced at the caller's current shape.
+      existing = yield* ensureExistingMachineReservation(repo, providers, existing);
       return baseVmEntryFromRows(create.base, create.generation, existing, null);
     }
 
@@ -2587,11 +2566,11 @@ export function forkVm(input: {
             new VmCreateInProgressError({ idempotencyKey: input.idempotencyKey ?? "" }),
           );
         }
-        // A Max-sized native fork can be created just before a caller's plan
-        // changes to Pro. Keep an idempotent retry from handing that row back
-        // without applying the same current-plan check as ordinary creates.
-        const entitled = yield* requireExistingMachineFitsPlan(input.billingPlanId, repo, providers, existing);
-        return { snapshot: null, fork: vmEntryFromRow(entitled) };
+        // An idempotent retry returns the already-created row. New fork
+        // allocation remains subject to the source-shape and pool checks
+        // above.
+        const existingWithReservation = yield* ensureExistingMachineReservation(repo, providers, existing);
+        return { snapshot: null, fork: vmEntryFromRow(existingWithReservation) };
       }
 
       const creditReservation = yield* reserveCreateCredit(billing, repo, {
@@ -3378,6 +3357,28 @@ function resumeUntilRunning(
   });
 }
 
+/**
+ * A paused machine that already exceeds the caller's paid plan is
+ * grandfathered during the rollout. Let it wake without applying the new
+ * pool admission to that existing allocation; once running, its durable claim
+ * still counts against future creates and resizes.
+ */
+function resumeResourcePoolForMachine(
+  vm: CloudVmRow,
+  planId: string | null | undefined,
+  maxActiveVms: number | null,
+): VmResourcePoolPolicy | null {
+  const normalizedPlanId = planId || vm.billingPlanId;
+  if (!isPaidVmPlan(normalizedPlanId) || normalizedPlanId === "go") {
+    return resourcePoolPolicyForPlan(normalizedPlanId, maxActiveVms);
+  }
+  if (!hasVmResourceReservationMetadata(vm.providerMetadata)) return null;
+  const reservation = vmResourceReservationFromMetadata(vm.providerMetadata);
+  const grandfathered = reservation.memoryMb > maxMemoryMbForPlan(normalizedPlanId) ||
+    reservation.vcpus > maxVcpusForPlan(normalizedPlanId);
+  return grandfathered ? null : resourcePoolPolicyForPlan(normalizedPlanId, maxActiveVms);
+}
+
 function reservePausedResumeIfTeam(
   repo: VmRepositoryShape,
   vm: CloudVmRow,
@@ -3393,8 +3394,7 @@ function reservePausedResumeIfTeam(
       billingTeamId: vm.billingTeamId,
       providerVmId,
       maxActiveVms,
-      // A resumed machine draws from the caller's current pool again.
-      resourcePool: resourcePoolPolicyForPlan(planId || vm.billingPlanId, maxActiveVms),
+      resourcePool: resumeResourcePoolForMachine(vm, planId, maxActiveVms),
     });
     if (!reserved) {
       return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
@@ -5164,30 +5164,9 @@ function requireAccessibleUserVm(input: ExistingVmAccessInput) {
       }
       vm = { ...vm, providerMetadata: { ...vm.providerMetadata, [GO_PAUSE_INTENT_KEY]: null } };
     }
-    if (input.callerPlanId && isPaidVmPlan(input.callerPlanId)) {
-      if (hasVmResourceReservationMetadata(vm.providerMetadata)) {
-        yield* requireMachineFitsPlan(input.callerPlanId, vm.providerMetadata);
-      } else {
-        const providers = yield* VmProviderGateway;
-        // Legacy rows are checked against live provider dimensions. Persist
-        // that measured claim before returning so a paused resume or another
-        // concurrent create counts the same CPU/RAM in the shared pool; the
-        // in-memory row is updated too for provider calls in this workflow.
-        const measured = yield* requireMeasuredMachineFitsPlan(input.callerPlanId, providers, vm, input.providerVmId);
-        if (repo.setResourceReservation) {
-          const persisted = yield* repo.setResourceReservation({ id: vm.id, reservation: measured });
-          if (persisted) {
-            vm = {
-              ...vm,
-              providerMetadata: {
-                ...vm.providerMetadata,
-                [VM_RESOURCE_RESERVATION_METADATA_KEY]: measured,
-              },
-            };
-          }
-        }
-      }
-    }
+    // Existing machines are grandfathered during the entitlement rollout.
+    // Plan checks belong on new allocations and future CPU/RAM growth; an
+    // oversized VM must remain usable while the customer migrates.
     if (isVmFreeAccessExpired(input.callerPlanId, vm.createdAt ?? undefined)) {
       return yield* Effect.fail(new VmFreeAccessExpiredError({
         vmId: input.providerVmId,
