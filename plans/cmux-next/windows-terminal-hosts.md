@@ -277,3 +277,27 @@ Open:
   in the daemon's job (it survives a daemon restart, ends only when that
   job closes) and keep the in-process fallback only for a spawn failure.
   The standby unit tests use `Breakaway::Stay` on such a runner.
+
+## Progress (2026-10-09 evening, rebased on feat-cmux-next with B3 216c72866348)
+
+- The Windows layer is now `terminal_host_runtime/sys/windows/` (declared in
+  `sys.rs`), so `terminal_host_runtime.rs` needs no line from us (god-file
+  check passes; request R1 withdrawn).
+- `sys/windows/seams.rs` replaces most `windows_stubs`: FileOwner (proof of an
+  owner-only directory of ours), record file checks and opens (links
+  refused), leases (LockFileEx), HostLivenessLease, process_definitely_gone,
+  rename_no_replace (MoveFileExW), sync, private and endpoint directories,
+  connect_with_retry (same-user owner check), AcceptWaker (event).
+  Still stubs: PTY custody (none in v1), StandbyTerminalHost and
+  launch_terminal_host_from (wait for the host entry and
+  serve_terminal_host_stdio on Windows, still in `mod unix`), SessionId,
+  process-group signals and kill (Job Object), PTY lock and loss-signal
+  cleanup.
+- Host bootstrap streams are named pipes, not inherited handles (see the
+  Spawn row); `open_bootstrap_pipes` is the host-side call.
+- Hosted run 37979232196 at be8c39ee4eb: lint (linux, clippy) green; test
+  (windows) 28 Windows-layer tests green, the 2 red integration tests still
+  red as expected; macOS lint fails on an upstream unused import
+  (server.rs `machine_listening_tcp_json`, not ours); the Linux package
+  entrypoint jobs fail with "npm package archive exceeds expanded size
+  limit" (not traced).
