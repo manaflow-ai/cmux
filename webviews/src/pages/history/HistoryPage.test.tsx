@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
+import type { Root } from "react-dom/client";
+import { privateCreateRoot } from "../../../test/viewer-empty-dom";
 import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
-import { HistoryPage } from "./HistoryPage";
 import { MockHistoryProvider, sampleEntries } from "./mockProvider";
 import { HistoryStore } from "./store";
 import { ACTION_RUN, HistoryOps } from "./types";
@@ -25,6 +25,7 @@ beforeEach(() => {
     "HTMLElement",
     "Element",
     "Node",
+    "getComputedStyle",
     "requestAnimationFrame",
     "cancelAnimationFrame",
     "IS_REACT_ACT_ENVIRONMENT",
@@ -35,6 +36,7 @@ beforeEach(() => {
   (globalThis as any).HTMLElement = dom.window.HTMLElement;
   (globalThis as any).Element = dom.window.Element;
   (globalThis as any).Node = dom.window.Node;
+  (globalThis as any).getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
   (globalThis as any).requestAnimationFrame = (callback: FrameRequestCallback) =>
     setTimeout(() => callback(Date.now()), 0) as unknown as number;
   (globalThis as any).cancelAnimationFrame = (handle: number) => clearTimeout(handle);
@@ -43,7 +45,7 @@ beforeEach(() => {
   // react-dom picks its input-event path when the module first loads; in a shared bun test
   // process that can be before any DOM exists, which selects the legacy IE path. Stub it.
   Object.assign(dom.window.HTMLElement.prototype, { attachEvent: () => undefined, detachEvent: () => undefined });
-  root = createRoot(dom.window.document.getElementById("root")!);
+  root = privateCreateRoot()(dom.window.document.getElementById("root")!);
 });
 
 afterEach(() => {
@@ -52,9 +54,20 @@ afterEach(() => {
 });
 
 async function render(provider: MockHistoryProvider | null, language = "en") {
+  // Base UI reads the DOM at module evaluation time. Load the page and provider after the
+  // per-test JSDOM has replaced the shared globals so its portal and focus managers bind to it.
+  const [{ HistoryPage }, { UiProvider, languageDirection }] = await Promise.all([
+    import("./HistoryPage"),
+    import("../../ui/UiProvider"),
+  ]);
   const store = new HistoryStore(provider, { newKey: () => "k" });
+  const strings = createStrings(table, [language]);
   await act(async () => {
-    root.render(<HistoryPage store={store} strings={createStrings(table, [language])} now={() => now} />);
+    root.render(
+      <UiProvider container={dom.window.document.getElementById("root")} dir={languageDirection(strings.language)}>
+        <HistoryPage store={store} strings={strings} now={() => now} />
+      </UiProvider>,
+    );
   });
   await act(async () => {
     await store.start();
