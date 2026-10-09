@@ -167,3 +167,120 @@ fn each_visible_change_is_taken_once() {
     records.apply(ProgramStatusEvent::PromptStart, 0);
     assert!(!records.take_change());
 }
+
+fn report_with_app(id: &str, state: ProgramStatusState, app: &str) -> ProgramStatusEvent {
+    ProgramStatusEvent::Report(ProgramStatusReport {
+        state,
+        kind: None,
+        progress: None,
+        id: id.into(),
+        app: app.into(),
+        title: String::new(),
+        message: String::new(),
+    })
+}
+
+fn shown_apps(records: &ProgramStatusRecords) -> Vec<(String, Value)> {
+    records
+        .to_json(true)
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|record| (record["id"].as_str().unwrap().to_owned(), record["app"].clone()))
+        .collect()
+}
+
+/// The specification: "A record without app takes it from its nearest
+/// ancestor that has one" (the deploy example's regions show app=deploy).
+/// The parent does not have to exist, and a record's own app wins.
+#[test]
+fn a_record_without_app_takes_the_nearest_ancestors_app() {
+    let mut records = ProgramStatusRecords::default();
+    records.apply(report_with_app("", ProgramStatusState::Working, "deploy"), 0);
+    records.apply(report("us-east", ProgramStatusState::Working), 0);
+    records.apply(report_with_app("eu", ProgramStatusState::Working, "kubectl"), 0);
+    records.apply(report("eu/west/pod", ProgramStatusState::Blocked), 0);
+    records.apply(report_with_app("own", ProgramStatusState::Done, "make"), 0);
+    assert_eq!(
+        shown_apps(&records),
+        vec![
+            ("".to_owned(), json!("deploy")),
+            ("eu".to_owned(), json!("kubectl")),
+            ("eu/west/pod".to_owned(), json!("kubectl")),
+            ("own".to_owned(), json!("make")),
+            ("us-east".to_owned(), json!("deploy")),
+        ]
+    );
+
+    // Without any ancestor app the record has none.
+    let mut records = ProgramStatusRecords::default();
+    records.apply(report("lonely/child", ProgramStatusState::Working), 0);
+    assert_eq!(shown_apps(&records), vec![("lonely/child".to_owned(), Value::Null)]);
+}
+
+/// A record that starts waiting on the user (`blocked`, worded by `kind`) or
+/// fails (`error`) posts one terminal notification on the record's terminal:
+/// the record's title, else its (inherited) app, names the program; the body
+/// is the record's message. Repeating the same report posts nothing new;
+/// `working`, `done`, `idle` and `clear` post nothing. A real PTY: the test
+/// runtime's placeholder surfaces never run their command.
+#[cfg(unix)]
+#[test]
+fn blocked_and_error_records_post_one_terminal_notification_each() {
+    use crate::{Mux, MuxEvent, NotificationLevel, NotificationSource, SurfaceOptions};
+    use std::time::{Duration, Instant};
+    // Each step sleeps past the terminal's notification spacing (1 s, and
+    // 5 s for a repeat of the same text) so a missing notification is the
+    // daemon's choice, not the rate limit's.
+    let script = concat!(
+        "s() { printf '\\033]7501;%s\\033\\\\' \"$1\"; sleep 1.3; }; ",
+        // "Apply 3 to add, 1 to change, 0 to destroy?"
+        "s 'state=blocked:kind=permission:app=terraform:msg=QXBwbHkgMyB0byBhZGQsIDEgdG8gY2hhbmdlLCAwIHRvIGRlc3Ryb3k/'; ",
+        "sleep 4; ",
+        "s 'state=blocked:kind=permission:app=terraform:msg=QXBwbHkgMyB0byBhZGQsIDEgdG8gY2hhbmdlLCAwIHRvIGRlc3Ryb3k/:progress=50'; ",
+        "s 'state=working:app=deploy'; ",
+        "s 'state=blocked:kind=auth:id=eu-west'; ",
+        "s 'state=error:id=build:title=QnVpbGQ=:msg=ZXhpdCAy'; ",
+        "s 'state=done:app=deploy'; ",
+        "s 'state=idle'; ",
+        "s 'state=clear'; ",
+        "printf '\\033]9;end\\007'; exec cat",
+    );
+    let mux = Mux::new(
+        "program-status-notifications",
+        SurfaceOptions {
+            command: Some(vec!["/bin/sh".into(), "-c".into(), script.into()]),
+            ..SurfaceOptions::default()
+        },
+    );
+    let events = mux.subscribe();
+    let surface = mux.new_workspace(None, Some((40, 6))).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(40);
+    let mut notes = Vec::new();
+    while notes.last().map(|(title, ..): &(String, String, NotificationLevel)| title.as_str())
+        != Some("end")
+    {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        assert!(!remaining.is_zero(), "notifications so far: {notes:?}");
+        if let Ok(MuxEvent::Notification(note)) = events.recv_timeout(remaining) {
+            assert_eq!(note.surface, Some(surface.id), "{note:?}");
+            assert_eq!(note.source, NotificationSource::Terminal, "{note:?}");
+            notes.push((note.title, note.body, note.level));
+        }
+    }
+    assert_eq!(
+        notes,
+        vec![
+            (
+                "terraform needs approval".to_owned(),
+                "Apply 3 to add, 1 to change, 0 to destroy?".to_owned(),
+                NotificationLevel::Warning,
+            ),
+            ("deploy needs sign-in".to_owned(), String::new(), NotificationLevel::Warning),
+            ("Build failed".to_owned(), "exit 2".to_owned(), NotificationLevel::Error),
+            ("end".to_owned(), String::new(), NotificationLevel::Info),
+        ]
+    );
+    mux.shutdown();
+}
