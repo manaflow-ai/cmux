@@ -22,7 +22,7 @@ extension WindowManager {
         // The session begins now, so the window's first page is incognito.
         _ = incognitoProfile()
         let daemon = services.daemon
-        let browserTabs = services.cache.browserTabs!
+        let browserTabs = services.cache.browserTabs
         let choice: BrowserEngineChoice = if case .open(let choice) = browserTabs.resolve(requested: nil) {
             choice
         } else {
