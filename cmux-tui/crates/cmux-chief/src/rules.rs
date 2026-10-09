@@ -248,6 +248,8 @@ mod tests {
             author: author.into(),
             parts: vec![Part::Text { text: "hi".into(), runs }],
             reply_to: reply_to.map(|id| PartRef { message_id: id.into(), part_index: 0 }),
+            answers: Vec::new(),
+            answers_pending: Vec::new(),
             created_at: String::new(),
             edited_at: None,
             retracted_at: None,

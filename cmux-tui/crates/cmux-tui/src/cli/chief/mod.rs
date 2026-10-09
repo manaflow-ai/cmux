@@ -58,6 +58,9 @@ pub(super) struct Args {
     pub help: bool,
     /// `chief engine …` or `chief stop`.
     pub control: Option<control::Control>,
+    /// `--no-wait-agents`: pipe mode ends with the turn that answers the
+    /// message, not after the subagents it started (E22).
+    pub no_wait_agents: bool,
 }
 
 /// `cmux [global options] chief …`; `None` when `args` names another scope.
@@ -110,6 +113,7 @@ pub(super) fn parse_args(args: &[String]) -> Result<Args, String> {
                 parsed.timeout_secs = (secs > 0).then_some(secs);
             }
             "--chief-home" => parsed.chief_home = Some(value()?.into()),
+            "--no-wait-agents" => parsed.no_wait_agents = true,
             "--history" => {
                 let text = value()?;
                 let n: usize =
@@ -235,14 +239,18 @@ impl Session {
     }
 
     /// Sends `text` as the person; the new message's seq.
-    fn send(&mut self, text: &str) -> Result<u64, LinkError> {
+    /// Sends `text`; the new message's seq and id.
+    fn send(&mut self, text: &str) -> Result<(u64, String), LinkError> {
         let key = link::new_message_id();
         let result = self.control.call(
             "conversation.send",
             link::send_params(&self.conversation, text),
             Some(&key),
         )?;
-        Ok(result.pointer("/value/message/seq").and_then(Value::as_u64).unwrap_or(0))
+        let message = result.pointer("/value/message");
+        let seq = message.and_then(|m| m.get("seq")).and_then(Value::as_u64).unwrap_or(0);
+        let id = message.and_then(|m| m.get("id")).and_then(Value::as_str).unwrap_or_default();
+        Ok((seq, id.to_owned()))
     }
 
     /// Messages with seq in `after+1 .. before`, oldest first.

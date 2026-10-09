@@ -152,5 +152,9 @@ fn the_reply_names_the_steered_message_it_answers() {
     let replies = turn_replies(&h.owner);
     assert_eq!(replies.len(), 1, "{replies:?}");
     assert_eq!(replies[0]["answers"], json!([first.id, second.id]));
-    assert!(replies[0].get("answers_pending").is_none(), "{:?}", replies[0]);
+    assert!(
+        replies[0].get("answers_pending").is_none(),
+        "{:?}",
+        replies[0]
+    );
 }

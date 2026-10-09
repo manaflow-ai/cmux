@@ -161,6 +161,8 @@ mod tests {
             author: author.to_string(),
             parts: vec![Part::Text { text: "x".to_string(), runs: None }],
             reply_to: None,
+            answers: Vec::new(),
+            answers_pending: Vec::new(),
             created_at: format_rfc3339_millis(at_ms),
             edited_at: None,
             retracted_at: None,

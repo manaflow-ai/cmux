@@ -133,7 +133,13 @@ fn unreferenced_records_are_swept_with_their_bytes_and_referenced_ones_stay() {
             &conversation,
             "c1",
             "user_local",
-            &Op::MessageSend { client_msg_id: "c1".into(), parts: vec![part], reply_to: None },
+            &Op::MessageSend {
+                client_msg_id: "c1".into(),
+                parts: vec![part],
+                reply_to: None,
+                answers: Vec::new(),
+                answers_pending: Vec::new(),
+            },
         )
         .unwrap();
     // Both records are older than the grace period.
@@ -159,7 +165,13 @@ fn send(store: &mut ConversationStore, conversation: &str, key: &str, bytes: &[u
             conversation,
             key,
             "user_local",
-            &Op::MessageSend { client_msg_id: key.into(), parts: vec![part], reply_to: None },
+            &Op::MessageSend {
+                client_msg_id: key.into(),
+                parts: vec![part],
+                reply_to: None,
+                answers: Vec::new(),
+                answers_pending: Vec::new(),
+            },
         )
         .unwrap();
 }

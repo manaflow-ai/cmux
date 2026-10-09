@@ -1005,6 +1005,17 @@ fn op_entry(conversation: String, key: &str, op: Op) -> OutboxEntry {
 }
 
 fn reply_entry(conversation: String, key: &str, text: &str) -> OutboxEntry {
+    answer_entry(conversation, key, text, Vec::new(), Vec::new())
+}
+
+/// A turn reply that names the messages it answers (E22).
+fn answer_entry(
+    conversation: String,
+    key: &str,
+    text: &str,
+    answers: Vec<String>,
+    answers_pending: Vec<String>,
+) -> OutboxEntry {
     let text = if text.len() > REPLY_BYTES {
         let mut cut = REPLY_BYTES;
         while !text.is_char_boundary(cut) {
@@ -1025,6 +1036,8 @@ fn reply_entry(conversation: String, key: &str, text: &str) -> OutboxEntry {
             client_msg_id: key.to_owned(),
             parts: vec![Part::Text { text, runs: None }],
             reply_to: None,
+            answers,
+            answers_pending,
         },
         rate_retried: false,
         not_before: None,

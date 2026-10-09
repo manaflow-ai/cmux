@@ -65,6 +65,10 @@ impl Brain {
             delivered: false,
             started_ms: now_ms(),
             turn: self.state.turn.as_ref().map(|t| t.key.clone()),
+            answers: match self.state.turn.as_ref() {
+                Some(turn) => turn.answers.clone(),
+                None => self.state.last_answers.clone(),
+            },
         };
         let queued: Vec<String> = record
             .subs

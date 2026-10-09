@@ -96,6 +96,8 @@ impl Host {
             client_msg_id: key.to_string(),
             parts: vec![text(body)],
             reply_to: None,
+            answers: Vec::new(),
+            answers_pending: Vec::new(),
         };
         self.run(actor, key, op).unwrap().message.unwrap()
     }
@@ -136,11 +138,21 @@ fn conversation_send_assigns_dense_seq_and_requires_matching_client_msg_id() {
     assert_eq!((first.seq, second.seq), (1, 2));
     assert_eq!(host.head.last_seq, 2);
     assert_eq!(host.head.rev, 3);
-    let mismatched =
-        Op::MessageSend { client_msg_id: "c3".to_string(), parts: vec![text("x")], reply_to: None };
+    let mismatched = Op::MessageSend {
+        client_msg_id: "c3".to_string(),
+        parts: vec![text("x")],
+        reply_to: None,
+        answers: Vec::new(),
+        answers_pending: Vec::new(),
+    };
     assert_eq!(host.run(ALICE, "other", mismatched).unwrap_err(), Reject::InvalidClientMsgId);
-    let outsider =
-        Op::MessageSend { client_msg_id: "c4".to_string(), parts: vec![text("x")], reply_to: None };
+    let outsider = Op::MessageSend {
+        client_msg_id: "c4".to_string(),
+        parts: vec![text("x")],
+        reply_to: None,
+        answers: Vec::new(),
+        answers_pending: Vec::new(),
+    };
     assert_eq!(host.run(EVE, "c4", outsider).unwrap_err(), Reject::NotParticipant);
     assert_eq!(host.head.rev, 3);
 }
@@ -152,6 +164,8 @@ fn conversation_parts_are_bounded() {
         client_msg_id: "k".to_string(),
         parts,
         reply_to: None,
+        answers: Vec::new(),
+        answers_pending: Vec::new(),
     };
     for parts in [
         vec![],
@@ -203,6 +217,8 @@ fn conversation_reply_to_must_name_an_existing_part() {
         client_msg_id: key.to_string(),
         parts: vec![text("answer")],
         reply_to: Some(PartRef { message_id: message_id.to_string(), part_index }),
+        answers: Vec::new(),
+        answers_pending: Vec::new(),
     };
     assert_eq!(
         host.run(MUX, "c2", reply("msg_nope", 0, "c2")).unwrap_err(),
@@ -428,6 +444,8 @@ fn random_op(rng: &mut Rng, host: &Host, key: &str) -> Op {
             client_msg_id: key.to_string(),
             parts: vec![text("x"); 1 + rng.below(2) as usize],
             reply_to: None,
+            answers: Vec::new(),
+            answers_pending: Vec::new(),
         },
         3 => Op::MessageEdit { message_id, parts: vec![text("edited")] },
         4 => Op::MessageRetract { message_id },
@@ -537,7 +555,13 @@ fn send_as(
     parts: Vec<Part>,
     now_ms: u64,
 ) -> Commit {
-    let op = Op::MessageSend { client_msg_id: key.to_string(), parts, reply_to: None };
+    let op = Op::MessageSend {
+        client_msg_id: key.to_string(),
+        parts,
+        reply_to: None,
+        answers: Vec::new(),
+        answers_pending: Vec::new(),
+    };
     let now = format_rfc3339_millis(now_ms);
     let id = format!("msg_{key}");
     let request = OpRequest {
@@ -591,6 +615,9 @@ fn conversation_a_reply_records_the_messages_it_answers() {
         ("b3", json!(["bad id"]), json!([])),
         ("b4", json!(too_many), json!([])),
     ] {
-        assert_eq!(host.run(MUX, key, send(key, answers, pending)).unwrap_err(), Reject::InvalidParts);
+        assert_eq!(
+            host.run(MUX, key, send(key, answers, pending)).unwrap_err(),
+            Reject::InvalidParts
+        );
     }
 }

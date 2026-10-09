@@ -1064,19 +1064,27 @@ fn the_host_trusts_its_own_subagent_folder_and_no_other() {
 fn report_turns_answer_the_message_that_started_the_spawn() {
     let mut s = setup();
     let asked = s.h.say("user_local", "hello");
-    s.h.settle();
+    s.h.settle_posts();
     spawn(&mut s, &["list the files in ~/", "say the date"]).unwrap();
     finish(&mut s, "s2", "s1", "a1");
-    s.h.settle();
+    s.h.settle_posts();
     let replies = turn_replies(&s.h.owner);
     assert_eq!(replies.len(), 2, "{replies:?}");
     assert_eq!(replies[0]["answers"], json!([asked.id]));
     assert_eq!(replies[1]["answers"], json!([asked.id]), "a1's report turn");
-    assert_eq!(replies[1]["answers_pending"], json!([asked.id]), "a2 still works");
+    assert_eq!(
+        replies[1]["answers_pending"],
+        json!([asked.id]),
+        "a2 still works"
+    );
     finish(&mut s, "s3", "s1", "a2");
-    s.h.settle();
+    s.h.settle_posts();
     let replies = turn_replies(&s.h.owner);
     assert_eq!(replies.len(), 3, "{replies:?}");
     assert_eq!(replies[2]["answers"], json!([asked.id]), "a2's report turn");
-    assert!(replies[2].get("answers_pending").is_none(), "{:?}", replies[2]);
+    assert!(
+        replies[2].get("answers_pending").is_none(),
+        "{:?}",
+        replies[2]
+    );
 }

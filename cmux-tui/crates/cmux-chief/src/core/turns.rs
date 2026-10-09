@@ -219,6 +219,8 @@ impl Core {
                                 client_msg_id: key,
                                 parts: vec![Part::Text { text, runs: None }],
                                 reply_to: None,
+                                answers: Vec::new(),
+                                answers_pending: Vec::new(),
                             },
                             child: None,
                         });

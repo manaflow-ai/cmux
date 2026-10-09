@@ -21,6 +21,8 @@ fn send(conversation: &str, key: &str, text: &str) -> OutboxEntry {
                 runs: None,
             }],
             reply_to: None,
+            answers: Vec::new(),
+            answers_pending: Vec::new(),
         },
         rate_retried: false,
         not_before: None,
