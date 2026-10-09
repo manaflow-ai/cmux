@@ -243,17 +243,7 @@ final class AppServices {
             guard let self, let workspace = workspaceID(ofTab: key) else { return false }
             return windows.isIncognito(workspace: workspace)
         }
-        // A pane or tab belongs to its own machine's daemon (cx-2cob).
-        // The registry does not hold the cache: no cycle.
-        let machines = machines
-        cache.browserTabs.daemonForPane = { pane in machines.daemon(forPane: pane) }
-        cache.browserTabs.daemonForTab = { tab in machines.daemon(forTab: tab) }
-        cache.browserTabs.daemons = { machines.daemons }
-        cache.browserTabs.machineName = { daemon in machines.machineName(daemon.machineID) ?? daemon.machineID }
-        cache.browserTabs.isIncognitoPane = { [weak self] pane in
-            guard let self, let workspace = machines.daemon(forPane: pane).store.workspace(containing: pane.handle)?.id else { return false }
-            return windows.isIncognito(workspace: workspace)
-        }
+        wireBrowserTabMachines()
         cache.browserProfile = { [weak self] key in self?.browserProfiles.engineProfile(forTab: key) }
         cache.profileBadge = { [weak self] key in self?.browserProfiles.omnibarBadge(forTab: key) }
         cache.profileBadgeMenu = { [weak self] key in

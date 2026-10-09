@@ -117,11 +117,7 @@ final class TabContentCache {
         self.daemon = daemon
         self.cef = cef
         browserTabs = BrowserTabService(daemon: daemon, cef: cef)
-        browserTabs.showNotice = { [weak self] daemon, surface, text in
-            guard let tab = daemon.store.tab(surface: surface), let entry = self?.browsers[tab.id] else { return false }
-            entry.chrome.showNotice(text)
-            return true
-        }
+        wireNotices()
     }
 
     var liveTerminalCount: Int { terminals.count }
@@ -319,11 +315,7 @@ final class TabContentCache {
         let entry = BrowserEntry(tab: page, suggestionEngine: incognito.map { incognitoSuggestions($0) } ?? suggestions(for: page.profileID),
                                  history: incognito?.history ?? history(for: page.profileID))
         entry.chrome.addressBar.tabKey = key
-        // Every page of a tab (web, app page, a late Chromium start) shows
-        // the tab's pending notice once.
-        if let notice = browserTabs.takeNotice(forKey: key) ?? browserTabs.tabModel(key).flatMap(browserTabs.takeNotice(for:)) {
-            entry.chrome.showNotice(notice)
-        }
+        showPendingNotice(on: entry, key: key)
         entry.chrome.onReturnFocusToPage = { [weak self] in self?.onPageFocusRequest?(key) }
         pageRequests.routeOmnibarOpens(of: entry.chrome, page: page)
         serveAppPages(entry, key: key)
