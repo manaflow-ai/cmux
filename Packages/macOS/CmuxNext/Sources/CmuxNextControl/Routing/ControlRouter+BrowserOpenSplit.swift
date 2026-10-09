@@ -26,9 +26,11 @@ import Foundation
 /// Placement (state-ownership.md 3): the named workspace, else the caller's
 /// terminal pane, else the focused pane of the front window, else (the window
 /// shows a page such as Home, so it has no focused pane) the default pane of
-/// the workspace under that page, and then the window shows the tab, or the
-/// person would see nothing. The CLI's `browser open` uses the daemon's
-/// current pane for that last case; the app uses its own window's workspace.
+/// the workspace under that page (never the Home workspace, which the window
+/// draws as the Home page: then its first other workspace), and then the
+/// window shows the tab, or the person would see nothing. The CLI's `browser
+/// open` uses the daemon's current pane for that last case; the app uses its
+/// own window's workspaces.
 ///
 /// The name is cmux's v1 method (the CLI's `open` verb sends it); cmux-next
 /// always opens a tab in a pane, never a new split.
@@ -205,11 +207,18 @@ struct BrowserOpenSplitPlacement: Sendable, Equatable {
             return Self(kind: .callerTerminal, targetTab: tab)
         }
         if topology.focus.paneID != nil { return Self(kind: .focusedPane, targetTab: nil) }
-        // A page (Home, History) has no pane: the workspace under it.
-        guard let id = topology.focus.workspaceID, let workspace = topology.workspace(id: id) else {
-            throw noPane(method)
-        }
+        // A page (Home, History) has no pane: the workspace under it, or,
+        // when that is the Home workspace (drawn as the Home page, so a tab
+        // there is never seen), the window's first other workspace.
+        guard let workspace = pageWorkspace(in: topology) else { throw noPane(method) }
         return Self(kind: .windowWorkspace, targetTab: try tab(in: workspace, topology: topology, method: method))
+    }
+
+    /// The workspace a window that shows a page reveals a new tab in.
+    static func pageWorkspace(in topology: ControlTopology) -> ControlWorkspaceInfo? {
+        let window = topology.windows.first { $0.id == topology.focus.windowID || $0.publicID == topology.focus.windowID }
+        let ids = [topology.focus.workspaceID].compactMap { $0 } + (window?.workspaceIDs ?? []) + topology.workspaces.map(\.id)
+        return ids.lazy.compactMap { topology.workspace(id: $0) }.first { $0.kind != "home" && !$0.panes.allSatisfy(\.tabs.isEmpty) }
     }
 
     /// The tab of `terminal` (daemon id or public `term_…` id).

@@ -178,6 +178,24 @@ final class OpenBrowserExecutor: ControlActionExecutor {
         #expect(reply["revealed"] == true)
     }
 
+    /// cmux-lawrence-2 check: the window showed Home, whose workspace is the
+    /// Home workspace drawn as the Home page, so a tab there was never seen.
+    @Test func aWindowShowingTheHomeWorkspaceOpensInItsFirstOtherWorkspace() async throws {
+        let executor = OpenBrowserExecutor()
+        let router = ControlRouter(identity: testIdentity(), executor: executor, configuration: .loadTolerant)
+        router.snapshots.publish { snapshot in
+            snapshot = Self.snapshot(showsPage: true)
+            snapshot.topology.workspaces[0].kind = "home"
+            snapshot.topology.windows[0].workspaceIDs = ["ws-1", "ws-2"]
+        }
+        executor.router.withLock { $0 = router }
+        let reply = try await open(router, ["url": "https://example.com/"]).get()
+        #expect(executor.all.first?.target == ControlTargetRef(kind: "tab", id: "tab-3"), "ws-2's default pane")
+        #expect(executor.all.last?.actionID == "tab.focus")
+        #expect(reply["workspace_id"] == "ws_bbb")
+        #expect(reply["placement"] == "window_workspace")
+    }
+
     @Test func focusTrueLetsTheRunChangeTheViewAndShowsTheTab() async throws {
         let executor = OpenBrowserExecutor()
         let router = makeRouter(executor)

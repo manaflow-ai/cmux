@@ -64,6 +64,7 @@ enum ControlTopologyMapper {
             }
         )
         info.resourceID = model.resourceID?.rawValue
+        info.kind = model.kind
         return info
     }
 

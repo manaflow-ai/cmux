@@ -33,6 +33,9 @@ public struct ControlWorkspaceInfo: Sendable, Hashable {
     /// The workspace's home session (`ControlSessionInfo.id`); nil for the
     /// app's home session. Its handles are valid only on that session.
     public var sessionID: String?
+    /// The workspace kind (`home` for the chief's Home workspace, which a
+    /// window draws as the Home page, not as panes); nil for an ordinary one.
+    public var kind: String?
 
     public init(id: String, handle: String, name: String, title: String? = nil, color: String? = nil, icon: String? = nil,
                 groupID: String? = nil, unreadCount: Int = 0, screens: [ControlScreenInfo] = [], sessionID: String? = nil) {
