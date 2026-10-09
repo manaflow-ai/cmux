@@ -102,6 +102,68 @@ enabled = false
     toml::to_string(&out).map_err(|e| format!("writing the compactor's codex config: {e}"))
 }
 
+/// A codex turn's config.toml: the routing and model keys of the user's,
+/// then the turn's isolation, as a Claude turn's (no user MCP servers,
+/// hooks, plugins, skills or apps) and no native subagents: the Chief's
+/// subagents are `chief spawn` sessions. The session directory's AGENTS.md
+/// (the Chief's instructions) stays.
+pub fn codex_turn_config(user: Option<&str>) -> Result<String, String> {
+    let mut out = toml::Table::new();
+    if let Some(text) = user {
+        let table: toml::Table = text
+            .parse()
+            .map_err(|e| format!("reading the user's codex config.toml: {e}"))?;
+        for key in CODEX_KEPT_KEYS {
+            if let Some(value) = table.get(key) {
+                out.insert(key.to_owned(), value.clone());
+            }
+        }
+    }
+    let isolation: toml::Table = r#"
+suppress_unstable_features_warning = true
+
+[features]
+apps = false
+plugins = false
+memories = false
+hooks = false
+multi_agent = false
+skip_host_skill_discovery = true
+
+[skills]
+include_instructions = false
+
+[skills.bundled]
+enabled = false
+"#
+    .parse()
+    .map_err(|e| format!("the codex turn's isolation table: {e}"))?;
+    out.extend(isolation);
+    toml::to_string(&out).map_err(|e| format!("writing the codex turn's config: {e}"))
+}
+
+/// Creates the codex turns' `CODEX_HOME` (0700, `paths.turn_codex`) with
+/// `codex_turn_config` of the user's config.toml in `user_home`, the
+/// Chief's installation id and a link to the user's sign-in (as a
+/// compactor slot's, `link_auth`).
+pub fn prepare_turn_codex_home(paths: &Paths, user_home: &Path) -> Result<(), String> {
+    let user = match std::fs::read_to_string(user_home.join("config.toml")) {
+        Ok(text) => Some(text),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => None,
+        Err(e) => return Err(format!("reading {}: {e}", user_home.display())),
+    };
+    let config = codex_turn_config(user.as_deref())?;
+    let dir = &paths.turn_codex;
+    private_dir(dir)
+        .and_then(|()| {
+            crate::session_dir::write_if_changed(&dir.join("config.toml"), config.as_bytes())
+        })
+        // One stable installation id for every turn (the prompt cache is per account).
+        .and_then(|()| chief_installation_id(dir).map(|_| ()))
+        .map_err(|e| format!("preparing {}: {e}", dir.display()))?;
+    link_auth(dir, user_home).map_err(|e| format!("preparing {}: {e}", dir.display()))
+}
+
 /// Creates every compactor slot's `CODEX_HOME` (0700) under
 /// `paths.compactor_codex` with `codex_compactor_config` of the user's
 /// config.toml in `user_home`, and empties it (`wipe_codex_home`). When the
