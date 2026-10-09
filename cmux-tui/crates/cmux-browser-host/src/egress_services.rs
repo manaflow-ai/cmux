@@ -59,9 +59,8 @@ fn service_refusal(port: u16, connected: bool) -> Option<String> {
     };
     if inodes.is_empty() {
         // A connect proved a listener: one the tables do not show refuses.
-        return connected.then(|| {
-            format!("loopback port {port} is held by a socket this host cannot see")
-        });
+        return connected
+            .then(|| format!("loopback port {port} is held by a socket this host cannot see"));
     }
     let (held, exes) = holders(&inodes);
     if let Some(name) = exes.iter().flatten().find(|name| is_service_name(name)) {
