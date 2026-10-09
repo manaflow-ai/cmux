@@ -16,6 +16,8 @@ import {
   type AccountsRow,
   type AccountsRun,
   type AccountsState,
+  type HarnessesRun,
+  type HarnessesState,
   type Diagnostic,
   type Domains,
   type ListRow,
@@ -138,6 +140,15 @@ export class MockSettingsProvider {
         return { added };
       },
       "cmux.settings.accounts.run": (params) => this.runAccounts(params as AccountsRun),
+      "cmux.settings.harnesses.state": () => this.harnesses,
+      "cmux.settings.harnesses.run": (params) => {
+        const run = params as HarnessesRun;
+        if ((run.action === "signIn" || run.action === "check") && !this.harnesses.harnesses.some((h) => h.id === run.id)) {
+          throw new ProtocolError("cmux.settings.invalid", "id must be a listed harness");
+        }
+        this.harnessRuns.push(run);
+        return {};
+      },
       "cmux.app.clipboard.write": (params) => {
         this.clipboard = String(params.text);
         return {};
@@ -165,6 +176,8 @@ export class MockSettingsProvider {
       "cmux.settings.host.lists",
       "cmux.settings.accounts.state",
       "cmux.settings.accounts.run",
+      "cmux.settings.harnesses.state",
+      "cmux.settings.harnesses.run",
       "cmux.settings.theme.set",
       "cmux.settings.theme.colors",
       "cmux.settings.theme.accepts",
@@ -190,6 +203,28 @@ export class MockSettingsProvider {
     session.provide("cmux.page.command", (ctx) => this.track(this.commands, ctx));
     session.provide("cmux.settings.host.changed", (ctx) => this.track(this.hostChanged, ctx));
     session.provide("cmux.settings.accounts.changed", (ctx) => this.track(this.accountsChanged, ctx));
+    session.provide("cmux.settings.harnesses.changed", (ctx) => this.track(this.harnessesChanged, ctx));
+  }
+
+  /** acpmux's harnesses as the app serves them (`SettingsHarnesses.state`). */
+  harnesses: HarnessesState = {
+    loading: false,
+    problem: null,
+    harnesses: [
+      { id: "claude", name: null, kind: "claude-stdio", source: "path", problem: null },
+      { id: "codex", name: null, kind: "acp", source: "path", problem: null },
+      { id: "github-copilot-cli", name: "GitHub Copilot", kind: "acp", source: "user-file", problem: null },
+      { id: "aider", name: "Aider", kind: "terminal", source: "user-file", problem: null },
+    ],
+  };
+  /** Harnesses gestures the page sent. */
+  readonly harnessRuns: HarnessesRun[] = [];
+  private readonly harnessesChanged = new Set<EventSourceContext>();
+
+  /** Replaces the Harnesses part and tells the page, like the app's observation push. */
+  setHarnesses(harnesses: HarnessesState): void {
+    this.harnesses = harnesses;
+    for (const ctx of this.harnessesChanged) ctx.emit(harnesses);
   }
 
   /** What the cmux picker returns for Add Folder… (tests set it). */

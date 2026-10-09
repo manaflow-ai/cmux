@@ -1,7 +1,14 @@
 import { createContext, useContext, useSyncExternalStore } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { AnyRouter } from "@tanstack/react-router";
-import { settingsKeys, type AccountsData, type HostData, type ScopeData, type ThemeColorsData } from "./queries";
+import {
+  settingsKeys,
+  type AccountsData,
+  type HarnessesData,
+  type HostData,
+  type ScopeData,
+  type ThemeColorsData,
+} from "./queries";
 import { composeState, type SettingsState, type SettingsStore } from "./store";
 
 export type SettingsContextValue = { store: SettingsStore; router: AnyRouter };
@@ -33,12 +40,14 @@ export function useSettingsState(): SettingsState {
   const scope = useQuery<ScopeData>({ queryKey: settingsKeys.scope("user"), ...reader });
   const host = useQuery<HostData>({ queryKey: settingsKeys.host, ...reader });
   const accounts = useQuery<AccountsData>({ queryKey: settingsKeys.accounts, ...reader });
+  const harnesses = useQuery<HarnessesData>({ queryKey: settingsKeys.harnesses, ...reader });
   const themeColors = useQuery<ThemeColorsData>({ queryKey: settingsKeys.themeColors, ...reader });
   return composeState(ui, {
     scope: scope.data,
     scopeSettled: scope.status !== "pending",
     host: host.data,
     accounts: accounts.data,
+    harnesses: harnesses.data,
     themeColors: themeColors.data,
   });
 }
