@@ -807,7 +807,20 @@ fn apply_kind(
             events.push(LayoutEvent::PaneCreated { pane: *new_pane, screen: screen_id });
             state.move_tab(*tab, source, *new_pane, 0, events)?;
         }
-        LayoutOpKind::SplitNew { pane, .. } => return Err(Reject::UnknownPane(*pane)),
+        LayoutOpKind::SplitNew { pane, edge, new_pane, new_tab } => {
+            let slot = state.require_pane(*pane)?;
+            state.ensure_fresh(&[*new_pane, new_tab.tab])?;
+            let screen = state.screen_mut(slot);
+            let at = if edge.before() { slot.pane } else { slot.pane + 1 };
+            screen.columns[slot.column].note_inserted(slot.pane);
+            screen.columns[slot.column].panes.insert(at, *new_pane);
+            let screen_id = screen.id;
+            state.insert_pane(*new_pane);
+            events.push(LayoutEvent::PaneCreated { pane: *new_pane, screen: screen_id });
+            state.tabs.insert(new_tab.tab, new_tab.content.clone());
+            state.panes.get_mut(new_pane).ok_or(Reject::UnknownPane(*new_pane))?.push(new_tab.tab);
+            events.push(LayoutEvent::TabCreated { tab: new_tab.tab, pane: *new_pane });
+        }
         LayoutOpKind::MoveTabToColumn {
             tab,
             anchor,

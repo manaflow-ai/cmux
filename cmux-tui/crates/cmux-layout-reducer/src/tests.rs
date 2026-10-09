@@ -530,8 +530,10 @@ fn concrete(
             let pane = pane(*p)?;
             let new_pane = fresh();
             let id = fresh();
-            let new_tab =
-                NewTab { tab: id, content: TabContent { runtime: id * 10, terminal: None, dead: false } };
+            let new_tab = NewTab {
+                tab: id,
+                content: TabContent { runtime: id * 10, terminal: None, dead: false },
+            };
             LayoutOpKind::SplitNew { pane, edge: *edge, new_pane, new_tab }
         }
         Step::Column { tab: t, pane: p, after } => {
