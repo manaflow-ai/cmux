@@ -27,15 +27,18 @@ export function chatGallery(rows: readonly AcpmuxRow[]): GalleryItem[] {
   const seen = new Set<string>();
   // The open turn's items, in order; its renders join only when its summary comes.
   let turn: GalleryItem[] | undefined;
+  let started = false;
   const settle = (ended: boolean) => {
     if (turn) items.push(...(ended ? turn : turn.filter((item) => item.kind !== "render")));
     turn = undefined;
   };
   for (const row of rows) {
-    // A prompt not yet accepted neither ends a turn nor starts one (turns.ts isUnsent).
-    if (row.kind === "user" && !row.pending && !row.failed) {
+    // A prompt not yet accepted neither ends a turn nor starts one (turns.ts isUnsent), except
+    // the first: with no accepted prompt loaded, the transcript's first turn starts at it.
+    if (row.kind === "user" && (!started || (!row.pending && !row.failed))) {
       settle(false);
       turn = [];
+      started = true;
     } else if (row.kind === "turnSummary") settle(true);
     else if (row.kind === "assistant")
       for (const image of imagesOf(row)) {
