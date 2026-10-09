@@ -47,13 +47,13 @@ pub fn user_codex_home() -> PathBuf {
 /// where its requests go (the team subrouter) and the model it asks for.
 /// Nothing else: no MCP servers, profiles, hooks, notify, projects,
 /// plugins or skills.
-pub const CODEX_KEPT_KEYS: [&str; 8] = [
+/// Not `service_tier`: a slot sets its own (`codex_compactor_config_at`).
+pub const CODEX_KEPT_KEYS: [&str; 7] = [
     "model",
     "model_provider",
     "model_providers",
     "openai_base_url",
     "chatgpt_base_url",
-    "service_tier",
     "model_reasoning_effort",
     "model_verbosity",
 ];
@@ -69,8 +69,14 @@ pub fn codex_compactor_config(user: Option<&str>) -> Result<String, String> {
 /// `codex_compactor_config` with the slot's own speed: `service_tier =
 /// "fast"` when `fast`, else no tier (the default), whatever the user's
 /// config says.
-pub fn codex_compactor_config_at(user: Option<&str>, _fast: bool) -> Result<String, String> {
+pub fn codex_compactor_config_at(user: Option<&str>, fast: bool) -> Result<String, String> {
     let mut out = toml::Table::new();
+    if fast {
+        out.insert(
+            "service_tier".to_owned(),
+            toml::Value::String("fast".to_owned()),
+        );
+    }
     if let Some(text) = user {
         let table: toml::Table = text
             .parse()
@@ -180,12 +186,17 @@ pub fn prepare_turn_codex_home(paths: &Paths, user_home: &Path) -> Result<(), St
 /// writes auth.json in place, so a refresh through the link updates the
 /// user's own file.
 pub fn prepare_codex_homes(paths: &Paths, user_home: &Path) -> Result<(), String> {
+    prepare_codex_homes_at(paths, user_home, false)
+}
+
+/// `prepare_codex_homes` with the slots' speed (`compactor_speed` fast).
+pub fn prepare_codex_homes_at(paths: &Paths, user_home: &Path, fast: bool) -> Result<(), String> {
     let user = match std::fs::read_to_string(user_home.join("config.toml")) {
         Ok(text) => Some(text),
         Err(e) if e.kind() == io::ErrorKind::NotFound => None,
         Err(e) => return Err(format!("reading {}: {e}", user_home.display())),
     };
-    let config = codex_compactor_config(user.as_deref())?;
+    let config = codex_compactor_config_at(user.as_deref(), fast)?;
     private_dir(&paths.compactor_codex)
         .map_err(|e| format!("creating {}: {e}", paths.compactor_codex.display()))?;
     let private_home = codex_private_home(&paths.compactor_codex);

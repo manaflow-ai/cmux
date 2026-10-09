@@ -630,12 +630,30 @@ fn start(
     // Compactor sessions require their own presets and configuration, which
     // OPTCHAT_CHIEF_ISOLATE never turns off: without them, every node would
     // run the user's hooks, MCP servers and auto-memory on the chat's text.
+    // The compactor's speed (OPTCHAT_COMPACTOR_SPEED, else engine.json's
+    // compactor_speed), fixed at host start like its harness.
+    let compactor_speed =
+        env("OPTCHAT_COMPACTOR_SPEED").or_else(|| engine_choice_file.compactor_speed.clone());
+    let compactor_fast = match compactor_speed.as_deref() {
+        Some(speed) => match crate::engine::check_speed(speed, compactor_family) {
+            Ok(()) => crate::engine::is_fast(Some(speed)),
+            Err(reason) => {
+                log(format!("compactor: {reason}; it runs at the default speed"));
+                false
+            }
+        },
+        None => false,
+    };
     let mut required = Vec::new();
     if route == CompactRoute::Acpmux {
         crate::compactor::prepare_config(&paths.compactor_config)
             .map_err(|e| format!("creating {}: {e}", paths.compactor_config.display()))?;
         if compactor_family == Family::Codex {
-            crate::compactor::prepare_codex_homes(paths, &crate::compactor::user_codex_home())?;
+            crate::compactor::prepare_codex_homes_at(
+                paths,
+                &crate::compactor::user_codex_home(),
+                compactor_fast,
+            )?;
         }
         required.extend(compactor_presets(
             paths,
@@ -751,6 +769,7 @@ fn start(
                 let spec = compactor_spec(paths, home, &compactor_harness, compactor_family, model);
                 let spec = crate::compactor::CompactorSpec {
                     effort: compactor_effort.clone().or(spec.effort.clone()),
+                    fast: compactor_fast,
                     ..spec
                 };
                 AcpmuxCompactor::new(port.clone(), spec, slots.clone())

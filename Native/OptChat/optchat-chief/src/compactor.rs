@@ -734,7 +734,7 @@ impl AcpmuxCompactor {
             preset: Some(preset.clone()),
             tags: crate::acpmux::chief_tags(&self.spec.chief, "compactor"),
             env: Default::default(),
-            fast: false,
+            fast: self.spec.fast,
         };
         let id = self
             .port

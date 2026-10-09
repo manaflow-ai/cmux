@@ -690,6 +690,9 @@ pub fn events(client: &RpcClient, session: &str, after: u64) -> Result<Vec<Acpmu
     }
 }
 
+/// codex-acp's config option for the fast (priority) service tier.
+pub const FAST_MODE_OPTION: &str = "fast-mode";
+
 /// `session/new` with acpmux's name, harness, policy, model and preset.
 pub fn new_session(
     client: &RpcClient,
@@ -727,6 +730,20 @@ pub fn new_session(
     {
         let _ = client.request("_acpmux/kill", json!({"sessionId": id, "purge": true}));
         return Err(format!("tagging session {}: {e}", spec.name));
+    }
+    // The fast service tier: codex-acp's `fast-mode` config option (the
+    // priority tier); a session that cannot take it does not stay.
+    if spec.fast
+        && let Err(e) = client.request(
+            "session/set_config_option",
+            json!({"sessionId": id, "configId": FAST_MODE_OPTION, "value": "on"}),
+        )
+    {
+        let _ = client.request("_acpmux/kill", json!({"sessionId": id, "purge": true}));
+        return Err(format!(
+            "setting the fast tier of session {}: {e}",
+            spec.name
+        ));
     }
     Ok(id)
 }
