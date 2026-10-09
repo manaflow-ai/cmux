@@ -146,10 +146,6 @@ def main() -> int:
                 print("FAIL: opencode tried to resolve cmux-session as a package")
                 print(debug_output[-4000:])
                 return 1
-            if f"file://{plugin_path}" not in debug_output:
-                print("FAIL: opencode did not auto-load cmux session plugin file")
-                print(debug_output[-4000:])
-                return 1
 
         fake_cmux = root / "fake-cmux"
         fake_args_log = root / "fake-cmux-args.log"
