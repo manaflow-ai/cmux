@@ -40,7 +40,7 @@ fn nodes_are_built_in_spec_order() {
     };
     let chat = open(dir.path(), 128_000, model);
     // Append everything at once: the compactor must still go in order.
-    for n in 0..64 {
+    for n in 0..256 {
         chat.append(Kind::User, &long(n)).unwrap();
     }
     assert!(chat.wait_idle(None, WAIT));
@@ -48,7 +48,7 @@ fn nodes_are_built_in_spec_order() {
     // Every message is compressed once.
     let mut level0: Vec<u64> = calls.iter().filter(|c| c.0.l == 0).map(|c| c.0.i).collect();
     level0.sort();
-    assert_eq!(level0, (0..64).collect::<Vec<_>>());
+    assert_eq!(level0, (0..256).collect::<Vec<_>>());
     for (node, context, done_before) in calls.iter() {
         // No call ever sees a placeholder (spec 4); its view ends at the node.
         assert!(!context.contains("not summarized yet"), "{node:?}");
@@ -60,11 +60,11 @@ fn nodes_are_built_in_spec_order() {
         }
         if node.l == 0 {
             // Spec 4 (gist 3c190e0): a message's node starts once fewer than
-            // 8 lines before it are still unbuilt.
+            // AHEAD lines before it are still unbuilt.
             let unbuilt = (0..node.i)
                 .filter(|j| !done_before.contains(&NodeId::new(0, *j)))
                 .count();
-            assert!(unbuilt < 8, "{node:?} started with {unbuilt} unbuilt before it");
+            assert!(unbuilt < optchat_core::AHEAD, "{node:?} started with {unbuilt} unbuilt before it");
         } else {
             let a = NodeId::new(node.l - 1, 2 * node.i);
             let b = NodeId::new(node.l - 1, 2 * node.i + 1);
@@ -74,10 +74,10 @@ fn nodes_are_built_in_spec_order() {
             );
         }
     }
-    // The whole tree over 64 messages: 64 + 32 + ... + 1 nodes.
-    assert_eq!(calls.len(), 127);
-    assert_eq!(chat.status().built, 127);
-    assert!(peak.load(Ordering::SeqCst) <= 8);
+    // The whole tree over 256 messages: 256 + 128 + ... + 1 nodes.
+    assert_eq!(calls.len(), 511);
+    assert_eq!(chat.status().built, 511);
+    assert!(peak.load(Ordering::SeqCst) <= optchat_core::JOBS);
 }
 
 #[test]

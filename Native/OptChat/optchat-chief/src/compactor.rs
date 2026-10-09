@@ -25,7 +25,7 @@
 //! the prefix is byte-identical; its nodes share one working directory. Each size loop retry is the next prompt in the same session, the
 //! reply text the line. `end` (after the node is built or failed) kills the session with
 //! purge, deletes its Claude Code transcript and logs its seconds and token
-//! use. At most JOBS sessions live at once across the main and fallback
+//! use. At most COMPACTOR_SESSIONS sessions live at once across the main and fallback
 //! compactors (one `Slots` gate).
 
 use std::collections::{BTreeMap, HashMap};
@@ -149,7 +149,15 @@ pub struct CompactorSpec {
     pub chief: String,
 }
 
-/// The session slots of the compactor (the core's JOBS), shared by the main
+/// Compactor sessions that live at once across the main and fallback
+/// compactors (one `Slots` gate): fewer than the core's `JOBS` (64), which
+/// the other calls wait behind. Each session is a Claude Code process
+/// (about 200-400 MB), and every node of one Chief goes to one sticky
+/// subrouter account, whose subscription limits concurrent requests; 16
+/// keeps both bounded while a burst still runs 2x the old width.
+pub const COMPACTOR_SESSIONS: usize = 16;
+
+/// The session slots of the compactor (`COMPACTOR_SESSIONS`), shared by the main
 /// and the fallback compactor. Each slot has its own working directory, so a
 /// node's Claude Code project directory holds only that node's transcript.
 pub struct Slots {
@@ -326,7 +334,7 @@ impl AcpmuxCompactor {
         std::fs::canonicalize(&dir)
     }
 
-    /// Opens the node's session (a slot first, so at most JOBS live), with
+    /// Opens the node's session (a slot first, so at most COMPACTOR_SESSIONS live), with
     /// `system` as its slot preset's system prompt in the cached layout.
     fn open(&self, node: NodeId, system: Option<&str>) -> Result<String, ModelError> {
         // Claude only through acpmux's own Claude Code adapter
@@ -995,13 +1003,13 @@ pub fn slot_preset(base: &str, k: usize) -> String {
 }
 
 /// The compactor's acpmux presets (`optchat-compact-<home id>-slot-<k>`, one
-/// per JOBS slot), which every compactor session requires.
+/// per slot), which every compactor session requires.
 /// OPTCHAT_CHIEF_ISOLATE=0 does not touch them.
 pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str, family: Family) -> Vec<Preset> {
     let base = format!("optchat-compact-{}", home_id(home));
     if family == Family::Codex {
         // Codex: the slot's own CODEX_HOME and the Chief's compactor cache key.
-        return (0..optchat_core::JOBS)
+        return (0..COMPACTOR_SESSIONS)
             .map(|k| Preset {
                 name: slot_preset(&base, k),
                 harness: harness.to_owned(),
@@ -1051,7 +1059,7 @@ pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str, family: Fami
     // Claude Code flags and system prompts: a Claude harness only (claude,
     // claude-sr, ...); another harness keeps the old layout.
     let claude = family == Family::Claude;
-    (0..optchat_core::JOBS)
+    (0..COMPACTOR_SESSIONS)
         .map(|k| Preset {
             name: slot_preset(&base, k),
             harness: harness.to_owned(),

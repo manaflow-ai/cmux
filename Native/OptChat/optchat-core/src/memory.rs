@@ -108,8 +108,9 @@ fn more_due(t: u64, a: NodeId, b: NodeId) -> bool {
 }
 
 /// Unbuilt message nodes that may run at once: a message's node starts once
-/// fewer than this many lines before it are still unbuilt (spec 4).
-pub const AHEAD: usize = 8;
+/// fewer than this many lines before it are still unbuilt (spec 4 looks 8
+/// ahead; the reference client as many as it runs, `JOBS`).
+pub const AHEAD: usize = JOBS;
 
 /// One chat's memory state. Single writer: one `Memory` per chat.
 ///

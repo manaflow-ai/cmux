@@ -2,7 +2,7 @@
 //! per node with a deny-all policy and its own required preset, in a slot
 //! working directory outside the home, the size loop in the same session,
 //! the session killed and its transcript deleted when the node is done or
-//! failed, at most JOBS sessions across the main and fallback compactors,
+//! failed, at most COMPACTOR_SESSIONS sessions across the main and fallback compactors,
 //! refusals as acpmux really sends them, and the route chosen by the endpoint.
 
 mod common;
@@ -20,7 +20,7 @@ use optchat_chief::compactor::{
     slot_preset, strip_preamble,
 };
 use optchat_chief::paths::Paths;
-use optchat_core::JOBS;
+use optchat_chief::compactor::COMPACTOR_SESSIONS;
 use optchat_host::{
     CompactModel, CompactRequest, Config, DEFAULT_BASE_URL, Kind, NodeId, OptChat, PROBE_NODE,
     SUBROUTER_KEY, SystemClock, probe, run_node,
@@ -61,7 +61,7 @@ fn spec(dir: &std::path::Path) -> CompactorSpec {
 }
 
 fn compactor(agents: &Arc<FakeAgents>, dir: &std::path::Path) -> AcpmuxCompactor {
-    AcpmuxCompactor::new(agents.clone(), spec(dir), Slots::new(JOBS))
+    AcpmuxCompactor::new(agents.clone(), spec(dir), Slots::new(COMPACTOR_SESSIONS))
 }
 
 fn request(i: u64) -> CompactRequest {
@@ -189,17 +189,17 @@ fn at_most_jobs_compactor_sessions_live_at_once() {
     agents.hold(true);
     let compactor = Arc::new(compactor(&agents, dir.path()));
     let extra = 3;
-    let workers: Vec<_> = (0..(JOBS + extra) as u64)
+    let workers: Vec<_> = (0..(COMPACTOR_SESSIONS + extra) as u64)
         .map(|i| {
             let c = compactor.clone();
             std::thread::spawn(move || run_node(&*c, &request(i)))
         })
         .collect();
-    agents.wait_prompts(JOBS);
+    agents.wait_prompts(COMPACTOR_SESSIONS);
     std::thread::sleep(Duration::from_millis(200));
     assert_eq!(
         agents.inner.lock().unwrap().specs.len(),
-        JOBS,
+        COMPACTOR_SESSIONS,
         "the others wait for a free session slot"
     );
     agents.hold(false);
@@ -208,8 +208,8 @@ fn at_most_jobs_compactor_sessions_live_at_once() {
         assert!(w.join().unwrap().is_ok());
     }
     let inner = agents.inner.lock().unwrap();
-    assert_eq!(inner.specs.len(), JOBS + extra);
-    assert_eq!(inner.ended.len(), JOBS + extra);
+    assert_eq!(inner.specs.len(), COMPACTOR_SESSIONS + extra);
+    assert_eq!(inner.ended.len(), COMPACTOR_SESSIONS + extra);
 }
 
 #[test]
@@ -337,7 +337,7 @@ fn a_refused_node_is_built_by_the_fallback_compactor() {
     let dir = tempfile::tempdir().unwrap();
     let agents = FakeAgents::new(Box::new(|_, _| answer("user: built by the fallback")));
     agents.inner.lock().unwrap().answer_error = Some(REFUSAL.into());
-    let slots = Slots::new(JOBS);
+    let slots = Slots::new(COMPACTOR_SESSIONS);
     let main = Arc::new(AcpmuxCompactor::new(
         agents.clone(),
         spec(dir.path()),
@@ -465,7 +465,7 @@ fn main_and_fallback_compactors_share_jobs_slots() {
     let dir = tempfile::tempdir().unwrap();
     let agents = FakeAgents::new(Box::new(|turn, _| answer(&format!("user: node {turn}"))));
     agents.hold(true);
-    let slots = Slots::new(JOBS);
+    let slots = Slots::new(COMPACTOR_SESSIONS);
     let a = Arc::new(AcpmuxCompactor::new(
         agents.clone(),
         spec(dir.path()),
@@ -476,15 +476,15 @@ fn main_and_fallback_compactors_share_jobs_slots() {
         spec(dir.path()),
         slots,
     ));
-    let workers: Vec<_> = (0..(JOBS + 4) as u64)
+    let workers: Vec<_> = (0..(COMPACTOR_SESSIONS + 4) as u64)
         .map(|i| {
             let c = if i % 2 == 0 { a.clone() } else { b.clone() };
             std::thread::spawn(move || run_node(&*c, &request(i)))
         })
         .collect();
-    agents.wait_prompts(JOBS);
+    agents.wait_prompts(COMPACTOR_SESSIONS);
     std::thread::sleep(Duration::from_millis(200));
-    assert_eq!(agents.inner.lock().unwrap().specs.len(), JOBS);
+    assert_eq!(agents.inner.lock().unwrap().specs.len(), COMPACTOR_SESSIONS);
     let cwds: std::collections::BTreeSet<_> = agents
         .inner
         .lock()
@@ -495,7 +495,7 @@ fn main_and_fallback_compactors_share_jobs_slots() {
         .collect();
     assert_eq!(
         cwds.len(),
-        JOBS,
+        COMPACTOR_SESSIONS,
         "each live session has its own slot directory"
     );
     agents.hold(false);
@@ -842,7 +842,7 @@ fn the_compactor_presets_are_one_per_slot_with_allowlisted_args_and_a_system_pro
     let presets = compactor_presets(&paths, &home, "claude-sr", Family::Claude);
     assert_eq!(
         presets.len(),
-        JOBS,
+        COMPACTOR_SESSIONS,
         "one per slot: a slot's prompt never races another's"
     );
     let id = optchat_chief::paths::home_id(&home);
@@ -864,7 +864,7 @@ fn the_compactor_presets_are_one_per_slot_with_allowlisted_args_and_a_system_pro
     assert_eq!(presets[0].args, COMPACTOR_ARGS);
     // Claude Code flags and system prompts mean nothing to another harness.
     let codex = compactor_presets(&paths, &home, "codex", Family::Codex);
-    assert_eq!(codex.len(), JOBS);
+    assert_eq!(codex.len(), COMPACTOR_SESSIONS);
     assert!(
         codex
             .iter()
@@ -887,7 +887,7 @@ fn a_codex_compactor_shares_one_working_directory_and_keeps_a_byte_stable_prefix
         ..spec(dir.path())
     };
     // Two nodes at once, so they hold two slots.
-    let compactor = Arc::new(AcpmuxCompactor::new(agents.clone(), spec, Slots::new(JOBS)));
+    let compactor = Arc::new(AcpmuxCompactor::new(agents.clone(), spec, Slots::new(COMPACTOR_SESSIONS)));
     agents.hold(true);
     let r = |i: u64| CompactRequest {
         context: chat_of(1_100),
@@ -940,7 +940,7 @@ fn a_codex_node_logs_its_cached_tokens() {
         model: None,
         ..spec(dir.path())
     };
-    let compactor = AcpmuxCompactor::new(agents.clone(), spec, Slots::new(JOBS)).with_log(
+    let compactor = AcpmuxCompactor::new(agents.clone(), spec, Slots::new(COMPACTOR_SESSIONS)).with_log(
         Arc::new(move |l: &str| sink.lock().unwrap().push(l.to_owned())),
     );
     run_node(&compactor, &request(4)).unwrap();
@@ -970,7 +970,7 @@ fn codex_compactor_presets_give_each_slot_its_own_codex_home_and_the_compact_cac
     let paths = Paths::new(&home);
     let id = optchat_chief::paths::home_id(&home);
     let presets = compactor_presets(&paths, &home, "codex", Family::Codex);
-    assert_eq!(presets.len(), JOBS);
+    assert_eq!(presets.len(), COMPACTOR_SESSIONS);
     let mut homes = std::collections::BTreeSet::new();
     for (k, p) in presets.iter().enumerate() {
         assert_eq!(p.name, format!("optchat-compact-{id}-slot-{k}"));
@@ -990,7 +990,7 @@ fn codex_compactor_presets_give_each_slot_its_own_codex_home_and_the_compact_cac
         assert!(p.args.is_empty() && p.system_prompt.is_none());
         homes.insert(p.env["CODEX_HOME"].clone());
     }
-    assert_eq!(homes.len(), JOBS, "one CODEX_HOME per slot");
+    assert_eq!(homes.len(), COMPACTOR_SESSIONS, "one CODEX_HOME per slot");
 }
 
 /// A slot's codex config.toml keeps where requests go and the model, and
@@ -1093,7 +1093,7 @@ base_url = "http://router:31415/v1"
     std::fs::write(user_home.join("AGENTS.md"), "user instructions").unwrap();
     std::fs::write(user_home.join("auth.json"), "{}").unwrap();
     prepare_codex_homes(&paths, &user_home).unwrap();
-    for k in 0..JOBS {
+    for k in 0..COMPACTOR_SESSIONS {
         let slot = paths.compactor_codex.join(format!("slot-{k}"));
         let mut names: Vec<String> = std::fs::read_dir(&slot)
             .unwrap()
@@ -1126,7 +1126,7 @@ base_url = "http://router:31415/v1"
     // ids read 0 of a 31.5k-token prefix the other wrote, with one shared id
     // 30,464. Every slot carries the same id, a UUID codex accepts, and a
     // host restart keeps it.
-    let ids: Vec<String> = (0..JOBS)
+    let ids: Vec<String> = (0..COMPACTOR_SESSIONS)
         .map(|k| {
             std::fs::read_to_string(
                 paths
@@ -1168,7 +1168,7 @@ fn a_codex_node_leaves_nothing_but_its_config_in_its_codex_home() {
     prepare_codex_homes(&paths, &user_home).unwrap();
     let base = paths.compactor_codex.clone();
     // A crash's leftover in every slot.
-    for k in 0..JOBS {
+    for k in 0..COMPACTOR_SESSIONS {
         let slot = base.join(format!("slot-{k}"));
         std::fs::create_dir_all(slot.join("sessions/2026/10/04")).unwrap();
         std::fs::write(slot.join("sessions/2026/10/04/rollout-old.jsonl"), "old").unwrap();
@@ -1179,7 +1179,7 @@ fn a_codex_node_leaves_nothing_but_its_config_in_its_codex_home() {
     // The fake harness writes as codex does, into every slot (it does not
     // know which one the node holds).
     let agents = FakeAgents::new(Box::new(move |_, _| {
-        for k in 0..JOBS {
+        for k in 0..COMPACTOR_SESSIONS {
             let slot = writes.join(format!("slot-{k}"));
             seen.lock()
                 .unwrap()
@@ -1199,7 +1199,7 @@ fn a_codex_node_leaves_nothing_but_its_config_in_its_codex_home() {
         model: None,
         ..spec(dir.path())
     };
-    let compactor = AcpmuxCompactor::new(agents.clone(), spec, Slots::new(JOBS));
+    let compactor = AcpmuxCompactor::new(agents.clone(), spec, Slots::new(COMPACTOR_SESSIONS));
     run_node(&compactor, &request(1)).unwrap();
     // The node held slot 0: its leftover was gone before the session started.
     assert!(!seen_leftover.lock().unwrap()[0]);
@@ -1246,7 +1246,7 @@ fn the_probe_fails_when_a_codex_session_offers_skills() {
             model: None,
             ..spec(dir.path())
         };
-        probe(&AcpmuxCompactor::new(agents, spec, Slots::new(JOBS)), "SYS")
+        probe(&AcpmuxCompactor::new(agents, spec, Slots::new(COMPACTOR_SESSIONS)), "SYS")
     };
     let builtin = json!([{"name": "compact", "description": "Summarize"}, {"name": "status"}]);
     assert_eq!(with(builtin), Ok("user: ping".into()));
