@@ -26,6 +26,18 @@ export function SummaryButton({
   const [open, setOpen] = useState(false);
   const [gallery, setGallery] = useState(false);
   const button = useRef<HTMLButtonElement>(null);
+  // The gallery opens from the popover, which is gone when it closes: focus returns to the button.
+  // Not when it closes for the image viewer, which takes focus itself.
+  const refocus = useRef(false);
+  useEffect(() => {
+    if (gallery || !refocus.current) return;
+    refocus.current = false;
+    button.current?.focus();
+  }, [gallery]);
+  const closeGallery = () => {
+    refocus.current = true;
+    setGallery(false);
+  };
   const summary = useMemo(() => (open ? sessionSummary(rows) : undefined), [open, rows]);
   const galleryCount = useMemo(() => (open ? chatGallery(rows).length : 0), [open, rows]);
   useEffect(() => {
@@ -86,7 +98,7 @@ export function SummaryButton({
       {gallery && (
         <GalleryDialog
           rows={rows}
-          onClose={() => setGallery(false)}
+          onClose={closeGallery}
           onOpenImage={
             onOpenImage &&
             ((src, alt) => {
