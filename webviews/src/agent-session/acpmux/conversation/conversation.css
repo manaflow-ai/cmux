@@ -841,6 +841,14 @@ pre.cv-math-source {
   font-family: var(--cv-font);
   font-size: 13px;
 }
+.cv-turn-action-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.cv-turn-action-group:empty {
+  display: none;
+}
 .cv-iconbtn {
   all: unset;
   box-sizing: border-box;
@@ -852,6 +860,11 @@ pre.cv-math-source {
   justify-content: center;
   color: var(--cv-text-muted);
   cursor: pointer;
+}
+.cv-iconbtn--compact {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
 }
 .cv-iconbtn:hover {
   color: var(--cv-text);

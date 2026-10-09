@@ -257,14 +257,14 @@ export const WrapLines = (p: CvIconProps) => (
 
 /*
  * Turn action glyphs (copy, fork, anchor), drawn in one 84×24 strip measured from the
- * fixture captures. Each 28px button shows its third of the strip through the viewBox,
+ * fixture captures. Each button shows its third of the strip through the viewBox,
  * so the glyphs keep their measured sub-pixel positions.
  */
-function TurnStrip({ slot }: { slot: 0 | 1 | 2 }) {
+function TurnStrip({ slot, size = 14 }: { slot: 0 | 1 | 2; size?: number }) {
   return (
     <svg
-      width={28}
-      height={28}
+      width={size}
+      height={size}
       viewBox={`${slot * 28} -2 28 28`}
       fill="none"
       stroke="currentColor"
@@ -290,9 +290,9 @@ function TurnStrip({ slot }: { slot: 0 | 1 | 2 }) {
     </svg>
   );
 }
-export const TurnCopy = () => <TurnStrip slot={0} />;
-export const TurnFork = () => <TurnStrip slot={1} />;
-export const TurnAnchor = () => <TurnStrip slot={2} />;
+export const TurnCopy = ({ size }: { size?: number } = {}) => <TurnStrip slot={0} size={size} />;
+export const TurnFork = ({ size }: { size?: number } = {}) => <TurnStrip slot={1} size={size} />;
+export const TurnAnchor = ({ size }: { size?: number } = {}) => <TurnStrip slot={2} size={size} />;
 
 /** arXiv favicon shown before "Paper" citation links. */
 export const ArxivMark = ({ size = 16, className, style }: CvIconProps) => (

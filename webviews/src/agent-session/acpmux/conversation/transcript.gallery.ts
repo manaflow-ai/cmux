@@ -203,7 +203,7 @@ export default agentPaneEntry({
       snapshot: chat([
         user(prompt, 30),
         assistant(MARKDOWN_MIX, 29),
-        summary(29, { status: "completed", durationMs: 41_000 }),
+        summary(29, { status: "completed", durationMs: 41_000, seq: 2 }),
       ]),
     },
     "github-references": {
