@@ -59,7 +59,9 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
     /// The project filter (`SidebarChatsView+ProjectFilter`) and the project it shows, nil for all.
     let filterButton = SidebarIconButton(symbol: "line.3.horizontal.decrease", label: SidebarChatsView.filterTitle)
     var selectedProject: String?
-    private let table = NSTableView()
+    /// The rows press themselves: one click opens a chat (``SidebarChatsTable``).
+    let chatTable = SidebarChatsTable()
+    private var table: NSTableView { chatTable }
     private let scroll = NSScrollView()
     private var items: [Item] = []
     private(set) var selectedGrouping: SidebarChatsGrouping = .newest
@@ -316,6 +318,8 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
     }
 
     public func numberOfRows(in tableView: NSTableView) -> Int { items.count }
+    /// A click opens a chat (the row presses itself); nothing stays selected.
+    public func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool { false }
     public func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat { Metrics.sidebarRowHeight }
     public func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         guard items.indices.contains(row) else { return nil }
