@@ -301,3 +301,18 @@ Open:
   (server.rs `machine_listening_tcp_json`, not ours); the Linux package
   entrypoint jobs fail with "npm package archive exceeds expanded size
   limit" (not traced).
+
+## Coordinator decisions (2026-10-09) and their code
+
+- Breakaway denied: the host starts inside the daemon's job
+  (`spawn_host_process` retries with `Breakaway::Stay`). Notice
+  `terminal_host_fallback: "breakaway_denied"` only when that job kills on
+  close (`HostProcess::ends_with_daemon_job`, from
+  `job_kills_on_close`, innermost job only). In-process fallback only when
+  the start fails: `"host_start_failed"`. Strings: `terminal.link.endsWithStarter`
+  (breakaway_denied) and `terminal.link.inProcess` (host_start_failed).
+- Field name `terminal_host_fallback` kept.
+- `pub mod windows;`: the coordinator asked the split lane to add it. This
+  branch already moved the layer to `sys/windows/` (declared in `sys.rs`),
+  which needs no line in `terminal_host_runtime.rs`; open point for the
+  coordinator.
