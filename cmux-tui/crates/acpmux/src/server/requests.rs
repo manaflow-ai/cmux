@@ -395,6 +395,15 @@ async fn dispatch_request(
             Ok(result)
         }
         "_acpmux/models" => {
+            // `probe`: harnesses a client now uses (the Chief's engine set),
+            // probed now even when the start-time list left them out.
+            if let Some(names) = params.get("probe").and_then(Value::as_array) {
+                let names: std::collections::BTreeSet<String> =
+                    names.iter().filter_map(Value::as_str).map(str::to_owned).collect();
+                if !names.is_empty() {
+                    hub.allow_probes(names).await;
+                }
+            }
             if params.get("refresh").and_then(Value::as_bool).unwrap_or(false) {
                 hub.refresh_models().await;
             }

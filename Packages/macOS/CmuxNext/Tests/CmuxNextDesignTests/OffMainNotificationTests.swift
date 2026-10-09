@@ -104,7 +104,8 @@ struct OffMainNotificationTests {
 
     /// A Reduce Transparency change posted off main repaints the window
     /// surface on main.
-    @Test func aDisplayOptionsChangeOffMainRepaintsTheSurfaceOnMain() async {
+    @Test(.disabled("posts the workspace display options change off main; AppKit re-posts it as a scroller style change and NSScrollView retiles a main-actor view off main, trapping the whole run (SIGTRAP at SidebarView.isFlipped, batch run 38001678474); post on an injected center instead"))
+    func aDisplayOptionsChangeOffMainRepaintsTheSurfaceOnMain() async {
         let window = Self.window()
         let log = MainThreadLog()
         let surface = WindowSurfaceView(content: NSView(), reduceTransparency: {
