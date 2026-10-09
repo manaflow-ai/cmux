@@ -119,7 +119,10 @@ struct HostEditorView: View {
                     // state on that wrapper as well, so keyboard and UI test
                     // clients cannot activate an empty host form.
                     .accessibilityElement(children: .ignore)
-                    .accessibilityAddTraits(saveEnabled ? [] : .notEnabled)
+                    // `AccessibilityTraits.notEnabled` is a UIKit trait and
+                    // is not available in SwiftUI. This modifier exposes the
+                    // same disabled interaction state on SwiftUI's element.
+                    .accessibilityRespondsToUserInteraction(saveEnabled)
                     .accessibilityIdentifier("ssh.editor.save")
             }
         }
