@@ -45,6 +45,14 @@ public final class HomeNativeTranscriptView: NSView {
     public var isSendEnabled = true {
         didSet { transcript.isSendEnabled = isSendEnabled }
     }
+    /// The Chief works: the compose bar offers Stop (the button, Esc, Cmd-.).
+    public var isWorking = false {
+        didSet { if isWorking != oldValue { transcript.isWorking = isWorking } }
+    }
+    /// The host's shared stop action.
+    public var onStop: () -> Void = {} {
+        didSet { transcript.onStop = { [weak self] in self?.onStop() } }
+    }
     /// A chosen sent-bubble colour (opt in); nil keeps iMessage blue on every theme.
     public var accentOverride: NSColor? { didSet { applyTheme() } }
     /// The first-run panel's open-a-terminal or start-an-agent row was

@@ -16,6 +16,7 @@ mod app_focus;
 mod apps_run;
 #[cfg(unix)]
 mod chief;
+mod chief_target;
 mod code_mode;
 #[cfg(unix)]
 mod coderouter;

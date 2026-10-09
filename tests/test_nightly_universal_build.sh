@@ -444,8 +444,8 @@ fi
 # policy, the appcast or publication.
 for expected in \
   "id: notarize-nightly" \
-  "CMUX_NOTARY_WAIT_TIMEOUT: 40m" \
-  "CMUX_NOTARY_PENDING_ON_TIMEOUT: \${{ needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && 'true' || 'false' }}" \
+  "CMUX_NOTARY_WAIT_TIMEOUT: \${{ needs.decide.outputs.notary_test == 'true' && '160m' || '40m' }}" \
+  "CMUX_NOTARY_PENDING_ON_TIMEOUT: \${{ needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && 'true' || 'false' }}" \
   "notary_pending: \${{ steps.notarize-nightly.outputs.submission_pending }}" \
   "- name: Prepare pending notarization recovery artifact" \
   "- name: Upload pending notarization recovery artifact"; do
@@ -459,9 +459,13 @@ if grep -Fq "CMUX_NOTARY_SUBMIT_ONLY:" "$WORKFLOW_FILE"; then
   exit 1
 fi
 ACCEPTED_ONLY="needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && steps.notarize-nightly.outputs.submission_pending != 'true'"
+# A cx-f58x notary test is public-repo diagnostic output: no appcast, no DMG artifact.
+NOT_NOTARY_TEST="$ACCEPTED_ONLY && needs.decide.outputs.notary_test != 'true'"
 for step in "Gate distribution with syspolicy_check" "Generate Sparkle appcasts (nightly)" "Upload nightly variant artifacts"; do
   step_if="$(awk -v name="      - name: $step" '$0 == name { found=1; next } found && /^        if: / { sub(/^        if: /, ""); print; exit }' "$WORKFLOW_FILE")"
-  if [ "$step_if" != "$ACCEPTED_ONLY" ]; then
+  expected="$ACCEPTED_ONLY"
+  [ "$step" = "Gate distribution with syspolicy_check" ] || expected="$NOT_NOTARY_TEST"
+  if [ "$step_if" != "$expected" ]; then
     echo "FAIL: $step must run only for an Accepted build: $step_if"
     exit 1
   fi
