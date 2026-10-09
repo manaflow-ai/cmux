@@ -19,6 +19,7 @@ cmux-pty.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-conversation.workspace = true
 cmux-tui-cloud-conversations.workspace = true
+cmux-tui-platform.workspace = true
 cmux-terminal-iface.workspace = true
 cmux-terminal-sizing.workspace = true
 serde.workspace = true
@@ -45,6 +46,7 @@ cmux-app-host.workspace = true
 
 [dev-dependencies]
 cmux-tui-cloud-conversations = { workspace = true, features = ["test-support"] }
+cmux-tui-platform = { workspace = true, features = ["test-support"] }
 cmux-unix-socket = { workspace = true, features = ["test-support"] }
 proptest = { version = "1", default-features = false, features = ["std"] }
 
