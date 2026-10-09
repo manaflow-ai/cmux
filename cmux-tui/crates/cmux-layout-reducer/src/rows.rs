@@ -240,7 +240,7 @@ pub(crate) fn insert_row(
         .row_index(at.position)
         + 1;
     state.insert_row(at, slot, new_row, height_permille, new_pane, events);
-    state.panes.get_mut(&new_pane).expect("new pane").push(new_tab.tab);
+    state.panes.get_mut(&new_pane).ok_or(Reject::UnknownPane(new_pane))?.push(new_tab.tab);
     state.tabs.insert(new_tab.tab, new_tab.content.clone());
     events.push(LayoutEvent::TabCreated { tab: new_tab.tab, pane: new_pane });
     Ok(())
@@ -302,7 +302,7 @@ pub(crate) fn move_tab_to_row(
     let ids = state.row_op_ids(anchor, ids, op.base_column, op.base_row);
     state.ensure_fresh(&ids)?;
     if let Some(respawn) = op.respawn {
-        state.panes.get_mut(&source).expect("source pane").push(respawn.tab);
+        state.panes.get_mut(&source).ok_or(Reject::UnknownPane(source))?.push(respawn.tab);
         state.tabs.insert(respawn.tab, respawn.content.clone());
         events.push(LayoutEvent::TabCreated { tab: respawn.tab, pane: source });
     }
@@ -310,7 +310,7 @@ pub(crate) fn move_tab_to_row(
     // computed against the implicit row, which becomes row 0.
     state.open_rows(anchor, op.base_column, op.base_row, events);
     state.insert_row(anchor, target, op.new_row, op.height_permille, op.new_pane, events);
-    state.move_tab(op.tab, source, op.new_pane, 0, events);
+    state.move_tab(op.tab, source, op.new_pane, 0, events)?;
     Ok(())
 }
 
@@ -344,7 +344,7 @@ pub(crate) fn set_row_heights(
             .iter()
             .find(|(id, _)| *id == row.id)
             .map(|(_, height)| *height)
-            .expect("row named");
+            .ok_or(Reject::RowSetMismatch(column))?;
         changed |= row.height_permille != height;
         row.height_permille = height;
     }
