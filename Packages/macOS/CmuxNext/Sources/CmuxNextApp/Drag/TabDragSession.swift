@@ -141,6 +141,7 @@ final class TabDragSession: NSObject {
                                      draggedTabCount: draggedCount, sourceStripID: pane.stripModel.stripID, sourceIndex: index,
                                      sourceGroupID: group)
         if case .group = item { context.isGroupDrag = true }
+        context.sourceStaysPut = TabPromotion.staysPut(kind: pane.workspace?.workspace.kind)
         // A single daemon tab of a kind that can respawn, on a daemon that
         // splits a pane with its only tab by spawning a fresh one there.
         if case .tab(let id) = item, let tab = pane.pane.tabs.first(where: { $0.id == id }),

@@ -45,7 +45,7 @@ nonisolated extension TabDragResolver {
         case .newDock:
             return context.isGroupDrag ? .refuse(.groupDock) : .accept
         case .newWorkspace:
-            return .accept
+            return context.sourceStaysPut ? .refuse(.staysPut) : .accept
         case .workspace(let id):
             return id == context.sourceWorkspaceID ? .stay : .accept
         }

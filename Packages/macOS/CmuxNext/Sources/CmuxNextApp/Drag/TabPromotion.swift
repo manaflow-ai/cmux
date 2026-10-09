@@ -8,12 +8,18 @@ enum TabPromotion {
     /// The actions that promote a tab out of its workspace.
     static let actions: [ActionID] = ["palette.moveTabToNewWorkspace", "tab.moveToNewWindow"]
 
-    /// Whether a tab of a workspace of `kind` stays in it.
-    static func staysPut(kind: String?) -> Bool { false }
+    /// Whether a tab of a workspace of `kind` stays in it: the merge rule's
+    /// fixed kinds (Home).
+    static func staysPut(kind: String?) -> Bool { TabDragSession.staysPut(kind: kind) }
 
     /// The tab menu entries a tab of a workspace of `kind` leaves out.
-    static func menuRemovals(kind: String?) -> [ActionID] { [] }
+    static func menuRemovals(kind: String?) -> [ActionID] { staysPut(kind: kind) ? actions : [] }
 
     /// Why promoting a tab of a workspace of `kind` is refused; nil when it may.
-    static func refusal(kind: String?) -> String? { nil }
+    static func refusal(kind: String?) -> String? { staysPut(kind: kind) ? RefusalStrings.homeKeepsItsTabs : nil }
+
+    /// Why promoting tab `id` is refused, from its workspace's kind.
+    @MainActor static func refusal(tab id: String, services: AppServices) -> String? {
+        refusal(kind: services.workspaceID(ofTab: id).flatMap { services.workspace(id: $0) }?.kind)
+    }
 }

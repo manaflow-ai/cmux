@@ -148,6 +148,8 @@ public nonisolated enum TabDragResolver {
     public static func outcome(for proposal: TabDropProposal?, insideWindow: Bool, screenPoint: CGPoint,
                                context: TabDragContext) -> TabDragOutcome {
         guard insideWindow else {
+            // Home's tabs never leave for a new window, nor Home with them.
+            if context.sourceStaysPut { return .cancel }
             guard context.emptiesSourceWorkspace else { return .tearOff(screenPoint: screenPoint) }
             return context.sourceWindowWorkspaceCount <= 1 ? .moveWindow(screenPoint: screenPoint)
                 : .moveWorkspaceToNewWindow(screenPoint: screenPoint)
