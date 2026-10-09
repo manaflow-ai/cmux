@@ -221,6 +221,16 @@ describe("FreestyleDriver files (cx-lyvg)", () => {
     ])
   })
 
+  it("reads the metadata a paused VM's disk answers: modified as epoch seconds or empty, numeric owners", async () => {
+    // Measured 2026-10-09: running {"permissions":"644","owner":"root","modified":"1791515201"}; paused {"owner":"0","group":"0","modified":""}.
+    const p = provider([
+      [200, { size: 12, isFile: true, isDirectory: false, isSymlink: false, permissions: "644", owner: "root", group: "root", modified: "1791515201" }],
+      [200, { size: 300000, isFile: true, isDirectory: false, isSymlink: false, permissions: "644", owner: "0", group: "0", modified: "" }]
+    ])
+    expect(await p.files.stat("vm-1", "/srv/team/a.txt")).toEqual({ kind: "file", size: 12, mode: 0o644, mtime: 1791515201, owner: "root", group: "root" })
+    expect(await p.files.stat("vm-1", "/srv/team/d/b.bin")).toEqual({ kind: "file", size: 300000, mode: 0o644, mtime: 0, owner: "0", group: "0" })
+  })
+
   it("a 404 is a missing path when the VM exists, and vm_missing when it does not", async () => {
     const path = provider([[404, { code: "NOT_FOUND" }], [200, { id: "vm-1", state: "paused" }]])
     expect(await path.files.list("vm-1", "/srv/team")).toBeNull()
