@@ -30,6 +30,15 @@ import QuartzCore
 
     // MARK: Gesture
 
+    /// Pages from the list and the dots: a trackpad 1:1, a mouse wheel by
+    /// one space a notch.
+    func attach(list: SidebarScrollView, dots: ProfileBarView) {
+        list.onHorizontalScroll = { [weak self] phase, dx, time in self?.scroll(phase, deltaX: dx, time: time) }
+        dots.onHorizontalScroll = { [weak self] phase, dx, time in self?.scroll(phase, deltaX: dx, time: time) }
+        list.onWheelPage = { [weak self] step in self?.page(by: step) }
+        dots.onWheelPage = { [weak self] step in self?.page(by: step) }
+    }
+
     /// One horizontal scroll event over the list (`SidebarScrollView`).
     func scroll(_ phase: ProfileSwipeTracker.Phase, deltaX: CGFloat, time: TimeInterval) {
         switch phase {
@@ -196,8 +205,7 @@ import QuartzCore
         guard let layer = page.layer else { return }
         host.clipsToBounds = true
         let keyPath = "transform.translation.x"
-        layer.removeAnimation(forKey: Self.slideKey)
-        Motion.transaction(nil) { layer.setValue(0, forKeyPath: keyPath) }
+        translate(page, 0, animated: nil)
         let animation = CAKeyframeAnimation(keyPath: keyPath)
         animation.values = [0, -CGFloat(step) * Self.bumpDistance * width, 0]
         animation.keyTimes = [0, 0.35, 1]
