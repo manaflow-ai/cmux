@@ -117,6 +117,11 @@ final class TabContentCache {
         self.daemon = daemon
         self.cef = cef
         browserTabs = BrowserTabService(daemon: daemon, cef: cef)
+        browserTabs.showNotice = { [weak self] daemon, surface, text in
+            guard let tab = daemon.store.tab(surface: surface), let entry = self?.browsers[tab.id] else { return false }
+            entry.chrome.showNotice(text)
+            return true
+        }
     }
 
     var liveTerminalCount: Int { terminals.count }
@@ -287,14 +292,16 @@ final class TabContentCache {
     /// the one-time notice shown when this is the first.
     private func fallBack(_ tab: TabModel, url: URL?, reason: CEFUnavailableReason) -> BrowserEntry {
         let fallbacks = browserTabs.fallbacks
-        fallbacks.record(reason, source: .recordedTab, surface: tab.surface)
+        fallbacks.record(reason, source: .recordedTab, machine: browserTabs.daemon(for: tab).machineID, surface: tab.surface)
         return tracked(browser(for: tab.id, url: url), tab)
     }
 
     /// Starts the record write-back and shows a pending fallback notice.
     private func tracked(_ entry: BrowserEntry, _ tab: TabModel) -> BrowserEntry {
         browserTabs.track(entry.tab, for: tab)
-        if let notice = browserTabs.fallbacks.takeNotice(for: tab.surface) { entry.chrome.showNotice(notice) }
+        if let notice = browserTabs.fallbacks.takeNotice(machine: browserTabs.daemon(for: tab).machineID, surface: tab.surface) {
+            entry.chrome.showNotice(notice)
+        }
         if let notice = browserTabs.takeNotice(for: tab) { entry.chrome.showNotice(notice) }
         return entry
     }

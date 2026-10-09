@@ -32,6 +32,9 @@ final class BrowserTabService {
     var daemons: @MainActor () -> [DaemonService]
     /// A machine's name for the user (`MachineRegistry.machineName`).
     var machineName: @MainActor (DaemonService) -> String = { $0.machineID }
+    /// Shows `text` on the page of `daemon`'s tab on `surface` when that page
+    /// exists; false when it does not (TabContentCache wires it).
+    var showNotice: @MainActor (DaemonService, SurfaceID, String) -> Bool = { _, _, _ in false }
     /// Returns once the store shows every change the daemon made before
     /// now (a write barrier after a create's reply), so the next link's
     /// slot sees the tab the previous link made (`BrowserTabOpeners`).
@@ -241,10 +244,12 @@ final class BrowserTabService {
         let surface = try await create(daemon, pane, offTheRecord ? Self.incognitoPlaceholderURL : url, choice.engine, profile, activate, after)
         let key = key(daemon, surface)
         if offTheRecord { incognitoURLs[key] = url }
-        if let notice { pendingNotices[key] = notice }
+        // The tab's page may exist already (the store echoed the tab before
+        // the reply): it shows the notice now; else its page takes it.
+        if let notice, !showNotice(daemon, surface, notice) { pendingNotices[key] = notice }
         openedSurfaces.insert(key)
         if let reason = choice.fallback {
-            fallbacks.record(reason, source: choice.inherited ? .recordedTab : .newTab, surface: surface)
+            fallbacks.record(reason, source: choice.inherited ? .recordedTab : .newTab, machine: daemon.machineID, surface: surface)
         }
         return surface
     }
