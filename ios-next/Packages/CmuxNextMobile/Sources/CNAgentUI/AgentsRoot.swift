@@ -314,15 +314,20 @@ struct NewSessionSheet: View {
                         .accessibilityIdentifier("agent.newSession.start")
                 }
             }
-            .onAppear {
-                if harnessId == nil, let first = directory.harnesses.first(where: \.available) {
-                    harnessId = first.id
-                    modelId = first.models.first?.id
-                }
-                if cwd.isEmpty { cwd = directory.recentFolders.first ?? "" }
-            }
+            .onAppear(perform: applyDefaults)
+            .onChange(of: directory.harnesses) { applyDefaults() }
         }
         .presentationDetents([.large])
+    }
+
+    /// First available harness and the most recent folder, once known
+    /// (the sheet can open before the host's lists arrive).
+    private func applyDefaults() {
+        if harnessId == nil, let first = directory.harnesses.first(where: \.available) {
+            harnessId = first.id
+            modelId = first.models.first?.id
+        }
+        if cwd.isEmpty { cwd = directory.recentFolders.first ?? "" }
     }
 
     private func start() {

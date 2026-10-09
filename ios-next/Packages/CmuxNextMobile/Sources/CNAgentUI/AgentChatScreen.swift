@@ -36,11 +36,13 @@ struct AgentChatScreen: View {
 
     init(connection: HostConnection, sessionId: String, onClosed: (() -> Void)? = nil) {
         self.connection = connection
-        _model = State(initialValue: AgentChatModel(connection: connection, sessionId: sessionId))
+        let model = AgentChatModel(connection: connection, sessionId: sessionId)
         self.onClosed = onClosed
         #if DEBUG
         _draft = State(initialValue: AgentDebug.draft ?? "")
+        model.forceOpen = AgentDebug.expandAll
         #endif
+        _model = State(initialValue: model)
     }
 
     private var motion: CNMotion { CNTheme.shared.motion }
@@ -422,8 +424,8 @@ enum AgentDebug {
     static let expandAll = env["CMUX_NEXT_AGENT_EXPAND"] == "1"
     /// Push this session at launch.
     static let openSession = env["CMUX_NEXT_AGENT_SESSION"]
-    /// Prefill the composer.
-    static let draft = env["CMUX_NEXT_AGENT_DRAFT"]?.replacingOccurrences(of: "\\n", with: "\n")
+    /// Prefill the composer (`~~` stands for a newline).
+    static let draft = env["CMUX_NEXT_AGENT_DRAFT"]?.replacingOccurrences(of: "~~", with: "\n")
     /// Present the new-session sheet at launch.
     static let newSession = env["CMUX_NEXT_AGENT_NEW"] == "1"
 }

@@ -336,6 +336,11 @@ final class AgentChatModel {
         session?.status = .closed
     }
 
+    /// Validation captures: every disclosure open.
+    var forceOpen = false
+
+    func isOpen(_ id: String) -> Bool { forceOpen || expanded.contains(id) }
+
     func toggle(_ id: String) {
         if id.hasPrefix("worked-"), finishedInView.remove(String(id.dropFirst("worked-".count))) != nil {
             // Folding a turn that ended on screen returns it to the normal fold.

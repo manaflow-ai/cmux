@@ -53,10 +53,11 @@ struct LineDiff: Sendable {
         while i < n || j < m {
             if i < n, j < m, a[i] == b[j] {
                 out.append(Line(id: 0, kind: .context, text: b[j], number: j + 1)); i += 1; j += 1
-            } else if j < m, i == n || lcs[i][j + 1] >= lcs[i + 1][j] {
-                out.append(Line(id: 0, kind: .added, text: b[j], number: j + 1)); j += 1
-            } else {
+            } else if i < n, j == m || lcs[i + 1][j] >= lcs[i][j + 1] {
+                // Removals before additions, as in unified diffs.
                 out.append(Line(id: 0, kind: .removed, text: a[i], number: i + 1)); i += 1
+            } else {
+                out.append(Line(id: 0, kind: .added, text: b[j], number: j + 1)); j += 1
             }
         }
         return out

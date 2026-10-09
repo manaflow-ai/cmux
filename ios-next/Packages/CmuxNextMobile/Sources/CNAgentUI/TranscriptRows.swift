@@ -16,9 +16,9 @@ struct ChatRowView: View {
         case .assistant(let item, _):
             StreamingMarkdown(text: item.text, streaming: item.streaming)
         case .thought(let item):
-            ThoughtRow(item: item, open: model.expanded.contains(item.id)) { toggle(item.id) }
+            ThoughtRow(item: item, open: model.isOpen(item.id)) { toggle(item.id) }
         case .tool(let tool, _):
-            ToolRow(tool: tool, open: model.expanded.contains(tool.id)) { toggle(tool.id) }
+            ToolRow(tool: tool, open: model.isOpen(tool.id)) { toggle(tool.id) }
         case .toolGroup(let id, let tools, let open):
             DisclosureRow(open: open, action: { toggle(id) }) {
                 Image(systemName: "square.stack.3d.up").font(.footnote).foregroundStyle(.cn(\.textTertiary)).frame(width: 20)
@@ -374,7 +374,7 @@ struct EditedFilesCard: View {
             .frame(height: 44)
             ForEach(files) { file in
                 let key = "\(id)/\(file.path)"
-                let open = model.expanded.contains(key)
+                let open = model.isOpen(key)
                 Rectangle().fill(.cn(\.hairline)).frame(height: 0.5)
                 Button {
                     Haptics.select()
