@@ -85,9 +85,16 @@ export function NewTabScreen(props: Props) {
   const cards = useMemo(() => recentChatCards(snapshot.sessions, now, t), [snapshot.sessions, now, t]);
   useEffect(() => setSelected(0), [rows]);
   const list = useRef<HTMLDivElement>(null);
-  // The box scrolls past its cap; the selected row stays in view.
+  // The box scrolls past its cap; the selected row stays in view. Only the box scrolls (not the
+  // screen around it, as scrollIntoView would).
   useEffect(() => {
-    list.current?.querySelector<HTMLElement>(`#nt-row-${selected}`)?.scrollIntoView?.({ block: "nearest" });
+    const box = list.current;
+    const row = box?.querySelector<HTMLElement>(`#nt-row-${selected}`);
+    if (!box || !row) return;
+    const inner = box.getBoundingClientRect();
+    const at = row.getBoundingClientRect();
+    if (at.top < inner.top) box.scrollTop -= inner.top - at.top;
+    else if (at.bottom > inner.bottom) box.scrollTop += at.bottom - inner.bottom;
   }, [selected, rows]);
 
   // The field takes the keyboard when the screen appears (in the commit, so an adopted spare's
