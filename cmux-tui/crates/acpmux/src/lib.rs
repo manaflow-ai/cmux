@@ -10,7 +10,7 @@
 #![allow(clippy::too_many_arguments, clippy::type_complexity, clippy::result_large_err)]
 // The Windows port lands in steps (src/platform.rs): until the daemon runs
 // there, code only its Unix paths reach is unused on Windows.
-#![cfg_attr(not(unix), allow(unused, dead_code))]
+#![cfg_attr(not(unix), allow(dead_code, unused_imports, unused_variables, unused_mut))]
 
 pub mod adopt;
 pub mod adopt_live;
