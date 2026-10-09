@@ -1073,6 +1073,9 @@ struct RestorableAgentSessionIndex: Sendable {
         let terminationProcessIDs: Set<Int>
         let terminationProcessIdentities: [Int: AgentPIDProcessIdentity]
         let containsUnrelatedProcess: Bool
+        /// Registered cmux helpers among `terminationProcessIDs`; see
+        /// ``CmuxAgentHelperProcess``. They carry no terminal.
+        let cmuxHelperProcessIDs: Set<Int>
 
         /// Keeps older in-process fixtures source-compatible while callers that
         /// have persisted PID evidence can opt in explicitly.
@@ -1089,7 +1092,8 @@ struct RestorableAgentSessionIndex: Sendable {
             hibernationPanelProcessIDs: Set<Int>,
             terminationProcessIDs: Set<Int>,
             terminationProcessIdentities: [Int: AgentPIDProcessIdentity],
-            containsUnrelatedProcess: Bool
+            containsUnrelatedProcess: Bool,
+            cmuxHelperProcessIDs: Set<Int> = []
         ) {
             self.snapshot = snapshot
             self.lifecycle = lifecycle
@@ -1104,6 +1108,7 @@ struct RestorableAgentSessionIndex: Sendable {
             self.terminationProcessIDs = terminationProcessIDs
             self.terminationProcessIdentities = terminationProcessIdentities
             self.containsUnrelatedProcess = containsUnrelatedProcess
+            self.cmuxHelperProcessIDs = cmuxHelperProcessIDs
         }
     }
 
@@ -1125,7 +1130,8 @@ struct RestorableAgentSessionIndex: Sendable {
     typealias HibernationProcessScope = (
         panelProcessIDs: Set<Int>,
         terminationProcessIDs: Set<Int>,
-        containsUnrelatedProcess: Bool
+        containsUnrelatedProcess: Bool,
+        cmuxHelperProcessIDs: Set<Int>
     )
     /// The panel's cmux-scoped processes and the fresh process-tree scope
     /// around a live hook-recorded agent PID.
@@ -1783,7 +1789,8 @@ struct RestorableAgentSessionIndex: Sendable {
                     currentPanelProcessIDs.contains($0.key)
                 },
                 containsUnrelatedProcess: (processLiveness == .running && entry.containsUnrelatedProcess) ||
-                    presentMismatchedProcess
+                    presentMismatchedProcess,
+                cmuxHelperProcessIDs: entry.cmuxHelperProcessIDs.intersection(currentPanelProcessIDs)
             )
         }
 
@@ -2370,7 +2377,8 @@ struct RestorableAgentSessionIndex: Sendable {
                             for: hookScope.scope.terminationProcessIDs,
                             processIdentityProvider: processIdentityForRecord
                         ),
-                        containsUnrelatedProcess: hookScope.scope.containsUnrelatedProcess
+                        containsUnrelatedProcess: hookScope.scope.containsUnrelatedProcess,
+                        cmuxHelperProcessIDs: hookScope.scope.cmuxHelperProcessIDs
                     )
                 } else {
                     entry = Entry(
@@ -2445,7 +2453,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 processIdentityProvider: processIdentityProvider
             )
             // Detection establishes liveness, not exclusive ownership of a complete process tree.
-            let hibernationScope = hibernationProcessScopes[key] ?? ([], [], true)
+            let hibernationScope = hibernationProcessScopes[key] ?? ([], [], true, [])
             let terminationProcessIdentities = Self.processIdentities(
                 for: hibernationScope.terminationProcessIDs,
                 processIdentityProvider: processIdentityProvider
@@ -2463,7 +2471,8 @@ struct RestorableAgentSessionIndex: Sendable {
                 hibernationPanelProcessIDs: hibernationScope.panelProcessIDs,
                 terminationProcessIDs: hibernationScope.terminationProcessIDs,
                 terminationProcessIdentities: terminationProcessIdentities,
-                containsUnrelatedProcess: hibernationScope.containsUnrelatedProcess
+                containsUnrelatedProcess: hibernationScope.containsUnrelatedProcess,
+                cmuxHelperProcessIDs: hibernationScope.cmuxHelperProcessIDs
             )
         }
 

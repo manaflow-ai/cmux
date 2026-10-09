@@ -542,7 +542,8 @@ struct AgentHibernationTerminationFailureTests {
                 sourceKey: (
                     panelProcessIDs: [processID],
                     terminationProcessIDs: [processID],
-                    containsUnrelatedProcess: false
+                    containsUnrelatedProcess: false,
+                    cmuxHelperProcessIDs: []
                 ),
             ],
             processIdentityProvider: { requestedProcessID in
