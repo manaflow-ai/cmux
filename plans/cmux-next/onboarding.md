@@ -8,6 +8,21 @@ decision is R85 (`ShortcutDigitScheme.swift`), and the decisions below are recor
 under `Packages/macOS/CmuxNext/Sources/` (S/) or `webviews/src/agent-session/acpmux/` (W/).
 "cmux.json" means the cmux-next config file, `~/.config/cmux/cmux-next.json` (`CmuxConfigFile`).
 
+## 0. Scope change (Lawrence, 2026-10-09, after this plan)
+
+"i do not want new window. no import flow. except for import from browser which is fine. we should
+just drop user into main screen asap. when they make a browser they will see option to import
+browser data." This replaces sections 4, 5 and 7's first-run page and the has-data gate:
+- Landing A: a launch never opens the onboarding window; the first workspace opens on the normal
+  New Tab page. The first browser tab of a launch shows one quiet card, "Import bookmarks, history
+  and passwords from <browser>", with Not Now and Import (`BrowserImportOfferService`, it replaces
+  the cx-367y cookie card). Not Now and a finished import end it for good, per channel. Import
+  opens the single-step Import from Browser window with those kinds checked.
+- Landing B: delete the wizard and its steps (Accounts, Projects, Classic Sessions, Chats, First
+  Task, Theme, Default Browser, Number Keys), the gallery, Continue Setup, the welcome checklist and
+  Import and Sync. One single-step window host stays for Import from Browser and Computer Use
+  setup. No first-run page, no `FirstRunGate`. "Make it yours" (section 6) stays for later.
+
 ## 1. Problem
 
 Lawrence's screenshot (23:51 PDT): a modal "Accounts 1 of 4" over an app he already uses (chats,

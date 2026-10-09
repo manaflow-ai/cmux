@@ -171,7 +171,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                                      forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
         services.windows.onContentDidAppear = { [weak services] _ in services?.externalOpen.flush() }
         NSApp.servicesProvider = CmuxServicesProvider(open: services.externalOpen)
-        services.onboarding.showIfNeeded()
     }
 
     /// One palette warm-up step per idle moment (`PaletteController.prepare`).
