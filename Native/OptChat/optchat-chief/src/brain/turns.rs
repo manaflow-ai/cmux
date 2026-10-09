@@ -415,7 +415,7 @@ impl Brain {
                     Source::Message {
                         remote: Some(_),
                         ..
-                    } | Source::Resume { remote: true }
+                    } | Source::Resume { remote: true, .. }
                 )
             });
         self.turn_ask = self.turn_remote && !self.chief.remote_auto_approve;
@@ -437,7 +437,15 @@ impl Brain {
             .filter_map(super::images::TurnImage::block)
             .collect();
         self.describe_images(&images);
-        let texts: Vec<String> = items.into_iter().map(|i| i.text).collect();
+        // A resume note carries the cut messages' full text (never logged
+        // again) before the newer messages.
+        let texts: Vec<String> = items
+            .into_iter()
+            .map(|i| match &i.source {
+                Source::Resume { cut, .. } => super::recover::resume_prompt(cut),
+                _ => i.text,
+            })
+            .collect();
         // Per-turn state goes after the view, never in the system prompt:
         // the subagents at work now (the reference client's line), before
         // the new messages. Never logged.
@@ -1086,10 +1094,11 @@ fn item(queued: &Queued) -> Item {
             remote: remote.is_some(),
             ..Item::default()
         },
-        Source::Resume { remote } => Item {
+        Source::Resume { remote, cut } => Item {
             conversation: queued.conversation.clone(),
             remote: *remote,
             resume: true,
+            cut: cut.clone(),
             ..Item::default()
         },
         Source::Child { session_id, floor } => Item {
