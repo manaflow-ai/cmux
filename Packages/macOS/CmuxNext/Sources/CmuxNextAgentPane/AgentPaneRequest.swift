@@ -100,6 +100,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// the panel. `{sessionId}` is optional; without it the host uses the
     /// session the page last persisted.
     case quickOpenInWindow(sessionId: String?)
+    /// The quick panel's page (Start Agent's Return): its chat started;
+    /// hand the session to the sidebar in the background and hide the panel.
+    case quickStartInBackground(AgentPaneQuickStart)
     /// `git.diff` or `git.status` with `{cwd, …}`: the changes view's reads of
     /// the session's repository, which the App runs on the session host.
     case git(AgentPaneGitRequest)

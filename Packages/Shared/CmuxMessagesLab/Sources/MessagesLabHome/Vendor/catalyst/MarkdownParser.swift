@@ -5,39 +5,15 @@ import Foundation
 // autolinks), written for chat:
 // - A newline inside a paragraph is a line break (chat text keeps its lines).
 // - Raw HTML is never interpreted: tags are literal text. Images are never
-//   loaded: `![alt](src)` is a link that shows the alt text.
+//   loaded: `![alt](src)` is the text "[Image: alt]", a link when its URL is
+//   allowed; only a host's MarkdownImageProvider shows one.
+// - Message text is untrusted: a link is a link only when MarkdownLinkPolicy
+//   allows its URL (http, https, mailto and the host's extra schemes).
 // - Table rows keep cells beyond the header's count (GFM drops them); a pipe in
 //   a code span does not split a cell.
 // The parser is pure (Foundation only, no UIKit), thread safe and runs off main.
 // Top-level blocks carry their source line range, so a stream re-parses only
 // from the start of its last top-level block (MarkdownStore).
-
-/// cmux (interim, until MessagesLab ships the same API): the destinations that become links.
-/// Only http, https and mailto (plus a host's `extraSchemes`); any other scheme, an obfuscated
-/// scheme and a relative URL stay plain text, and a click re-checks with `url(_:)`.
-enum MarkdownLinkPolicy {
-    /// Schemes a host allows besides http, https and mailto (lowercase; empty by default).
-    static var extraSchemes: Set<String> = []
-
-    /// `dest` as a URL a click may open, or nil (plain text). The scheme must be the literal
-    /// start of the destination (ASCII letters, digits, "+", "-", "."): no whitespace, control,
-    /// entity or percent-encoded character can hide it.
-    static func url(_ dest: String) -> URL? {
-        guard let colon = dest.firstIndex(of: ":") else { return nil }
-        let scheme = dest.prefix(upTo: colon).unicodeScalars // cmux: no range subscript
-        guard let first = scheme.first, first.isASCII, CharacterSet.letters.contains(first),
-              scheme.allSatisfy({ $0.isASCII && (CharacterSet.alphanumerics.contains($0) || "+-.".unicodeScalars.contains($0)) })
-        else { return nil }
-        let s = String(String.UnicodeScalarView(scheme)).lowercased()
-        guard ["http", "https", "mailto"].contains(s) || extraSchemes.contains(s) else { return nil }
-        guard !dest.unicodeScalars.contains(where: { CharacterSet.whitespacesAndNewlines.contains($0) || CharacterSet.controlCharacters.contains($0) }),
-              let url = URL(string: dest), url.scheme?.lowercased() == s else { return nil }
-        if s == "http" || s == "https" { guard let host = url.host, !host.isEmpty else { return nil } }
-        return url
-    }
-
-    static func allows(_ dest: String) -> Bool { url(dest) != nil }
-}
 
 /// Inline styles of a run of display text.
 struct MDStyle: OptionSet, Hashable {
@@ -56,6 +32,73 @@ struct MDSpan: Hashable {
     var length: Int
     var style: MDStyle
     var link: String?
+    /// An image's source exactly as written (`![alt](src)`), for the host's
+    /// MarkdownImageProvider only. The engine never loads it.
+    var image: String? = nil
+}
+
+// MARK: - Link policy
+
+/// Which URLs markdown may turn into clickable links (shared/MARKDOWN.md, Security).
+/// Message text is untrusted (agent output): only http, https, mailto and the schemes in
+/// `extraSchemes` become links. Everything else stays plain text: javascript:, vbscript:,
+/// file:, data:, blob:, ftp:, app schemes, relative URLs, URLs without a scheme, and URLs
+/// with control characters or an obfuscated scheme ("java&#x09;script:", "%6Aavascript:").
+/// The parser applies it to every link it makes; the hosts check it again at click time.
+enum MarkdownLinkPolicy {
+    static let builtInSchemes: Set<String> = ["http", "https", "mailto"]
+    private static let lock = NSLock()
+    private static var extra: Set<String> = []
+    /// Extra schemes the host app allows (lowercase, without ":"; empty by default). Set it at
+    /// launch, before the first message is parsed: parsed documents and layouts are cached.
+    static var extraSchemes: Set<String> {
+        get { lock.lock(); defer { lock.unlock() }; return extra }
+        set { lock.lock(); extra = Set(newValue.map { $0.lowercased() }); lock.unlock() }
+    }
+
+    /// The URL string to use for a link destination, or nil (not a link). Leading and trailing
+    /// whitespace and control characters are removed first; the scheme is compared without case.
+    static func sanitize(_ raw: String) -> String? {
+        func edge(_ u: Unicode.Scalar) -> Bool {
+            switch u.properties.generalCategory {
+            case .control, .format, .spaceSeparator, .lineSeparator, .paragraphSeparator: return true
+            default: return u.properties.isWhitespace
+            }
+        }
+        var u = Array(raw.unicodeScalars)
+        while let f = u.first, edge(f) { u.removeFirst() }
+        while let l = u.last, edge(l) { u.removeLast() }
+        // Embedded control, format (zero-width, bidi), NUL or whitespace: never a link.
+        guard !u.isEmpty, u.count <= 8192, !u.contains(where: edge) else { return nil }
+        // RFC 3986 scheme: ASCII letter, then letters, digits, "+", "-", "." up to the first ":".
+        // "&" (an entity), "%" (percent-encoding), "/" (relative) or anything else before the
+        // colon means no scheme: not a link.
+        guard let colon = u.firstIndex(of: ":"), colon > 0 else { return nil }
+        let head = u.prefix(upTo: colon) // cmux: no range subscript
+        func ascii(_ c: Unicode.Scalar) -> Bool { c.isASCII && (("a"..."z").contains(c) || ("A"..."Z").contains(c)) }
+        guard let first = head.first, ascii(first),
+              head.allSatisfy({ ascii($0) || ($0.isASCII && ("0"..."9").contains($0)) || $0 == "+" || $0 == "-" || $0 == "." }) else { return nil }
+        let scheme = String(String.UnicodeScalarView(head)).lowercased()
+        guard builtInSchemes.contains(scheme) || extraSchemes.contains(scheme) else { return nil }
+        let s = String(String.UnicodeScalarView(u))
+        guard let url = URL(string: s), url.scheme?.lowercased() == scheme else { return nil }
+        let rest = u.count - colon - 1
+        switch scheme {
+        case "http", "https": guard let h = url.host, !h.isEmpty else { return nil }
+        default: guard rest > 0 else { return nil }
+        }
+        return s
+    }
+
+    /// The click-time check (defence in depth): the hosts open only URLs this allows.
+    static func allows(_ url: URL) -> Bool { sanitize(url.absoluteString) != nil }
+    static func allows(_ s: String) -> Bool { sanitize(s) != nil }
+
+    /// "[Image: alt]" (or "[Image]"): the text of every image (a link when its URL is allowed).
+    static func imagePlaceholder(_ alt: String) -> String {
+        alt.isEmpty ? MessagesLabLocalization.string("markdown.image.placeholderEmpty", "[Image]")
+            : String(format: MessagesLabLocalization.string("markdown.image.placeholder", "[Image: %@]"), alt)
+    }
 }
 
 /// Inline content, flattened: the display string and its styled runs.
@@ -416,7 +459,7 @@ enum MDBlockParser {
             } else if !text.isEmpty {
                 let p = MDInlineParser.parse(text, refs: known)
                 add(.paragraph(p), start)
-                if let last = out.indices.last { out[last].rich = MDBlock.paragraphIsRich(p, source: text) } // cmux: no index math
+                if let last = out.indices.last { out.update(at: last) { $0.rich = MDBlock.paragraphIsRich(p, source: text) } } // cmux: no index math
             }
             if let at = tableAt, let tb = table(lines, at: at, known) {
                 let s2 = i
@@ -522,7 +565,7 @@ enum MDBlockParser {
         rest.spans = p.spans.compactMap { s in
             let lo = max(s.location, cut), hi = s.location + s.length
             guard hi > lo else { return nil }
-            return MDSpan(location: lo - cut, length: hi - lo, style: s.style, link: s.link)
+            return MDSpan(location: lo - cut, length: hi - lo, style: s.style, link: s.link, image: s.image)
         }
         return (checked, rest)
     }
@@ -667,7 +710,8 @@ enum MDBlockParser {
 enum MDInlineParser {
     private enum Node {
         case text(String)
-        case styled(String, MDStyle, String?)     // code, autolink, image placeholder
+        case styled(String, MDStyle, String?)     // code, autolink
+        case image(String, link: String?, source: String)   // image placeholder (never loaded)
         case delim(Unicode.Scalar, count: Int)
         case open(MDStyle)
         case close(MDStyle)
@@ -722,8 +766,9 @@ enum MDInlineParser {
             case "&":
                 if let (rep, len) = entity(src, i) { text.append(contentsOf: rep.unicodeScalars); i += len } else { text.append(c); i += 1 }
             case "<":
-                if let (url, len, label) = angleAutolink(src, i) {
-                    flush(); nodes.append(.styled(label, .link, url)); i += len
+                // An autolink whose URL the policy refuses stays literal text, brackets included.
+                if let (url, len, label) = angleAutolink(src, i), let safe = MarkdownLinkPolicy.sanitize(url) {
+                    flush(); nodes.append(.styled(label, .link, safe)); i += len
                 } else { text.append(c); i += 1 }
             case "\n":
                 flush()
@@ -775,16 +820,20 @@ enum MDInlineParser {
                 guard let dest else { text.append(c); i += 1; continue }
                 // Emphasis inside the link text, then wrap it.
                 processEmphasis(&nodes, &delims, bottom: b.delimBottom)
+                let safe = MarkdownLinkPolicy.sanitize(dest)
                 if b.image {
-                    // The alt text, plain; shown as a link placeholder (never loaded).
+                    // Never loaded: the text "[Image: alt]", so a reader knows it is an image and
+                    // that it was not loaded; a link when the URL is allowed. The source goes to the
+                    // host's image provider only.
                     let alt = plain(nodes.slice(from: b.node + 1)) // cmux: clamped slice
                     nodes.removeLast(nodes.count - min(max(0, b.node), nodes.count)) // cmux: no range that can trap
-                    nodes.append(.styled(alt.isEmpty ? dest : alt, [.image, .link], dest))
+                    nodes.append(.image(MarkdownLinkPolicy.imagePlaceholder(alt), link: safe, source: dest))
                     brackets.removeAll { $0.node > b.node }
                 } else {
-                    if let at = nodes.checkedIndex(b.node) { nodes[at] = .linkOpen(dest) } // cmux: checked
-                    nodes.append(.linkClose)
-                    // No links inside links.
+                    // A refused URL: the link text stays, as plain text (no link, no target).
+                    // cmux: checked writes.
+                    if let safe { if let at = nodes.checkedIndex(b.node) { nodes[at] = .linkOpen(safe) }; nodes.append(.linkClose) } else if let at = nodes.checkedIndex(b.node) { nodes[at] = .text("") }
+                    // No links inside links (a refused link is still a link for this rule).
                     brackets.removeAll { $0.node > b.node }
                     brackets = brackets.map { var x = $0; if !x.image { x.active = false }; return x } // cmux: no index writes
                 }
@@ -792,13 +841,14 @@ enum MDInlineParser {
             default:
                 // GFM extended autolinks at a word start: www., http://, https://, mailto-less emails.
                 if (c == "w" || c == "h" || c == "W" || c == "H"), prev(i).map({ isWS($0) || $0 == "(" || $0 == "*" || $0 == "_" || $0 == "~" || $0 == "\"" || $0 == "'" }) ?? true,
-                   let (url, len) = extendedAutolink(src, i) {
+                   let (url, len) = extendedAutolink(src, i), let safe = MarkdownLinkPolicy.sanitize(url) {
                     flush()
-                    nodes.append(.styled(String(String.UnicodeScalarView(src.slice(i, i + len))), .link, url)) // cmux: clamped slice
+                    nodes.append(.styled(String(String.UnicodeScalarView(src.slice(i, i + len))), .link, safe)) // cmux: clamped slice
                     i += len
                     continue
                 }
-                if c == "@", let (start, len) = emailAutolink(src, i, textTail: text) {
+                if c == "@", let (start, len) = emailAutolink(src, i, textTail: text),
+                   MarkdownLinkPolicy.allows("mailto:x@" + String(String.UnicodeScalarView(src.slice(i + 1, i + len)))) { // cmux: clamped slice
                     // Pull the local part back out of the pending text.
                     let local = Array(text)
                     let keep = local.count - start
@@ -894,31 +944,31 @@ enum MDInlineParser {
         var runStart = 0
         var runStyle: MDStyle = []
         var runLink: String?
+        var runImage: String?
         func cut() {
             if len16 > runStart, !runStyle.isEmpty || runLink != nil {
-                spans.append(MDSpan(location: runStart, length: len16 - runStart, style: runStyle, link: runLink))
+                spans.append(MDSpan(location: runStart, length: len16 - runStart, style: runStyle, link: runLink, image: runImage))
             }
             runStart = len16
         }
-        func set(_ s: MDStyle, _ l: String?) { if s != runStyle || l != runLink { cut(); runStyle = s; runLink = l } }
+        func set(_ s: MDStyle, _ l: String?, image: String? = nil) {
+            if s != runStyle || l != runLink || image != runImage { cut(); runStyle = s; runLink = l; runImage = image }
+        }
         func emit(_ s: String) { for u in s.unicodeScalars { out.append(u); len16 += u.utf16.count } }
         for n in nodes {
-            // cmux: a refused destination is "" on the stack and plain text (MarkdownLinkPolicy).
-            let linkNow = links.last { !$0.isEmpty }
+            let linkNow = links.last
             switch n {
             case let .text(s): set(style, linkNow); emit(s)
-            case let .styled(s, st, l) where l.map(MarkdownLinkPolicy.allows) == false:
-                set(style.union(st).subtracting([.link, .image]), linkNow); emit(s)
             case let .styled(s, st, l): set(style.union(st), l ?? linkNow); emit(s)
+            case let .image(s, l, src):
+                let l2 = l ?? linkNow
+                set(style.union(l2 != nil ? [.image, .link] : .image), l2, image: src); emit(s)
             case let .delim(ch, count):
                 if count > 0 { set(style, linkNow); emit(String(repeating: String(ch), count: count)) }
             case let .open(s): counts[s, default: 0] += 1; style.insert(s)
             case let .close(s): counts[s, default: 0] -= 1; if counts[s, default: 0] <= 0 { style.remove(s) }
-            case let .linkOpen(d):
-                let allowed = MarkdownLinkPolicy.allows(d)
-                links.append(allowed ? d : "")
-                if allowed { style.insert(.link) }
-            case .linkClose: links.removeLast(); if !links.contains(where: { !$0.isEmpty }) { style.remove(.link) }
+            case let .linkOpen(d): links.append(d); style.insert(.link)
+            case .linkClose: links.removeLast(); if links.isEmpty { style.remove(.link) }
             case .br: set(style, linkNow); emit("\n")
             }
         }
@@ -929,8 +979,8 @@ enum MDInlineParser {
     private static func merge(_ s: [MDSpan]) -> [MDSpan] {
         var out: [MDSpan] = []
         for x in s {
-            if var l = out.last, l.location + l.length == x.location, l.style == x.style, l.link == x.link {
-                l.length += x.length; if let last = out.indices.last { out[last] = l } // cmux: no index math
+            if var l = out.last, l.location + l.length == x.location, l.style == x.style, l.link == x.link, l.image == x.image {
+                l.length += x.length; if let last = out.indices.last { out.update(at: last) { $0 = l } } // cmux: no index math
             } else { out.append(x) }
         }
         return out
@@ -957,7 +1007,7 @@ enum MDInlineParser {
         map.append(out.count)
         let spans = t.spans.compactMap { s -> MDSpan? in
             guard let a = map[checked: s.location], let b = map[checked: s.location + s.length] else { return nil }
-            return b > a ? MDSpan(location: a, length: b - a, style: s.style, link: s.link) : nil
+            return b > a ? MDSpan(location: a, length: b - a, style: s.style, link: s.link, image: s.image) : nil
         }
         return MDText(string: String(utf16CodeUnits: out, count: out.count), spans: spans)
     }
@@ -968,6 +1018,7 @@ enum MDInlineParser {
             switch n {
             case let .text(t): s += t
             case let .styled(t, _, _): s += t
+            case let .image(t, _, _): s += t
             case let .delim(c, n): s += String(repeating: String(c), count: n)
             case .br: s += " "
             default: break

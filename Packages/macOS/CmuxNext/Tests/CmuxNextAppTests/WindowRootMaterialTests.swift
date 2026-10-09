@@ -113,6 +113,7 @@ struct WindowRootMaterialTests {
         #expect(try #require(root.layer?.backgroundColor).alpha == 1, "solid, not the translucent background")
 
         reduce.on = false
+        // global-notice-allow: on main, an AppKit notice AppKit itself posts here; the observer under test takes no center yet
         NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
         #expect(root.backdrop.material == .frosted)
         #expect(try #require(root.backdropView.tintColor).alpha < 1)

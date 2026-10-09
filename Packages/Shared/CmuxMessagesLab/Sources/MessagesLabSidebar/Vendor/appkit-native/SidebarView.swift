@@ -86,9 +86,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     private(set) var tileLayers: [SidebarRowLayer] = []
     // cmux: the pin drag in progress (Cmux/SidebarPinDrag.swift).
     let pinDragState = SidebarPinDragState()
-    private let hoverLayer = CALayer()
     private let menuRing = CALayer()
-    private var hovered: Hit?
     private var lastVisible: Range<Int> = 0..<0
     private var lastTop: CGFloat = 0
     let noResults = NSTextField(labelWithString: "")
@@ -153,16 +151,11 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         NotificationCenter.default.addObserver(self, selector: #selector(clipMoved), name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
         NotificationCenter.default.addObserver(self, selector: #selector(colorsChanged), name: NSColor.systemColorsDidChangeNotification, object: nil)
 
-        hoverLayer.cornerRadius = SidebarMetrics.selectionRadius
-        hoverLayer.isHidden = true
-        hoverLayer.actions = ["position": NSNull(), "bounds": NSNull(), "hidden": NSNull(), "backgroundColor": NSNull()]
-        hoverLayer.zPosition = -1
         menuRing.cornerRadius = SidebarMetrics.selectionRadius
         menuRing.borderWidth = 2
         menuRing.isHidden = true
         menuRing.zPosition = 5
-        menuRing.actions = hoverLayer.actions
-        document.layer?.addSublayer(hoverLayer)
+        menuRing.actions = ["position": NSNull(), "bounds": NSNull(), "hidden": NSNull(), "backgroundColor": NSNull()]
         document.layer?.addSublayer(menuRing)
 
         noResults.stringValue = SidebarStrings.noResults
@@ -304,6 +297,11 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     func rect(_ h: Hit) -> CGRect {
         switch h { case let .tile(t): return tileRect(t).insetBy(dx: 2, dy: 2); case let .row(r): return selectionRect(r) }
     }
+    /// A conversation's tile or row in screen coordinates (accessibility; .zero when not shown).
+    func screenRect(of id: ConversationID) -> NSRect {
+        guard let h = position(of: id), let w = document.window else { return .zero }
+        return w.convertToScreen(document.convert(rect(h), to: nil))
+    }
     /// Where a conversation is shown now (nil: filtered out).
     func position(of id: ConversationID) -> Hit? {
         guard let i = indexByID[id] else { return nil }
@@ -401,7 +399,6 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         CATransaction.commit()
         lastVisible = range
         prefetch(from: direction > 0 ? range.upperBound : range.lowerBound - 1, direction: direction > 0 ? 1 : -1, count: 14)
-        updateHover()
         if !force { updateAccessibility() }
     }
 
@@ -431,8 +428,8 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
                 if let slot = o.checkedIndex(j) { o[slot] = job(w.2, w.1, cachedTimes[checked: j] ?? nil) }
             }
         }
-        for (j, (l, k, _)) in work.enumerated() {
-            guard let r = out[j] else { continue }
+        for ((l, k, _), result) in zip(work, out) { // cmux: no index math
+            guard let r = result else { continue }
             stats.syncRenders += 1
             cache.insert(timeKey(k), r.time)
             cache.insert(k, r.text)
@@ -602,7 +599,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
                     if let w = work[checked: j], let slot = out.checkedIndex(j) { out[slot] = SidebarController.tilePart(w.0, w.1, ctx) } // cmux
                 }
             }
-            for (j, w) in work.enumerated() { if let img = images[j] { cache.insert(w.0, img); stats.tiles += 1 } }
+            for (w, image) in zip(work, images) { if let img = image { cache.insert(w.0, img); stats.tiles += 1 } } // cmux: no index math
         }
         for t in pinnedItems.indices { configureTile(t) }
         CATransaction.commit()
@@ -728,7 +725,6 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         }
         CATransaction.commit()
         if reveal, let id, let p = position(of: id) { _ = document.scrollToVisible(rect(p).insetBy(dx: 0, dy: -2)) }
-        updateHover()
         updateAccessibility()
         guard notify else { return }
         if let id, Self.isExtra(id) {
@@ -904,8 +900,8 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
                     }
                 }
             }
-            for (j, w) in rowWork.enumerated() { if let r = rowsOut[j] { out.rows.append((w.0, r.time, r.text)) } }
-            for (j, w) in tileWork.enumerated() { if let img = tilesOut[j] { out.tiles.append((w.0, img)) } }
+            for (w, result) in zip(rowWork, rowsOut) { if let r = result { out.rows.append((w.0, r.time, r.text)) } } // cmux
+            for (w, image) in zip(tileWork, tilesOut) { if let img = image { out.tiles.append((w.0, img)) } } // cmux
             return out
         }
     }
@@ -949,34 +945,6 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
             return true
         default: return false
         }
-    }
-
-    // MARK: Hover
-
-    /// cmux: off (Messages shows no hover on rows or tiles).
-    static let showsHover = false
-
-    func mouseMoved(_ p: CGPoint?) {
-        let h = p.flatMap(hit)
-        guard h != hovered else { return }
-        hovered = h
-        updateHover()
-    }
-    private func updateHover() {
-        CATransaction.begin(); CATransaction.setDisableActions(true)
-        defer { CATransaction.commit() }
-        // cmux: Messages draws no hover highlight on a row or a pinned tile (decision
-        // 2026-10-07), so the hover fill stays hidden.
-        guard Self.showsHover else { hoverLayer.isHidden = true; return }
-        // The hovered row or tile may be gone (unpinned, filtered out): check before reading it.
-        guard let h = hovered else { hoverLayer.isHidden = true; return }
-        if case let .row(r) = h, r >= rowItems.count { hoverLayer.isHidden = true; return }
-        if case let .tile(t) = h, t >= pinnedItems.count { hoverLayer.isHidden = true; return }
-        guard let i = item(h), i < snapshot.items.count, let c = snapshot.items[checked: i], c.id != highlightID else { hoverLayer.isHidden = true; return } // cmux
-        hoverLayer.frame = rect(h)
-        hoverLayer.cornerRadius = { if case .tile = h { return SidebarMetrics.pinSelectionRadius }; return SidebarMetrics.selectionRadius }()
-        hoverLayer.backgroundColor = palette.hover
-        hoverLayer.isHidden = false
     }
 
     // MARK: Context menu
@@ -1118,7 +1086,6 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
             e.setAccessibilityLabel(parts.joined(separator: ", "))
             e.setAccessibilityTitle(c.title)
             e.setAccessibilitySelected(c.id == highlightID)
-            e.setAccessibilityFrameInParentSpace(rect(h))
             e.setAccessibilityParent(document)
             return e
         }
@@ -1135,6 +1102,9 @@ final class SidebarAccessibilityRow: NSAccessibilityElement {
     init(controller: SidebarController, id: ConversationID) { self.controller = controller; self.id = id; super.init() }
     override func accessibilityPerformPress() -> Bool { controller?.highlight(id); return true }
     override func isAccessibilityElement() -> Bool { true }
+    /// On screen, from the list's own (flipped) geometry at the time of the call: a frame in
+    /// parent space came out mirrored on the list's height (dogfood 2026-10-08: rows at y 28590).
+    override func accessibilityFrame() -> NSRect { controller?.screenRect(of: id) ?? .zero }
 }
 
 /// One row or tile: selection background, bitmap content, separator, typing bubble.
@@ -1176,7 +1146,7 @@ final class SidebarRowLayer: CALayer {
 }
 
 /// The scroll view's document: flipped, layer-backed with no drawing of its own (rows are
-/// sublayers), takes clicks, keys, hover and the context menu.
+/// sublayers), takes clicks, keys and the context menu.
 final class SidebarDocumentView: NSView {
     weak var controller: SidebarController?
     override init(frame: NSRect) {
@@ -1223,17 +1193,7 @@ final class SidebarDocumentView: NSView {
     }
     @objc func performFind(_ sender: Any?) { if let c = controller { window?.makeFirstResponder(c.searchField) } }
 
-    // Hover: only while the window is key, only over the list.
-    private var area: NSTrackingArea?
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let a = area { removeTrackingArea(a) }
-        let a = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
-        addTrackingArea(a)
-        area = a
-    }
-    override func mouseMoved(with event: NSEvent) { controller?.mouseMoved(point(event)) }
-    override func mouseExited(with event: NSEvent) { controller?.mouseMoved(nil) }
+    // No hover: Messages draws none on rows or tiles (no tracking area).
 }
 
 /// The sidebar's root view: lays out the search field and the list; follows the window's

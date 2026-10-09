@@ -174,6 +174,7 @@ extension SettingsSchema {
         "app.quitBehavior": .destructive,
         // On, a key is taken from every other app system-wide.
         "app.globalHotKey": .userOnly,
+        "app.startAgentGlobalHotKey": .userOnly,
         // Off, a close ends running programs and agents without asking.
         "app.warnBeforeClosingTab": .destructive,
         "app.warnBeforeClosingAgentSession": .destructive,

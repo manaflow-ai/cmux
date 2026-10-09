@@ -44,11 +44,12 @@ final class AppOnboardingServices: OnboardingServices {
         await Task.detached { ThemeChoice.loadCurated(resourcesDirectory: GhosttyRuntime.resourcesDirectory()) }.value
     }
 
-    /// The last write `applyAppearance` started; each waits for the one
-    /// before, so a revert never lands ahead of the try it undoes.
-    private var lastWrite: Task<Void, Never>?
+    /// The last cmux.json write onboarding started (`applyAppearance`,
+    /// `applyTabKeys`); each waits for the one before, so a revert never
+    /// lands ahead of the try it undoes.
+    var lastWrite: Task<Void, Never>?
 
-    /// Waits for every write `applyAppearance` started (tests).
+    /// Waits for every cmux.json write onboarding started (tests).
     func flush() async {
         await lastWrite?.value
     }

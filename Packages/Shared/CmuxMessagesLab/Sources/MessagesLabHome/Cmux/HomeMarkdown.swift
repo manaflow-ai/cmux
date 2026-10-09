@@ -81,7 +81,7 @@ enum HomeMarkdown {
             let n = (s as NSString).length
             if !styles.isEmpty || link != nil {
                 if let last = runs.last, last.start + last.length == length, last.style == (styles.isEmpty ? nil : styles), last.link == link {
-                    runs[runs.count - 1].length += n
+                    runs.update(at: runs.count - 1) { $0.length += n } // crash program: checked
                 } else {
                     runs.append(TextRun(start: length, length: n, style: styles.isEmpty ? nil : styles, link: link, mention: nil, detected: nil))
                 }
@@ -96,15 +96,15 @@ enum HomeMarkdown {
             var i = 0
             var plain = ""
             func flush() { out.append(plain, styles, link: link); plain = "" }
-            while i < c.count {
-                let ch = c[i]
-                if ch == "\\", i + 1 < c.count, c[i + 1].isASCII, c[i + 1].isPunctuation || c[i + 1].isSymbol {
-                    plain.append(c[i + 1]); i += 2; continue
+            // Crash program: checked reads and clamped slices (agent text is external input).
+            while i < c.count, let ch = c[checked: i] {
+                if ch == "\\", i + 1 < c.count, let next = c[checked: i + 1], next.isASCII, next.isPunctuation || next.isSymbol {
+                    plain.append(next); i += 2; continue
                 }
                 if ch == "`" {
                     let ticks = run(c, i, "`")
                     if let close = find(c, from: i + ticks, String(repeating: "`", count: ticks)) {
-                        var code = String(c[(i + ticks)..<close])
+                        var code = String(c.slice(i + ticks, close))
                         if code.count > 2, code.first == " ", code.last == " " { code = String(code.dropFirst().dropLast()) }
                         flush()
                         out.append(code, add("code", to: styles), link: link)
@@ -117,8 +117,8 @@ enum HomeMarkdown {
                     parse(label, into: &out, styles: styles, link: safe(url))
                     i = end; continue
                 }
-                if ch == "<", link == nil, let close = c[(i + 1)...].firstIndex(of: ">") {
-                    let url = String(c[(i + 1)..<close])
+                if ch == "<", link == nil, let close = c.slice(from: i + 1).firstIndex(of: ">") {
+                    let url = String(c.slice(i + 1, close))
                     if let s = safe(url), !url.contains(" ") {
                         flush()
                         out.append(url, styles, link: s)
@@ -129,7 +129,7 @@ enum HomeMarkdown {
                     let n = run(c, i, ch)
                     if let (style, width) = delimiter(ch, n), let close = closing(c, from: i, ch, width) {
                         flush()
-                        parse(Array(c[(i + width)..<close]), into: &out, styles: add(style, to: styles), link: link)
+                        parse(Array(c.slice(i + width, close)), into: &out, styles: add(style, to: styles), link: link)
                         i = close + width; continue
                     }
                     plain += String(repeating: String(ch), count: n); i += n; continue
@@ -152,7 +152,7 @@ enum HomeMarkdown {
 
         private static func run(_ c: [Character], _ i: Int, _ ch: Character) -> Int {
             var n = 0
-            while i + n < c.count, c[i + n] == ch { n += 1 }
+            while i + n < c.count, c[checked: i + n] == ch { n += 1 }
             return n
         }
 
@@ -160,7 +160,7 @@ enum HomeMarkdown {
             let p = Array(s)
             var j = from
             while j + p.count <= c.count {
-                if Array(c[j..<(j + p.count)]) == p, j + p.count == c.count || c[j + p.count] != p[0] { return j }
+                if c.slice(j, j + p.count).elementsEqual(p), j + p.count == c.count || c[checked: j + p.count] != p.first { return j }
                 j += 1
             }
             return nil
@@ -171,15 +171,15 @@ enum HomeMarkdown {
         /// (snake_case stays as written).
         private static func closing(_ c: [Character], from i: Int, _ ch: Character, _ width: Int) -> Int? {
             let start = i + width
-            guard start < c.count, !c[start].isWhitespace else { return nil }
-            if ch == "_", i > 0, c[i - 1].isLetter || c[i - 1].isNumber { return nil }
+            guard start < c.count, let first = c[checked: start], !first.isWhitespace else { return nil }
+            if ch == "_", i > 0, let before = c[checked: i - 1], before.isLetter || before.isNumber { return nil }
             var j = start + 1
             while j + width <= c.count {
-                if c[j..<(j + width)].allSatisfy({ $0 == ch }), !c[j - 1].isWhitespace {
+                if c.slice(j, j + width).allSatisfy({ $0 == ch }), c[checked: j - 1]?.isWhitespace == false {
                     let after = j + width
-                    let longer = after < c.count && c[after] == ch
-                    let boundary = ch != "_" || after == c.count || !(c[after].isLetter || c[after].isNumber)
-                    if !longer || width == 2, boundary, !(width == 1 && j + 1 < c.count && c[j + 1] == ch) { return j }
+                    let longer = after < c.count && c[checked: after] == ch
+                    let boundary = ch != "_" || after == c.count || !(c[checked: after].map { $0.isLetter || $0.isNumber } ?? false)
+                    if !longer || width == 2, boundary, !(width == 1 && j + 1 < c.count && c[checked: j + 1] == ch) { return j }
                 }
                 j += 1
             }
@@ -190,18 +190,18 @@ enum HomeMarkdown {
             var depth = 0
             var j = i
             while j < c.count {
-                if c[j] == "[" { depth += 1 } else if c[j] == "]" { depth -= 1; if depth == 0 { break } }
+                if c[checked: j] == "[" { depth += 1 } else if c[checked: j] == "]" { depth -= 1; if depth == 0 { break } }
                 j += 1
             }
-            guard j + 1 < c.count, c[j + 1] == "(" else { return nil }
+            guard j + 1 < c.count, c[checked: j + 1] == "(" else { return nil }
             var k = j + 2, parens = 1
             while k < c.count {
-                if c[k] == "(" { parens += 1 } else if c[k] == ")" { parens -= 1; if parens == 0 { break } }
+                if c[checked: k] == "(" { parens += 1 } else if c[checked: k] == ")" { parens -= 1; if parens == 0 { break } }
                 k += 1
             }
             guard k < c.count else { return nil }
-            let url = String(c[(j + 2)..<k]).trimmingCharacters(in: .whitespaces)
-            return (Array(c[(i + 1)..<j]), url, k + 1)
+            let url = String(c.slice(j + 2, k)).trimmingCharacters(in: .whitespaces)
+            return (Array(c.slice(i + 1, j)), url, k + 1)
         }
 
         private static func safe(_ url: String) -> String? {

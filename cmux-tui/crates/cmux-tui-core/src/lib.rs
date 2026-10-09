@@ -92,6 +92,7 @@ pub mod platform;
 mod process_identity;
 pub mod process_resources;
 pub mod server;
+pub mod session_state_import;
 pub mod terminal_host;
 pub mod terminal_host_protocol;
 pub mod terminal_host_runtime;

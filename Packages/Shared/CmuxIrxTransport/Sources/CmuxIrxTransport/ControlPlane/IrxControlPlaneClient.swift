@@ -18,6 +18,10 @@ struct IrxControlPlaneCursor: Codable, Equatable, Sendable {
 /// loop with capped jittered backoff, `kick()` is the foreground reset (iOS
 /// suspension kills the socket silently; that is expected), `stop()` ends it.
 public actor IrxControlPlaneClient {
+    /// A server Retry-After past 2^31 s (68 years) waits that long: a deadline
+    /// near Int.max seconds traps when the clock converts it.
+    static let maximumServerRetryAfterSeconds = 2_147_483_648
+
     public struct Configuration: Sendable {
         public var socketURL: URL
         public var endpointIDHex: String
@@ -304,7 +308,7 @@ public actor IrxControlPlaneClient {
             }
             if Task.isCancelled || generation != loopGeneration { return }
             let jitter = Duration.milliseconds(Int.random(in: 0...500))
-            let serverFloor = Duration.seconds(Int64(max(0, retryAfterSeconds ?? 0)))
+            let serverFloor = Duration.seconds(min(max(0, retryAfterSeconds ?? 0), Self.maximumServerRetryAfterSeconds))
             let delay = max(backoff + jitter, serverFloor)
             backoff = min(backoff * 2, Self.maxBackoff)
             journal.record(

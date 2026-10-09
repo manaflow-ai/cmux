@@ -72,6 +72,9 @@ public final class AgentPaneModel {
     /// (`quick.openInWindow`). Gets the chat's session, nil before the
     /// first prompt.
     @ObservationIgnored public var onQuickOpenInWindow: ((String?) -> Void)?
+    /// The quick panel's Return started its chat (`quick.startInBackground`): the
+    /// session goes to the sidebar; the reply waits until the host placed it or failed.
+    @ObservationIgnored public var onQuickStartInBackground: (@MainActor (AgentPaneQuickStart) async -> Void)?
     /// This build's URL scheme, handed to the page with every handshake so
     /// the links it copies open in this build; nil leaves it out.
     @ObservationIgnored public var linkScheme: String?
@@ -365,6 +368,15 @@ public final class AgentPaneModel {
                 onSessionChange?(session)
             }
             onQuickOpenInWindow(sessionId)
+            return AgentPaneReply.success()
+        case .quickStartInBackground(let start):
+            guard let onQuickStartInBackground else { return Self.unsupported("quick.startInBackground") }
+            if start.sessionId != sessionId {
+                sessionId = start.sessionId
+                newTab = nil
+                onSessionChange?(start.sessionId)
+            }
+            await onQuickStartInBackground(start)
             return AgentPaneReply.success()
         case .git(let git):
             guard let onGit else { return Self.gitFailure(.notConnected) }
