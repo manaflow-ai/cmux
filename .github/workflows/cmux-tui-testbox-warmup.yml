@@ -232,7 +232,9 @@ jobs:
       # Cargo judges workspace crates and build scripts by mtime, and this
       # checkout made every source new. Give each file that is byte-identical
       # to the one the snapshot was built from its recorded mtime back;
-      # changed files stay new, so Cargo rebuilds exactly what changed.
+      # changed files stay new, so Cargo rebuilds exactly what changed. It also
+      # drops ghostty-vt-sys output built for another host CPU (zig native
+      # target), which would otherwise die with SIGILL here.
       - name: Restore source mtimes recorded with the warm target dir
         shell: bash
         run: |
