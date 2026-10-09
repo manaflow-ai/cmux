@@ -100,6 +100,12 @@ test("a render shows once the transcript draws its card: in an ended turn, befor
   ]);
 });
 
+test("an unsent prompt starts the first turn when no accepted one is loaded, as the transcript draws it", () => {
+  const queued: AcpmuxRow = { ...prompt("u0"), pending: true };
+  const paged = [render("r0", { html: "<p>before</p>" }), queued, render("r6", { html: "<p>after</p>" }), ended("s0")];
+  expect(chatGallery(paged).map((item) => item.key)).toEqual(["r6"]);
+});
+
 test("a kind filter keeps only that kind; all keeps everything", () => {
   const items = chatGallery(rows);
   expect(galleryItems(items, "all")).toHaveLength(4);
