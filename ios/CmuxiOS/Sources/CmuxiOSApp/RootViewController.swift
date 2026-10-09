@@ -88,15 +88,34 @@ final class RootViewController: UIViewController {
 
     override var canBecomeFirstResponder: Bool { true }
 
+    /// Keep universal search available from every shell tab, including the
+    /// SwiftUI settings and hosts screens whose navigation controllers can
+    /// otherwise become the first responder before the shell tab controller.
+    override var keyCommands: [UIKeyCommand]? {
+        guard shell != nil else { return super.keyCommands }
+        let search = UIKeyCommand(title: String(localized: "Search"),
+                                   action: #selector(performShellSearch),
+                                   input: "k", modifierFlags: .command)
+        search.discoverabilityTitle = String(localized: "Search")
+        return (super.keyCommands ?? []) + [search]
+    }
+
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if action == #selector(performShellSearch) { return shell != nil }
+        return super.canPerformAction(action, withSender: sender)
+    }
+
+    @objc private func performShellSearch() { openSearch(query: nil) }
+
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         if toastWindow == nil, let scene = view.window?.windowScene {
             toastWindow = ToastWindow(scene: scene, center: container.toasts)
         }
-        // The shake gesture (DEV menu) reaches this controller from any first
-        // responder below it; take first responder only while no Home screen
-        // does, so Home's key commands (Cmd-F, Cmd-N, Esc) stay in the chain.
-        if home == nil { becomeFirstResponder() }
+        // Keep a root-level Cmd-K responder even when a SwiftUI shell screen
+        // owns the focused responder. Home's own Cmd-F/Cmd-N commands remain
+        // discoverable through the child responder chain.
+        becomeFirstResponder()
         presentWhatsNewIfNeeded()
     }
 

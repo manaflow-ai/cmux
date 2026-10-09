@@ -8,6 +8,7 @@ struct AboutSection: View {
         Section(SettingsText.about) {
             LabeledContent(SettingsText.version, value: about.summary)
                 .textSelection(.enabled)
+                .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("shell.settings.version")
             Link(destination: SettingsLinks.termsOfService) {
                 Label(SettingsText.termsOfService, systemImage: "doc.text")

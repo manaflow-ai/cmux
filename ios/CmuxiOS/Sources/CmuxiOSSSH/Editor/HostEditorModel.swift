@@ -72,7 +72,9 @@ final class HostEditorModel {
     }
 
     var canSave: Bool {
-        !isWorking && !name.trimmingCharacters(in: .whitespaces).isEmpty && !address.trimmingCharacters(in: .whitespaces).isEmpty
+        !isWorking && !name.trimmingCharacters(in: .whitespaces).isEmpty
+            && !address.trimmingCharacters(in: .whitespaces).isEmpty
+            && !user.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     var selectedKey: SSHKeyRecord? { keys.first { $0.id == keyID } }
