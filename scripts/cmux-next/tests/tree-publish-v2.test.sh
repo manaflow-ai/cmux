@@ -129,4 +129,20 @@ out=$(cd "$src" && rm -rf assets/tree tree && mkdir -p assets/tree && cp "$src"/
   GITHUB_SERVER_URL=https://github.com GITHUB_REPOSITORY=manaflow-ai/cmux R2_ENDPOINT=https://r2.test \
   KEY_V2="$v2" LEGACY_KEY="$v1" bash "$TMP/publish.sh" 2>&1) || fail "the second publication failed:" "$out"
 
+# The Windows build is optional: a run that built none (no cmux-tui-windows/<sha>/)
+# publishes the macOS and Linux tree without Windows objects.
+rm -rf "$cdn/tree" "$cdn/windows"
+mkdir -p "$cdn/tree/$v2"
+printf '{"key": "%s", "commit": "%s"}\n' "$v2" "$other" > "$cdn/tree/$v2/source.json"
+for n in "${windows_names[@]}"; do rm -f "$src/assets/run/$n"; done
+out=$(cd "$src" && rm -rf assets/tree tree && mkdir -p assets/tree && cp assets/run/* assets/tree/ && env PATH="$TMP/bin:$PATH" GITHUB_SHA="$run_sha" GITHUB_RUN_ID=3 \
+  GITHUB_SERVER_URL=https://github.com GITHUB_REPOSITORY=manaflow-ai/cmux R2_ENDPOINT=https://r2.test \
+  KEY_V2="$v2" LEGACY_KEY="$v1" bash "$TMP/publish.sh" 2>&1) || fail "a run without a Windows build failed:" "$out"
+for key in "$v2" "$v1"; do
+  [[ -f "$cdn/tree/$key/completion.json" ]] || fail "$key: no completion.json without Windows"
+  [[ ! -e "$cdn/tree/$key/completion-windows.json" ]] || fail "$key: completion-windows.json without a Windows build"
+  for n in "${windows_names[@]}"; do [[ ! -e "$cdn/tree/$key/$n" ]] || fail "$key: $n without a Windows build"; done
+done
+grep -q "published without the Windows daemon" <<<"$out" || fail "no warning for a tree without Windows:" "$out"
+
 printf 'tree-publish-v2 tests: ok\n'
