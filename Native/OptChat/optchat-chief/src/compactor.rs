@@ -1507,9 +1507,8 @@ pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str, family: Fami
         .collect()
 }
 
-/// The effort of a Claude compactor session: high, with Claude Haiku 5.5
-/// (`optchat_host::DEFAULT_EFFORT`, as the reference client runs it; at low
-/// effort the compactor overshot the size limit much more). acpmux maps
+/// The effort of a Claude compactor session: medium, with Claude Haiku 5.5
+/// (`optchat_host::DEFAULT_EFFORT`, chosen by measurement). acpmux maps
 /// `effort` onto Claude Code's `--effort`.
 pub const COMPACTOR_EFFORT: &str = optchat_host::DEFAULT_EFFORT;
 
@@ -1527,12 +1526,12 @@ pub fn compactor_effort(family: Family) -> Option<String> {
     }
 }
 
-/// The compactor model a Claude Code harness is asked for: the `haiku`
-/// alias, which Claude Code maps to its current Haiku. Claude Code 2.1.287
-/// does not know the full id `claude-haiku-5-5` ("[claude-code:
-/// unrecognized_model]"); the Messages API route keeps it
-/// (`optchat_host::DEFAULT_MODEL`).
-pub const CLAUDE_CODE_COMPACTOR_MODEL: &str = "haiku";
+/// The compactor model a Claude Code harness is asked for: the full id
+/// `claude-haiku-5-5` (`optchat_host::DEFAULT_MODEL`). Claude Code 2.1.287
+/// only warns that it does not list it ("[claude-code:unrecognized_model]")
+/// and runs it; its `haiku` alias is Haiku 4.5 (measured: 52 s and no
+/// prompt caching for one node, against 1.3 s at effort low).
+pub const CLAUDE_CODE_COMPACTOR_MODEL: &str = optchat_host::DEFAULT_MODEL;
 
 /// The default compactor model of `family`'s harness (None: the harness's
 /// own default model).
@@ -1547,7 +1546,6 @@ pub fn compactor_model_for(family: Family) -> Option<String> {
 pub fn is_model_unavailable(message: &str) -> bool {
     let lower = message.to_ascii_lowercase();
     lower.contains("issue with the selected model")
-        || lower.contains("unrecognized_model")
         || lower.contains("may not exist or you may not have access")
         || (lower.contains("not_found_error") && lower.contains("model"))
 }

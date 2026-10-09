@@ -13,6 +13,7 @@ import { type StringKey, useT } from "./i18n";
 
 import { Icon } from "./icons/Icon";
 import { rowIconSize } from "./icons/iconSize";
+import { listRowKeyboardProps } from "../../ui/listRowKeyboard";
 
 const MARK_LABELS = {
   input: "sidebar.markInput",
@@ -92,7 +93,7 @@ export function SessionSidebar({
   );
   return (
     <OpenSessions.Provider value={openIds}>
-      <nav className="acpmux-sidebar" id="acpmux-sidebar" aria-label={t("sidebar.label")}>
+      <nav className="acpmux-sidebar" id="acpmux-sidebar" data-list-keyboard aria-label={t("sidebar.label")}>
         <div className="acpmux-rail">
           <RailButton label={t("picker.newChat")} title={t("picker.newChat")} onClick={onNewChat} icon="home" />
 
@@ -404,13 +405,19 @@ const SessionRow = memo(function SessionRow({
   const mark = sessionMark(session, selected);
   const title = session.displayTitle || session.sessionId.slice(0, 8);
   const place = sessionPlace(session, groupHost);
+  const keyboard = listRowKeyboardProps(".acpmux-session-row", (row) => {
+    const sessionId = row.dataset.sessionId;
+    if (sessionId) onSelect(sessionId);
+  });
   const placeLabel =
     place &&
     `${t(PLACE_LABELS[place.kind])} ${place.label}${place.branch ? `, ${t(PLACE_LABELS.branch)} ${place.branch}` : ""}`;
   return (
     <li>
       <button
+        {...keyboard}
         type="button"
+        data-session-id={session.sessionId}
         className={`acpmux-session-row${flat ? " is-flat" : ""}${selected ? " is-selected" : ""}${open ? " is-open" : ""}${session.status === "closed" ? " is-closed" : ""}`}
         aria-current={selected ? "true" : undefined}
         aria-label={

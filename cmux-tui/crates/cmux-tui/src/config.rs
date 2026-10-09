@@ -46,6 +46,7 @@
 //!     }
 //!   },
 //!   "agents": {
+//!     "screen_detection": true,
 //!     "plugin": {
 //!       "id": "example_agent_screen_detection",
 //!       "command": ["/path/to/agent-plugin"],
@@ -185,7 +186,7 @@ struct RawConfig {
     #[serde(default)]
     sidebar: RawSidebar,
     #[serde(default)]
-    agents: RawAgents,
+    agents: crate::agent_plugin_config::RawAgents,
     #[serde(default)]
     machine_sidebar: RawMachineSidebar,
     #[serde(default)]
@@ -628,22 +629,6 @@ struct RawSidebarColumn {
 struct RawSidebarPlugin {
     command: Option<Vec<String>>,
     cwd: Option<String>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawAgents {
-    /// Optional background process that reports generic agent journal events.
-    plugin: Option<RawAgentPlugin>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawAgentPlugin {
-    id: Option<String>,
-    command: Option<Vec<String>>,
-    cwd: Option<String>,
-    revision: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -3486,39 +3471,9 @@ pub fn load() -> Config {
             });
         }
     }
-    if let Some(plugin) = raw.agents.plugin {
-        if let Some(id) = plugin.id {
-            // Do not filter later argv entries. An empty value can be meaningful
-            // to a plugin, while an empty executable must still disable config.
-            let command = plugin.command.unwrap_or_default();
-            if command.first().is_none_or(|arg| arg.trim().is_empty()) {
-                crate::client_log::stderr_log!(
-                    "config",
-                    "{BIN}: ignoring agents.plugin with empty command"
-                );
-            } else {
-                let options = cmux_tui_core::JournalPluginOptions {
-                    id,
-                    command,
-                    cwd: plugin.cwd.filter(|cwd| !cwd.trim().is_empty()),
-                    revision: plugin.revision.filter(|revision| !revision.trim().is_empty()),
-                };
-                if let Err(error) = options.validate() {
-                    crate::client_log::stderr_log!(
-                        "config",
-                        "{BIN}: ignoring invalid agents.plugin: {error}"
-                    );
-                } else {
-                    config.agents.plugin = Some(options);
-                }
-            }
-        } else {
-            crate::client_log::stderr_log!(
-                "config",
-                "{BIN}: ignoring agents.plugin without an explicit id"
-            );
-        }
-    }
+    // An explicit agents.plugin wins; otherwise the bundled screen detector
+    // beside this daemon runs unless agents.screen_detection is false.
+    config.agents.plugin = crate::agent_plugin_config::agent_plugin_for_this_daemon(raw.agents);
     if let Some(enabled) = raw.machine_sidebar.enabled {
         config.machine_sidebar.enabled = enabled;
     }
@@ -4063,8 +4018,18 @@ fn agent_in_title(tabs: &Tabs, title: &str) -> Option<String> {
 }
 
 fn load_raw_config() -> RawConfig {
+    // A config that exists but cannot be read leaves the user's agents choice
+    // unknown, so the bundled screen detector stays off (agent_plugin_config).
+    let unreadable = || RawConfig {
+        agents: crate::agent_plugin_config::RawAgents::invalid(),
+        ..RawConfig::default()
+    };
     let Some(path) = platform::config_path() else { return RawConfig::default() };
-    let Ok(text) = read_config_text(&path) else { return RawConfig::default() };
+    let text = match read_config_text(&path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return RawConfig::default(),
+        Err(_) => return unreadable(),
+    };
     let value: Value = match serde_json::from_str(&text) {
         Ok(value) => value,
         Err(e) => {
@@ -4074,7 +4039,7 @@ fn load_raw_config() -> RawConfig {
                 config_diagnostic(&e),
                 path.display(),
             );
-            return RawConfig::default();
+            return unreadable();
         }
     };
     let Some(object) = value.as_object() else {
@@ -4083,7 +4048,7 @@ fn load_raw_config() -> RawConfig {
             "{BIN}: ignoring invalid config {}: root must be an object",
             path.display()
         );
-        return RawConfig::default();
+        return unreadable();
     };
     const KNOWN: &[&str] = &[
         "theme",
@@ -4108,21 +4073,25 @@ fn load_raw_config() -> RawConfig {
             "{BIN}: ignoring invalid config {}: unknown top-level field `{unknown}`",
             path.display()
         );
-        return RawConfig::default();
+        return unreadable();
     }
     let mut raw = RawConfig::default();
+    // An invalid section keeps its defaults, or `$invalid` when given.
     macro_rules! section {
-        ($field:ident, $name:literal) => {
+        ($field:ident, $name:literal $(, $invalid:expr)?) => {
             if let Some(value) = object.get($name) {
                 match serde_json::from_value(value.clone()) {
                     Ok(parsed) => raw.$field = parsed,
-                    Err(error) => crate::client_log::stderr_log!(
-                        "config",
-                        "{BIN}: ignoring invalid `{}` section in {}: {}",
-                        $name,
-                        path.display(),
-                        error
-                    ),
+                    Err(error) => {
+                        crate::client_log::stderr_log!(
+                            "config",
+                            "{BIN}: ignoring invalid `{}` section in {}: {}",
+                            $name,
+                            path.display(),
+                            error
+                        );
+                        $(raw.$field = $invalid;)?
+                    }
                 }
             }
         };
@@ -4130,7 +4099,8 @@ fn load_raw_config() -> RawConfig {
     section!(theme, "theme");
     section!(tabs, "tabs");
     section!(sidebar, "sidebar");
-    section!(agents, "agents");
+    // An unreadable agents section must not turn the bundled detector on.
+    section!(agents, "agents", crate::agent_plugin_config::RawAgents::invalid());
     section!(machine_sidebar, "machine_sidebar");
     section!(machine_provider, "machine_provider");
     section!(machines, "machines");
@@ -8212,6 +8182,41 @@ mod tests {
             config.agents.plugin.is_none(),
             "a userland plugin without an explicit producer id must be ignored",
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unreadable_agents_settings_keep_the_bundled_detector_off() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old = (std::env::var_os("CMUX_TUI_CONFIG"), std::env::var_os("CMUX_MUX_CONFIG"));
+        let directory = TestDirectory::new("agents-invalid");
+        let (bin, path) = (directory.path.join("bin"), directory.path.join("mux.json"));
+        std::fs::create_dir(&bin).unwrap();
+        write_executable(bin.join("cmux-agent-screen-detection"), "#!/bin/sh\n");
+        let mut plugin_ids = Vec::new();
+        for text in [
+            "{}",
+            r#"{"agents":{"plugin":{"id":"mine","command":"/opt/mine"}}}"#,
+            r#"{"agents":{"plugin":{"id":"mine","command":["/opt/mine"],"bogus":1}}}"#,
+            r#"{"agents":{"screen_detection":"false"}}"#,
+            r#"{"agents":{"screen_detection":false"#,
+            "[]",
+            r#"{"not_a_section":{}}"#,
+        ] {
+            std::fs::write(&path, text).unwrap();
+            // SAFETY: environment mutation is serialized by CONFIG_ENV_LOCK.
+            unsafe {
+                std::env::remove_var("CMUX_TUI_CONFIG");
+                std::env::set_var("CMUX_MUX_CONFIG", &path);
+            }
+            let config = crate::agent_plugin_config::with_test_daemon_dir(&bin, load);
+            plugin_ids.push(config.agents.plugin.map(|plugin| plugin.id));
+        }
+        restore_env_var("CMUX_TUI_CONFIG", old.0);
+        restore_env_var("CMUX_MUX_CONFIG", old.1);
+        let mut expected = vec![None; 7];
+        expected[0] = Some("cmux_screen_detection".to_string());
+        assert_eq!(plugin_ids, expected, "only a readable config may enable the bundled detector");
     }
 
     #[test]
