@@ -129,22 +129,15 @@ final actor CloudHomeSource: HomeSource {
             _ = conversation; _ = on
             return HomeOpResult(rev: 0, conversation: conversation)
         }
+        if case .startConversation(let contacts, let firstMessage) = intent.op {
+            return try await startConversation(contacts: contacts, firstMessage: firstMessage, key: intent.key.rawValue)
+        }
         var mapped = try map(intent.op)
         if case .sendMessage = intent.op { mapped.params["client_msg_id"] = .string(intent.key.rawValue) }
-        let reply: CloudOpReply
-        // Home mutations are user actions. The install principal is reserved
-        // for reads and event sockets; CloudDO rejects conversation writes
-        // without the signed-in session credential.
-        do { reply = try await api.mutate(mapped.op, params: mapped.params, key: intent.key.rawValue, as: .session) }
-        catch CloudAPIError.transport { throw HomeRejection.indeterminate }
-        catch CloudAPIError.unauthenticated { throw HomeRejection.notAuthorized }
-        switch reply {
-        case .committed(let value, let revision):
-            let conversation = value["conversation"]?["id"]?.stringValue ?? value["conversation"]?.stringValue
-            let invite = value["invite"].flatMap(decodeInvite)
-            return HomeOpResult(rev: revision, replayed: false, conversation: conversation.map { ConversationID($0) }, invite: invite)
-        case .rejected(let code, let retryable): throw rejection(code: code, retryable: retryable)
-        }
+        let (value, revision) = try await commit(mapped, key: intent.key.rawValue)
+        let conversation = value["conversation"]?["id"]?.stringValue ?? value["conversation"]?.stringValue
+        let invite = value["invite"].flatMap(decodeInvite)
+        return HomeOpResult(rev: revision, replayed: false, conversation: conversation.map { ConversationID($0) }, invite: invite)
     }
 
     func search(_ query: String, limit: Int) async throws -> [HomeSearchHit] {
@@ -259,6 +252,66 @@ private extension CloudHomeSource {
         let unread: UInt64; let mentions: UInt64; let pinned: Bool; let pinPosition: Int?; let muted: Bool; let removed: Bool; let dmPeer: String?
     }
     struct MappedOp { let op: String; var params: [String: JSONValue] }
+
+    /// Applies one authenticated Home mutation, translating transport and
+    /// owner refusals into the Home source's error vocabulary. The
+    /// authenticated session credential is required for every user action;
+    /// install credentials are reserved for reads and stream setup.
+    func commit(_ mapped: MappedOp, key: String) async throws -> (value: JSONValue, revision: UInt64) {
+        let reply: CloudOpReply
+        do {
+            reply = try await api.mutate(mapped.op, params: mapped.params, key: key, as: .session)
+        } catch CloudAPIError.transport {
+            throw HomeRejection.indeterminate
+        } catch CloudAPIError.unauthenticated {
+            throw HomeRejection.notAuthorized
+        }
+        switch reply {
+        case .committed(let value, let revision):
+            return (value, revision)
+        case .rejected(let code, let retryable):
+            throw rejection(code: code, retryable: retryable)
+        }
+    }
+
+    /// Starts an address DM and, when supplied, posts its first message. The
+    /// two owner operations deliberately use separate idempotency keys: a
+    /// retry replays `dm.open` under the intent key and then replays the
+    /// message under the derived `:message` key, so a lost response cannot
+    /// create a duplicate first message.
+    func startConversation(contacts: [ContactAddress], firstMessage: [MessagePart], key: String) async throws -> HomeOpResult {
+        guard contacts.count == 1, let contact = contacts.first else {
+            throw HomeRejection.invalid("one contact at a time")
+        }
+        let opened = try await commit(
+            MappedOp(op: "dm.open", params: ["peer": wireContact(contact)]), key: key)
+        guard let conversationID = opened.value["conversation"]?["id"]?.stringValue
+                ?? opened.value["conversation"]?.stringValue else {
+            throw HomeRejection.indeterminate
+        }
+        let conversation = ConversationID(conversationID)
+        if !firstMessage.isEmpty {
+            let messageKey = "\(key):message"
+            _ = try await commit(
+                MappedOp(op: "message.send", params: [
+                    "conversation": .string(conversation.rawValue),
+                    "client_msg_id": .string(messageKey),
+                    "parts": try wireParts(firstMessage),
+                ]), key: messageKey)
+        }
+        let invite = inviteReceipt(for: contact, value: opened.value["invite"])
+        // `startConversation` is an inbox-stream operation. The dm.open
+        // revision is therefore the result cursor even when the follow-up
+        // message advances the conversation stream independently.
+        return HomeOpResult(rev: opened.revision, conversation: conversation, invite: invite)
+    }
+
+    func inviteReceipt(for contact: ContactAddress, value: JSONValue?) -> InviteReceipt? {
+        guard let value else { return nil }
+        if let decoded = decodeInvite(value) { return decoded }
+        guard value["ok"]?.boolValue == true else { return nil }
+        return InviteReceipt(contact: contact, channel: contact.isEmail ? .email : .sms, alreadyMember: false)
+    }
 
     func decodeInboxEntries(_ value: JSONValue) throws -> [InboxEntry] {
         guard case .array(let values) = value else { throw CloudAPIError.transport }
