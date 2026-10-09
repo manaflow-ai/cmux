@@ -281,6 +281,17 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         socket_path().display(),
         bound.as_deref().unwrap_or("none")
     );
+    // The stop signals are registered before the ready line: a launcher may
+    // stop the daemon as soon as it reads the line, and a signal that came
+    // before registration would end the daemon by the default action
+    // (no shutdown path: the token, pid file and socket would stay).
+    #[cfg(unix)]
+    let mut stop_signals = {
+        use tokio::signal::unix::{SignalKind, signal};
+        (signal(SignalKind::terminate()).ok(), signal(SignalKind::interrupt()).ok())
+    };
+    #[cfg(not(unix))]
+    let ctrl_c = tokio::signal::ctrl_c();
     if let Some(fd) = opts.ready_fd {
         write_ready(fd, &ready);
     }
@@ -313,14 +324,12 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     tokio::spawn(notify_loop(hub.clone()));
 
     let shutdown = async {
-        let ctrl_c = tokio::signal::ctrl_c();
         #[cfg(unix)]
         {
-            let mut term =
-                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).ok();
+            let (term, int) = &mut stop_signals;
             tokio::select! {
-                _ = ctrl_c => {},
-                _ = async { match term.as_mut() { Some(t) => { t.recv().await; } None => std::future::pending::<()>().await } } => {},
+                _ = next_signal(term.as_mut()) => {},
+                _ = next_signal(int.as_mut()) => {},
                 _ = hub.shutdown.notified() => {},
             }
         }
@@ -350,6 +359,17 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     }
     tracing::info!("stopped");
     Ok(())
+}
+
+/// The next delivery of a registered signal; never, if registration failed.
+#[cfg(unix)]
+async fn next_signal(stream: Option<&mut tokio::signal::unix::Signal>) {
+    match stream {
+        Some(stream) => {
+            stream.recv().await;
+        }
+        None => std::future::pending::<()>().await,
+    }
 }
 
 /// Write the readiness line to an inherited descriptor and close it.
