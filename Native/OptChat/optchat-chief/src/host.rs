@@ -1243,6 +1243,12 @@ fn spawn_probe(
     }
 }
 
+/// How long the start-up probe waits before it tries again after `error`
+/// (its `attempt`-th failure, from 0); None: no retry (a real fault).
+pub fn probe_retry_wait(_error: &str, _attempt: u32) -> Option<std::time::Duration> {
+    None
+}
+
 /// The notice a failed start-up probe posts in the Chief conversation;
 /// None posts none (the failure is only logged).
 pub fn probe_notice(route: CompactRoute, error: &str) -> Option<String> {
