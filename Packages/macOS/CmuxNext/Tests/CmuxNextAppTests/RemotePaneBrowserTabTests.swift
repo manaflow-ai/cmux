@@ -155,6 +155,9 @@ struct RemotePaneBrowserTabTests {
         // still showed This Mac (its address is the waiting web page).
         #expect(f.services.openTabOnMachine(key: remoteTab.id))
         #expect(f.services.cache.existingBrowser(remoteTab.id)?.tab is MachineBrowserPageTab)
+        // Live recheck (ffcob-v5): the chip is computed while the page is
+        // installed, before the cache lists it: the page itself decides.
+        #expect(f.services.cache.existingBrowser(remoteTab.id)?.chrome.machineBadge == nil)
         #expect(f.services.browserMachineBadge(key: remoteTab.id, url: URL(string: "https://www.google.com/")) == nil)
         withExtendedLifetime(f.services) {}
     }
