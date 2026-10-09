@@ -180,7 +180,8 @@ fn a_tilde_directory_is_the_hosts_home() {
         resolve_cwd("~/fun/repo", home.path()),
         Ok(home.path().join("fun/repo"))
     );
-    assert_eq!(resolve_cwd("~", home.path()), Ok(home.path().to_owned()));
+    // The home folder itself is refused (LAUNCH-NO-TCC-PROMPTS).
+    assert!(resolve_cwd("~", home.path()).is_err());
     assert!(resolve_cwd("relative/dir", home.path()).is_err());
     assert!(resolve_cwd("~/fun/missing", home.path()).is_err());
 }
