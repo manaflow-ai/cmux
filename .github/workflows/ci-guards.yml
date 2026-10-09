@@ -837,6 +837,10 @@ jobs:
         if: ${{ matrix.group == 'app-host-execution' }}
         run: ./tests/test_ci_app_host_xcodebuild_retry.sh
 
+      - name: Validate app-host socket listener evidence
+        if: ${{ matrix.group == 'app-host-execution' }}
+        run: python3 tests/test_ci_app_host_socket_evidence.py
+
       - name: Validate app-host xcodebuild attempt budget
         if: ${{ matrix.group == 'app-host-execution' }}
         run: ./tests/test_ci_app_host_xcodebuild_attempts.sh
