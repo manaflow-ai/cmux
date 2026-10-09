@@ -42,6 +42,10 @@ export function newTabScreenActions(deps: {
       deps.leave();
       deps.selectSession(sessionId);
     },
+    onOpenChat(key) {
+      deps.leave();
+      ignore(callNative("chats.open", { key }));
+    },
     onShowAll: deps.showAllChats,
     onRunAction: (id) => ignore(callNative("action.run", { id })),
     onAddHarness: () => ignore(callNative("action.run", { id: "palette.addHarness" })),

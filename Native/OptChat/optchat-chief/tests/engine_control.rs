@@ -50,6 +50,8 @@ fn set(harness: Option<&str>, model: Option<&str>, effort: Option<&str>) -> Engi
         harness: harness.map(str::to_owned),
         model: model.map(str::to_owned),
         effort: effort.map(str::to_owned),
+        speed: None,
+        compactor_speed: None,
     }
 }
 
