@@ -30,6 +30,9 @@ cp "$src/cmux-tui/spec/resource-operations-v2.json" "$code_mode/resource-operati
 cp "$src/backend/catalog/cloud-operations.json" "$code_mode/cloud-operations.json"
 cp "$src/backend/catalog/cloud-relay-operations.json" "$code_mode/cloud-relay-operations.json"
 install -m 755 "$src/scripts/cmux-next/cmux-code-mode-runner" "$bin/cmux-code-mode-runner"
+# The managed dev shim, from its one source: tools that open this build
+# refresh a user's managed `cmux` shim from it (plans/cmux-next/version-skew.md).
+install -m 755 "$src/scripts/lib/cmux-dev-shim-install" "$bin/cmux-dev-shim-install"
 install -m 755 "$src/scripts/cmux-next/cmux-code-mode-macos-profile" "$bin/cmux-code-mode-macos-profile"
 
 # Rust and Zig standard library notices for every bundled binary that links
