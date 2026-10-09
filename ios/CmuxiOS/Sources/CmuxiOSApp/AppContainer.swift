@@ -1,6 +1,7 @@
 import CmuxControlPlane
 import CmuxFeedPushCore
 import CmuxHomeCore
+import CmuxMobileWire
 import CmuxHomeUI
 import CMUXMobileCore
 import CmuxiOSAuth
@@ -531,17 +532,62 @@ final class AppContainer {
         return url
     }
 
-    /// The Home store for the signed-in account. Home talks only to a
-    /// `HomeSource`; until the Home messaging backend lands this is the mock
-    /// owner (plans/cmux-next/ios-rewrite.md, step 5).
+    /// The Home store for the signed-in account. Demo and preview launches use
+    /// the deterministic owner; a configured account uses the UserDO inbox and
+    /// ConversationDO owners over the authenticated cloud API.
     func homeStore(for account: SignedInAccount) -> HomeStore {
         if let home, homeAccount == account.userID { return home }
         home?.stop()
         homeAccount = account.userID
-        let store = HomeStore(source: MockHomeSource())
+        let source: any HomeSource
+        if !isDemo, let base = Self.cloudAPIBaseURL(), let identity {
+            let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+            let coordinator = auth.coordinator
+            let credentials = AppCloudCredentials(identity: identity,
+                                                  sessionToken: { @MainActor in try await coordinator.accessToken() })
+            let api = URLSessionCloudAPIClient(baseURL: base, credentials: credentials, clientVersion: version)
+            let me = Participant(id: ParticipantID(account.userID), kind: .human, displayName: account.displayName)
+            let makeUser: CloudHomeSource.MakeUser = { [identity] in
+                let owner = try await identity.ownerInstall()
+                let session = Self.makeHomeControlPlaneClient(base: base, path: "/v1/wire/user",
+                                                               install: owner.install, appVersion: version,
+                                                               token: { try await identity.token(for: nil) })
+                return (owner.user, session)
+            }
+            let makeConversation: CloudHomeSource.MakeConversation = { [identity] conversation in
+                let owner = try await identity.ownerInstall()
+                let escaped = conversation.rawValue.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
+                    ?? conversation.rawValue
+                return Self.makeHomeControlPlaneClient(base: base, path: "/v1/wire/conv/\(escaped)",
+                                                       install: owner.install, appVersion: version,
+                                                       token: { try await identity.token(for: nil) })
+            }
+            source = CloudHomeSource(me: me, api: api, makeUser: makeUser,
+                                     makeConversation: makeConversation)
+        } else {
+            source = MockHomeSource()
+        }
+        let store = HomeStore(source: source)
         store.start()
         home = store
         return store
+    }
+
+    /// Creates one authenticated Durable Object socket. The install token is
+    /// supplied only in the WebSocket subprotocol by `ControlPlaneClient`.
+    private static func makeHomeControlPlaneClient(
+        base: URL, path: String, install: String, appVersion: String,
+        token: @escaping @Sendable () async throws -> String
+    ) -> ControlPlaneClient {
+        var components = URLComponents(url: base, resolvingAgainstBaseURL: false) ?? URLComponents()
+        components.scheme = components.scheme == "http" ? "ws" : "wss"
+        components.path = path
+        components.query = nil
+        let configuration = ControlPlaneConfiguration(
+            url: components.url ?? base,
+            client: HelloClient(install: install, platform: "ios", appVersion: appVersion))
+        return ControlPlaneClient(configuration: configuration,
+                                  transport: URLSessionControlPlaneTransport(), tokenProvider: token)
     }
 
     /// The feature seams for the signed-in account, built once per account

@@ -10,43 +10,56 @@ import Foundation
 /// operations); sockets are kept for the user inbox and opened conversations
 /// so the UI receives revisions as soon as an owner commits them.
 final actor CloudHomeSource: HomeSource {
-    typealias MakeConversation = @Sendable (ConversationID) async throws -> ControlPlaneClient
+    /// Factories are deliberately asynchronous.  The authenticated install is
+    /// resolved from `InstallIdentity` only when Home is first used, while the
+    /// `AppContainer` can still compose all of its seams synchronously.
+    typealias MakeUser = @Sendable () async throws -> (user: String, session: any ControlPlaneSession)
+    typealias MakeConversation = @Sendable (ConversationID) async throws -> any ControlPlaneSession
 
-    private let user: String
     private let me: Participant
-    private let userClient: ControlPlaneClient
     private let api: any CloudAPIClient
+    private let makeUser: MakeUser
     private let makeConversation: MakeConversation?
+    private var user: String?
+    private var userSession: (any ControlPlaneSession)?
+    private var startTask: Task<Void, Never>?
     private var inboxCache = InboxSnapshot(me: Participant(id: "", kind: .human, displayName: ""), conversations: [], rev: 0)
     private var inboxTask: Task<Void, Never>?
     private var stateTask: Task<Void, Never>?
-    private var conversationClients: [ConversationID: ControlPlaneClient] = [:]
+    private var conversationClients: [ConversationID: any ControlPlaneSession] = [:]
     private var conversationTasks: [ConversationID: Task<Void, Never>] = [:]
     private var continuations: [UUID: AsyncStream<HomeEvent>.Continuation] = [:]
     private var lastConnection: HomeConnection?
 
-    init(user: String, me: Participant, userClient: ControlPlaneClient, api: any CloudAPIClient,
+    init(me: Participant, api: any CloudAPIClient, makeUser: @escaping MakeUser,
          makeConversation: MakeConversation? = nil) {
-        self.user = user
         self.me = me
-        self.userClient = userClient
         self.api = api
+        self.makeUser = makeUser
+        self.makeConversation = makeConversation
+        inboxCache = InboxSnapshot(me: me, conversations: [], rev: 0)
+    }
+
+    /// Compatibility initializer for callers that already own a client (for
+    /// example focused tests). Production composition should use the factory
+    /// initializer above so identity resolution remains lazy.
+    init(user: String, me: Participant, userClient: any ControlPlaneSession, api: any CloudAPIClient,
+         makeConversation: MakeConversation? = nil) {
+        self.me = me
+        self.api = api
+        self.makeUser = { (user: user, session: userClient) }
         self.makeConversation = makeConversation
         inboxCache = InboxSnapshot(me: me, conversations: [], rev: 0)
     }
 
     func start() async {
-        guard inboxTask == nil else { return }
-        await userClient.start()
-        let stream = await userClient.subscribe("inbox:\(user)")
-        lastConnection = .connecting
-        publish(.connection(.connecting))
-        inboxTask = Task { [weak self] in
-            for await update in stream { await self?.applyInbox(update) }
+        if let startTask {
+            await startTask.value
+            return
         }
-        stateTask = Task { [weak self] in
-            for await state in userClient.states { await self?.applyState(state) }
-        }
+        let task = Task { [weak self] in await self?.resolveAndStart() }
+        startTask = task
+        await task.value
     }
 
     func events() async -> AsyncStream<HomeEvent> {
@@ -57,6 +70,30 @@ final actor CloudHomeSource: HomeSource {
         if let lastConnection { continuation.yield(.connection(lastConnection)) }
         continuation.onTermination = { [weak self] _ in Task { await self?.removeContinuation(id) } }
         return stream
+    }
+
+    private func resolveAndStart() async {
+        guard inboxTask == nil else { return }
+        do {
+            let resolved = try await makeUser()
+            user = resolved.user
+            userSession = resolved.session
+            await resolved.session.start()
+            let stream = await resolved.session.subscribe("inbox:\(resolved.user)")
+            lastConnection = .connecting
+            publish(.connection(.connecting))
+            inboxTask = Task { [weak self] in
+                for await update in stream { await self?.applyInbox(update) }
+            }
+            let states = await resolved.session.stateUpdates()
+            stateTask = Task { [weak self] in
+                for await state in states { await self?.applyState(state) }
+            }
+        } catch {
+            let offline = HomeConnection.offline(since: Date())
+            lastConnection = offline
+            publish(.connection(offline))
+        }
     }
 
     func inbox() async throws -> InboxSnapshot {
@@ -127,7 +164,7 @@ final actor CloudHomeSource: HomeSource {
 
     func close(_ conversation: ConversationID) {
         conversationTasks.removeValue(forKey: conversation)?.cancel()
-        if let client = conversationClients.removeValue(forKey: conversation) { Task { await client.stop() } }
+        if let session = conversationClients.removeValue(forKey: conversation) { Task { await session.stop() } }
     }
 
     private func applyState(_ state: ControlPlaneState) {
