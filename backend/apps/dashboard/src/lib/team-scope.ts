@@ -15,6 +15,8 @@ export interface UserTeam {
   readonly kind: "personal" | "stack"
   /** The caller's role; a newer server may answer a role this build does not name (shown as is). */
   readonly role: "owner" | "admin" | "member" | (string & {})
+  /** The team requires its SSO and this session did not sign in through it (the API answers auth.sso_required there). */
+  readonly sso_required: boolean
 }
 
 export interface TeamsList {
@@ -52,11 +54,11 @@ export const teamHeaders = (team: string | undefined): Record<string, string> =>
   return { [TEAM_HEADER]: team }
 }
 
-/** The API's refusal of the request's team (or of the op): HTTP 403 auth.forbidden. */
-export const isTeamForbidden = (r: { readonly status: number; readonly body: unknown }): boolean => {
+/** The API refused the request's team itself (HTTP 403 team.not_member), never a role or op refusal inside it. */
+export const isNotTeamMember = (r: { readonly status: number; readonly body: unknown }): boolean => {
   if (r.status !== 403 || !r.body || typeof r.body !== "object") return false
   const b = r.body as { code?: unknown; error?: { code?: unknown } }
-  return (b.code ?? b.error?.code) === "auth.forbidden"
+  return (b.code ?? b.error?.code) === "team.not_member"
 }
 
 /** A server function: an options object whose data type each one declares. */

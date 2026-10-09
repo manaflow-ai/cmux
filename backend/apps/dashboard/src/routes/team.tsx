@@ -4,7 +4,7 @@ import { useLoad } from "../lib/hooks"
 import { newKey, setSignedIn, useSignedIn } from "../lib/session"
 import { useTeamApi, useTeams } from "../lib/team-api"
 import { TeamForbidden, teamLabel } from "../lib/team-picker"
-import { isTeamForbidden } from "../lib/team-scope"
+import { isNotTeamMember } from "../lib/team-scope"
 import { callerRole, type TeamRole } from "../lib/team-vm"
 import { TeamVmSection } from "./-team-vm"
 
@@ -22,7 +22,7 @@ function Team() {
   const api = useTeamApi()
   const teams = useTeams()
   const navigate = useNavigate()
-  // The page acts in the URL's team (cx-5xew); a 403 auth.forbidden for that team means the caller is not a member now.
+  // The page acts in the URL's team (cx-5xew); a 403 team.not_member means the caller is not a member now (a role refusal stays an error).
   type Loaded = { forbidden: true } | { forbidden: false; value: Directory; revision: string; role: TeamRole | null }
   /** The header list may predate a removal: list again, so the picker drops the team too. */
   const refusedTeam = (): Loaded => {
@@ -33,12 +33,12 @@ function Team() {
     // user.ensure is idempotent and names the caller, whose role decides the team VM actions.
     const e = await api.mutate({ data: { op: "user.ensure", params: {}, idempotency_key: newKey() } })
     if (e.status === 401) setSignedIn(false)
-    if (api.team && isTeamForbidden(e)) return refusedTeam()
+    if (api.team && isNotTeamMember(e)) return refusedTeam()
     if (e.status !== 200) throw new Error(`user.ensure failed: ${e.status}`)
     const me = String((e.body.value as { id?: unknown } | undefined)?.id ?? "")
     const r = await api.read({ data: { op: "team.directory", params: {} } })
     if (r.status === 401) setSignedIn(false)
-    if (api.team && isTeamForbidden(r)) return refusedTeam()
+    if (api.team && isNotTeamMember(r)) return refusedTeam()
     if (r.status !== 200) throw new Error(`team.directory failed: ${r.status} (open Devices once to create your personal team)`)
     const value = r.body.value as unknown as Directory
     // The directory lists the first 200 members; a caller past them is found through team.members.list.

@@ -6,7 +6,7 @@ import { teamText } from "./team-strings"
 export const teamLabel = (locale: Locale, t: UserTeam): string =>
   teamText(locale, "picker.option", {
     name: t.kind === "personal" ? teamText(locale, "picker.personal") : t.display_name || t.id,
-    role: roleText(locale, t.role)
+    role: roleText(locale, t.role) + (t.sso_required ? teamText(locale, "picker.sso_tag") : "")
   })
 
 /** A role this build has no string for (a newer server role) shows as the server named it. */
@@ -27,6 +27,7 @@ export interface TeamPickerProps {
 export function TeamPicker({ teams, selected, locale, onSelect }: TeamPickerProps) {
   const current = selected ?? teams.find((t) => t.kind === "personal")?.id ?? ""
   const unknown = current !== "" && !teams.some((t) => t.id === current)
+  const sso = teams.find((t) => t.id === current)?.sso_required === true
   return (
     <label data-team-picker="" style={{ display: "flex", gap: 6, alignItems: "center" }}>
       <span className="muted">{teamText(locale, "picker.label")}</span>
@@ -38,11 +39,16 @@ export function TeamPicker({ teams, selected, locale, onSelect }: TeamPickerProp
         ))}
         {unknown ? <option value={current}>{teamText(locale, "picker.unknown", { id: current })}</option> : null}
       </select>
+      {sso ? (
+        <span className="error" data-team-sso="">
+          {teamText(locale, "picker.sso_required")}
+        </span>
+      ) : null}
     </label>
   )
 }
 
-/** The state for a team the API refused (auth.forbidden): not a member now, for example after a removal. */
+/** The state for a team the API refused (team.not_member): not a member now, for example after a removal. */
 export function TeamForbidden({ team, locale, onPersonal }: { readonly team: string; readonly locale: Locale; readonly onPersonal: () => void }) {
   return (
     <div className="card" data-team-forbidden="" role="alert">

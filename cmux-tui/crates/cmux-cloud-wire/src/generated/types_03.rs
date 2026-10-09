@@ -438,6 +438,7 @@ pub struct UserTeam {
     pub display_name: String,
     pub kind: UserTeamKind,
     pub role: UserTeamRole,
+    pub sso_required: bool,
 }
 
 wire_enum! {
