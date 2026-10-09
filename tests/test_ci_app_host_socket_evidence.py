@@ -61,7 +61,7 @@ class SocketEvidenceTests(unittest.TestCase):
                 "RUNNER_TEMP": str(root),
                 "CMUX_APP_HOST_TEST_LOCK_ACTIVE": "1",
                 "CMUX_APP_HOST_XCODEBUILD_ATTEMPTS": "1",
-                "CMUX_APP_HOST_XCRESULTTOOL_TIMEOUT_SECONDS": "0.2",
+                "CMUX_APP_HOST_XCRESULTTOOL_TIMEOUT_SECONDS": "1",
                 "SOCKET_EVIDENCE_FIXTURE": json.dumps(fixture),
             })
             args = ["bash", str(ROOT / "scripts/ci/run-app-host-xcodebuild.sh"), "test"]
