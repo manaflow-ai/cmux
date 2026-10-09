@@ -47,12 +47,12 @@ reachable (e, d and hardware stay), so the program has two halves:
 | Phase | Item | State |
 | --- | --- | --- |
 | 1 | Ratchet v2: scope = CmuxNext + every package in its `.package(path:)` closure except vendor/ (the TextLayout crash was in CmuxHomeRender, outside v1's scope); BAN mode with `scripts/cmux-next/crash-allowlist.json` (path, class, count, reason, reviewer; inline crash-allow does not waive a banned class); `// main-proof:` exempts assumeIsolated; new classes `objc_selector` (BAN) and `dynamic_dispatch` (ratchet); `fatal_error` BAN | landed 58a219f944e1 (red 7e7a9c4555ac); safe-push compares the widened scope (hq scratch safe-push-ratchet.py) |
-| 1 | Swift classes to 0, then BAN per class: force_unwrap 338, iuo 61, unowned 110, as! 12, precondition 40, assumeIsolated 123 (counts in the widened scope at 406a70f2f39e) | in progress: three helpers per class (unowned + as! + precondition; assumeIsolated; iuo + force_unwrap outside CmuxNextApp), then CmuxNextApp force unwraps; Sidebar, group files and CmuxHomeRender wait for their owners |
+| 1 | Swift classes to 0, then BAN per class | BANNED: as!, fatal_error, objc_selector, assumeIsolated. Left (2026-10-09): force_unwrap 203, iuo 71, unowned 75, precondition 1 (Sidebar, after cx-rcby); helpers H3, H4 running; render_font 31 (new, cx-qpqs) |
 | 1 | NSRange/UTF-16 ban outside one TextRange module | after the TextLayout fix (cx-qpqs) lands |
 | 1 | Rust (section 6) | planned, CORE window |
-| 2 | Crash handler + crash dialog (no auto-restart, Lawrence 2026-10-08): macOS's own dialog offers Reopen at crash time; the next-launch restart notice is our crash dialog (cause in one line, Report = a prefilled GitHub issue the user reads and sends, Show Crash Log); uncaught NSException recorder (run.exception: name, reason, frames) into the report; NSApplicationCrashOnExceptions for every channel; restore from daemon state at launch as before | landing |
+| 2 | Crash handler + crash dialog (no auto-restart, Lawrence 2026-10-08): macOS's own dialog offers Reopen at crash time; the next-launch restart notice is our crash dialog (cause in one line, Report = a prefilled GitHub issue the user reads and sends, Show Crash Log); uncaught NSException recorder (run.exception: name, reason, frames) into the report; NSApplicationCrashOnExceptions for every channel; restore from daemon state at launch as before | landed 92cd7e0693cc |
 | 2 | Crash e2e: debug.crash.exception and debug.crash.app, relaunch, the notice names the cause, every terminal still live (extends scripts/cmux-next/relaunch-e2e.py) | next |
-| 3 | Fuzz, property tests, sanitizers (section 7) | planned |
+| 3 | Fuzz, property tests, sanitizers (section 7) | in progress: TextLayoutFuzzTests (found a second NSRangeException path, fixed 65db2f835c69), MobileProtocolFuzzTests (found an unbounded render-grid replay and a width overflow, fixed in the same push), `CMUX_SWIFT_SANITIZE` for package-test-lane (nightly schedule: CI lead) |
 | 4 | CEF out of process: NO-GO now (section 8) | decided, revisit on the trigger |
 
 P1b rules (chief, 2026-10-08): no behavior change except "no trap". An

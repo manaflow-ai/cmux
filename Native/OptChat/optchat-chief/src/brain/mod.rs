@@ -392,6 +392,9 @@ pub struct Brain {
     /// The TTL the session settings held when the pool was last hinted: a
     /// pooled session runs Claude Code with it.
     prewarm_ttl: Option<crate::prompt::CacheTtl>,
+    /// Whether the pool was last hinted for a turn with our mark (Claude
+    /// Code's own marks off, `session_dir::set_session_cache`).
+    prewarm_ours: Option<bool>,
     /// This turn's TTL differs from `prewarm_ttl` (cache.ttl changed).
     ttl_stale: Arc<std::sync::atomic::AtomicBool>,
 
@@ -489,6 +492,7 @@ impl Brain {
             marker_refused: crate::prompt::MarkLatch::default(),
             ttl_refused: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             prewarm_ttl: None,
+            prewarm_ours: None,
             ttl_stale: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             chief,
             turn_remote: false,
