@@ -317,8 +317,6 @@ struct Live {
     system: Option<String>,
     /// The node's first message carries our mark (Claude Code's own off).
     ours: bool,
-    /// The TTL of the node's marks.
-    ttl: CacheTtl,
     opened: Instant,
     prompts: u32,
     /// Token use the harness reported, summed over the node's prompts.
@@ -595,7 +593,6 @@ impl AcpmuxCompactor {
                     preset,
                     system: system.map(str::to_owned),
                     ours,
-                    ttl,
                     opened: Instant::now(),
                     prompts: 0,
                     usage: None,
@@ -962,21 +959,24 @@ impl AcpmuxCompactor {
                 )
             }
             Some(last) => {
-                let (session, ours, ttl) = self
+                let (session, ours) = self
                     .live
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .get(&node)
-                    .map(|l| (l.id.clone(), l.ours, l.ttl))
+                    .map(|l| (l.id.clone(), l.ours))
                     .ok_or_else(|| ModelError::new("the node's compactor session is gone"))?;
                 let mut block = text_block(&last.retry);
                 // With our mark, Claude Code places none of its own: each
                 // retry ends with ours, so it reads the previous request
-                // from the cache. The view mark and RETRY_MARKS retry marks
-                // stay within the API's 4; a later retry reads the last
-                // marked request's entry unmarked.
+                // from the cache. 5 minutes whatever the node's TTL: a retry
+                // chain lasts seconds and a 5m write costs 1.25x the input
+                // against 2x for 1h (the API takes a 5m mark after a 1h
+                // one). The view mark and RETRY_MARKS retry marks stay
+                // within the API's 4; a later retry reads the last marked
+                // request's entry unmarked.
                 if ours && followups.len() <= RETRY_MARKS {
-                    block["cache_control"] = ttl.cache_control();
+                    block["cache_control"] = CacheTtl::FiveMinutes.cache_control();
                 }
                 (session, vec![block])
             }
