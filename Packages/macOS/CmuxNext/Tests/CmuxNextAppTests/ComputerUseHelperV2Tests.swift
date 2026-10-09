@@ -1,4 +1,5 @@
 @testable import CmuxNextApp
+import CmuxNextAgentActivity
 import CmuxNextSettings
 import Darwin
 import Foundation
@@ -56,7 +57,7 @@ import Testing
         func terminate(_ pid: pid_t) { terminated.withLock { $0.append(pid) } }
     }
 
-    static let helperApp = URL(fileURLWithPath: "/tmp/cmux DEV v2.app/Contents/Library/cmux Computer Use (dev).app")
+    nonisolated static let helperApp = URL(fileURLWithPath: "/tmp/cmux DEV v2.app/Contents/Library/cmux Computer Use (dev).app")
 
     static func helper(_ spawner: FakeSpawner, app: URL? = helperApp) -> ComputerUseHelperV2 {
         let directory = "/tmp/cuv2-\(UUID().uuidString.prefix(8))/s"
