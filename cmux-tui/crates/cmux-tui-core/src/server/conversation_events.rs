@@ -99,6 +99,7 @@ pub(super) fn prepare(
             canceled,
             _worker_permit: worker_permit,
             conversation,
+            principal,
             events,
             initial,
             rev,
@@ -189,6 +190,17 @@ pub(super) fn run(mux: &Arc<Mux>, client: u64, writer: &MessageWriter, mut strea
                 break;
             }
         };
+        if !still_member(mux, client, &stream, &event) {
+            let end = resource_stream_end(
+                &stream.stream_id,
+                "closed",
+                Some(cursor(&stream.conversation, stream.rev)),
+                Some("the connection no longer takes part in the conversation"),
+                None,
+            );
+            let _ = writer.send_terminal(&end, &stream.outbound);
+            break;
+        }
         match step(&stream.conversation, &mut stream.rev, &event) {
             Step::Skip => {}
             Step::Gap => {
@@ -212,6 +224,24 @@ pub(super) fn run(mux: &Arc<Mux>, client: u64, writer: &MessageWriter, mut strea
         }
     }
     mux.control_clients.finish_resource_stream(client, &stream.stream_id, stream.outbound.id);
+}
+
+/// Whether the stream's principal still reads the conversation: the
+/// connection keeps its principal (a replaced agent token ends a binding),
+/// and a summary change still lists it.
+fn still_member(mux: &Mux, client: u64, stream: &EventsStart, event: &ConversationEvent) -> bool {
+    if mux.conversation_principal(client) != stream.principal {
+        return false;
+    }
+    let ConversationEvent::Changed { conversation, change, .. } = event else { return true };
+    if *conversation != stream.conversation
+        || change.get("kind").and_then(Value::as_str) != Some("conversation")
+    {
+        return true;
+    }
+    change.pointer("/conversation/participants").and_then(Value::as_array).is_none_or(|all| {
+        all.iter().any(|p| p.get("id").and_then(Value::as_str) == Some(stream.principal.as_str()))
+    })
 }
 
 fn end_with_gap(writer: &MessageWriter, stream: &EventsStart) {
