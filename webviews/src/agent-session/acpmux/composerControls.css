@@ -19,7 +19,7 @@
   min-height: 26px;
   padding: 3px 8px;
   border-radius: 6px;
-  font-size: 13px;
+  font-size: var(--text-control);
   color: var(--agent-text);
 }
 .ui-menu-item.acpmux-effort-item[data-highlighted] { background: var(--acpmux-menu-hover); }
@@ -98,7 +98,7 @@
 /* The approval menu's question above the modes (permissions-menu.png). */
 .acpmux-menu-heading {
   padding: 6px 10px 4px;
-  font-size: 12px;
+  font-size: var(--text-detail);
   line-height: 18px;
   color: var(--agent-muted);
   white-space: normal;

@@ -1783,6 +1783,7 @@
     "usage.cap.set",
     "user.ensure",
     "user.presence_key.revoke",
+    "user.teams.list",
     "user.text_confirm.get",
     "user.text_confirm.level.set",
     "user.text_confirm.lower",

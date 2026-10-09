@@ -544,5 +544,49 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
                 self.assertIn("CMUX_SWIFT_TEST_SUITE_JOBS", completed.stdout)
                 self.assertFalse((temp / "calls.txt").exists())
 
+    def _shard_run(self, shard: str, suites: list[str]) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp = pathlib.Path(temp_dir)
+            self._write_fake_swift(temp, "print('Test run with 1 test passed after 0.001 seconds.')\n")
+            package = temp / "ExampleTests"
+            package.mkdir()
+            env = self._jobs_env(temp, suites, "2")
+            env["CMUX_SWIFT_TEST_SHARD"] = shard
+            completed = run_runner(package, env)
+            calls_path = temp / "calls.txt"
+            calls = calls_path.read_text(encoding="utf-8").splitlines() if calls_path.exists() else []
+            return completed, calls
+
+    def test_shards_split_the_sorted_suites_round_robin_and_cover_each_once(self) -> None:
+        """CMUX_SWIFT_TEST_SHARD=i/n: every shard builds (test list), then runs only
+        its suites; together the shards run every suite exactly once."""
+        suites = ["Echo", "Alpha", "Delta", "Bravo", "Foxtrot", "Charlie", "Golf"]
+        seen: list[str] = []
+        for index in range(1, 4):
+            completed, calls = self._shard_run(f"{index}/3", suites)
+            self.assertEqual(completed.returncode, 0, completed.stdout)
+            self.assertIn("test list", calls[0])
+            ran = sorted(next(s for s in suites if f".{s}/" in call) for call in calls[1:])
+            expected = sorted(suites)[index - 1 :: 3]
+            self.assertEqual(ran, expected, completed.stdout)
+            self.assertIn(f"Swift test shard {index}/3: {len(expected)} of {len(suites)} suites", completed.stdout)
+            self.assertIn(f"Swift test suites: {len(expected)} passed, 0 failed", completed.stdout)
+            seen.extend(ran)
+        self.assertEqual(sorted(seen), sorted(suites))
+
+    def test_a_shard_without_suites_passes_after_the_build(self) -> None:
+        completed, calls = self._shard_run("3/3", ["Alpha", "Bravo"])
+        self.assertEqual(completed.returncode, 0, completed.stdout)
+        self.assertEqual(len(calls), 1, calls)
+        self.assertIn("Swift test shard 3/3: 0 of 2 suites", completed.stdout)
+
+    def test_invalid_shard_is_refused_before_the_build(self) -> None:
+        for shard in ("0/2", "3/2", "1", "a/b", "1/0", "/2", "1/2/3"):
+            with self.subTest(shard=shard):
+                completed, calls = self._shard_run(shard, ["Alpha"])
+                self.assertEqual(completed.returncode, 2, completed.stdout)
+                self.assertIn("CMUX_SWIFT_TEST_SHARD", completed.stdout)
+                self.assertEqual(calls, [])
+
 if __name__ == "__main__":
     unittest.main()

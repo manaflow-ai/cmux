@@ -64,18 +64,26 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// The toggle's glyph follows; the band's width follows the sidebar's
     /// on-screen width instead (`toolbarBandPresence`).
     var sidebarHidden = false {
-        didSet { toolbarBand.showSidebarState(hidden: sidebarHidden) }
+        didSet {
+            toolbarBand.showSidebarState(hidden: sidebarHidden)
+            collapsedBand.setSidebarHidden(sidebarHidden)
+        }
     }
+    /// Opens the collapsed band while the top-left corner is hovered.
+    let collapsedBand: CollapsedBandReveal
 
     /// - Parameter sidebar: The window's sidebar.
     /// - Parameter reduceTransparency: The user's Reduce Transparency
     ///   setting, read on every theme and display-options change.
     /// - Parameter applyWindowBlur: Sets the window's behind-window blur
     ///   radius (the backdrop's ``WindowBackdrop/windowBlurRadius``).
+    /// - Parameter revealClock: Times the collapsed band's close delay.
     init(sidebar: SidebarContainerView,
          reduceTransparency: @escaping @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency },
-         applyWindowBlur: @escaping @MainActor (NSWindow, Int) -> Void = { $0.setBackgroundBlurRadius($1) }) {
+         applyWindowBlur: @escaping @MainActor (NSWindow, Int) -> Void = { $0.setBackgroundBlurRadius($1) },
+         revealClock: any Clock<Duration> = ContinuousClock()) {
         self.sidebar = sidebar
+        collapsedBand = CollapsedBandReveal(clock: revealClock)
         self.reduceTransparency = reduceTransparency
         self.applyWindowBlur = applyWindowBlur
         super.init(frame: NSRect(x: 0, y: 0, width: 1100, height: 720))
@@ -114,6 +122,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         self.titleHeight = titleHeight
         applyTokens()
         setUpTitlebarReveal()
+        setUpCollapsedBandReveal()
         tokenObservation = Task { [weak self] in
             for await _ in Observations({ [Metrics.titlebarHeight, Metrics.tabStripHeight, DesignSettings.shared.titlebar == .minimal ? 1 : 0,
                                            DesignSettings.shared.titlebarButtons == .hover ? 1 : 0] }) {
@@ -212,17 +221,6 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// Called from layout when the band's presence changed, so strips under
     /// the top row recompute their inset in the same layout pass.
     var onToolbarBandPresenceChange: (() -> Void)?
-
-    /// How much of the toolbar band shows: the sidebar's on-screen share of
-    /// its width (cx-uxdr). The sidebar's width animation is the one driver:
-    /// each of its frames lays this view out, so the band collapses and the
-    /// strip after it slides in step, a toggle mid-animation retargets from
-    /// what is on screen, and Reduce Motion (an instant sidebar) snaps it.
-    var toolbarBandPresence: CGFloat {
-        let width = sidebar.model.width
-        guard width > 0 else { return sidebar.model.isHidden ? 0 : 1 }
-        return min(1, max(0, sidebar.frame.width / width))
-    }
 
     override func layout() {
         defer { onHintGeometryChange?() }

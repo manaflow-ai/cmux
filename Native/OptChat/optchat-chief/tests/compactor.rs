@@ -2030,3 +2030,116 @@ fn a_size_retry_is_a_fresh_call_with_the_first_prompt_and_the_note() {
     );
     assert_eq!(inner.ended, vec!["s1", "s2"]);
 }
+
+/// Hard test (build 7bf60bcf938a): the network was cut while the start-up
+/// probe ran, and the probe posted "cannot build summaries" for Claude
+/// Code's "Network error. Please check your internet connection.". A
+/// transient error (the network, a lost connection, a timeout) posts no
+/// notice: the probe tries again after a backoff (1 s doubled, at most
+/// 120 s), as node retries do; a capacity wait waits its retry-after.
+#[test]
+fn a_transient_probe_error_posts_no_notice_and_is_retried() {
+    use optchat_chief::compactor::CompactRoute;
+    use optchat_chief::host::{probe_notice, probe_retry_wait};
+    use std::time::Duration;
+    let network = r#"the compactor model: starting a compactor session: session/new: model "claude-haiku-5-5" for claude: Network error. Please check your internet connection."#;
+    assert_eq!(probe_notice(CompactRoute::Acpmux, network), None);
+    assert_eq!(probe_retry_wait(network, 0), Some(Duration::from_secs(1)));
+    assert_eq!(probe_retry_wait(network, 3), Some(Duration::from_secs(8)));
+    assert_eq!(
+        probe_retry_wait(network, 20),
+        Some(Duration::from_secs(120))
+    );
+    let exhausted = "API error: 503 no non-exhausted claude accounts available (retry after 300s)";
+    assert_eq!(
+        probe_retry_wait(exhausted, 0),
+        Some(Duration::from_secs(120))
+    );
+    let lost = "the acpmux connection was lost during a compactor call";
+    assert!(probe_retry_wait(lost, 0).is_some());
+    let login =
+        "the compactor model: Unable to validate model: Could not resolve authentication method";
+    assert!(probe_notice(CompactRoute::Acpmux, login).is_some());
+    assert_eq!(probe_retry_wait(login, 0), None);
+}
+
+/// CLI dogfood at 64d57f35a20f: host.log said "compactor node
+/// 0+9223372036854775808": the start-up probe's id (level 63, a span of
+/// 2^63 messages no chat reaches), never stored, named as a node. The probe
+/// and image descriptions are named for what they are in the log and the
+/// trace, and the probe stores nothing.
+#[test]
+fn the_probe_is_named_probe_not_a_node_span() {
+    let dir = tempfile::tempdir().unwrap();
+    let traces = dir.path().join("traces");
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: ping")));
+    let lines: Arc<Mutex<Vec<String>>> = Arc::default();
+    let sink = lines.clone();
+    let compactor = compactor(&agents, dir.path())
+        .with_trace(optchat_chief::trace::Trace::open(&traces, false).unwrap())
+        .with_log(Arc::new(move |l: &str| {
+            sink.lock().unwrap().push(l.to_owned())
+        }));
+    assert_eq!(probe(&compactor, "SYS").unwrap(), "user: ping");
+    let lines = lines.lock().unwrap();
+    assert!(
+        lines.iter().all(|l| !l.contains("9223372036854775808")),
+        "{lines:?}"
+    );
+    assert!(
+        lines.iter().any(|l| l.starts_with("compactor probe (")),
+        "{lines:?}"
+    );
+    let mut events = Vec::new();
+    for entry in std::fs::read_dir(&traces).unwrap().flatten() {
+        let text = std::fs::read_to_string(entry.path()).unwrap();
+        events.extend(
+            text.lines()
+                .map(|l| serde_json::from_str::<Value>(l).unwrap()),
+        );
+    }
+    let node = events.iter().find(|e| e["ev"] == "node").unwrap();
+    assert_eq!(node["node"], "probe");
+}
+
+/// The probe's retry delay waits through an injected `Delay` that the host
+/// stops (no sleep in runtime code): transient failures wait 1 s, 2 s, ...
+/// and the probe then succeeds; a stopped delay ends the probe at once.
+#[test]
+fn the_probe_retries_through_a_stoppable_delay() {
+    use optchat_chief::host::{Delay, ProbeDelay, probe_until_ready};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    struct Recording(Mutex<Vec<Duration>>, bool);
+    impl Delay for Recording {
+        fn wait(&self, d: Duration) -> bool {
+            self.0.lock().unwrap().push(d);
+            self.1
+        }
+    }
+    let tries = AtomicUsize::new(0);
+    let probe = || match tries.fetch_add(1, Ordering::SeqCst) {
+        0 | 1 => Err("claude: Network error. Please check your internet connection.".to_owned()),
+        _ => Ok("user: ping".to_owned()),
+    };
+    let delay = Recording(Mutex::new(Vec::new()), true);
+    let result = probe_until_ready(&probe, &delay, &|_| {});
+    assert_eq!(result, Some(Ok("user: ping".to_owned())));
+    assert_eq!(
+        *delay.0.lock().unwrap(),
+        [Duration::from_secs(1), Duration::from_secs(2)]
+    );
+    tries.store(0, Ordering::SeqCst);
+    let stopped = Recording(Mutex::new(Vec::new()), false);
+    assert_eq!(probe_until_ready(&probe, &stopped, &|_| {}), None);
+    // The real delay: stop wakes a wait at once.
+    let real = Arc::new(ProbeDelay::default());
+    let waiter = {
+        let real = real.clone();
+        std::thread::spawn(move || real.wait(Duration::from_secs(60)))
+    };
+    std::thread::sleep(Duration::from_millis(100));
+    let started = std::time::Instant::now();
+    real.stop();
+    assert!(!waiter.join().unwrap());
+    assert!(started.elapsed() < Duration::from_secs(5));
+}

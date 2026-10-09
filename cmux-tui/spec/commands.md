@@ -1711,7 +1711,9 @@ or in the focused pane. The source is either one conversation
 (`conversation`, a `conv_` id) of the `local` or `cloud` conversation owner,
 or, with `agent-session-tabs-v1`, an acpmux agent session (`agent_session`:
 `host` is `install:` and the stable install id of the machine whose acpmux
-runs the session, `session` the acpmux session id or absent for a new chat,
+runs the session, or `chief:` and the 8 lowercase hex digit id of the Chief
+home whose own acpmux runs it on the app's machine (a Chief subagent; the app
+attaches the tab to that home's acpmux), `session` the acpmux session id or absent for a new chat,
 `harness` the agent kind, optional; `host_name` the host machine's display
 name, 1 to 255 bytes without control characters, optional), or, with
 `page-tabs-v1`, one of the app's own pages (`page`: its id, 1 to 64

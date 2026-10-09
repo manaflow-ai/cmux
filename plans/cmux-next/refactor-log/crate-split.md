@@ -118,3 +118,40 @@ local branch refactor-crate-split-step2) fills a gap only.
 - 2026-10-09 f8940112fe7b (code 58d36e4504c2) cx-ko2e A1: terminal_host_runtime mod unix snapshot/resize/kitty codecs, hex helpers, PayloadDecoder, put_* (521 lines) -> terminal_host_runtime/shared/codec.rs; pty_size, kitty_graphics_limits_within -> shared/host_state.rs; terminal_host_runtime.rs 9976 -> 9436; Testbox gate 8 min.
 - 2026-10-09 41686fae4f6d (code e237adb3a54d) cx-ko2e A2: HostLaunch codec, default-colors codec, clear-history ack, host_launch_failure -> shared/codec.rs; 9436 -> 9155; gate 7.5 min.
 - 2026-10-09 ddc4e576947b (code d7b2b36ea79d) cx-ko2e A3: host consts, input_request_is_supported, persist_and_claim_host_exit_after_drain, ViewerSizes, mutate_viewer_sizes -> shared/host_state.rs; 9155 -> 9059; gate 7.5 min. Rest of table A waits for table B seams (HostStream first).
+
+## Lane 2 claims (crate-split lane 2, hq-11, 2026-10-09)
+
+A second crate-split lane takes the movable leaves that steps 1-4 above do
+not name. It does not reorder or take any open step of lane 1 (platform,
+terminal-host protocol family, terminal_host_runtime, browser, fs_ops stay
+lane 1's). Each step is move-only: a new crate under `cmux-tui/crates/`,
+re-exported by cmux-tui-core at the old path, one LOCK slot per step.
+Lane 2 landing lines carry the prefix "lane 2" in the Landings list.
+
+1. cmux-tui-image-paste: image_paste, image_paste_file, image_paste_ownership,
+   image_paste_recovery, image_paste_storage and their tests (1,368 lines,
+   unix). The image paste spool: storage dir, owned files, crash recovery.
+2. cmux-tui-util: backoff, stream_interrupt, debug_spans, short_id,
+   machine_name, terminal_respawn_text, user_settings (1,027 lines). Small
+   daemon primitives without daemon state. This is the cmux-tui-util of
+   step 5: terminal_host_runtime (lane 1, step 6) uses debug_spans, so a
+   crate below core must own it before that move.
+3. cmux-tui-remote-access: pairing, remote_relay_state (526 lines). Device
+   pairing challenges and the relay peer, pairing record and revocation
+   state. Lands in the same slot as 2 (leaves under 1k never go alone).
+
+Not claimed, and why: sizing_policy is already a 7-line re-export of
+cmux-terminal-sizing. conversation_drafts and conversation_search (258
+lines) belong with conversation_store, which needs
+`workspace_registry::{open_registry_database, unix_epoch_ms, new_uuid_v4}`
+to move down first; they move with conversation_store, not alone.
+
+Expected build effect (by the build-time rule above): about 2.9k lines leave
+core (1%); an edit inside a moved module still rebuilds core and cmux-tui.
+Each landing line records the measured `cargo build -p cmux-tui-core` time
+after an edit in a moved function, before and after the move.
+- 2026-10-09 70bb57f3e77c (code c6e9f47415c6) cx-ko2e B1: seam terminal_host_runtime/sys.rs HostStream (std UnixStream on Unix, uds_windows::UnixStream on Windows); HostTap, SmartStream group, ParserCommand/ParserBudget, enqueue_parser_output -> shared/host_state.rs; terminal_host_runtime.rs 9059 -> 8689; gate 8 min.
+- 2026-10-09 5175437db410 (code 8ec38cd5e3f3) cx-ko2e B2a: clipboard-read broker -> shared/clipboard_read.rs (Unix-bound impls stay in unix/clipboard_read.rs); gate 8 min.
+- 2026-10-09 bcb887e23aa5 (code 6eb04a08db9e) cx-ko2e B2b: unix/control_responses.rs -> shared/control_responses.rs over HostStream; InputAckReceipt -> shared/attachment.rs; 8689 -> 8629; gate 5 min.
+- 2026-10-09 (B3) cx-ko2e B3: HostAttachment (+impl, Drop), send_host_frame, SpawnedHostProcess, connect_record* -> shared/attachment.rs (+ attachment/connect.rs, attachment/terminate.rs) over HostStream; unix/renderer_grant.rs -> shared/renderer_grant.rs (test beside it); read_required_frame -> shared/codec.rs; sys seams connect_with_retry, PtyCustody, record writers (Windows: fail-closed stubs); terminal_host_runtime.rs 8629 -> 7456; cmux-tui-core tests 2681 passed + 10 ignored (#[test] 2690 before and after); gate 5.3 min.
+- 2026-10-09 (B4) cx-ko2e B4: records group (validate/liveness/load/stale removal/exit sidecars/exit diagnostic/write_json_record, RECORD_TEMP_SEQUENCE) -> shared/records.rs over new sys seams (FileOwner, file_owner, is_private_file, has_single_link, canonical_endpoint, is_endpoint_file, open_private+PrivateOpen, probe_lease+LeaseProbe, process_definitely_gone, remove_released_pty_lock, remove_terminal_loss_signals, sync_dir, barrier_sync[_dir]); rename_no_replace, prepare_private_dir, prepare_endpoint_dir, connect_with_retry -> sys/unix.rs; Windows: fail-closed stubs in sys.rs; terminal_host_runtime.rs 7456 -> 6864.

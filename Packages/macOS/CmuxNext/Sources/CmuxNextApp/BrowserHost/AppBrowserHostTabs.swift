@@ -167,13 +167,12 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
     /// pane's active tab stays: every client reads it; no selection or focus
     /// changes), in ``sessionTabPane(_:)``. Answers once the store shows it.
     private func openSessionTab(_ engine: BrowserEngineTag, url: String?) async throws -> TabModel {
-        guard let services, case let browserTabs = services.cache.browserTabs, browserTabs.isAvailable() else {
-            throw AutomationTabError.unavailable
-        }
+        guard let services, case let browserTabs = services.cache.browserTabs else { throw AutomationTabError.unavailable }
         if engine == .cef, let reason = browserTabs.cefUnavailable() {
             throw AutomationTabError.chromiumUnavailable(BrowserTabService.message(reason))
         }
         let pane = try sessionTabPane(browserTabs)
+        guard browserTabs.isAvailable(in: pane) else { throw AutomationTabError.unavailable }
         let surface = try await browserTabs.open(BrowserEngineChoice(engine: engine), in: pane,
                                                  url: url ?? "about:blank", activate: false)
         // The create reply can come before the store shows the tab.
@@ -193,18 +192,18 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
     /// of the workspace under the page, the fallback `cmux browser open`
     /// uses (9d300f272470). The window keeps showing the page. Never an
     /// incognito pane, never another machine's workspace.
-    private func sessionTabPane(_ browserTabs: BrowserTabService) throws(AutomationTabError) -> PaneID {
+    private func sessionTabPane(_ browserTabs: BrowserTabService) throws(AutomationTabError) -> PaneModel {
         guard let services, let window = services.windows.active else { throw .noPane }
-        let pane: PaneID
+        let pane: PaneModel
         if let focused = window.focusedPane {
-            pane = focused.pane.handle
+            pane = focused.pane
         } else {
             let state = window.state
             guard state.machineID == MachineRegistry.localID, let id = state.workspaceID,
                   let workspace = services.daemon.store.workspaces.first(where: { $0.id == id }) else { throw .noPane }
             let screen = workspace.screens.first { $0.id == state.activeScreenID } ?? workspace.screens.first
             guard let model = screen.flatMap({ $0.defaultPane.flatMap($0.pane) ?? $0.panes.first }) else { throw .noPane }
-            pane = model.handle
+            pane = model
         }
         guard !browserTabs.isIncognitoPane(pane) else { throw .noPane }
         return pane

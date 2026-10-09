@@ -311,13 +311,14 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>auto</string>
+			<string>system</string>
 			<key>pfm_description</key>
 			<string>A thin bar under the columns that shows and moves the visible range.</string>
 			<key>pfm_name</key>
 			<string>layout.stripScrollbar</string>
 			<key>pfm_range_list</key>
 			<array>
+				<string>system</string>
 				<string>auto</string>
 				<string>always</string>
 				<string>off</string>
@@ -2003,22 +2004,6 @@
 			<string>Show All Chats</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<integer>8</integer>
-			<key>pfm_description</key>
-			<string>How many chats the All chats section shows before it scrolls.</string>
-			<key>pfm_name</key>
-			<string>sidebar.allChatsRows</string>
-			<key>pfm_range_max</key>
-			<real>50</real>
-			<key>pfm_range_min</key>
-			<real>1</real>
-			<key>pfm_title</key>
-			<string>All Chats Rows</string>
-			<key>pfm_type</key>
-			<string>real</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>

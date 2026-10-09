@@ -7,7 +7,7 @@ const dom = new JSDOM(
     <button id="row">Session</button>
     <input id="search" />
     <div role="menu"><button id="item">Model</button></div>
-    <div class="acpmux-composer-box"><div id="field" contenteditable="true"></div></div>
+    <div class="acpmux-composer-box"><div id="field" contenteditable="true"></div><input id="model-search" class="acpmux-mp-search-input" /></div>
   </body>`,
   { pretendToBeVisual: true, virtualConsole: new VirtualConsole() },
 );
@@ -54,5 +54,7 @@ describe("composer focus", () => {
     expect(focusedArea(document.body)).toBe("none");
     expect(focusedArea(null)).toBe("none");
     expect(focusedArea(element("row"))).toBe("button#row");
+    // A control in the composer's bar (the model picker's search) is not the prompt.
+    expect(focusedArea(element("model-search"))).toBe("input#model-search.acpmux-mp-search-input");
   });
 });

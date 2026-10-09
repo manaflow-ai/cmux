@@ -16,6 +16,7 @@ import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "
 import { join } from "node:path";
 import { Effect, Layer, Option, Redacted } from "effect";
 import { makeWebHandler } from "../../src/app.ts";
+import { makeServiceKeys, ServiceKeys } from "../../src/auth/service-keys.ts";
 import { generateApiKey, hashApiKey, SessionVerifier, TeamMembership } from "../../src/auth/credentials.ts";
 import { TeamAdmin } from "../../src/auth/team-admin.ts";
 import { ApiKeyAdminStore } from "../../src/db/api-keys.ts";
@@ -125,6 +126,7 @@ const services = Layer.mergeAll(
     markDeleted: (_t, _kind, id) => Effect.sync(() => void deleted.add(id)),
   }),
   Layer.succeed(AuditStore, { append: (entry) => Effect.sync(() => void audit.push({ ...entry, at: entry.at.toISOString() })) }),
+  Layer.succeed(ServiceKeys, makeServiceKeys([])),
   Layer.succeed(ApiKeyStore, {
     findActiveByHash: (hash) => Effect.sync(() => Option.filter(Option.fromNullable(keys.get(hash)), (key) => !revoked.has(key.id))),
     findActiveById: (tenant, id) => Effect.sync(() => Option.fromNullable([...keys.values()].find((key) => key.tenantId === tenant && key.id === id && !revoked.has(key.id)))),

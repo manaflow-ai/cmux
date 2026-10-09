@@ -625,11 +625,19 @@ impl Memory {
             return Err(NotRunning(node));
         }
         self.build(node, text.len());
+        // As the reference client fits its views after a stored node: only
+        // past the budget, and only a whole batch, one that brings the view
+        // to its low mark (or down by a whole budget). A smaller merge would
+        // change an early line at almost every completion, and every call's
+        // cached prefix after it with it; the view waits over budget instead.
         if self.compact_size > self.compact_high() {
-            self.compact_merging = true;
-        }
-        if self.compact_merging {
+            let (view, size) = (self.compact_view.clone(), self.compact_size);
             self.merge_down(Which::Compact, self.compact_low(), store);
+            let enough = self.compact_low().max(size - self.compact_high());
+            if self.compact_size > enough {
+                self.compact_view = view;
+                self.compact_size = size;
+            }
             self.compact_merging = self.compact_size > self.compact_low();
         }
         Ok(())

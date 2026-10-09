@@ -1122,6 +1122,14 @@ export type UserProfile = {
   readonly personal_team: TeamId
 }
 
+export type UserTeam = {
+  readonly id: TeamId
+  readonly display_name: string
+  readonly kind: "personal" | "stack"
+  readonly role: "owner" | "admin" | "member"
+  readonly sso_required: boolean
+}
+
 /** A WireGuard public key, standard base64 of 32 bytes. */
 export type WgPublicKey = string
 
@@ -3047,6 +3055,15 @@ export interface CloudOps {
     }
     readonly result: unknown
   }
+  /** List the teams the caller may act in with x-cmux-team (a team not listed answers team.not_member; one with sso_required answers auth.sso_required until the person signs in with its SSO): the personal team and every shared team whose TeamDO confirms the membership now. The UserDO team index is only the candidate list; an entry TeamDO does not confirm is left out. */
+  readonly "user.teams.list": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: {
+      readonly teams: ReadonlyArray<UserTeam>
+      readonly incomplete: boolean
+      readonly revision: string
+    }
+  }
   /** The level in effect, the user's own level, the lock and the presence keys (public parts and usable_from) for Settings. */
   readonly "user.text_confirm.get": {
     readonly params: Readonly<Record<string, never>>
@@ -3254,6 +3271,7 @@ export const cloudOpMeta = {
   "usage.summary": { class: "read", owner: "cloud:UsageMeterDO", risk: "read" },
   "user.ensure": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "user.presence_key.revoke": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "user.teams.list": { class: "read", owner: "cloud:UserDO", risk: "read" },
   "user.text_confirm.get": { class: "read", owner: "cloud:UserDO", risk: "read" },
   "user.text_confirm.level.set": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "user.text_confirm.lower": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },

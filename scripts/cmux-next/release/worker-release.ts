@@ -17,7 +17,7 @@
  *       refuses (exit 1) on any added, removed or changed var, naming the vars, never their values.
  *
  * Routes file: {"routes":[{"name","method","path","expect":[status...],"body"?,
- * "bodyIncludes"?,"sources"?:[glob relative to --source-dir],"why"?}]}.
+ * "bodyIncludes"?,"sources"?:[glob relative to --source-dir],"expectByWorker"?:{worker:[status...]},"why"?}]}.
  * A route passes when one of `attempts` tries (default 6, `interval-ms` apart,
  * default 5000) answers an expected status (and body text): new versions take
  * seconds to reach every location.
@@ -31,6 +31,8 @@ export interface Route {
   readonly method: string
   readonly path: string
   readonly expect: ReadonlyArray<number>
+  /** Per Worker name: statuses that replace `expect` for that Worker (e.g. a production-only known state). */
+  readonly expectByWorker?: Readonly<Record<string, ReadonlyArray<number>>>
   readonly body?: string
   readonly bodyIncludes?: string
   readonly sources?: ReadonlyArray<string>
@@ -45,6 +47,13 @@ export interface RouteResult {
 
 export const globRegex = (glob: string) =>
   new RegExp(`^${glob.split("**").map((part) => part.split("*").map((p) => p.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join("[^/]*")).join(".*")}$`)
+
+/** The routes as `worker` must answer them: a route's `expectByWorker[worker]`, when set, replaces `expect`. */
+export const routesFor = (routes: ReadonlyArray<Route>, worker: string): Array<Route> =>
+  routes.map((r) => {
+    const own = r.expectByWorker?.[worker]
+    return own === undefined ? r : { ...r, expect: own }
+  })
 
 /** Routes to smoke: those without sources always; the rest when a changed file matches (all, when `changed` is undefined). */
 export const selectRoutes = (routes: ReadonlyArray<Route>, changed: ReadonlyArray<string> | undefined): Array<Route> =>
@@ -250,7 +259,7 @@ export const main = async (argv: ReadonlyArray<string>, io: IO = defaultIO): Pro
     }
     const previousFile = value("--previous-file")
     const previous = value("--previous") ?? (previousFile && existsSync(previousFile) ? readFileSync(previousFile, "utf8").trim() : "")
-    const routes = (JSON.parse(readFileSync(routesFile, "utf8")) as { routes: Array<Route> }).routes
+    const routes = routesFor((JSON.parse(readFileSync(routesFile, "utf8")) as { routes: Array<Route> }).routes, worker)
     const changed = changedFiles(value("--changed-since"), value("--source-dir") ?? ".")
     const chosen = selectRoutes(routes, changed)
     const attempts = Number(value("--attempts") ?? 6)
