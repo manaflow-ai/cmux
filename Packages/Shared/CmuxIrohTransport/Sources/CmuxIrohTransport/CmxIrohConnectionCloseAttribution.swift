@@ -125,14 +125,14 @@ public struct CmxIrohConnectionCloseAttribution: Sendable, Equatable {
             if character.isNumber || (character == "-" && token.isEmpty) {
                 token.append(character)
             } else if !token.isEmpty {
-                if token != "-", let value = Int64(token) {
+                if token != "-", let value = Int64(token, radix: 10) {
                     return value
                 }
                 token.removeAll(keepingCapacity: true)
             }
         }
         guard token != "-" else { return nil }
-        return Int64(token)
+        return Int64(token, radix: 10)
     }
 
     private static func failureKind(
