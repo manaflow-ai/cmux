@@ -106,6 +106,10 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// False for a workspace no close path closes (the store's home
     /// workspace, `home_not_closable`): the row offers no close button.
     public var isClosable: Bool
+    /// A starting Cloud machine's stage (cx-lu8f): the row's machine label
+    /// carries it whatever `sidebar.workspaceRow` shows, until the machine's
+    /// own workspace replaces the row. Nil for every other row.
+    public var stage: String?
 
     public init(
         id: WorkspaceID,
@@ -131,7 +135,8 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         tabs: [SidebarTab] = [],
         rowState: SidebarRowState = .live,
         muted: Bool = false,
-        isClosable: Bool = true
+        isClosable: Bool = true,
+        stage: String? = nil
     ) {
         self.id = id
         self.machineID = machineID
@@ -157,6 +162,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         self.rowState = rowState
         self.muted = muted
         self.isClosable = isClosable
+        self.stage = stage
     }
 }
 
