@@ -128,13 +128,13 @@
     },
     "app.warnBeforeClosingAgentSession" : {
       "default" : true,
-      "description" : "Ask before closing a terminal tab whose agent is still working.",
+      "description" : "app.warnBeforeClosingAgentSession",
       "title" : "Warn Before Closing a Working Agent",
       "type" : "boolean"
     },
     "app.warnBeforeClosingTab" : {
       "default" : true,
-      "description" : "Ask before closing a tab or workspace whose terminal is running a program. Idle tabs always close at once.",
+      "description" : "app.warnBeforeClosingTab",
       "title" : "Warn Before Closing a Running Program",
       "type" : "boolean"
     },

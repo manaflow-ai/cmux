@@ -765,10 +765,7 @@
         "key" : "settings.group.tabs",
         "text" : "Tabs"
       },
-      "help" : {
-        "key" : "settings.app.warnBeforeClosingTab.help",
-        "text" : "Ask before closing a tab or workspace whose terminal is running a program. Idle tabs always close at once."
-      },
+      "help" : null,
       "kept_on_reset_all" : false,
       "key" : "app.warnBeforeClosingTab",
       "keywords" : [
@@ -815,10 +812,7 @@
         "key" : "settings.group.tabs",
         "text" : "Tabs"
       },
-      "help" : {
-        "key" : "settings.app.warnBeforeClosingAgentSession.help",
-        "text" : "Ask before closing a terminal tab whose agent is still working."
-      },
+      "help" : null,
       "kept_on_reset_all" : false,
       "key" : "app.warnBeforeClosingAgentSession",
       "keywords" : [
@@ -8600,51 +8594,6 @@
     },
     {
       "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : true,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.sidebar",
-        "text" : "Sidebar"
-      },
-      "help" : null,
-      "kept_on_reset_all" : false,
-      "key" : "sidebar.showProjects",
-      "keywords" : [
-        "sidebar",
-        "projects",
-        "workspaces",
-        "section",
-        "hide",
-        "show"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "sidebar",
-        "showProjects"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "appearance",
-      "title" : {
-        "key" : "settings.sidebar.showProjects",
-        "text" : "Show Projects"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
         "off",
         "bottom",
         "top",
@@ -16233,7 +16182,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "b57f6f4b812f74ec077ed513a46673dd68eec96b955f8d3f05d83eadd8c85c2b",
+  "schema_hash" : "6d0539d97941e3a6aae7b0640d12e06342f401d3f8adbaf21b7a481f807a01ad",
   "sections" : [
     {
       "id" : "general",

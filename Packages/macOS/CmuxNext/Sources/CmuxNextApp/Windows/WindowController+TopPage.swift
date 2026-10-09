@@ -18,6 +18,7 @@ extension WindowController {
         root.titlebar.title = topPages.title(for: route)
         services.windows.recordSaver.stateDidChange(state)
         services.cloudContextDidChange()
+        services.locationTrail.pageHistoryDidChange()
         return true
     }
 
@@ -54,7 +55,11 @@ extension WindowController {
     /// destination, so it keeps the footer.
     func followTopPageForBack() {
         sidebar.model.onBack = { [weak self] in self?.leaveTopPage() }
-        root.onContentChange = { [weak self] in self?.syncSidebarBack() }
+        // Every content swap, a top page or a workspace: the arrows read the shown page's history.
+        root.onContentChange = { [weak self] in
+            self?.syncSidebarBack()
+            self?.services.locationTrail.pageHistoryDidChange()
+        }
         // The window may have restored a page before this ran.
         syncSidebarBack()
     }

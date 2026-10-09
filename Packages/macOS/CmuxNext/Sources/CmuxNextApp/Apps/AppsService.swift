@@ -153,6 +153,7 @@ final class AppsService {
     private func makeStoreModel() -> AppStoreModel {
         let model = AppStoreModel(catalog: RegistryAppStoreCatalog(registry: registry), registry: registry, host: host, previewHost: previewHost)
         model.onRemoved = { [storage] id in await storage.clear(app: id) }
+        model.onNavigate = { [weak self] in self?.services.locationTrail.pageHistoryDidChange() }
         return model
     }
 
@@ -209,6 +210,11 @@ extension AppsService: InternalPageProvider {
     func tabClosed(_ key: String) {
         webStorePages.removeValue(forKey: key)?.close()
         storePages.tabClosed(key)
+    }
+
+    /// The native store's page history (the React store keeps its own).
+    func history(for key: String) -> (any PageHistory)? {
+        webStorePages[key] == nil ? storePages.model(for: key) : nil
     }
 
     /// The React page's fragment for a listing or the Installed tab.
