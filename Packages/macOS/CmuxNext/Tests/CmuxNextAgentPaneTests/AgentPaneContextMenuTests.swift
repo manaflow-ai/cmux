@@ -121,4 +121,33 @@ import WebKit
         openMenu(next)
         #expect(!Self.titles(next).contains(AgentPaneMenuStrings.copyMessage), "a report serves one menu")
     }
+
+    /// A right-click on empty space (WebKit offers no edit rows, no message under the pointer)
+    /// shows the chat's own menu, never an empty menu that macOS fills with only Services.
+    @Test func emptySpaceShowsTheChatMenu() {
+        let menu = NSMenu()
+        for id in ["WKMenuItemIdentifierReload", "WKMenuItemIdentifierGoBack"] {
+            let item = NSMenuItem(title: id, action: nil, keyEquivalent: "")
+            item.identifier = NSUserInterfaceItemIdentifier(id)
+            menu.addItem(item)
+        }
+        let chat = [NSMenuItem(title: "Change Background…", action: nil, keyEquivalent: ""), .separator(),
+                    NSMenuItem(title: "Find…", action: nil, keyEquivalent: "")]
+        AgentPaneContextMenu.rebuild(menu, target: nil, devTools: false, chatMenu: chat,
+                                     actions: .init(copy: { _ in }, fork: { _ in }))
+        #expect(Self.titles(menu) == ["Change Background…", "-", "Find…"])
+    }
+
+    /// On a message or a selection the chat's menu stays out: those menus are about the text.
+    @Test func aMessageOrSelectionKeepsTheChatMenuOut() {
+        let chat = [NSMenuItem(title: "Change Background…", action: nil, keyEquivalent: "")]
+        let onMessage = NSMenu()
+        AgentPaneContextMenu.rebuild(onMessage, target: Self.reply, devTools: false, chatMenu: chat,
+                                     actions: .init(copy: { _ in }, fork: { _ in }))
+        #expect(!Self.titles(onMessage).contains("Change Background…"))
+        let onSelection = Self.webKitMenu()
+        AgentPaneContextMenu.rebuild(onSelection, target: nil, devTools: false, chatMenu: chat,
+                                     actions: .init(copy: { _ in }, fork: { _ in }))
+        #expect(Self.titles(onSelection) == ["WKMenuItemIdentifierCopy"])
+    }
 }

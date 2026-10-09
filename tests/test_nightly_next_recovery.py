@@ -354,5 +354,32 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("recovery-source-archive", upload)
 
 
+class ShellSnippetTests(unittest.TestCase):
+    """Run 37876356169: a `python3 -c '...'` one-liner in these jobs had
+    backslash-escaped quotes, which bash single quotes keep, so Python raised
+    a SyntaxError as soon as a candidate existed. Run each one as bash does."""
+
+    CANDIDATES = json.dumps([{"run_id": 498, "run_attempt": 1, "build": "49801", "head_sha": "a" * 40, "artifact": "cmux-nightly-notarization-recovery-arm64-aaaaaaa"}])
+
+    def snippets(self):
+        jobs = workflow()["jobs"]
+        found = []
+        for name in ("find-nightly-next-recovery", "recover-nightly-next-notarization"):
+            for item in jobs[name]["steps"]:
+                found += re.findall(r"python3 -c '[^']*'", item.get("run", ""))
+        return found
+
+    def test_every_inline_python_runs_under_bash(self):
+        snippets = self.snippets()
+        self.assertEqual(len(snippets), 2, snippets)
+        outputs = []
+        for snippet in snippets:
+            result = subprocess.run(["bash", "-c", snippet], input=self.CANDIDATES, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, f"{snippet}\n{result.stderr}")
+            outputs.append(result.stdout)
+        self.assertIn("- run 498 build 49801\n", outputs)
+        self.assertIn("498\tcmux-nightly-notarization-recovery-arm64-aaaaaaa\n", outputs)
+
+
 if __name__ == "__main__":
     unittest.main()

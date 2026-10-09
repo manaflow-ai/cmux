@@ -32,7 +32,7 @@ final class HistoryService {
     /// Launch: page history becomes durable in `supportDirectory`.
     func start(supportDirectory: URL) {
         self.supportDirectory = supportDirectory
-        let cache = services.cache!
+        let cache = services.cache
         attach(cache.history, profile: .default)
         for (profile, entry) in cache.profileHistories { attach(entry.history, profile: profile) }
         cache.onProfileHistoryCreated = { [weak self] profile, history in self?.attach(history, profile: profile) }

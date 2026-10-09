@@ -22,3 +22,45 @@ pub(super) fn trusted_local_resource_client(
         ))
     }
 }
+
+/// The operations `handle_resource_connection_message` answers itself (they
+/// need the connection: its streams, its principal, its client record).
+pub(super) const fn handles_resource_connection_operation(operation: ResourceOperation) -> bool {
+    matches!(
+        operation,
+        ResourceOperation::SessionEvents
+            | ResourceOperation::SessionJournalSubscribe
+            | ResourceOperation::SessionJournalProducerList
+            | ResourceOperation::SessionJournalProducerPut
+            | ResourceOperation::SessionJournalAppend
+            | ResourceOperation::SessionJournalHookList
+            | ResourceOperation::SessionJournalHookPut
+            | ResourceOperation::SessionJournalCheckpointCreate
+            | ResourceOperation::SessionJournalCheckpointList
+            | ResourceOperation::SessionJournalRestorePreview
+            | ResourceOperation::SessionJournalSegmentList
+            | ResourceOperation::SessionJournalSegmentSeal
+            | ResourceOperation::SessionShutdown
+            | ResourceOperation::PairingRequestList
+            | ResourceOperation::PairingRequestResolve
+            | ResourceOperation::RequestCancel
+            | ResourceOperation::ClientList
+            | ResourceOperation::ClientGet
+            | ResourceOperation::ClientMetadataUpdate
+            | ResourceOperation::ClientSizingSet
+            | ResourceOperation::ClientSizingRelease
+            | ResourceOperation::ClientCellPixelsSet
+            | ResourceOperation::ClientDetach
+            | ResourceOperation::TerminalRendererGrantCreate
+            | ResourceOperation::TerminalViewerResize
+            | ResourceOperation::TerminalViewerRelease
+            | ResourceOperation::TerminalAttach
+            | ResourceOperation::BrowserViewerResize
+            | ResourceOperation::BrowserViewerRelease
+            | ResourceOperation::BrowserAttach
+            | ResourceOperation::SidebarViewAttach
+            | ResourceOperation::StreamCancel
+            | ResourceOperation::OriginConfirmationIssue
+    ) || super::conversation_resource::handles(operation)
+        || super::chief_control::handles(operation)
+}

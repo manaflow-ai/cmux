@@ -7,7 +7,7 @@ import CmuxNextDaemon
 // and diagnostics.
 extension CloudHandlers {
     static func bindCreation(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
-        let cloud = context.services.cloud!
+        let cloud = context.services.cloud
         bind("newCloudMachine", registry, reason: reason) { _ in
             run("new cloud machine", context) {
                 let session = try await cloud.createMachine(name: nil)
@@ -30,7 +30,7 @@ extension CloudHandlers {
     }
 
     static func bindAccount(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
-        let cloud = context.services.cloud!
+        let cloud = context.services.cloud
         bind("palette.auth.signIn", registry, reason: reason) { _ in
             guard !cloud.isSignedIn else { throw ActionFailure(message: CloudStrings.alreadySignedIn) }
             run("sign in", context) { _ = await cloud.auth.signIn() }
@@ -78,7 +78,7 @@ extension CloudHandlers {
 
     /// Account, backend, tunnel, and per-machine link state. No secrets.
     static func diagnostics(_ context: AppActionContext) async -> String {
-        let cloud = context.services.cloud!
+        let cloud = context.services.cloud
         var lines = [
             "backend: \(cloud.configuration.apiBaseURL.absoluteString) (\(cloud.configuration.backend))",
             "signed in: \(cloud.isSignedIn)" + (cloud.auth.user?.primaryEmail.map { " as \($0)" } ?? ""),

@@ -770,7 +770,7 @@ fn a_claude_spawn_starts_its_subagents_without_a_mark_of_ours() {
 /// With no shared mark, no subagent waits for the first one to speak.
 #[test]
 fn no_subagent_waits_for_a_silent_first_one() {
-    let mut s = setup_with(|sp| sp.with_warm_wait(std::time::Duration::from_millis(300)));
+    let mut s = setup();
     s.h.agents.inner.lock().unwrap().system_prompts = true;
     for k in 0..12 {
         s.h.say("user_local", &format!("line {k}"));

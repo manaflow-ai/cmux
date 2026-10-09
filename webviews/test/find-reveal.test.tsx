@@ -3,7 +3,7 @@ import { JSDOM } from "jsdom";
 import { flushSync } from "react-dom";
 import { useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { keepStuckHeaderInView } from "../src/App";
+import { keepStuckHeaderInView } from "../src/diff-viewer/item-navigation";
 import type { DiffItem } from "../src/diff-stream";
 import { isSearchableItem, useDiffFind } from "../src/find/useDiffFind";
 
