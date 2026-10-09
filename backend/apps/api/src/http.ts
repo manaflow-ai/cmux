@@ -39,12 +39,11 @@ import { gateUnreachable, signInRules, ssoGate, versionRefusal, withAnySsoSessio
 import { forwardIntegrationPolicy, type PolicyFields } from "./integration-policy-forward.ts"
 import { answerPrincipal, approvalRoute } from "./integrations/approval-route.ts"
 import { isMachineInstallKind, machineRefused } from "./machine-installs.ts"
-import { personalPrincipal, selectTeam, TEAM_HEADER } from "./team-select.ts"
+import { listUserTeams, personalPrincipal, selectTeam, TEAM_HEADER } from "./team-select.ts"
 
 /** DO RPC stubs erase union result types; the DO methods define them. */
 const rpc = <T>(p: unknown) => p as Promise<T>
 type ChallengeResult = { ok: true; nonce: string; expires_at: number } | { ok: false; message: string }
-
 const env = workerEnv as unknown as Env
 
 /** Machine installs (machine-installs.ts): a VM token reaches only its own machine's ops. */
@@ -419,6 +418,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           try: (): Promise<ReadResult> => {
             if (def.owner === "cloud:ConversationDO") return conversationRead(env, reader, payload.op, payload.params) as Promise<ReadResult>
             if (payload.op.startsWith("inbox.")) return rpc<ReadResult>(userStub(reader.user!).readInbox(reader.user!, reader, payload.op, (payload.params ?? {}) as Record<string, unknown>))
+            if (payload.op === "user.teams.list") return listUserTeams(env, reader) // the Worker asks each TeamDO (team-select.ts)
             const route = ownerRoute(owner, reader)
             return rpc<ReadResult>(route.stub.readOp(route.entity, reader, payload.op, payload.params))
           },

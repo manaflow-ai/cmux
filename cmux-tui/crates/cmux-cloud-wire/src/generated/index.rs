@@ -176,6 +176,7 @@ pub mod op_names {
     pub const USAGE_SUMMARY: &str = "usage.summary";
     pub const USER_ENSURE: &str = "user.ensure";
     pub const USER_PRESENCE_KEY_REVOKE: &str = "user.presence_key.revoke";
+    pub const USER_TEAMS_LIST: &str = "user.teams.list";
     pub const USER_TEXT_CONFIRM_GET: &str = "user.text_confirm.get";
     pub const USER_TEXT_CONFIRM_LEVEL_SET: &str = "user.text_confirm.level.set";
     pub const USER_TEXT_CONFIRM_LOWER: &str = "user.text_confirm.lower";
@@ -353,6 +354,7 @@ pub mod op_names {
         USAGE_SUMMARY,
         USER_ENSURE,
         USER_PRESENCE_KEY_REVOKE,
+        USER_TEAMS_LIST,
         USER_TEXT_CONFIRM_GET,
         USER_TEXT_CONFIRM_LEVEL_SET,
         USER_TEXT_CONFIRM_LOWER,
@@ -533,6 +535,7 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "usage.summary" => visitor.visit::<UsageSummaryOp>(),
         "user.ensure" => visitor.visit::<UserEnsureOp>(),
         "user.presence_key.revoke" => visitor.visit::<UserPresenceKeyRevokeOp>(),
+        "user.teams.list" => visitor.visit::<UserTeamsListOp>(),
         "user.text_confirm.get" => visitor.visit::<UserTextConfirmGetOp>(),
         "user.text_confirm.level.set" => visitor.visit::<UserTextConfirmLevelSetOp>(),
         "user.text_confirm.lower" => visitor.visit::<UserTextConfirmLowerOp>(),

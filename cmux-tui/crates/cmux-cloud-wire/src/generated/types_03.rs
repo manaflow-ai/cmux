@@ -432,5 +432,28 @@ pub struct UserProfile {
     pub personal_team: TeamId,
 }
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UserTeam {
+    pub id: TeamId,
+    pub display_name: String,
+    pub kind: UserTeamKind,
+    pub role: UserTeamRole,
+}
+
+wire_enum! {
+    UserTeamKind {
+        Personal = "personal",
+        Stack = "stack",
+    }
+}
+
+wire_enum! {
+    UserTeamRole {
+        Owner = "owner",
+        Admin = "admin",
+        Member = "member",
+    }
+}
+
 /// A WireGuard public key, standard base64 of 32 bytes.
 pub type WgPublicKey = String;

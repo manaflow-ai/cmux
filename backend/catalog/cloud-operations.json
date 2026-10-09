@@ -6619,6 +6619,46 @@
         }
       }
     },
+    "UserTeam": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "TeamId"
+          }
+        },
+        "display_name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "personal",
+              "stack"
+            ]
+          }
+        },
+        "role": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "owner",
+              "admin",
+              "member"
+            ]
+          }
+        }
+      }
+    },
     "WgPublicKey": {
       "kind": "primitive",
       "name": "string",
@@ -55593,6 +55633,146 @@
       },
       "output_json_schema": {
         "$defs": {}
+      }
+    },
+    "user.teams.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "user",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "teams": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "UserTeam"
+              }
+            }
+          },
+          "incomplete": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
+          "revision": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "owner.unreachable"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "read",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "account teams",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "account"
+      },
+      "docs": "List the teams the caller may act in with x-cmux-team: the personal team and every shared team whose TeamDO confirms the membership now. The UserDO team index is only the candidate list; an entry TeamDO does not confirm is left out.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "not": {
+          "type": "null"
+        },
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "teams": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/UserTeam"
+            }
+          },
+          "incomplete": {
+            "type": "boolean"
+          },
+          "revision": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "teams",
+          "incomplete",
+          "revision"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "UserTeam": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/TeamId"
+              },
+              "display_name": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "personal",
+                  "stack"
+                ]
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "owner",
+                  "admin",
+                  "member"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "display_name",
+              "kind",
+              "role"
+            ],
+            "additionalProperties": true
+          }
+        }
       }
     },
     "user.text_confirm.get": {
