@@ -593,6 +593,9 @@ fn spawn_plugin(
         .env("CMUX_TUI_SESSION_ID", session)
         .env("CMUX_PLUGIN_ID", &options.id)
         .env("CMUX_PLUGIN_GENERATION", generation.to_string())
+        // The plugin exits when this pid exits, so a `kill -9` of the daemon
+        // does not leave an orphan that reconnects to the next daemon.
+        .env("CMUX_PLUGIN_HOST_PID", std::process::id().to_string())
         .env("CMUX_PLUGIN_PROTOCOL_VERSION", "1")
         .env("CMUX_PLUGIN_KIND", "journal")
         .env("CMUX_JOURNAL_PLUGIN", "1")
@@ -752,6 +755,36 @@ mod tests {
             revision: Some("abc".into()),
         };
         assert!(valid.validate().is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn spawned_plugin_receives_the_host_pid() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_nanos())
+            .unwrap_or_default();
+        let out = std::env::temp_dir()
+            .join(format!("cmux-plugin-host-pid-{}-{nanos}", std::process::id()));
+        let options = JournalPluginOptions {
+            id: "screen_detector".into(),
+            command: vec![
+                "/bin/sh".into(),
+                "-c".into(),
+                "printf %s \"${CMUX_PLUGIN_HOST_PID-unset}\" > \"$1\"".into(),
+                "sh".into(),
+                out.display().to_string(),
+            ],
+            cwd: None,
+            revision: None,
+        };
+        let mut child =
+            spawn_plugin(&options, &PathBuf::from("/tmp/missing.sock"), "main", 1).unwrap();
+        let status = child.child.wait().unwrap();
+        let written = std::fs::read_to_string(&out);
+        let _ = std::fs::remove_file(&out);
+        assert!(status.success(), "plugin probe failed: {status}");
+        assert_eq!(written.unwrap(), std::process::id().to_string());
     }
 
     #[test]

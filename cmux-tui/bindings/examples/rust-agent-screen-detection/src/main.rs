@@ -39,6 +39,10 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    if let Err(error) = cmux_agent_screen_detection::host_watch::start() {
+        eprintln!("cmux-agent-screen-detection: {error}");
+        return ExitCode::FAILURE;
+    }
     match cmux_agent_screen_detection::scanner::run(&socket, &session, &plugin_id) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
