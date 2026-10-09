@@ -103,7 +103,7 @@ fn startup_settings(effort: &str, fast: bool) -> Option<Value> {
     if fast {
         settings.insert("fastMode".into(), json!(true));
     }
-    (!settings.is_empty()).then(|| Value::Object(settings))
+    (!settings.is_empty()).then_some(Value::Object(settings))
 }
 
 /// The model aliases offered in pickers.
