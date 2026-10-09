@@ -175,8 +175,8 @@ final class HomeService {
             startedBrainHost = true
             // The mux proves its principal with a token this (user) connection mints.
             do {
-                let token = try await ConversationClient(connection).agentToken(for: HomeService.mux.id)
-                await host.launch(agentToken: token)
+                let outcome = try await host.start { try await ConversationClient(connection).agentToken(for: HomeService.mux.id) }
+                logger.info("mux host: \(String(describing: outcome), privacy: .public)")
             } catch {
                 startedBrainHost = false
                 logger.error("mux agent token: \(String(describing: error), privacy: .public)")

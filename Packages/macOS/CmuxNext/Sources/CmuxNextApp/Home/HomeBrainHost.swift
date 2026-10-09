@@ -113,6 +113,23 @@ nonisolated struct HomeBrainHost: Sendable {
     /// The file that hands the mux's conversation token to the host (0600).
     var tokenFile: URL { muxHome.appendingPathComponent("agent-token") }
 
+    /// What `start` did.
+    enum StartOutcome: Equatable, Sendable {
+        /// A live host holds the home's lock and its token: no new token.
+        case reusedRunningHost
+        /// A token was minted and a host launched.
+        case launched
+    }
+
+    /// Starts the host for a Home that opened. `mintToken` replaces the
+    /// owner's agent_mux credential and revokes the binding of the host that
+    /// runs, so it is called only when the host must start.
+    @concurrent func start(mintToken: @Sendable () async throws -> String) async throws -> StartOutcome {
+        let token = try await mintToken()
+        await launch(agentToken: token)
+        return .launched
+    }
+
     @concurrent func launch(agentToken: String) async {
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "home")
         do {
