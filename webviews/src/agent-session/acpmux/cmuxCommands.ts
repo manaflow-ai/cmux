@@ -31,12 +31,14 @@ export function mergedCommands(
   enabledCmuxActions: ReadonlySet<CmuxCommand["action"]> = new Set(CMUX_COMMANDS.map((command) => command.action)),
 ): SlashCommand[] {
   const seen = new Set<string>();
-  return [...CMUX_COMMANDS.filter((command) => enabledCmuxActions.has(command.action)), ...(agent ?? [])].filter((command) => {
-    const name = command.name.trim().toLowerCase();
-    if (!name || seen.has(name)) return false;
-    seen.add(name);
-    return true;
-  });
+  return [...CMUX_COMMANDS.filter((command) => enabledCmuxActions.has(command.action)), ...(agent ?? [])].filter(
+    (command) => {
+      const name = command.name.trim().toLowerCase();
+      if (!name || seen.has(name)) return false;
+      seen.add(name);
+      return true;
+    },
+  );
 }
 
 export function commandArgs(text: string, command: SlashCommand): string | undefined {

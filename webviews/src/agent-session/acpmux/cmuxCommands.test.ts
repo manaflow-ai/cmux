@@ -5,6 +5,7 @@ import {
   continueTargets,
   mergedCommands,
   resolveHarnessTarget,
+  type CmuxCommand,
 } from "./cmuxCommands";
 
 describe("cmux slash commands", () => {
@@ -19,7 +20,7 @@ describe("cmux slash commands", () => {
   });
 
   test("filters unavailable cmux commands while retaining the harness list", () => {
-    const enabled = new Set<string>(["import", "fork"]);
+    const enabled = new Set<CmuxCommand["action"]>(["import", "fork"]);
     const commands = mergedCommands([{ name: "compact", description: "agent compact", source: "agent" }], enabled);
     expect(commands.map((command) => command.name)).toEqual(["import", "fork", "compact"]);
     expect(commands.find((command) => command.name === "continue")).toBeUndefined();
@@ -29,7 +30,12 @@ describe("cmux slash commands", () => {
     expect(commandArgs("/import", CMUX_COMMANDS[0]!)).toBe("");
     expect(commandArgs("/import session.jsonl", CMUX_COMMANDS[0]!)).toBe("session.jsonl");
     expect(commandArgs("say /import", CMUX_COMMANDS[0]!)).toBeUndefined();
-    expect(commandArgs("/fork", CMUX_COMMANDS.find((command) => command.name === "fork")!)).toBe("");
+    expect(
+      commandArgs(
+        "/fork",
+        CMUX_COMMANDS.find((command) => command.name === "fork")!,
+      ),
+    ).toBe("");
   });
 
   test("resolves continue targets by id or visible name and rejects extra words", () => {
