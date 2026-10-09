@@ -63,7 +63,10 @@ import CmuxHomeCoreTestSupport
         await source.setOnline(false)
         await waitUntil { !store.isOnline }
         let key = IdempotencyKey("offline-deadline")
+        let sleepers = clock.pendingSleepers
         _ = try? await store.perform(.sendMessage(conversation: conversation, parts: [.text("long gone")]), key: key)
+        // The deadline's sleep is registered before the clock moves.
+        await waitUntil { clock.pendingSleepers > sleepers }
 
         clock.advance(by: HomeStore.offlineSendDeadline - .seconds(1))
         for _ in 0..<500 { await Task.yield() }
