@@ -257,9 +257,12 @@ import CMUXMobileCore
     @Test func retryAfterNearIntMaxWaitsTheCap() async throws {
         let journal = IrxJournal(subsystem: "test", category: "retry-after-max", journalFileURL: nil)
         let sleeps = AsyncStream<Duration>.makeStream()
+        // A frozen clock: the remaining wait equals the scheduled delay.
+        let clock = PeerRetryTestClock()
         let engine = IrxPeerEngine(
             journal: journal,
             label: "test",
+            clockNow: { clock.now },
             retrySleep: { duration in
                 sleeps.continuation.yield(duration)
                 throw CancellationError()
