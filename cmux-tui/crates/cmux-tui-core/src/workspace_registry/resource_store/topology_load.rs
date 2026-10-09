@@ -83,6 +83,17 @@ impl WorkspaceRegistry {
     }
 }
 
+#[cfg(test)]
+thread_local! {
+    static FULL_TOPOLOGY_READS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Full topology reads on this thread (test hook).
+#[cfg(test)]
+pub(crate) fn full_topology_reads_for_test() -> u64 {
+    FULL_TOPOLOGY_READS.with(std::cell::Cell::get)
+}
+
 /// Load the live resource topology from `connection`. The registry's
 /// snapshot and the startup repair (which runs inside the open transaction,
 /// before this open's generation exists) share it.
@@ -91,6 +102,8 @@ pub(crate) fn load_resource_topology(
     session_id: SessionPublicId,
     generation: String,
 ) -> anyhow::Result<ResourceTopologySnapshot> {
+    #[cfg(test)]
+    FULL_TOPOLOGY_READS.with(|reads| reads.set(reads.get() + 1));
     let mut topology = load_topology_frame(connection, session_id, generation)?;
     topology.screens =
         screen_rows::with_side_tables(connection, load_screens(connection, "", &[])?)?;

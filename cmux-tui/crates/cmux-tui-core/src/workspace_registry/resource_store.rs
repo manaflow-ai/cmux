@@ -8,6 +8,8 @@ use patch_apply::decorate_snapshot_result;
 pub(crate) use patch_apply::{
     apply_resource_patch, apply_resource_patch_timed, apply_resource_patch_unrecorded,
 };
+#[cfg(test)]
+pub(crate) use topology_load::full_topology_reads_for_test;
 pub(crate) use topology_load::load_resource_topology;
 
 /// Completed pure mutations keep a finite exactly-once replay window. Pruning

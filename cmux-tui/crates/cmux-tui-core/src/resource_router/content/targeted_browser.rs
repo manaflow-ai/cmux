@@ -89,3 +89,6 @@ pub(super) fn targeted_browser_effect_projection(
         restates_all: false,
     })
 }
+
+#[cfg(test)]
+mod tests;
