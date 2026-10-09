@@ -12,7 +12,7 @@ extension MessageCell {
         footerLabel.font = t.footerFont
         editedLabel.font = t.editedFont
         repliesLabel.font = t.editedFont
-        timeLabel.font = t.timestampFont
+        timeLabel.font = t.timestampDrawerFont
     }
 }
 
