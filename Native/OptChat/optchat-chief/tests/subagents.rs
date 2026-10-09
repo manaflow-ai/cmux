@@ -1,7 +1,9 @@
 //! Section 9 end to end against the fake acpmux port: `spawn(tasks)` starts
 //! one tagged session per task whose first message is the view then the
-//! task, the subagents' tool calls stay out of the main log, ONE combined
-//! `[id] report` message reaches the chat when all of them finish, `tell`
+//! task, the subagents' tool calls stay out of the main log, each one's
+//! `[id] report` reaches the chat as it finishes (reports that arrive
+//! together go into one turn), a report of a subagent the user stopped
+//! starts no turn, `tell`
 //! reaches a subagent, each subagent gets a workspace that is marked done,
 //! and every step lands in the monitoring trace.
 
@@ -24,6 +26,18 @@ fn script() -> Script {
     Box::new(|turn, blocks| {
         let last = blocks.last().and_then(|b| b["text"].as_str()).unwrap_or("");
         if let Some(task) = last.strip_prefix("Your task:\n\n") {
+            if task == "stop me" {
+                // The user pressed stop in the subagent's pane (session/cancel).
+                return vec![
+                    json!({"dir": "mux", "kind": "user_message", "msg": {"promptId": "optchat-sub:x", "text": last}}),
+                    json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+                    update(
+                        "agent_message_chunk",
+                        json!({"content": {"type": "text", "text": "half done"}}),
+                    ),
+                    json!({"dir": "mux", "kind": "turn_end", "msg": {"stopReason": "cancelled"}}),
+                ];
+            }
             return vec![
                 json!({"dir": "mux", "kind": "user_message", "msg": {"promptId": "optchat-sub:x", "text": last}}),
                 json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
@@ -225,35 +239,35 @@ fn spawn_starts_one_tagged_session_per_task_with_the_view_then_the_task() {
 }
 
 #[test]
-fn all_reports_reach_the_chat_as_one_user_message_and_tool_calls_stay_out() {
+fn each_report_reaches_the_chat_as_it_finishes_and_tool_calls_stay_out() {
     let mut s = setup();
     spawn(&mut s, &["list the files in ~/", "say the date"]).unwrap();
-    let before = s.h.log().len();
     finish(&mut s, "s1", "s1", "a1");
-    // One finished: nothing reaches the chat yet.
-    assert!(s.h.brain.is_idle(), "the first report waits for the second");
-    assert_eq!(s.h.log().len(), before);
-    finish(&mut s, "s2", "s1", "a2");
     s.h.settle();
+    // a1 reports alone, at once: the Chief never waits for a2.
     let log = s.h.log();
     let reports: Vec<&(String, String)> = log.iter().filter(|(_, t)| t.starts_with("[a")).collect();
     assert_eq!(
         reports,
-        vec![&(
-            "user".to_owned(),
-            "[a1] done: list the files in ~/\n\n[a2] done: say the date".to_owned()
-        )],
-        "ONE message, `[id] report` each, logged as user"
+        vec![&("user".to_owned(), "[a1] done: list the files in ~/".to_owned())],
+        "a1's report alone, logged as user: {log:?}"
+    );
+    assert!(
+        log.iter().any(|(k, t)| k == "talk" && t.starts_with("answer")),
+        "the report started a turn"
+    );
+    finish(&mut s, "s2", "s1", "a2");
+    s.h.settle();
+    let log = s.h.log();
+    assert!(
+        log.iter()
+            .any(|(k, t)| k == "user" && t == "[a2] done: say the date"),
+        "{log:?}"
     );
     assert!(
         !log.iter()
             .any(|(_, t)| t.contains("ls ~") || t == "Desktop"),
         "a subagent's tool calls stay in its own session: {log:?}"
-    );
-    // The report started a turn, which answered.
-    assert!(
-        log.iter()
-            .any(|(k, t)| k == "talk" && t.starts_with("answer"))
     );
     // Both workspaces are marked done.
     let deadline = std::time::Instant::now() + WAIT;
@@ -264,7 +278,59 @@ fn all_reports_reach_the_chat_as_one_user_message_and_tool_calls_stay_out() {
     assert!(renamed.contains(&("ws-1".into(), "✓ a1 · list the files in ~/".into())));
     assert!(renamed.contains(&("ws-2".into(), "✓ a2 · say the date".into())));
     let state = s.h.brain.state();
-    assert!(state.spawns["s1"].delivered);
+    assert!(
+        state.spawns["s1"]
+            .subs
+            .iter()
+            .all(|sub| sub.status == optchat_chief::state::SubStatus::Reported)
+    );
+}
+
+#[test]
+fn reports_that_arrive_together_go_into_one_turn() {
+    let mut s = setup();
+    spawn(&mut s, &["list the files in ~/", "say the date"]).unwrap();
+    let talks = |log: &[(String, String)]| log.iter().filter(|(k, _)| k == "talk").count();
+    let before = talks(&s.h.log());
+    // Both finish before the brain takes its next turn.
+    finish(&mut s, "s1", "s1", "a1");
+    finish(&mut s, "s2", "s1", "a2");
+    s.h.settle();
+    let log = s.h.log();
+    let reports: Vec<&str> = log
+        .iter()
+        .filter(|(k, t)| k == "user" && t.starts_with("[a"))
+        .map(|(_, t)| t.as_str())
+        .collect();
+    assert_eq!(
+        reports,
+        vec!["[a1] done: list the files in ~/", "[a2] done: say the date"],
+        "{log:?}"
+    );
+    assert_eq!(talks(&log), before + 1, "one turn answers both: {log:?}");
+}
+
+#[test]
+fn a_report_of_a_subagent_the_user_stopped_starts_no_turn() {
+    let mut s = setup();
+    spawn(&mut s, &["stop me"]).unwrap();
+    let before = s.h.log().len();
+    finish(&mut s, "s1", "s1", "a1");
+    assert!(s.h.brain.is_idle(), "a stopped subagent's report wakes no one");
+    assert_eq!(s.h.log().len(), before, "{:?}", s.h.log());
+    // The next turn takes it, before the human message that started it.
+    s.h.say("user_local", "what now?");
+    s.h.settle();
+    let log = s.h.log();
+    let report = log
+        .iter()
+        .position(|(k, t)| k == "user" && t.starts_with("[a1] (stopped by the user)") && t.contains("half done"))
+        .unwrap_or_else(|| panic!("the stopped report: {log:?}"));
+    let human = log
+        .iter()
+        .position(|(k, t)| k == "user" && t == "what now?")
+        .expect("the human message");
+    assert!(report < human, "{log:?}");
 }
 
 #[test]
@@ -351,7 +417,7 @@ fn the_trace_holds_turns_spawns_subagents_tools_and_reports() {
     let stats = optchat_chief::report::stats(&events);
     assert_eq!(stats["subagents"]["spawns"], 1);
     assert_eq!(stats["subagents"]["finished"], 2);
-    assert_eq!(stats["subagents"]["reports_logged"], 1);
+    assert_eq!(stats["subagents"]["reports_logged"], 2, "one report per subagent");
     assert_eq!(stats["turns"]["tools"]["Bash"]["calls"], 2);
     assert!(stats["turns"]["count"].as_u64().unwrap() >= 2);
     let text = optchat_chief::report::stats_text(&stats, &s.traces);
