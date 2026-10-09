@@ -1,0 +1,450 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0CF99E5331FFDD9641AEB557 /* CNAppShell in Frameworks */ = {isa = PBXBuildFile; productRef = 932A7A43D5E97C7D72416A7B /* CNAppShell */; };
+		1163EFF7A72C3CBEA85F6E0D /* CmuxNextApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10072D30D4D1C5682F021A5A /* CmuxNextApp.swift */; };
+		2CF5E3DAA8E9439B2C36A224 /* CNAppShell in Frameworks */ = {isa = PBXBuildFile; productRef = E5E175AEFD9BD79769D08023 /* CNAppShell */; };
+		4F99DA3813A2A6B99B8D266A /* CmuxNextApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10072D30D4D1C5682F021A5A /* CmuxNextApp.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		10072D30D4D1C5682F021A5A /* CmuxNextApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxNextApp.swift; sourceTree = "<group>"; };
+		72F24ED5FA1DE379AC2CA487 /* Tabs.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Tabs.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		9A361FF6033A5D0E09F3CF77 /* Drawer.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Drawer.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A4B235B1028931D86E118FA5 /* CmuxNextMobile */ = {isa = PBXFileReference; lastKnownFileType = folder; name = CmuxNextMobile; path = ../Packages/CmuxNextMobile; sourceTree = SOURCE_ROOT; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		13D1607A6EB9FBA90CAB4064 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2CF5E3DAA8E9439B2C36A224 /* CNAppShell in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E978E9B8FB8F8506AFFCE4B5 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0CF99E5331FFDD9641AEB557 /* CNAppShell in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		616B5849A32368934A71580D = {
+			isa = PBXGroup;
+			children = (
+				7429D563FB29B24F7E7DDF76 /* Packages */,
+				A57D8393E5D72EAE0DAF0A33 /* Shared */,
+				6B2996CB45976B4BBCF9826D /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		6B2996CB45976B4BBCF9826D /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				9A361FF6033A5D0E09F3CF77 /* Drawer.app */,
+				72F24ED5FA1DE379AC2CA487 /* Tabs.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		7429D563FB29B24F7E7DDF76 /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				A4B235B1028931D86E118FA5 /* CmuxNextMobile */,
+			);
+			name = Packages;
+			sourceTree = "<group>";
+		};
+		A57D8393E5D72EAE0DAF0A33 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				10072D30D4D1C5682F021A5A /* CmuxNextApp.swift */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		03BB4A65011FAF497A2A38B0 /* Tabs */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = EED544F737A03CF3553C52EE /* Build configuration list for PBXNativeTarget "Tabs" */;
+			buildPhases = (
+				71AB5F42A59B166F9CC965E5 /* Sources */,
+				13D1607A6EB9FBA90CAB4064 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Tabs;
+			packageProductDependencies = (
+				E5E175AEFD9BD79769D08023 /* CNAppShell */,
+			);
+			productName = Tabs;
+			productReference = 72F24ED5FA1DE379AC2CA487 /* Tabs.app */;
+			productType = "com.apple.product-type.application";
+		};
+		3000DCCB7DDFE058C7FD92C9 /* Drawer */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8839525D27A2922A829B040E /* Build configuration list for PBXNativeTarget "Drawer" */;
+			buildPhases = (
+				F242A9D1D6174725EE6DCF2A /* Sources */,
+				E978E9B8FB8F8506AFFCE4B5 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Drawer;
+			packageProductDependencies = (
+				932A7A43D5E97C7D72416A7B /* CNAppShell */,
+			);
+			productName = Drawer;
+			productReference = 9A361FF6033A5D0E09F3CF77 /* Drawer.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		898057EDB2E3CFCC41E69CA1 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					03BB4A65011FAF497A2A38B0 = {
+						DevelopmentTeam = 7WLXT3NR37;
+						ProvisioningStyle = Automatic;
+					};
+					3000DCCB7DDFE058C7FD92C9 = {
+						DevelopmentTeam = 7WLXT3NR37;
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 31A1B6DC349D762381784174 /* Build configuration list for PBXProject "CmuxNextMobile" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 616B5849A32368934A71580D;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				224A219ECDDDFAD9AFF24A68 /* XCLocalSwiftPackageReference "../Packages/CmuxNextMobile" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 6B2996CB45976B4BBCF9826D /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				3000DCCB7DDFE058C7FD92C9 /* Drawer */,
+				03BB4A65011FAF497A2A38B0 /* Tabs */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		71AB5F42A59B166F9CC965E5 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4F99DA3813A2A6B99B8D266A /* CmuxNextApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F242A9D1D6174725EE6DCF2A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1163EFF7A72C3CBEA85F6E0D /* CmuxNextApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		0E564C0BB12BEBC3E514613B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CMUX_NEXT_API_BASE = "https://cmux-next-mobile.aziz-f6d.workers.dev";
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 7WLXT3NR37;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Attach photos to agent prompts.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "cmux connects directly to your Mac when it is on the same network.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Dictate prompts.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Attach photos to agent prompts.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		24732FDDFDE3E3C725296C10 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Tabs/App.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = Tabs/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.cmux.next.tabs;
+				PRODUCT_NAME = CmuxNextTabs;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		382C5F05E49D835940509F93 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Tabs/App.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = Tabs/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.cmux.next.tabs;
+				PRODUCT_NAME = CmuxNextTabs;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		88EDDD8D788E7122B4D3B2E6 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Drawer/App.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = Drawer/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.cmux.next.drawer;
+				PRODUCT_NAME = CmuxNextDrawer;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		98523CBA1D85378412092A66 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CMUX_NEXT_API_BASE = "https://cmux-next-mobile.aziz-f6d.workers.dev";
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 7WLXT3NR37;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Attach photos to agent prompts.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "cmux connects directly to your Mac when it is on the same network.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Dictate prompts.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Attach photos to agent prompts.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		E6B31B0FDA8A4563C0198A9E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Drawer/App.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = Drawer/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.cmux.next.drawer;
+				PRODUCT_NAME = CmuxNextDrawer;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		31A1B6DC349D762381784174 /* Build configuration list for PBXProject "CmuxNextMobile" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0E564C0BB12BEBC3E514613B /* Debug */,
+				98523CBA1D85378412092A66 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		8839525D27A2922A829B040E /* Build configuration list for PBXNativeTarget "Drawer" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E6B31B0FDA8A4563C0198A9E /* Debug */,
+				88EDDD8D788E7122B4D3B2E6 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		EED544F737A03CF3553C52EE /* Build configuration list for PBXNativeTarget "Tabs" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				382C5F05E49D835940509F93 /* Debug */,
+				24732FDDFDE3E3C725296C10 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		224A219ECDDDFAD9AFF24A68 /* XCLocalSwiftPackageReference "../Packages/CmuxNextMobile" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../Packages/CmuxNextMobile;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		932A7A43D5E97C7D72416A7B /* CNAppShell */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CNAppShell;
+		};
+		E5E175AEFD9BD79769D08023 /* CNAppShell */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CNAppShell;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 898057EDB2E3CFCC41E69CA1 /* Project object */;
+}
