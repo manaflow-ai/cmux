@@ -47,6 +47,26 @@ struct BrowserReplCallerLocalityTests {
         #expect(locality.workspace(ofPeer: 999) == nil)
     }
 
+    /// The socket admits a descendant of cmux up to 128 processes deep, so
+    /// a process far down a chain under A's shell (a deep pipeline, nested
+    /// `setsid` wrappers) still runs in A's terminal and is A's caller,
+    /// never an outside caller that may name every workspace.
+    @Test("A peer deep below a terminal's shell resolves to that terminal's workspace")
+    func deepPeerInTerminal() {
+        var parents: [Int32: Int32] = [500: 1, 600: 500]
+        var previous: Int32 = 600
+        for pid in Int32(1000)..<1100 {
+            parents[pid] = previous
+            previous = pid
+        }
+        let deep = BrowserReplCallerLocality(
+            host: host,
+            parent: { parents[$0] },
+            workspace: { [workspaceA] in $0 == 600 ? workspaceA : nil }
+        )
+        #expect(deep.workspace(ofPeer: previous) == workspaceA)
+    }
+
     @Test("A parent loop ends the walk")
     func parentLoop() {
         let looping = BrowserReplCallerLocality(host: host, parent: { $0 == 10 ? 11 : 10 }, workspace: { _ in nil })

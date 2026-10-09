@@ -161,6 +161,37 @@ struct BrowserReplSessionRegistryTests {
         }
     }
 
+    /// Whether a session is private is how it was made (with an owner
+    /// token), never its name: a shared session named like a client-made
+    /// one (`cli-x`) stays shared and listed, and a private session of the
+    /// same name is another session that only its owner reaches.
+    @Test("A private and a shared session of one name are separate sessions")
+    func privacyComesFromTheOwnerNotTheName() throws {
+        let registry = BrowserReplSessionRegistry()
+        for name in ["cli-x", "work"] {
+            let key = BrowserReplSessionKey(workspaceID: first, name: name)
+            let shared = try registry.session(for: key) { _ in makeSession(name) }
+            let owned = try registry.session(for: key, owner: "token-a") { _ in makeSession(name) }
+            defer {
+                shared.close()
+                owned.close()
+            }
+            #expect(owned !== shared)
+            #expect(try registry.session(for: key) { _ in makeSession(name) } === shared)
+            #expect(try registry.session(for: key, owner: "token-a") { _ in makeSession(name) } === owned)
+            #expect(throws: BrowserReplSessionRegistry.Refusal.ownedByAnotherClient) {
+                try registry.session(for: key, owner: "token-b") { _ in makeSession(name) }
+            }
+            #expect(registry.list(workspaceID: first).map(\.name) == [name])
+            #expect(registry.list(workspaceID: first, owner: "token-b").map(\.name) == [name])
+            #expect(registry.list(workspaceID: first, owner: "token-a").map(\.name) == [name, name])
+            #expect(registry.reset(key))
+            #expect(shared.isClosed && !owned.isClosed)
+            #expect(registry.reset(key, owner: "token-a"))
+            #expect(owned.isClosed)
+        }
+    }
+
     @Test("Resetting a name in every workspace closes each session with that name")
     func resetEverywhere() throws {
         let registry = BrowserReplSessionRegistry()
