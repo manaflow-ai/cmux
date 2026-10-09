@@ -1,18 +1,20 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/MarkdownStore.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/MarkdownStore.swift
-@@ -21,6 +21,11 @@
+@@ -21,6 +21,13 @@
  
      func showsSource(_ id: ID) -> Bool { lock.lock(); defer { lock.unlock() }; return source.contains(id) }
      func setShowsSource(_ id: ID, _ on: Bool) { lock.lock(); if on { source.insert(id) } else { source.remove(id) }; lock.unlock() }
-+    /// cmux: messages whose text is never Markdown (a person's text shows as typed; only an
-+    /// agent's is Markdown). The host marks them before they are measured.
-+    private var plain = Set<ID>()
-+    func isPlain(_ id: ID) -> Bool { lock.lock(); defer { lock.unlock() }; return plain.contains(id) }
-+    func setPlain(_ id: ID, _ on: Bool) { lock.lock(); if on { plain.insert(id) } else { plain.remove(id) }; lock.unlock() }
++    /// cmux: a message's text is plain unless the host marks it Markdown (only an agent's
++    /// text is Markdown; a person's shows as typed). Plain is the default, so a message the
++    /// host has not seen (the reducer's local send, measured before the owner's echo) never
++    /// takes the Markdown engine. The host marks a message before it is measured.
++    private var markdownIDs = Set<ID>()
++    func isPlain(_ id: ID) -> Bool { lock.lock(); defer { lock.unlock() }; return !markdownIDs.contains(id) }
++    func setPlain(_ id: ID, _ on: Bool) { lock.lock(); if on { markdownIDs.remove(id) } else { markdownIDs.insert(id) }; lock.unlock() }
  
      func document(_ text: String) -> MDDocument {
          lock.lock()
-@@ -70,7 +75,7 @@
+@@ -70,7 +77,7 @@
      /// message shown as source.
      static func layout(_ text: String, message: ID?, width: CGFloat) -> MarkdownLayout? {
          guard enabled, mightContain(text), !LongText.isLong(text) else { return nil }
