@@ -45,8 +45,8 @@ enum TiledBubble {
         let attr = bl.attributed(outgoing: outgoing)
         let a = chunk * linesPerTile, b = min(bl.lines.count, a + linesPerTile)
         guard a < b else { return }
-        for j in a..<b where bl.lines[j].length > 0 {
-            let l = CTLineCreateWithAttributedString(attr.attributedSubstring(from: bl.lines[j]))
+        for (j, line) in zip(a..<b, bl.lines.dropFirst(a)) where line.length > 0 { // cmux: no index math
+            let l = CTLineCreateWithAttributedString(attr.attributedSubstring(from: line))
             ctx.saveGState()
             ctx.textMatrix = CGAffineTransform(scaleX: 1, y: -1)
             ctx.textPosition = CGPoint(x: Fixture.bubblePadX,
@@ -87,7 +87,7 @@ enum BubbleSlices {
             UIColor.black.setFill()
             BubblePath.make(body: CGRect(x: pad + phase, y: vpad, width: bodyWidth, height: 2 * cap), outgoing: outgoing, tail: tail).fill()
         }) else { return nil }
-        cache[k] = img
+        cache.updateValue(img, forKey: k) // cmux: dictionary write
         return img
     }
 }
@@ -112,7 +112,8 @@ final class TileCache {
     struct Slot: Hashable { var lineage: Int; var start: Int; var chunk: Int }
     var budget: Int = {
         let a = ProcessInfo.processInfo.arguments
-        return (a.firstIndex(of: "--tile-cache-mb").flatMap { $0 + 1 < a.count ? Int(a[$0 + 1]) : nil } ?? 48) << 20
+        let mb = a.firstIndex(of: "--tile-cache-mb").flatMap { a.dropFirst($0 + 1).first }.flatMap { Int.init($0) } ?? 48 // cmux: no index math
+        return min(max(mb, 1), 1 << 20) << 20 // cmux: a huge value cannot overflow the shift
     }()
     private var map: [Key: (CGImage, Int, Int)] = [:]
     private var tick = 0
@@ -120,20 +121,20 @@ final class TileCache {
     func get(_ k: Key) -> CGImage? {
         guard let e = map[k] else { return nil }
         tick += 1
-        map[k] = (e.0, e.1, tick)
+        map.updateValue((e.0, e.1, tick), forKey: k) // cmux: dictionary write
         return e.0
     }
     func put(_ k: Key, _ img: CGImage) {
         if let old = map[k] { bytes -= old.1 }
         let b = img.bytesPerRow * img.height
         tick += 1
-        map[k] = (img, b, tick)
+        map.updateValue((img, b, tick), forKey: k) // cmux: dictionary write
         bytes += b
         guard bytes > budget else { return }
         var freed: [CGImage] = []
         for (key, e) in map.sorted(by: { $0.value.2 < $1.value.2 }) {
             if bytes <= budget * 4 / 5 { break }
-            map[key] = nil
+            map.removeValue(forKey: key) // cmux: dictionary write
             bytes -= e.1
             freed.append(e.0)
         }
@@ -365,10 +366,10 @@ final class TiledBody {
         let screen = max(vis.height, 300)
         let total = layout.totalLines
         if !folded {
-            func line(_ y: CGFloat) -> Int { Int(floor((y - textTop) / lh)) }
+            func line(_ y: CGFloat) -> Int { CrashGuard.int(floor((y - textTop) / lh), in: CrashGuard.countRange) } // cmux: no trap on NaN
             let wantA = max(0, line(lo - screen)), wantB = min(total, line(hi + screen) + 1)
             guard wantA < wantB else { releaseAll(); return }
-            let screenLines = Int(screen / lh)
+            let screenLines = CrashGuard.int(screen / lh, in: CrashGuard.countRange) // cmux
             layout.require(lines: max(0, wantA - 2 * screenLines)..<min(total, wantB + 2 * screenLines))
         }
 
@@ -388,7 +389,7 @@ final class TiledBody {
         var wanted: [(TileCache.Key, CGRect, Bool, Int, CALayer)] = []
         let n = TiledBubble.linesPerTile
         for seg in segments where !seg.lines.isEmpty {
-            func segLine(_ y: CGFloat) -> Int { Int(floor((y - seg.shift - textTop) / lh)) }
+            func segLine(_ y: CGFloat) -> Int { CrashGuard.int(floor((y - seg.shift - textTop) / lh), in: CrashGuard.countRange) } // cmux
             let visA = max(seg.lines.lowerBound, segLine(lo)), visB = min(seg.lines.upperBound, segLine(hi) + 1)
             let wantA = max(seg.lines.lowerBound, segLine(lo - screen)), wantB = min(seg.lines.upperBound, segLine(hi + screen) + 1)
             guard wantA < wantB else { continue }
@@ -413,10 +414,10 @@ final class TiledBody {
         // Tiles that left: back to the pool unless a newer key takes their slot (stale pixels stay until it renders).
         var stale: [TileCache.Slot: CALayer] = [:]
         for (k, l) in live where !wantedKeys.contains(k) {
-            live[k] = nil
+            live.removeValue(forKey: k) // cmux: dictionary write
             stale[k.slot] = l
         }
-        for (k, op) in pending where !wantedKeys.contains(k) { op.cancel(); pending[k] = nil; TiledStats.tilesCancelled += 1 }
+        for (k, op) in pending where !wantedKeys.contains(k) { op.cancel(); pending.removeValue(forKey: k); /* cmux: dictionary write */ TiledStats.tilesCancelled += 1 }
         stalePixels.formIntersection(wantedKeys)
         CATransaction.begin(); CATransaction.setDisableActions(true)
         var mainTiles = 0
@@ -427,7 +428,7 @@ final class TiledBody {
                 // Still the previous pixels of its slot: the cache (a published tail) or the queue replaces them.
                 if stalePixels.contains(k) {
                     if let img = TileCache.shared.get(k) { l.contents = img; stalePixels.remove(k) }
-                    else if pending[k] == nil, layout.isExact(blk) { enqueue(k, layout: layout, block: blk, width: r.width, visible: visible) }
+                    else if !pending.keys.contains(k), layout.isExact(blk) /* cmux */ { enqueue(k, layout: layout, block: blk, width: r.width, visible: visible) }
                 }
                 continue
             }
@@ -436,7 +437,7 @@ final class TiledBody {
             if l.superlayer !== parent { parent.addSublayer(l) }
             l.frame = r
             l.contentsScale = s
-            live[k] = l
+            live.updateValue(l, forKey: k) // cmux: dictionary write
             if let img = TileCache.shared.get(k) { l.contents = img; continue }
             // A slot that still shows its previous pixels keeps them until the replacement is drawn.
             // A streamed tail block that is not measured yet keeps its old tiles (its new lines are not
@@ -458,7 +459,7 @@ final class TiledBody {
                 l.contents = img
                 continue
             }
-            if pending[k] == nil { enqueue(k, layout: layout, block: blk, width: r.width, visible: visible) }
+            if !pending.keys.contains(k) /* cmux */ { enqueue(k, layout: layout, block: blk, width: r.width, visible: visible) }
         }
         for (_, l) in stale { l.contents = nil; l.isHidden = true; pool.append(l) }
         CATransaction.commit()
@@ -497,7 +498,7 @@ final class TiledBody {
                 guard k.palette == Fixture.paletteGeneration, k.scale == Fixture.renderScale else { return }
                 if let img { TileCache.shared.put(k, img) } // cmux: an unallocated tile stays blank
                 guard let self else { return }
-                self.pending[k] = nil
+                self.pending.removeValue(forKey: k) /* cmux */
                 self.stalePixels.remove(k)
                 if let l = self.live[k] {
                     CATransaction.begin(); CATransaction.setDisableActions(true)
@@ -506,7 +507,7 @@ final class TiledBody {
                 }
             }
         }
-        pending[k] = op
+        pending.updateValue(op, forKey: k) // cmux: dictionary write
         TiledBubble.tileQueue.addOperation(op)
     }
 }
