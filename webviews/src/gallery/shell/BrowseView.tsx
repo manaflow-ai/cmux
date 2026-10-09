@@ -2,10 +2,10 @@
 // used by the entry view and matrix runner. It is intentionally a view of the registry rather
 // than a second set of synthetic thumbnails, so a card is useful for both visual scanning and
 // opening the exact entry/variant that produced it.
-import { useCallback, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { GalleryEnv } from "../env";
 import type { GalleryEntry } from "../format";
-import { browseFrameHref, browseItems } from "./browseModel";
+import { browseFrameHref, filterBrowseItems } from "./browseModel";
 import { Stage } from "./Stage";
 
 export function BrowseView({
@@ -21,17 +21,29 @@ export function BrowseView({
   onOpen: (entry: GalleryEntry, variant: string) => void;
   hrefFor: (entry: GalleryEntry, variant: string) => string;
 }) {
-  const items = browseItems(entries);
+  const [filter, setFilter] = useState("");
+  const items = useMemo(() => filterBrowseItems(entries, filter), [entries, filter]);
+  const allCount = useMemo(() => filterBrowseItems(entries, "").length, [entries]);
   return (
     <section className="gallery-browse" aria-labelledby="gallery-browse-title">
       <header className="gallery-browse-header">
         <div>
           <h1 id="gallery-browse-title">Browse gallery</h1>
           <p>
-            {items.length} live entries, each rendered by its real host. Pick a variant to scan the surface, then open
-            it for the full-size view or replay its motion.
+            {items.length} of {allCount} live previews, each rendered by its real host. Pick a variant to scan the
+            surface, then open it for the full-size view or replay its motion.
           </p>
         </div>
+        <label className="gallery-browse-filter">
+          Filter previews
+          <input
+            type="search"
+            value={filter}
+            placeholder={`Filter ${allCount} previews`}
+            aria-label="Filter gallery previews"
+            onChange={(event) => setFilter(event.target.value)}
+          />
+        </label>
       </header>
       {items.length ? (
         <div className="gallery-browse-grid">
@@ -48,7 +60,14 @@ export function BrowseView({
           ))}
         </div>
       ) : (
-        <p className="gallery-empty">No ready entries to preview yet.</p>
+        <div className="gallery-empty">
+          <p>{filter.trim() ? `No previews match “${filter.trim()}”.` : "No ready entries to preview yet."}</p>
+          {filter.trim() && (
+            <button type="button" onClick={() => setFilter("")}>
+              Clear filter
+            </button>
+          )}
+        </div>
       )}
     </section>
   );
@@ -71,14 +90,16 @@ function BrowseCard({
 }) {
   const [variant, setVariant] = useState(initialVariant);
   const [width, setWidth] = useState(420);
-  const previewRef = useCallback((node: HTMLElement | null) => {
-    if (!node) return;
-    const measure = () => setWidth(node.clientWidth);
+  const [previewNode, setPreviewNode] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!previewNode) return;
+    const measure = () => setWidth(previewNode.clientWidth);
     measure();
+    if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(measure);
-    observer.observe(node);
+    observer.observe(previewNode);
     return () => observer.disconnect();
-  }, []);
+  }, [previewNode]);
   const variants = Object.keys(entry.variants);
   const fixture = entry.variants[variant];
   return (
@@ -103,7 +124,7 @@ function BrowseCard({
           </button>
         ))}
       </fieldset>
-      <div ref={previewRef} className="gallery-browse-preview">
+      <div ref={setPreviewNode} className="gallery-browse-preview">
         <Stage
           key={variant}
           entry={entry}

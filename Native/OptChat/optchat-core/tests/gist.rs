@@ -446,7 +446,12 @@ fn compaction_tasks_carry_the_ruler_and_the_too_long_retry() {
         .unwrap();
     let (a, b) = merge.children().unwrap();
     let request = compact_request(&memory, &store, merge, "SYSTEM".into()).unwrap();
-    let line = |n: NodeId| view_line(n, store.node(n).as_deref());
+    // The two lines' texts as they are, without their `id+n|` heads, as the
+    // reference client sends them (Memory.flat): with the heads, the model
+    // copied the first input (head and all) and cut the second, and facts
+    // of the right half were lost (context slices: kestrel kept to 32, 16, 8
+    // with heads; 128, 128, 32 without).
+    let line = |n: NodeId| store.node(n).unwrap().replace('\n', " ");
     assert_eq!(
         request.step,
         format!(

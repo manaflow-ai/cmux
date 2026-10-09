@@ -130,16 +130,14 @@ export function recentChatCards(
     .sort((a, b) => b.updatedAt - a.updatedAt)
     .filter((chat) => !shown.has((chat.title ?? "").trim().toLowerCase()))
     .slice(0, Math.max(0, CHAT_CARD_COUNT - live.length))
-    .map(
-      (chat): ChatCard => ({
-        sessionId: chat.key,
-        chatKey: chat.key,
-        title: chat.title ?? t("sidebar.newChat"),
-        harness: chat.harness,
-        age: ageLabel(chat.updatedAt, now, t),
-        state: "idle",
-      }),
-    );
+    .map((chat): ChatCard => ({
+      sessionId: chat.key,
+      chatKey: chat.key,
+      title: chat.title ?? t("sidebar.newChat"),
+      harness: chat.harness,
+      age: ageLabel(chat.updatedAt, now, t),
+      state: "idle",
+    }));
   return [...live, ...fill];
 }
 

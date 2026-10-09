@@ -353,3 +353,33 @@ fn the_listener_refuses_a_cmux_service_port_after_connecting() {
     assert_eq!(code, 0x00, "a dev server");
     assert_eq!(echo(&mut stream), b"ping");
 }
+
+/// The owner allow-lists this machine's own LAN address: a connection to it
+/// reaches the same listeners as loopback (a wildcard bind covers both), so
+/// its ports get the cmux service check. Another host's allowed address
+/// does not.
+#[test]
+fn an_allowed_address_of_this_machine_gets_the_service_check() {
+    let own: IpAddr = "192.168.77.5".parse().unwrap();
+    let (allow, _) = parse_allow("192.168.77.5:3000, 192.168.77.9:3000");
+    let rule = EgressRule::new(allow, no_names())
+        .with_service_check(Arc::new(|addr| {
+            (addr.port() == 3000).then(|| format!("{addr} is the cmux service test"))
+        }))
+        .with_own_addresses(Arc::new(move |ip| ip == own));
+    let mine = SocketAddr::new(own, 3000);
+    assert!(rule.resolve(&Target::Address(mine)).is_ok(), "the owner allowed it");
+    assert!(rule.service_refusal(mine).is_some());
+    assert!(rule.connected_service_refusal(mine).is_some());
+    let other: SocketAddr = "192.168.77.9:3000".parse().unwrap();
+    assert_eq!(rule.connected_service_refusal(other), None, "another host");
+}
+
+/// The live interface list holds loopback and no public address.
+#[cfg(unix)]
+#[test]
+fn the_system_interface_list_holds_loopback() {
+    let own = crate::egress_services::system_own_addresses();
+    assert!(own(IpAddr::V4(Ipv4Addr::LOCALHOST)));
+    assert!(!own("203.0.113.7".parse().unwrap()), "TEST-NET-3 is nobody's interface");
+}
