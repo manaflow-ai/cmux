@@ -97,6 +97,8 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
   private endpoint: string | null = null;
   private lastActivated: string | null = null;
   private defaultUserAgent: string | null = null;
+  /** Tabs a phone closed that Chrome has not destroyed yet (kept out of the list). */
+  private readonly closing = new Map<string, () => void>();
 
   private endpointSeen = false;
 
@@ -198,6 +200,7 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
 
   private upsertTarget(info: any): void {
     if (!this.isPage(info)) return;
+    if (this.closing.has(info.targetId)) return;
     let t = this.tabs.get(info.targetId);
     const isNew = !t;
     if (!t) {
@@ -251,6 +254,8 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
         this.upsertTarget(params.targetInfo);
         return;
       case "Target.targetDestroyed":
+        this.closing.get(params.targetId)?.();
+        this.closing.delete(params.targetId);
         this.removeTab(params.targetId);
         return;
       case "Target.detachedFromTarget": {
@@ -403,8 +408,24 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
       if (!this.tabs.has(tabId)) throw new RpcError("not_found", `tab ${tabId} not found`);
       throw new RpcError("unavailable", `Chrome did not close tab ${tabId}`);
     }
+    // Chrome reports success before the tab is gone and, with a stalled
+    // browser UI (no display on a headless Mac), may never destroy it. The
+    // tab stays out of the phone's list either way and is dropped from
+    // Chrome when it finally closes.
+    const destroyed = new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => resolve(false), 2_000);
+      timer.unref?.();
+      this.closing.set(tabId, () => {
+        clearTimeout(timer);
+        resolve(true);
+      });
+    });
     this.removeTab(tabId);
+    const gone = await destroyed;
+    if (!gone) this.log(`browser.close ${tabId}: Chrome acknowledged the close but the tab is still open; hiding it from phones`);
   }
+
+
 
   // ---------------------------------------------------------------- screencast
 
