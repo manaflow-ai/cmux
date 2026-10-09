@@ -99,6 +99,11 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   the view it got), in pages of 30,000 characters that say where to go on.
   Every report ends with `Full chat: zoom("a<N>")`. Subagents may zoom a
   subagent too.
+- Before it starts a subagent in its own subagent directory, the host
+  records that folder as trusted in acpmux (`acp.trust.set`, level
+  trusted), so the user's first message in the subagent's pane is not held
+  behind "trust this folder". A spawn's `cwd` (a folder of the user's) is
+  never trusted by the host: its pane asks as usual.
 - Subagents get `zoom` and `date` only (`optchat-chief mcp --role subagent`;
   `chief` refuses spawn/tell under `OPTCHAT_SUBAGENT=1`, and the socket refuses
   them from a subagent). Their tool calls stay in their own session.

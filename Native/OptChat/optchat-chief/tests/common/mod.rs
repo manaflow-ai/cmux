@@ -459,6 +459,8 @@ pub struct Agents {
     /// The harness acpmux reports a new session on (`session`); None: the
     /// one the spec asked for.
     pub session_harness: Option<String>,
+    /// Every folder the host trusted (`acp.trust.set`, level trusted).
+    pub trusted: Vec<std::path::PathBuf>,
     /// Every permission answer: (session, permission id, option id).
     pub responses: Vec<(String, String, Option<String>)>,
     /// Every `_acpmux/prewarm` hint: (harness, preset, cwd).
@@ -555,10 +557,15 @@ impl FakeAgents {
     /// Adds events to a running turn and tells its runner, as acpmux's
     /// notifications do.
     pub fn push_events(&self, session: &str, events: Vec<Value>) {
+        let from_agent = events.iter().any(|e| e["dir"] == "in");
         self.append_events(session, events);
         let signals = self.inner.lock().unwrap().signals.get(session).cloned();
         if let Some(tx) = signals {
-            let _ = tx.send(TurnSignal::Changed);
+            let _ = tx.send(if from_agent {
+                TurnSignal::Changed
+            } else {
+                TurnSignal::Noted
+            });
         }
     }
 
@@ -598,6 +605,11 @@ impl FakeAgents {
 }
 
 impl AgentPort for FakeAgents {
+    fn trust_folder(&self, cwd: &std::path::Path) -> Result<(), String> {
+        self.inner.lock().unwrap().trusted.push(cwd.to_owned());
+        Ok(())
+    }
+
     fn new_session(&self, spec: &SessionSpec) -> Result<String, String> {
         if let Some(e) = self.inner.lock().unwrap().session_errors.get(&spec.harness) {
             return Err(e.clone());
@@ -781,6 +793,13 @@ impl AgentPort for FakeAgents {
         inner.steers.push((session.to_owned(), blocks));
         let at_end = inner.steer_at_end;
         let turn = inner.answered_turns;
+        // acpmux echoes the steer (a mux `user_message`) to the turn.
+        if let Some(tx) = inner.signals.get(session) {
+            let _ = tx.send(optchat_chief::acpmux::event_signal(
+                "_acpmux/event",
+                &json!({"dir": "mux", "kind": "user_message"}),
+            ));
+        }
         drop(inner);
         self.changed.notify_all();
         let me = self.me.upgrade().expect("alive");

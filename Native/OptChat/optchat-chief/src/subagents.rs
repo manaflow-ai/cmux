@@ -296,6 +296,18 @@ impl Spawner {
                 .collect(),
             fast: false,
         };
+        // The folder the host made for its subagents is trusted up front, so
+        // the user's first message in a subagent's pane is never held behind
+        // "trust this folder" (Lawrence 2026-10-09). A folder of the user's
+        // (a spawn's cwd) is never trusted here: its pane asks as usual.
+        if s.cwd == self.settings.cwd
+            && let Err(e) = self.agents.trust_folder(&s.cwd)
+        {
+            (self.log)(&format!(
+                "trusting the subagent folder {}: {e}",
+                s.cwd.display()
+            ));
+        }
         let session = self.agents.new_session(&spec)?;
         let admitted = crate::harness_gate::session_harness(&*self.agents, &session, &admitted)
             .map_err(|reason| {
@@ -429,7 +441,7 @@ impl Spawner {
         std::thread::spawn(move || {
             while let Ok(signal) = rx.recv() {
                 match signal {
-                    TurnSignal::Changed | TurnSignal::Streamed => {}
+                    TurnSignal::Changed | TurnSignal::Noted | TurnSignal::Streamed => {}
                     TurnSignal::Done(answer) => {
                         let _ = tx.send(Input::SubagentAnswer { id, answer });
                         return;

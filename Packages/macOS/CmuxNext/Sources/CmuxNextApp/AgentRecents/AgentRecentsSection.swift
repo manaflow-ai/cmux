@@ -18,6 +18,7 @@ final class AgentRecentsSection {
     init(feed: ChatsFeed, open: @escaping (String) -> Void) {
         self.feed = feed
         view.onOpen = open
+        view.onLayoutChange = { [weak self] in self?.onContentChange?() }
         refresh()
         feed.observe(self) { [weak self] in self?.refresh() }
     }

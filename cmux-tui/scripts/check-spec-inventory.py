@@ -222,10 +222,23 @@ def rust_match_arms(source: str, function: str, enum_name: str) -> dict[str, str
     return arms
 
 
+def command_handler_body(module: str, function: str) -> str:
+    """Body of a command handler that a dispatch arm delegates to
+    (`cmd_<family>::<function>(...)` in server/cmd_<family>.rs)."""
+    path = TUI / "crates/cmux-tui-core/src/server" / f"{module}.rs"
+    if not path.exists():
+        fail(f"dispatch arm calls {module}::{function} but {path.name} is missing")
+    return rust_function_body(strip_rust_comments(path.read_text()), function)
+
+
 def guarded_command_profiles(source: str) -> dict[str, str]:
     arms = rust_match_arms(source, "handle_command_with_cancellation", "Command")
     profiles: dict[str, str] = {}
     for variant, arm in arms.items():
+        # Command families live in server/cmd_*.rs; a guard inside the
+        # handler an arm calls belongs to that arm.
+        for module, function in re.findall(r"\b(cmd_[a-z0-9_]+)::([a-z0-9_]+)\(", arm):
+            arm += command_handler_body(module, function)
         if (
             "authorize_provider_workspace_command" in arm
             or "with_provider_workspace_authority" in arm
