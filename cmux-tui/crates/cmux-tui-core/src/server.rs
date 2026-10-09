@@ -53,6 +53,8 @@ use crate::JournalClass;
 #[cfg(test)]
 use crate::JournalSensitivity;
 #[cfg(test)]
+use crate::NotificationSource;
+#[cfg(test)]
 use crate::SurfaceRenderFrame;
 #[cfg(test)]
 use crate::browser::{BrowserAttachUpdate, BrowserFrameUpdate};
@@ -76,11 +78,10 @@ use crate::sizing_policy::{
 use crate::stream_interrupt::{InterruptSet, StreamInterrupt};
 use crate::surface::{AttachLifecycle, ClearHistoryDelivery, ClearHistoryFailure};
 use crate::{
-    AgentRecord, AgentSource, AgentState, Direction, GraphicsStatus, LayoutLeafSpec,
-    LayoutRatioError, LayoutSpec, MachineUsage, Mux, MuxEvent, Node, NotificationLevel,
-    NotificationSource, PairingDecision, PaneId, Rgb, ScreenId, SidebarPluginStatus, SplitDir,
-    SplitId, SurfaceId, SurfaceKind, TerminalColors, TreeDecorations, TreeDelta, TreeDeltaKind,
-    ViewportWidthError, WorkspaceId, WorkspaceMutation, ZoomMode, assign_short_ids,
+    Direction, GraphicsStatus, LayoutLeafSpec, LayoutRatioError, LayoutSpec, MachineUsage, Mux,
+    MuxEvent, Node, PairingDecision, PaneId, Rgb, ScreenId, SplitDir, SplitId, SurfaceId,
+    SurfaceKind, TerminalColors, TreeDecorations, TreeDelta, TreeDeltaKind, ViewportWidthError,
+    WorkspaceId, WorkspaceMutation, ZoomMode, assign_short_ids,
 };
 #[cfg(test)]
 use ghostty_vt::KeyInput;
@@ -152,6 +153,10 @@ use cmd_browser::browser_provider_registration;
 mod cmd_panes;
 mod cmd_profiles;
 mod cmd_screens;
+mod cmd_server;
+#[cfg(test)]
+use cmd_server::{machine_listening_tcp_json, stamped_build_commit, stamped_ghostty_commit};
+mod cmd_frontend;
 mod cmd_sizing;
 mod cmd_tabs;
 mod cmd_terminal_io;
@@ -445,16 +450,6 @@ pub(crate) use protocol_key::{
     decode_terminal_host_clear_history, encode_terminal_host_clear_history,
 };
 
-fn validate_client_focus_id(client_id: &str) -> anyhow::Result<()> {
-    if client_id.is_empty()
-        || client_id.len() > 128
-        || !client_id.bytes().all(|byte| byte.is_ascii_graphic())
-    {
-        anyhow::bail!("bad request: invalid client_id");
-    }
-    Ok(())
-}
-
 /// `machine-usage` result and `machine-usage-changed` payload body: `usage`
 /// is the readout object or null when the daemon has none.
 fn machine_usage_json(usage: Option<&MachineUsage>) -> Value {
@@ -467,57 +462,6 @@ fn machine_usage_json(usage: Option<&MachineUsage>) -> Value {
             "as_of": usage.as_of,
         })),
     })
-}
-
-fn machine_listening_tcp_json() -> anyhow::Result<Value> {
-    #[cfg(not(unix))]
-    {
-        anyhow::bail!("machine listening TCP inventory is not supported on this platform");
-    }
-    #[cfg(unix)]
-    {
-        const MAX_LISTING_BYTES: usize = 512 * 1024;
-        // The Cloud daemon runs as cmux while containerd runs as root. Use the
-        // guest's existing noninteractive sudo permission for this fixed read-only
-        // inventory when available; otherwise preserve the unprivileged inventory.
-        #[cfg(target_os = "linux")]
-        let candidates: &[(&str, &[&str])] = &[
-            ("sudo", &["-n", "ss", "-H", "-ltnp"]),
-            ("sudo", &["-n", "netstat", "-ltnp"]),
-            ("ss", &["-H", "-ltnp"]),
-            ("netstat", &["-ltnp"]),
-        ];
-        // netstat's -p means protocol on BSD/macOS.
-        #[cfg(not(target_os = "linux"))]
-        let candidates: &[(&str, &[&str])] = &[("ss", &["-H", "-ltnp"]), ("netstat", &["-ltn"])];
-        let mut failures = Vec::new();
-        for &(program, arguments) in candidates {
-            let output = match std::process::Command::new(program).args(arguments).output() {
-                Ok(output) => output,
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
-                Err(error) => {
-                    failures.push(format!("{program}: {error}"));
-                    continue;
-                }
-            };
-            if !output.status.success() {
-                failures.push(format!("{program}: exited with {}", output.status));
-                continue;
-            }
-            if output.stdout.len() > MAX_LISTING_BYTES {
-                anyhow::bail!("machine listening TCP inventory exceeded {MAX_LISTING_BYTES} bytes");
-            }
-            let stdout = String::from_utf8(output.stdout)
-                .context("machine listening TCP inventory was not UTF-8")?;
-            return Ok(json!({ "stdout": stdout }));
-        }
-        let detail = if failures.is_empty() {
-            "neither ss nor netstat is installed".to_string()
-        } else {
-            failures.join("; ")
-        };
-        anyhow::bail!("machine listening TCP inventory failed: {detail}");
-    }
 }
 
 #[derive(Deserialize)]
@@ -4024,208 +3968,6 @@ fn layout_request_to_spec(layout: LayoutRequest) -> anyhow::Result<LayoutSpec> {
     }
 }
 
-fn create_surface_with_receipt(
-    mux: &Arc<Mux>,
-    client: u64,
-    request: CreateSurfaceWithReceiptRequest,
-) -> anyhow::Result<Value> {
-    let CreateSurfaceWithReceiptRequest {
-        operation,
-        origin,
-        receipt,
-        idempotency_key,
-        selectors: supplied_selectors,
-        selector_fallbacks,
-        pane,
-        workspace,
-        argv,
-        cwd,
-        url,
-        width,
-        cols,
-        rows,
-    } = request;
-    anyhow::ensure!(
-        mux.control_clients.supports_capability(client, CREATION_RECEIPTS_CAPABILITY),
-        "client did not negotiate {CREATION_RECEIPTS_CAPABILITY}"
-    );
-    anyhow::ensure!(
-        idempotency_key.is_none()
-            || mux.control_clients.supports_capability(client, CREATION_ATTEMPT_KEYS_CAPABILITY),
-        "client did not negotiate {CREATION_ATTEMPT_KEYS_CAPABILITY}"
-    );
-    let actor = origin_gate::connection_actor(mux, client);
-    let mutation =
-        WorkspaceMutation::new(idempotency_key.unwrap_or_else(|| receipt.clone()), origin, actor)?;
-    let size = paired_surface_size("create-surface-with-receipt", cols, rows)?;
-    let mut fields = serde_json::Map::new();
-    if let Some((cols, rows)) = size {
-        fields.insert("cols".to_string(), json!(cols));
-        fields.insert("rows".to_string(), json!(rows));
-    }
-    fields.insert("correlation_key".to_string(), json!(receipt));
-    let session_selectors = || crate::ResourceSelectors {
-        machine: Some("current".to_string()),
-        session: Some("current".to_string()),
-        ..crate::ResourceSelectors::default()
-    };
-    let pane_selectors = |pane| {
-        supplied_selectors.clone().map(Ok).unwrap_or_else(|| mux.resource_selectors_for_pane(pane))
-    };
-    let workspace_selectors = |workspace| {
-        supplied_selectors
-            .clone()
-            .map(Ok)
-            .unwrap_or_else(|| mux.resource_selectors_for_workspace(workspace))
-    };
-    let (resource_operation, selectors) = match operation.as_str() {
-        "new-tab" => {
-            anyhow::ensure!(
-                workspace.is_none() && argv.is_none() && url.is_none() && width.is_none(),
-                "new-tab received fields that belong to another creation operation"
-            );
-            if let Some(cwd) = cwd {
-                fields.insert("cwd".to_string(), json!(cwd));
-            }
-            (ResourceOperation::TabCreateTerminal, pane_selectors(pane)?)
-        }
-        "run-command" => {
-            anyhow::ensure!(
-                workspace.is_none() && url.is_none() && width.is_none(),
-                "run-command received fields that belong to another creation operation"
-            );
-            let argv = argv
-                .filter(|argv| !argv.is_empty())
-                .ok_or_else(|| anyhow::anyhow!("run-command omitted argv"))?;
-            fields.insert("argv".to_string(), json!(argv));
-            if let Some(cwd) = cwd {
-                fields.insert("cwd".to_string(), json!(cwd));
-            }
-            (ResourceOperation::PaneRun, pane_selectors(pane)?)
-        }
-        "new-browser-tab" => {
-            anyhow::ensure!(
-                workspace.is_none() && argv.is_none() && cwd.is_none() && width.is_none(),
-                "new-browser-tab received fields that belong to another creation operation"
-            );
-            let url = url
-                .filter(|url| !url.is_empty())
-                .ok_or_else(|| anyhow::anyhow!("browser creation omitted URL"))?;
-            fields.insert("url".to_string(), json!(url));
-            if let Some((cols, rows)) = size {
-                let (cell_width, cell_height) = mux.cell_pixel_size();
-                fields.remove("cols");
-                fields.remove("rows");
-                fields
-                    .insert("width_px".to_string(), json!(u64::from(cols) * u64::from(cell_width)));
-                fields.insert(
-                    "height_px".to_string(),
-                    json!(u64::from(rows) * u64::from(cell_height)),
-                );
-            }
-            (ResourceOperation::TabCreateBrowser, pane_selectors(pane)?)
-        }
-        "new-workspace" => {
-            anyhow::ensure!(
-                pane.is_none()
-                    && workspace.is_none()
-                    && argv.is_none()
-                    && cwd.is_none()
-                    && url.is_none()
-                    && width.is_none(),
-                "new-workspace received fields that belong to another creation operation"
-            );
-            fields.insert("initial_content".to_string(), json!("terminal"));
-            (
-                ResourceOperation::WorkspaceCreate,
-                supplied_selectors.clone().unwrap_or_else(session_selectors),
-            )
-        }
-        "new-screen" => {
-            anyhow::ensure!(
-                pane.is_none()
-                    && argv.is_none()
-                    && cwd.is_none()
-                    && url.is_none()
-                    && width.is_none(),
-                "new-screen received fields that belong to another creation operation"
-            );
-            (ResourceOperation::ScreenCreate, workspace_selectors(workspace)?)
-        }
-        "new-pane" => {
-            anyhow::ensure!(
-                workspace.is_none()
-                    && argv.is_none()
-                    && cwd.is_none()
-                    && url.is_none()
-                    && width.is_none(),
-                "new-pane received fields that belong to another creation operation"
-            );
-            (ResourceOperation::PaneCreate, pane_selectors(pane)?)
-        }
-        "new-pane-right" => {
-            anyhow::ensure!(
-                workspace.is_none() && argv.is_none() && cwd.is_none() && url.is_none(),
-                "new-pane-right received fields that belong to another creation operation"
-            );
-            let width =
-                width.ok_or_else(|| anyhow::anyhow!("new-pane-right omitted viewport width"))?;
-            fields.insert("direction".to_string(), json!("right"));
-            fields.insert("viewport_width".to_string(), json!(width));
-            (ResourceOperation::PaneSplit, pane_selectors(pane)?)
-        }
-        "split-right" | "split-down" => {
-            anyhow::ensure!(
-                workspace.is_none()
-                    && argv.is_none()
-                    && cwd.is_none()
-                    && url.is_none()
-                    && width.is_none(),
-                "split creation received fields that belong to another creation operation"
-            );
-            fields.insert(
-                "direction".to_string(),
-                json!(if operation == "split-right" { "right" } else { "down" }),
-            );
-            (ResourceOperation::PaneSplit, pane_selectors(pane)?)
-        }
-        other => anyhow::bail!("unknown receipted creation operation {other:?}"),
-    };
-    anyhow::ensure!(
-        selector_fallbacks.len() <= MAX_CREATION_SELECTOR_FALLBACKS,
-        "creation accepts at most {MAX_CREATION_SELECTOR_FALLBACKS} selector fallbacks"
-    );
-    anyhow::ensure!(
-        selector_fallbacks.is_empty()
-            || mux
-                .control_clients
-                .supports_capability(client, CREATION_SELECTOR_FALLBACKS_CAPABILITY),
-        "client did not negotiate {CREATION_SELECTOR_FALLBACKS_CAPABILITY}"
-    );
-    anyhow::ensure!(
-        selector_fallbacks.is_empty()
-            || matches!(
-                resource_operation,
-                ResourceOperation::PaneSplit
-                    | ResourceOperation::PaneCreate
-                    | ResourceOperation::PaneRun
-                    | ResourceOperation::TabCreateTerminal
-                    | ResourceOperation::TabCreateBrowser
-            ),
-        "selector fallbacks require a pane-targeted creation"
-    );
-    let mut selector_candidates = Vec::with_capacity(1 + selector_fallbacks.len());
-    selector_candidates.push(selectors);
-    for fallback in selector_fallbacks {
-        if !selector_candidates.contains(&fallback) {
-            selector_candidates.push(fallback);
-        }
-    }
-    let (surface, replayed) =
-        mux.receipted_surface_creation(resource_operation, selector_candidates, fields, &mutation)?;
-    Ok(json!({"surface": surface, "replayed": replayed}))
-}
-
 fn optional_surface_size(cols: Option<u16>, rows: Option<u16>) -> Option<(u16, u16)> {
     cols.zip(rows).map(|(cols, rows)| (cols.max(1), rows.max(1)))
 }
@@ -4603,40 +4345,6 @@ fn tree_delta_json(delta: &TreeDelta, mux: &Mux) -> Value {
     value
 }
 
-fn ids_json(state: &State, kind: Option<&str>) -> anyhow::Result<Value> {
-    let allowed = ["workspace", "screen", "pane", "surface"];
-    if let Some(kind) = kind
-        && !allowed.contains(&kind)
-    {
-        anyhow::bail!("bad kind {kind}");
-    }
-    let mut raw = Vec::new();
-    for ws in &state.workspaces {
-        raw.push(("workspace", ws.id));
-        for screen in &ws.screens {
-            raw.push(("screen", screen.id));
-            let mut panes = Vec::new();
-            screen.root.pane_ids(&mut panes);
-            for pane in panes {
-                raw.push(("pane", pane));
-            }
-        }
-    }
-    raw.extend(state.surfaces.keys().copied().map(|id| ("surface", id)));
-    let short_ids = assign_short_ids(raw.iter().map(|(_, id)| *id));
-    Ok(json!({
-        "ids": raw
-            .into_iter()
-            .filter(|(item_kind, _)| kind.is_none_or(|kind| kind == *item_kind))
-            .map(|(kind, id)| json!({
-                "kind": kind,
-                "id": id,
-                "short_id": short_ids.get(&id).cloned().unwrap_or_default(),
-            }))
-            .collect::<Vec<_>>()
-    }))
-}
-
 fn get_surface(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> {
     mux.surface(id)
         .filter(|surface| !surface.is_dead())
@@ -4645,15 +4353,6 @@ fn get_surface(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> 
 
 fn surface_has_view_placement(mux: &Mux, id: SurfaceId) -> bool {
     mux.with_state(|state| state.pane_of(id).is_some())
-}
-
-fn sidebar_plugin_status_json(status: SidebarPluginStatus) -> Value {
-    let retry_after_ms = status.retry_after.map(|duration| duration.as_millis() as u64);
-    json!({
-        "surface": status.surface,
-        "error": status.error,
-        "retry_after_ms": retry_after_ms,
-    })
 }
 
 fn require_pty(surface: &crate::Surface) -> anyhow::Result<()> {
@@ -4670,45 +4369,6 @@ fn require_browser(mux: &Mux, surface: &crate::Surface) -> anyhow::Result<()> {
     } else {
         anyhow::bail!("PTY surface is not a browser surface")
     }
-}
-
-fn parse_notification_level(level: &str) -> anyhow::Result<NotificationLevel> {
-    match level {
-        "info" => Ok(NotificationLevel::Info),
-        "warning" => Ok(NotificationLevel::Warning),
-        "error" => Ok(NotificationLevel::Error),
-        other => anyhow::bail!("bad level {other}"),
-    }
-}
-
-fn parse_agent_state(state: &str) -> anyhow::Result<AgentState> {
-    match state {
-        "working" => Ok(AgentState::Working),
-        "blocked" => Ok(AgentState::Blocked),
-        "idle" => Ok(AgentState::Idle),
-        "done" => Ok(AgentState::Done),
-        "unknown" => Ok(AgentState::Unknown),
-        other => anyhow::bail!("bad state {other}"),
-    }
-}
-
-fn parse_agent_source(source: &str) -> anyhow::Result<AgentSource> {
-    match source {
-        "socket" => Ok(AgentSource::Socket),
-        "hook" => Ok(AgentSource::Hook),
-        other => anyhow::bail!("bad source {other}; raw report-agent accepts only socket or hook"),
-    }
-}
-
-fn agent_json(record: &AgentRecord) -> Value {
-    json!({
-        "surface": record.surface,
-        "state": record.state.as_str(),
-        "source": record.source.as_str(),
-        "session": record.session,
-        "agent": record.agent,
-        "updated_at_ms": record.updated_at_ms,
-    })
 }
 
 fn color_hex(color: Option<Rgb>) -> Option<String> {
@@ -5187,77 +4847,21 @@ fn handle_command_with_cancellation(
         Command::SetTerminalCommandHistory { enabled } => {
             cmd_terminals::set_terminal_command_history(mux, client, enabled)
         }
-        Command::ServerStats { include } => {
-            if !mux.control_clients.is_unix(client) {
-                anyhow::bail!("server stats requires a trusted local connection");
-            }
-            Ok(serde_json::to_value(server_stats::server_stats(mux, include.as_deref()))?)
-        }
+        Command::ServerStats { include } => cmd_server::server_stats(mux, client, include),
         Command::BrowserHostProvider => cmd_browser::browser_host_provider(mux, client),
-        Command::Identify => {
-            let (registry_id, generation) = mux.registry_identity();
-            Ok(json!({
-                "app": "cmux-tui",
-                "version": env!("CARGO_PKG_VERSION"),
-                "build_commit": stamped_build_commit(),
-                "ghostty_commit": stamped_ghostty_commit(),
-                "protocol": PROTOCOL_VERSION,
-                "capabilities": identify_capabilities(mux),
-                "session": mux.session,
-                "pid": std::process::id(),
-                "session_id": registry_id,
-                "machine_name": crate::machine_name::machine_name(),
-                "registry_id": registry_id,
-                "generation": generation,
-                "workspace_revision": mux.with_state(|state| state.workspace_revision),
-                "terminal_revision": mux.terminal_registry_snapshot()?.revision,
-                "daemon_handoff": 1,
-                "lifecycle_ready": mux.server_lifecycle_ready(),
-                "launch_snapshot_path": mux.launch_snapshot_path(),
-            }))
-        }
+        Command::Identify => cmd_server::identify(mux),
         Command::ShutdownDaemon { pid, generation, force, end_terminals, keep_layout } => {
-            anyhow::ensure!(
-                end_terminals || !keep_layout,
-                "bad request: keep_layout requires end_terminals"
-            );
-            let actual_identity = mux.begin_daemon_handoff(
+            cmd_server::shutdown_daemon(
+                mux,
                 client,
-                DaemonHandoffRequest::fenced(pid, generation, force),
-            )?;
-            // The fenced handoff reservation is held, so no second shutdown
-            // can start while the hosts end. A failure releases it and keeps
-            // this daemon serving.
-            let ended_terminals = if end_terminals {
-                let ended = if keep_layout {
-                    mux.end_all_terminals_keeping_layout()
-                } else {
-                    mux.end_all_terminals()
-                };
-                match ended {
-                    Ok(ended) => Some(ended.len()),
-                    Err(error) => {
-                        mux.cancel_daemon_handoff(client);
-                        return Err(error);
-                    }
-                }
-            } else {
-                None
-            };
-            Ok(json!({
-                "accepted": true,
-                "pid": actual_identity.pid,
-                "generation": actual_identity.generation,
-                "ended_terminals": ended_terminals,
-            }))
+                pid,
+                generation,
+                force,
+                end_terminals,
+                keep_layout,
+            )
         }
-        Command::Ping => Ok(json!({
-            "ok": true,
-            "version": env!("CARGO_PKG_VERSION"),
-            "build_commit": stamped_build_commit(),
-            "ghostty_commit": stamped_ghostty_commit(),
-            "protocol": PROTOCOL_VERSION,
-        })),
+        Command::Ping => cmd_server::ping(),
         Command::SetClientInfo {
             name,
             kind,
@@ -5267,21 +4871,21 @@ fn handle_command_with_cancellation(
             device_kind,
             device_name,
             device_id,
-        } => {
-            let identity =
-                ClientIdentityWire { user_id, display_name, device_kind, device_name, device_id };
-            let identity_changed = !identity.is_empty();
-            let (name, kind) = mux.control_clients.set_info(client, name, kind, capabilities)?;
-            if identity_changed {
-                mux.control_clients.set_sizing_identity(client, identity);
-            }
-            mux.refresh_terminal_client_identity(client);
-            mux.emit(MuxEvent::ClientChanged { client, name, kind });
-            Ok(json!({}))
-        }
-        Command::ListClients => Ok(mux.control_clients_json(client)),
-        Command::MachineUsage => Ok(machine_usage_json(mux.machine_usage().as_ref())),
-        Command::MachineListeningTcp => machine_listening_tcp_json(),
+        } => cmd_server::set_client_info(
+            mux,
+            client,
+            name,
+            kind,
+            capabilities,
+            user_id,
+            display_name,
+            device_kind,
+            device_name,
+            device_id,
+        ),
+        Command::ListClients => cmd_server::list_clients(mux, client),
+        Command::MachineUsage => cmd_server::machine_usage(mux),
+        Command::MachineListeningTcp => cmd_server::machine_listening_tcp(),
         Command::RegisterBrowserProvider {
             provider_id,
             endpoint,
@@ -5307,15 +4911,7 @@ fn handle_command_with_cancellation(
             cmd_sizing::set_client_sizing(mux, client, surface, target, enabled, exclusive)
         }
         Command::PairingResponse { request, approve } => {
-            if !mux.control_clients.is_unix(client) {
-                anyhow::bail!("pairing decisions require a trusted local connection");
-            } else if approve && !origin_gate::may_approve_pairing(mux, client) {
-                anyhow::bail!(origin_gate::PAIRING_APPROVAL_NEEDS_HUMAN);
-            }
-            if !mux.respond_pairing(request, approve) {
-                anyhow::bail!("unknown or expired pairing request {request}");
-            }
-            Ok(json!({}))
+            cmd_server::pairing_response(mux, client, request, approve)
         }
         Command::DetachClient { client: target, by, surface } => {
             cmd_attach::detach_client(mux, client, target, by, surface)
@@ -5342,35 +4938,12 @@ fn handle_command_with_cancellation(
             cmd_attach::reattach_view(mux, client, surface, counts)
         }
         Command::GetSizeState { surface } => cmd_sizing::get_size_state(mux, client, surface),
-        Command::ReloadConfig => {
-            mux.request_config_reload()?;
-            Ok(json!({
-                "reloaded": true,
-                "path": platform::config_path().map(|path| path.display().to_string()),
-            }))
-        }
-        Command::SetWindowTitle { title } => {
-            mux.emit(MuxEvent::WindowTitleRequested(title));
-            Ok(json!({}))
-        }
-        Command::ClearWindowTitle => {
-            mux.emit(MuxEvent::WindowTitleRequested(String::new()));
-            Ok(json!({}))
-        }
+        Command::ReloadConfig => cmd_server::reload_config(mux),
+        Command::SetWindowTitle { title } => cmd_server::set_window_title(mux, title),
+        Command::ClearWindowTitle => cmd_server::clear_window_title(mux),
         Command::ListWorkspaces => cmd_workspaces::list_workspaces(mux),
         Command::GetFrontendProjection { frontend, scope, subject_key } => {
-            let projection = mux.get_frontend_projection(&frontend, &scope, &subject_key)?;
-            Ok(match projection {
-                Some(projection) => serde_json::to_value(projection)?,
-                None => json!({
-                    "frontend": frontend,
-                    "scope": scope,
-                    "subject_key": subject_key,
-                    "schema_version": 0,
-                    "projection_revision": 0,
-                    "projection": null,
-                }),
-            })
+            cmd_frontend::get_frontend_projection(mux, frontend, scope, subject_key)
         }
         Command::PutFrontendProjection {
             frontend,
@@ -5380,26 +4953,19 @@ fn handle_command_with_cancellation(
             expected_projection_revision,
             projection,
             mutation,
-        } => {
-            let workspace_mutation = workspace_mutation(mux, client, &mutation)?;
-            let commit = mux.put_frontend_projection(
-                &workspace_mutation,
-                &frontend,
-                &scope,
-                &subject_key,
-                schema_version,
-                expected_projection_revision,
-                &projection,
-            )?;
-            let mut value = serde_json::to_value(commit.projection)?;
-            value["replayed"] = json!(commit.replayed);
-            Ok(value)
-        }
+        } => cmd_frontend::put_frontend_projection(
+            mux,
+            client,
+            frontend,
+            scope,
+            subject_key,
+            schema_version,
+            expected_projection_revision,
+            projection,
+            mutation,
+        ),
         Command::JournalFrontendEvent { event } => {
-            let session_id = mux.session_public_id();
-            let principal_id = public_client_id(&session_id, client)?.to_string();
-            mux.journal_frontend_event(principal_id, event)?;
-            Ok(json!({"committed":true}))
+            cmd_frontend::journal_frontend_event(mux, client, event)
         }
         Command::ExportLayout { screen } => cmd_panes::export_layout(mux, screen),
         Command::ApplyLayout { workspace, name, layout, cols, rows } => {
@@ -5416,7 +4982,7 @@ fn handle_command_with_cancellation(
             cmd_terminal_io::read_scrollback(mux, surface, start, count)
         }
         Command::SidebarPlugin { cols, rows, relaunch } => {
-            Ok(sidebar_plugin_status_json(mux.ensure_sidebar_plugin(cols, rows, relaunch)))
+            cmd_frontend::sidebar_plugin(mux, cols, rows, relaunch)
         }
         Command::WaitFor { surface, pattern, timeout_ms } => {
             cmd_terminal_io::wait_for(mux, cancellation, surface, pattern, timeout_ms)
@@ -5437,50 +5003,17 @@ fn handle_command_with_cancellation(
             )
         }
         Command::CreateSurfaceWithReceipt(request) => {
-            create_surface_with_receipt(mux, client, *request)
+            cmd_frontend::create_surface_with_receipt_command(mux, client, request)
         }
         Command::SendKey { surface, keys } => cmd_terminal_io::send_key(mux, client, surface, keys),
         Command::Copy { surface, mode } => cmd_terminal_io::copy(mux, surface, mode),
-        Command::Ids { kind } => mux.with_state(|state| ids_json(state, kind.as_deref())),
+        Command::Ids { kind } => cmd_frontend::ids(mux, kind),
         Command::Notify { title, body, level, surface, source } => {
-            if title.is_empty() {
-                anyhow::bail!("title is required");
-            }
-            let level = parse_notification_level(level.as_deref().unwrap_or("info"))?;
-            let source = match source.as_deref() {
-                None => NotificationSource::Cli,
-                Some(source) => NotificationSource::parse(source)
-                    .ok_or_else(|| anyhow::anyhow!("bad source {source}"))?,
-            };
-            if let Some(surface) = surface {
-                get_surface(mux, surface)?;
-            }
-            let notification =
-                mux.post_notification_as(&actor, title, body, level, surface, source)?;
-            Ok(json!({ "notification": notification }))
+            cmd_frontend::notify(mux, actor, title, body, level, surface, source)
         }
-        Command::ListAgents { surface, state } => {
-            if let Some(surface) = surface {
-                get_surface(mux, surface)?;
-            }
-            let state = match state {
-                Some(state) => Some(parse_agent_state(&state)?),
-                None => None,
-            };
-            let agents = mux.list_agents(surface, state).iter().map(agent_json).collect::<Vec<_>>();
-            Ok(json!({ "agents": agents }))
-        }
+        Command::ListAgents { surface, state } => cmd_frontend::list_agents(mux, surface, state),
         Command::ReportAgent { surface, state, source, session } => {
-            get_surface(mux, surface)?;
-            let state = parse_agent_state(&state)?;
-            let source = parse_agent_source(&source)?;
-            let record = mux.report_agent(surface, state, source, session)?;
-            Ok(json!({
-                "surface": record.surface,
-                "state": record.state.as_str(),
-                "source": record.source.as_str(),
-                "session": record.session,
-            }))
+            cmd_frontend::report_agent(mux, surface, state, source, session)
         }
         Command::VtState { .. } => unreachable!("vt-state uses its streaming response path"),
         Command::MintTerminalRenderer { surface, ttl_ms } => {
@@ -5778,28 +5311,7 @@ fn handle_command_with_cancellation(
             cmd_tabs::reopen_saved_tab_group(mux, actor, saved, pane, transaction)
         }
         Command::AckTabNotifications { surface } => cmd_tabs::ack_tab_notifications(mux, surface),
-        Command::ListNotifications { limit } => {
-            let rows = mux.notification_rows(limit.unwrap_or(256).min(256))?;
-            Ok(json!({
-                "notifications": rows
-                    .iter()
-                    .map(|(row, acknowledged)| {
-                        json!({
-                            "id": row.id,
-                            "title": row.title,
-                            "subtitle": row.subtitle,
-                            "body": row.body,
-                            "level": row.level.as_str(),
-                            "terminal_id": row.terminal_id,
-                            "surface": row.surface,
-                            "created_at_ms": row.created_at_ms,
-                            "source": row.source.as_str(),
-                            "acknowledged": acknowledged,
-                        })
-                    })
-                    .collect::<Vec<_>>(),
-            }))
-        }
+        Command::ListNotifications { limit } => cmd_frontend::list_notifications(mux, limit),
         Command::SetTabPinned { surface, pinned } => {
             cmd_tabs::set_tab_pinned(mux, actor, surface, pinned)
         }
@@ -6092,24 +5604,9 @@ fn handle_command_with_cancellation(
             cmd_workspaces::select_workspace(mux, actor, index, delta)
         }
         Command::ReportFocus { client_id, pane, tab } => {
-            validate_client_focus_id(&client_id)?;
-            if !mux.with_state(|state| state.panes.contains_key(&pane)) {
-                anyhow::bail!("unknown pane {pane}");
-            }
-            // A report only writes memory (the session's last reported focus
-            // and this client's own record). It never moves the live shared
-            // focus, so other attached clients stay where they are.
-            mux.record_session_focus(pane, tab);
-            mux.remember_client_focus(client_id, pane, tab);
-            Ok(json!({}))
+            cmd_server::report_focus(mux, client_id, pane, tab)
         }
-        Command::ClientFocus { client_id } => {
-            validate_client_focus_id(&client_id)?;
-            Ok(match mux.client_focus(&client_id).or_else(|| mux.session_focus()) {
-                Some((pane, tab)) => json!({"pane": pane, "tab": tab}),
-                None => json!({"pane": null, "tab": null}),
-            })
-        }
+        Command::ClientFocus { client_id } => cmd_server::client_focus(mux, client_id),
         Command::SnapshotRequest(params) => cmd_terminal_io::snapshot_request(mux, client, params),
         Command::TerminalHistory(params) => cmd_terminals::terminal_history(mux, params),
         Command::TerminalReadRange(params) => cmd_terminals::terminal_read_range(mux, params),
@@ -6276,16 +5773,6 @@ fn keep_created_terminal(mux: &Mux, terminal_id: Option<&str>) -> anyhow::Result
         Some(terminal_id) => mux.set_terminal_keep(terminal_id, true),
         None => Ok(()),
     }
-}
-
-fn stamped_build_commit() -> Option<&'static str> {
-    option_env!("CMUX_TUI_BUILD_COMMIT")
-        .or(option_env!("CMUX_MUX_BUILD_COMMIT"))
-        .filter(|commit| !commit.is_empty())
-}
-
-fn stamped_ghostty_commit() -> Option<&'static str> {
-    option_env!("CMUX_TUI_GHOSTTY_COMMIT").filter(|commit| !commit.is_empty())
 }
 
 fn subscribed_event_json(event: &MuxEvent) -> Value {
