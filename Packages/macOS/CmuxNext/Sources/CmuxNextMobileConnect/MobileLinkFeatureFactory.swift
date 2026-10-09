@@ -45,7 +45,8 @@ enum MobileLinkFeatureFactory {
                     return try await AcpmuxSocketRPC.connect(socketPath: path)
                 })
         }
-        return MobileHostFeatures(handlers: handlers, taskRunner: runner, caps: [MobileGit.cap],
-                                  allowsTaskDispatch: services.allowsTaskDispatch, allowsTerminalSpawn: services.allowsTerminalSpawn)
+        return MobileHostFeatures(handlers: handlers, taskRunner: runner, caps: [MobileGit.cap, "caffeine"],
+                                  allowsTaskDispatch: services.allowsTaskDispatch, allowsTerminalSpawn: services.allowsTerminalSpawn,
+                                  caffeine: MobileCaffeineController())
     }
 }

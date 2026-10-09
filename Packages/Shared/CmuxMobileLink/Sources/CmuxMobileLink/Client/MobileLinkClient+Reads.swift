@@ -30,7 +30,7 @@ extension MobileLinkClient {
         }
     }
 
-    private func rpcChannel() async throws -> MobileChannel {
+    func rpcChannel() async throws -> MobileChannel {
         if let rpc, rpc.generation == currentGeneration { return rpc.channel }
         if let rpcOpening { return try await rpcOpening.value }
         let opening = Task { () throws -> MobileChannel in
@@ -57,6 +57,14 @@ extension MobileLinkClient {
                 switch try? MobileFrame(value: value) {
                 case .readResult(let result)?:
                     settleRead(result.id, .success(result.value))
+                case .result(let result)?:
+                    let revision = UInt64(result.revision) ?? 0
+                    settleOperation(result.idempotencyKey,
+                                    .success(.applied(value: result.value, revision: revision, replayed: result.replayed)))
+                case .reject(let reject)?:
+                    settleOperation(reject.idempotencyKey,
+                                    .success(.rejected(code: reject.code, message: reject.message,
+                                                       retryable: reject.retryable, replayed: reject.replayed)))
                 case .error(let error)?:
                     guard let id = error.id else { continue }
                     settleRead(id, .failure(MobileLinkClientError.refused(code: error.code, message: error.message,
@@ -82,5 +90,12 @@ extension MobileLinkClient {
         let pending = pendingReads
         pendingReads.removeAll()
         for continuation in pending.values { continuation.resume(throwing: MobileLinkClientError.linkLost) }
+        let operations = pendingOperations
+        pendingOperations.removeAll()
+        for continuation in operations.values { continuation.resume(throwing: MobileLinkClientError.linkLost) }
+    }
+
+    func settleOperation(_ key: String, _ result: Result<MobileLinkOperationResult, any Error>) {
+        pendingOperations.removeValue(forKey: key)?.resume(with: result)
     }
 }

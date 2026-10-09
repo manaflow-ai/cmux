@@ -30,6 +30,7 @@ struct PhoneHarness {
     init(devices: ((P256.Signing.PrivateKey) -> [PairedDevice])? = nil, handlers: MobileChannelHandlers = MobileChannelHandlers(),
          daemon: FakeDaemon = FakeDaemon(),
          authorizer: (any MobileDeviceAuthorizer)? = nil, key: P256.Signing.PrivateKey = P256.Signing.PrivateKey(),
+         caffeine: (any MobileCaffeineControl)? = nil,
          taskRunner: (any MobileTaskRunner)? = nil, allowsTaskDispatch: Bool = false,
          taskAttachments: any MobileTaskAttachmentResolver = UnavailableTaskAttachments(),
          carrierIdentity: LinkPeerIdentity? = nil, keyResolver: (any CarrierKeyResolver)? = nil,
@@ -45,7 +46,7 @@ struct PhoneHarness {
             acceptor: carrierIdentity.map { IdentifiedAcceptor(inner: network.acceptor, identity: $0) } ?? network.acceptor,
             daemon: daemon,
             authorizer: authorizer ?? TrustStoreAuthorizer(hostID: Self.hostID, accountUserID: Self.userID, store: store),
-            handlers: handlers, linkConfiguration: Self.fast, workspaceStartSeq: 1000,
+            handlers: handlers, caffeine: caffeine, linkConfiguration: Self.fast, workspaceStartSeq: 1000,
             taskRunner: taskRunner, taskAttachments: taskAttachments, taskStartSeq: 5000, keyResolver: keyResolver)
         await host.start()
         let phone = LinkSession(

@@ -13,10 +13,11 @@ final class MobileHostContext: Sendable {
     let handlers: MobileChannelHandlers
     let clock: LinkClock
     let tasks: MobileTaskService?
+    let caffeine: (any MobileCaffeineControl)?
 
     init(configuration: MobileHostConfiguration, authorizer: any MobileDeviceAuthorizer, owner: WorkspaceStreamOwner,
          executor: MobileOpExecutor, daemon: any MobileDaemon, handlers: MobileChannelHandlers, clock: LinkClock,
-         tasks: MobileTaskService? = nil) {
+         tasks: MobileTaskService? = nil, caffeine: (any MobileCaffeineControl)? = nil) {
         self.tasks = tasks
         self.configuration = configuration
         self.authorizer = authorizer
@@ -25,6 +26,7 @@ final class MobileHostContext: Sendable {
         self.daemon = daemon
         self.handlers = handlers
         self.clock = clock
+        self.caffeine = caffeine
     }
 
     /// Routes an opened channel to its service by kind.
@@ -34,6 +36,7 @@ final class MobileHostContext: Sendable {
         case .rpc:
             var reads = handlers.reads
             if let tasks { reads["task.list"] = TaskListReadHandler(service: tasks) }
+            if let caffeine { reads["caffeine.status"] = MobileCaffeineStatusReadHandler(control: caffeine) }
             await MobileRpcService(channel: channel, principal: principal, owner: owner, executor: executor,
                                    configuration: configuration,
                                    readHandlers: reads, gate: gate,

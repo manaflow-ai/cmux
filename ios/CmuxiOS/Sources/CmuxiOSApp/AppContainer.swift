@@ -249,6 +249,11 @@ final class AppContainer {
                     await links.client(for: host)
                 }
             }
+            keepAwakeFactory = {
+                LinkKeepAwakeControl(registry: registry) { host in
+                    await links.client(for: host)
+                }
+            }
         }
         let tabs = CurrentWorkspaceTabs()
         browserTabs = tabs

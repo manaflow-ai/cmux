@@ -36,6 +36,7 @@ public actor MobileHost {
 
     public init(configuration: MobileHostConfiguration, acceptor: any LinkAcceptor, daemon: any MobileDaemon,
                 authorizer: any MobileDeviceAuthorizer, handlers: MobileChannelHandlers = MobileChannelHandlers(),
+                caffeine: (any MobileCaffeineControl)? = nil,
                 linkConfiguration: LinkConfiguration = LinkConfiguration(), clock: LinkClock = .continuous,
                 workspaceStartSeq: UInt64? = nil, taskRunner: (any MobileTaskRunner)? = nil,
                 taskAttachments: any MobileTaskAttachmentResolver = UnavailableTaskAttachments(),
@@ -60,12 +61,13 @@ public actor MobileHost {
         taskStream = tasks?.owner
         let executor = MobileOpExecutor(
             policy: MobileOpPolicy(hostID: configuration.hostID, allowsTerminalSpawn: configuration.allowsTerminalSpawn),
-            owner: owner, daemon: daemon, authorizer: authorizer, tasks: tasks)
+            owner: owner, daemon: daemon, authorizer: authorizer, tasks: tasks, caffeine: caffeine)
         self.executor = executor
         self.tasks = tasks
         linkHost = LinkHost(acceptor: acceptor, configuration: linkConfiguration, clock: clock)
         context = MobileHostContext(configuration: configuration, authorizer: authorizer, owner: owner,
-                                    executor: executor, daemon: daemon, handlers: handlers, clock: clock, tasks: tasks)
+                                    executor: executor, daemon: daemon, handlers: handlers, clock: clock, tasks: tasks,
+                                    caffeine: caffeine)
     }
 
     /// Every stream this host serves, by name.

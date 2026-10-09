@@ -74,7 +74,7 @@ public actor MobileHostAssembly {
                                                              store: trust.devices)
         host = MobileHost(configuration: features.configuration(hostID: hostID, accountUserID: credentials.accountUserID),
                           acceptor: MergedLinkAcceptor(acceptors), daemon: daemon, authorizer: authorizer,
-                          handlers: features.handlers, linkConfiguration: options.link,
+                          handlers: features.handlers, caffeine: features.caffeine, linkConfiguration: options.link,
                           taskRunner: features.taskRunner, taskAttachments: features.taskAttachments,
                           keyResolver: TrustedKeyCarrierResolver(lookup: trust.lookup, hostID: hostID))
     }

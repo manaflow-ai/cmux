@@ -12,6 +12,8 @@ public struct MobileHostFeatures: Sendable {
     public var caps: [String]
     public var allowsTaskDispatch: Bool
     public var allowsTerminalSpawn: Bool
+    /// The Mac-owned process sleep assertion, when this host exposes it.
+    public var caffeine: (any MobileCaffeineControl)?
     /// Values surfaced by the authenticated host status read. The app layer
     /// fills these from its bundle and computer name for each host run.
     public var displayName: String
@@ -21,6 +23,7 @@ public struct MobileHostFeatures: Sendable {
     public init(handlers: MobileChannelHandlers = MobileChannelHandlers(), taskRunner: (any MobileTaskRunner)? = nil,
                 taskAttachments: any MobileTaskAttachmentResolver = UnavailableTaskAttachments(), caps: [String] = [],
                 allowsTaskDispatch: Bool = false, allowsTerminalSpawn: Bool = false,
+                caffeine: (any MobileCaffeineControl)? = nil,
                 displayName: String = "", appVersion: String = "0", appBuild: String = "0") {
         self.handlers = handlers
         self.taskRunner = taskRunner
@@ -28,6 +31,7 @@ public struct MobileHostFeatures: Sendable {
         self.caps = caps
         self.allowsTaskDispatch = allowsTaskDispatch
         self.allowsTerminalSpawn = allowsTerminalSpawn
+        self.caffeine = caffeine
         self.displayName = displayName
         self.appVersion = appVersion
         self.appBuild = appBuild

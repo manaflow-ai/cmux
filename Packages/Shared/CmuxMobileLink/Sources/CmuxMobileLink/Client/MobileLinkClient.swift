@@ -13,7 +13,7 @@ import Foundation
 /// Channels of an older generation see the same gap or close and reopen.
 public actor MobileLinkClient {
     public static let sessionStream = "cmux.mobile/session"
-    public static let caps = ["device-proof", "read", "resume"]
+    public static let caps = ["device-proof", "read", "resume", "caffeine"]
 
     private struct Session {
         let link: LinkSession
@@ -40,6 +40,7 @@ public actor MobileLinkClient {
     var rpcOpening: Task<MobileChannel, any Error>?
     var nextReadID = 1
     var pendingReads: [Int: CheckedContinuation<JSONValue, any Error>] = [:]
+    var pendingOperations: [String: CheckedContinuation<MobileLinkOperationResult, any Error>] = [:]
 
     /// - Parameters:
     ///   - client: who sends hello; `install` must equal `signer.install`.

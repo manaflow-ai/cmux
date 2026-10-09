@@ -12,17 +12,20 @@ public actor MobileOpExecutor {
     private let authorizer: any MobileDeviceAuthorizer
     /// The task family (C8); nil leaves `task.*` refused by the workspace policy.
     private let tasks: MobileTaskService?
+    /// The optional Mac-owned process sleep assertion.
+    private let caffeine: (any MobileCaffeineControl)?
     private var nextTx: UInt64 = 0
 
     public init(policy: MobileOpPolicy, owner: WorkspaceStreamOwner, daemon: any MobileDaemon,
                 authorizer: any MobileDeviceAuthorizer, ledger: MobileOpLedger = MobileOpLedger(),
-                tasks: MobileTaskService? = nil) {
+                tasks: MobileTaskService? = nil, caffeine: (any MobileCaffeineControl)? = nil) {
         self.policy = policy
         self.owner = owner
         self.daemon = daemon
         self.authorizer = authorizer
         self.ledger = ledger
         self.tasks = tasks
+        self.caffeine = caffeine
     }
 
     public func execute(_ op: OpFrame, principal: MobileDevicePrincipal) async -> MobileOpReply {
@@ -33,6 +36,9 @@ public actor MobileOpExecutor {
                 tx: "tx_invalid", MobileOpRejection(code: "validation.invalid",
                                                     message: "idempotency_key must be 8 to 128 of [A-Za-z0-9._:-]")),
                                  replayed: false)
+        }
+        if op.op == "caffeine.set" {
+            return await executeCaffeine(op, principal: principal, stream: stream)
         }
         nextTx += 1
         let tx = "mtx_\(owner.hostID)_\(nextTx)"
@@ -71,6 +77,43 @@ public actor MobileOpExecutor {
                 return .reject(tx: tx, MobileOpRejection(code: error.code, message: error.message, retryable: error.retryable))
             } catch {
                 return .reject(tx: tx, MobileOpRejection(code: "owner.unreachable", message: "the daemon did not answer",
+                                                         retryable: true))
+            }
+        }
+        return MobileOpReply(idempotencyKey: op.idempotencyKey, stream: stream, outcome: outcome, replayed: replayed)
+    }
+
+    private func executeCaffeine(_ op: OpFrame, principal: MobileDevicePrincipal, stream: String) async -> MobileOpReply {
+        nextTx += 1
+        let tx = "mtx_\(owner.hostID)_\(nextTx)"
+        let fingerprint = (try? JSONValue.object(["op": .string(op.op), "params": op.params]).canonicalData()) ?? Data()
+        let caffeine = caffeine
+        let authorizer = authorizer
+        let owner = owner
+        let context = MobileOpContext(install: principal.install, idempotencyKey: op.idempotencyKey)
+        let (outcome, replayed) = await ledger.run(install: principal.install, key: op.idempotencyKey,
+                                                   fingerprint: fingerprint) {
+            guard let caffeine else {
+                return .reject(tx: tx, MobileOpRejection(code: "proto.unsupported",
+                                                         message: "keep Mac awake is not supported by this Mac"))
+            }
+            if case .failure(let failure) = await authorizer.authorizeForwarded(install: context.install, userID: nil) {
+                return .reject(tx: tx, MobileOpRejection(code: failure.code, message: failure.message))
+            }
+            guard case .object(let params) = op.params,
+                  params.count == 1,
+                  case .bool(let enabled)? = params["enabled"] else {
+                return .reject(tx: tx, MobileOpRejection(code: "validation.invalid",
+                                                         message: "caffeine.set needs only an enabled boolean"))
+            }
+            do {
+                try await caffeine.set(enabled: enabled)
+                return .result(tx: tx, value: .object(["enabled": .bool(enabled)]), sequence: await owner.headSeq)
+            } catch let error as MobileDaemonError {
+                return .reject(tx: tx, MobileOpRejection(code: error.code, message: error.message,
+                                                         retryable: error.retryable))
+            } catch {
+                return .reject(tx: tx, MobileOpRejection(code: "owner.unreachable", message: "the Mac did not answer",
                                                          retryable: true))
             }
         }
