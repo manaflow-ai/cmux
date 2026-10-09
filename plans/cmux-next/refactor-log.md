@@ -74,7 +74,7 @@ Phase 1 only spread HomeStore over extension files; the type still owns about 30
 4. `HomeBlobCache` (`@MainActor` final class with `@concurrent` statics): owns `blobCacheDirectory`, `localFiles`, `pruneLoop`, `pruning`, `preparing`, `createdAt`; prepare, prune, local stand-ins, fetch. It reads the pinned hashes from a closure that the store supplies (pending sends and the session's attachments).
 5. `HomeSendPipeline` (`@MainActor` final class): owns `uploads`, `sendQueue`, `turnWaiters`, `backoffTasks`, `backoffAttempts`, and `UploadJob`; the upload passes, the per-conversation send order, and backoff. It talks to the store through a narrow protocol (submit an intent, bump a row, report a refusal or an unanswered op). It is the largest and riskiest step, so it goes last, after 1-4 show the pattern.
 
-Open question for hq-6d: whether `HomeSendPipeline` should instead move into the Rust conversation owner (lane rule "Swift paper cuts go to Rust"), which would make step 5 a deletion, not a move.
+Decided (hq-6d, 2026-10-09): steps 1-4 stay in Swift as above. Step 5 moves to the Rust conversation owner instead, so the app, `cmux chief` and the JS runtime share one send queue and retry rule. Step 5 needs the CORE token and v2 upload ops; design it with hq-6d before any code. HomeSendPipeline is not built in Swift.
 
 ### Same rule for the other phase-1 splits
 

@@ -7,6 +7,7 @@ Lawrence (2026-10-09): no blocking size limits beyond the existing ratchets. Man
 ## All languages
 
 - G1. One owner per piece of state. Name the owner before you write code (OWNERSHIP-PRINCIPLES.md). No second copy that is written back.
+- G10. Layer ownership: Rust owns durable state, shared state and product rules; Swift owns presentation and platform; TS webviews are views; shared rules reach Swift/TS by codegen (layer-ownership.md, rules L1-L9).
 - G2. One responsibility per file and per type: one screen, one resource, one op family, or one concern. A file name says what it owns.
 - G3. Narrow surface. Private or module-internal by default. Make an item public only when a caller outside the module needs it.
 - G4. No crash paths in runtime code. `crash_ratchet.py` (run by `check-crash-safety.sh` and safe-push) fails a module that gains one. Return a typed error.
