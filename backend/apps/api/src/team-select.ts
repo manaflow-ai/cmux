@@ -1,7 +1,9 @@
 import type { Principal } from "@cmux/ownership"
+import { USER_TEAMS_LIST_MAX } from "@cmux/protocol"
 import { personalTeamIdFor } from "./domains/user.ts"
 import { isMachineInstallKind } from "./machine-installs.ts"
 import type { Env } from "./env.ts"
+import type { ReadResult } from "./owner-do.ts"
 
 /**
  * Session team selection (cx-3bi.43; plans/cmux-next/enterprise.md "shared teams" item 3): a Stack
@@ -45,4 +47,51 @@ export const selectTeam = async (env: Env, p: TeamPrincipal, requested: string |
   }
   if (!role) return { ok: false, code: "auth.forbidden", message: "not a member of this team" }
   return { ok: true, principal: { ...p, team } }
+}
+
+type Membership = { role: string; display_name: string; kind: "personal" | "stack" } | null
+type UserTeam = { id: string; display_name: string; kind: "personal" | "stack"; role: string }
+/** TeamDO calls one user.teams.list runs at once. */
+const LIST_CONCURRENCY = 10
+
+const membershipOf = async (env: Env, team: string, user: string): Promise<Membership | "unreachable"> => {
+  try {
+    const stub = env.TEAM_DO.get(env.TEAM_DO.idFromName(team)) as unknown as { membership(entity: string, user: string): Promise<Membership> }
+    return await stub.membership(team, user)
+  } catch (e) {
+    console.error(JSON.stringify({ msg: "team list membership unreachable", error: String(e).slice(0, 200) }))
+    return "unreachable"
+  }
+}
+
+/**
+ * user.teams.list (cx-5xew): the teams a session may name with x-cmux-team. Candidates come from
+ * the UserDO team index (a hint TeamDO keeps in step, eventually consistent); each shared team is
+ * listed only when its TeamDO confirms the membership now, the same check selectTeam makes, so the
+ * list never names a team the server would refuse. The personal team is always first (selectTeam
+ * lets it through without a lookup). A TeamDO that does not answer leaves its team out and sets
+ * `incomplete`; so does an index over USER_TEAMS_LIST_MAX shared teams.
+ */
+export const listUserTeams = async (env: Env, p: Principal): Promise<ReadResult> => {
+  if (p.kind !== "session" || !p.user || p.agent !== undefined) return { ok: false, code: "auth.forbidden", message: "user.teams.list is for a person's session" }
+  const user = p.user
+  const personal = personalTeamIdFor(user)
+  const stub = env.USER_DO.get(env.USER_DO.idFromName(user)) as unknown as { homeTeamsOf(entity: string): Promise<Array<{ team: string; kind: string }>> }
+  const index = (await stub.homeTeamsOf(user)).filter((e) => e.team !== personal && TEAM_ID.test(e.team))
+  const candidates = index.slice(0, USER_TEAMS_LIST_MAX).map((e) => e.team)
+  let incomplete = index.length > candidates.length
+  const own = await membershipOf(env, personal, user)
+  const teams: Array<UserTeam> = [
+    own && own !== "unreachable" ? { id: personal, display_name: own.display_name, kind: "personal", role: own.role } : { id: personal, display_name: "", kind: "personal", role: "owner" }
+  ]
+  for (let i = 0; i < candidates.length; i += LIST_CONCURRENCY) {
+    const batch = candidates.slice(i, i + LIST_CONCURRENCY)
+    const answers = await Promise.all(batch.map((team) => membershipOf(env, team, user)))
+    batch.forEach((team, j) => {
+      const m = answers[j]
+      if (m === "unreachable") incomplete = true
+      else if (m) teams.push({ id: team, display_name: m.display_name, kind: m.kind, role: m.role })
+    })
+  }
+  return { ok: true, value: { teams, incomplete }, revision: "0" }
 }
