@@ -47,6 +47,45 @@ struct CloudVMResourcePoolTests {
 
         let snapshots = MachineSnapshotBuilder.includingCatalogMachines([], catalog: catalog)
         #expect(snapshots.map(\.usesResourcePool) == [false, true])
+
+        let summary = VMSummary(
+            id: "inactive-summary",
+            provider: "freestyle",
+            status: status,
+            image: "snapshot",
+            createdAt: 0
+        )
+        #expect(!MachineSnapshotBuilder.snapshot(from: summary).usesResourcePool)
+    }
+
+    @Test(arguments: ["running", "provisioning", "ready", "creating", "starting", "pending", "resuming"])
+    func activeStatusesUsePoolForCatalogAndSummaryRows(status: String) throws {
+        let info = SurfaceMachineInfo(
+            id: .cloud("active"),
+            name: "active",
+            status: status,
+            hasDesktop: true,
+            linkState: .connected
+        )
+        let catalog = SurfaceCatalogSnapshot(
+            machines: [info],
+            resources: [],
+            projections: []
+        )
+
+        let catalogSnapshot = try #require(
+            MachineSnapshotBuilder.includingCatalogMachines([], catalog: catalog).first
+        )
+        #expect(catalogSnapshot.usesResourcePool)
+
+        let summary = VMSummary(
+            id: "active-summary",
+            provider: "freestyle",
+            status: status,
+            image: "snapshot",
+            createdAt: 0
+        )
+        #expect(MachineSnapshotBuilder.snapshot(from: summary).usesResourcePool)
     }
 
     @Test
