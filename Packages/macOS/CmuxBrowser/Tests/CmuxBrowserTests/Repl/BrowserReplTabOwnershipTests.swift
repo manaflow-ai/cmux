@@ -354,6 +354,51 @@ import Testing
         }
     }
 
+    /// A page cmux serves from local files (a URL of its own scheme, or of
+    /// a loopback origin it registered for the same files) streams files no
+    /// root of the session granted, so a download that went through one, or
+    /// that such a page wrote, never reaches a session: not in a user's tab
+    /// (it keeps the user's location) and not in the session's own tab
+    /// (refused), with or without a domain policy.
+    @Test func aDownloadFromAPageCmuxServesFromLocalFilesNeverReachesASession() throws {
+        let origin = try #require(URL(string: "http://127.0.0.1:47391/r37-download-token/"))
+        BrowserReplFileSandbox.registerAppServedOrigin(of: origin)
+        defer { BrowserReplFileSandbox.unregisterAppServedOrigin(of: origin) }
+        let roots: (String) -> [String]? = { _ in ["/private/tmp/agent-root"] }
+        let noPolicy: (String) -> BrowserReplDomainPolicy? = { _ in nil }
+        var users = BrowserReplTabOwnership()
+        users.attach(sessionID: "agent")
+        users.setHandledEvents([.download], for: "agent")
+        var own = BrowserReplTabOwnership()
+        own.markCreated(by: "agent")
+        let appServed = [
+            BrowserReplDownloadSource(hops: ["cmux-diff-viewer://diff/etc/passwd"]),
+            BrowserReplDownloadSource(hops: ["https://allowed.test/get", "cmux-diff-viewer://diff/Users/someone/.ssh/id_ed25519"]),
+            BrowserReplDownloadSource(hops: ["http://127.0.0.1:47391/r37-download-token/file?path=/etc/hosts"]),
+            BrowserReplDownloadSource(hops: ["http://localhost:1234/view#cmux-diff-viewer"]),
+            BrowserReplDownloadSource(
+                hops: ["data:text/plain,secret"],
+                initiator: BrowserReplFrameDocument(origin: "cmux-diff-viewer://diff", place: "cmux-diff-viewer://diff")
+            ),
+            BrowserReplDownloadSource(
+                hops: ["blob:http://127.0.0.1:47391/7f1c2d6e-0000-4000-8000-000000000000"],
+                initiator: BrowserReplFrameDocument(origin: "http://127.0.0.1:47391", place: "http://127.0.0.1:47391")
+            ),
+        ]
+        for source in appServed {
+            #expect(users.downloadRoute(startedBy: "agent", source: source, policy: noPolicy, fileRoots: roots) == .user,
+                    "an app-served download reached the session: \(source.hops)")
+            guard case .refused = own.downloadRoute(startedBy: nil, source: source, policy: noPolicy, fileRoots: roots) else {
+                Issue.record("an app-served download in the session's own tab was not refused: \(source.hops)")
+                continue
+            }
+        }
+        // A web download the session's input started still reaches it.
+        let web = BrowserReplDownloadSource(hops: ["https://allowed.test/file.zip"])
+        #expect(users.downloadRoute(startedBy: "agent", source: web, policy: noPolicy, fileRoots: roots)
+                == .session(BrowserReplNetworkRecipient(sessionID: "agent", seesCredentials: false)))
+    }
+
     /// A download no navigation claim or script message describes (WebKit
     /// started it with no record of the document that asked for it) has no
     /// known source document. A `data:`, `about:` or opaque `blob:` one is
