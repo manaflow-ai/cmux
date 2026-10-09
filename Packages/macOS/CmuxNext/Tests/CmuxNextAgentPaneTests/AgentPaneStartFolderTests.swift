@@ -127,4 +127,66 @@ import Testing
         #expect(handshake["cwd"] as? String == project)
         #expect(handshake["chooseFolder"] == nil)
     }
+
+    // MARK: The store's answer (workspace.agent_start.get, cx-9aps)
+
+    /// The pane asks the store with the folder it would propose, and the handshake carries only
+    /// the answer: a workspace without a folder starts in its private folder, and the page offers
+    /// Choose Folder…; the relay fills `session/new` with that same folder.
+    @Test func theHandshakeShowsTheStoresAnswer() async throws {
+        let rig = AgentPaneProductRulesTests.Rig()
+        try await rig.start()
+        defer { rig.server.stop() }
+        let home = rig.folder("home"), agentHome = rig.folder("support/cmux/agent-home/ws-1")
+        let model = AgentPaneModel(host: MockAgentPaneHost(), seed: AgentPaneSeedSource(AgentPaneSeed(cwd: home)),
+                                   transport: rig.transport)
+        var proposed: [String?] = []
+        model.resolveStartFolder = { cwd in
+            proposed.append(cwd)
+            return AgentPaneStartFolder(kind: .agentHome, cwd: agentHome, agentHome: agentHome, skipped: (home, .home))
+        }
+        model.onChooseFolder = { .cancelled }
+        let handshake = try #require(Self.value(await model.respond(to: .ready)))
+        #expect(proposed == [home])
+        #expect(handshake["cwd"] == nil)
+        #expect(handshake["startKind"] as? String == "agent_home")
+        #expect(handshake["chooseFolder"] as? Bool == true)
+        let chat = await rig.send("session/new", ["mcpServers": [Any]()])
+        #expect(await rig.cwd(chat) == agentHome)
+    }
+
+    @Test func aWorkspaceFolderFromTheStoreIsTheChatsFolder() async throws {
+        let rig = AgentPaneProductRulesTests.Rig()
+        try await rig.start()
+        defer { rig.server.stop() }
+        let project = rig.folder("project")
+        let model = AgentPaneModel(host: MockAgentPaneHost(), transport: rig.transport)
+        model.resolveStartFolder = { _ in AgentPaneStartFolder(kind: .workspace, cwd: project, agentHome: nil) }
+        let handshake = try #require(Self.value(await model.respond(to: .ready)))
+        #expect(handshake["cwd"] as? String == project)
+        #expect(handshake["startKind"] as? String == "workspace")
+        #expect(handshake["chooseFolder"] == nil)
+        let chat = await rig.send("session/new", ["mcpServers": [Any]()])
+        #expect(await rig.cwd(chat) == project)
+    }
+
+    /// A pick goes through the store too: its `home` reason is the question, `above_home` the refusal.
+    @Test func aPickUsesTheStoresReason() async throws {
+        let rig = AgentPaneProductRulesTests.Rig()
+        try await rig.start()
+        defer { rig.server.stop() }
+        let home = rig.folder("home"), project = rig.folder("project")
+        let model = AgentPaneModel(host: MockAgentPaneHost(), transport: rig.transport)
+        model.resolveStartFolder = { cwd in
+            if cwd == home { return AgentPaneStartFolder(kind: .agentHome, cwd: nil, agentHome: nil, skipped: (home, .home)) }
+            if cwd == "/" { return AgentPaneStartFolder(kind: .agentHome, cwd: nil, agentHome: nil, skipped: ("/", .aboveHome)) }
+            return AgentPaneStartFolder(kind: .seed, cwd: cwd, agentHome: nil)
+        }
+        #expect(Self.value(await model.respond(to: Self.useFolder(project)))?["cwd"] as? String == project)
+        #expect(Self.value(await model.respond(to: Self.useFolder(home)))?["status"] as? String == "confirm")
+        #expect(Self.value(await model.respond(to: Self.useFolder("/")))?["status"] as? String == "refused")
+        rig.transport.gestures.record()
+        #expect(Self.value(await model.respond(to: Self.useFolder(home, confirm: true)))?["status"] as? String == "ok")
+        #expect(rig.transport.addedRoots == [home])
+    }
 }

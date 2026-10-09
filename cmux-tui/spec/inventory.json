@@ -184,6 +184,7 @@
     "window_record.list",
     "window_record.put",
     "workspace.agent_folder.set",
+    "workspace.agent_start.get",
     "workspace.close",
     "workspace.create",
     "workspace.ensure_home",

@@ -17,6 +17,10 @@ extension AgentTabStore {
             guard let self else { return nil }
             return agentHome(of: resolve(provisional))
         }
+        model.resolveStartFolder = { [weak self] proposed in
+            guard let self, let workspace = workspace(holding: resolve(provisional)), let resource = workspace.resourceID else { return nil }
+            return await askAgentStart(resolve(provisional), resource, proposed)
+        }
         model.onChooseFolder = { [weak self] in
             guard let self else { return .cancelled }
             return await chooseAgentFolder(for: resolve(provisional))
@@ -67,6 +71,21 @@ extension AgentTabStore {
         guard let folder, !AgentHome.isHomeOrAbove(folder), let workspace = workspace(holding: key),
               let resource = workspace.resourceID else { return .unavailable(AgentPaneFolderChoice.notSavedMessage) }
         return await persistAgentFolder(key, resource, folder)
+    }
+
+    /// The store's answer on `daemon` (`workspace.agent_start.get`); nil from a daemon without
+    /// `workspace-agent-start-v1` or when the read fails, so the pane keeps its own rules
+    /// (compatibility only, cx-nn3e-compat).
+    static func agentStart(_ cwd: String?, workspace: ResourceID, on daemon: DaemonService) async -> AgentPaneStartFolder? {
+        guard daemon.supports(DaemonCapabilities.shared.workspaceAgentStart), let connection = daemon.connection else { return nil }
+        do {
+            let answer = try await connection.state.agentStart(workspace, cwd: cwd)
+            return AgentPaneStartFolder(kind: answer.kind, cwd: answer.cwd, agentHome: answer.agentHome,
+                                        skipped: answer.skipped.map { ($0.cwd, $0.reason) })
+        } catch {
+            daemon.logger.error("workspace.agent_start.get: \(String(describing: error), privacy: .public)")
+            return nil
+        }
     }
 
     /// Saves `path` as `workspace`'s agent folder on `daemon`. A daemon without

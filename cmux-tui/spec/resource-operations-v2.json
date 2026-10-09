@@ -6799,6 +6799,87 @@
       },
       "extra": false
     },
+    "WorkspaceAgentStart": {
+      "kind": "object",
+      "fields": {
+        "cwd": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The folder the chat starts in, canonical; null only for kind agent_home when the workspace id names no safe folder."
+        },
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "WorkspaceAgentStartKind"
+          }
+        },
+        "agent_home": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The workspace's agent-home folder (a root of its chats once it exists); null when the id names no safe folder."
+        },
+        "skipped": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "WorkspaceAgentStartSkip"
+          },
+          "description": "The proposed cwd when it was not used, and why."
+        }
+      },
+      "extra": false
+    },
+    "WorkspaceAgentStartKind": {
+      "kind": "enum",
+      "values": [
+        "seed",
+        "chosen",
+        "workspace",
+        "agent_home"
+      ]
+    },
+    "WorkspaceAgentStartSkip": {
+      "kind": "object",
+      "fields": {
+        "cwd": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "reason": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "WorkspaceAgentStartSkipReason"
+          }
+        }
+      },
+      "extra": false
+    },
+    "WorkspaceAgentStartSkipReason": {
+      "kind": "enum",
+      "values": [
+        "home",
+        "above_home",
+        "agent_home",
+        "missing"
+      ]
+    },
     "WorkspaceLogLevel": {
       "kind": "enum",
       "values": [
@@ -20524,7 +20605,7 @@
                 "name": "string"
               }
             },
-            "description": "The folder new agent chats of the workspace start in: an absolute path of an existing directory in canonical form (no symlink, no . or .. step, no trailing slash), at most 4096 bytes. null clears it."
+            "description": "The folder new agent chats of the workspace start in: an absolute path of an existing directory in canonical form (no symlink, no . or .. step, no trailing slash), at most 4096 bytes, never the user's home folder or a folder above it. null clears it."
           },
           "expected_revision": {
             "required": false,
@@ -20556,6 +20637,50 @@
         "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "workspace.agent_start.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "workspace",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "required"
+        },
+        "fields": {
+          "cwd": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 4096
+            },
+            "description": "A folder the caller proposes (the selected tab's folder, the New Tab page's folder, a folder the user picked). Used when it names an existing folder that is not the home folder, above it, or inside agent-home; otherwise reported in skipped."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "The one owner of where a new agent chat of the workspace starts (cx-9aps). Rules, first match wins: the proposed cwd (kind seed), the workspace's agent folder (kind chosen), the first folder of the workspace's terminal tabs in screen, pane and tab order (kind workspace), the workspace's agent-home folder <data dir>/cmux/agent-home/<workspace id> (kind agent_home). The user's home folder, every folder above it and agent-home itself are never a start folder by these rules. The daemon never creates the agent-home folder."
+        ]
+      },
+      "result": {
+        "kind": "ref",
+        "name": "WorkspaceAgentStart"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",

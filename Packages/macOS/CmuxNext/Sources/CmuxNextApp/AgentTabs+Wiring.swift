@@ -122,6 +122,10 @@ extension AgentTabStore {
             guard let services, let (tab, _) = services.locateTab(key) else { return .unavailable(AgentPaneFolderChoice.notSavedMessage) }
             return await AgentTabStore.saveAgentFolder(path, workspace: workspace, on: services.machines.daemon(forTab: tab))
         }
+        tabs.askAgentStart = { [weak services] key, workspace, cwd in
+            guard let services, let (tab, _) = services.locateTab(key) else { return nil }
+            return await AgentTabStore.agentStart(cwd, workspace: workspace, on: services.machines.daemon(forTab: tab))
+        }
         tabs.servesAgentFolder = { [weak services] key in
             guard let services, let (tab, _) = services.locateTab(key) else { return false }
             return services.machines.daemon(forTab: tab).supports(DaemonCapabilities.shared.workspaceAgentFolder)

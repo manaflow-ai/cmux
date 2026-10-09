@@ -27,7 +27,6 @@ use serde_json::{Value, json};
 use crate::Mux;
 use crate::resource::ResourceError;
 
-pub(crate) const OPERATION: &str = "workspace.agent_start.get";
 /// Advertised by `identify` once `workspace.agent_start.get` exists.
 pub(crate) const CAPABILITY: &str = "workspace-agent-start-v1";
 /// The longest seed accepted (PATH_MAX on macOS and Linux).
@@ -89,8 +88,16 @@ fn canonical(path: &Path) -> PathBuf {
 }
 
 /// `path` canonical when it is a start folder, else why not.
-pub(crate) fn check(path: &str, home: Option<&Path>, agent_home_base: Option<&Path>) -> Result<PathBuf, Skip> {
-    if path.is_empty() || path.len() > MAX_PATH_BYTES || path.contains('\0') || !path.starts_with('/') {
+pub(crate) fn check(
+    path: &str,
+    home: Option<&Path>,
+    agent_home_base: Option<&Path>,
+) -> Result<PathBuf, Skip> {
+    if path.is_empty()
+        || path.len() > MAX_PATH_BYTES
+        || path.contains('\0')
+        || !path.starts_with('/')
+    {
         return Err(Skip::Missing);
     }
     let folder = std::fs::canonicalize(path).map_err(|_| Skip::Missing)?;
@@ -135,7 +142,8 @@ pub(crate) fn resolve(inputs: &Inputs<'_>) -> Value {
         }
     }
     if found.is_none() {
-        found = inputs.chosen.and_then(|chosen| check(chosen).ok()).map(|folder| (folder, "chosen"));
+        found =
+            inputs.chosen.and_then(|chosen| check(chosen).ok()).map(|folder| (folder, "chosen"));
     }
     if found.is_none() {
         found = inputs
@@ -210,7 +218,10 @@ impl Mux {
         if let Some(seed) = seed
             && (seed.is_empty() || seed.len() > MAX_PATH_BYTES)
         {
-            return Err(ResourceError::validation_invalid(Some("cwd"), "cwd must be 1 to 4096 bytes"));
+            return Err(ResourceError::validation_invalid(
+                Some("cwd"),
+                "cwd must be 1 to 4096 bytes",
+            ));
         }
         let workspace = self
             .resolve_resource_path(crate::ResourceTarget::Workspace, selectors)?

@@ -110,6 +110,7 @@ pub(super) fn advertised_capabilities(
         crate::state::frontend_browser_keys::FRONTEND_BROWSER_TAB_KEYS_CAPABILITY,
         crate::state::home_store::WORKSPACE_KIND_CAPABILITY,
         crate::state::agent_folder::CAPABILITY,
+        crate::state::agent_start::CAPABILITY,
         crate::state::personal_order::PERSONAL_MIXED_ORDER_CAPABILITY,
         crate::state::personal::WORKSPACE_GROUP_ICON_CAPABILITY,
         crate::state::personal::WORKSPACE_GROUP_PIN_CAPABILITY,

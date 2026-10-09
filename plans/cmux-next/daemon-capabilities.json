@@ -61,6 +61,7 @@
     "terminal-snapshot-images-v1",
     "terminal-snapshot-local-history-v1",
     "workspace-agent-folder-v1",
+    "workspace-agent-start-v1",
     "workspace-group-icon-v1",
     "workspace-group-pin-v1",
     "workspace-groups-v1",

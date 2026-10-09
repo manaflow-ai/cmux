@@ -30,6 +30,7 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
         operation,
         Op::WorkspaceUpdate
             | Op::WorkspaceAgentFolderSet
+            | Op::WorkspaceAgentStartGet
             | Op::TabPin
             | Op::TabUnpin
             | Op::TabUpdate
@@ -226,6 +227,8 @@ pub(crate) fn dispatch(
                 .map_err(state_error)?;
             state_result(mux, commit)
         }
+        // cx-9aps: the one answer for where a new agent chat starts.
+        Op::WorkspaceAgentStartGet => mux.agent_start(selectors, string(fields, "cwd").as_deref()),
         Op::TabPin | Op::TabUnpin => {
             let commit = mux
                 .state_pin_tab(strip_request(&request)?, selectors.clone(), operation == Op::TabPin)

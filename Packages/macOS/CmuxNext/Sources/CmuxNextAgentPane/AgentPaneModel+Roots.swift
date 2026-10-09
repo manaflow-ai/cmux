@@ -24,6 +24,9 @@ extension AgentPaneModel {
     /// An agent-home folder (a terminal the user moved there) is no workspace folder either: the
     /// chat still starts in agent-home, and the page still offers Choose Folder….
     func primaryRoot() -> String? {
+        // The store's answer when it gave one (cx-9aps): a real folder, else agent-home (nil).
+        if let startFolder { return chosenFolder ?? startFolder.folder }
+        // Compatibility only (a daemon without workspace-agent-start-v1). Remove with cx-nn3e-compat.
         let candidates = [handshakeCwd, chosenFolder] + (workspaceRoots?() ?? []).map(Optional.some) + [newTab?.cwd]
         return candidates.lazy.compactMap { $0 }.first { !isHomeOrAbove($0) && !isAgentHome($0) }
     }
@@ -69,6 +72,21 @@ extension AgentPaneModel {
     /// starts there at once. `/` and the folders above the home folder are refused (reason `root`).
     func useFolder(_ path: String, confirm: Bool) async -> [String: Any] {
         let homeFolder = transport.homeFolder
+        // The store's rules when the daemon has them (cx-9aps): it names the folder or why not.
+        if let resolveStartFolder, let answer = await resolveStartFolder(path) {
+            if answer.kind == .seed, let cwd = answer.cwd { return AgentPaneReply.success(["status": "ok", "cwd": cwd]) }
+            switch answer.skipped?.reason {
+            case .home:
+                let raw = answer.skipped?.cwd ?? path
+                let home = await Task.detached { AcpmuxPathPolicy.canonical(raw) ?? homeFolder.flatMap(AcpmuxPathPolicy.canonical) }.value
+                guard let home else { return Self.transportFailure(.pathInvalid) }
+                return answerHome(home, confirm: confirm)
+            case .aboveHome: return AgentPaneReply.success(["status": "refused", "reason": "root", "cwd": path])
+            case .agentHome: return AgentPaneReply.success(["status": "ok", "cwd": answer.agentHome ?? path])
+            case .missing, nil: return Self.transportFailure(.pathInvalid)
+            }
+        }
+        // Compatibility only (a daemon without workspace-agent-start-v1). Remove with cx-nn3e-compat.
         let (canonical, home) = await Task.detached {
             (AcpmuxPathPolicy.canonical(path).flatMap { AcpmuxPathPolicy.isDirectory($0) ? $0 : nil },
              homeFolder.flatMap(AcpmuxPathPolicy.canonical))
@@ -76,11 +94,17 @@ extension AgentPaneModel {
         guard let folder = canonical else { return Self.transportFailure(.pathInvalid) }
         guard AgentHome.isHomeOrAbove(folder, home: home) else { return AgentPaneReply.success(["status": "ok", "cwd": folder]) }
         guard let home, folder == home else { return AgentPaneReply.success(["status": "refused", "reason": "root", "cwd": folder]) }
-        if transport.addedRoots.contains(folder) { return AgentPaneReply.success(["status": "ok", "cwd": folder]) }
-        guard confirm else { return AgentPaneReply.success(["status": "confirm", "reason": "home", "cwd": folder]) }
+        return answerHome(home, confirm: confirm)
+    }
+
+    /// The home folder the user picked: asked about first; the answer (on its click) makes it a
+    /// root of this pane, so the chat starts there at once.
+    private func answerHome(_ home: String, confirm: Bool) -> [String: Any] {
+        if transport.addedRoots.contains(home) { return AgentPaneReply.success(["status": "ok", "cwd": home]) }
+        guard confirm else { return AgentPaneReply.success(["status": "confirm", "reason": "home", "cwd": home]) }
         guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
-        transport.grant(folder)
-        return AgentPaneReply.success(["status": "ok", "cwd": folder])
+        transport.grant(home)
+        return AgentPaneReply.success(["status": "ok", "cwd": home])
     }
 
     /// Whether `path` is the user's home folder (``AgentPaneTransport/homeFolder``) or above it.

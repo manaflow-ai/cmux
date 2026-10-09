@@ -476,6 +476,8 @@ pub enum ResourceOperation {
     WorkspaceUpdate,
     #[serde(rename = "workspace.agent_folder.set")]
     WorkspaceAgentFolderSet,
+    #[serde(rename = "workspace.agent_start.get")]
+    WorkspaceAgentStartGet,
     #[serde(rename = "workspace_group.create")]
     WorkspaceGroupCreate,
     #[serde(rename = "workspace_group.delete")]
@@ -632,6 +634,7 @@ impl ResourceOperation {
                 | Self::WorkspaceGroupList
                 | Self::WorkspaceLogList
                 | Self::WorkspaceStatusList
+                | Self::WorkspaceAgentStartGet
         ) {
             OperationClass::Read
         } else {

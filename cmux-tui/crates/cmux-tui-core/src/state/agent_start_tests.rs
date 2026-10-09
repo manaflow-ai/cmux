@@ -55,7 +55,7 @@ fn a_folderless_workspace_starts_in_its_agent_home_never_the_home_folder() {
     let tree = tree("folderless");
     let home = text(&tree.home);
     // A fresh workspace's terminal sits at `~` (and one at `/`): neither is a start folder.
-    let value = answer(&tree, None, None, &[home.clone(), "/".into()]);
+    let value = answer(&tree, None, None, &[home, "/".into()]);
     let agent_home = text(&tree.base.join("ws-1"));
     assert_eq!(value["kind"], "agent_home");
     assert_eq!(value["cwd"], agent_home);
@@ -72,10 +72,17 @@ fn the_rules_take_the_seed_then_the_chosen_folder_then_a_tab_folder() {
     assert_eq!(answer(&tree, None, None, &tabs)["kind"], "workspace");
     assert_eq!(answer(&tree, None, None, &tabs)["cwd"], other);
     let chosen = answer(&tree, None, Some(&tree.project), &tabs);
-    assert_eq!((chosen["kind"].as_str(), chosen["cwd"].as_str()), (Some("chosen"), Some(tree.project.as_str())));
-    let seeded = answer(&tree, Some(&format!("{}/src/./project/", text(&tree.home))), Some(&other), &tabs);
+    assert_eq!(
+        (chosen["kind"].as_str(), chosen["cwd"].as_str()),
+        (Some("chosen"), Some(tree.project.as_str()))
+    );
+    let seeded =
+        answer(&tree, Some(&format!("{}/src/./project/", text(&tree.home))), Some(&other), &tabs);
     // The seed is made canonical.
-    assert_eq!((seeded["kind"].as_str(), seeded["cwd"].as_str()), (Some("seed"), Some(tree.project.as_str())));
+    assert_eq!(
+        (seeded["kind"].as_str(), seeded["cwd"].as_str()),
+        (Some("seed"), Some(tree.project.as_str()))
+    );
     let _ = std::fs::remove_dir_all(&tree.root);
 }
 
@@ -128,7 +135,8 @@ fn the_operation_answers_for_a_workspace() {
     let tree = tree("operation");
     let mux = Mux::new_for_test("agent-start-op", SurfaceOptions::default());
     let workspace = empty_workspace(&mux, "w");
-    let fresh = send(&mux, "workspace.agent_start.get", json!({"workspace": workspace}), None).unwrap();
+    let fresh =
+        send(&mux, "workspace.agent_start.get", json!({"workspace": workspace}), None).unwrap();
     assert_eq!(fresh["kind"], "agent_home");
     assert!(fresh["cwd"].as_str().unwrap().ends_with(&format!("/cmux/agent-home/{workspace}")));
     let seeded = send(
@@ -138,8 +146,13 @@ fn the_operation_answers_for_a_workspace() {
         None,
     )
     .unwrap();
-    assert_eq!((seeded["kind"].as_str(), seeded["cwd"].as_str()), (Some("seed"), Some(tree.project.as_str())));
-    if let Some(home) = crate::platform::home_dir().and_then(|home| std::fs::canonicalize(home).ok()) {
+    assert_eq!(
+        (seeded["kind"].as_str(), seeded["cwd"].as_str()),
+        (Some("seed"), Some(tree.project.as_str()))
+    );
+    if let Some(home) =
+        crate::platform::home_dir().and_then(|home| std::fs::canonicalize(home).ok())
+    {
         let at_home = send(
             &mux,
             "workspace.agent_start.get",
@@ -150,9 +163,18 @@ fn the_operation_answers_for_a_workspace() {
         assert_eq!(at_home["skipped"]["reason"], "home");
         assert_eq!(at_home["kind"], "agent_home");
     }
-    mutate(&mux, "workspace.agent_folder.set", json!({"workspace": workspace, "path": tree.project}), "f-1");
-    let chosen = send(&mux, "workspace.agent_start.get", json!({"workspace": workspace}), None).unwrap();
-    assert_eq!((chosen["kind"].as_str(), chosen["cwd"].as_str()), (Some("chosen"), Some(tree.project.as_str())));
+    mutate(
+        &mux,
+        "workspace.agent_folder.set",
+        json!({"workspace": workspace, "path": tree.project}),
+        "f-1",
+    );
+    let chosen =
+        send(&mux, "workspace.agent_start.get", json!({"workspace": workspace}), None).unwrap();
+    assert_eq!(
+        (chosen["kind"].as_str(), chosen["cwd"].as_str()),
+        (Some("chosen"), Some(tree.project.as_str()))
+    );
     let _ = std::fs::remove_dir_all(&tree.root);
 }
 
@@ -160,7 +182,10 @@ fn the_operation_answers_for_a_workspace() {
 /// refused home only in Swift, so another client could save it.
 #[test]
 fn the_agent_folder_is_never_the_home_folder_or_above() {
-    let Some(home) = crate::platform::home_dir().and_then(|home| std::fs::canonicalize(home).ok()) else { return };
+    let Some(home) = crate::platform::home_dir().and_then(|home| std::fs::canonicalize(home).ok())
+    else {
+        return;
+    };
     let mux = Mux::new_for_test("agent-folder-home", SurfaceOptions::default());
     let workspace = empty_workspace(&mux, "w");
     let mut refused = vec![text(&home)];

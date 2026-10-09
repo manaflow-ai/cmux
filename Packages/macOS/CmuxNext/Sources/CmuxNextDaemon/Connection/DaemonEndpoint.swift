@@ -161,6 +161,9 @@ public struct DaemonCapabilities: Sendable {
     /// `workspace.agent_folder.set` and `extra.agent_folder` (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE).
     /// An older daemon kept running across an app update lacks it: Choose Folder… asks for a restart.
     public let workspaceAgentFolder = "workspace-agent-folder-v1"
+    /// `workspace.agent_start.get`: the store's one answer for where a new agent chat starts
+    /// (cx-9aps). An older daemon lacks it; the pane then decides as before (compatibility only).
+    public let workspaceAgentStart = "workspace-agent-start-v1"
     /// Conversation tabs: `new-conversation-tab` and the `conversation` tab kind.
     /// Echoed so the daemon sends the canonical kind instead of `browser`.
     public let conversationTabs = "conversation-tabs-v1"
@@ -249,7 +252,7 @@ public struct DaemonCapabilities: Sendable {
                                             terminalCommandJournal, dockColumns, edgeDocks, dockColumnRole, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
                                             sessionIdentity, localConversations, tabSplitRespawn, frontendBrowserHistory,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
-                                            workspaceKind, workspaceAgentFolder, conversationTabs, agentSessionTabs, agentSessionAttach, pageTabs, conversationSearch, cloudConversations, localAttachments,
+                                            workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, pageTabs, conversationSearch, cloudConversations, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
                                             terminalClipboardRead, personalMixedOrder, sidebarLayout,
                                             workspaceGroupIcon, workspaceGroupPin, chiefInspect] }

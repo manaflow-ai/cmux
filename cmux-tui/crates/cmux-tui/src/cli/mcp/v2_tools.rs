@@ -100,6 +100,7 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("sidebar_layout.update", SIDEBAR_LAYOUT_REASON),
     ("workspace.ensure_home", HOME_REASON),
     ("workspace.agent_folder.set", AGENT_FOLDER_REASON),
+    ("workspace.agent_start.get", AGENT_START_REASON),
 ];
 
 const MACHINE_REASON: &str =
@@ -122,6 +123,9 @@ const HOME_REASON: &str = "The hosting app creates its one home workspace on con
      never offers it (workspace-kind-v1).";
 const AGENT_FOLDER_REASON: &str = "Where a workspace's agents run: only the user sets it, through \
      the verified app after a gesture (gate A2); an agent never does.";
+
+const AGENT_START_REASON: &str = "Where a new chat starts: the app's agent pane asks it when a \
+     chat opens; an agent already runs in its folder (cx-9aps).";
 
 pub(super) fn catalog() -> &'static Value {
     static CATALOG: OnceLock<Value> = OnceLock::new();

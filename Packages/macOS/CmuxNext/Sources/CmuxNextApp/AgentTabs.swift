@@ -57,6 +57,9 @@ final class AgentTabStore {
     var persistAgentFolder: @MainActor (_ key: String, _ workspace: ResourceID, _ path: String) async -> AgentPaneFolderChoice = { _, _, _ in
         .unavailable(AgentPaneFolderChoice.notSavedMessage)
     }
+    /// The store's answer for where tab `key`'s new chat starts (`workspace.agent_start.get`,
+    /// cx-9aps); nil from a daemon without it.
+    var askAgentStart: @MainActor (_ key: String, _ workspace: ResourceID, _ cwd: String?) async -> AgentPaneStartFolder? = { _, _, _ in nil }
     /// Whether tab `key`'s daemon serves `workspace-agent-folder-v1`.
     var servesAgentFolder: @MainActor (_ key: String) -> Bool = { _ in false }
     /// Tabs closed while the store was still creating them: closed when it answers.

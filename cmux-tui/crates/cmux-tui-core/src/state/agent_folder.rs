@@ -72,6 +72,12 @@ pub(crate) fn validate(path: &str) -> Result<(), String> {
     if !canonical.is_dir() {
         return Err("path must name a folder".into());
     }
+    // The store owns the home rule (cx-9aps): an agent there could read the
+    // whole home folder, so neither it nor any folder above it is saved.
+    let home = crate::platform::home_dir().and_then(|home| std::fs::canonicalize(home).ok());
+    if canonical.parent().is_none() || home.is_some_and(|home| home.starts_with(&canonical)) {
+        return Err("path must not be the home folder or a folder above it".into());
+    }
     Ok(())
 }
 

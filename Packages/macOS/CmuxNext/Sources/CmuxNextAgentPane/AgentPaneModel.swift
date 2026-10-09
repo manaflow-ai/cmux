@@ -107,6 +107,13 @@ public final class AgentPaneModel {
     /// The workspace's agent-home folder (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE): a root once it
     /// exists, and where a new chat starts when the workspace has no folder (no other root).
     @ObservationIgnored public var workspaceAgentHome: (@MainActor () -> AgentHomeFill?)?
+    /// Asks the store where a new chat starts, with the folder this pane proposes (a seed, the
+    /// New Tab page's folder, a pick): `workspace.agent_start.get` (cx-9aps). Nil, or a nil
+    /// answer, means a daemon without it; the pane then decides as before (compatibility only,
+    /// removed with bead cx-nn3e-compat once every bundled daemon serves workspace-agent-start-v1).
+    @ObservationIgnored public var resolveStartFolder: (@MainActor (_ proposed: String?) async -> AgentPaneStartFolder?)?
+    /// The store's last answer for this pane's new chat: the handshake's folder, the relay's fill.
+    @ObservationIgnored public internal(set) var startFolder: AgentPaneStartFolder?
     /// Shows the native folder sheet for "Choose Folder…" and saves the pick as the workspace's
     /// agent folder; a refusal carries its localized text (an older background service, a save
     /// that failed).
@@ -145,7 +152,7 @@ public final class AgentPaneModel {
         transport.roots = { [weak self] in self?.roots() ?? [] }
         transport.gestureRoots = { [weak self] in self?.gestureRoots() ?? [] }
         transport.primaryRoot = { [weak self] in self?.primaryRoot() }
-        transport.agentHome = { [weak self] in self?.workspaceAgentHome?() }
+        transport.agentHome = { [weak self] in self?.startFolder?.agentHomeFill ?? self?.workspaceAgentHome?() }
         if let sessionId { transport.sessions.add(sessionId) }
         transport.requestModeConfirmation = { [weak self] asked, answer in
             guard let onConfirmMode = self?.onConfirmMode else { return answer(false) }
@@ -225,20 +232,29 @@ public final class AgentPaneModel {
                 handshake.linkScheme = linkScheme
                 handshake.machineName = await Self.localMachineName?.value
                 if sessionMustExist, sessionId != nil { handshake.sessionMustExist = true }
-                // An inherited or default `~`, or an agent-home folder, is no chat folder (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE).
-                if sessionId == nil, let cwd = handshake.cwd, isHomeOrAbove(cwd) || isAgentHome(cwd) { handshake.cwd = nil }
-                // The page shows the folder a new chat starts in, so it names the workspace's
-                // folder the relay would fill in (cx-nn3e: the chip and the start disagreed). A
-                // reconnect keeps the page's own pick.
                 var filled = false
-                if request == .ready, sessionId == nil, handshake.cwd == nil, let root = primaryRoot() {
-                    handshake.cwd = root
-                    filled = true
-                }
-                // A new chat with no folder starts in agent-home; the page offers Choose Folder….
-                if sessionId == nil, handshake.cwd == nil, primaryRoot() == nil, onChooseFolder != nil,
-                   workspaceAgentHome?() != nil {
-                    handshake.chooseFolder = true
+                // The store decides where a new chat starts (cx-9aps); the page shows its answer.
+                if sessionId == nil, let resolveStartFolder, let answer = await resolveStartFolder(handshake.cwd) {
+                    startFolder = answer
+                    filled = answer.kind != .seed
+                    // A reconnect keeps the page's own pick; it learns the start folder only from `ready`.
+                    if request == .ready || answer.kind == .seed { handshake.cwd = answer.folder }
+                    handshake.startKind = answer.kind.rawValue
+                    if answer.kind == .agentHome, onChooseFolder != nil { handshake.chooseFolder = true }
+                } else {
+                    // Compatibility only (a daemon without workspace-agent-start-v1): the pane's own
+                    // rules. Remove with bead cx-nn3e-compat.
+                    // An inherited or default `~`, or an agent-home folder, is no chat folder (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE).
+                    if sessionId == nil, let cwd = handshake.cwd, isHomeOrAbove(cwd) || isAgentHome(cwd) { handshake.cwd = nil }
+                    if request == .ready, sessionId == nil, handshake.cwd == nil, let root = primaryRoot() {
+                        handshake.cwd = root
+                        filled = true
+                    }
+                    // A new chat with no folder starts in agent-home; the page offers Choose Folder….
+                    if sessionId == nil, handshake.cwd == nil, primaryRoot() == nil, onChooseFolder != nil,
+                       workspaceAgentHome?() != nil {
+                        handshake.chooseFolder = true
+                    }
                 }
                 handshake.githubRepository = await AgentPaneGitHubRepository.read(at: handshake.cwd)
                 handshake.revealTurn = pendingRevealTurn
