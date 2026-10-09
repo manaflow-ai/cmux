@@ -1,5 +1,6 @@
 import { challengeMessagePrefix } from "@cmux/protocol"
 import { emailDomainOf, verifyInstallSignature } from "./auth.ts"
+import { isMachineInstallKind } from "./machine-installs.ts"
 import { chiefActive, type UserState } from "./domains/user.ts"
 import type { Env } from "./env.ts"
 import type { RedeemResult } from "./user-do.ts"
@@ -39,7 +40,7 @@ export const redeemChallenge = async (env: Env, sql: SqlStorage, current: () => 
   const stillActive = now.installs[install]?.revoked_at === null && now.grants[grant.id]?.revoked_at === null
   if (!stillActive || !now.user) return { ok: false, code: "auth.forbidden", message: "install unknown or revoked" }
   // A chief token only for an unarchived chief of this user.
-  if (agent !== undefined && (!chiefActive(now, agent) || inst.kind === "vm")) return { ok: false, code: "auth.forbidden", message: "agent unknown or archived" }
+  if (agent !== undefined && (!chiefActive(now, agent) || isMachineInstallKind(inst.kind))) return { ok: false, code: "auth.forbidden", message: "agent unknown or archived" }
   const emailDomain = emailDomainOf(now.user.email)
-  return { ok: true, user: now.user.id, team: inst.kind === "vm" && inst.bound_team ? inst.bound_team : now.user.personal_team, install, grant: grant.id, ...(inst.sso_team ? { sso_team: inst.sso_team } : {}), ...(emailDomain ? { email_domain: emailDomain } : {}), ...(agent ? { agent } : {}), ...(inst.kind === "vm" ? { vm: true as const } : {}) }
+  return { ok: true, user: now.user.id, team: isMachineInstallKind(inst.kind) && inst.bound_team ? inst.bound_team : now.user.personal_team, install, grant: grant.id, ...(inst.sso_team ? { sso_team: inst.sso_team } : {}), ...(emailDomain ? { email_domain: emailDomain } : {}), ...(agent ? { agent } : {}), ...(inst.kind === "vm" ? { vm: true as const } : {}), ...(inst.kind === "team-vm" ? { team_vm: true as const } : {}) }
 }
