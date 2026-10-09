@@ -274,8 +274,11 @@ fn the_listener_refuses_each_limited_target_and_carries_an_allowed_one() {
         assert_eq!(code, 0x02, "{name}");
     }
     // The VM's own loopback is reachable: a port nobody listens on is
-    // dialed and refused by the kernel, not by the rule.
-    let (code, _) = socks(proxy, &Target::Address(SocketAddr::from(([127, 0, 0, 1], port + 1))), 1);
+    // dialed and refused by the kernel, not by the rule. The port is one the
+    // system reports free now (port + 1 can be the listener's own port: on
+    // macOS a new listener often takes the next port).
+    let unused = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let (code, _) = socks(proxy, &Target::Address(SocketAddr::from(([127, 0, 0, 1], unused))), 1);
     assert_eq!(code, 0x05, "an unused loopback port");
     // The listener never connects to itself.
     let (code, _) = socks(proxy, &Target::Address(proxy), 1);
