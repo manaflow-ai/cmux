@@ -26,6 +26,14 @@ fn script() -> Script {
     Box::new(|turn, blocks| {
         let last = blocks.last().and_then(|b| b["text"].as_str()).unwrap_or("");
         if let Some(task) = last.strip_prefix("Your task:\n\n") {
+            if task == "silent" {
+                // Its response never starts streaming.
+                return vec![
+                    json!({"dir": "mux", "kind": "user_message", "msg": {"promptId": "optchat-sub:x", "text": last}}),
+                    json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+                    json!({"dir": "mux", "kind": "turn_end", "msg": {"stopReason": "end_turn"}}),
+                ];
+            }
             if task == "fail me" {
                 // The harness fails the prompt and records no turn.
                 return Vec::new();
@@ -79,6 +87,7 @@ fn script() -> Script {
 struct FakeWorkspaces {
     opened: Mutex<Vec<(String, String)>>,
     renamed: Mutex<Vec<(String, String)>>,
+    closed: Mutex<Vec<String>>,
 }
 
 impl Workspaces for FakeWorkspaces {
@@ -98,6 +107,11 @@ impl Workspaces for FakeWorkspaces {
         "the test app".to_owned()
     }
 
+    fn close(&self, key: &str) -> Result<(), String> {
+        self.closed.lock().unwrap().push(key.to_owned());
+        Ok(())
+    }
+
     fn rename(&self, key: &str, name: &str) -> Result<(), String> {
         self.renamed
             .lock()
@@ -115,6 +129,10 @@ struct Setup {
 }
 
 fn setup() -> Setup {
+    setup_with(|sp| sp)
+}
+
+fn setup_with(f: impl FnOnce(Spawner) -> Spawner) -> Setup {
     let mut h = Harness::new(script());
     let traces = h.dir.path().join("traces");
     let trace = Trace::open(&traces, false).unwrap();
@@ -141,7 +159,7 @@ fn setup() -> Setup {
     )
     .with_trace(trace)
     .with_workspaces(Some(workspaces.clone() as Arc<dyn Workspaces>));
-    let spawner = Arc::new(spawner);
+    let spawner = Arc::new(f(spawner));
     // Subagents queued over the cap start when one finishes.
     h.brain.set_sub_starter(Some(spawner.queue_starter()));
     Setup {
@@ -684,4 +702,153 @@ fn after_a_restart_each_report_arrives_once() {
     };
     assert_eq!(count("a1"), 1, "{log:?}");
     assert_eq!(count("a2"), 1, "{log:?}");
+}
+
+#[test]
+fn the_close_setting_closes_a_finished_subagents_workspace() {
+    let mut s = setup();
+    s.h.brain.set_sub_close_on_finish(true);
+    spawn(&mut s, &["list the files in ~/"]).unwrap();
+    finish(&mut s, "s1", "s1", "a1");
+    s.h.settle();
+    let deadline = std::time::Instant::now() + WAIT;
+    while s.workspaces.closed.lock().unwrap().is_empty() && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert_eq!(
+        s.workspaces.closed.lock().unwrap().clone(),
+        vec!["ws-1".to_owned()]
+    );
+    assert!(
+        s.workspaces.renamed.lock().unwrap().is_empty(),
+        "closed, not renamed"
+    );
+}
+
+/// A Claude spawn of many subagents: the first starts alone and warms the
+/// cache of the shared view; the rest start once its response began, each
+/// first message marked at the view's end with the turns' TTL (1 hour by
+/// default), and Claude Code told the same TTL.
+#[test]
+fn a_claude_spawn_warms_the_shared_view_once_then_starts_the_rest_marked() {
+    let mut s = setup();
+    s.h.agents.inner.lock().unwrap().system_prompts = true;
+    for k in 0..12 {
+        s.h.say("user_local", &format!("line {k}"));
+        s.h.settle();
+    }
+    spawn(&mut s, &["one", "two", "three"]).unwrap();
+    let agents = s.h.agents.inner.lock().unwrap();
+    let subs: Vec<usize> = agents
+        .prompt_ids
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| p.starts_with("optchat-sub:"))
+        .map(|(k, _)| k)
+        .collect();
+    assert_eq!(subs.len(), 3);
+    for k in &subs {
+        let marks: Vec<&Value> = agents.prompts[*k]
+            .iter()
+            .filter_map(|b| b.get("cache_control"))
+            .collect();
+        assert_eq!(
+            marks,
+            vec![&json!({"type": "ephemeral", "ttl": "1h"})],
+            "one 1h mark on the shared view: {:?}",
+            agents.prompts[*k]
+        );
+    }
+    // The same view blocks up to the mark in every first message.
+    let upto = |k: usize| {
+        let p = &agents.prompts[k];
+        let m = p
+            .iter()
+            .position(|b| b.get("cache_control").is_some())
+            .unwrap();
+        p[..=m].to_vec()
+    };
+    assert_eq!(upto(subs[0]), upto(subs[1]));
+    assert_eq!(upto(subs[0]), upto(subs[2]));
+    let sub_specs: Vec<_> = agents
+        .specs
+        .iter()
+        .filter(|sp| sp.name.starts_with("optchat-sub-h0me-"))
+        .collect();
+    assert_eq!(sub_specs.len(), 3, "acpmux took every session");
+    drop(agents);
+    // Claude Code marks with the same TTL: the subagent directory's project
+    // settings say so (as the turns' session directory does); acpmux takes
+    // no TTL variable in a session's env.
+    let settings: Value = serde_json::from_str(
+        &std::fs::read_to_string(s.h.dir.path().join("subagent/.claude/settings.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(settings["promptCacheTtl"], "1h", "{settings}");
+    let events = trace_events(&s.traces);
+    let warm = events
+        .iter()
+        .find(|e| e["ev"] == "spawn.warm")
+        .expect("the trace says the shared view was warmed");
+    assert_eq!(warm["first"], "a1");
+    assert_eq!(warm["started"], true, "{warm}");
+}
+
+#[test]
+fn the_rest_start_after_the_warm_wait_when_the_first_never_speaks() {
+    let mut s = setup_with(|sp| sp.with_warm_wait(std::time::Duration::from_millis(300)));
+    s.h.agents.inner.lock().unwrap().system_prompts = true;
+    for k in 0..12 {
+        s.h.say("user_local", &format!("line {k}"));
+        s.h.settle();
+    }
+    // The first subagent's turn stays open without output (its answer is held).
+    s.h.agents.hold(true);
+    let began = std::time::Instant::now();
+    spawn(&mut s, &["silent", "two"]).unwrap();
+    assert!(began.elapsed() >= std::time::Duration::from_millis(300));
+    s.h.agents.hold(false);
+    s.h.agents.release();
+    assert_eq!(sub_names(&s).len(), 2, "the second still starts");
+    let warm = trace_events(&s.traces)
+        .into_iter()
+        .find(|e| e["ev"] == "spawn.warm")
+        .unwrap();
+    assert_eq!(warm["started"], false, "{warm}");
+}
+
+/// A spawn in a directory of the user's gets no mark: the TTL Claude Code
+/// marks with there is not ours to set, and nothing is written into it.
+#[test]
+fn a_claude_spawn_in_the_users_directory_takes_no_mark() {
+    let mut s = setup();
+    s.h.agents.inner.lock().unwrap().system_prompts = true;
+    for k in 0..12 {
+        s.h.say("user_local", &format!("line {k}"));
+        s.h.settle();
+    }
+    let theirs = tempfile::tempdir().unwrap();
+    let dir = theirs.path().display().to_string();
+    call(&mut s, move |sp| {
+        sp.spawn(vec!["one".into(), "two".into()], Some(dir))
+    })
+    .unwrap();
+    let agents = s.h.agents.inner.lock().unwrap();
+    let subs: Vec<&Vec<Value>> = agents
+        .prompt_ids
+        .iter()
+        .zip(&agents.prompts)
+        .filter(|(id, _)| id.starts_with("optchat-sub:"))
+        .map(|(_, p)| p)
+        .collect();
+    assert_eq!(subs.len(), 2);
+    assert!(
+        subs.iter()
+            .all(|p| p.iter().all(|b| b.get("cache_control").is_none())),
+        "no mark"
+    );
+    assert!(
+        !theirs.path().join(".claude").exists(),
+        "nothing written there"
+    );
 }

@@ -1,13 +1,14 @@
 use std::env;
 use std::ffi::OsString;
 use std::fmt;
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::str::FromStr;
 use std::time::Duration;
 
 use cmux_remote_protocol::{LaneToken, RelayPermission, RelayTicketClaims};
 
-const DEFAULT_BIND: &str = "127.0.0.1:8787";
+/// `127.0.0.1:8787`; a test checks that it equals the documented text.
+const DEFAULT_BIND: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 8787));
 const DEFAULT_LEASE_SECONDS: u64 = 30;
 const DEFAULT_JOIN_TIMEOUT_SECONDS: u64 = 15;
 const DEFAULT_IDLE_TIMEOUT_SECONDS: u64 = 300;
@@ -65,7 +66,7 @@ pub struct RelayConfig {
 impl Default for RelayConfig {
     fn default() -> Self {
         Self {
-            bind: DEFAULT_BIND.parse().expect("default relay bind address is valid"),
+            bind: DEFAULT_BIND,
             lease_duration: Duration::from_secs(DEFAULT_LEASE_SECONDS),
             join_timeout: Duration::from_secs(DEFAULT_JOIN_TIMEOUT_SECONDS),
             idle_timeout: Duration::from_secs(DEFAULT_IDLE_TIMEOUT_SECONDS),
@@ -302,10 +303,10 @@ impl RelayCommand {
     ) -> Result<Self, ConfigError> {
         let mut args = arguments.into_iter().peekable();
         let mut command = "serve".to_owned();
-        if let Some(first) = args.peek().and_then(|value| value.to_str())
-            && !first.starts_with('-')
+        if let Some(first) =
+            args.next_if(|value| value.to_str().is_some_and(|first| !first.starts_with('-')))
         {
-            command = args.next().unwrap().to_string_lossy().into_owned();
+            command = first.to_string_lossy().into_owned();
         }
 
         if command == "help" {
@@ -610,6 +611,11 @@ impl RelayConfig {
 mod tests {
     use super::*;
     use crate::Relay;
+
+    #[test]
+    fn the_default_bind_is_loopback_port_8787() {
+        assert_eq!(RelayConfig::default().bind, "127.0.0.1:8787".parse::<SocketAddr>().unwrap());
+    }
 
     #[test]
     fn non_loopback_open_relay_requires_an_explicit_override() {

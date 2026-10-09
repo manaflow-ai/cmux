@@ -55,3 +55,28 @@ import Testing
         #expect(view.transcript.lastHeaderFadeDuration == 0, "the band animates under Reduce Motion")
     }
 }
+
+/// Lawrence (2026-10-08, hmdm7 far shots): with the band hidden, "Chief" on
+/// the name pill was hard to read over bubble text. The pill sits on its own
+/// small translucent capsule (as Messages' header pill), always shown, only
+/// behind the pill, never a full-width band.
+@MainActor @Suite(.serialized) struct HomeHeaderPillBackingTests {
+    /// The least alpha that keeps the pill's title readable over text.
+    static let minimumBacking: CGFloat = 0.6
+
+    @Test func thePillHasItsOwnTranslucentCapsuleWhileTheBandIsHidden() async throws {
+        let (window, view, _) = await HomeFirstRunTests.view()
+        defer { window.close() }
+        #expect(view.transcript.headerFadeOpacity == 0)
+        let pill = try #require(HomeHeaderDragTests.buttons(under: view).first { $0.bezelStyle == .glass && !$0.title.isEmpty })
+        let pillRect = pill.convert(pill.bounds, to: nil)
+        let backings = HomeTransparencyTests.backgrounds(under: view).filter { candidate in
+            guard candidate !== pill, let color = candidate.layer?.backgroundColor, color.alpha >= Self.minimumBacking else { return false }
+            let rect = candidate.convert(candidate.bounds, to: nil)
+            return rect.insetBy(dx: -1, dy: -1).contains(pillRect) && rect.width < view.bounds.width / 2
+        }
+        let backing = try #require(backings.first, "no capsule behind the name pill")
+        #expect(try #require(backing.layer?.backgroundColor).alpha < 1, "the capsule is opaque")
+        #expect(backing.layer?.cornerRadius ?? 0 >= backing.bounds.height / 2 - 0.5, "the backing is not a capsule")
+    }
+}

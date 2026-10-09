@@ -23077,6 +23077,84 @@
       "title_table" : "SidebarSectionActions"
     },
     {
+      "cli" : "guiOnly",
+      "cli_name" : "action sidebar-section-hide",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarSection"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "sidebar.section.hide",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "title" : "Hide Section",
+      "title_key" : "action.sidebar.section.hide",
+      "title_table" : "SidebarSectionActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action sidebar-projects-hide",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarBackground"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "sidebar.projects.hide",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "title" : "Hide Projects",
+      "title_key" : "action.sidebar.projects.hide",
+      "title_table" : "SidebarSectionActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action sidebar-sections-show-hidden",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarBackground"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "sidebar.sections.showHidden",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "title" : "Show Hidden Sections",
+      "title_key" : "action.sidebar.sections.showHidden",
+      "title_table" : "SidebarSectionActions"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "sidebar reset",
       "context_menu" : "offered",
@@ -23360,6 +23438,32 @@
       },
       "title" : "Open Link…",
       "title_key" : "action.link.open",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action app-share-cmux",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "app.shareCmux",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "title" : "Share cmux…",
+      "title_key" : "action.app.shareCmux",
       "title_table" : "ActionCatalog"
     },
     {
@@ -28338,7 +28442,7 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "toggleSidebar",
+          "id" : "sidebar.projects.hide",
           "kind" : "action",
           "order" : 10,
           "visible_when" : {
@@ -28351,12 +28455,12 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "appStore.show",
+          "id" : "sidebar.sections.showHidden",
           "kind" : "action",
           "order" : 11,
           "visible_when" : {
             "debug_only" : false,
-            "feature" : "apps",
+            "feature" : null,
             "requires" : [
 
             ]
@@ -28368,9 +28472,39 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "sidebar.layout.reset",
+          "id" : "toggleSidebar",
           "kind" : "action",
           "order" : 13,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "appStore.show",
+          "kind" : "action",
+          "order" : 14,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : "apps",
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 15
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "sidebar.layout.reset",
+          "kind" : "action",
+          "order" : 16,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -28731,9 +28865,26 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "sidebar.section.remove",
+          "id" : "sidebar.section.hide",
           "kind" : "action",
           "order" : 11,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 12
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "sidebar.section.remove",
+          "kind" : "action",
+          "order" : 13,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -28746,7 +28897,7 @@
           "enabled_when" : "can_perform",
           "id" : "sidebar.item.hideApp",
           "kind" : "action",
-          "order" : 12,
+          "order" : 14,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,

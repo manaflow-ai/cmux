@@ -17,6 +17,9 @@ final class CloudService {
     @ObservationIgnored let api: CloudAPIClient
     @ObservationIgnored let paths: CloudPaths
     @ObservationIgnored private(set) var hub: CloudTunnelHub?
+    /// This Mac's Cloud install principal (cx-wb5.64): install tokens for the
+    /// credential relay; registered at sign-in, revoked at sign-out.
+    @ObservationIgnored let installIdentity: MacInstallIdentity
     @ObservationIgnored private let machines: MachineRegistry
     @ObservationIgnored private let binary: URL?
     @ObservationIgnored private var lastRefresh: ContinuousClock.Instant?
@@ -40,6 +43,14 @@ final class CloudService {
             configuration: configuration,
             tokens: { try await auth.tokens() },
             teamID: { await auth.teamID }
+        )
+        installIdentity = MacInstallIdentity(
+            store: .forApp(directory: paths.root.appendingPathComponent("install", isDirectory: true),
+                           service: "\(configuration.bundleID ?? "cmux").install-key.\(configuration.ownerAPIBaseURL().host ?? "unknown")",
+                           team: CodeSigningTeam.current(), isDebugBuild: configuration.isDebugBuild),
+            transport: InstallHTTPTransport(baseURL: configuration.ownerAPIBaseURL()),
+            deviceName: Self.deviceName,
+            clientVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
         )
         binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)
         if let binary {
@@ -71,6 +82,16 @@ final class CloudService {
         return nil
     }
 
+    /// Whether a Cloud API request may go out: not turned off by the
+    /// organization, the managed team present (P17-3), not a local-only
+    /// backend. (A missing cmux-tui client blocks machines, not the API.)
+    var mayCallCloud: Bool {
+        if policyDisabled { return false }
+        if auth.managedTeamID != nil, auth.teamID == nil { return false }
+        if case .localOnly = configuration.backend { return false }
+        return true
+    }
+
     func start() {
         auth.start()
         if configuration.linkSource == .appServer, linkEvents == nil {
@@ -97,8 +118,10 @@ final class CloudService {
                     // Sign-out revoked the WireGuard peer and parked the hub.
                     await self.hub?.resume()
                     await self.refresh()
+                    await self.installSignedIn()
                 } else {
                     self.dropAllMachines()
+                    await self.installIdentity.unbind()
                 }
             }
         })
@@ -134,6 +157,7 @@ final class CloudService {
                 guard let self, auth.isSignedIn else { return }
                 await hub?.resume()
                 await refresh()
+                await installSignedIn()
             }
         }
     }
@@ -256,6 +280,24 @@ final class CloudService {
     func signOut() async {
         dropAllMachines()
         if let hub { await hub.revoke() }
+        // Revoke the install while the Stack session still exists.
+        if let stackUser = auth.user?.id {
+            let auth = auth
+            await installIdentity.signOut(stackUser: stackUser, session: { try await auth.tokens().access })
+        }
         await auth.signOut()
+    }
+
+    /// Registers (or reuses) this Mac's install for the signed-in user and
+    /// mints one token. A failure is logged: the relay mints again when it
+    /// needs a token, and the hub path does not depend on it.
+    private func installSignedIn() async {
+        guard let stackUser = auth.user?.id, mayCallCloud else { return }
+        let auth = auth
+        do {
+            try await installIdentity.signedIn(stackUser: stackUser, session: { try await auth.tokens().access })
+        } catch {
+            logger.error("install registration failed: \(String(describing: error), privacy: .public)")
+        }
     }
 }
