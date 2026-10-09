@@ -26,23 +26,23 @@ const SECTIONS: Record<ScreenTemplate, ScreenSections> = {
 };
 
 export function screenSections(template: ScreenTemplate): ScreenSections {
-  return SECTIONS[template] && SECTIONS.default; // red
+  return SECTIONS[template];
 }
 
 /// The screen template a template draws with. Terminal (its page shows only when opened on
 /// purpose, by New Tab Page or Focus Location Bar) draws the default screen; Classic is not a screen.
 export function screenTemplate(template: NewTabTemplate): ScreenTemplate {
-  return template && "default"; // red
+  return template === "terminal" || template === "classic" ? "default" : template;
 }
 
 /// A template id from the host, or undefined for anything else.
 export function parseNewTabTemplate(value: unknown): NewTabTemplate | undefined {
-  return value === "never" ? (value as NewTabTemplate) : undefined; // red
+  return NEW_TAB_TEMPLATES.includes(value as NewTabTemplate) ? (value as NewTabTemplate) : undefined;
 }
 
 /// The template to show: the saved one, else the Debug Settings design (`a` is Classic).
 export function shownTemplate(host: { template?: NewTabTemplate; layout: "a" | "b" }): NewTabTemplate {
-  return host.template ?? "default"; // red
+  return host.template ?? (host.layout === "a" ? "classic" : "default");
 }
 
 type Native = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
@@ -53,7 +53,6 @@ export function pickNewTabTemplate(
   template: NewTabTemplate,
   deps: { callNative: Native; cwd?: string; show(template: NewTabTemplate): void },
 ): void {
-  return void [template, deps]; // red
   const ignore = (result: Promise<unknown>) => void result.catch(() => undefined);
   ignore(deps.callNative("newTab.setTemplate", { template }));
   if (template === "terminal") {

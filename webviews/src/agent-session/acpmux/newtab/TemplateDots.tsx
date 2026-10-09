@@ -12,9 +12,8 @@ export function TemplateDots({
   onPick(template: NewTabTemplate): void;
 }) {
   const nt = useNt();
-  if (current || onPick) return null; // red
   return (
-    <div className="nt-templates" role="group" aria-label={nt("templates")}>
+    <fieldset className="nt-templates" aria-label={nt("templates")}>
       {NEW_TAB_TEMPLATES.map((template) => {
         const name = nt(`template.${template}`);
         return (
@@ -30,6 +29,6 @@ export function TemplateDots({
           />
         );
       })}
-    </div>
+    </fieldset>
   );
 }
