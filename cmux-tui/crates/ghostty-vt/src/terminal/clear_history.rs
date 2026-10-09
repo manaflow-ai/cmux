@@ -73,12 +73,16 @@ impl Terminal {
             return ClearHistoryOutcome::Cleared(clear);
         }
 
-        // Like Ghostty's clear_screen, delete the rows above the preserved
-        // content so it moves to the top row (DL also shifts the rows below
-        // it and keeps their prompt marks). DL acts only inside the
-        // scrolling region, so a non-default region blanks the rows in place.
+        // Like Ghostty's clear_screen, the preserved content moves to the
+        // top row. IND on the bottom row scrolls the whole screen up into
+        // history, which keeps soft wraps, prompt marks and image pins (DL
+        // would clear the wrap flags); the history then goes. Scrolling acts
+        // only inside the scrolling region, so a non-default region blanks
+        // the rows in place.
         let target_y = if self.scrolling_region_is_default() {
-            clear.extend_from_slice(format!("\x1b[1;1H\x1b[{preserve_from_y}M").as_bytes());
+            clear = format!("\x1b[{};1H", self.rows()).into_bytes();
+            clear.extend(std::iter::repeat_n(*b"\x1bD", usize::from(preserve_from_y)).flatten());
+            clear.extend_from_slice(CLEAR_SCROLLBACK);
             cursor_y.saturating_sub(preserve_from_y)
         } else {
             for row in 0..preserve_from_y {
