@@ -33,6 +33,8 @@ public protocol AppsTransport: AnyObject {
     /// `apps-set`; returns the app's record after the commit.
     func set(app: String, change: AppChange, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppRecord
     func mount(app: String, interface: String, mountID: String, context: AppJSON) async throws(AppsTransportError)
+    /// Sent whenever a connection exists, also while the client shows the
+    /// supervisor as unavailable (a policy turned apps off).
     func unmount(mountID: String) async throws(AppsTransportError)
     /// A user event on a mounted node (origin `user`: the supervisor mints the gesture token).
     func dispatch(mountID: String, node: String, event: String, payload: AppJSON) async throws(AppsTransportError)

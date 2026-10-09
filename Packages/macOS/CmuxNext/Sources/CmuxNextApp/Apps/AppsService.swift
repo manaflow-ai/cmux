@@ -46,9 +46,12 @@ final class AppsService {
     }
 
     /// Turning apps off (DisabledFeatures) makes the supervisor unreachable
-    /// from this Mac: nothing mounts, every change is refused, and open app
-    /// sections and pages show "Turned off by your organization".
+    /// from this Mac: every mount ends on the supervisor, nothing mounts,
+    /// every change is refused, and open app sections and pages show
+    /// "Turned off by your organization".
     func applyPolicy(disabled: Bool) {
+        // The mounts end on the supervisor first (in order on the client's chain); a reconnect remounts them.
+        if disabled, transport.turnedOff == nil { client.suspendMounts() }
         transport.turnedOff = disabled ? RefusalStrings.turnedOffByOrganization : nil
     }
 

@@ -82,8 +82,9 @@ final class DaemonAppsTransport: AppsTransport {
 
     // MARK: Commands
 
-    private func send<R: DaemonRequest>(_ request: R, timeout: Duration? = nil) async throws(AppsTransportError) -> R.Response {
-        guard availability.isAvailable, let connection = daemon.connection else {
+    private func send<R: DaemonRequest>(_ request: R, timeout: Duration? = nil,
+                                        whileTurnedOff: Bool = false) async throws(AppsTransportError) -> R.Response {
+        guard availability.isAvailable || (whileTurnedOff && turnedOff != nil), let connection = daemon.connection else {
             throw AppsTransportError(message: DaemonError.notConnected.description, connectionLost: true)
         }
         do {
@@ -119,7 +120,7 @@ final class DaemonAppsTransport: AppsTransport {
     }
 
     func unmount(mountID: String) async throws(AppsTransportError) {
-        _ = try await send(AppsUnmountRequest(mountID: mountID))
+        _ = try await send(AppsUnmountRequest(mountID: mountID), whileTurnedOff: true)
     }
 
     func dispatch(mountID: String, node: String, event: String, payload: AppJSON) async throws(AppsTransportError) {

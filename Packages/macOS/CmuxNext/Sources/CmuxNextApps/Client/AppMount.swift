@@ -75,6 +75,15 @@ extension AppsClient {
 
     var liveMounts: [AppMount] { Array(mounts.values) }
 
+    /// Ends every mount on the supervisor and keeps it here (an
+    /// administrator turned apps off on this Mac): the app hosts stop once
+    /// nothing shows them, and the next connection mounts them again.
+    public func suspendMounts() {
+        for mount in mounts.values {
+            enqueue { transport in try? await transport.unmount(mountID: mount.id) }
+        }
+    }
+
     func remountAll() {
         for mount in mounts.values { send(mount) }
     }
