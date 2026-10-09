@@ -109,11 +109,16 @@ export const teamIndexItem = (team: { readonly id: string; readonly kind: string
 /**
  * What a member's removal tells the other owners (cx-44j.47): the user's team index entry goes,
  * UserDO revokes the installs bound to the team, and the team's ConnectionDO ends the user's
- * pending integration approvals. Each carries the removal's tx (no coalescing with a later
+ * pending integration approvals, and the team's CloudDO closes the user's sockets there (the
+ * team's socket owners other than TeamDO, which closes its own in the same turn). Each carries the removal's tx (no coalescing with a later
  * re-join) and time `at`: a late delivery touches only what existed at removal.
  */
 export const memberLeftItems = (team: { readonly id: string; readonly kind: string }, user: string, tx: string, at: number) => [
   teamIndexItem(team, user, null, tx),
   { kind: "user.team_left", entity: `team-left:${team.id}:${user}:${tx}`, payload: { team: team.id, at }, target: { class: "UserDO", name: user } },
-  { kind: "connections.member_left", entity: `member-left:${team.id}:${user}:${tx}`, payload: { team: team.id, user, at }, target: { class: "ConnectionDO", name: team.id } }
+  { kind: "connections.member_left", entity: `member-left:${team.id}:${user}:${tx}`, payload: { team: team.id, user, at }, target: { class: "ConnectionDO", name: team.id } },
+  { kind: TEAM_MEMBER_LEFT_SOCKETS, entity: `sockets-left:${team.id}:${user}:${tx}`, payload: { team: team.id, user, at }, target: { class: "CloudDO", name: team.id } }
 ]
+
+/** The item a team-keyed socket owner (CloudDO) gets when a member leaves: it closes that user's sockets. */
+export const TEAM_MEMBER_LEFT_SOCKETS = "team.member_left.sockets"

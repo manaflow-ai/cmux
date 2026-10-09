@@ -90,6 +90,7 @@ on:
       - "schemas/agent-url-policy/vectors.json"
       - "schemas/automation-input/vectors.json"
       - "schemas/automation-lease/vectors.json"
+      - "schemas/chief-home/vectors.json"
       - "schemas/ghostty-shell-features/vectors.json"
       - "schemas/link-token/keyset-vectors.json"
       - "schemas/remote-tab/client.json"
