@@ -273,7 +273,7 @@ final class WorkspaceRowView: SidebarRowView {
         groupRail.frame = NSRect(x: SidebarStyle.groupBarX, y: 0, width: barWidth, height: max(0, b.height - barBottom))
         groupRail.isHidden = !grouped
         performWithTheme {
-            groupRail.backgroundColor = (groupColor?.themed ?? Palette.textTertiary.withAlphaComponent(0.5)).cgColor
+            groupRail.backgroundColor = (groupColor ?? .grey).headerFill.cgColor
             groupRail.cornerRadius = lastInGroup ? barWidth / 2 : 0
             groupRail.maskedCorners = isFlipped ? [.layerMinXMaxYCorner, .layerMaxXMaxYCorner] : [.layerMinXMinYCorner, .layerMaxXMinYCorner]
         }

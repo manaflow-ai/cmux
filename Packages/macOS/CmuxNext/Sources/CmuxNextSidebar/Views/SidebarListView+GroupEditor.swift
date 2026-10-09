@@ -92,11 +92,11 @@ struct SidebarGroupEditing {
         guard let row = list.displayed.row(for: .group(shown)), visible.intersects(list.frame(for: row)) else { return list.groupEditor.hide() }
     }
 
-    /// Whether `point` (list coordinates) is on the group's chip, off its chevron.
+    /// Whether `point` (list coordinates) is on the group's name, off its chevron.
     func isOnChip(_ point: NSPoint, group: GroupID) -> Bool {
         guard let view = list.rowViews[.group(group)] as? GroupHeaderRowView else { return false }
         let local = list.convert(point, to: view)
-        return view.labelFrame.contains(local) && !view.disclosureFrame.contains(local)
+        return view.nameHitFrame.contains(local) && !view.disclosureFrame.contains(local)
     }
 
     /// A group the store gave a new id (the home daemon names a group the

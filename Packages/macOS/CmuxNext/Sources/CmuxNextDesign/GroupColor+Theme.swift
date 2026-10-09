@@ -41,4 +41,18 @@ extension GroupColor {
         guard let rgb = themeRGB(tokens) else { return Palette.badgeFill }
         return tokens.sidebarBackground.withAlpha(1).mixed(toward: rgb, tokens.isDark ? 0.34 : 0.26).nsColor
     }
+
+    /// The group header bar's fill and the members' bar (the Chrome tab
+    /// group look): the theme's palette color lightened to a pastel so dark
+    /// text reads on it; none is Chrome's light gray.
+    public var headerFill: NSColor {
+        let tokens = ThemeContext.active ?? ThemeScope.app.tokens
+        guard let rgb = themeRGB(tokens) else {
+            return (tokens.isDark ? ThemeRGB(hex: 0xDCDDE1) : ThemeRGB(hex: 0xDADCE0)).nsColor
+        }
+        return rgb.withAlpha(1).mixed(toward: ThemeRGB(hex: 0xFFFFFF), 0.35).nsColor
+    }
+
+    /// Text and glyphs on `headerFill`: near black, as on Chrome's group headers.
+    public static var headerInk: NSColor { ThemeRGB(hex: 0x1F1F1F).nsColor }
 }

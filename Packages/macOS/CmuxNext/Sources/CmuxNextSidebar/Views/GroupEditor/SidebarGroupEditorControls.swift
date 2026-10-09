@@ -56,14 +56,10 @@ final class SidebarGroupSwatchView: NSView {
 
     private func updateColors() {
         performWithTheme {
-            if let themed = color.themed {
-                fill.backgroundColor = themed.cgColor
-                fill.borderWidth = 0
-            } else {
-                fill.backgroundColor = Palette.badgeFill.cgColor
-                fill.borderColor = Palette.textTertiary.cgColor
-                fill.borderWidth = Metrics.dividerThickness
-            }
+            // The same color the group's header bar takes; none draws an edge too.
+            fill.backgroundColor = color.headerFill.cgColor
+            fill.borderColor = Palette.textTertiary.cgColor
+            fill.borderWidth = color == .grey ? Metrics.dividerThickness : 0
             ring.borderColor = (isChosen ? Palette.textPrimary : (isHovered ? Palette.separator : NSColor.clear)).cgColor
         }
         setAccessibilityValue(isChosen ? 1 : 0)

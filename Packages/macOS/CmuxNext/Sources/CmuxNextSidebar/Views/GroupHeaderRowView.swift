@@ -3,14 +3,15 @@ import CmuxNextDesign
 import CmuxNextIcons
 import QuartzCore
 
-/// Group header as a Chrome tab group chip, in cmux's own style (cx-rcby,
-/// Lawrence 2026-10-08: "make groups like this"): one compact pill with the
-/// group's icon and name, a more (⋮) button that shows on hover, and the
-/// collapse chevron at its end. The pill is the group's theme color washed
-/// into the sidebar (`GroupColor.themedChipFill`; neutral for none). No
-/// member count: a collapsed group shows its members' activity and unread
-/// total after the pill. The name and the more button open the group
-/// editor; the chevron and the rest of the row collapse.
+/// Group header as the Chrome tab group header bar (cx-rcby, Lawrence
+/// 2026-10-08: "make sure for groups we pixel match this", "but with our
+/// smaller height"): one full-width rounded bar filled with the group's
+/// color (light gray for none) with the name in dark regular type, a more
+/// (⋮) button on hover and the collapse chevron at the right edge. Radius,
+/// padding, type and glyphs scale with the row height (the sidebar density
+/// setting). No member count: a collapsed group shows its members' activity
+/// and unread total in the bar. The name, the more button and a right-click
+/// open the group editor; the chevron and the rest of the bar collapse.
 final class GroupHeaderRowView: SidebarRowView {
     private let name = SidebarRowView.label(font: SidebarStyle.headerFont)
     private let chevron = NSImageView()
@@ -77,7 +78,6 @@ final class GroupHeaderRowView: SidebarRowView {
         guard needsConfigure(content) else { return }
         color = group.color
         name.stringValue = group.name
-        name.font = SidebarStyle.headerFont
         pinned = group.isPinned
         hasIcon = group.icon != nil
         glyph.configure(icon: group.icon)
@@ -127,6 +127,12 @@ final class GroupHeaderRowView: SidebarRowView {
         let text = ceil((name.stringValue as NSString).size(withAttributes: [.font: font]).width)
         return max(ceil(name.intrinsicContentSize.width), text + 2 * Metrics.space2)
     }
+    /// The group's name and icon: a click here opens the editor; the rest
+    /// of the bar and the chevron collapse (the Chrome header toggles).
+    var nameHitFrame: NSRect {
+        let start = hasIcon ? glyph.frame.minX : name.frame.minX
+        return NSRect(x: start - Metrics.space2, y: 0, width: name.frame.maxX - start + 2 * Metrics.space2, height: bounds.height)
+    }
     var labelFill: CGColor? { pill.isHidden ? nil : pill.backgroundColor }
     override var titleFont: NSFont { SidebarStyle.headerFont }
     private var renaming = false
@@ -140,24 +146,20 @@ final class GroupHeaderRowView: SidebarRowView {
 
     override func updateLayer() {
         performWithTheme {
-            name.textColor = Palette.textPrimary
-            pin.contentTintColor = Palette.textTertiary
-            chevron.contentTintColor = Palette.textSecondary
-            moreButton.contentTintColor = Palette.textSecondary
-            var fill = color.themedChipFill
-            if isHovered || isEditing { fill = fill.blended(withFraction: 0.08, of: Palette.textPrimary) ?? fill }
-            if isDropTarget { fill = fill.blended(withFraction: 0.16, of: Palette.textPrimary) ?? fill }
+            // Dark text and glyphs on the light or colored bar (the Chrome tab group header).
+            let ink = GroupColor.headerInk
+            name.textColor = ink
+            pin.contentTintColor = ink.withAlphaComponent(0.7)
+            chevron.contentTintColor = ink
+            moreButton.contentTintColor = ink
+            var fill = color.headerFill
+            if isHovered || isEditing { fill = fill.blended(withFraction: 0.08, of: .black) ?? fill }
+            if isDropTarget { fill = fill.blended(withFraction: 0.16, of: .black) ?? fill }
             pill.backgroundColor = fill.cgColor
-            connector.backgroundColor = (color.themed ?? Palette.textTertiary.withAlphaComponent(0.5)).cgColor
-            if isDropTarget {
-                pill.borderColor = (color.themed ?? Palette.focusRing).cgColor
-                pill.borderWidth = Metrics.dividerThickness * 1.5
-                paintFill(color.themed?.withAlphaComponent(0.12) ?? Palette.selectionFill)
-            } else {
-                pill.borderWidth = 0
-                // A collapsed group that holds the selected workspace paints the selection fill.
-                paintFill(isSelected ? Palette.selectionFill : nil)
-            }
+            pill.borderWidth = isDropTarget ? Metrics.dividerThickness * 1.5 : 0
+            pill.borderColor = ink.withAlphaComponent(0.5).cgColor
+            // A collapsed group that holds the selected workspace paints the selection fill around its bar.
+            paintFill(isSelected ? Palette.selectionFill : nil)
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             layer?.borderColor = Palette.focusRing.cgColor
@@ -177,8 +179,22 @@ final class GroupHeaderRowView: SidebarRowView {
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
 
+        // One full-width rounded bar (the Chrome tab group header) whose
+        // radius, padding, type and glyphs scale with the row height
+        // (the sidebar density: compact 24, comfortable 32 pt).
+        let barHeight = SidebarStyle.groupHeaderBarHeight(rowHeight: b.height)
+        let pad = (barHeight * 0.62).rounded()
         name.isHidden = renaming
-        var trailing = b.width - Metrics.space3
+        name.font = SidebarStyle.groupHeaderFont(barHeight: barHeight)
+        let chevronSide = max(Metrics.smallIconSize - Metrics.space1, (barHeight * 0.46).rounded())
+        chevronFrame = CGRect(x: b.width - pad * 0.75 - chevronSide, y: (b.height - chevronSide) / 2, width: chevronSide, height: chevronSide)
+        chevron.frame = chevronFrame
+        let control = barHeight - Metrics.space1
+        // The more button fades in left of the chevron on hover; its slot is kept.
+        moreButton.frame = NSRect(x: chevronFrame.minX - Metrics.space1 - control, y: (b.height - control) / 2, width: control, height: control)
+        moreButton.isHidden = false
+        moreButton.alphaValue = showsMore ? 1 : 0
+        var trailing = moreButton.frame.minX - Metrics.space2
         if badge.state.isUnread {
             badge.isHidden = false
             let w = badge.preferredWidth, h = SidebarStyle.badgeHeight
@@ -192,43 +208,21 @@ final class GroupHeaderRowView: SidebarRowView {
             activity.frame = NSRect(x: trailing - ind, y: (b.height - ind) / 2, width: ind, height: ind)
             trailing -= ind + Metrics.space2
         }
+        let glyphSide = min(SidebarStyle.iconBox, barHeight)
+        glyph.isHidden = !hasIcon
+        glyph.frame = NSRect(x: pad - Metrics.space1, y: (b.height - glyphSide) / 2, width: glyphSide, height: glyphSide)
+        let nx = pad + (hasIcon ? glyphSide : 0)
         let pinSide = Metrics.smallIconSize
         let pinRoom = pinned ? pinSide + Metrics.space2 : 0
-
-        // The chip: [icon] name [⋮] chevron, a capsule.
-        let chipX = SidebarStyle.groupChipLeading
-        let chipHeight = SidebarStyle.groupChipHeight(rowHeight: b.height)
-        let chipY = (b.height - chipHeight) / 2
-        let pad = Metrics.space3
-        let glyphSide = min(SidebarStyle.iconBox, chipHeight)
-        glyph.isHidden = !hasIcon
-        glyph.frame = NSRect(x: chipX + pad - Metrics.space1, y: (b.height - glyphSide) / 2, width: glyphSide, height: glyphSide)
-        let nx = chipX + pad + (hasIcon ? glyphSide : 0)
-        let chevronSide = Metrics.smallIconSize
-        let control = chipHeight - Metrics.space1
-        // The more button's slot is kept whether or not it shows, so the
-        // name never re-truncates on hover (SidebarHoverStabilityTests).
-        let tail = Metrics.space1 + control + chevronSide + pad
-        let nameWidth = min(titleIntrinsicWidth, max(0, trailing - pinRoom - nx - tail))
+        let nameWidth = min(titleIntrinsicWidth, max(0, trailing - pinRoom - nx))
         let nh = ceil(name.intrinsicContentSize.height)
         name.frame = NSRect(x: nx, y: (b.height - nh) / 2, width: nameWidth, height: nh)
-        let moreX = nx + nameWidth + Metrics.space1
-        moreButton.frame = NSRect(x: moreX, y: (b.height - control) / 2, width: control, height: control)
-        // The chip keeps its width: the more button fades in its slot on hover.
-        moreButton.isHidden = false
-        moreButton.alphaValue = showsMore ? 1 : 0
-        let chevronX = moreX + control
-        chevronFrame = CGRect(x: chevronX, y: (b.height - chevronSide) / 2, width: chevronSide, height: chevronSide)
-        chevron.frame = chevronFrame
-        pill.isHidden = renaming
-        pill.frame = NSRect(x: chipX, y: chipY, width: chevronFrame.maxX + pad - chipX, height: chipHeight)
-        pill.cornerRadius = chipHeight / 2
-        // The members' bar begins right under the chip's rounded start.
-        connector.isHidden = collapsed || !hasMembers || renaming
-        connector.frame = NSRect(x: SidebarStyle.groupBarX - b.minX, y: pill.frame.maxY, width: SidebarStyle.groupBarWidth,
-                                 height: max(0, b.height - pill.frame.maxY))
         pin.isHidden = !pinned
-        pin.frame = NSRect(x: pill.frame.maxX + Metrics.space2, y: (b.height - pinSide) / 2, width: pinSide, height: pinSide)
+        pin.frame = NSRect(x: name.frame.maxX + Metrics.space2, y: (b.height - pinSide) / 2, width: pinSide, height: pinSide)
+        pill.isHidden = renaming
+        pill.frame = NSRect(x: 0, y: (b.height - barHeight) / 2, width: b.width, height: barHeight)
+        pill.cornerRadius = (barHeight * 0.23).rounded()
+        connector.isHidden = true
         needsDisplay = true
     }
 
