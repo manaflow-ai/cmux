@@ -52,7 +52,7 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
     private func refresh() {
         let config = StatusIndicatorAppearance.shared.config
         let animates = window != nil && isWindowVisible && config.animatesLoops
-        let plan = StatusIndicatorPlan.make(state, style: config.style(hint: styleHint), animates: animates)
+        let plan = StatusIndicatorPlan.make(state, style: config.style(hint: styleHint), animates: animates, set: config.iconSet)
         let showed = showsGlyph
         indicator.apply(plan, config: config)
         isHidden = plan.glyph == .none
