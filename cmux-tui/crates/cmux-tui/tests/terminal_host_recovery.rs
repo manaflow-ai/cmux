@@ -5334,3 +5334,6 @@ mod keep_layout;
 
 #[path = "terminal_host_recovery/reconnect_checkpoints.rs"]
 mod reconnect_checkpoints;
+
+#[path = "terminal_host_recovery/kitty_budget_resync.rs"]
+mod kitty_budget_resync;

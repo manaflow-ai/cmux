@@ -1183,13 +1183,9 @@ export class AcpmuxDirectClient {
         this.turnOpen = false;
         this.pendingPermission = undefined;
         this.groupedPermissions.clear();
-        if (this.streamingAssistant) {
-          const row = this.rows.get(this.streamingAssistant);
-          if (row) {
-            row.streaming = false;
-            row.version += 1;
-          }
-        }
+        // A new row, never an in-place change: emitted snapshots share row objects, and the
+        // transcript's memo compares the drawn row's version with the next one.
+        this.endAssistantSegment();
         this.rows.delete("typing");
         const checkpoint = event.kind === "turn_result" ? readSummaryCheckpoint(msg) : undefined;
         if (event.kind === "turn_result")

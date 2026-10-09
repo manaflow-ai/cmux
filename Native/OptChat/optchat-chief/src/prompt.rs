@@ -62,8 +62,8 @@ cmux Home, and your final reply of each turn is posted there.
   the user can watch and join its chat, or that it has none and why. Tell
   the user only what that answer says. A subagent sees your view and its
   task, so say in the task what it must do and report.
-  When all of one spawn's subagents finish, their reports reach you as ONE
-  message, \"[id] report\" each. `tell(id, message)` sends a running
+  Each one's report reaches you as a message, \"[id] report\", when it
+  finishes. `tell(id, message)` sends a running
   subagent more instructions. Never wait or poll for them.
 - Your engine: `chief engine show` prints your harness, model and effort
   and the last turn's stats; `chief engine set --harness H --model M
@@ -122,8 +122,8 @@ cmux Home, and your final reply of each turn is posted there.
   directory the work is in); it prints their ids at once, and for each one
   the cmux workspace where the user can watch and join its chat, or that it
   has none and why. Tell the user only what it prints. A subagent sees your
-  view and its task, so say in the task what it must do and report. When all of one spawn's subagents finish, their reports reach
-  you as ONE message, \"[id] report\" each. `{chief} tell ID \"message\"`
+  view and its task, so say in the task what it must do and report. Each one's report reaches you as a message,
+  \"[id] report\", when it finishes. `{chief} tell ID \"message\"`
   sends a running subagent more instructions. Never wait or poll for them.
 - Your engine: `{chief} engine show` prints your harness, model and effort
   and the last turn's stats; `{chief} engine set --harness H --model M
@@ -193,7 +193,7 @@ pub fn subagent_blocks(view: &str, task: &str) -> Vec<Value> {
 }
 
 /// Tool descriptions of section 9's `spawn` and `tell`.
-pub const SPAWN_DESCRIPTION: &str = "Start one subagent per task, in parallel, in the background, in `cwd`; answers their ids at once and, for each, the cmux workspace that shows its chat and where it is, or that it has none and why. Tell the user only that. Each subagent sees the view and its task. When all of them finish, their reports reach you as one message, \"[id] report\" each. Never wait or poll for them.";
+pub const SPAWN_DESCRIPTION: &str = "Start one subagent per task, in parallel, in the background, in `cwd`; answers their ids at once and, for each, the cmux workspace that shows its chat and where it is, or that it has none and why. Tell the user only that. Each subagent sees the view and its task. Each one's report reaches you as a message \"[id] report\" when it finishes. Never wait or poll for them.";
 pub const SPAWN_CWD_DESCRIPTION: &str = "The directory the subagents work in, on the machine you run on (~ is its home). The answer says when it does not exist there.";
 pub const TELL_DESCRIPTION: &str =
     "Send a message to a running subagent; it reaches it after its current step.";
@@ -251,6 +251,8 @@ pub fn user_instructions(path: &std::path::Path) -> Option<String> {
 
 /// Tool descriptions, verbatim from section 7.1.
 pub const ZOOM_DESCRIPTION: &str = "Open the line id+n of the view into the two lines of n/2 under it; n = 1 gives the message whole.";
+/// What zoom adds for subagents (the MCP tool; the native engine has none).
+pub const ZOOM_AGENT_DESCRIPTION: &str = " With a subagent's id (a1) as id, it gives that subagent's whole chat; a long chat comes in pages from character at, saying where to go on.";
 pub const DATE_DESCRIPTION: &str = "The date and time of message id.";
 
 /// The turn's user message (spec 6): the view rendered before the new
@@ -279,7 +281,11 @@ mod tests {
         let text = claude_md(None);
         assert!(!text.contains("OptChat"), "the agent is renamed");
         assert!(text.starts_with("You are Chief, an AI agent"));
-        assert!(text.contains("\n# The view\n\nChief's memory: the whole chat between Chief and the user"));
+        assert!(
+            text.contains(
+                "\n# The view\n\nChief's memory: the whole chat between Chief and the user"
+            )
+        );
         assert!(text.contains("before you act, guess or\nask."), "{text}");
         assert!(text.ends_with("read your memory.\n"));
     }

@@ -765,10 +765,7 @@
         "key" : "settings.group.tabs",
         "text" : "Tabs"
       },
-      "help" : {
-        "key" : "settings.app.warnBeforeClosingTab.help",
-        "text" : "Ask before closing a tab or workspace whose terminal is running a program. Idle tabs always close at once."
-      },
+      "help" : null,
       "kept_on_reset_all" : false,
       "key" : "app.warnBeforeClosingTab",
       "keywords" : [
@@ -815,10 +812,7 @@
         "key" : "settings.group.tabs",
         "text" : "Tabs"
       },
-      "help" : {
-        "key" : "settings.app.warnBeforeClosingAgentSession.help",
-        "text" : "Ask before closing a terminal tab whose agent is still working."
-      },
+      "help" : null,
       "kept_on_reset_all" : false,
       "key" : "app.warnBeforeClosingAgentSession",
       "keywords" : [
@@ -16188,7 +16182,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "b8d52bfeb3eb18651f3ee9cb21ad54dd7a99ba580b614bbd78fe709daa838f87",
+  "schema_hash" : "6d0539d97941e3a6aae7b0640d12e06342f401d3f8adbaf21b7a481f807a01ad",
   "sections" : [
     {
       "id" : "general",

@@ -73,6 +73,24 @@ pub trait CompactModel: Send + Sync {
     /// reply and retry text, oldest first. No tools.
     fn call(&self, request: &CompactRequest, followups: &[Followup]) -> Result<Reply, ModelError>;
 
+    /// `call`, and `started` once the response has begun (the API's
+    /// `message_start`, a harness's first streamed output): from then on the
+    /// request's cache entry exists, so a call that waits to read it may go
+    /// (single-flight). A model that cannot tell calls it with a reply, never
+    /// after a failure (a failed call may have written nothing).
+    fn call_started(
+        &self,
+        request: &CompactRequest,
+        followups: &[Followup],
+        started: &dyn Fn(),
+    ) -> Result<Reply, ModelError> {
+        let reply = self.call(request, followups);
+        if reply.is_ok() {
+            started();
+        }
+        reply
+    }
+
     /// The node's conversation is over (built, or failed until its retry):
     /// a model that keeps a conversation open between calls (an acpmux
     /// session) closes it here. Called once per `run_node`.
