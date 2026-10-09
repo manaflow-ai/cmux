@@ -875,3 +875,35 @@ fn the_marker_ends_the_stable_view_prefix_and_the_next_turn_keeps_that_boundary(
     let next = markers(&inner.prompts[1])[0];
     assert!(second[next].0 >= offset);
 }
+
+/// The Chief's own codex (the cmux codex fork, which reads the Chief's
+/// `CODEX_PROMPT_CACHE_KEY`; the user's PATH codex may be upstream, which
+/// ignores it and never reads the view back): installed at
+/// `paths.codex_bin`, it is the `CODEX_PATH` codex-acp runs in every codex
+/// turn and compactor session. Not installed: no CODEX_PATH, the PATH codex.
+#[test]
+fn codex_sessions_run_the_chiefs_own_codex_when_installed() {
+    use optchat_chief::acpmux::Family;
+    use optchat_chief::compactor::compactor_presets;
+    use optchat_chief::host::turn_preset;
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("mux");
+    let paths = optchat_chief::paths::Paths::new(&home);
+    let turn = turn_preset(&paths, &home, "codex", Family::Codex, true, "SYS").unwrap();
+    assert!(
+        !turn.env.contains_key("CODEX_PATH"),
+        "not installed: PATH codex"
+    );
+    std::fs::create_dir_all(paths.codex_bin.parent().unwrap()).unwrap();
+    std::fs::write(&paths.codex_bin, "#!/bin/sh\n").unwrap();
+    let want = paths.codex_bin.display().to_string();
+    let turn = turn_preset(&paths, &home, "codex", Family::Codex, true, "SYS").unwrap();
+    assert_eq!(turn.env.get("CODEX_PATH"), Some(&want));
+    let bare = turn_preset(&paths, &home, "codex", Family::Codex, false, "SYS").unwrap();
+    assert_eq!(bare.env.get("CODEX_PATH"), Some(&want));
+    for slot in compactor_presets(&paths, &home, "codex", Family::Codex) {
+        assert_eq!(slot.env.get("CODEX_PATH"), Some(&want), "{}", slot.name);
+    }
+    let claude = turn_preset(&paths, &home, "claude-sr", Family::Claude, true, "SYS").unwrap();
+    assert!(!claude.env.contains_key("CODEX_PATH"));
+}
