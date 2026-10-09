@@ -673,6 +673,8 @@ const actorOf = (createdBy: string): Option.Option<Principal["actor"]> => {
 const ownerStillValid = (tenantId: Principal["tenantId"], actor: Principal["actor"]) =>
   Effect.gen(function* () {
     if (actor.kind === "session") return yield* (yield* TeamMembership).isMember(tenantId, actor.userId).pipe(Effect.mapError(() => unavailable()));
+    // A service key (cx-b4h.13) holds no mesh scope, so it never owns a code or a device.
+    if (actor.kind === "service") return false;
     const key = yield* (yield* ApiKeyStore).findActiveById(tenantId, actor.keyId, yield* now).pipe(Effect.catchAll(dependencyDown("api_keys.findById")));
     return Option.isSome(key);
   });

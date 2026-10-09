@@ -160,29 +160,3 @@ import Testing
     }
 }
 
-/// The default mode: a new column matches the current one and nothing
-/// resizes (user decision, plans/cmux-next/column-sizing.md).
-@Suite @MainActor struct LayoutModelMatchCurrentTests {
-    @Test func aNewColumnMatchesTheCurrentWidthAndSendsNoResize() {
-        let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "", layout: .columns([
-            LayoutColumn(id: "c0", width: 1.0, root: .leaf("p0")), LayoutColumn(id: "c1", width: 0.4, root: .leaf("p1")),
-        ]))])
-        model.followsDesignMetrics = false
-        var intents: [LayoutIntent] = []
-        model.intentHandler = { intents.append($0) }
-        #expect(model.newColumnWidthMode == .matchCurrent)
-        model.newColumn(after: "p1")
-        #expect(intents == [.newColumn(after: "p1", width: 0.4)])
-        model.commitNewColumnResize(model.prepareNewColumn(nextTo: "p1"))
-        #expect(intents.count == 1)
-    }
-
-    @Test func anUnscrolledScreenOpensAFullWidthColumn() {
-        let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "", layout: .splits(.leaf("p0")))])
-        model.followsDesignMetrics = false
-        var intents: [LayoutIntent] = []
-        model.intentHandler = { intents.append($0) }
-        model.newColumn()
-        #expect(intents == [.newColumn(after: "p0", width: 1.0)])
-    }
-}

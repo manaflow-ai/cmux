@@ -8,9 +8,11 @@ extension HomeStore {
     /// `passing`: a refusal the caller handles itself (the log and the
     /// send queue stay as they are).
     func submit(_ intent: HomeIntent, passing: HomeRejection? = nil) async throws -> HomeOpResult {
+        noteSubmitted(intent.key)
         do {
             let result = try await source.submit(intent)
             cancelBackoff(intent.key)
+            endOfflineDeadline(intent.key)
             log.acknowledge(intent.key, rev: result.rev)
             uploads[intent.key] = nil
             leaveSendQueue(intent.key)
@@ -20,6 +22,7 @@ extension HomeStore {
         } catch let rejection as HomeRejection {
             switch rejection {
             case .ownerUnreachable, .indeterminate:
+                possiblySent.insert(intent.key)
                 // Possibly committed: keep it and resend with the same key.
                 // Online: once at once, then after each backoff delay,
                 // then "Not Delivered" so later sends are not held forever.
@@ -44,6 +47,7 @@ extension HomeStore {
                     throw HomeSendState.pendingResend
                 }
                 cancelBackoff(intent.key)
+                endOfflineDeadline(intent.key)
                 leaveSendQueue(intent.key)
                 if case .sendMessage = intent.op {
                     log.fail(intent.key, rejection)
@@ -53,10 +57,23 @@ extension HomeStore {
                 afterLogChange(intent.op)
                 throw rejection
             }
+        } catch is HomeOwnerOffline {
+            // Nothing left: its owner is down while another owner keeps the
+            // store online. A send waits for its recovery, as offline.
+            guard case .sendMessage = intent.op else {
+                log.discard(intent.key)
+                afterLogChange(intent.op)
+                throw HomeRejection.ownerUnreachable
+            }
+            waitForOwnerRecovery(intent.key)
+            afterLogChange(intent.op)
+            throw HomeSendState.pendingResend
         }
     }
 
-    /// Resends run one at a time, in log order, so the owner sees them in order.
+    /// Resends run one at a time, in log order, so the owner sees them in
+    /// order. A send also waits for every earlier send of its conversation
+    /// (a send with attachments made while offline uploads first).
     func enqueueResends(_ intents: [HomeIntent]) {
         pendingResends.append(contentsOf: intents)
         guard resendTask == nil, !pendingResends.isEmpty else { return }
@@ -65,6 +82,10 @@ extension HomeStore {
                 let next = self.pendingResends.removeFirst()
                 // Cancelled or dropped since it was queued.
                 guard self.log.entries.contains(where: { $0.intent.key == next.key }) else { continue }
+                if case .sendMessage(let conversation, _) = next.op {
+                    await self.waitForTurn(next.key, in: conversation)
+                    guard self.log.entries.contains(where: { $0.intent.key == next.key }), !self.stopped else { continue }
+                }
                 do {
                     _ = try await self.submit(next)
                 } catch let rejection as HomeRejection {
@@ -97,6 +118,7 @@ extension HomeStore {
             // Offline intents wait for the reconnect, which resends them anyway.
             guard isOnline else { return }
             enqueueResends(log.takeResends())
+            resumeInterruptedUploads()
             for stream in mirror.stale { scheduleRefetch(stream) }
             rebuildRows()
         case .intentsRevoked(let keys):

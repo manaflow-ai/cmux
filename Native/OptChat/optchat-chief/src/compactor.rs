@@ -319,6 +319,8 @@ struct Live {
     system: Option<String>,
     /// The node's first message carries our mark (Claude Code's own off).
     ours: bool,
+    /// The route (harness) the session runs on.
+    route: String,
     opened: Instant,
     prompts: u32,
     /// Token use the harness reported, summed over the node's prompts.
@@ -640,6 +642,7 @@ impl AcpmuxCompactor {
         // (harness_gate), checked before a slot is taken.
         let admitted = self.admit(node)?;
         self.reap_warm();
+        let route = self.harness();
         let key = self.warm_key(system, ttl, ours);
         let (id, slot, cwd, preset) = match self.slots.acquire((self.warm > 0).then_some(key)) {
             Acquired::Warm(w) => (w.id, w.slot, w.cwd, w.preset),
@@ -675,6 +678,7 @@ impl AcpmuxCompactor {
                     preset,
                     system: system.map(str::to_owned),
                     ours,
+                    route,
                     opened: Instant::now(),
                     prompts: 0,
                     usage: None,
@@ -860,7 +864,7 @@ impl AcpmuxCompactor {
         let deadline = Instant::now() + self.spec.timeout;
         let answer = loop {
             match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-                Ok(TurnSignal::Changed) => {
+                Ok(TurnSignal::Changed | TurnSignal::Noted) => {
                     // The first streamed output: the response started.
                     if !begun
                         && self.port.events(session, before).is_ok_and(|events| {
@@ -980,6 +984,7 @@ impl AcpmuxCompactor {
     fn first_cached(
         &self,
         request: &CompactRequest,
+        note: Option<&str>,
         started: &dyn Fn(),
     ) -> Result<Reply, ModelError> {
         let node = request.node;
@@ -987,7 +992,10 @@ impl AcpmuxCompactor {
         // The turns' TTL on this route, read once: the mark, the slot's
         // Claude Code settings and the warm session key agree.
         let ttl = self.cache_ttl.get();
-        let layout = cached_prompt_with(request, marker, ttl);
+        let mut layout = cached_prompt_with(request, marker, ttl);
+        if let Some(note) = note {
+            layout.blocks.push(text_block(note));
+        }
         let ours = layout
             .blocks
             .iter()
@@ -1008,7 +1016,10 @@ impl AcpmuxCompactor {
                 ));
                 // A fresh session: the refused prompt may sit in the old one's history.
                 self.end(request);
-                let layout = cached_prompt_with(request, false, ttl);
+                let mut layout = cached_prompt_with(request, false, ttl);
+                if let Some(note) = note {
+                    layout.blocks.push(text_block(note));
+                }
                 let session = self.open(node, Some(&layout.system), ttl, false)?;
                 self.prompt(node, &session, layout.blocks, started)
             }
@@ -1025,42 +1036,78 @@ impl AcpmuxCompactor {
         started: &dyn Fn(),
     ) -> Result<Reply, ModelError> {
         let node = request.node;
-        let (session, blocks) = match followups.last() {
-            None => {
-                // A fresh conversation: whatever an earlier try left is gone.
-                self.end(request);
-                if self.claude() && self.port.system_prompt(&slot_preset(&self.spec.preset, 0)) {
-                    return self.first_cached(request, started);
-                }
-                (
-                    self.open(node, None, self.cache_ttl.get(), false)?,
-                    request_blocks(request),
-                )
-            }
-            Some(last) => {
-                let (session, ours) = self
-                    .live
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .get(&node)
-                    .map(|l| (l.id.clone(), l.ours))
-                    .ok_or_else(|| ModelError::new("the node's compactor session is gone"))?;
-                let mut block = text_block(&last.retry);
-                // With our mark, Claude Code places none of its own: each
-                // retry ends with ours, so it reads the previous request
-                // from the cache. 5 minutes whatever the node's TTL: a retry
-                // chain lasts seconds and a 5m write costs 1.25x the input
-                // against 2x for 1h (the API takes a 5m mark after a 1h
-                // one). The view mark and RETRY_MARKS retry marks stay
-                // within the API's 4; a later retry reads the last marked
-                // request's entry unmarked.
-                if ours && followups.len() <= RETRY_MARKS {
-                    block["cache_control"] = CacheTtl::FiveMinutes.cache_control();
-                }
-                (session, vec![block])
-            }
+        let Some(last) = followups.last() else {
+            // A fresh conversation: whatever an earlier try left is gone.
+            self.end(request);
+            return self.first_call(request, None, started);
         };
-        self.prompt(node, &session, blocks, started)
+        // A size retry is a fresh call, as the reference client makes it: a
+        // new session with the node's first prompt (its cached prefix is read
+        // again) and the retry note, never the model's own long line. The
+        // node's counts carry over.
+        let old = self.retire(node);
+        let reply = self.first_call(request, Some(&last.retry), started);
+        if let Some(old) = old
+            && let Some(l) = self
+                .live
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .get_mut(&node)
+        {
+            l.opened = old.opened;
+            l.prompts += old.prompts;
+            l.cost = match (l.cost, old.cost) {
+                (Some(a), Some(b)) => Some(a + b),
+                (a, b) => a.or(b),
+            };
+            if let Some(u) = old.usage {
+                let sum = l.usage.get_or_insert_with(Usage::default);
+                sum.input += u.input;
+                sum.cache_read += u.cache_read;
+                sum.cache_write += u.cache_write;
+                sum.output += u.output;
+            }
+            if l.context.is_null() {
+                l.context = old.context;
+            }
+        }
+        reply
+    }
+
+    /// A node's first prompt (with `note`, a size retry's), in a new session.
+    fn first_call(
+        &self,
+        request: &CompactRequest,
+        note: Option<&str>,
+        started: &dyn Fn(),
+    ) -> Result<Reply, ModelError> {
+        if self.claude() && self.port.system_prompt(&slot_preset(&self.spec.preset, 0)) {
+            return self.first_cached(request, note, started);
+        }
+        let mut blocks = request_blocks(request);
+        if let Some(note) = note {
+            blocks.push(text_block(note));
+        }
+        let session = self.open(request.node, None, self.cache_ttl.get(), false)?;
+        self.prompt(request.node, &session, blocks, started)
+    }
+
+    /// Ends `node`'s session for a fresh retry: no trace, no warm-up; its
+    /// slot goes back. Its counts, for the next session of the node.
+    fn retire(&self, node: NodeId) -> Option<Live> {
+        let live = self
+            .live
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&node)?;
+        let _ = self.port.end_session(&live.id);
+        self.delete_transcript(&live.cwd);
+        self.wipe_codex(live.slot);
+        if live.system.is_some() {
+            let _ = self.port.set_system_prompt(&live.preset, "");
+        }
+        self.slots.give(live.slot);
+        Some(live)
     }
 }
 
@@ -1135,8 +1182,8 @@ impl AcpmuxCompactor {
         self.trace.emit(
             "node",
             json!({
-                "node": node.name(),
-                "harness": self.spec.harness,
+                "node": node_label(node),
+                "harness": live.route,
                 "model": self.model(),
                 "ms": live.opened.elapsed().as_millis() as u64,
                 "prompts": live.prompts,
@@ -1185,14 +1232,33 @@ impl AcpmuxCompactor {
             None => "tokens not reported".to_owned(),
         };
         let cost = live.cost.map_or(String::new(), |c| format!(", ${c:.3}"));
+        let what = if node == PROBE_NODE {
+            "compactor probe".to_owned()
+        } else if is_describe(node) {
+            "compactor image description".to_owned()
+        } else {
+            format!("compactor node {}", node.name())
+        };
         self.say(&format!(
-            "compactor node {} ({}, {}): {:.1} s, {} prompt(s), {tokens}{cost}",
-            node.name(),
-            self.spec.harness,
+            "{what} ({}, {}): {:.1} s, {} prompt(s), {tokens}{cost}",
+            live.route,
             self.model().as_deref().unwrap_or("default model"),
             live.opened.elapsed().as_secs_f64(),
             live.prompts
         ));
+    }
+}
+
+/// The trace's name of `node`: `probe` and `describe` for the ids no chat
+/// node has (the start-up probe's level 63, image descriptions'), else its
+/// `id+n`.
+fn node_label(node: NodeId) -> String {
+    if node == PROBE_NODE {
+        "probe".to_owned()
+    } else if is_describe(node) {
+        "describe".to_owned()
+    } else {
+        node.name()
     }
 }
 
@@ -1235,10 +1301,6 @@ pub(crate) fn private_dir(dir: &Path) -> io::Result<()> {
         .create(dir)?;
     std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
 }
-
-/// Size-loop retries of a node with our mark that carry a mark of their own:
-/// with the view mark, the API's limit of 4 per request.
-pub const RETRY_MARKS: usize = 3;
 
 fn text_block(text: &str) -> Value {
     json!({"type": "text", "text": text})
@@ -1566,7 +1628,15 @@ pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str, family: Fami
                         CODEX_CACHE_KEY_ENV.to_owned(),
                         codex_cache_key(home, "compact"),
                     ),
-                ]),
+                ])
+                .into_iter()
+                .chain(crate::codex_home::chief_codex(paths).map(|c| {
+                    (
+                        crate::codex_home::CODEX_PATH_ENV.to_owned(),
+                        c.display().to_string(),
+                    )
+                }))
+                .collect(),
                 args: Vec::new(),
                 system_prompt: None,
             })

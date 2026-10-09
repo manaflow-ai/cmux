@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextBrowserAutomation
 import WebKit
 
 /// Off-screen render windows for agent-driven WebKit tabs that no pane shows
@@ -25,6 +26,8 @@ final class AgentRenderWindows {
     static let viewport = NSSize(width: 1280, height: 800)
 
     private var parked: [String: AgentRenderPanel] = [:]
+    /// WebKit private calls (occlusion detection) for the parked pages.
+    let privateCalls = WebKitPrivateCalls()
 
     /// Moves a hidden tab's `chrome` into its render window, with `webView`
     /// (a WebKit page) first responder there. A Chromium tab's content view
@@ -32,9 +35,11 @@ final class AgentRenderWindows {
     /// there and activates it). True when it moved; false when the tab
     /// already has a window (a pane shows it, or it is parked).
     func keepRendering(tabID: String, chrome: NSView, webView: WKWebView?) -> Bool {
-        guard chrome.window == nil else { return false }
+        // A chrome its pane parked hidden (`PaneContentView+Parking`) is a
+        // background tab too.
+        guard chrome.window == nil || chrome.isHidden else { return false }
         parked.removeValue(forKey: tabID)?.finish()
-        let panel = AgentRenderPanel(viewport: Self.viewport, screens: NSScreen.screens.map(\.frame))
+        let panel = AgentRenderPanel(viewport: Self.viewport, screens: NSScreen.screens.map(\.frame), privateCalls: privateCalls)
         panel.onRelease = { [weak self, weak panel] in
             guard let self, let panel, self.parked[tabID] === panel else { return }
             self.parked[tabID] = nil
@@ -69,7 +74,10 @@ final class AgentRenderPanel: NSPanel {
     private weak var webView: WKWebView?
     private var finished = false
 
-    init(viewport: NSSize, screens: [NSRect]) {
+    private let privateCalls: WebKitPrivateCalls
+
+    init(viewport: NSSize, screens: [NSRect], privateCalls: WebKitPrivateCalls) {
+        self.privateCalls = privateCalls
         super.init(contentRect: AgentRenderWindows.frame(for: viewport, screens: screens),
                    styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         isReleasedWhenClosed = false
@@ -102,11 +110,14 @@ final class AgentRenderPanel: NSPanel {
     func park(_ chrome: NSView, webView: WKWebView?) {
         guard let content = contentView else { return }
         self.webView = webView
-        if let webView { Self.setOcclusionDetection(false, on: webView) }
+        if let webView { privateCalls.setOcclusionDetection(false, on: webView) }
         chrome.frame = content.bounds
         chrome.autoresizingMask = [.width, .height]
         orderBack(nil)
         content.addSubview(chrome)
+        // Parked hidden in a pane until now: it shows here (a Chromium tab
+        // presents on unhide).
+        chrome.isHidden = false
         if let webView { makeFirstResponder(webView) }
         content.layoutSubtreeIfNeeded()
     }
@@ -116,7 +127,7 @@ final class AgentRenderPanel: NSPanel {
     func finish() {
         guard !finished else { return }
         finished = true
-        if let webView { Self.setOcclusionDetection(true, on: webView) }
+        if let webView { privateCalls.setOcclusionDetection(true, on: webView) }
         (contentView as? AgentRenderContentView)?.onSubviewLeave = nil
         contentView?.subviews.forEach { $0.removeFromSuperview() }
         orderOut(nil)
@@ -124,18 +135,6 @@ final class AgentRenderPanel: NSPanel {
         let release = onRelease
         onRelease = nil
         release?()
-    }
-
-    /// WebKit's private switch (the legacy app used it the same way): with
-    /// detection on, a window no pixel of which is on a display counts as
-    /// occluded, and the page stops rendering.
-    private static func setOcclusionDetection(_ enabled: Bool, on webView: WKWebView) {
-        // crash-allow: WebKit private selector, used only after responds(to:) confirms it exists (no unknown-selector exception).
-        let selector = NSSelectorFromString("_setWindowOcclusionDetectionEnabled:")
-        guard webView.responds(to: selector) else { return }
-        typealias Setter = @convention(c) (AnyObject, Selector, Bool) -> Void
-        let setter = unsafeBitCast(webView.method(for: selector), to: Setter.self)
-        setter(webView, selector, enabled)
     }
 }
 

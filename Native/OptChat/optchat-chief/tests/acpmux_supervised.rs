@@ -106,3 +106,46 @@ fn a_local_host_does_not_respawn_a_daemon_it_saw_go_away() {
     std::thread::sleep(Duration::from_millis(100));
     assert!(!marker.exists());
 }
+
+/// LAUNCH-NO-TCC-PROMPTS: the acpmux daemon a local host starts runs in its
+/// acpmux home, never in the host's own folder (the app's `/`, or the home
+/// folder), where everything it starts without a folder would read the
+/// protected folders (live incident 2026-10-09).
+#[test]
+fn a_local_host_starts_acpmux_in_its_acpmux_home() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let report = dir.path().join("cwd.txt");
+    let bin = dir.path().join("fake-acpmux");
+    std::fs::write(
+        &bin,
+        format!("#!/bin/sh\n/bin/pwd -P > '{}'\n", report.display()),
+    )
+    .unwrap();
+    std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let socket = dir.path().join("acpmux.sock");
+    let seen = AtomicBool::new(false);
+    // The fake exits without a socket: the start fails, after it ran.
+    let _ = ensure_with(
+        &socket,
+        Mode::Local,
+        &seen,
+        Some(bin.to_str().unwrap()),
+        Duration::from_secs(1),
+        &|_| {},
+    );
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while std::fs::read_to_string(&report).map_or(true, |s| s.trim().is_empty())
+        && Instant::now() < deadline
+    {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let cwd = std::fs::read_to_string(&report).unwrap();
+    let home = std::env::var("ACPMUX_HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| dir.path().to_owned());
+    assert_eq!(
+        std::path::Path::new(cwd.trim()),
+        std::fs::canonicalize(home).unwrap()
+    );
+}

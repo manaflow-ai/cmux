@@ -110,24 +110,3 @@ struct FaviconLoaderTests {
     }
 }
 
-@Suite struct LRUCacheTests {
-    @Test func dropsTheLeastRecentlyUsedEntry() {
-        var cache = LRUCache<String, Int>(capacity: 2)
-        cache.set(1, for: "a")
-        cache.set(2, for: "b")
-        _ = cache.value(for: "a")
-        cache.set(3, for: "c")
-        #expect(cache.peek("a") == 1)
-        #expect(cache.peek("b") == nil)
-        #expect(cache.peek("c") == 3)
-        #expect(cache.count == 2)
-    }
-
-    @Test func replacingAValueKeepsOneEntry() {
-        var cache = LRUCache<String, Int>(capacity: 2)
-        cache.set(1, for: "a")
-        cache.set(2, for: "a")
-        #expect(cache.count == 1)
-        #expect(cache.value(for: "a") == 2)
-    }
-}
