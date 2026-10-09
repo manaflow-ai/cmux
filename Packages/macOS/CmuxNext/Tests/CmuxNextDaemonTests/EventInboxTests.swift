@@ -41,6 +41,39 @@ import Testing
         #expect(inbox.take().isEmpty)
     }
 
+    /// Regression (apps-v1): the app supervisor's events (`apps-scene`,
+    /// `apps-changed`, `apps-provider-request`) are in no tree snapshot. A
+    /// storm that collapses into a resync must keep them, and the store must
+    /// deliver them to its side events even when the snapshot covers their
+    /// sequence, or a mount loses scene batches and a provider call is never
+    /// answered.
+    @Test func aResyncDeliversTheAppsEventsInTheInbox() throws {
+        let tree = try Fixture.response(DaemonTree.self, "list-workspaces.json")
+        let store = DaemonStore()
+        store.apply(snapshot: tree)
+        let inbox = EventInbox()
+        var sequence: UInt64 = 0
+        func push(_ event: DaemonEvent) {
+            sequence += 1
+            _ = inbox.append(DaemonEventEnvelope(sequence: sequence, event: event))
+        }
+        let scene = DaemonEvent.unknown(name: "apps-scene", payload: .object(["event": .string("apps-scene"), "mount_id": .string("m1")]))
+        let request = DaemonEvent.unknown(name: "apps-provider-request", payload: .object(["event": .string("apps-provider-request"),
+                                                                                          "request_id": .number(4)]))
+        for index in 0..<10_000 { push(.titleChanged(surface: 3, title: "t\(index)")) }
+        push(scene)
+        for index in 0..<10_000 { push(.titleChanged(surface: 3, title: "u\(index)")) }
+        push(request)
+        let batch = inbox.take()
+        #expect(batch.contains { $0.event == scene } && batch.contains { $0.event == request })
+        var delivered: [String] = []
+        store.sideEvents.subscribe { if case .unknown(let name, _) = $0 { delivered.append(name) } }
+        // The snapshot that answers the overflow covers every sequence in the batch.
+        store.snapshotBarrier = sequence
+        store.apply(batch: batch)
+        #expect(delivered == ["apps-scene", "apps-provider-request"])
+    }
+
     @Test func belowTheCapEveryEventIsKeptInOrder() {
         let inbox = EventInbox()
         #expect(inbox.append(DaemonEventEnvelope(sequence: 1, event: .titleChanged(surface: 3, title: "a"))))
