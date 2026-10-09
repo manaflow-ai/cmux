@@ -1179,7 +1179,7 @@
       "xai",
       "grok"
     ],
-    [
+    ["github-copilot-cli", "copilot"], ["grok-build", "grok"], ["factory-droid", "factory"], ["qwen-code", "qwen"], ["antigravity-acp", "antigravity"], ["amp-acp", "amp"], ["codebuddy-code", "codebuddy"], [
       "prime-agent",
       null
     ],
