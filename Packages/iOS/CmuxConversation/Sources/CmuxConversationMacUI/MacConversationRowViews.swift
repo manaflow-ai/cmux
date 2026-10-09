@@ -1046,8 +1046,6 @@ final class MacTypingRowView: MacFlippedView {
         ]
     }
 
-    private var isGrowing = false
-
     private func startAnimating() {
         if dot.animation(forKey: "dot") == nil {
             let fade = CABasicAnimation(keyPath: "opacity")
@@ -1060,7 +1058,15 @@ final class MacTypingRowView: MacFlippedView {
             fade.fillMode = .both
             dot.add(fade, forKey: "dot")
         }
-        guard !isGrowing else { return }
+        addPulses(after: 0)
+    }
+
+    /// Each part's scale-up; its pulse takes over when it ends.
+    private static let scaleDuration: CFTimeInterval = 0.25
+
+    /// ChatKit's pulse (`kCKAnimationKeyPulse`): each part breathes from its
+    /// own start, `delay` after now.
+    private func addPulses(after delay: CFTimeInterval) {
         let now = CACurrentMediaTime()
         for part in parts where part.layer.animation(forKey: "pulse") == nil {
             let pulse = CAKeyframeAnimation(keyPath: "transform.scale.xy")
@@ -1070,34 +1076,37 @@ final class MacTypingRowView: MacFlippedView {
             pulse.autoreverses = true
             pulse.repeatCount = .infinity
             pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            pulse.beginTime = now + part.delay
+            pulse.beginTime = now + delay + (delay > 0 ? part.delay : 0)
             pulse.fillMode = .forwards
+            pulse.isRemovedOnCompletion = false
             part.layer.add(pulse, forKey: "pulse")
         }
     }
 
-    /// ChatKit's insertion: small circle, medium, then bubble scale up from
-    /// nothing (0.25 s ease) while swinging out and back (0.4 s); the pulse
-    /// takes over at 0.52 s.
+    /// ChatKit's insertion (macOS 27 `CKTypingIndicatorPunchOutLayer`, the
+    /// same animations as iOS 26.5 and 27.0): small circle, medium (+0.065 s),
+    /// then bubble (+0.12 s) scale up from nothing (0.25 s ease) while
+    /// swinging out and back (0.4 s). Every part carries ChatKit's 0.25 s
+    /// `hidden` animation from the start, so the first visible frame shows the
+    /// grow under way; each pulse begins as its part's scale-up ends.
     func grow() {
         layoutSubtreeIfNeeded()
-        isGrowing = true
         let now = CACurrentMediaTime()
         let ease = CAMediaTimingFunction(controlPoints: 0.25, 0.1, 0.25, 1)
-        CATransaction.begin()
-        CATransaction.setCompletionBlock { [weak self] in
-            MainActor.assumeIsolated {
-                self?.isGrowing = false
-                self?.startAnimating()
-            }
-        }
         for part in parts {
             let layer = part.layer
             layer.removeAnimation(forKey: "pulse")
+            let hidden = CABasicAnimation(keyPath: "hidden")
+            hidden.fromValue = true
+            hidden.toValue = false
+            hidden.duration = Self.scaleDuration
+            hidden.beginTime = now
+            hidden.fillMode = .forwards
+            layer.add(hidden, forKey: "growHidden")
             let scale = CABasicAnimation(keyPath: "transform.scale.xy")
             scale.fromValue = 0
             scale.toValue = 1
-            scale.duration = 0.25
+            scale.duration = Self.scaleDuration
             scale.timingFunction = ease
             let x = CAKeyframeAnimation(keyPath: "position.x")
             x.values = [layer.position.x, layer.position.x + part.wobble.x, layer.position.x]
@@ -1118,7 +1127,7 @@ final class MacTypingRowView: MacFlippedView {
             group.fillMode = .backwards
             layer.add(group, forKey: "grow")
         }
-        CATransaction.commit()
+        addPulses(after: Self.scaleDuration)
     }
 }
 /// A Liquid Glass circle wrapping a borderless button (the glass bezel style
