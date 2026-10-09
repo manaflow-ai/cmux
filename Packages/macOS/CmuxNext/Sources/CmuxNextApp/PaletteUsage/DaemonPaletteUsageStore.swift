@@ -109,6 +109,7 @@ final class DaemonPaletteUsageStore: PaletteUsageStore {
             Self.logger.info("palette usage: daemon away, one run not recorded")
         case .daemon(let client, _):
             let idempotencyKey = "palette-usage:\(UUID().uuidString)"
+            // task-owner: one recorded run, never cancelled; the refetch after it holds the store weakly
             Task { [weak self] in
                 do {
                     _ = try await client.record(key: key, query: query, idempotencyKey: idempotencyKey)
