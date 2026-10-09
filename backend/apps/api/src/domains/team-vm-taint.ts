@@ -9,7 +9,8 @@ import type { TeamVmState } from "./team-vm.ts"
  * may have left something running that no certificate revocation ends. A removal of a member who
  * held a team SSH certificate valid after the current VM was created taints that VM's epoch; an
  * owner or admin then accepts the risk or rebuilds (a new VM at the next epoch). A rebuilt VM is
- * paused and kept in `retired` until an owner deletes it (its files can be copied off first).
+ * paused with its run budget spent, so no inbound traffic resumes it (cx-009a), and kept in
+ * `retired` until an owner deletes it (its files can be copied off first).
  */
 export interface TeamVmTaint {
   readonly epoch: number
