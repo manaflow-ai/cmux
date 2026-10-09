@@ -83,6 +83,9 @@ pub enum Input {
         key: String,
         text: String,
     },
+    /// The compactor's start-up probe: Err with the text the user must
+    /// hear (the compactor cannot build a node), Ok when it built one.
+    CompactorStatus(Result<(), String>),
     /// Section 9: a `spawn` asks for its spawn id and subagent ids.
     SpawnRegister {
         tasks: Vec<String>,
@@ -381,6 +384,9 @@ pub struct Brain {
     workspaces: Option<Arc<dyn crate::workspaces::Workspaces>>,
     /// Starts a queued subagent by id (`Spawner::queue_starter`).
     sub_starter: Option<Sender<String>>,
+    /// A finished subagent's workspace closes instead of taking the done
+    /// mark (`OPTCHAT_SUBAGENT_ON_FINISH=close`).
+    sub_close_on_finish: bool,
     /// The previous turn's view, to measure how much of it stayed (cache).
     prev_view: Option<String>,
     /// When the current settle wait and turn began.
@@ -476,6 +482,7 @@ impl Brain {
             trace: crate::trace::Trace::off(),
             workspaces: None,
             sub_starter: None,
+            sub_close_on_finish: false,
             prev_view: None,
             settle_clock: None,
             settle_status: None,
@@ -515,6 +522,12 @@ impl Brain {
 
     pub fn set_workspaces(&mut self, workspaces: Option<Arc<dyn crate::workspaces::Workspaces>>) {
         self.workspaces = workspaces;
+    }
+
+    /// Finished subagents' workspaces close (true) or stay with the done
+    /// mark (false, the default).
+    pub fn set_sub_close_on_finish(&mut self, close: bool) {
+        self.sub_close_on_finish = close;
     }
 
     /// Where queued subagents are started when a slot frees.
@@ -610,6 +623,7 @@ impl Brain {
             }
             Input::TurnEnded { key, outcome } => self.turn_ended(&key, *outcome),
             Input::Notice { key, text } => self.notice(key, text),
+            Input::CompactorStatus(status) => self.compactor_status(status),
             Input::SpawnRegister { tasks, reply } => {
                 let plan = self.register_spawn(&tasks);
                 let _ = reply.send(plan);
@@ -686,6 +700,58 @@ impl Brain {
         (self.log)(&text);
         self.notices.push((key, text));
         self.post_notices();
+    }
+
+    /// cx-1hpt: one failure notice in the conversation at a time, across
+    /// host starts (the state file keeps it); a good probe retracts it.
+    fn compactor_status(&mut self, status: Result<(), String>) {
+        match status {
+            Err(text) => {
+                if self.state.compactor_notice.is_some() {
+                    (self.log)(&text);
+                    return;
+                }
+                let key = format!("notice:optchat:compactor:{}", now_ms());
+                self.state.compactor_notice = Some(crate::state::PostedNotice {
+                    key: key.clone(),
+                    message_id: None,
+                });
+                self.save();
+                self.notice(key, text);
+            }
+            Ok(()) => {
+                let Some(posted) = self.state.compactor_notice.take() else {
+                    return;
+                };
+                // Not sent yet: it never shows.
+                self.notices.retain(|(k, _)| *k != posted.key);
+                self.state
+                    .outbox
+                    .retain(|e| e.idempotency_key != posted.key || e.attempted);
+                match (posted.message_id, self.state.conversation.clone()) {
+                    (Some(id), Some(conversation)) => {
+                        (self.log)("the memory compactor works again; its notice is retracted");
+                        self.state.outbox.push(op_entry(
+                            conversation,
+                            &format!("{}:retract", posted.key),
+                            Op::MessageRetract { message_id: id },
+                        ));
+                    }
+                    _ => (self.log)("the memory compactor works again"),
+                }
+                self.save();
+                self.flush_outbox();
+            }
+        }
+    }
+
+    /// The owner confirmed the message sent under `key`.
+    pub(super) fn sent(&mut self, key: &str, message_id: &str) {
+        if let Some(posted) = self.state.compactor_notice.as_mut()
+            && posted.key == key
+        {
+            posted.message_id = Some(message_id.to_owned());
+        }
     }
 
     /// Moves waiting notices into the outbox once the conversation is known.
@@ -851,6 +917,19 @@ fn reply_key_at(first: u64, stamp: &str) -> String {
 
 /// A turn reply: `message.send` whose client_msg_id is the turn key, so a
 /// retry never posts twice.
+/// An outbox entry for `op` under `key`.
+fn op_entry(conversation: String, key: &str, op: Op) -> OutboxEntry {
+    OutboxEntry {
+        conversation,
+        idempotency_key: key.to_owned(),
+        op,
+        rate_retried: false,
+        not_before: None,
+        attempted: false,
+        rate_attempts: 0,
+    }
+}
+
 fn reply_entry(conversation: String, key: &str, text: &str) -> OutboxEntry {
     let text = if text.len() > REPLY_BYTES {
         let mut cut = REPLY_BYTES;

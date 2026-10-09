@@ -328,8 +328,10 @@ fn start(
     // engine.json's compactor fields apply at host start (engine.rs).
     let engine_choice_file = crate::engine::load(&crate::engine::path(home));
     let chief_set = env("OPTCHAT_CHIEF_HARNESS").or_else(|| env("MUX_HARNESS"));
-    let compactor_set =
-        env("OPTCHAT_COMPACTOR_HARNESS").or_else(|| engine_choice_file.compactor_harness.clone());
+    let compactor_set = crate::engine::compactor_harness_setting(
+        env("OPTCHAT_COMPACTOR_HARNESS"),
+        &engine_choice_file,
+    );
     let sub_set = env("OPTCHAT_SUBAGENT_HARNESS");
     let (mut harness, mut compactor_harness) =
         harness_choice(chief_set.as_deref(), None, compactor_set.as_deref());
@@ -998,6 +1000,8 @@ fn start(
     .with_workspaces(workspaces);
     let mut brain = brain;
     brain.set_sub_starter(sub_starter);
+    // Finished subagents' workspaces stay with a done mark unless this says close.
+    brain.set_sub_close_on_finish(env("OPTCHAT_SUBAGENT_ON_FINISH").as_deref() == Some("close"));
     if let Some(describer) = describer {
         brain.set_describer(describer);
     }
@@ -1066,12 +1070,15 @@ fn spawn_probe(
         .spawn(move || {
             let started = std::time::Instant::now();
             match probe_models(&*model, fallback.as_deref(), &system) {
-                Ok(line) => log(format!(
-                    "compactor probe ({}{}) built a node in {} ms: {line}",
-                    route.name(),
-                    if fallback.is_some() { ", fallback too" } else { "" },
-                    started.elapsed().as_millis()
-                )),
+                Ok(line) => {
+                    log(format!(
+                        "compactor probe ({}{}) built a node in {} ms: {line}",
+                        route.name(),
+                        if fallback.is_some() { ", fallback too" } else { "" },
+                        started.elapsed().as_millis()
+                    ));
+                    let _ = tx.send(Input::CompactorStatus(Ok(())));
+                }
                 Err(e) => {
                     let remedy = match route {
                         CompactRoute::Acpmux => {
@@ -1089,8 +1096,7 @@ fn spawn_probe(
                          that need a summary wait, and so does every reply, until it can. {remedy}",
                         route.name()
                     );
-                    let key = format!("notice:optchat:compactor:{}", now_ms());
-                    let _ = tx.send(Input::Notice { key, text });
+                    let _ = tx.send(Input::CompactorStatus(Err(text)));
                 }
             }
         });
@@ -1133,12 +1139,6 @@ fn start_inspector(
         Err(e) => log(format!("memory inspector not started: {e}")),
     }
     Some(inspector)
-}
-
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as u64)
 }
 
 /// The native bash tool's env: the turn session's, with the `chief`

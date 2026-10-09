@@ -116,6 +116,8 @@ pub fn discover_harnesses_from(
         ("omp", "omp"),
         // Prime Agent (PrimeIntellect-ai/prime-agent), a pi fork: `--mode acp`.
         ("prime", "prime-agent"),
+        // Grok (xAI's grok CLI) speaks ACP itself: `grok agent stdio`.
+        ("grok", "grok"),
     ] {
         // An ~/.acpx entry keeps its name, except the reserved Claude names:
         // `claude` and `claude-sr` are acpmux's own Claude Code adapter
@@ -137,6 +139,7 @@ pub fn discover_harnesses_from(
                 "sr" => (HarnessKind::ClaudeStdio, vec![path, "claude".into(), "proxy".into()]),
                 "omp" => (HarnessKind::Acp, vec![path, "acp".into()]),
                 "prime-agent" => (HarnessKind::Acp, vec![path, "--mode".into(), "acp".into()]),
+                "grok" => (HarnessKind::Acp, vec![path, "agent".into(), "stdio".into()]),
                 "gemini" => (HarnessKind::Acp, vec![path, "--experimental-acp".into()]),
                 "opencode" | "opencode2" => (HarnessKind::Acp, vec![path, "acp".into()]),
                 "dsh" => (HarnessKind::Acp, vec![path, "--profile".into(), "acp".into()]),

@@ -431,3 +431,27 @@ fn single_flight_releases_waiting_calls_together_when_the_writers_response_start
     );
     assert!(chat.wait_idle(None, WAIT));
 }
+
+/// What Claude Code answers for a request the API refuses (400): the same
+/// on every try, so retrying cannot build the node.
+const BAD_REQUEST: &str = r#"API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"cache_control.ttl: a ttl='1h' block must not come after a ttl='5m' block"},"request_id":"req_x"}"#;
+
+/// P0 (hq-6d, nxdog78): a node whose every call fails with a request error
+/// (a 4xx but 408 and 429) must not hold the turn: settle gives up on it
+/// within a few seconds, and the turn reads the view with that line unbuilt.
+#[test]
+fn a_node_that_always_fails_with_a_request_error_does_not_block_settle() {
+    let dir = tempfile::tempdir().unwrap();
+    let model = Arc::new(Fake(|_: &CompactRequest, _: &[Followup]| {
+        Err(ModelError::new(BAD_REQUEST))
+    }));
+    let chat = open(dir.path(), 128_000, model);
+    chat.append(Kind::User, &long(0)).unwrap();
+    let started = std::time::Instant::now();
+    assert!(
+        chat.settle(None, Some(Duration::from_secs(8))),
+        "settle waited on a node that can never build"
+    );
+    assert!(started.elapsed() < Duration::from_secs(8));
+    assert_eq!(chat.status().unbuilt, 1);
+}

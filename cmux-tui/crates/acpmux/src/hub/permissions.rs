@@ -145,6 +145,15 @@ impl Hub {
         let Some(child) = session.child.lock().await.clone() else {
             return;
         };
+        // Grok's x.ai extension requests: a question or a plan approval,
+        // asked through the same permission path (xai.rs).
+        if let Some(kind) = super::xai::request_kind(&m) {
+            let result = self
+                .handle_xai_request(&session, kind, params.unwrap_or(Value::Null), epoch, turn_id)
+                .await;
+            let _ = child.respond(id, result).await;
+            return;
+        }
         if m == method::SESSION_REQUEST_PERMISSION {
             let params = params.unwrap_or(Value::Null);
             let result =

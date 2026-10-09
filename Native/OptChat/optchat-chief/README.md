@@ -105,7 +105,10 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   the subagent finishes, the workspace is renamed `✓ a<N> · <task>` (daemon
   `rename-workspace` by key); it runs again, the mark goes. Closing the
   workspace or tab only detaches; the session is never killed by the host.
-  `OPTCHAT_SUBAGENT_WORKSPACES=0` turns workspaces off.
+  `OPTCHAT_SUBAGENT_WORKSPACES=0` turns workspaces off;
+  `OPTCHAT_SUBAGENT_ON_FINISH=close` closes a finished subagent's workspace
+  (daemon `close-workspace` by key, into the closed history) instead of the
+  done mark.
 - A host with no app (`CMUX_SOCKET_PATH` unset) and a cloud install (the
   always-on brain on a server) makes each workspace in its OWN session
   daemon instead (`DaemonWorkspaces`: `create-workspace` by key,
