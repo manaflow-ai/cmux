@@ -56,7 +56,9 @@ extension AgentPaneModel {
     }
 }
 
-extension AgentPaneView {
+/// The agent pane view's own copy, kept out of `AgentPaneView` so the view
+/// stays within the 1000-line type budget.
+enum AgentPaneText {
     /// The sheet that confirms a mode in which the agent acts without asking first.
     static var confirmModeTitle: String {
         String(localized: "agentPane.confirmMode.title", defaultValue: "Let the agent act without asking?", bundle: .module)

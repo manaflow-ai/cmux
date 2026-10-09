@@ -35,7 +35,7 @@ extension ActionRegistry {
     public func bindAgentPaneInspector(toggle: @escaping @MainActor (ActionInvocation) -> Void) -> Bool {
         bind(.toggleAcpInspector, invoke: { [weak self] invocation in
             guard ActionRunScope.viewChangeAllowed() else {
-                self?.refuse(AgentPaneView.inspectorNeedsFocus)
+                self?.refuse(AgentPaneText.inspectorNeedsFocus)
                 return
             }
             toggle(invocation)
