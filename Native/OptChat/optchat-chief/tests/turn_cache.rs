@@ -475,7 +475,11 @@ fn the_last_turns_mark_survives_a_restart() {
     h.settle();
     let before = h.agents.inner.lock().unwrap().prompts[0].clone();
     let Harness {
-        dir, chat, owner, brain, ..
+        dir,
+        chat,
+        owner,
+        brain,
+        ..
     } = h;
     drop(brain);
     chat.shutdown();
