@@ -137,6 +137,8 @@ final class AppServices {
     private(set) lazy var onboarding = OnboardingService(services: self)
     /// Provider sign-ins and CodeRouter accounts (Settings > Accounts, onboarding).
     private(set) lazy var accounts = AccountsService(services: self)
+    /// Agent harness profiles (Settings > Agents, `agent.harness.*`), through acpmux.
+    private(set) lazy var agentHarnesses = AgentHarnessCenter(services: self)
     /// Links, files and services macOS hands cmux (default browser, ssh:, scripts).
     private(set) lazy var externalOpen = ExternalOpenController(services: self)
     let terminalTheme = TerminalThemeSetting(backdropScope: .app)
