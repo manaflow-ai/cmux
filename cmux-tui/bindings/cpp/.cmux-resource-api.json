@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "4ec5c826238bba61be6554a72d37ef224682a2719ce401545714a9432279c38b",
+  "catalog_sha256": "961f378913ff965fbcb52055828613e56ce28cb950d868e4c32de4a4013fe278",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -173,6 +173,15 @@
       "class": "read"
     },
     "pairing_request.resolve": {
+      "class": "mutation"
+    },
+    "palette_usage.get": {
+      "class": "read"
+    },
+    "palette_usage.import": {
+      "class": "mutation"
+    },
+    "palette_usage.record": {
       "class": "mutation"
     },
     "pane.close": {

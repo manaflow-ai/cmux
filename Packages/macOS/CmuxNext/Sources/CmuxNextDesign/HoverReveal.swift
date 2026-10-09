@@ -69,6 +69,11 @@ public final class HoverReveal {
     }
     /// Called after the reveal changes (for work beyond the alpha fade).
     public var onChange: ((Bool) -> Void)?
+    /// Called after any input changes (pointer, focus, holds, enabled),
+    /// also when the reveal itself does not: a consumer that needs the
+    /// inputs rather than the result (the collapsed toolbar band opens on
+    /// the pointer even while `window.titlebarButtons` = always).
+    public var onStateChange: ((HoverRevealState) -> Void)?
 
     public private(set) weak var region: NSView?
     private var views: [ObjectIdentifier: Weak] = [:]
@@ -184,9 +189,10 @@ public final class HoverReveal {
     }
 
     private func update(_ change: (inout HoverRevealState) -> Void) {
-        let wasRevealed = state.isRevealed
+        let old = state
         change(&state)
-        guard state.isRevealed != wasRevealed else { return }
+        if state != old { onStateChange?(state) }
+        guard state.isRevealed != old.isRevealed else { return }
         let alpha: CGFloat = state.isRevealed ? 1 : 0
         let targets = views.values.compactMap(\.value)
         Motion.animate(.hover, in: region) {

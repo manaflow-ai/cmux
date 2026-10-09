@@ -98,6 +98,9 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("window_record.delete", WINDOW_RECORD_REASON),
     ("sidebar_layout.get", SIDEBAR_LAYOUT_REASON),
     ("sidebar_layout.update", SIDEBAR_LAYOUT_REASON),
+    ("palette_usage.get", PALETTE_USAGE_REASON),
+    ("palette_usage.record", PALETTE_USAGE_REASON),
+    ("palette_usage.import", PALETTE_USAGE_REASON),
     ("workspace.ensure_home", HOME_REASON),
     ("workspace.agent_folder.set", AGENT_FOLDER_REASON),
     ("workspace.agent_start.get", AGENT_START_REASON),
@@ -118,6 +121,8 @@ const WINDOW_RECORD_REASON: &str = "A window record has one writer, the app that
      window; the CLI omits it too, and window_list reads the app's windows.";
 const SIDEBAR_LAYOUT_REASON: &str = "The Mac app's sidebar layout: agents edit it through the \
      app's sidebar actions (action tools), which keep the app's intent log.";
+const PALETTE_USAGE_REASON: &str = "The user's own palette usage history: the app's palette \
+     records and reads it; agents rank rows through palette.query, never read or write usage.";
 const SIDEBAR_REASON: &str = "TUI sidebar plugin views in the cmux-tui-only scope.";
 const HOME_REASON: &str = "The hosting app creates its one home workspace on connect; the CLI \
      never offers it (workspace-kind-v1).";
