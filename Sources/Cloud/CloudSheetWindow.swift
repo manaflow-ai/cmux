@@ -26,6 +26,10 @@ final class CloudSheetWindow {
     private var isOpening = false
     private var pendingContentSize: NSSize?
     private var isResizeScheduled = false
+    // AppKit may expand an attached sheet from its bottom edge before the
+    // deferred geometry callback runs. Keep the first stable top edge so a
+    // content-driven resize cannot inherit that temporary shift.
+    private var topEdgeAnchor: CGFloat?
 
     init<Content: View>(rootView: Content) {
         // The presenter retains this wrapper while the window is presented;
@@ -64,6 +68,7 @@ final class CloudSheetWindow {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.restoreInitialContentSizeIfNeeded()
+            self.topEdgeAnchor = self.topEdgeAnchor ?? self.window.frame.maxY
             self.applyPendingContentSize()
         }
     }
@@ -74,6 +79,7 @@ final class CloudSheetWindow {
         window.center()
         window.makeKeyAndOrderFront(nil)
         isOpening = false
+        topEdgeAnchor = window.frame.maxY
         applyPendingContentSize()
     }
 
@@ -99,7 +105,7 @@ final class CloudSheetWindow {
         let oldFrame = window.frame
         var frame = window.frameRect(forContentRect: NSRect(origin: .zero, size: size))
         frame.origin.x = oldFrame.midX - frame.width / 2
-        frame.origin.y = oldFrame.maxY - frame.height
+        frame.origin.y = (topEdgeAnchor ?? oldFrame.maxY) - frame.height
         window.setFrame(frame, display: window.isVisible, animate: false)
     }
 
@@ -115,7 +121,7 @@ final class CloudSheetWindow {
         let oldFrame = window.frame
         var frame = window.frameRect(forContentRect: NSRect(origin: .zero, size: initialContentSize))
         frame.origin.x = oldFrame.midX - frame.width / 2
-        frame.origin.y = oldFrame.maxY - frame.height
+        frame.origin.y = (topEdgeAnchor ?? oldFrame.maxY) - frame.height
         window.setFrame(frame, display: window.isVisible, animate: false)
     }
 
