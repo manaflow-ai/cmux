@@ -11,7 +11,7 @@ enum TiledBubble {
     static let linesPerTile = 16
     /// Glyph overflow above and below a tile's line slots (emoji, diacritics).
     static let overflow: CGFloat = 12
-    static let emptyImage: CGImage = WideBitmap.make(size: CGSize(width: 1, height: 1), scale: 1, opaque: false) { _ in }
+    static let emptyImage: CGImage? = WideBitmap.make(size: CGSize(width: 1, height: 1), scale: 1, opaque: false) { _ in }
 
     static func applies(_ spec: RowSpec) -> Bool { LongText.isLongRow(spec) }
 
@@ -28,7 +28,7 @@ enum TiledBubble {
     }
 
     /// Draw one tile: lines [chunk*16, chunk*16+16) of a block, unclipped, at their baselines.
-    static func render(_ bl: BlockLayout, chunk: Int, outgoing: Bool, width: CGFloat, scale: CGFloat) -> CGImage {
+    static func render(_ bl: BlockLayout, chunk: Int, outgoing: Bool, width: CGFloat, scale: CGFloat) -> CGImage? { // cmux: nil when allocation fails
         let lh = Fixture.lineHeight
         let size = CGSize(width: width, height: CGFloat(linesPerTile) * lh + 2 * overflow)
         return WideBitmap.make(size: size, scale: scale, opaque: false) { ctx in
@@ -77,16 +77,16 @@ enum TiledBubble {
 enum BubbleSlices {
     static let cap: CGFloat = 32, pad: CGFloat = 24, vpad: CGFloat = 8
     private static var cache: [String: CGImage] = [:]
-    static func image(bodyWidth: CGFloat, phase: CGFloat, outgoing: Bool, tail: Bool, scale: CGFloat) -> CGImage {
+    static func image(bodyWidth: CGFloat, phase: CGFloat, outgoing: Bool, tail: Bool, scale: CGFloat) -> CGImage? { // cmux: nil when allocation fails
         let k = "\(bodyWidth)|\(phase)|\(outgoing)|\(tail)|\(scale)"
         if let i = cache[k] { return i }
         if cache.count > 64 { cache.removeAll() }
         let w = (ceil((bodyWidth + 2 * pad + 1) * scale)) / scale
         let size = CGSize(width: w, height: 2 * cap + 2 * vpad)
-        let img = WideBitmap.make(size: size, scale: scale, opaque: false) { ctx in
+        guard let img = WideBitmap.make(size: size, scale: scale, opaque: false, { ctx in
             UIColor.black.setFill()
             BubblePath.make(body: CGRect(x: pad + phase, y: vpad, width: bodyWidth, height: 2 * cap), outgoing: outgoing, tail: tail).fill()
-        }
+        }) else { return nil }
         cache[k] = img
         return img
     }
@@ -223,7 +223,7 @@ final class TiledBody {
         cell.fillContainer.backgroundColor = nil
         cell.fillGradient.isHidden = false
         cell.bitmap.isHidden = false
-        if cell.bitmap.contents as AnyObject? === TiledBubble.emptyImage as AnyObject { cell.bitmap.contents = nil }
+        if let empty = TiledBubble.emptyImage, cell.bitmap.contents as AnyObject? === empty as AnyObject { cell.bitmap.contents = nil } // cmux
         CATransaction.commit()
         spec = nil; row = nil; layout = nil
     }
@@ -249,14 +249,18 @@ final class TiledBody {
         }
         let x0 = floor((body.minX - BubbleSlices.pad) * s) / s
         let phase = body.minX - BubbleSlices.pad - x0
-        let img = BubbleSlices.image(bodyWidth: body.width, phase: phase, outgoing: p.outgoing, tail: p.tail, scale: s)
-        let ih = CGFloat(img.height) / s
-        shape.contents = img
-        shape.contentsScale = s
-        // The middle pixel row stretches (the image is symmetric, so the flip does not matter).
-        shape.contentsCenter = CGRect(x: 0, y: 0.5 - 0.5 / CGFloat(img.height), width: 1, height: 1 / CGFloat(img.height))
-        shape.frame = CGRect(x: x0, y: body.minY - BubbleSlices.vpad, width: CGFloat(img.width) / s,
-                             height: body.height + ih - 2 * BubbleSlices.cap)
+        // cmux: a slice image that could not be allocated leaves the bubble outline undrawn.
+        if let img = BubbleSlices.image(bodyWidth: body.width, phase: phase, outgoing: p.outgoing, tail: p.tail, scale: s) {
+            let ih = CGFloat(img.height) / s
+            shape.contents = img
+            shape.contentsScale = s
+            // The middle pixel row stretches (the image is symmetric, so the flip does not matter).
+            shape.contentsCenter = CGRect(x: 0, y: 0.5 - 0.5 / CGFloat(img.height), width: 1, height: 1 / CGFloat(img.height))
+            shape.frame = CGRect(x: x0, y: body.minY - BubbleSlices.vpad, width: CGFloat(img.width) / s,
+                                 height: body.height + ih - 2 * BubbleSlices.cap)
+        } else {
+            shape.contents = nil
+        }
         container.contentsScale = s
         configureFold(p, layout: layout, scale: s)
         configureDecorations(p, spec: spec, scale: s)
@@ -450,7 +454,7 @@ final class TiledBody {
                 let img = TiledBubble.render(bl, chunk: k.chunk, outgoing: k.outgoing, width: r.width, scale: s)
                 RowCell.mainDrawSpent += CACurrentMediaTime() - t0
                 TiledStats.tilesMain += 1
-                TileCache.shared.put(k, img)
+                if let img { TileCache.shared.put(k, img) } // cmux: an unallocated tile stays blank
                 l.contents = img
                 continue
             }
@@ -491,7 +495,7 @@ final class TiledBody {
             DispatchQueue.main.async { [weak self] in
                 TiledStats.tilesAsync += 1
                 guard k.palette == Fixture.paletteGeneration, k.scale == Fixture.renderScale else { return }
-                TileCache.shared.put(k, img)
+                if let img { TileCache.shared.put(k, img) } // cmux: an unallocated tile stays blank
                 guard let self else { return }
                 self.pending[k] = nil
                 self.stalePixels.remove(k)

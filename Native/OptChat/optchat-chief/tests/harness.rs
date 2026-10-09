@@ -601,6 +601,14 @@ fn a_codex_turn_preset_carries_the_chiefs_turn_cache_key() {
     let codex = turn_preset(&paths, &home, "codex", Family::Codex, true, "SYS").unwrap();
     assert_eq!(codex.name, format!("optchat-chief-codex-{id}"));
     assert_eq!(codex.env["CODEX_PROMPT_CACHE_KEY"], key);
+    // An isolated codex turn runs on the Chief's own CODEX_HOME, whose config
+    // turns codex's native subagents off: the Chief's subagents are `chief
+    // spawn` sessions (live proof subp3: a codex Chief answered "use spawn"
+    // with its own spawn_agent, and no cmux subagent started).
+    assert_eq!(
+        codex.env.get("CODEX_HOME").map(std::path::PathBuf::from),
+        Some(paths.turn_codex.clone())
+    );
     assert!(
         codex.args.is_empty(),
         "the preset args allowlist is untouched"
