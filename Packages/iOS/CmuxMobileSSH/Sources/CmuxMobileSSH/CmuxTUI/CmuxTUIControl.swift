@@ -108,6 +108,11 @@ public actor CmuxTUIControl {
         serverInfo
     }
 
+    /// Whether the server advertised `capability` in `identify` (false before the handshake).
+    private func serverSupports(_ capability: String) -> Bool {
+        serverInfo?.capabilities.contains(capability) == true
+    }
+
     /// Closes the relay channel. Terminals keep running on the host.
     public func close() async {
         await channel.close()
@@ -248,7 +253,7 @@ public actor CmuxTUIControl {
     }
 
     private func detachView(surface: Int, lease: String?) async throws {
-        if let lease, server.capabilities.contains("view-attachment-detach-v1") {
+        if let lease, serverSupports("view-attachment-detach-v1") {
             // The response is a cleanup fence: no frames for this stream follow it.
             _ = try await request(
                 "detach-attached-view",
@@ -267,7 +272,7 @@ public actor CmuxTUIControl {
 
     /// Whether the server can stream browser surfaces to this client.
     public var supportsBrowserAttach: Bool {
-        server.capabilities.contains(Self.browserPointerGuardCapability)
+        serverSupports(Self.browserPointerGuardCapability)
     }
 
     /// Attaches to a browser surface. The stream starts with `.state`
@@ -685,7 +690,7 @@ extension CmuxTUIControl {
     /// when the server predates `terminal-idle-close-v1`.
     @discardableResult
     public func setIdlePolicy(surface: Int, seconds: Int?) async throws -> Bool {
-        guard server.capabilities.contains(Self.idleCloseCapability) else { return false }
+        guard serverSupports(Self.idleCloseCapability) else { return false }
         var params: [String: CmuxTUIWireValue] = ["surface": .int(surface)]
         // An omitted `idle_close_seconds` clears the policy.
         if let seconds { params["idle_close_seconds"] = .int(seconds) }
@@ -707,7 +712,7 @@ extension CmuxTUIControl {
 
     /// Whether `attachment` can be replaced in place by `reattach`.
     public func canReattach(_ attachment: CmuxTUIAttachment) -> Bool {
-        attachment.lease != nil && server.capabilities.contains(Self.viewDetachCapability)
+        attachment.lease != nil && serverSupports(Self.viewDetachCapability)
     }
 
     /// Replaces `attachment` with a fresh stream on this same connection. The
