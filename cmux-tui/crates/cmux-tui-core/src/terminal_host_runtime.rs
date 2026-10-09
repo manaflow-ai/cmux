@@ -469,7 +469,6 @@ mod unix {
     use ghostty_vt::Terminal;
 
     use super::shared::codec::*;
-    use super::shared::host_serve::*;
     use super::shared::host_shared::HostShared;
     use super::shared::host_state::*;
     use super::shared::records::*;
@@ -575,7 +574,7 @@ mod unix {
 
     mod adopt_launch;
     mod adopted_child;
-    mod host_accept;
+    use super::shared::host_accept;
     mod host_scope;
     mod host_signals;
     mod host_start;
@@ -933,6 +932,7 @@ mod unix {
         mod parser_failure;
         mod parser_order;
         use super::super::shared::control_responses::ControlResponseWaiter;
+        use super::super::shared::host_serve::*;
         use super::super::sys::terminal_host_publication_lock_path;
         use super::*;
         use cmux_pty::{Child, PtyOpenError, PtySize};
