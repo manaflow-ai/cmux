@@ -569,6 +569,9 @@ fn tab_belongs_to_workspace(
 /// Page whole objects, never silently truncate relationship arrays inside an
 /// object. MCP's shared size limiter can shrink `items` and advance the cursor.
 pub(super) fn snapshot_page(mut snapshot: Value, offset: usize, limit: usize) -> Value {
+    let Some(object) = snapshot.as_object_mut() else {
+        return snapshot;
+    };
     let mut items = Vec::new();
     let mut total = 0;
     for (collection, kind) in [
@@ -580,7 +583,7 @@ pub(super) fn snapshot_page(mut snapshot: Value, offset: usize, limit: usize) ->
         ("terminals", "terminal"),
         ("browsers", "browser"),
     ] {
-        if let Some(Value::Array(values)) = snapshot.as_object_mut().unwrap().remove(collection) {
+        if let Some(Value::Array(values)) = object.remove(collection) {
             for value in values {
                 if total >= offset && items.len() < limit {
                     items.push(json!({"kind": kind, "value": value}));
