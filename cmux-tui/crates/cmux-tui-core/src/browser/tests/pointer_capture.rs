@@ -9,9 +9,8 @@ fn same_document_navigation_preserves_an_accepted_pointer_capture() {
     browser.store_frame(test_frame(1));
     acknowledge_local_presentation(browser, 1);
     let authority = browser.latest_frame_seq().expect("initial pointer authority");
-    let (_, capture_generation, _, _) = browser
-        .capture_guarded_input_point(authority, 1.0, 1.0)
-        .expect("accepted pointer press");
+    let (_, capture_generation, _, _) =
+        browser.capture_guarded_input_point(authority, 1.0, 1.0).expect("accepted pointer press");
     browser.begin_targeted_navigation_frame_transition().expect("same-document reservation");
 
     let _observed = handle_same_document_navigated(
@@ -36,9 +35,8 @@ fn page_initiated_same_document_navigation_requires_verified_pixels() {
     browser.store_frame(test_frame(1));
     acknowledge_local_presentation(browser, 1);
     let authority = browser.latest_frame_seq().expect("initial pointer authority");
-    let (_, capture_generation, motion_generation, ingress_motion_generation) = browser
-        .capture_guarded_input_point(authority, 1.0, 1.0)
-        .expect("accepted pointer press");
+    let (_, capture_generation, motion_generation, ingress_motion_generation) =
+        browser.capture_guarded_input_point(authority, 1.0, 1.0).expect("accepted pointer press");
     let navigation_epoch = browser.frame_epoch.latest_navigation();
     let frame_epoch = browser.frame_epoch.advance_same_document();
 
@@ -127,9 +125,8 @@ fn ordinary_repaint_retains_presented_pointer_authority_and_capture() {
     browser.store_frame(test_frame(1));
     acknowledge_local_presentation(browser, 1);
     let authority = browser.latest_frame_seq().expect("initial pointer authority");
-    let (_, capture_generation, _, _) = browser
-        .capture_guarded_input_point(authority, 1.0, 1.0)
-        .expect("accepted pointer press");
+    let (_, capture_generation, _, _) =
+        browser.capture_guarded_input_point(authority, 1.0, 1.0).expect("accepted pointer press");
 
     browser.store_frame(test_frame(2));
 
@@ -831,9 +828,7 @@ fn failed_document_capture_exposes_a_retryable_terminal_failure() {
             };
             let method = request["method"].as_str().unwrap();
             let response = match method {
-                "Target.setDiscoverTargets"
-                | "Page.stopScreencast"
-                | "Page.startScreencast" => {
+                "Target.setDiscoverTargets" | "Page.stopScreencast" | "Page.startScreencast" => {
                     json!({"id": request["id"], "result": {}})
                 }
                 "Page.createIsolatedWorld" => json!({

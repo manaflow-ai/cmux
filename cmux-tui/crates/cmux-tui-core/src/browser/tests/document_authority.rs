@@ -484,8 +484,7 @@ fn lifecycle_paint_authorizes_loader_bracketed_capture_end_to_end() {
     next_frame_tx.send(()).unwrap();
     recaptured_rx.recv_timeout(Duration::from_secs(1)).unwrap();
     let deadline = Instant::now() + Duration::from_secs(1);
-    while Instant::now() < deadline && browser.latest_frame().is_none_or(|frame| frame.seq != 3)
-    {
+    while Instant::now() < deadline && browser.latest_frame().is_none_or(|frame| frame.seq != 3) {
         thread::yield_now();
     }
     assert_eq!(

@@ -34,8 +34,7 @@ fn test_frame(seq: u64) -> BrowserFrame {
     }
 }
 
-fn runtime_rejecting_one_mouse_dispatch() -> (Arc<super::BrowserRuntime>, thread::JoinHandle<()>)
-{
+fn runtime_rejecting_one_mouse_dispatch() -> (Arc<super::BrowserRuntime>, thread::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
     let server = thread::spawn(move || {
@@ -190,8 +189,7 @@ fn runtime_recording_key_dispatches() -> (
 }
 
 fn runtime_recording_mouse_dispatches()
--> (Arc<super::BrowserRuntime>, thread::JoinHandle<()>, mpsc::Receiver<Value>, mpsc::Sender<()>)
-{
+-> (Arc<super::BrowserRuntime>, thread::JoinHandle<()>, mpsc::Receiver<Value>, mpsc::Sender<()>) {
     const ONE_PIXEL_PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
@@ -284,9 +282,9 @@ fn write_ws_json(ws: &mut tungstenite::WebSocket<TcpStream>, value: Value) {
     ws.send(Message::Text(value.to_string().into())).unwrap();
 }
 
+mod document_authority;
+mod navigation_barriers;
+mod pointer_capture;
+mod reconfigure_and_attach;
 mod runtime_routes;
 mod worker_and_input_mapping;
-mod document_authority;
-mod pointer_capture;
-mod navigation_barriers;
-mod reconfigure_and_attach;

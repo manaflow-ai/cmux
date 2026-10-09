@@ -222,32 +222,20 @@ fn launched_runtime_cleans_headless_user_agent_once_and_replays_per_surface() {
     .unwrap();
     let opts = SurfaceOptions::default();
     let first =
-        new_surface(11, "https://one.test".into(), (10, 5), (8, 16), &opts, Weak::new())
-            .unwrap();
-    runtime
-        .setup_attached_surface(&first, "target-1", "session-1", "https://one.test")
-        .unwrap();
+        new_surface(11, "https://one.test".into(), (10, 5), (8, 16), &opts, Weak::new()).unwrap();
+    runtime.setup_attached_surface(&first, "target-1", "session-1", "https://one.test").unwrap();
     let second =
-        new_surface(12, "https://two.test".into(), (10, 5), (8, 16), &opts, Weak::new())
-            .unwrap();
-    runtime
-        .setup_attached_surface(&second, "target-2", "session-2", "https://two.test")
-        .unwrap();
+        new_surface(12, "https://two.test".into(), (10, 5), (8, 16), &opts, Weak::new()).unwrap();
+    runtime.setup_attached_surface(&second, "target-2", "session-2", "https://two.test").unwrap();
 
     server.join().unwrap();
     let methods = seen_rx
         .try_iter()
         .map(|value| value["method"].as_str().unwrap().to_string())
         .collect::<Vec<_>>();
+    assert_eq!(methods.iter().filter(|method| method.as_str() == "Browser.getVersion").count(), 1);
     assert_eq!(
-        methods.iter().filter(|method| method.as_str() == "Browser.getVersion").count(),
-        1
-    );
-    assert_eq!(
-        methods
-            .iter()
-            .filter(|method| method.as_str() == "Emulation.setUserAgentOverride")
-            .count(),
+        methods.iter().filter(|method| method.as_str() == "Emulation.setUserAgentOverride").count(),
         2
     );
     runtime.shutdown();
@@ -786,9 +774,7 @@ fn external_runtime_does_not_query_or_override_user_agent() {
                         }
                     }
                     "Browser.getVersion" | "Emulation.setUserAgentOverride" => {
-                        panic!(
-                            "external runtimes must not receive launched-runtime stealth calls"
-                        )
+                        panic!("external runtimes must not receive launched-runtime stealth calls")
                     }
                     method => panic!("unexpected CDP method {method}"),
                 }

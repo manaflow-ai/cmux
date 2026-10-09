@@ -70,13 +70,8 @@ fn full_command_queue_retains_mouse_releases_without_unbounded_growth() {
     let release_surface = surface.clone();
     let enqueue = thread::spawn(move || {
         attempting_tx.send(()).unwrap();
-        let result = release_surface.browser_mouse_event(
-            "mouseReleased",
-            1.0,
-            1.0,
-            Some("left"),
-            Some(1),
-        );
+        let result =
+            release_surface.browser_mouse_event("mouseReleased", 1.0, 1.0, Some("left"), Some(1));
         enqueued_tx.send(result).unwrap();
     });
     attempting_rx.recv_timeout(Duration::from_secs(1)).unwrap();
@@ -86,19 +81,11 @@ fn full_command_queue_retains_mouse_releases_without_unbounded_growth() {
         .unwrap();
     for offset in 1..crate::browser::BROWSER_RETAINED_RELEASE_CAPACITY {
         surface
-            .browser_mouse_event(
-                "mouseReleased",
-                1.0 + offset as f64,
-                1.0,
-                Some("left"),
-                Some(1),
-            )
+            .browser_mouse_event("mouseReleased", 1.0 + offset as f64, 1.0, Some("left"), Some(1))
             .expect("the bounded release lane must retain accepted releases");
     }
     assert!(
-        surface
-            .browser_mouse_event("mouseReleased", 100.0, 2.0, Some("left"), Some(1))
-            .is_err(),
+        surface.browser_mouse_event("mouseReleased", 100.0, 2.0, Some("left"), Some(1)).is_err(),
         "the bounded release lane must reject input beyond its capacity"
     );
 
@@ -309,7 +296,8 @@ fn recovery_from_not_responding_broadcasts_live_state_to_attach_clients() {
     // Attach before the failure so the tap observes both the failure and the recovery.
     let (_snapshot, stream) = browser.attach_frames();
 
-    let failed_title = format!("browser failed: {}", crate::browser::BROWSER_NOT_RESPONDING_MESSAGE);
+    let failed_title =
+        format!("browser failed: {}", crate::browser::BROWSER_NOT_RESPONDING_MESSAGE);
     browser.mark_not_responding();
     let failed = stream.slot.lock().unwrap().state.clone().expect("failure was broadcast");
     assert_eq!(
@@ -505,23 +493,18 @@ fn queued_pointer_admission_survives_only_same_route_repaints() {
     let browser = surface.as_browser().expect("browser surface");
     let owner = crate::browser::BrowserPointerOwner::Client(7);
     browser.store_frame(test_frame(1));
-    let admission =
-        browser.admit_pointer_frame(owner, Some(1)).expect("initial pointer admission");
+    let admission = browser.admit_pointer_frame(owner, Some(1)).expect("initial pointer admission");
 
     browser.store_frame(test_frame(2));
     assert!(browser.acknowledge_pointer_frame_from(owner, 2));
     assert!(
-        browser
-            .scale_guarded_input_point_from(owner, Some(1), Some(admission), 1.0, 1.0)
-            .is_some(),
+        browser.scale_guarded_input_point_from(owner, Some(1), Some(admission), 1.0, 1.0).is_some(),
         "a later presentation must not discard an already queued click"
     );
 
     browser.invalidate_pointer_frame();
     assert!(
-        browser
-            .scale_guarded_input_point_from(owner, Some(1), Some(admission), 1.0, 1.0)
-            .is_none(),
+        browser.scale_guarded_input_point_from(owner, Some(1), Some(admission), 1.0, 1.0).is_none(),
         "document or geometry invalidation must still revoke queued input"
     );
 }

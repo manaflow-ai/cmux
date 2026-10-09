@@ -343,8 +343,7 @@ fn latest_navigation_supersedes_an_uncommitted_reload_epoch() {
             thread::yield_now();
         }
         let navigation_epoch = browser.frame_epoch.current();
-        admitted =
-            browser.accept_document_paint(navigation_epoch, navigation_epoch, test_frame(2));
+        admitted = browser.accept_document_paint(navigation_epoch, navigation_epoch, test_frame(2));
     }
     let _ = stop_tx.send(());
     runtime.shutdown();
@@ -354,10 +353,7 @@ fn latest_navigation_supersedes_an_uncommitted_reload_epoch() {
         navigate_result.is_ok(),
         "the latest URL must replace an unresolved reload instead of being consumed"
     );
-    assert!(
-        superseded,
-        "Chrome must cancel the unresolved load before accepting its replacement"
-    );
+    assert!(superseded, "Chrome must cancel the unresolved load before accepting its replacement");
     assert!(admitted, "the replacement document must regain pointer authority");
     let state = browser.state.lock().unwrap();
     assert_eq!(state.pending_frame_epoch, None);
@@ -430,10 +426,7 @@ fn reload_supersedes_an_uncommitted_navigation() {
         second_reload.is_ok(),
         "reload must replace an unresolved navigation instead of remaining permanently blocked"
     );
-    assert!(
-        superseded,
-        "Chrome must cancel the unresolved navigation before accepting the retry"
-    );
+    assert!(superseded, "Chrome must cancel the unresolved navigation before accepting the retry");
     let state = browser.state.lock().unwrap();
     assert!(state.pending_navigation_epoch.is_some());
     assert_eq!(state.pointer_frame_seq, None, "the retry must remain fail-closed until paint");

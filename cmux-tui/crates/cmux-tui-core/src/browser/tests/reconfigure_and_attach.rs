@@ -15,10 +15,7 @@ fn loaderless_navigation_response_reconciles_the_unchanged_document() {
         write_ws_json(&mut ws, json!({"id": discover["id"], "result": {}}));
         let navigate = read_ws_json(&mut ws);
         assert_eq!(navigate["method"], "Page.navigate");
-        write_ws_json(
-            &mut ws,
-            json!({"id": navigate["id"], "result": {"frameId": "main-frame"}}),
-        );
+        write_ws_json(&mut ws, json!({"id": navigate["id"], "result": {"frameId": "main-frame"}}));
         for expected in [
             "Page.getFrameTree",
             "Page.stopScreencast",
@@ -126,10 +123,7 @@ fn loaderless_navigation_retries_snapshot_invalidated_by_same_document_event() {
 
         let navigate = read_ws_json(&mut ws);
         assert_eq!(navigate["method"], "Page.navigate");
-        write_ws_json(
-            &mut ws,
-            json!({"id": navigate["id"], "result": {"frameId": "main-frame"}}),
-        );
+        write_ws_json(&mut ws, json!({"id": navigate["id"], "result": {"frameId": "main-frame"}}));
 
         let first_snapshot = read_ws_json(&mut ws);
         assert_eq!(first_snapshot["method"], "Page.getFrameTree");
@@ -261,10 +255,7 @@ fn loaderless_navigation_snapshot_failure_settles_the_transition() {
         write_ws_json(&mut ws, json!({"id": discover["id"], "result": {}}));
         let navigate = read_ws_json(&mut ws);
         assert_eq!(navigate["method"], "Page.navigate");
-        write_ws_json(
-            &mut ws,
-            json!({"id": navigate["id"], "result": {"frameId": "main-frame"}}),
-        );
+        write_ws_json(&mut ws, json!({"id": navigate["id"], "result": {"frameId": "main-frame"}}));
         let snapshot = read_ws_json(&mut ws);
         assert_eq!(snapshot["method"], "Page.getFrameTree");
         write_ws_json(
@@ -306,7 +297,10 @@ fn loaderless_navigation_snapshot_failure_settles_the_transition() {
     assert_eq!(pending_navigation_epoch, None);
     assert!(!pending_same_document_navigation);
     assert!(
-        matches!(status.failure(), Some(crate::browser::BrowserFailure::UpdatedPageVerification(_))),
+        matches!(
+            status.failure(),
+            Some(crate::browser::BrowserFailure::UpdatedPageVerification(_))
+        ),
         "the retryable terminal failure must remain visible"
     );
     assert!(
@@ -810,13 +804,8 @@ fn full_command_queue_retains_pointer_release_without_blocking_producer() {
     let queued_surface = surface.clone();
     let (settled_tx, settled_rx) = mpsc::channel();
     let enqueue = thread::spawn(move || {
-        let result = queued_surface.browser_mouse_event(
-            "mouseReleased",
-            1.0,
-            1.0,
-            Some("left"),
-            Some(1),
-        );
+        let result =
+            queued_surface.browser_mouse_event("mouseReleased", 1.0, 1.0, Some("left"), Some(1));
         settled_tx.send(result).unwrap();
     });
     // The worker is still held, so the queue stays full: a producer that
@@ -974,8 +963,7 @@ fn rejected_resize_releases_joined_completion_waiters() {
     let surface = test_surface();
     let browser = surface.as_browser().expect("browser surface");
     let queued = browser.reserve_reconfigure(11, 5).expect("changed geometry");
-    let pending =
-        browser.pending_resize_completion(11, 5).unwrap().expect("pending completion");
+    let pending = browser.pending_resize_completion(11, 5).unwrap().expect("pending completion");
 
     browser.release_reconfigure(queued);
 
@@ -994,8 +982,7 @@ fn browser_resize_failure_retries_are_bounded_and_new_sizes_cancel_the_latch() {
     let browser = surface.as_browser().expect("browser surface");
 
     for attempt in 1..=3 {
-        let queued =
-            browser.reserve_reconfigure(11, 5).expect("resize must enter pending state");
+        let queued = browser.reserve_reconfigure(11, 5).expect("resize must enter pending state");
         let (recorded_attempt, retry_delay) =
             browser.fail_reconfigure(queued).expect("pending resize failure must be recorded");
         assert_eq!(recorded_attempt, attempt);
@@ -1020,8 +1007,7 @@ fn exhausted_reconfigure_recovery_exposes_a_retryable_terminal_failure() {
     browser.store_frame(test_frame(1));
 
     for attempt in 1..=3 {
-        let queued =
-            browser.reserve_reconfigure(11, 5).expect("resize must enter pending state");
+        let queued = browser.reserve_reconfigure(11, 5).expect("resize must enter pending state");
         browser.begin_reconfigure_frame_transition();
         let (_, retry_delay) =
             browser.fail_reconfigure(queued).expect("resize failure must be recorded");
