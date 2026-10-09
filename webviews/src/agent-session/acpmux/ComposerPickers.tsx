@@ -718,6 +718,9 @@ export function Picker({
       event.preventDefault();
       const step = event.key === "ArrowDown" ? 1 : -1;
       if (rows.length > 0) setActive((selected + step + rows.length) % rows.length);
+    } else if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      if (rows.length > 0) setActive(event.key === "Home" ? 0 : rows.length - 1);
     } else if (event.key === "Enter") {
       event.preventDefault();
       pick(selected);
