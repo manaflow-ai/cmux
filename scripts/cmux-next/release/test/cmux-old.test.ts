@@ -115,6 +115,19 @@ final class WhatsNew {
     init(base: String) { url = URL(string: base + Self.requestPath) }
 }
 
+final class Push {
+    func recipients() async {
+        components.path = components.path + "/api/device-tokens"
+        components.queryItems = [URLQueryItem(name: "all", value: "true")]
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \\(token)", forHTTPHeaderField: "Authorization")
+        let r = try? JSONDecoder().decode(Recipients.self, from: data)
+    }
+}
+
+struct Recipients: Decodable { let recipients: [String] }
+
 struct Envelope: Decodable {
     let items: [String]
     init(from decoder: Decoder) throws {
@@ -158,6 +171,7 @@ describe("request extraction from a release tag", () => {
     const { requests, skipped } = extractRequests(repo, "v1.0.0", REVIEW)
     expect(requests.map((r) => `${r.method} ${r.path}`)).toEqual([
       "POST /api/analytics/events",
+      "GET /api/device-tokens",
       "PATCH /api/devices",
       "POST /api/devices",
       "POST /api/notifications/push/e2e",
@@ -175,6 +189,7 @@ describe("request extraction from a release tag", () => {
     expect([...byKey["POST /api/analytics/events"]!.headers]).toEqual(["Content-Type"])
     expect(byKey["POST /api/teams/invitations/{id}/accept"]!.body).toEqual({ keys: ["note", "count"] })
     expect(byKey["POST /api/vm/{id}/exec"]!.body).toEqual({ keys: ["command", "timeoutMs?"] })
+    expect(byKey["GET /api/device-tokens"]!.query).toBe("all=true")
   })
   it("refuses an unresolved literal and a stale review entry", () => {
     let message = ""
@@ -270,6 +285,7 @@ describe("signed-in replay against a fake Stack and a fake origin", () => {
       if (path === "/handler/sign-in") return new Response(`<html>${state.project}</html>`, { headers: { "content-type": "text/html" } })
       const signedIn = req.headers.get("authorization") === "Bearer acc-1" && req.headers.get("x-stack-refresh-token") === "ref-1"
       if (path === "/api/whats-new") return Response.json({ visibleEntryIds: [] })
+      if (path === "/api/device-tokens") return !signedIn ? Response.json({ error: "unauthorized" }, { status: 401 }) : url.searchParams.get("all") === "true" ? Response.json({ recipients: [] }) : Response.json({ error: "invalid_bundle_id" }, { status: 400 })
       if (path === "/api/vm" && req.method === "GET") return state.vmRoute ? (signedIn ? Response.json({ vms: [] }) : Response.json({ error: "unauthorized" }, { status: 401 })) : new Response("<html>404</html>", { status: 404, headers: { "content-type": "text/html" } })
       if (path.startsWith("/api/teams/")) {
         if (!signedIn) return Response.json({ error: "unauthorized" }, { status: 401 })
@@ -296,6 +312,7 @@ describe("signed-in replay against a fake Stack and a fake origin", () => {
       { method: "GET", path: "/api/vm/{encodedID}/stats", params: ["encodedID"], headers: ["Authorization"], sources: [], via: "t", mode: "read", response: "object", fill: { encodedID: "vm" } },
       { method: "GET", path: "/api/whats-new", params: [], headers: [], sources: [], via: "t", mode: "read", anonymous: true, response: { visibleEntryIds: ["string"] } },
       { method: "POST", path: "/api/vm/tunnel", params: [], headers: ["Authorization"], sources: [], via: "t", mode: "shape-only", reason: "changes state" },
+      { method: "GET", path: "/api/device-tokens", query: "all=true", params: [], headers: ["Authorization"], sources: [], via: "t", mode: "read", response: { recipients: ["object"] } },
     ],
   }
   const creds = { email: "agent@example.com", password: "agent-secret" }
@@ -305,7 +322,7 @@ describe("signed-in replay against a fake Stack and a fake origin", () => {
     const r = await authenticatedReplay(spec, origin, creds)
     expect(r.failures).toEqual([])
     expect(r.authenticated).toBe(true)
-    expect(r.counts).toMatchObject({ "read-2xx": 2, "read-absent-id": 1, "public-read": 1, "shape-only": 1, fail: 0 })
+    expect(r.counts).toMatchObject({ "read-2xx": 3, "read-absent-id": 1, "public-read": 1, "shape-only": 1, fail: 0 })
     expect(r.shapeOnly).toEqual(["POST /api/vm/tunnel"])
     expect(r.warnings.join()).toContain("no machine")
     const team = seen.find((s) => s.path === "/api/teams/team-1")!
@@ -320,7 +337,7 @@ describe("signed-in replay against a fake Stack and a fake origin", () => {
     const r = await authenticatedReplay(spec, origin, creds)
     Object.assign(state, { dropMembers: false, vmRoute: true })
     expect(r.failures.join("\n")).toContain("GET /api/teams/{team}: response shape: $.members: missing")
-    expect(r.failures.join("\n")).toContain("GET /api/vm: answered 404 signed in")
+    expect(r.failures.join("\n")).toContain("GET /api/vm: answered 404 signed in; v1.0.0 needs 2xx [<html>404</html>]")
   })
   it("refuses to sign in when the origin serves another Stack project, and when the password is wrong", async () => {
     state.project = "prod-project"
@@ -335,7 +352,7 @@ describe("signed-in replay against a fake Stack and a fake origin", () => {
     const r = await replay(spec, origin)
     expect(r.authenticated).toBe(false)
     expect(r.failures).toEqual([])
-    expect(r.counts).toMatchObject({ "unauthenticated-read": 3, "public-read": 1, "shape-only": 1 })
+    expect(r.counts).toMatchObject({ "unauthenticated-read": 4, "public-read": 1, "shape-only": 1 })
   })
 })
 
@@ -371,6 +388,7 @@ describe("the committed spec", () => {
   it("records the shipped POST routes as POST (no 405 GETs), and every read has a response shape", () => {
     const keys = new Set(spec.requests.map((r) => `${r.method} ${r.path}`))
     for (const k of ["POST /api/vm/{encodedID}/exec", "POST /api/teams/invitations/{invitation}/accept", "POST /api/feedback", "POST /api/analytics/events", "POST /api/vm/{id}/pause", "PUT /api/vm/{encodedID}/network"]) expect(keys).toContain(k)
+    expect(spec.requests.find((r) => r.method === "GET" && r.path === "/api/device-tokens")!.query).toBe("all=true")
     for (const k of ["GET /api/vm/{encodedID}/exec", "GET /api/feedback", "GET /api/analytics/events", "GET /api/vm/base/open"]) expect(keys).not.toContain(k)
     for (const r of spec.requests) {
       if (r.mode === "read") expect(r.response).toBeDefined()
