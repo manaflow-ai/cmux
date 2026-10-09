@@ -139,7 +139,9 @@ describe("team_vm.retired.export (cx-lyvg)", { timeout: 60_000 }, () => {
     expect(r.ok, JSON.stringify(r)).toBe(true)
     const other = await t.download(r.value.path.replace(t.team, "team_00000000000000000000"))
     expect(other.status).toBe(404)
-    expect((await t.download(r.value.path)).status).toBe(200)
+    const own = await t.download(r.value.path)
+    expect(own.status).toBe(200)
+    expect((await own.arrayBuffer()).byteLength).toBe(r.value.archive_bytes)
   })
 
   it("a retired VM that is not fenced yet is refused, and its download too; nothing starts it", async () => {

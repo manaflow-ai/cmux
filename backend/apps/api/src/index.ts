@@ -12,6 +12,7 @@ import { CARD_PATH, handleContactCard, handleSendblueHook } from "./home-text.ts
 import { handleOutboxReplay } from "./admin-outbox.ts"
 import { handleCloudAbandonedClear } from "./cloud-admin.ts"
 import { handleTeamVmAdmin } from "./team-vm-admin.ts"
+import { handleTeamVmExport } from "./team-vm-export-route.ts"
 import { signInRules, ssoGate, versionRefusal } from "./policy-gate.ts"
 import type { PresenceKeyBody } from "./user-do.ts"
 import { handlePairBegin, handlePairWait } from "./pair-routes.ts"
@@ -152,6 +153,8 @@ export default {
     if (url.pathname === "/v1/admin/outbox/replay") return handleOutboxReplay(request, env)
     if (url.pathname === "/v1/admin/cloud/abandoned/clear") return handleCloudAbandonedClear(request, env)
     if (url.pathname.startsWith("/v1/admin/team-vm/")) return handleTeamVmAdmin(request, env)
+    const tvmExport = url.pathname.match(/^\/v1\/team-vm\/export\/(team_[A-Za-z0-9_-]{1,64})\/([0-9a-f]{64})$/)
+    if (tvmExport) return handleTeamVmExport(request, env, tvmExport[1]!, tvmExport[2]!)
     // Webhook ingress: no bearer; each route verifies its own signature before any DO call.
     const hook = url.pathname.match(/^\/v1\/hooks\/automation\/([^/]+)\/([^/]+)$/)
     if (hook) return handleAutomationHook(request, env, hook[1]!, hook[2]!)

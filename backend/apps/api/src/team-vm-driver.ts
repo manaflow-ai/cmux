@@ -2,6 +2,7 @@ import type { SqlStore } from "@cmux/ownership"
 import type { Env } from "./env.ts"
 import type { ProviderState } from "./domains/team-vm.ts"
 import { FakeGuest } from "./team-vm-fake-guest.ts"
+import { FakeFiles, FreestyleFiles } from "./team-vm-driver-files.ts"
 
 /**
  * The provider behind TeamVmDO (plans/cmux-next/team-vm-plan.md S2). Two calls, both idempotent:
@@ -32,6 +33,32 @@ export interface TeamVmDriver {
   exec(id: string, command: string, timeoutMs: number): Promise<{ readonly code: number; readonly stdout: string }>
   /** One page of the provider account's VMs (report-only callers; never used to adopt or delete). */
   listPage(limit: number, offset: number): Promise<{ readonly vms: ReadonlyArray<{ readonly id: string; readonly slug: string | null }>; readonly size: number; readonly total: number | null }>
+  /**
+   * The provider's file API on the VM's disk (team-vm-export.ts). It reads a paused VM without
+   * starting it, also one whose run budget is spent (measured cx-009a). Never used on a running VM.
+   */
+  readonly files: TeamVmFiles
+}
+
+export type FsKind = "file" | "directory" | "symlink" | "other"
+export interface FsStat {
+  readonly kind: FsKind
+  readonly size: number
+  /** Permission bits. */
+  readonly mode: number
+  /** Seconds since the epoch, 0 when unknown. */
+  readonly mtime: number
+  readonly owner: string
+  readonly group: string
+}
+
+export interface TeamVmFiles {
+  /** The entries of directory `path`, or null when the path does not exist (the VM itself missing is `team_vm.vm_missing`). */
+  list(id: string, path: string): Promise<ReadonlyArray<{ readonly name: string; readonly kind: FsKind }> | null>
+  /** Metadata of `path` without following a symlink's target, or null when the path does not exist. */
+  stat(id: string, path: string): Promise<FsStat | null>
+  /** The bytes of file `path` from byte `offset` on, as the provider streams them. */
+  read(id: string, path: string, offset: number, signal: AbortSignal): Promise<ReadableStream<Uint8Array>>
 }
 
 export class DriverError extends Error {
@@ -59,11 +86,14 @@ const RETIRED_RUN_BUDGET_SECONDS = 1
 const nonEmpty = (v: unknown): v is string => typeof v === "string" && v.length > 0
 
 export class FreestyleDriver implements TeamVmDriver {
+  readonly files: FreestyleFiles
   constructor(
     private readonly apiKey: string,
     private readonly baseUrl: string,
     private readonly snapshot: string
-  ) {}
+  ) {
+    this.files = new FreestyleFiles(apiKey, baseUrl)
+  }
 
   private async call(method: string, path: string, body?: unknown, timeoutMs = REQUEST_TIMEOUT_MS): Promise<{ status: number; json: Record<string, unknown> }> {
     let res: Response
@@ -191,8 +221,10 @@ export class FreestyleDriver implements TeamVmDriver {
  */
 export class FakeDriver implements TeamVmDriver {
   private readonly guest: FakeGuest
+  readonly files: FakeFiles
   constructor(private readonly sql: SqlStore) {
     this.guest = new FakeGuest(sql)
+    this.files = new FakeFiles(sql)
     sql.exec(`CREATE TABLE IF NOT EXISTS fake_vm (slug TEXT PRIMARY KEY, id TEXT NOT NULL UNIQUE, state TEXT NOT NULL, team TEXT)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS fake_ctl (id INTEGER PRIMARY KEY CHECK (id = 1), fail_next INTEGER NOT NULL DEFAULT 0, creates INTEGER NOT NULL DEFAULT 0, starts INTEGER NOT NULL DEFAULT 0, slug_prefix TEXT, lose_next_create INTEGER NOT NULL DEFAULT 0)`)
     sql.exec(`INSERT OR IGNORE INTO fake_ctl (id) VALUES (1)`)
