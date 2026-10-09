@@ -125,12 +125,14 @@
 .acpmux-access-menu {
   width: min(286px, calc(100vw - 24px));
   min-width: 0;
-  padding: 5px;
+  padding: var(--ui-popup-padding);
   border: 0;
-  border-radius: 10px;
+  border-radius: var(--ui-popup-radius);
   background: var(--acpmux-menu-bg);
-  box-shadow: inset 0 0 0 .5px var(--acpmux-composer-edge), 0 10px 30px var(--agent-shadow, rgb(0 0 0 / .35));
+  box-shadow: inset 0 0 0 .5px var(--acpmux-composer-edge), var(--ui-popup-shadow);
   color: var(--agent-text);
+  transform-origin: var(--transform-origin);
+  animation: ui-popup-open var(--ui-popup-open) ease-out;
 }
 .ui-menu-item.acpmux-access-item {
   display: grid;
@@ -138,8 +140,8 @@
   align-items: center;
   gap: 8px;
   min-height: 44px;
-  padding: 5px 8px;
-  border-radius: 7px;
+  padding: 5px var(--ui-row-padding-inline);
+  border-radius: var(--ui-row-radius);
   color: var(--agent-text);
 }
 .ui-menu-item.acpmux-access-item[data-highlighted] { background: var(--acpmux-menu-hover); }

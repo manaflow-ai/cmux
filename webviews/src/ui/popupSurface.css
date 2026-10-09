@@ -1,0 +1,26 @@
+/* One surface for every menu and popover (dogfood 2026-10-08): compact rows, small-radius rects,
+   one subtle shadow, and a short open that grows from the trigger's side. Sizes and motion only;
+   each surface keeps its own theme colors. ui.css imports this; the agent pane, which does not
+   load ui.css, ships it ahead of its own stylesheets (build-agent-pane-web.sh). */
+:root {
+  --ui-popup-radius: 8px;
+  --ui-popup-padding: 4px;
+  --ui-popup-shadow: 0 4px 14px color-mix(in srgb, black 16%, transparent);
+  --ui-row-height: 28px;
+  --ui-row-radius: 5px;
+  --ui-row-padding-inline: 8px;
+  --ui-popup-open: 120ms;
+}
+
+@keyframes ui-popup-open {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --ui-popup-open: 0s;
+  }
+}

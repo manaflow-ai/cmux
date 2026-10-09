@@ -4,7 +4,7 @@
 .acpmux-summary-button:hover,.acpmux-summary-button[aria-expanded="true"]{background:color-mix(in srgb,currentColor 8%,transparent)}
 .acpmux-summary-button:active{background:color-mix(in srgb,var(--agent-text) 20%,transparent)}
 .acpmux-summary-button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
-.acpmux-summary-popover{width:288px;max-height:min(540px,70vh);overflow:auto;padding:4px 6px 6px;box-sizing:border-box;border:0;border-radius:12px;background:var(--acpmux-menu-bg);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),0 10px 30px var(--agent-shadow,rgb(0 0 0/.35));color:var(--agent-text);font-size:13px;line-height:18px;outline:none}
+.acpmux-summary-popover{width:288px;max-height:min(540px,70vh);overflow:auto;padding:4px 6px 6px;box-sizing:border-box;border:0;border-radius:var(--ui-popup-radius);background:var(--acpmux-menu-bg);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),var(--ui-popup-shadow);transform-origin:var(--transform-origin);animation:ui-popup-open var(--ui-popup-open) ease-out;color:var(--agent-text);font-size:13px;line-height:18px;outline:none}
 .acpmux-summary-section+.acpmux-summary-section{margin-top:4px;padding-top:4px;border-top:.5px solid var(--agent-border)}
 .acpmux-summary-title{margin:0;padding:8px 8px 4px;color:var(--agent-muted);font-size:12px;font-weight:500;line-height:16px}
 .acpmux-summary-list{margin:0;padding:0;list-style:none}

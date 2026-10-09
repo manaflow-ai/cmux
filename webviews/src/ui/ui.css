@@ -1,3 +1,5 @@
+@import "./popupSurface.css";
+
 /* The wrapper's look (R139 desktop feel): system font, chrome that is not selectable, focus rings
    only for keyboard focus (`:focus-visible`), colors only from the shared web theme (`--cmux-*`)
    with system-color fallbacks for the plain-browser dev loop. Motion only when the user allows it. */
@@ -37,23 +39,26 @@
 
 .ui-popup {
   min-width: 160px;
-  padding: 4px;
+  padding: var(--ui-popup-padding);
   border: 1px solid var(--ui-line);
-  border-radius: 8px;
+  border-radius: var(--ui-popup-radius);
   background: var(--ui-surface);
   color: var(--ui-fg);
   font-size: 13px;
-  box-shadow: 0 6px 24px color-mix(in srgb, black 18%, transparent);
+  box-shadow: var(--ui-popup-shadow);
   outline: none;
+  /* Base UI's positioner names the side the popup grows from. */
+  transform-origin: var(--transform-origin);
+  animation: ui-popup-open var(--ui-popup-open) ease-out;
 }
 
 .ui-menu-item {
   display: flex;
   align-items: center;
   gap: 6px;
-  min-height: 24px;
-  padding: 2px 8px;
-  border-radius: 5px;
+  min-height: var(--ui-row-height);
+  padding: 2px var(--ui-row-padding-inline);
+  border-radius: var(--ui-row-radius);
   outline: none;
 }
 
