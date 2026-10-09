@@ -130,3 +130,131 @@ impl Surface {
         }
     }
 }
+
+pub const CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR: &str =
+    "terminal keyboard mode cannot encode clear-history fallback key";
+pub const CLEAR_HISTORY_PRESERVATION_ERROR: &str =
+    "active terminal input extends into retained history";
+pub const CLEAR_HISTORY_STREAM_TIMEOUT_ERROR: &str =
+    "terminal output did not reach a safe clear-history boundary";
+pub const CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR: &str =
+    "terminal input did not accept clear-history fallback before timeout";
+pub(crate) const CLEAR_HISTORY_STREAM_WAIT_TIMEOUT: Duration = Duration::from_millis(250);
+pub(crate) const CLEAR_HISTORY_KEY_TEXT_MAX_BYTES: usize = 4 * 1024;
+const CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT: Duration = Duration::from_millis(250);
+pub(super) const LOCAL_PASTE_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
+// Kitty associated-text encoding can expand each ASCII input byte to a
+// three-digit codepoint plus one separator. The extra key-text budget covers
+// the fixed CSI-u fields without making fallback writes unbounded.
+const CLEAR_HISTORY_FALLBACK_MAX_BYTES: usize = CLEAR_HISTORY_KEY_TEXT_MAX_BYTES * 5;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClearHistoryDelivery {
+    KnownNotDelivered,
+    Ambiguous,
+}
+
+#[derive(Debug)]
+pub struct ClearHistoryFailure {
+    error: anyhow::Error,
+    delivery: ClearHistoryDelivery,
+}
+
+impl ClearHistoryFailure {
+    pub fn known_not_delivered(error: anyhow::Error) -> Self {
+        Self { error, delivery: ClearHistoryDelivery::KnownNotDelivered }
+    }
+
+    pub fn ambiguous(error: anyhow::Error) -> Self {
+        Self { error, delivery: ClearHistoryDelivery::Ambiguous }
+    }
+
+    pub fn delivery(&self) -> ClearHistoryDelivery {
+        self.delivery
+    }
+
+    pub fn error(&self) -> &anyhow::Error {
+        &self.error
+    }
+
+    pub fn into_error(self) -> anyhow::Error {
+        self.error
+    }
+}
+
+#[cfg(unix)]
+fn clear_history_write_failure(error: std::io::Error, delivered: usize) -> ClearHistoryFailure {
+    let error = anyhow::Error::from(error);
+    if delivered == 0 {
+        ClearHistoryFailure::known_not_delivered(error)
+    } else {
+        ClearHistoryFailure::ambiguous(error)
+    }
+}
+
+pub(crate) fn write_clear_history_fallback(
+    master: &dyn MasterPty,
+    writer: &mut dyn Write,
+    bytes: &[u8],
+) -> Result<(), ClearHistoryFailure> {
+    if bytes.len() > CLEAR_HISTORY_FALLBACK_MAX_BYTES {
+        return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
+            "encoded clear-history fallback exceeds {CLEAR_HISTORY_FALLBACK_MAX_BYTES} bytes"
+        )));
+    }
+
+    #[cfg(unix)]
+    if let Some(fd) = master.as_raw_fd() {
+        return crate::pty_write::write_bounded(
+            fd,
+            bytes,
+            CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT,
+            CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR,
+        )
+        .map_err(|failure| clear_history_write_failure(failure.error, failure.delivered));
+    }
+
+    #[cfg(test)]
+    {
+        writer
+            .write_all(bytes)
+            .and_then(|()| writer.flush())
+            .map_err(anyhow::Error::from)
+            .map_err(ClearHistoryFailure::ambiguous)
+    }
+
+    #[cfg(not(test))]
+    {
+        let _ = writer;
+        Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
+            "bounded clear-history fallback writes are unavailable for this PTY"
+        )))
+    }
+}
+
+pub(crate) enum ClearHistoryTransition {
+    Cleared(Vec<u8>),
+    Blocked,
+    EncodedFallback(Vec<u8>),
+    Noop,
+}
+
+pub(crate) fn apply_clear_history_transition(
+    term: &mut Terminal,
+    fallback_key: Option<&KeyInput>,
+) -> anyhow::Result<ClearHistoryTransition> {
+    if term.active_screen() != Screen::Alternate {
+        return Ok(match term.clear_history_preserving_prompt() {
+            ClearHistoryOutcome::Cleared(clear) => ClearHistoryTransition::Cleared(clear),
+            ClearHistoryOutcome::Blocked => ClearHistoryTransition::Blocked,
+            ClearHistoryOutcome::Unchanged => {
+                anyhow::bail!(CLEAR_HISTORY_PRESERVATION_ERROR)
+            }
+        });
+    }
+    let Some(input) = fallback_key else {
+        return Ok(ClearHistoryTransition::Noop);
+    };
+    let encoded = encode_key_from_terminal(term, input)?;
+    Ok(ClearHistoryTransition::EncodedFallback(encoded))
+}

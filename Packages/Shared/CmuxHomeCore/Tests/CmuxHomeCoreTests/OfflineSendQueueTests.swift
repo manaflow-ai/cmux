@@ -85,6 +85,74 @@ import CmuxHomeCoreTestSupport
         store.stop()
     }
 
+    func attachment(_ store: HomeStore, _ text: String) async throws -> LocalAttachment {
+        try await store.prepareAttachment(data: Data(text.utf8), typeIdentifier: "public.plain-text")
+    }
+
+    /// An attachment send while the owner is gone waits like a text send:
+    /// it uploads and goes at the reconnect.
+    @Test func anAttachmentSendWhileTheOwnerIsGoneWaitsAndGoesAtTheReconnect() async throws {
+        let (store, source) = try await started()
+        let file = try await attachment(store, "offline attachment")
+        await source.setOnline(false)
+        await waitUntil { !store.isOnline }
+        let key = IdempotencyKey("offline-attach-1")
+        await #expect(throws: HomeSendState.pendingResend) {
+            try await store.send(conversation: conversation, text: "with a file", attachments: [file], key: key)
+        }
+        #expect(row(store, key)?.delivery == .sending)
+        #expect(await source.uploadCalls.isEmpty)
+
+        await source.setOnline(true)
+        await waitUntil { self.row(store, key)?.delivery == .committed }
+        #expect(await source.uploadCalls.count == 1)
+        store.stop()
+    }
+
+    /// Text and attachment sends made while gone commit in the order made.
+    @Test func textAndAttachmentSendsMadeWhileGoneCommitInTheOrderMade() async throws {
+        let (store, source) = try await started()
+        let file = try await attachment(store, "middle file")
+        await source.setOnline(false)
+        await waitUntil { !store.isOnline }
+        let keys = (1...3).map { IdempotencyKey("offline-mixed-\($0)") }
+        _ = try? await store.perform(.sendMessage(conversation: conversation, parts: [.text("first")]), key: keys[0])
+        _ = try? await store.send(conversation: conversation, text: "second", attachments: [file], key: keys[1])
+        _ = try? await store.perform(.sendMessage(conversation: conversation, parts: [.text("third")]), key: keys[2])
+        await source.setOnline(true)
+        await waitUntil { keys.allSatisfy { self.row(store, $0)?.delivery == .committed } }
+        let seqs = keys.compactMap { row(store, $0)?.seq }
+        #expect(seqs.count == 3)
+        #expect(seqs == seqs.sorted())
+        store.stop()
+    }
+
+    @Test func anAttachmentSendFailsOnlyWhenTheOwnerStaysGonePastTheDeadline() async throws {
+        let clock = ManualClock()
+        let (store, source) = try await started(clock: clock)
+        let file = try await attachment(store, "late file")
+        await source.setOnline(false)
+        await waitUntil { !store.isOnline }
+        let key = IdempotencyKey("offline-attach-deadline")
+        let sleepers = clock.pendingSleepers
+        _ = try? await store.send(conversation: conversation, text: "", attachments: [file], key: key)
+        await waitUntil { clock.pendingSleepers > sleepers }
+
+        clock.advance(by: HomeStore.offlineSendDeadline - .seconds(1))
+        for _ in 0..<500 { await Task.yield() }
+        #expect(row(store, key)?.delivery == .sending)
+
+        clock.advance(by: .seconds(2))
+        await waitUntil { self.row(store, key)?.delivery == .notDelivered(.ownerUnreachable) }
+        #expect(row(store, key)?.mayHaveBeenDelivered == false)
+
+        await source.setOnline(true)
+        await waitUntil { store.isOnline }
+        try? await store.retry(key)
+        await waitUntil { self.row(store, key)?.delivery == .committed }
+        store.stop()
+    }
+
     @Test func otherOpsAreStillRefusedWhileTheOwnerIsGone() async throws {
         let (store, source) = try await started()
         await source.setOnline(false)

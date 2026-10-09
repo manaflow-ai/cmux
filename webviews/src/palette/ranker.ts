@@ -34,10 +34,23 @@ export interface PaletteFrecencyEntry {
   lastUsed: number;
 }
 
+/** A learned pick: the row the user ran for a normalized query start (palette-usage-v1). */
+export interface PaletteLearnedPick {
+  prefix: string;
+  key: string;
+  /** Decayed pick count as of `lastUsed`; halves every `pickHalfLife`. */
+  score: number;
+  lastUsed: number;
+  /** The latest row picked for `prefix`. */
+  last: boolean;
+}
+
 export interface PaletteFrecency {
   entries?: Record<string, PaletteFrecencyEntry>;
   halfLife?: number;
   capacity?: number;
+  picks?: PaletteLearnedPick[];
+  pickHalfLife?: number;
 }
 
 export interface PaletteRankedRow {
@@ -672,6 +685,43 @@ function frecencyScore(store: PaletteFrecency | undefined, key: string | null | 
   return entry.score * 2 ** (-elapsed / halfLife);
 }
 
+/** Learned picks lift a row to the top (plans/cmux-next/palette-ranking.md 5.2, the Raycast model):
+ * a row picked at least this often (decayed) for the query's longest known start, */
+const liftPicks = 2;
+/** or the latest pick for that start while at least this much of it is left (about a week). */
+const liftLatestPick = 0.5;
+/** Learned picks are kept for query starts of at most this many characters (the daemon's bound). */
+const pickPrefixChars = 8;
+const defaultPickHalfLife = 7 * 24 * 60 * 60;
+
+/** The query as learned picks key it: lowercased, white space collapsed (the daemon's rule). */
+function normalizedQuery(raw: string): string {
+  return raw.trim().split(/\s+/u).filter(Boolean).join(" ").toLowerCase();
+}
+
+/**
+ * The rows that may lift for `raw`, strongest first: the picks of the longest start of the
+ * normalized query that has picks, each qualified by `liftPicks` or `liftLatestPick`. The
+ * caller lifts the first one that still matches the query.
+ */
+function liftCandidates(store: PaletteFrecency | undefined, raw: string, now: number): string[] {
+  const picks = store?.picks;
+  if (!picks?.length) return [];
+  const chars = Array.from(normalizedQuery(raw));
+  const halfLife = store?.pickHalfLife ?? defaultPickHalfLife;
+  for (let length = Math.min(chars.length, pickPrefixChars); length >= 1; length--) {
+    const prefix = chars.slice(0, length).join("").trimEnd();
+    const rows = picks.filter((pick) => pick.prefix === prefix);
+    if (!rows.length) continue;
+    return rows
+      .map((pick) => ({ pick, score: pick.score * 2 ** (-Math.max(0, now - pick.lastUsed) / halfLife) }))
+      .filter(({ pick, score }) => score >= liftPicks || (pick.last && score >= liftLatestPick))
+      .sort((a, b) => b.score - a.score || (a.pick.key < b.pick.key ? -1 : a.pick.key > b.pick.key ? 1 : 0))
+      .map(({ pick }) => pick.key);
+  }
+  return [];
+}
+
 function frecencyBoost(store: PaletteFrecency | undefined, key: string | null | undefined, now: number): number {
   const score = frecencyScore(store, key, now);
   if (score <= 0.01) return 0;
@@ -755,6 +805,7 @@ export function rankPalette(request: Omit<PaletteRankRequest, "operation">): Pal
     /** A demoted row whose whole title is the query. */
     exactName: boolean;
     shortcut: boolean;
+    lifted: boolean;
     highlights: number[];
   }> = [];
   const rank = (allowsTypo: boolean) => {
@@ -775,6 +826,7 @@ export function rankPalette(request: Omit<PaletteRankRequest, "operation">): Pal
         demoted: entry.demoted === true,
         exactName: entry.demoted === true && titleIsQuery(entry.title, query.raw),
         shortcut: entry.hasShortcut === true,
+        lifted: false,
         highlights: match.highlights,
       });
     });
@@ -790,6 +842,18 @@ export function rankPalette(request: Omit<PaletteRankRequest, "operation">): Pal
   // A setting whose whole title is the query, and the only one, is an exact name ("theme" for
   // Theme): it keeps the whole-title tier (a command with the same title still wins the tie).
   // Several settings with that title ("Color" x10) stay demoted below the commands.
+  // The strongest learned pick for this query that still matches it goes first, over any
+  // match class: muscle memory beats text quality (the Raycast model).
+  const candidates = liftCandidates(store, query.raw, now);
+  if (candidates.length) {
+    const byKey = new Map<string, (typeof scored)[number]>();
+    for (const item of scored) {
+      const key = entries[item.index].frecencyKey;
+      if (key && item.enabled && !byKey.has(key)) byKey.set(key, item);
+    }
+    const lifted = candidates.map((key) => byKey.get(key)).find((item) => item !== undefined);
+    if (lifted) lifted.lifted = true;
+  }
   const exactNames = scored.filter((item) => item.exactName);
   if (exactNames.length === 1) {
     exactNames[0].tier += demotion;
@@ -817,6 +881,7 @@ export function rankPalette(request: Omit<PaletteRankRequest, "operation">): Pal
     scored.sort(
       (left, right) =>
         Number(right.enabled) - Number(left.enabled) ||
+        Number(right.lifted) - Number(left.lifted) ||
         right.tier - left.tier ||
         Number(left.demoted) - Number(right.demoted) ||
         right.score - left.score ||
