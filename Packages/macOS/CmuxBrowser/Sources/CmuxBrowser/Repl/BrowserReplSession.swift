@@ -1,5 +1,6 @@
 import Foundation
 import JavaScriptCore
+import os
 
 /// One console line produced by a REPL evaluation.
 public struct BrowserReplOutputLine: Sendable, Equatable {
@@ -1635,6 +1636,9 @@ public final class BrowserReplSession: @unchecked Sendable {
             finish(state, error: loadError ?? "Error: browser REPL runtime failed to load")
             return
         }
+        // The cell timed out (or the session closed) while the runtime
+        // loaded: its cancel found no cell to stop, so it must not start.
+        guard !state.isFinished, !isClosedNow else { return }
         guard let evalFunction = entryPoints?.evaluate else {
             finish(state, error: "Error: browser REPL runtime is not installed (missing __cmuxReplEval)")
             return
@@ -1722,7 +1726,8 @@ public final class BrowserReplSession: @unchecked Sendable {
         }
         for script in bundle.replScripts {
             context.exception = nil
-            context.evaluateScript(script.source, withSourceURL: URL(string: "cmux-repl:///\(script.name)"))
+            guard let source = preparedRuntimeScript(script, in: context) else { return nil }
+            context.evaluateScript(source, withSourceURL: URL(string: "cmux-repl:///\(script.name)"))
             if let exception = context.exception {
                 context.exception = nil
                 loadError = "Error: browser REPL runtime failed to load \(script.name): \(formatError(exception, in: context))"
@@ -1739,6 +1744,71 @@ public final class BrowserReplSession: @unchecked Sendable {
         }
         return context
     }
+
+    /// `script`'s source as the context runs it. Where this macOS's
+    /// JavaScriptCore records no async stack trace (before macOS 27), the
+    /// runtime's own scripts are rewritten by `async-owner.js` (loaded
+    /// before them) so that its async functions carry the cell that called
+    /// them, and a timed-out cell's leftover work is refused native work
+    /// there too; vendored scripts and engines with async stacks run as
+    /// given. Sets `loadError` and returns nil when the rewrite fails.
+    private func preparedRuntimeScript(_ script: BrowserReplRuntimeBundle.Script, in context: JSContext) -> String? {
+        switch Self.prepare(script, in: context) {
+        case .success(let source):
+            return source
+        case .failure(let message):
+            loadError = "Error: browser REPL runtime failed to prepare \(script.name): \(message)"
+            return nil
+        }
+    }
+
+    private enum Preparation {
+        case success(String)
+        case failure(String)
+    }
+
+    private static func prepare(_ script: BrowserReplRuntimeBundle.Script, in context: JSContext) -> Preparation {
+        guard !script.name.hasPrefix("vendor/") else { return .success(script.source) }
+        // The rewrite is the same for every session: done once per source.
+        if let cached = preparedScripts.withLock({ $0[script.source] }) { return .success(cached) }
+        // Looked up one object at a time: a property of `undefined` would
+        // leave an exception on the context.
+        guard let namespace = context.globalObject?.objectForKeyedSubscript("CmuxBrowserRepl"), namespace.isObject,
+              let asyncOwner = namespace.objectForKeyedSubscript("asyncOwner"), asyncOwner.isObject,
+              let prepare = asyncOwner.objectForKeyedSubscript("prepareScript"), prepare.isObject else {
+            return .success(script.source)
+        }
+        let prepared = prepare.call(withArguments: [script.source])
+        if let exception = context.exception {
+            context.exception = nil
+            return .failure(exception.toString() ?? "Error")
+        }
+        guard let prepared, prepared.isString, let text = prepared.toString() else { return .success(script.source) }
+        preparedScripts.withLock { $0[script.source] = text }
+        return .success(text)
+    }
+
+    /// Rewrites `bundle`'s runtime scripts ahead of the first session, where
+    /// this macOS's JavaScriptCore needs it (``preparedRuntimeScript(_:in:)``),
+    /// so that the rewrite (a few hundred milliseconds, once per process)
+    /// does not count against a first cell's timeout. Elsewhere it only
+    /// loads the parser and finds nothing to do.
+    public static func prepareRuntime(_ bundle: BrowserReplRuntimeBundle) {
+        guard let context = JSContext() else { return }
+        context.exceptionHandler = { context, exception in context?.exception = exception }
+        for script in bundle.replScripts {
+            if script.name == "vendor/acorn.js" || script.name == "async-owner.js" {
+                context.evaluateScript(script.source)
+                context.exception = nil
+            } else if !script.name.hasPrefix("vendor/") {
+                _ = prepare(script, in: context)
+            }
+        }
+    }
+
+    /// The runtime scripts async-owner.js rewrote, by source; only an
+    /// engine without async stack traces rewrites any.
+    private static let preparedScripts = OSAllocatedUnfairLock<[String: String]>(initialState: [:])
 
     /// The functions the app calls in the runtime (driver-protocol.md,
     /// "Native host contract").

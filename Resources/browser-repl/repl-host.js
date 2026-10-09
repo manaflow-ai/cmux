@@ -10,6 +10,10 @@
   // Taken before any cell runs, so a cell that replaces the global Error
   // does not change how the runtime reads a stack.
   const StackError = Error;
+  // The owner of the code running now where the engine's stacks cannot
+  // tell (async-owner.js); absent, or inactive, where they can.
+  const asyncOwner = ns.asyncOwner && ns.asyncOwner.active ? ns.asyncOwner : null;
+  const trackedOwner = () => (asyncOwner ? asyncOwner.tracker.owner() : undefined);
 
   function acornApi() {
     const acorn = root.acorn || (ns.vendor && ns.vendor.acorn);
@@ -183,22 +187,34 @@
       }
       return Array.from(stack.matchAll(CELL_FRAME), (m) => Number(m[1]));
     }
-    const runningOnStack = (seqs) => !!running && running.seq !== undefined && seqs.includes(running.seq);
+    // Where the engine's stacks do not name a resumed async function's
+    // callers, the owner async-owner.js tracks stands in for them: the
+    // cell object whose code (or an async function it called) runs now.
+    const ownCells = new WeakSet();
+    const tracked = () => {
+      const owner = trackedOwner();
+      return owner && ownCells.has(owner) ? owner : undefined;
+    };
+    const runningOnStack = (seqs) => !!running && running.seq !== undefined && (seqs.includes(running.seq) || tracked() === running);
     // Whether the code running now is a cancelled cell's leftover work: a
-    // cancelled cell's body is on the stack and the running cell's is not
-    // (a function the cancelled cell defined still works for the cell that
-    // calls it).
+    // cancelled cell's body is on the stack (or owns it) and the running
+    // cell's is not (a function the cancelled cell defined still works for
+    // the cell that calls it).
     function isCancelledWork() {
       if (!cancelledSeqs.size) return false;
       const seqs = cellsOnStack();
-      return !runningOnStack(seqs) && seqs.some((seq) => cancelledSeqs.has(seq));
+      if (runningOnStack(seqs)) return false;
+      const owner = tracked();
+      return seqs.some((seq) => cancelledSeqs.has(seq)) || (!!owner && cancelledSeqs.has(owner.seq));
     }
     // The cell whose code runs now (the running cell when its body is on
     // the stack, else the innermost cell there), or undefined outside every
     // cell (a timer or listener callback).
     function ownerOnStack() {
       const seqs = cellsOnStack();
-      return runningOnStack(seqs) ? running.seq : seqs[0];
+      if (runningOnStack(seqs)) return running.seq;
+      const owner = tracked();
+      return seqs.length ? seqs[0] : owner && owner.seq;
     }
     // The console a cell's code sees. Once the cell is cancelled, output its
     // own leftover work prints later (a timer, a listener, an await that
@@ -224,8 +240,14 @@
     async function run(code, cell) {
       const started = host.now ? host.now() : Date.now();
       let rewritten;
+      let instrumented = false;
       try {
-        rewritten = rewriteTopLevel(code);
+        // Where the engine needs it, the cell's async code carries its
+        // owner (async-owner.js); its top level uses the token the cell's
+        // function declares below.
+        let source = code;
+        if (asyncOwner) ({ source, instrumented } = asyncOwner.prepareCell(code));
+        rewritten = rewriteTopLevel(source);
       } catch (e) {
         return { ok: false, error: `SyntaxError: ${e.message}`, ms: 0 };
       }
@@ -244,7 +266,9 @@
         // else resolves through the scope.
         const owner = cell || {};
         owner.seq = ++cellSeq;
-        fn = new Function("__cmuxScope", "__cmuxConsole", `return async function () { let __cmuxLast; with (__cmuxScope) { await (async function __cmuxCell${owner.seq}(console) {\n${rewritten.source}\n})(__cmuxConsole); } return __cmuxLast; };`)(scope, cellConsole(owner));
+        ownCells.add(owner);
+        const body = instrumented ? `const __cmuxK=__cmuxT.begin(__cmuxOwner);try{\n${rewritten.source}\n}finally{__cmuxT.leave(__cmuxK)}` : `\n${rewritten.source}\n`;
+        fn = new Function("__cmuxScope", "__cmuxConsole", "__cmuxT", "__cmuxOwner", `return async function () { let __cmuxLast; with (__cmuxScope) { await (async function __cmuxCell${owner.seq}(console) {${body}})(__cmuxConsole); } return __cmuxLast; };`)(scope, cellConsole(owner), asyncOwner && asyncOwner.tracker, owner);
       } catch (e) {
         return { ok: false, error: `SyntaxError: ${e.message}`, ms: 0 };
       }
@@ -571,7 +595,12 @@
     const listeners = new Map();
     let nextCall = 1;
     let nextTimer = 1;
+    // Each entry from the app starts as no cell's code (async-owner.js).
+    const fromApp = () => {
+      if (asyncOwner) asyncOwner.tracker.reset();
+    };
     root.__cmuxHostOnResult = (id, errorJSON, resultJSON) => {
+      fromApp();
       const p = pending.get(id);
       if (!p) return;
       pending.delete(id);
@@ -583,12 +612,14 @@
       } else p.resolve(resultJSON === null || resultJSON === undefined ? undefined : JSON.parse(resultJSON));
     };
     root.__cmuxHostOnTimer = (id) => {
+      fromApp();
       const t = timers.get(id);
       if (!t) return;
       timers.delete(id);
       t();
     };
     root.__cmuxHostOnEvent = (name, payloadJSON) => {
+      fromApp();
       const payload = payloadJSON ? JSON.parse(payloadJSON) : {};
       for (const h of listeners.get(name) || []) h(payload);
     };
@@ -662,16 +693,21 @@
     Object.freeze(driver);
     let repl = null;
     // `optionsJSON` (optional): { "maxOutput": characters, 0 for no limit }.
-    root.__cmuxReplEval = async (code, optionsJSON) => {
+    const evaluateCell = async (code, optionsJSON) => {
       if (!repl) repl = createBrowserRepl({ host, driver });
       const options = typeof optionsJSON === "string" && optionsJSON ? JSON.parse(optionsJSON) : {};
       const r = await repl.evaluate(code, { maxOutput: options.maxOutput, id: options.evalId });
       if (!r.ok) throw r.exception || new Error(r.error);
       return undefined;
     };
+    root.__cmuxReplEval = (code, optionsJSON) => {
+      fromApp();
+      return evaluateCell(code, optionsJSON);
+    };
     // `timerIds`: the timers the app cancelled with the cell; their
     // callbacks go, so a fire already queued for one runs nothing.
     root.__cmuxReplCancel = (message, evalId, timerIds) => {
+      fromApp();
       for (const id of Array.isArray(timerIds) ? timerIds : []) timers.delete(id);
       return repl ? repl.cancel(message, evalId === null ? undefined : evalId) : false;
     };

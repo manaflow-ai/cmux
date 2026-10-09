@@ -28,7 +28,7 @@ struct BrowserReplPinnedFileAccessTests {
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
         let waiter = FileLoadWaiter()
         webView.navigationDelegate = waiter
-        try BrowserReplFileSandbox.withPinnedFileAccess(url.absoluteString, roots: [BrowserReplFileRoot(path: scratch.root)], in: webView) { readAccess in
+        _ = try BrowserReplFileSandbox.withPinnedFileAccess(url.absoluteString, roots: [BrowserReplFileRoot(path: scratch.root)], in: webView) { readAccess in
             // Another session moves the checked directory away and a link
             // to a directory outside takes its name before the load starts.
             try manager.moveItem(atPath: scratch.root + "/site", toPath: scratch.root + "/site-old")
@@ -57,7 +57,7 @@ struct BrowserReplPinnedFileAccessTests {
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
         let waiter = FileLoadWaiter()
         webView.navigationDelegate = waiter
-        try BrowserReplFileSandbox.withPinnedFileAccess(url.absoluteString, roots: [BrowserReplFileRoot(path: scratch.root)], in: webView) { readAccess in
+        _ = try BrowserReplFileSandbox.withPinnedFileAccess(url.absoluteString, roots: [BrowserReplFileRoot(path: scratch.root)], in: webView) { readAccess in
             webView.loadFileURL(url, allowingReadAccessTo: readAccess)
         }
         try manager.moveItem(atPath: scratch.root + "/site", toPath: scratch.root + "/site-old")
@@ -77,7 +77,7 @@ struct BrowserReplPinnedFileAccessTests {
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
         let waiter = FileLoadWaiter()
         webView.navigationDelegate = waiter
-        try BrowserReplFileSandbox.withPinnedFileAccess(url.absoluteString, roots: [BrowserReplFileRoot(path: scratch.root)], in: webView) { readAccess in
+        _ = try BrowserReplFileSandbox.withPinnedFileAccess(url.absoluteString, roots: [BrowserReplFileRoot(path: scratch.root)], in: webView) { readAccess in
             webView.loadFileURL(url, allowingReadAccessTo: readAccess)
         }
         await waiter.wait()

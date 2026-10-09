@@ -94,6 +94,19 @@ private final class BrowserReplCancellationGate: @unchecked Sendable {
 
 /// The repository's `Resources/browser-repl` runtime, as the app bundles it.
 func browserReplRepositoryBundle() throws -> BrowserReplRuntimeBundle {
+    let bundle = try browserReplRepositoryBundleUnprepared()
+    // Where JavaScriptCore needs the async-owner rewrite (macOS 26), it
+    // runs once per process here, as the app can before its first session,
+    // instead of under the first cell's timeout (often 200 ms in a test).
+    _ = browserReplPreparedOnce
+    return bundle
+}
+
+private let browserReplPreparedOnce: Void = {
+    if let bundle = try? browserReplRepositoryBundleUnprepared() { BrowserReplSession.prepareRuntime(bundle) }
+}()
+
+private func browserReplRepositoryBundleUnprepared() throws -> BrowserReplRuntimeBundle {
     var directory = URL(fileURLWithPath: #filePath)
     // Tests/CmuxBrowserTests/Repl/<file> -> package -> Packages/macOS -> repository root.
     for _ in 0..<7 { directory.deleteLastPathComponent() }
