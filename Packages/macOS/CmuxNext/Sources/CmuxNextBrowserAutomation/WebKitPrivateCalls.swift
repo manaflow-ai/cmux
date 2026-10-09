@@ -6,6 +6,7 @@ public import WebKit
 /// behind one gate: the `@convention(c)` signatures are trusted only on the
 /// macOS versions they were verified on, and every wait on a WebKit block is
 /// bounded and resumes once.
+// lint:allow namespace-type — private WebKit selector helpers are a stateless namespace.
 public enum WebKitPrivateCalls {
     /// macOS major versions the private signatures were verified on
     /// (cmux-lawrence-2, macOS 27.0.1, 2026-10-08). Add a version only after
@@ -28,10 +29,12 @@ public enum WebKitPrivateCalls {
         let done = OneShot<Bool>()
         register { done.resolve(true) }
         let timer = Task {
+            // wakeup-allow: this is the injected one-shot deadline for a WebKit callback, not polling.
             try? await clock.sleep(for: bound)
             done.resolve(false)
         }
         defer { timer.cancel() }
+        // concurrency-allow: OneShot.wait suspends an async continuation; it never blocks a thread.
         return await done.wait(cancelled: false)
     }
 
