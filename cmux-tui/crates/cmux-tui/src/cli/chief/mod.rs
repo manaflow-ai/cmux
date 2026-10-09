@@ -19,6 +19,7 @@ mod link;
 mod messages;
 mod pipe;
 mod render;
+mod shutdown;
 #[cfg(test)]
 mod tests;
 mod tui;
@@ -58,6 +59,8 @@ pub(super) struct Args {
     pub help: bool,
     /// `chief engine …` or `chief stop`.
     pub control: Option<control::Control>,
+    /// `cmux chief shutdown` (shutdown.rs).
+    pub shutdown: bool,
 }
 
 /// `cmux [global options] chief …`; `None` when `args` names another scope.
@@ -88,6 +91,7 @@ pub(super) fn parse_args(args: &[String]) -> Result<Args, String> {
         match flag {
             "engine" if first => parsed.control = Some(control::Control::Engine(Vec::new())),
             "stop" if first => parsed.control = Some(control::Control::Stop(None)),
+            "shutdown" if first => parsed.shutdown = true,
             name if !name.starts_with('-')
                 && matches!(parsed.control, Some(control::Control::Stop(None))) =>
             {
@@ -141,6 +145,9 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
     if args.help {
         println!("{}", m.usage);
         return 0;
+    }
+    if args.shutdown {
+        return shutdown::run(&global, args.chief_home.as_deref());
     }
     if let Some(control) = &args.control {
         return control::run(&global, args.chief_home.as_deref(), control, global.output);
@@ -212,7 +219,13 @@ impl Session {
         let failed = |error: LinkError| match error {
             LinkError::Transport(message) => (3, message),
             LinkError::Rejected { code, .. } if code.starts_with("validation.invalid") => {
-                (1, m.no_conversations.to_owned())
+                // A daemon of another build: run its CLI (cli/skew.rs), else
+                // name the exact fix. Stopping is enough: opening the Chief
+                // again starts the home daemon with this build.
+                let _ = super::skew::reexec_at_dead_end_on(&socket);
+                let stop =
+                    super::fix_command::stop_daemon(&super::fix_command::this_cli(), &socket);
+                (1, m.no_conversations.replace("{stop}", &stop))
             }
             rejected => (1, rejected.to_string()),
         };

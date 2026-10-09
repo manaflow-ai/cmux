@@ -207,34 +207,8 @@ fn containing_app_identifier(team: &str) -> Result<String, String> {
     let executable = std::env::current_exe().map_err(|error| format!("current_exe: {error}"))?;
     let bundle = crate::app_caller::containing_bundle(&executable)
         .ok_or("this binary is not inside an app bundle")?;
-    let path = bundle.as_os_str().as_encoded_bytes();
-    // SAFETY: the bytes are live for the call; CFURL copies them.
-    let url = Owned::new(
-        unsafe {
-            CFURLCreateFromFileSystemRepresentation(
-                ptr::null(),
-                path.as_ptr(),
-                path.len() as CFIndex,
-                1,
-            )
-        },
-        "CFURLCreateFromFileSystemRepresentation",
-    )?;
-    let mut code: CFTypeRef = ptr::null();
-    // SAFETY: `url.0` is a live CFURL; the out-pointer is valid.
-    status(
-        unsafe { SecStaticCodeCreateWithPath(url.0, 0, &raw mut code) },
-        "SecStaticCodeCreateWithPath",
-    )?;
-    let code = Owned::new(code, "SecStaticCodeCreateWithPath")?;
-    let team_requirement = requirement(&format!(
-        "anchor apple generic and certificate leaf[subject.OU] = \"{team}\""
-    ))?;
-    // SAFETY: both references are live owned objects.
-    status(
-        unsafe { SecStaticCodeCheckValidity(code.0, BASIC_VALIDATE_ONLY, team_requirement.0) },
-        "containing app signature",
-    )?;
+    let code =
+        static_code_signed_by(&bundle, team, BASIC_VALIDATE_ONLY, "containing app signature")?;
     let mut information: CFTypeRef = ptr::null();
     // SAFETY: `code.0` is live; the out-pointer is valid.
     status(
@@ -250,6 +224,64 @@ fn containing_app_identifier(team: &str) -> Result<String, String> {
         return Err(format!("unexpected bundle identifier {identifier:?}"));
     }
     Ok(identifier)
+}
+
+/// The static code at `path` after its signature is checked against `team`
+/// (a Team ID already checked by [`plain_team`]).
+fn static_code_signed_by(
+    path: &std::path::Path,
+    team: &str,
+    flags: u32,
+    what: &str,
+) -> Result<Owned, String> {
+    let bytes = path.as_os_str().as_encoded_bytes();
+    // SAFETY: the bytes are live for the call; CFURL copies them.
+    let url = Owned::new(
+        unsafe {
+            CFURLCreateFromFileSystemRepresentation(
+                ptr::null(),
+                bytes.as_ptr(),
+                bytes.len() as CFIndex,
+                u8::from(path.is_dir()),
+            )
+        },
+        "CFURLCreateFromFileSystemRepresentation",
+    )?;
+    let mut code: CFTypeRef = ptr::null();
+    // SAFETY: `url.0` is a live CFURL; the out-pointer is valid.
+    status(
+        unsafe { SecStaticCodeCreateWithPath(url.0, 0, &raw mut code) },
+        "SecStaticCodeCreateWithPath",
+    )?;
+    let code = Owned::new(code, "SecStaticCodeCreateWithPath")?;
+    let team_requirement = requirement(&format!(
+        "anchor apple generic and certificate leaf[subject.OU] = \"{team}\""
+    ))?;
+    // SAFETY: both references are live owned objects.
+    status(unsafe { SecStaticCodeCheckValidity(code.0, flags, team_requirement.0) }, what)?;
+    Ok(code)
+}
+
+/// A Team ID is ten upper-case letters or digits; anything else never goes
+/// into a requirement text.
+fn plain_team(team: &str) -> bool {
+    team.len() == 10 && team.bytes().all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit())
+}
+
+/// Whether the executable at `path` is signed by this build's Team ID.
+/// `Ok(false)` when this build has no Team ID (unsigned or ad hoc): there is
+/// no team to compare. A mismatch, or a signature that does not validate, is
+/// an error.
+pub(crate) fn path_has_own_team(path: &std::path::Path) -> Result<bool, String> {
+    let own = signing(&own_code()?)?;
+    let Some(team) = own.team else {
+        return Ok(false);
+    };
+    if !plain_team(&team) {
+        return Err(format!("unexpected Team ID {team:?}"));
+    }
+    static_code_signed_by(path, &team, 0, "team signature")?;
+    Ok(true)
 }
 
 pub(crate) fn peer_audit_token(fd: RawFd) -> Result<[u32; 8], String> {

@@ -93,7 +93,7 @@ pub(super) fn from_list(list: &Value) -> (Vec<ActionTool>, Vec<Exclusion>) {
                 continue;
             }
             None => {
-                exclude("The app reports no MCP decision for it; update the app.");
+                exclude("The app reports no MCP decision for it: the app is an older build than this CLI. Use the CLI that ships with the app.");
                 continue;
             }
         }

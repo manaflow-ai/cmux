@@ -29,7 +29,7 @@ static ENGLISH: Messages = Messages {
     read_failed: "cannot read {path}: {error}",
     typescript: "TypeScript files are not supported yet: {path} (run plain JavaScript)",
     restarted: "the session ended; a new one started (earlier bindings are gone)",
-    unsupported_daemon: "this cmux daemon cannot run scripts; update cmux and restart the daemon",
+    unsupported_daemon: "this cmux daemon cannot run scripts: it is an older build than this CLI. Restart it with this CLI:",
     dropped_lines: "{count} console lines were not shown (at most 200 per cell)",
 };
 
@@ -45,7 +45,7 @@ static JAPANESE: Messages = Messages {
     read_failed: "{path} を読み込めません: {error}",
     typescript: "TypeScript ファイルにはまだ対応していません: {path} (JavaScript で実行してください)",
     restarted: "セッションが終了したため、新しいセッションを開始しました (以前の束縛は失われました)",
-    unsupported_daemon: "この cmux デーモンはスクリプトを実行できません。cmux を更新してデーモンを再起動してください",
+    unsupported_daemon: "この cmux デーモンはスクリプトを実行できません。この CLI より古いビルドです。この CLI で再起動してください:",
     dropped_lines: "コンソール出力 {count} 行を表示しませんでした (1 セルあたり最大 200 行)",
 };
 

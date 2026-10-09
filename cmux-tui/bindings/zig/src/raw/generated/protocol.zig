@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "baffdd379fca8b70386603cf6245b1f842ee60061859daecd52effc85eeed00c";
+pub const ir_sha256 = "d188754817f52974ad87eef28007ab0c7a66b932fc0c7a879d2595ffada6b014";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -811,7 +811,9 @@ pub const IdMapping = struct {
 pub const IdentifyResult = struct {
     app: []const u8,
     build_commit: wire.Field([]const u8) = .absent,
+    build_id: wire.Field([]const u8) = .absent,
     capabilities: ?[]const []const u8 = null,
+    cli_path: wire.Field([]const u8) = .absent,
     daemon_handoff: i64,
     generation: []const u8,
     ghostty_commit: wire.Field([]const u8) = .absent,

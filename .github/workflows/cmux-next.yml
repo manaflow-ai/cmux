@@ -877,6 +877,13 @@ jobs:
         continue-on-error: true
         run: python3 scripts/cmux-next/check-daemon-capabilities-fresh.py
 
+      # A capability error is a version skew: it names the matching CLI or one
+      # exact command, never "update the app" (plans/cmux-next/version-skew.md).
+      - name: Capability texts never say update the app
+        id: capability-text
+        continue-on-error: true
+        run: bash scripts/cmux-next/tests/capability-text.test.sh
+
       # `outcome`, not `conclusion`: continue-on-error makes every conclusion success.
       - name: Fail on any red check
         if: always()
@@ -897,6 +904,7 @@ jobs:
             ${{ steps.ghostty-resources-bundle.outcome }}|Ghostty resources bundle
             ${{ steps.bundled-terminfo.outcome }}|Bundled terminfo
             ${{ steps.package-conventions.outcome }}|Package conventions lint
+            ${{ steps.capability-text.outcome }}|Capability texts never say update the app
             ${{ steps.checks-structure.outcome }}|Checks job structure
             ${{ steps.tier-routing.outcome }}|Tier routing
             ${{ steps.companion-workflows.outcome }}|Companion workflows
