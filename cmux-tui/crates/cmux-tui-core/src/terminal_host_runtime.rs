@@ -467,8 +467,8 @@ mod unix {
     use std::time::{Duration, Instant};
 
     use anyhow::Context;
-    use cmux_pty::{ChildKiller, MasterPty, PtyCommand, PtyOpenError};
-    use ghostty_vt::{Callbacks, CursorShape, Terminal};
+    use cmux_pty::{ChildKiller, MasterPty, PtyCommand};
+    use ghostty_vt::{Callbacks, Terminal};
 
     use super::shared::codec::*;
     use super::shared::host_state::*;
@@ -627,222 +627,6 @@ mod unix {
         }
     }
 
-    #[derive(Debug)]
-    struct HostLaunch {
-        endpoint: String,
-        record_path: String,
-        term: String,
-        cols: u16,
-        rows: u16,
-        cell_pixels: (u16, u16),
-        scrollback: usize,
-        cwd: Option<String>,
-        command: Vec<String>,
-        extra_env: Vec<(String, String)>,
-        default_colors: DefaultColors,
-        kitty_graphics_limits: KittyGraphicsLimits,
-        /// VT replay applied to the host's parser before the child's first
-        /// byte (cx-6so.49 L2 respawn); an optional trailing blob.
-        seed: Vec<u8>,
-    }
-
-    impl HostLaunch {
-        fn encode(&self) -> anyhow::Result<Vec<u8>> {
-            if self.command.is_empty() || self.command.len() > MAX_ARGV {
-                anyhow::bail!("terminal-host command count is out of range");
-            }
-            if self.extra_env.len() > MAX_ENV {
-                anyhow::bail!("terminal-host environment count is out of range");
-            }
-            let (cols, rows) = normalize_terminal_geometry(self.cols, self.rows)?;
-            let cell_pixels = (self.cell_pixels.0.max(1), self.cell_pixels.1.max(1));
-            pty_size(cols, rows, cell_pixels)?;
-            let mut output = Vec::new();
-            put_string(&mut output, &self.endpoint)?;
-            put_string(&mut output, &self.record_path)?;
-            put_string(&mut output, &self.term)?;
-            output.extend_from_slice(&cols.to_le_bytes());
-            output.extend_from_slice(&rows.to_le_bytes());
-            output.extend_from_slice(
-                &u32::try_from(self.scrollback)
-                    .map_err(|_| anyhow::anyhow!("terminal-host scrollback is too large"))?
-                    .to_le_bytes(),
-            );
-            put_optional_string(&mut output, self.cwd.as_deref())?;
-            output.extend_from_slice(&(self.command.len() as u16).to_le_bytes());
-            for argument in &self.command {
-                put_string(&mut output, argument)?;
-            }
-            output.extend_from_slice(&(self.extra_env.len() as u16).to_le_bytes());
-            for (key, value) in &self.extra_env {
-                put_string(&mut output, key)?;
-                put_string(&mut output, value)?;
-            }
-            encode_default_colors(&mut output, self.default_colors);
-            output.extend_from_slice(&cell_pixels.0.to_le_bytes());
-            output.extend_from_slice(&cell_pixels.1.to_le_bytes());
-            encode_kitty_graphics_limits(&mut output, self.kitty_graphics_limits)?;
-            if output.len() > MAX_LAUNCH_PAYLOAD {
-                anyhow::bail!("terminal-host launch payload is too large");
-            }
-            if !self.seed.is_empty() {
-                put_blob(&mut output, &self.seed)?;
-            }
-            Ok(output)
-        }
-
-        fn decode(payload: &[u8]) -> anyhow::Result<Self> {
-            let mut decoder = PayloadDecoder::new(payload);
-            let endpoint = decoder.string()?;
-            let record_path = decoder.string()?;
-            let term = decoder.string()?;
-            let (cols, rows) = normalize_terminal_geometry(decoder.u16()?, decoder.u16()?)?;
-            let scrollback = decoder.u32()? as usize;
-            let cwd = decoder.optional_string()?;
-            let argc = decoder.u16()? as usize;
-            if argc == 0 || argc > MAX_ARGV {
-                anyhow::bail!("terminal-host command count is out of range");
-            }
-            let mut command = Vec::with_capacity(argc);
-            for _ in 0..argc {
-                command.push(decoder.string()?);
-            }
-            let envc = decoder.u16()? as usize;
-            if envc > MAX_ENV {
-                anyhow::bail!("terminal-host environment count is out of range");
-            }
-            let mut extra_env = Vec::with_capacity(envc);
-            for _ in 0..envc {
-                extra_env.push((decoder.string()?, decoder.string()?));
-            }
-            let default_colors = decode_default_colors(&mut decoder)?;
-            let cell_pixels = (decoder.u16()?.max(1), decoder.u16()?.max(1));
-            pty_size(cols, rows, cell_pixels)?;
-            let kitty_graphics_limits = decode_kitty_graphics_limits(&mut decoder)?;
-            anyhow::ensure!(decoder.offset <= MAX_LAUNCH_PAYLOAD, "launch is too large");
-            let seed = if decoder.has_remaining() { decoder.blob()?.to_vec() } else { Vec::new() };
-            decoder.finish()?;
-            Ok(Self {
-                endpoint,
-                record_path,
-                term,
-                cols,
-                rows,
-                cell_pixels,
-                scrollback,
-                cwd,
-                command,
-                extra_env,
-                default_colors,
-                kitty_graphics_limits,
-                seed,
-            })
-        }
-    }
-
-    fn encode_default_colors(output: &mut Vec<u8>, colors: DefaultColors) {
-        let mut flags = 0u8;
-        flags |= colors.fg.is_some() as u8;
-        flags |= (colors.bg.is_some() as u8) << 1;
-        flags |= (colors.cursor.is_some() as u8) << 2;
-        flags |= (colors.cursor_style.is_some() as u8) << 3;
-        flags |= (colors.cursor_blink.is_some() as u8) << 4;
-        flags |= (colors.selection_bg.is_some() as u8) << 5;
-        flags |= (colors.selection_fg.is_some() as u8) << 6;
-        output.push(flags);
-        for color in [colors.fg, colors.bg, colors.cursor, colors.selection_bg, colors.selection_fg]
-            .into_iter()
-            .flatten()
-        {
-            output.extend_from_slice(&[color.r, color.g, color.b]);
-        }
-        if let Some(style) = colors.cursor_style {
-            output.push(match style {
-                CursorShape::Block => 1,
-                CursorShape::BlockHollow => 2,
-                CursorShape::Bar => 3,
-                CursorShape::Underline => 4,
-            });
-        }
-        if let Some(blink) = colors.cursor_blink {
-            output.push(blink as u8);
-        }
-        let palette_count = colors.palette.iter().filter(|color| color.is_some()).count() as u16;
-        output.extend_from_slice(&palette_count.to_le_bytes());
-        for (index, color) in colors.palette.iter().enumerate() {
-            if let Some(color) = color {
-                output.extend_from_slice(&[index as u8, color.r, color.g, color.b]);
-            }
-        }
-    }
-
-    fn decode_default_colors(decoder: &mut PayloadDecoder<'_>) -> anyhow::Result<DefaultColors> {
-        let flags = decoder.u8()?;
-        if flags & !0b111_1111 != 0 {
-            anyhow::bail!("terminal-host default-color flags are out of range");
-        }
-        let fg = if flags & 1 != 0 { Some(decoder.rgb()?) } else { None };
-        let bg = if flags & 2 != 0 { Some(decoder.rgb()?) } else { None };
-        let cursor = if flags & 4 != 0 { Some(decoder.rgb()?) } else { None };
-        let selection_bg = if flags & 32 != 0 { Some(decoder.rgb()?) } else { None };
-        let selection_fg = if flags & 64 != 0 { Some(decoder.rgb()?) } else { None };
-        let cursor_style = if flags & 8 != 0 {
-            Some(match decoder.u8()? {
-                1 => CursorShape::Block,
-                2 => CursorShape::BlockHollow,
-                3 => CursorShape::Bar,
-                4 => CursorShape::Underline,
-                _ => anyhow::bail!("terminal-host default cursor style is out of range"),
-            })
-        } else {
-            None
-        };
-        let cursor_blink = if flags & 16 != 0 {
-            Some(match decoder.u8()? {
-                0 => false,
-                1 => true,
-                _ => anyhow::bail!("terminal-host default cursor blink is out of range"),
-            })
-        } else {
-            None
-        };
-        let palette_count = decoder.u16()? as usize;
-        if palette_count > 256 {
-            anyhow::bail!("terminal-host default palette count is out of range");
-        }
-        let mut palette = [None; 256];
-        for _ in 0..palette_count {
-            let index = decoder.u8()? as usize;
-            if palette[index].is_some() {
-                anyhow::bail!("duplicate terminal-host default palette index");
-            }
-            palette[index] = Some(decoder.rgb()?);
-        }
-        Ok(DefaultColors {
-            fg,
-            bg,
-            cursor,
-            selection_bg,
-            selection_fg,
-            cursor_style,
-            cursor_blink,
-            palette,
-        })
-    }
-
-    fn encode_default_colors_payload(colors: DefaultColors) -> Vec<u8> {
-        let mut payload = Vec::new();
-        encode_default_colors(&mut payload, colors);
-        payload
-    }
-
-    fn decode_default_colors_payload(payload: &[u8]) -> anyhow::Result<DefaultColors> {
-        let mut decoder = PayloadDecoder::new(payload);
-        let colors = decode_default_colors(&mut decoder)?;
-        decoder.finish()?;
-        Ok(colors)
-    }
-
     mod adopt_launch;
     mod adopted_child;
     mod barrier_sync;
@@ -969,61 +753,6 @@ mod unix {
                 .field("endpoint", &self.record.endpoint)
                 .finish_non_exhaustive()
         }
-    }
-
-    fn clear_history_ack_status(result: Result<(), ClearHistoryFailure>) -> u8 {
-        match result {
-            Ok(()) => CLEAR_HISTORY_ACK_OK,
-            Err(failure) if failure.delivery() == ClearHistoryDelivery::Ambiguous => {
-                CLEAR_HISTORY_ACK_AMBIGUOUS
-            }
-            Err(failure) => match failure.error().to_string().as_str() {
-                CLEAR_HISTORY_PRESERVATION_ERROR => CLEAR_HISTORY_ACK_PRESERVATION_FAILED,
-                CLEAR_HISTORY_STREAM_TIMEOUT_ERROR => CLEAR_HISTORY_ACK_STREAM_TIMEOUT,
-                CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR => {
-                    CLEAR_HISTORY_ACK_FALLBACK_UNREPRESENTABLE
-                }
-                CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR => {
-                    CLEAR_HISTORY_ACK_FALLBACK_WRITE_TIMEOUT
-                }
-                _ => CLEAR_HISTORY_ACK_KNOWN_NOT_DELIVERED,
-            },
-        }
-    }
-
-    fn clear_history_ack_failure(status: u8) -> Option<ClearHistoryFailure> {
-        let (delivery, message) = match status {
-            CLEAR_HISTORY_ACK_PRESERVATION_FAILED => {
-                (ClearHistoryDelivery::KnownNotDelivered, CLEAR_HISTORY_PRESERVATION_ERROR)
-            }
-            CLEAR_HISTORY_ACK_STREAM_TIMEOUT => {
-                (ClearHistoryDelivery::KnownNotDelivered, CLEAR_HISTORY_STREAM_TIMEOUT_ERROR)
-            }
-            CLEAR_HISTORY_ACK_FALLBACK_UNREPRESENTABLE => (
-                ClearHistoryDelivery::KnownNotDelivered,
-                CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR,
-            ),
-            CLEAR_HISTORY_ACK_FALLBACK_WRITE_TIMEOUT => (
-                ClearHistoryDelivery::KnownNotDelivered,
-                CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR,
-            ),
-            CLEAR_HISTORY_ACK_KNOWN_NOT_DELIVERED => (
-                ClearHistoryDelivery::KnownNotDelivered,
-                "terminal host rejected clear-history before execution",
-            ),
-            CLEAR_HISTORY_ACK_AMBIGUOUS => (
-                ClearHistoryDelivery::Ambiguous,
-                "terminal host may have partially applied clear-history",
-            ),
-            _ => return None,
-        };
-        let error = anyhow::anyhow!(message);
-        Some(match delivery {
-            ClearHistoryDelivery::KnownNotDelivered => {
-                ClearHistoryFailure::known_not_delivered(error)
-            }
-            ClearHistoryDelivery::Ambiguous => ClearHistoryFailure::ambiguous(error),
-        })
     }
 
     /// One frame on a daemon-to-host connection's writer.
@@ -4928,17 +4657,6 @@ mod unix {
         Ok(())
     }
 
-    fn host_launch_failure(error: &anyhow::Error) -> HostLaunchFailure {
-        let kind = if error.chain().any(|cause| {
-            cause.downcast_ref::<PtyOpenError>().is_some_and(PtyOpenError::is_capacity_exhausted)
-        }) {
-            HostLaunchFailureKind::PtyCapacityExhausted
-        } else {
-            HostLaunchFailureKind::LaunchFailed
-        };
-        HostLaunchFailure::bounded(kind, format!("terminal launch failed: {error:#}"))
-    }
-
     fn spawn_host_runtime(
         launch: &HostLaunch,
         bootstrapped: &crate::terminal_host::BootstrappedHost,
@@ -5549,7 +5267,8 @@ mod unix {
         mod parser_failure;
         mod parser_order;
         use super::*;
-        use cmux_pty::{Child, PtySize};
+        use cmux_pty::{Child, PtyOpenError, PtySize};
+        use ghostty_vt::CursorShape;
         use host_fixture::{test_host_shared, test_host_shared_with};
 
         fn test_kitty_state() -> KittyReplayState {
