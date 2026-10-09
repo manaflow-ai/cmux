@@ -217,6 +217,11 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
             receiveNext()
         case .failed, .cancelled:
             closed()
+        case .waiting:
+            // A loopback host that refuses the connection (no listener) only
+            // makes the connection wait for a path change that never comes:
+            // end the session so the viewer says why (cx-erey).
+            closed()
         default:
             break
         }

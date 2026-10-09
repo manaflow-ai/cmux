@@ -59,8 +59,7 @@ public final class MainActorWorkQueue: Sendable {
         var count: Int { items.count - head }
 
         mutating func popFirst() -> MainActorWorkItem? {
-            guard head < items.count else { return nil }
-            let item = items[head]
+            guard let item = items[checked: head] else { return nil }
             head += 1
             if head == items.count {
                 items.removeAll(keepingCapacity: true)

@@ -752,6 +752,8 @@ export function rankPalette(request: Omit<PaletteRankRequest, "operation">): Pal
     tier: number;
     enabled: boolean;
     demoted: boolean;
+    /** A demoted row whose whole title is the query. */
+    exactName: boolean;
     shortcut: boolean;
     highlights: number[];
   }> = [];
@@ -771,6 +773,7 @@ export function rankPalette(request: Omit<PaletteRankRequest, "operation">): Pal
         tier: match.tier,
         enabled: entry.isEnabled !== false,
         demoted: entry.demoted === true,
+        exactName: entry.demoted === true && titleIsQuery(entry.title, query.raw),
         shortcut: entry.hasShortcut === true,
         highlights: match.highlights,
       });
@@ -783,6 +786,14 @@ export function rankPalette(request: Omit<PaletteRankRequest, "operation">): Pal
     // Strict tiers do not change with typos allowed, so the second pass replaces the first.
     scored.length = 0;
     rank(true);
+  }
+  // A setting whose whole title is the query, and the only one, is an exact name ("theme" for
+  // Theme): it keeps the whole-title tier (a command with the same title still wins the tie).
+  // Several settings with that title ("Color" x10) stay demoted below the commands.
+  const exactNames = scored.filter((item) => item.exactName);
+  if (exactNames.length === 1) {
+    exactNames[0].tier += demotion;
+    exactNames[0].score += demotion * tierScale;
   }
   if (request.ranksPrefixFirst) {
     const prefix = query.raw.trim().toLocaleLowerCase();

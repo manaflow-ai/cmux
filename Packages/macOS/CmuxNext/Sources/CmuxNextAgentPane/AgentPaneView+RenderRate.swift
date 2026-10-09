@@ -1,3 +1,7 @@
+import AppKit
+import CmuxNextPages
+import WebKit
+
 extension AgentPaneView {
     /// Display information stays native; the page owns adaptive rate policy.
     func framePacingSettings() -> [String: Any] {
@@ -18,15 +22,6 @@ extension AgentPaneView {
             reapplyRenderRate()
         }
     }
-
-    /// The re-apply of the last rate change, while it runs.
-    private(set) var rateReapply: Task<Void, Never>?
-    /// An image of the page as shown; nil skips the re-apply (tests set it).
-    lazy var snapshotPage: () async -> NSImage? = { [weak self] in
-        try? await self?.webView.takeSnapshot(configuration: nil)
-    }
-    /// Times the re-apply's steps (tests set it).
-    var clock: any Clock<Duration> = ContinuousClock()
 
     /// WebKit reads the rate only when the page's visibility changes: the
     /// shared re-show hides the web view for a moment under a snapshot of

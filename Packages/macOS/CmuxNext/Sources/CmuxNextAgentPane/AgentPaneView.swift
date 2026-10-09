@@ -35,6 +35,8 @@ public final class AgentPaneView: NSView {
     public var previewFeatures = false {
         didSet { if previewFeatures != oldValue { applyPreviewFeatures() } }
     }
+    /// The newest device chats for the New Tab cards.
+    public var deviceChats: [AgentPaneDeviceChat] = [] { didSet { if deviceChats != oldValue { AgentPaneDeviceChat.push(deviceChats, to: self) } } }
     public var editedFiles = AgentPaneEditedFilesSetting.fallback {
         didSet { if editedFiles != oldValue { applyEditedFiles() } }
     }
@@ -103,7 +105,7 @@ public final class AgentPaneView: NSView {
         let webView: WKWebView
         if pageHost, case .bundled(let index) = source {
             let provider = AgentPageProvider { [weak model] _ in model }
-            guard let page = Self.makePage(root: index.deletingLastPathComponent(), provider: provider, renderRate: renderRate)
+            guard let page = AgentPanePageHost.makePage(root: index.deletingLastPathComponent(), provider: provider, renderRate: renderRate)
             else { return nil }
             self.page = page
             pageEvents = provider
@@ -260,6 +262,15 @@ public final class AgentPaneView: NSView {
     /// The display's refresh rate when the pane has no window screen to ask
     /// (tests set it).
     var displayFramesPerSecond: () -> Int = { NSScreen.main?.maximumFramesPerSecond ?? 60 }
+
+    /// The re-apply of the last rate change, while it runs.
+    var rateReapply: Task<Void, Never>?
+    /// An image of the page as shown; nil skips the re-apply (tests set it).
+    lazy var snapshotPage: () async -> NSImage? = { [weak self] in
+        try? await self?.webView.takeSnapshot(configuration: nil)
+    }
+    /// Times the re-apply's steps (tests set it).
+    var clock: any Clock<Duration> = ContinuousClock()
 
     /// Toggle Dictation (the shortcut, palette or menu). From a key press,
     /// holding the key past a moment makes it push-to-talk: dictation stops

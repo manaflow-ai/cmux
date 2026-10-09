@@ -66,7 +66,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             }(),
             ActionDescriptor(
                 id: "palette.addHarness",
-                title: String(localized: "action.palette.addHarness", defaultValue: "Add Harness…", bundle: .module),
+                title: String(localized: "action.palette.addHarness", defaultValue: "Integrate a Harness with an Agent…", bundle: .module),
                 keywords: ["agent", "harness", "integrate", "acp", "acpmux", "custom", "bring your own"],
                 category: .agents, symbol: "puzzlepiece.extension", surfaces: [.palette, .menu], mainMenu: .file,
                 // Opens a chat that walks the user through `cmux harness guide`. Agents and

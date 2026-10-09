@@ -73,13 +73,13 @@ public struct CmxIrohLANSocketAddress: Equatable, Hashable, Sendable {
 
     static func wildcard(_ value: String) -> (family: Family, port: UInt16)? {
         if value.hasPrefix("0.0.0.0:"),
-           let port = UInt16(value.dropFirst("0.0.0.0:".count)),
+           let port = UInt16(value.dropFirst("0.0.0.0:".count), radix: 10),
            port != 0,
            value == "0.0.0.0:\(port)" {
             return (.ipv4, port)
         }
         if value.hasPrefix("[::]:"),
-           let port = UInt16(value.dropFirst("[::]:".count)),
+           let port = UInt16(value.dropFirst("[::]:".count), radix: 10),
            port != 0,
            value == "[::]:\(port)" {
             return (.ipv6, port)
@@ -95,7 +95,7 @@ public struct CmxIrohLANSocketAddress: Equatable, Hashable, Sendable {
         var address = in_addr()
         guard value.withCString({ inet_pton(AF_INET, $0, &address) }) == 1 else { return nil }
         let bytes = withUnsafeBytes(of: &address) { Array($0) }
-        var buffer = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
+        var buffer = [CChar](repeating: 0, count: Int(clamping: INET_ADDRSTRLEN))
         guard inet_ntop(AF_INET, &address, &buffer, socklen_t(buffer.count)) != nil else { return nil }
         return (Self.decode(buffer), bytes)
     }
@@ -105,7 +105,7 @@ public struct CmxIrohLANSocketAddress: Equatable, Hashable, Sendable {
         var address = in6_addr()
         guard value.withCString({ inet_pton(AF_INET6, $0, &address) }) == 1 else { return nil }
         let bytes = withUnsafeBytes(of: &address) { Array($0) }
-        var buffer = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
+        var buffer = [CChar](repeating: 0, count: Int(clamping: INET6_ADDRSTRLEN))
         guard inet_ntop(AF_INET6, &address, &buffer, socklen_t(buffer.count)) != nil else { return nil }
         return (Self.decode(buffer).lowercased(), bytes)
     }

@@ -65,7 +65,7 @@ public struct CmxIrohLANTXTRecord: Equatable, Sendable {
         let epochText = strings[1].dropFirst(2)
         guard !epochText.isEmpty,
               epochText.allSatisfy(\.isNumber),
-              let epoch = Int64(epochText),
+              let epoch = Int64(epochText, radix: 10),
               epoch >= 0,
               String(epoch) == epochText else {
             throw CmxIrohLANDiscoveryError.invalidTXTRecord
