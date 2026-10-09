@@ -45982,7 +45982,9 @@
       },
       "errors": [
         "auth.forbidden",
-        "auth.unauthenticated"
+        "auth.unauthenticated",
+        "owner.unreachable",
+        "team_vm.stale_epoch"
       ],
       "owner": "cloud:TeamDO",
       "risk": "read",
@@ -46007,7 +46009,7 @@
         "expose": "never",
         "group": "team"
       },
-      "docs": "The Linux users of the team's members and the certificate principals each accepts, for the team VM's account reconciler (the team VM itself, owners and admins).",
+      "docs": "The Linux users of the team's members and the certificate principals each accepts, for the team VM's account reconciler (the team VM itself, owners and admins). A team VM install answers only while it is the install bound for the VM's current epoch (`team_vm.stale_epoch` otherwise).",
       "since": "cloud-1",
       "input_json_schema": {
         "not": {

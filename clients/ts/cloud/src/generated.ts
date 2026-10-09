@@ -2601,7 +2601,7 @@ export interface CloudOps {
     }
     readonly result: SsoConnection
   }
-  /** The Linux users of the team's members and the certificate principals each accepts, for the team VM's account reconciler (the team VM itself, owners and admins). */
+  /** The Linux users of the team's members and the certificate principals each accepts, for the team VM's account reconciler (the team VM itself, owners and admins). A team VM install answers only while it is the install bound for the VM's current epoch (`team_vm.stale_epoch` otherwise). */
   readonly "team_vm.accounts": {
     readonly params: Readonly<Record<string, never>>
     readonly result: {
