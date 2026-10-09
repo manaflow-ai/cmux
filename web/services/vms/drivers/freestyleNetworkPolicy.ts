@@ -139,9 +139,10 @@ export function isFreestyleTlsRuleLimit(err: unknown): boolean {
 }
 
 /**
- * The account cap refused a domain swap even after this VM's retired rules
- * were freed. The retired rules were then recreated best-effort; `restored`
- * and `unrestored` say how that went, and `cause` is Freestyle's refusal.
+ * The account cap refused a domain swap, and the swap's TLS changes were
+ * rolled back best-effort: rules it created were removed and rules it retired
+ * were recreated. `restored` and `unrestored` say how the recreation went;
+ * `cause` is Freestyle's refusal.
  */
 export class FreestyleTlsRuleLimitRestoreError extends Error {
   constructor(
@@ -160,13 +161,15 @@ export class FreestyleTlsRuleLimitRestoreError extends Error {
  * machine is more closed than either the old or the new policy intends.
  *
  * The one exception is the account-wide TLS rule cap: when a grant is refused
- * because the account is full and this change also retires steering rules,
- * those retirements go first and the reconcile runs again. The machine is
- * briefly limited to the domains both policies allow, which never exceeds the
- * user's intent, and a swap at the cap converges instead of failing. When the
- * retry is refused too, the retired rules are recreated best-effort so the
- * machine does not lose access the user never removed, and the capacity
- * error is returned with the restore outcome.
+ * because the account is full and this change retires at least as many
+ * steering rules as it adds, those retirements go first and the reconcile runs
+ * again. The machine is briefly limited to the domains both policies allow,
+ * which never exceeds the user's intent, and a swap at the cap converges. A
+ * change that grows the rule count cannot fit, so it deletes nothing.
+ *
+ * Once a retirement has run, every failure (a partial deletion, a refused or
+ * failed retry) rolls the TLS rules back best-effort: rules the swap created
+ * are removed first, so their slots are free to recreate the retired ones.
  */
 export async function reconcileFreestyleEgress(
   fs: Freestyle,
@@ -177,35 +180,55 @@ export async function reconcileFreestyleEgress(
   try {
     return await reconcileOnce(fs, vmId, plan, env, { freeTlsAtLimit: true });
   } catch (err) {
-    if (!(err instanceof TlsLimitWithSurplus)) throw err;
+    if (!(err instanceof TlsSwapStarted)) throw err;
+    if (err.failure !== undefined) throw await rollBackTlsSwap(fs, vmId, err.swap, err.failure);
     try {
       const retried = await reconcileOnce(fs, vmId, plan, env, { freeTlsAtLimit: false });
-      return { ...retried, tlsDeleted: retried.tlsDeleted + err.retiredDomains.length };
+      return { ...retried, tlsDeleted: retried.tlsDeleted + err.swap.retired.length };
     } catch (retryErr) {
-      if (!isFreestyleTlsRuleLimit(retryErr)) throw retryErr;
-      throw await restoreRetiredTlsRules(fs, vmId, err.retiredDomains, retryErr);
+      throw await rollBackTlsSwap(fs, vmId, err.swap, retryErr);
     }
   }
 }
 
-/** Internal signal: the cap refused a grant after this reconcile freed its retired TLS rules. */
-class TlsLimitWithSurplus extends Error {
-  constructor(readonly retiredDomains: readonly string[]) {
-    super("TLS rule limit reached; surplus rules freed");
+/** What a swap at the cap changed: the domains the VM held before, and the ones it retired. */
+type TlsSwap = { readonly before: ReadonlySet<string>; readonly retired: readonly string[] };
+
+/**
+ * Internal signal: the cap refused a grant and this reconcile retired rules to
+ * make room. `failure` is set when a retirement itself failed.
+ */
+class TlsSwapStarted extends Error {
+  constructor(readonly swap: TlsSwap, readonly failure?: unknown) {
+    super("TLS rule limit reached; retired rules to make room");
   }
 }
 
-/** Recreate this VM's retired steering rules best-effort and describe the outcome. */
-async function restoreRetiredTlsRules(
-  fs: Freestyle,
-  vmId: string,
-  domains: readonly string[],
-  cause: unknown,
-): Promise<FreestyleTlsRuleLimitRestoreError> {
-  const results = await Promise.allSettled(domains.map((domain) =>
-    fs.tls.rules.create({ action: "allow", domain, source: { vmId }, destination: { public: true } })));
-  const unrestored = domains.filter((_, index) => results[index]?.status === "rejected");
-  return new FreestyleTlsRuleLimitRestoreError(domains.length - unrestored.length, unrestored, cause);
+/**
+ * Undo a swap's TLS changes best-effort, then describe the failure: a
+ * capacity refusal becomes {@link FreestyleTlsRuleLimitRestoreError}, any
+ * other failure is returned as it was after the rollback ran.
+ */
+async function rollBackTlsSwap(fs: Freestyle, vmId: string, swap: TlsSwap, failure: unknown): Promise<unknown> {
+  let unrestored: string[] = [...swap.retired];
+  try {
+    const current = (await fs.tls.rules.list({ vmId, limit: 1000 })).rules.filter((rule) => isManagedTlsRule(rule, vmId));
+    const added = current.filter((rule) => !swap.before.has(rule.domain));
+    await Promise.allSettled(added.map((rule) => deleteIgnoringMissing(() => fs.tls.rules.delete(rule.id))));
+    const present = new Set(current.map((rule) => rule.domain));
+    const missing = swap.retired.filter((domain) => !present.has(domain));
+    const results = await Promise.allSettled(missing.map((domain) =>
+      fs.tls.rules.create({ action: "allow", domain, source: { vmId }, destination: { public: true } })));
+    unrestored = missing.filter((_, index) => results[index]?.status === "rejected");
+  } catch (rollbackErr) {
+    console.error("[freestyle] TLS swap rollback could not read the VM's rules", vmId, rollbackErr);
+  }
+  if (unrestored.length > 0) {
+    console.error("[freestyle] TLS swap rollback left retired rules missing", JSON.stringify({ vmId, unrestored }));
+  }
+  return isFreestyleTlsRuleLimit(failure)
+    ? new FreestyleTlsRuleLimitRestoreError(swap.retired.length - unrestored.length, unrestored, failure)
+    : failure;
 }
 
 async function reconcileOnce(
@@ -247,9 +270,18 @@ async function reconcileOnce(
       ...tlsToCreate.map((domain) => () => fs.tls.rules.create({ action: "allow", domain, source: { vmId }, destination: { public: true } })),
     ]);
   } catch (err) {
-    if (!options.freeTlsAtLimit || tlsToDelete.length === 0 || !isFreestyleTlsRuleLimit(err)) throw err;
-    await inBatches(tlsToDelete.map((rule) => () => deleteIgnoringMissing(() => fs.tls.rules.delete(rule.id))));
-    throw new TlsLimitWithSurplus(tlsToDelete.map((rule) => rule.domain));
+    // Free room only when the swap does not grow this VM's rule count; a
+    // net-growth change cannot fit, and deleting first would only lose access.
+    const swapFits = tlsToDelete.length > 0 && tlsToCreate.length <= tlsToDelete.length;
+    if (!options.freeTlsAtLimit || !swapFits || !isFreestyleTlsRuleLimit(err)) throw err;
+    const swap = { before: new Set(managedTls.map((rule) => rule.domain)), retired: tlsToDelete.map((rule) => rule.domain) };
+    const deletions = await Promise.allSettled(tlsToDelete.map((rule) => deleteIgnoringMissing(() => fs.tls.rules.delete(rule.id))));
+    const failedDeletion = deletions.find((result) => result.status === "rejected");
+    if (failedDeletion) {
+      console.error("[freestyle] TLS swap could not retire a rule; rolling back", vmId, failedDeletion.reason);
+    }
+    // A failed retirement is still the cap's refusal from the user's view.
+    throw new TlsSwapStarted(swap, failedDeletion ? err : undefined);
   }
   await inBatches([
     ...firewallToDelete.map((rule) => () => deleteIgnoringMissing(() => fs.firewall.rules.delete(rule.id))),

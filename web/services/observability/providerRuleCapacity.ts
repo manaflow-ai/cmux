@@ -41,8 +41,13 @@ export function tlsRuleCapacityAlert(usage: TlsRuleUsage): AlertInput | null {
 
 /** The configured account limit; FREESTYLE_TLS_RULE_LIMIT overrides the documented default. */
 export function freestyleTlsRuleLimit(env: Record<string, string | undefined>): number {
-  const parsed = Number.parseInt(env.FREESTYLE_TLS_RULE_LIMIT ?? "", 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_FREESTYLE_TLS_RULE_LIMIT;
+  const raw = env.FREESTYLE_TLS_RULE_LIMIT?.trim();
+  if (!raw) return DEFAULT_FREESTYLE_TLS_RULE_LIMIT;
+  // Digits only: parseInt("2,000") is 2, which would page on normal usage.
+  const parsed = /^[0-9]+$/.test(raw) ? Number(raw) : Number.NaN;
+  if (Number.isSafeInteger(parsed) && parsed > 0) return parsed;
+  console.error("[vm-alerts] ignoring invalid FREESTYLE_TLS_RULE_LIMIT; using the default", JSON.stringify({ value: raw, default: DEFAULT_FREESTYLE_TLS_RULE_LIMIT }));
+  return DEFAULT_FREESTYLE_TLS_RULE_LIMIT;
 }
 
 /**

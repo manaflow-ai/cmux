@@ -7,7 +7,7 @@ import { ProviderError, ProviderTlsRuleLimitError } from "../services/vms/driver
 import { CMUX_REQUIRED_DOMAINS, compileNetworkPolicy, parseNetworkPolicy } from "../services/vms/networkPolicy";
 import { VmProviderOperationError } from "../services/vms/errors";
 import { vmWorkflowErrorResponse } from "../services/vms/routeHelpers";
-import { tlsRuleCapacityAlert } from "../services/observability/providerRuleCapacity";
+import { freestyleTlsRuleLimit, tlsRuleCapacityAlert } from "../services/observability/providerRuleCapacity";
 
 const ENV = { FREESTYLE_EDGE_ADDRESSES: "2602:f470:1::28", FREESTYLE_GUEST_DNS_RESOLVERS: "8.8.8.8" } as unknown as NodeJS.ProcessEnv;
 const vmId = "vm-1";
@@ -30,7 +30,7 @@ function accountAtCap(
   owned: string[],
   otherRules: number,
   cap: number,
-  options: { readonly refuse?: (domain: string) => boolean; readonly foreign?: TlsRule[] } = {},
+  options: { readonly refuse?: (domain: string) => boolean; readonly foreign?: TlsRule[]; readonly failDelete?: (domain: string) => boolean } = {},
 ) {
   const tls: TlsRule[] = [
     ...owned.map((domain, index) => ({
@@ -60,8 +60,13 @@ function accountAtCap(
           tls.push({ ...rule, protocol: "http", id: `tls-new-${next++}` });
         },
         delete: async (id: string) => {
+          const index = tls.findIndex((rule) => rule.id === id);
+          if (options.failDelete?.(tls[index]?.domain ?? "")) {
+            log.push(`tls-! ${id}`);
+            throw new FreestyleApiError(500, { code: "INTERNAL", message: "delete failed" });
+          }
           log.push(`tls- ${id}`);
-          tls.splice(tls.findIndex((rule) => rule.id === id), 1);
+          tls.splice(index, 1);
         },
       },
     },
@@ -125,6 +130,29 @@ describe("the account-wide Freestyle TLS rule cap", () => {
     expect(await failure(() => provider.applyNetworkPolicy(vmId, plan))).toBeInstanceOf(ProviderTlsRuleLimitError);
   });
 
+  test("a partly failed retirement at the cap restores the rules it deleted", async () => {
+    const owned = [...CMUX_REQUIRED_DOMAINS, "old-a.example.com", "old-b.example.com"];
+    const fake = accountAtCap(owned, 2000 - owned.length, 2000, { failDelete: (domain) => domain === "old-b.example.com" });
+    const plan = compileNetworkPolicy(parseNetworkPolicy({ mode: "allowlist", domains: ["new.example.com"] }));
+    const err = await failure(() => reconcileFreestyleEgress(fake.client, vmId, plan, ENV));
+
+    expect(err).toBeInstanceOf(FreestyleTlsRuleLimitRestoreError);
+    expect((err as FreestyleTlsRuleLimitRestoreError).unrestored).toEqual([]);
+    expect(fake.log).toContain("tls+ old-a.example.com");
+    expect(fake.tls.map((rule) => rule.domain).sort()).toEqual([...owned].sort());
+  });
+
+  test("a change that grows the rule count at the cap deletes nothing", async () => {
+    const owned = [...CMUX_REQUIRED_DOMAINS, "old.example.com"];
+    const fake = accountAtCap(owned, 2000 - owned.length, 2000);
+    const plan = compileNetworkPolicy(parseNetworkPolicy({ mode: "allowlist", domains: ["a.example.com", "b.example.com"] }));
+    const err = await failure(() => reconcileFreestyleEgress(fake.client, vmId, plan, ENV));
+
+    expect(err).toBeInstanceOf(FreestyleApiError);
+    expect(fake.log.filter((line) => line.startsWith("tls-"))).toEqual([]);
+    expect(fake.tls.map((rule) => rule.domain).sort()).toEqual([...owned].sort());
+  });
+
   test("freeing rules at the cap never deletes another VM's rules", async () => {
     const foreign: TlsRule = { id: "tls-foreign", domain: "old.example.com", protocol: "http", source: { vmId: "vm-2" }, destination: { public: true } };
     const owned = [...CMUX_REQUIRED_DOMAINS, "old.example.com"];
@@ -161,6 +189,14 @@ describe("the account-wide Freestyle TLS rule cap", () => {
     } as unknown as Freestyle;
     const other = await failure(() => new FreestyleProvider({ client: () => otherClient }).applyNetworkPolicy(vmId, plan));
     expect(other).not.toBeInstanceOf(ProviderTlsRuleLimitError);
+  });
+
+  test("FREESTYLE_TLS_RULE_LIMIT accepts only a positive whole number", () => {
+    expect(freestyleTlsRuleLimit({})).toBe(2000);
+    expect(freestyleTlsRuleLimit({ FREESTYLE_TLS_RULE_LIMIT: "5000" })).toBe(5000);
+    for (const value of ["2,000", "2000abc", "-5", "0", "1e3", "12.5"]) {
+      expect(freestyleTlsRuleLimit({ FREESTYLE_TLS_RULE_LIMIT: value })).toBe(2000);
+    }
   });
 
   test("the operator alert is a warning near the cap and critical at it", () => {
