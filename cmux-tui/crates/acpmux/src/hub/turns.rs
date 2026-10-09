@@ -203,7 +203,9 @@ impl Hub {
             let fallback = (!opts.steer_only).then(|| blocks.clone());
             let mut params = json!({"sessionId": agent_sid, "prompt": blocks});
             params["_meta"] = json!({"steer": true});
-            let mut r = match child.request(method::SESSION_PROMPT, params).await {
+            let mut r = match super::steer_end::agent_prompt(session, &child, params, &turn_id, true)
+                .await
+            {
                 Err(e) if e.message.starts_with(crate::claude_stdio::STEER_NO_TURN) => {
                     let Some(blocks) = fallback else { return Err(e) };
                     let opts = PromptOptions {
@@ -361,12 +363,14 @@ impl Hub {
             return Err(e);
         }
         self.set_status(session, SessionStatus::Running);
-        let mut result = child
-            .request(
-                method::SESSION_PROMPT,
-                json!({"sessionId": agent_sid, "prompt": blocks.clone()}),
-            )
-            .await;
+        let mut result = super::steer_end::agent_prompt(
+            session,
+            &child,
+            json!({"sessionId": agent_sid, "prompt": blocks.clone()}),
+            &turn_id,
+            false,
+        )
+        .await;
         // The account behind this harness is exhausted: move the session
         // onto its fallback profile (the subrouter pool for Claude), which
         // resumes the same agent session, and run the prompt once more.

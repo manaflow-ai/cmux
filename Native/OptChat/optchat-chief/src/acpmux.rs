@@ -125,6 +125,10 @@ pub enum TurnSignal {
     /// New events that matter for the log (not text chunks, but for a
     /// prompt's first, which says its response started): fetch them.
     Changed,
+    /// New events that are not the harness's own (acpmux's echo of a
+    /// prompt or steer we sent, its status), or a timer: fetch them, but
+    /// they are no progress of the turn (the idle watchdog, `turn.rs`).
+    Noted,
     /// The prompt's answer: the turn ended (or never started, on an error).
     Done(Result<Value, String>),
     /// The acpmux connection ended during the turn.
@@ -594,6 +598,19 @@ pub(crate) fn is_output(kind: &str) -> bool {
     )
 }
 
+/// The signal of a turn's event that matters for the log: `Changed` when
+/// the harness sent it (`session/update`, or an acpmux event `dir: in`),
+/// else `Noted` (acpmux's own: the echo of our prompt or steer, a status).
+pub fn event_signal(method: &str, params: &Value) -> TurnSignal {
+    let from_agent = method == "session/update"
+        || params.get("dir").and_then(Value::as_str) == Some("in");
+    if from_agent {
+        TurnSignal::Changed
+    } else {
+        TurnSignal::Noted
+    }
+}
+
 fn route(turns: &Mutex<HashMap<String, TurnRoute>>, sink: &Sink, n: Notification) {
     let session = n
         .params
@@ -618,7 +635,7 @@ fn route(turns: &Mutex<HashMap<String, TurnRoute>>, sink: &Sink, n: Notification
                 let first = is_output(kind) && !turn.spoke;
                 turn.spoke |= is_output(kind);
                 if first || !is_noise(kind) {
-                    let _ = turn.tx.send(TurnSignal::Changed);
+                    let _ = turn.tx.send(event_signal(&n.method, &n.params));
                 } else if kind == "agent_message_chunk" {
                     let _ = turn.tx.send(TurnSignal::Streamed);
                 }
