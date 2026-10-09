@@ -756,7 +756,7 @@ enum RowBuilder {
         if !threadMode, span.upperBound == messages.count, s.atNewest, s.ui.typing.contains(where: { $0 != me }) {
             rows.append(RowSpec(key: "typing", kind: .typing, gap: 0, height: 35))
         }
-        for i in rows.indices { rows[i].width = width } // crash-allow: (cmux) i from rows.indices
+        rows = rows.map { var r = $0; r.width = width; return r } // cmux: no index writes
         return rows
     }
 
