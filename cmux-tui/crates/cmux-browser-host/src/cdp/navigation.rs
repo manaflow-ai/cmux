@@ -19,6 +19,33 @@ fn reached(tab: &TabState, wait_until: WaitUntil) -> bool {
 }
 
 impl Inner {
+    /// A page that loaded before the driver attached (a relay to a popup or
+    /// to a tab the person opened) sends no lifecycle events for that load:
+    /// its state comes from `document.readyState`, once, when the tab has no
+    /// lifecycle state yet. Later documents report their events as usual.
+    pub(super) fn seed_load_state(&self, target_id: &str, session_id: &str) {
+        let ready = self.conn.call(
+            Some(session_id),
+            "Runtime.evaluate",
+            json!({"expression": "document.readyState", "returnByValue": true}),
+            INTERNAL_TIMEOUT,
+        );
+        let value = ready.ok().and_then(|r| r["result"]["value"].as_str().map(str::to_owned));
+        let reached: &[&str] = match value.as_deref() {
+            Some("complete") => &["DOMContentLoaded", "load"],
+            Some("interactive") => &["DOMContentLoaded"],
+            _ => &[],
+        };
+        let mut state = self.lock();
+        if let Some(tab) = state.tabs.get_mut(target_id)
+            && tab.lifecycle.is_empty()
+        {
+            tab.lifecycle.extend(reached.iter().map(|name| (*name).to_owned()));
+        }
+        drop(state);
+        self.changed.notify_all();
+    }
+
     pub(super) fn navigate(&self, params: &Value) -> Result<Value, DriverError> {
         let session = self.session(params)?;
         let url = required_str(params, "url")?;
