@@ -394,8 +394,12 @@ async fn the_model_probes_start_only_the_listed_harnesses() {
         effort: None,
         policy: None,
     };
-    let agents = BTreeMap::from([("used".to_owned(), profile("used")), ("unused".to_owned(), profile("unused"))]);
-    let mut cfg = Config { harnesses: agents, default_harness: Some("used".into()), ..Default::default() };
+    let agents = BTreeMap::from([
+        ("used".to_owned(), profile("used")),
+        ("unused".to_owned(), profile("unused")),
+    ]);
+    let mut cfg =
+        Config { harnesses: agents, default_harness: Some("used".into()), ..Default::default() };
     cfg.store.mode = StoreMode::Memory;
     let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(cfg, store);

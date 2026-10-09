@@ -346,6 +346,22 @@ impl Hub {
         *self.probe_only.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = names;
     }
 
+    /// Whether the model probes may start harness `name`.
+    pub(super) fn probes(&self, name: &str) -> bool {
+        self.probe_only
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+            .is_none_or(|names| names.contains(name))
+    }
+
+    /// `ACPMUX_PROBE_HARNESSES`: comma-separated harness names; unset, every harness.
+    pub fn probe_only_from_env(value: Option<&str>) -> Option<std::collections::BTreeSet<String>> {
+        value.map(|v| {
+            v.split(',').map(str::trim).filter(|n| !n.is_empty()).map(str::to_owned).collect()
+        })
+    }
+
     /// Turns on the folder-trust gate for the app's agent pane, reading the
     /// agents' files and acpmux's record at `paths` (the daemon passes the
     /// user's; tests pass fixtures). None turns it off.

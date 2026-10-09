@@ -72,6 +72,7 @@ impl Hub {
             targets(&cfg.harnesses)
         }
         .into_iter()
+        .filter(|target| self.probes(&target.harness))
         .map(|target| {
             let hub = self.clone();
             tokio::spawn(async move { hub.probe_live(target).await })

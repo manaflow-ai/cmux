@@ -80,14 +80,30 @@ pub fn default_compactor_harness(turn: &str, family: Family, claude: &str) -> St
     }
 }
 
-/// `ACPMUX_PROBE_HARNESSES` of the acpmux daemon this host starts (red stub).
+/// `ACPMUX_PROBE_HARNESSES` of the acpmux daemon this host starts: the
+/// harnesses the Chief can use, so its model probes never start another
+/// harness's agent (a Claude-only Chief never starts codex-acp). The set
+/// turn, compactor and subagent harnesses and engine.json's, and always the
+/// Claude routes (`DEFAULT_HARNESS`, `CODEROUTER_HARNESS`): the default turn
+/// harness, and the compactor of a turn harness that is not Claude.
 pub fn probe_harnesses(
-    _chief: Option<&str>,
-    _compactor: Option<&str>,
-    _sub: Option<&str>,
-    _engine: &crate::engine::EngineChoice,
+    chief: Option<&str>,
+    compactor: Option<&str>,
+    sub: Option<&str>,
+    engine: &crate::engine::EngineChoice,
 ) -> String {
-    String::new()
+    let names: std::collections::BTreeSet<&str> = [
+        chief,
+        compactor,
+        sub,
+        engine.harness.as_deref(),
+        engine.compactor_harness.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .chain([DEFAULT_HARNESS, CODEROUTER_HARNESS])
+    .collect();
+    names.into_iter().collect::<Vec<_>>().join(",")
 }
 
 /// The default harness: acpmux's own Claude Code adapter (`claude_stdio`)
@@ -466,9 +482,6 @@ fn start(
     let acpmux_socket = crate::acpmux_daemon::socket_path();
     let session_env = session_env(home, daemon_socket, &acpmux_socket, &exe, &env);
     let pinned = crate::cmux_env::pinned_subset(&session_env);
-    // The acpmux daemon this host starts runs the children: pinned too.
-    crate::acpmux_daemon::set_child_env(pinned.clone());
-    let instructions = crate::prompt::user_instructions(&paths.instructions);
     // One setting picks the harness of turns and compactor alike.
     // engine.json's compactor fields apply at host start (engine.rs).
     let engine_choice_file = crate::engine::load(&crate::engine::path(home));
@@ -478,6 +491,20 @@ fn start(
         &engine_choice_file,
     );
     let sub_set = env("OPTCHAT_SUBAGENT_HARNESS");
+    // The acpmux daemon this host starts runs the children: pinned too. Its
+    // model probes start only the harnesses this Chief can use.
+    let mut daemon_env = pinned.clone();
+    daemon_env.insert(
+        "ACPMUX_PROBE_HARNESSES".to_owned(),
+        probe_harnesses(
+            chief_set.as_deref(),
+            compactor_set.as_deref(),
+            sub_set.as_deref(),
+            &engine_choice_file,
+        ),
+    );
+    crate::acpmux_daemon::set_child_env(daemon_env);
+    let instructions = crate::prompt::user_instructions(&paths.instructions);
     let (mut harness, mut compactor_harness) =
         harness_choice(chief_set.as_deref(), None, compactor_set.as_deref());
     let engine_choice = env("OPTCHAT_CHIEF_ENGINE");

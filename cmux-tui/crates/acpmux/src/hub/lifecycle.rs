@@ -699,7 +699,9 @@ impl Hub {
             cfg.harnesses
                 .iter()
                 .filter(|(n, p)| {
-                    p.kind == crate::config::HarnessKind::Acp && (force || !known.contains_key(*n))
+                    p.kind == crate::config::HarnessKind::Acp
+                        && (force || !known.contains_key(*n))
+                        && self.probes(n)
                 })
                 .map(|(n, p)| (n.clone(), p.clone()))
                 .collect()
