@@ -39,7 +39,8 @@ async fn effort_lists_extra_high_ultracode_and_ultrathink() {
     ] {
         assert!(names.contains(&wanted), "missing {wanted:?} in {names:?}");
     }
-    let ultracode = effort["options"].as_array().unwrap().iter().find(|o| o["value"] == "ultracode");
+    let ultracode =
+        effort["options"].as_array().unwrap().iter().find(|o| o["value"] == "ultracode");
     assert!(ultracode.unwrap()["description"].as_str().is_some_and(|d| d.contains("multi-agent")));
 }
 
@@ -146,7 +147,8 @@ async fn a_respawned_ultracode_session_starts_at_xhigh_with_its_flags() {
     assert!(!plan.args.iter().any(|a| a == "--effort"), "{:?}", plan.args);
     // The ultracode flag goes out with initialize, on the same live channel.
     let t = Translator::new("acp-1".into(), "default", "opus", "ultracode");
-    let Outbound::Lines(lines) = t.outbound(&Message::request(1, method::INITIALIZE, json!({}))).await
+    let Outbound::Lines(lines) =
+        t.outbound(&Message::request(1, method::INITIALIZE, json!({}))).await
     else {
         panic!()
     };
