@@ -37,6 +37,7 @@ import { pscaleProvider, REHEARSAL_BRANCH, type BranchProvider } from "./branche
 import { broadPrivileges, hasDatabaseCreate, productionCheckout, Refused, requireOwner, runtimeInjection, stillAt } from "./guards.ts"
 import { CONTRACT_PATH, lintTree, LOCK_PATH, readJson, readMigrations, rollbackSection, type Lock, type MigrationFile, type RoleContract } from "./lint.ts"
 import { actor, receiptsDir, readReceipts, runIdOf, strandedBranches, summaryLine, withLocalLock, writeReceipt, type Receipt } from "./receipts.ts"
+import { compatNow } from "./compat.ts"
 import { describePlan, rehearsalReceipt, rehearseOnCopy, type RehearsalContext } from "./rehearsal.ts"
 import { adopt, applyPending, connectUrl, gate, planOf, planProblems, requirementsOf, schemaProblems, setHashOf, withLock, type Plan, type Sql } from "./runner.ts"
 import { REPO_ROOT, targetOf, TREE_NAMES, TREES, treeOf, type Target, type Tree } from "./trees.ts"
@@ -347,7 +348,7 @@ export const main = async (argv: ReadonlyArray<string>, initialDeps: Deps = defa
               }
               if (target === "production") {
                 // cmux-old shares cmux-prod: the compat gate runs here, in this step (no receipt from elsewhere counts).
-                const compat = await (deps.compat ?? (async (change) => (await import("./compat.ts")).compatNow(realRoot, change, deps.env)))({ kind: "migrations", tree })
+                const compat = await (deps.compat ?? ((change) => compatNow(realRoot, change, deps.env)))({ kind: "migrations", tree })
                 if (compat.length) throw new Refused(`cmux-old compat gate:\n  ${compat.join("\n  ")}`)
                 const staging = await open(deps, tree, "staging", value("--staging-url-env"), "read")
                 try {
@@ -365,7 +366,7 @@ export const main = async (argv: ReadonlyArray<string>, initialDeps: Deps = defa
               emit(rehearsalReceipt(context, outcome, gitSha(deps)))
               if (outcome.errors.length) throw new Refused(`the rehearsal failed; nothing was applied:\n  ${outcome.errors.join("\n  ")}`)
               const sha = gitSha(deps)
-              if (verifiedHead) stillAt(realRoot, verifiedHead)
+              if (verifiedHead) stillAt(realRoot, tree, verifiedHead)
               const result = await applyPending(db.sql, tree, files, { by, allowContract, target })
               const errors = (await schemaProblems(db.sql, await requirementsOf(tree, deps.root))).filter((p) => !p.includes(" privilege")).map((p) => `after apply: ${p}`)
               for (const e of errors) deps.error(e)
@@ -399,14 +400,20 @@ export const main = async (argv: ReadonlyArray<string>, initialDeps: Deps = defa
         const through = value("--through")
         if (!through || !/^\d{4}$/.test(through)) throw new Refused("adopt needs --through NNNN")
         if (tree.name !== "cmux-vm") throw new Refused("only cmux-vm has untracked databases")
+        let adoptHead: string | undefined
+        const adoptRoot = deps.root
         if (target === "production") {
+          const injected = runtimeInjection(deps.env, [import.meta.dirname, process.cwd()])
+          if (injected.length) throw new Refused(`production refuses code injected into the runtime: ${injected.join(", ")}`)
           const checked = productionCheckout(deps.root, tree, deps.landedRemote)
+          adoptHead = checked.head
           deps = { ...deps, root: gitRoot(deps.root, tree, checked.head) }
           files = readMigrations(deps.root, tree)
         }
         const db = await open(deps, tree, target, urlVar, "admin")
         try {
           await requireOwner(deps.provider, tree, target, db.sql, deps.log, ownerPgRole)
+          if (adoptHead) stillAt(adoptRoot, tree, adoptHead)
           const adopted = await adopt(db.sql, tree, files, through, by, deps.root)
           emit({ action: "adopt", what: `record ${adopted.join(", ")} as applied (they were applied by hand)`, tree: tree.name, target, before: [], after: adopted, rollback: [`DELETE FROM ${tree.trackingTable} WHERE adopted (only the tracking rows; no schema change)`], result: "pass", at: at(), applied: adopted, by })
           return 0
