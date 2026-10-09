@@ -154,7 +154,16 @@ load_agent_config() {
 # The image's agent-config.sh replaces this with the auth-aware preflight. The
 # no-op keeps the guest CLI useful on older images and in bootstrap tests.
 cmux_agent_auth_preflight() { return 0; }
-cmux_agent_run() { command "\$@"; }
+cmux_agent_run() {
+  if [ -n "\${CMUX_AGENT_TIMEOUT-}" ]; then
+    cmux_agent_timeout_bin="\$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null || true)"
+    if [ -n "\$cmux_agent_timeout_bin" ]; then
+      "\$cmux_agent_timeout_bin" -k 5 "\$CMUX_AGENT_TIMEOUT" "\$@"
+      return "\$?"
+    fi
+  fi
+  command "\$@"
+}
 cmux_agent_clear_generated_opencode_config() { :; }
 cmux_agent_prepare() { cmux_agent_auth_preflight "\$@"; }
 
