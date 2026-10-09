@@ -9,7 +9,7 @@ import { integrationSyncPending, releasePending, sliceHash, type IntegrationFiel
 import { runSyncPending, runSyncPush } from "./domains/team-run-sync.ts"
 import { cloudPolicyOf, currentPolicy, integrationSlice } from "./domains/team-policy.ts"
 import { signInRulesOf, type SignInRules } from "./team-sign-in-rules.ts"
-import { StackTeamSync, type StackEvent, type StackSyncReply } from "./team-stack-sync.ts"
+import { noOwnerOf, StackTeamSync, type StackEvent, type StackSyncReply } from "./team-stack-sync.ts"
 import { domainExternal, recheckDomains as recheckDue, type DomainReply, type Http } from "./team-domain-external.ts"
 import { nextRecheckAt } from "./domains/team-domains.ts"
 import { ssoExternal } from "./team-sso-external.ts"
@@ -484,7 +484,7 @@ export class TeamDO extends OwnerDO<TeamState> {
     return state?.team?.id === entity && state.team.deleted_at === undefined ? (roleOf(state, this.rows, user) ?? null) : null
   }
 
-  async noOwner(entity: string): Promise<boolean> { return this.isBound(entity) && this.bind(entity).currentState.no_owner === true } // RPC from TeamVmDO's team_vm.status (review P2-3)
+  async noOwner(entity: string): Promise<boolean> { return this.isBound(entity) && noOwnerOf(this.bind(entity).currentState) } // RPC from TeamVmDO's team_vm.status (review P2-3)
   /** RPC from the Stack webhook route (stack-webhook.ts): one delivery reconciled with Stack, one at a time per team. */
   async stackWebhook(entity: string, event: StackEvent): Promise<StackSyncReply> {
     this.bind(entity)

@@ -102,8 +102,11 @@ export const stackServer = (env: Env, http: (r: Request) => Promise<Response> = 
       for (let page = 0; page < 1000; page++) {
         const r = await lookup<{ items?: Array<{ user_id?: unknown; display_name?: unknown; user?: { display_name?: unknown } }>; pagination?: { next_cursor?: unknown } | null }>(`/team-member-profiles?team_id=${encodeURIComponent(teamId)}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`, "team members", ["TEAM_NOT_FOUND"])
         if (isGone(r)) return "team_gone"
-        for (const m of r.items ?? []) {
-          if (typeof m.user_id !== "string") continue
+        // A team event removes every member this list leaves out, so an answer we cannot read fails the
+        // delivery (Svix retries) and changes nothing: no items array, or an item without its user_id.
+        if (!Array.isArray(r.items)) throw new Error("stack GET team members: no items")
+        for (const m of r.items) {
+          if (typeof m !== "object" || m === null || typeof m.user_id !== "string" || !m.user_id) throw new Error("stack GET team members: malformed item")
           const name = typeof m.display_name === "string" && m.display_name ? m.display_name : typeof m.user?.display_name === "string" ? m.user.display_name : null
           out.push({ user_id: m.user_id, display_name: name, permissions: [] })
         }
@@ -111,7 +114,12 @@ export const stackServer = (env: Env, http: (r: Request) => Promise<Response> = 
         if (typeof next !== "string" || !next) {
           const perms = await permissions(teamId)
           if (perms === "team_gone") return "team_gone"
-          return out.map((m) => ({ ...m, permissions: perms.get(normal(m.user_id)) ?? [] }))
+          // Every Stack member holds at least team_member: a listed member without an entry is a truncated answer (re-review P3).
+          return out.map((m) => {
+            const held = perms.get(normal(m.user_id))
+            if (!held?.length) throw new Error("stack GET team permissions: a listed member has none")
+            return { ...m, permissions: held }
+          })
         }
         cursor = next
       }
@@ -123,7 +131,9 @@ export const stackServer = (env: Env, http: (r: Request) => Promise<Response> = 
       const name = typeof r.display_name === "string" && r.display_name ? r.display_name : typeof r.user?.display_name === "string" ? r.user.display_name : null
       const perms = await permissions(teamId, userId)
       if (perms === "team_gone") return "team_gone"
-      return { display_name: name, permissions: perms.get(normal(userId)) ?? [] }
+      const held = perms.get(normal(userId))
+      if (!held?.length) throw new Error("stack GET team permissions: the member has none")
+      return { display_name: name, permissions: held }
     },
     removeTeamMember: async (teamId, userId) => {
       const res = await http(new Request(`${API}/team-memberships/${encodeURIComponent(teamId)}/${encodeURIComponent(userId)}`, { method: "DELETE", headers, body: "{}", signal: AbortSignal.timeout(10_000) }))

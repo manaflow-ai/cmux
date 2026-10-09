@@ -11,7 +11,7 @@ import { reduceIntegrationLock, reduceIntegrationSeed, reduceIntegrationSynced, 
 import { reducePolicyRollback, reducePolicyUpdate } from "./team-policy.ts"
 import { reduceRunsSynced, type RunSyncState } from "./team-run-sync.ts"
 import { reduceAccountAllocated, reduceCaInstalled, reduceCertsRevoked, type TeamSshState } from "./team-ssh.ts"
-import { reduceMemberProvision, reduceNoOwner, reduceStackMirror, seatsOf, teamDeleted } from "./team-stack.ts"
+import { reduceMemberProvision, reduceOwnerCountInit, reduceStackMirror, seatsOf, teamDeleted, withOwnerDelta } from "./team-stack.ts"
 import { removeGrantFor, roleHas, usesSeat } from "./team-roles.ts"
 import { withAuditRows } from "./team-audit-rows.ts"
 import { reduceServerEnrolled, reduceServerInstallRevoked, reduceServerRevoke, type ServerRevocation } from "./team-servers.ts"
@@ -23,8 +23,8 @@ export interface TeamState extends EnrollmentState, AuditState, IntegrationSyncS
   readonly member_count?: number
   /** Members that use a paid seat: all but guests (team-roles.ts usesSeat; seatsOf reads a head without it). */
   readonly seat_count?: number
-  /** Stack left this team without an owner (team.no_owner, review P2-3): shown by team.members.list and team_vm.status. */
-  readonly no_owner?: boolean
+  /** Owners of a Stack team, kept by the reducers that change roles (re-review P3); 0 means no owner (noOwnerOf, review P2-3). Undefined on older heads until team.owner_count.init. */
+  readonly owner_count?: number
   readonly host_count?: number
   /** Installs of removed servers whose UserDO revocation is not confirmed yet (TeamDO retries; server.md 6.5). */
   readonly server_revocations?: Readonly<Record<string, ServerRevocation>>
@@ -124,19 +124,21 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
         const seatCount = Math.max(0, seats - (usesSeat(member.role) ? 1 : 0))
         const removed: TeamState = { ...state, ...(state.members?.[user] ? { members: legacyMembers } : {}), member_count: Math.max(0, (state.member_count ?? 0) - 1), seat_count: seatCount, member_cleanup: { ...(state.member_cleanup ?? {}), [user]: ctx.now } }
         // Audited (a seat change is a billing record, spec H12); `by` is the person who asked (team.members.remove).
-        const a = state.team ? appendAudit(removed, state.team.id, ctx, op, `${user} (${member.role}) left the team${typeof by === "string" ? ` (removed by ${by})` : fromStack === true ? " in Stack" : ""}`, { user, role: member.role, ...(typeof by === "string" ? { by } : {}), seats_before: seats, seats_after: seatCount }, seats === seatCount ? "admin" : "billing") : undefined
+        const a0 = state.team ? appendAudit(removed, state.team.id, ctx, op, `${user} (${member.role}) left the team${typeof by === "string" ? ` (removed by ${by})` : fromStack === true ? " in Stack" : ""}`, { user, role: member.role, ...(typeof by === "string" ? { by } : {}), seats_before: seats, seats_after: seatCount }, seats === seatCount ? "admin" : "billing") : undefined
+        const owners = withOwnerDelta(a0?.state ?? removed, member.role === "owner" ? -1 : 0, ctx)
+        const a = a0 ? { state: owners.state, outbox: [a0.outbox, ...owners.outbox] } : undefined
         return {
           ok: true,
           state: a?.state ?? removed,
           writes: [{ table: TABLE_MEMBER, op: "delete", key: user }],
           value: { user, removed: true, ...(member.role === "owner" ? { demoted_owner: true } : {}) },
-          ...(state.team && a ? { outbox: [...memberLeftItems(state.team, user, ctx.tx, ctx.now), a.outbox] } : {})
+          ...(state.team && a ? { outbox: [...memberLeftItems(state.team, user, ctx.tx, ctx.now), ...a.outbox] } : {})
         }
       }
       case "team.stack_mirror":
         return reduceStackMirror(state, params, ctx)
-      case "team.no_owner":
-        return reduceNoOwner(state, params, ctx)
+      case "team.owner_count.init":
+        return reduceOwnerCountInit(state, params, ctx)
       case "team.member.provision":
         return reduceMemberProvision(state, params, ctx)
       case "team.member.cleaned": {

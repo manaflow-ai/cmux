@@ -6,7 +6,7 @@ import { accountsView, sshCaView } from "./domains/team-ssh.ts"
 import type { ReadResult } from "./owner-do.ts"
 import { listHosts, listMembers, memberOf, type Member, type RowsWithScan } from "./domains/team-members.ts"
 import { ROLES, roleHas, type TeamGrant } from "./domains/team-roles.ts"
-import { seatsOf } from "./domains/team-stack.ts"
+import { noOwnerOf, seatsOf } from "./domains/team-stack.ts"
 import { auditPage } from "./domains/team-audit-rows.ts"
 
 const DIRECTORY_PAGE = 200
@@ -56,7 +56,7 @@ export const teamRead = (state: TeamState, op: string, params: unknown, principa
         after = next
       }
       const last = out.at(-1)?.user
-      return { ok: true, value: { team: state.team?.id, members: out, member_count: state.member_count ?? out.length, seat_count: seatsOf(state), no_owner: state.no_owner === true, next_cursor: out.length < limit && next === null ? null : (last ?? next) }, revision: "" }
+      return { ok: true, value: { team: state.team?.id, members: out, member_count: state.member_count ?? out.length, seat_count: seatsOf(state), no_owner: noOwnerOf(state), next_cursor: out.length < limit && next === null ? null : (last ?? next) }, revision: "" }
     }
     case "team.hosts.list": {
       const q = params as { cursor?: unknown; limit?: unknown } | null

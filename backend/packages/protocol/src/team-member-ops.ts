@@ -41,11 +41,11 @@ export const TeamMemberProvisionParams = Schema.Struct({
   display_name: DisplayName
 })
 
-/** TeamDO found that its Stack team has no owner, or has one again (review P2-3); Stack stays the source. */
-export const TeamNoOwnerParams = Schema.Struct({ no_owner: Schema.Boolean })
+/** The owner count of a Stack team from before owner_count existed, counted once by TeamDO (re-review P3). */
+export const TeamOwnerCountInitParams = Schema.Struct({ count: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)) })
 
 export const teamMemberInternalOps: ReadonlyArray<CloudOpDef> = [
-  internal("team.no_owner", TeamNoOwnerParams, "Internal: records that the Stack team has no owner (a Stack team admin must promote one), or has one again; audited."),
+  internal("team.owner_count.init", TeamOwnerCountInitParams, "Internal: sets a Stack team's owner count once (heads from before it was kept); a count of 0 records that the team has no owner."),
   internal("team.stack_mirror", TeamStackMirrorParams, "Internal: TeamDO mirrors a Stack team (create, rename, delete) as Stack answers it now."),
   internal("team.member.provision", TeamMemberProvisionParams, "Internal: adds a member Stack lists, or sets an existing member's role to the one Stack's permissions give now; removal is team.member.remove.")
 ]
