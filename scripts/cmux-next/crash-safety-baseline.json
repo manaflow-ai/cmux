@@ -64,15 +64,7 @@
  "swift": {
   "assume_isolated": {
    "CmuxHomeRender": 3,
-   "CmuxMobileSupport": 3,
-   "CmuxNextAgentActivity": 1,
-   "CmuxNextAgentPane": 4,
-   "CmuxNextApp": 33,
-   "CmuxNextHome": 1,
-   "CmuxNextOnboarding": 1,
-   "CmuxNextRemoteView": 1,
-   "CmuxNextSidebar": 3,
-   "CmuxNextTasks": 3
+   "CmuxNextSidebar": 3
   },
   "dynamic_dispatch": {
    "CmuxNextAgentActivity": 2,

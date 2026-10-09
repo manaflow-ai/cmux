@@ -505,3 +505,32 @@ fn grok_on_path_is_a_harness_through_its_own_acp_mode() {
     assert_eq!(grok.argv, vec!["/u/bin/grok".to_owned(), "agent".into(), "stdio".into()]);
     assert_eq!(super::derive_family("grok", grok), "grok");
 }
+
+#[test]
+fn cursor_agent_on_path_is_a_harness_through_its_own_acp_mode() {
+    let found = discover_harnesses_from(None, &on_path(&["cursor-agent"]));
+    let cursor = &found["cursor"];
+    assert_eq!(cursor.kind, HarnessKind::Acp);
+    assert_eq!(cursor.argv, vec!["/u/bin/cursor-agent".to_owned(), "acp".into()]);
+    assert_eq!(super::derive_family("cursor", cursor), "cursor");
+    // A bare `agent` is Cursor only when it resolves into a Cursor install.
+    assert!(!discover_harnesses_from(None, &on_path(&["agent"])).contains_key("cursor"));
+}
+
+#[cfg(unix)]
+#[test]
+fn cursor_s_agent_launcher_counts_when_it_resolves_into_cursor_agent() {
+    let dir = std::env::temp_dir().join(format!("acpmux-cursor-{}", std::process::id()));
+    let install = dir.join("share/cursor-agent/versions/1/cursor-agent");
+    std::fs::create_dir_all(install.parent().unwrap()).unwrap();
+    std::fs::write(&install, "").unwrap();
+    let link = dir.join("agent");
+    let _ = std::fs::remove_file(&link);
+    std::os::unix::fs::symlink(&install, &link).unwrap();
+    let link_text = link.to_string_lossy().into_owned();
+    let found = discover_harnesses_from(None, &move |bin: &str| {
+        (bin == "agent").then(|| link_text.clone())
+    });
+    assert_eq!(found["cursor"].argv, vec![link.to_string_lossy().into_owned(), "acp".into()]);
+    let _ = std::fs::remove_dir_all(&dir);
+}

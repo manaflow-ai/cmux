@@ -405,7 +405,7 @@ impl Brain {
         std::thread::spawn(move || {
             while let Ok(signal) = rx.recv() {
                 match signal {
-                    crate::acpmux::TurnSignal::Changed => {}
+                    crate::acpmux::TurnSignal::Changed | crate::acpmux::TurnSignal::Streamed => {}
                     crate::acpmux::TurnSignal::Done(answer) => {
                         let _ = forward.send(super::Input::SubagentAnswer { id: sub_id, answer });
                         return;

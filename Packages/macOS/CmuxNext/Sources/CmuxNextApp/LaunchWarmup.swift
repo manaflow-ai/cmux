@@ -53,7 +53,7 @@ private nonisolated func prewarmDisplayUUIDs() {
 enum IdleOnce {
     static func schedule(_ work: @escaping @MainActor () -> Void) {
         let observer = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue, false, CFIndex.max - 1) { _, _ in
-            MainActor.assumeIsolated { work() }
+            MainActor.assumeIsolated { work() } // main-proof: the observer is added only to CFRunLoopGetMain() (below)
         }
         CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .defaultMode)
     }

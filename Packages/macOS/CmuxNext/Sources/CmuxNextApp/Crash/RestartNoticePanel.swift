@@ -80,11 +80,11 @@ final class RestartNoticePanel {
         let center = NotificationCenter.default
         for name in [NSWindow.didResizeNotification, NSWindow.didMoveNotification] {
             observers.append(center.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.place() }
+                MainActor.assumeIsolated { self?.place() } // main-proof: observer on queue: .main
             })
         }
         observers.append(center.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.dismiss() }
+            MainActor.assumeIsolated { self?.dismiss() } // main-proof: observer on queue: .main
         })
     }
 

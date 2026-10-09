@@ -13,6 +13,8 @@ final class DesktopNotifier: NSObject {
     struct Posted: Hashable {
         var id: String
         var title: String
+        /// The workspace a terminal program's banner came from, else nil.
+        var subtitle: String?
         var body: String
         var surface: UInt64?
         var sound: String?
@@ -32,12 +34,15 @@ final class DesktopNotifier: NSObject {
     /// Posts a banner. `sound == "default"` uses the notification's own
     /// sound (Focus and the per-app sound setting apply); other sounds are
     /// played by `NotificationSounds`.
-    func post(id: String, title: String, body: String, surface: UInt64?, workspace: String?, defaultSound: Bool) {
-        posted.append(Posted(id: id, title: title, body: body, surface: surface, sound: defaultSound ? "default" : nil))
+    func post(id: String, title: String, subtitle: String? = nil, body: String, surface: UInt64?, workspace: String?,
+              defaultSound: Bool) {
+        posted.append(Posted(id: id, title: title, subtitle: subtitle, body: body, surface: surface,
+                             sound: defaultSound ? "default" : nil))
         if posted.count > Self.postedLimit { posted.removeFirst(posted.count - Self.postedLimit) }
         guard let center = resolvedCenter() else { return }
         let content = UNMutableNotificationContent()
         content.title = title
+        if let subtitle { content.subtitle = subtitle }
         content.body = body
         content.sound = defaultSound ? .default : nil
         content.interruptionLevel = .active
