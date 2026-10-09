@@ -10,7 +10,6 @@
 use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::Read as _;
-use std::os::unix::ffi::OsStrExt as _;
 use std::os::unix::fs::{FileTypeExt as _, PermissionsExt as _};
 use std::os::unix::process::CommandExt as _;
 use std::path::{Path, PathBuf};
@@ -315,8 +314,7 @@ mod launch_classification {
                 }
                 continue;
             }
-            return MANAGEMENT.contains(&argument.as_str())
-                && !matches!(argument.as_str(), "exec" | "resume" | "fork");
+            return MANAGEMENT.contains(&argument.as_str());
         }
         false
     }

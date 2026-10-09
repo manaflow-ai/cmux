@@ -91,14 +91,21 @@ settings unchanged. `exec`, `resume`, and `fork` sessions are covered;
 management commands and informational flags pass through.
 
 The wrapper also works in an SSH workspace where the host received the
-standalone cmux-tui binary. If Codex is launched in a tmux pane without cmux
-variables, the installed hook helper keeps using the existing Linux tmux
-client route described above. `ssh-tmux` mirrored workspaces use tmux's
-control transport rather than the cmux-tui journal and currently have no
-agent-status subscription, so this wrapper does not add badges to those
-mirrors.
+standalone cmux-tui binary. If the wrapper is launched in a tmux pane without cmux
+variables, it resolves the attached Linux tmux client using the same route as
+the installed helper, then binds hooks to that terminal for the launch. An
+already-running tmux server may not have the shim on PATH; start Codex through
+`cmux-tui agent codex-wrapper` in that case. Restart Codex after moving its
+session to a different cmux-tui terminal. Set
+`CMUX_TUI_CODEX_HOOKS_DISABLED=1` to skip injection. Codex 0.162 can select
+embedded mode when given launch-time config; this does not repair a shared
+daemon's authorization for direct `cmux notify` calls.
 
-### Shell startup files can bypass the shim
+`ssh-tmux` mirrored workspaces use tmux's control transport rather than the
+cmux-tui journal and currently have no agent-status subscription, so this
+wrapper does not add badges to those mirrors.
+
+## Shell startup files can bypass the shim
 
 The shim only works while its directory stays ahead of the real `claude` on
 `PATH`. A login or interactive shell startup file that prepends a directory
