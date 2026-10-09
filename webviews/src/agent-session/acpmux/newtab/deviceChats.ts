@@ -16,7 +16,14 @@ export function setDeviceChats(value: unknown): void {
         const chat = item as Partial<DeviceChat> | null;
         if (!chat || typeof chat.key !== "string" || typeof chat.harness !== "string") return [];
         const updatedAt = typeof chat.updatedAt === "number" ? chat.updatedAt : 0;
-        return [{ key: chat.key, harness: chat.harness, updatedAt, ...(typeof chat.title === "string" && chat.title ? { title: chat.title } : {}) }];
+        return [
+          {
+            key: chat.key,
+            harness: chat.harness,
+            updatedAt,
+            ...(typeof chat.title === "string" && chat.title ? { title: chat.title } : {}),
+          },
+        ];
       })
     : [];
   chats = next;
