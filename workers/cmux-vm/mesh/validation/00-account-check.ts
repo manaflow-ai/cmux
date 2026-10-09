@@ -2,7 +2,7 @@
 // Read-only. The API has no whoami; list_identities -> describe_identity returns
 // accountId. Fallback: compare snapshot id sets (list_snapshots is per account).
 // Prints only account ids or "same"/"different". Never a key.
-import { api, key, keyFrom, result } from "./lib";
+import { api, keyFrom, KEY_FILE, result } from "./lib";
 
 const PROD_FILE = process.env.MESH_PROD_KEY_FILE ?? `${process.env.HOME}/.secrets/freestyle-beta.env`;
 
@@ -20,7 +20,7 @@ async function accountOf(k: string) {
   return { accountId, identities: ids.json.total, snapIds, vpcTotal: vpcs.json.total };
 }
 
-const dev = await accountOf(key());
+const dev = await accountOf(keyFrom(KEY_FILE));
 const prod = await accountOf(keyFrom(PROD_FILE));
 const overlap = [...dev.snapIds].filter((s) => prod.snapIds.has(s)).length;
 const byAccount = dev.accountId && prod.accountId ? (dev.accountId === prod.accountId ? "same" : "different") : "unknown";

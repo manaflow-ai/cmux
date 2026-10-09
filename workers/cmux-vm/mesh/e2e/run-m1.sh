@@ -9,16 +9,15 @@ SHA="${1:?exact commit sha}"
 SCRIPT="${2:-e2e.ts}"
 case "$SCRIPT" in e2e.ts|m3.ts|m4.ts) ;; *) echo "unknown proof script $SCRIPT" >&2; exit 2 ;; esac
 HOST="${MESH_HOST:-cmux-lawrence-2}"
+KEY_FILE="${MESH_KEY_FILE:-$HOME/.secrets/freestyle-cmux-next-dev-20261004.key}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
-# MESH_KEY_FILE, else the one Freestyle dev key (scripts/lib/freestyle-dev-key.mjs), piped, never printed.
-freestyle_key() { if [ -n "${MESH_KEY_FILE:-}" ]; then cat "$MESH_KEY_FILE"; else node "$HERE/../../../../scripts/lib/freestyle-dev-key.mjs"; fi; }
 ssh "$HOST" "set -e; mkdir -p ~/cmux-agent-work/mesh-m1c && cd ~/cmux-agent-work/mesh-m1c
   [ -d repo ] || git clone -q --filter=blob:none --no-checkout https://github.com/manaflow-ai/cmux.git repo
   cd repo && git sparse-checkout set --no-cone /workers/cmux-vm/ >/dev/null && git fetch -q origin $SHA && git checkout -q --detach $SHA
   cd workers/cmux-vm && PATH=\$HOME/.bun/bin:/opt/homebrew/bin:\$PATH bun install --frozen-lockfile >/dev/null
   cd mesh/agent && PATH=\$HOME/.cargo/bin:/opt/homebrew/bin:\$PATH cargo build --release --locked 2>&1 | tail -1"
 set +e
-ssh "$HOST" "cd ~/cmux-agent-work/mesh-m1c/repo/workers/cmux-vm/mesh/e2e && PATH=\$HOME/.bun/bin:/opt/homebrew/bin:\$PATH bun $SCRIPT ../agent/target/release/cmux-mesh-agent" < <(freestyle_key)
+ssh "$HOST" "cd ~/cmux-agent-work/mesh-m1c/repo/workers/cmux-vm/mesh/e2e && PATH=\$HOME/.bun/bin:/opt/homebrew/bin:\$PATH bun $SCRIPT ../agent/target/release/cmux-mesh-agent" < "$KEY_FILE"
 rc=$?
 set -e
 mkdir -p "$HERE/evidence"

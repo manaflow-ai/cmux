@@ -195,7 +195,8 @@ public final class HomeStoreBinding {
                 controller.restoreDraft(for: intent.key)
                 if let self, !self.stopped { self.onAttachmentRefusal(intent, refusal) }
             } catch let rejection as HomeRejection {
-                // Refused before it reached the log (offline, nothing queues):
+                // Refused before it reached the log (a duplicate, or a stopped
+                // store; a send made offline waits for the reconnect instead):
                 // give the text back. A logged refusal stays as "Not Delivered".
                 guard case .sendMessage(let id, _) = intent.op else {
                     if let self, !self.stopped { self.onRefusal(intent, rejection) }
