@@ -2068,6 +2068,20 @@ async function handleHttp(req: Request, server: ReturnType<typeof Bun.serve>): P
     log(`admin say conv=${conv} sender=${sender.id} effect=${effect ?? "-"}`);
     return json({ ok: true, message: wireMessage(m, base) });
   }
+  if (path === "/admin/typing" && req.method === "POST") {
+    // A participant starts (on=1) or stops (on=0) typing now, with no message
+    // (typing-indicator testing; pair with /admin/say for the hand-off).
+    const conv = url.searchParams.get("conversation") ?? "group";
+    const store = stores.get(conv);
+    if (!store) return json({ error: `unknown conversation ${conv}` }, 404);
+    const senderId = url.searchParams.get("sender");
+    const sender = senderId ? store.bots().find((b) => b.id === senderId) : pick(R, store.bots());
+    if (!sender) return json({ error: `unknown sender ${senderId}` }, 400);
+    const on = url.searchParams.get("on") !== "0";
+    store.broadcastTyping(sender.id, on);
+    log(`admin typing conv=${conv} sender=${sender.id} on=${on}`);
+    return json({ ok: true, conversation: conv, sender: sender.id, isTyping: on });
+  }
   if (path === "/admin/unsend" && req.method === "POST") {
     const conv = url.searchParams.get("conversation") ?? "group";
     const store = stores.get(conv);

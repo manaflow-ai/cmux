@@ -274,6 +274,9 @@ edit without `textRuns` clears the formatting.
   Receiver-side effect testing. With a JSON body `{conversation, senderId,
   text, effect}` instead, the message posts at once and the sender may be me
   (deterministic link, data detector and layout fixtures).
+- `POST /admin/typing?conversation=<id>&sender=<id>&on=1|0`: a participant
+  starts or stops typing now, without sending (the sender defaults to a random
+  bot). Pair with `/admin/say` for the typing-to-message hand-off.
 - `POST /admin/unsend?conversation=<id>`: a participant unsends its newest
   message now (incoming "<Name> unsent a message").
 - `POST /admin/poll?conversation=<id>&question=<q>&options=<a,b,...>&votes=0|1`:
