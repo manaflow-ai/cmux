@@ -762,10 +762,6 @@ pub use unix::{
     request_terminal_host_pty_custody, terminal_host_root,
 };
 
-// The Windows system layer of per-terminal hosts (cx-ko2e).
-#[cfg(windows)]
-pub mod windows;
-
 #[cfg(not(unix))]
 pub fn terminal_host_root(state_root: &Path, session: &str) -> PathBuf {
     crate::platform::normalize_filesystem_path(state_root.join(format!("{session}.terminal-hosts")))

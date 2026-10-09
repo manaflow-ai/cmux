@@ -11,7 +11,7 @@ use windows_sys::Win32::Foundation::{
 };
 use windows_sys::Win32::Storage::FileSystem::GetFinalPathNameByHandleW;
 
-const HELPER: &str = "terminal_host_runtime::windows::standby::tests::host_helper";
+const HELPER: &str = "terminal_host_runtime::sys::windows::standby::tests::host_helper";
 
 fn system32(exe: &str) -> PathBuf {
     let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
@@ -171,7 +171,7 @@ fn a_job_without_breakaway_denies_the_host() {
     let output = std::process::Command::new(std::env::current_exe().unwrap())
         .args([
             "--exact",
-            "terminal_host_runtime::windows::standby::tests::helper_in_a_job_without_breakaway",
+            "terminal_host_runtime::sys::windows::standby::tests::helper_in_a_job_without_breakaway",
             "--ignored",
             "--nocapture",
             "--test-threads=1",

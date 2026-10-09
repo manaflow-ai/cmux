@@ -6,7 +6,8 @@
 //! `endpoint` (EndpointPolicy: the per-user socket path), `jobs` (the named,
 //! owner-only Job Object a restarted daemon checks before it reads a
 //! terminal's processes), `standby` (the host process spawn: breakaway,
-//! handle list, no window).
+//! no inherited handle, no window). It sits under `sys` (the seams module):
+//! its items replace the `windows_stubs` in `sys.rs` one by one.
 
 pub mod endpoint;
 pub mod jobs;

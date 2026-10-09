@@ -54,6 +54,13 @@ pub(crate) use unix::*;
 #[cfg(windows)]
 pub(crate) use windows_stubs::*;
 
+/// The Windows system layer (cx-ko2e, GPUI lane): leases, endpoints, named
+/// jobs and the host spawn. Its items replace `windows_stubs` one by one.
+// Until the stubs are replaced, the shared runtime does not call it yet.
+#[cfg(windows)]
+#[allow(dead_code)]
+pub(crate) mod windows;
+
 #[cfg(windows)]
 mod windows_stubs {
     use std::fs::{File, Metadata};

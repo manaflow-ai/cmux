@@ -11,7 +11,7 @@ use std::time::Duration;
 
 /// The B1 seam (`terminal_host_runtime/sys.rs`): `uds_windows::UnixStream`
 /// on Windows, the type `cmux::local_socket` returns.
-pub(crate) use super::super::sys::HostStream;
+pub(crate) use super::super::HostStream;
 pub use cmux::local_socket::Listener as HostListener;
 
 /// The endpoint directory for `user` under `temp`.

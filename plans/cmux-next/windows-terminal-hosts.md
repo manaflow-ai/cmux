@@ -190,7 +190,7 @@ this lane after rebases), head c42d00e53ae, rebased on feat-cmux-next with B1
   `#[cfg(windows)] pub mod windows;` in `terminal_host_runtime.rs`, five
   windows-sys features in cmux-tui-core `Cargo.toml` (no Cargo.lock change).
 - Branch-only CI line: `test (windows)` in `.github/workflows/cmux-tui.yml`
-  runs `terminal_host_runtime::windows::` and `--test windows_terminal_hosts`;
+  runs `terminal_host_runtime::sys::windows::` and `--test windows_terminal_hosts`;
   it lands with the CORE request. Hosted checks: `gh workflow run
   cmux-tui.yml --ref gpui-windows-terminal-hosts -f commit=<sha> -f mode=full
   -f request_id=<token>` (full mode is the only path that runs these on
