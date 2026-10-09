@@ -3342,14 +3342,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "prompt-submit",
             input: #"{"sessionId":"\#(nestedSessionID)","cwd":"\#(root.path)","hookEventName":"UserPromptSubmit","prompt":"outer turn"}"#
         )
-        _ = runGrokHook(
+        let nestedPrompt = runGrokHook(
             "prompt-submit",
             input: #"{"sessionId":"\#(nestedSessionID)","cwd":"\#(root.path)","hookEventName":"UserPromptSubmit","prompt":"nested turn"}"#
         )
-        _ = runGrokHook(
+        XCTAssertFalse(nestedPrompt.timedOut, nestedPrompt.stderr)
+        XCTAssertEqual(nestedPrompt.status, 0, nestedPrompt.stderr)
+        let nestedPermission = runGrokHook(
             "notification",
             input: #"{"sessionId":"\#(nestedSessionID)","cwd":"\#(root.path)","hookEventName":"Notification","message":"Permission required"}"#
         )
+        XCTAssertFalse(nestedPermission.timedOut, nestedPermission.stderr)
+        XCTAssertEqual(nestedPermission.status, 0, nestedPermission.stderr)
         let nestedSessionEnd = runGrokHook(
             "session-end",
             input: #"{"sessionId":"\#(nestedSessionID)","cwd":"\#(root.path)","hookEventName":"SessionEnd"}"#
