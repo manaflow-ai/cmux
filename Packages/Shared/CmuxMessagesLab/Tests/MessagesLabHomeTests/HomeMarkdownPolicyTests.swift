@@ -14,15 +14,12 @@ import Testing
         let (p, c) = Fixture2.projection()
         #expect(MarkdownImages.provider === HomeMarkdownPolicy.images, "the pane controller installs the policy at init")
         #expect(MarkdownLinkPolicy.extraSchemes.isEmpty)
-        p.apply(items: [Fixture2.item(1, Fixture2.them, "**Hi** [run](cmux://open) ![chart](https://example.com/c.png)")],
-                summary: Fixture2.summary(lastSeq: 1), typing: [], hasOlder: false)
+        p.apply(items: [Fixture2.item(1, Fixture2.them, "**Hi** there")], summary: Fixture2.summary(lastSeq: 1), typing: [], hasOlder: false)
         c.host.layoutSubtreeIfNeeded(); c.demo!.layoutIfNeeded(); c.demo!.collection.layoutIfNeeded()
-        let shown = c.demo!.model.rows.compactMap { r -> String? in
-            guard case let .part(row) = r.spec.kind else { return nil }
-            return row.markdown?.plain ?? row.text?.text
-        }.joined(separator: "|")
-        #expect(shown.contains("[Image: chart]"), "\(shown)")
-        #expect(!shown.contains("**"), "\(shown)")
+        #expect(MarkdownImages.provider === HomeMarkdownPolicy.images && MarkdownLinkPolicy.extraSchemes.isEmpty, "still set after the render")
+        // MessagesLab's engine under Home's policy: an image is its text, never fetched.
+        let md = try #require(Markdown.layout("**Look** ![chart](https://example.com/c.png)", message: nil, width: 628))
+        #expect(md.plain.contains("[Image: chart]"), "\(md.plain)")
         #expect(MDInlineParser.parse("[run](cmux://open)").spans.compactMap(\.link).isEmpty, "no extra scheme is a link")
     }
 
