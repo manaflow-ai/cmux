@@ -7,10 +7,13 @@ public import WebKit
 /// macOS versions they were verified on, and every wait on a WebKit block is
 /// bounded and resumes once.
 public enum WebKitPrivateCalls {
-    /// macOS major versions the private signatures were verified on
-    /// (cmux-lawrence-2, macOS 27.0.1, 2026-10-08). Add a version only after
-    /// the browser-parity suite passed on it.
-    static let verifiedMajors: Set<Int> = [27]
+    /// macOS major versions the private signatures were verified on: 27.0.1
+    /// (cmux-lawrence-2, browser-parity suite, 2026-10-08) and 26.5
+    /// (cmux-mini-6, 2026-10-09: an off-screen page ran 0 animation frames
+    /// and was hidden with detection on, about 190 frames in 3 s and visible
+    /// with it off; the activity-state callback ran). Add a version only
+    /// after the same check passed on it.
+    static let verifiedMajors: Set<Int> = [26, 27]
 
     static func isVerified(osMajor: Int) -> Bool { verifiedMajors.contains(osMajor) }
 
