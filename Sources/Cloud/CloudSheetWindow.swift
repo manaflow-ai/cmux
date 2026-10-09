@@ -34,6 +34,9 @@ final class CloudSheetWindow {
     // Foundation tokens through NotificationCenter's thread-safe cleanup API.
     nonisolated(unsafe) private var windowMoveObserver: NSObjectProtocol?
     nonisolated(unsafe) private var hostMoveObserver: NSObjectProtocol?
+    private weak var hostWindow: NSWindow?
+    private var lastHostOrigin: NSPoint?
+    private var isAttachedToHost = false
     private var isApplyingFrame = false
 
     init<Content: View>(rootView: Content) {
@@ -77,13 +80,16 @@ final class CloudSheetWindow {
     /// Attaches the sheet to `host`; the size is held until the open
     /// animation has finished.
     func beginSheet(on host: NSWindow, completionHandler: ((NSApplication.ModalResponse) -> Void)? = nil) {
+        hostWindow = host
+        lastHostOrigin = host.frame.origin
+        isAttachedToHost = true
         hostMoveObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didMoveNotification,
             object: host,
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.recordHostMoveIfStable()
+                self?.recordHostMoveIfStable(host)
             }
         }
         isOpening = true
@@ -107,6 +113,9 @@ final class CloudSheetWindow {
 
     /// Shows the sheet as a centered floating window when no host is on screen.
     func orderFrontFloating() {
+        hostWindow = nil
+        lastHostOrigin = nil
+        isAttachedToHost = false
         isOpening = true
         window.center()
         window.makeKeyAndOrderFront(nil)
@@ -167,11 +176,15 @@ final class CloudSheetWindow {
         // An attached sheet's frame can emit didMove after AppKit resizes it
         // from the bottom edge. That is an internal layout move, not a new
         // anchor; only floating windows can be moved directly by the user.
-        guard window.sheetParent == nil else { return }
+        guard !isAttachedToHost else { return }
         recordStableTopEdge()
     }
 
-    private func recordHostMoveIfStable() {
+    private func recordHostMoveIfStable(_ host: NSWindow) {
+        guard isAttachedToHost, hostWindow === host else { return }
+        guard !isOpening, !isApplyingFrame else { return }
+        guard host.frame.origin != lastHostOrigin else { return }
+        lastHostOrigin = host.frame.origin
         recordStableTopEdge()
     }
 
