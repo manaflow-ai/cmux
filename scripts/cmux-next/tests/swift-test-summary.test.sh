@@ -107,7 +107,7 @@ cat > "$TMP/trap.out" <<'OUT'
 error: Process '/Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/libexec/swift/pm/swiftpm-testing-helper --test-bundle-path /x/CmuxNextPackageTests.xctest/Contents/MacOS/CmuxNextPackageTests --testing-library swift-testing' exited with unexpected signal code 5
 OUT
 export CMUX_NEXT_CRASH_REPORTS_DIR="$reports" CMUX_NEXT_CRASH_OUT="$crashes"
-run trap 1
+CMUX_NEXT_CRASH_WAIT_SECONDS=0 run trap 1
 unset CMUX_NEXT_CRASH_REPORTS_DIR CMUX_NEXT_CRASH_OUT
 [[ "$status" != 0 ]] || fail "a run whose test helper died on a signal exited 0" "$out"
 crash=$(grep '^::error title=cmux-next swift test crash' <<<"$out" || true)
