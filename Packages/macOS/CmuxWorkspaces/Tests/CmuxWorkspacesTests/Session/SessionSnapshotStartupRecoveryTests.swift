@@ -78,6 +78,7 @@ struct SessionSnapshotStartupRecoveryTests {
         try writeRaw("{\"version\":1,\"workspaces\":\"not-a-list\"}", to: try #require(repository.defaultSnapshotFileURL()))
         try writeRaw("corrupt", to: try #require(repository.manualRestoreSnapshotFileURL()))
 
+        #expect(repository.newestRestorableHistorySnapshot() == newest)
         #expect(repository.loadStartupSnapshot() == newest)
     }
 
@@ -97,5 +98,79 @@ struct SessionSnapshotStartupRecoveryTests {
             .contentsOfDirectory(at: primaryURL.deletingLastPathComponent(), includingPropertiesForKeys: nil)
             .filter { (try? String(contentsOf: $0, encoding: .utf8)) == unreadable }
         #expect(survivors.count == 1, "the unreadable snapshot must stay on disk")
+    }
+
+    @Test("preserving the same unusable bytes twice keeps one copy; different bytes keep both")
+    func unusableSideFileIsIdempotentAndNeverReplaced() throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let repository = makeRepository(root: root)
+        let primaryURL = try #require(repository.defaultSnapshotFileURL())
+        let first = "{\"version\":1,\"workspaces\":1}"
+        let second = "{\"version\":1,\"workspaces\":2}"
+        try writeRaw(first, to: primaryURL)
+
+        let sideURL = try #require(repository.preserveUnusableSnapshot(fileURL: primaryURL))
+        #expect(repository.preserveUnusableSnapshot(fileURL: primaryURL) == sideURL)
+        try writeRaw(second, to: primaryURL)
+        let secondSideURL = try #require(repository.preserveUnusableSnapshot(fileURL: primaryURL))
+
+        #expect(secondSideURL != sideURL)
+        #expect(try String(contentsOf: sideURL, encoding: .utf8) == first)
+        #expect(try String(contentsOf: secondSideURL, encoding: .utf8) == second)
+    }
+
+    @Test("a readable, missing, or newer-schema snapshot needs no unusable side copy")
+    func noUnusableSideCopyForUsableMissingOrNewer() throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let repository = makeRepository(root: root)
+        let primaryURL = try #require(repository.defaultSnapshotFileURL())
+
+        #expect(repository.preserveUnusableSnapshot(fileURL: primaryURL) == nil)
+        #expect(repository.save(RecoverySnapshotFixture(version: 1, workspaces: ["ok"]), fileURL: nil))
+        #expect(repository.preserveUnusableSnapshot(fileURL: primaryURL) == nil)
+        try writeRaw("{\"version\":2,\"workspaces\":{}}", to: primaryURL)
+        #expect(repository.preserveUnusableSnapshot(fileURL: primaryURL) == nil)
+    }
+
+    @Test("history recovery moves past archives the caller rejects")
+    func historyRecoverySkipsRejectedArchives() throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let repository = makeRepository(root: root)
+        let usable = RecoverySnapshotFixture(version: 1, workspaces: ["work"])
+        // The newest archive holds only what the app prunes away (e.g. the
+        // crash-diagnostic window this launch just archived).
+        let prunedAway = RecoverySnapshotFixture(version: 1, workspaces: ["crash-diagnostics"])
+        try archive(usable, in: repository, root: root, at: 1_000)
+        try archive(prunedAway, in: repository, root: root, at: 2_000)
+
+        let recovered = repository.newestRestorableHistorySnapshot { snapshot in
+            snapshot.workspaces == ["crash-diagnostics"] ? nil : snapshot
+        }
+        #expect(recovered == usable)
+    }
+
+    @Test("timestamped unusable copies are capped and the first copy is kept")
+    func unusableCopiesAreCapped() throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let repository = makeRepository(root: root)
+        let primaryURL = try #require(repository.defaultSnapshotFileURL())
+        var sideURLs: [URL] = []
+        for index in 0..<6 {
+            try writeRaw("{\"version\":1,\"workspaces\":\(index)}", to: primaryURL)
+            sideURLs.append(try #require(repository.preserveUnusableSnapshot(fileURL: primaryURL)))
+            // Distinct millisecond names for each timestamped copy.
+            Thread.sleep(forTimeInterval: 0.005)
+        }
+
+        let names = try FileManager.default
+            .contentsOfDirectory(atPath: primaryURL.deletingLastPathComponent().path)
+            .filter { $0.contains(".unusable") }
+        #expect(names.count == 1 + SessionSnapshotRepository<RecoverySnapshotFixture>.maximumTimestampedUnusableCopies)
+        #expect(try String(contentsOf: sideURLs[0], encoding: .utf8) == "{\"version\":1,\"workspaces\":0}")
+        #expect(FileManager.default.fileExists(atPath: sideURLs[5].path))
     }
 }
