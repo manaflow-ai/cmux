@@ -2390,10 +2390,9 @@ fn run_server(
             [bound, remote_direct_websocket, remote_workspace_http],
         );
     }
-    mux.set_loopback_forward_policy(loopback_forward_policy);
-    mux.set_loopback_forward_audit_reporter(Arc::new(|line| {
-        crate::client_log::stderr_log!("loopback-forward", "{BIN}: {line}");
-    }));
+    loopback_policy::install(&mux, loopback_forward_policy);
+    #[cfg(unix)]
+    mux.set_acpmux_socket(acp::daemon_socket_path());
     let served_socket = pending_server.into_bound_path();
     mux.start_journal_plugin(served_socket.clone());
     let mut served_mux_cleanup = ServedMuxCleanup::new(mux.clone(), served_socket);
