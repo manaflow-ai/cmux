@@ -38,13 +38,13 @@ fn error(code: &str, message: impl Into<String>) -> Value {
 }
 
 /// True when this daemon's own dispatcher owns `op`.
-pub(super) fn is_daemon_op(op: &str) -> bool {
+pub(crate) fn is_daemon_op(op: &str) -> bool {
     catalog()["operations"].get(op).is_some()
 }
 
 /// Builds the protocol request: `machine`/`session` default to `current`
 /// when the op takes them; everything else is the app's params as given.
-pub(super) fn request(
+pub(crate) fn request(
     op: &str,
     params: Value,
     idempotency_key: Option<String>,
@@ -81,7 +81,7 @@ pub(super) fn request(
 
 /// Response envelope to the ABI body: reads answer `{value}`, mutations
 /// already answer a `MutationResult` (`{value, revision, replayed, …}`).
-pub(super) fn answer(op: &str, response: Value) -> Result<Value, Value> {
+pub(crate) fn answer(op: &str, response: Value) -> Result<Value, Value> {
     if response["ok"] == true {
         let result = response.get("result").cloned().unwrap_or(Value::Null);
         let mutation = catalog()["operations"][op]["class"] == "mutation";

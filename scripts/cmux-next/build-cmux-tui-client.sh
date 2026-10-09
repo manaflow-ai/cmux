@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Builds this checkout's cmux-tui client set on a build host whose tree is not
 # published: cmux-tui and the companions the bundle scripts install beside it
-# (cmux-app-host, cmux-cloud, cmux-browser-host). reload.sh uses it for an
+# (cmux-app-host, cmux-cloud, cmux-browser-host, cmux-agent-screen-detection).
+# reload.sh uses it for an
 # nx-remote build (NX_JOB_ID) when pin-cmux-tui.sh probe does not report the
 # tree ready, and hands the result to the bundle as CMUX_TUI_CLIENT_LOCAL, so
 # the build neither stops nor waits for a cmux-tui-artifacts run (a newer push
@@ -67,7 +68,7 @@ install -m 755 "$target_dir/release/cmux-tui" "$stage/cmux-tui"
 
 # The companions this source bundles beside cmux-tui: the ones its bundle
 # scripts name (the fleet recipe decides the same way).
-for name in cmux-app-host cmux-cloud cmux-browser-host; do
+for name in cmux-app-host cmux-cloud cmux-browser-host cmux-agent-screen-detection; do
   named=0
   for script in scripts/cmux-next/bundle-cmux-tui.sh scripts/install-cmux-tui-client.sh; do
     if [[ -f "$repo_root/$script" ]] && grep -q -- "$name" "$repo_root/$script"; then named=1; fi
@@ -75,11 +76,13 @@ for name in cmux-app-host cmux-cloud cmux-browser-host; do
   [[ "$named" -eq 1 ]] || continue
   case "$name" in
     cmux-cloud) dir="first-party-apps/cloud/server" ;;
+    # Its own Cargo workspace and Cargo.lock, inside the cmux-tui tree.
+    cmux-agent-screen-detection) dir="cmux-tui/bindings/examples/rust-agent-screen-detection" ;;
     *) dir="cmux-tui/crates/$name" ;;
   esac
   [[ -f "$repo_root/$dir/Cargo.toml" ]] || { echo "error: this source bundles $name but has no $dir/Cargo.toml" >&2; exit 1; }
   say "==> building $name beside cmux-tui"
-  if [[ "$name" == cmux-cloud ]]; then
+  if [[ "$name" == cmux-cloud || "$name" == cmux-agent-screen-detection ]]; then
     (cd "$repo_root/$dir" && CARGO_TARGET_DIR="$target_dir" cargo build --bin "$name" --release --locked >&2)
   else
     (cd "$repo_root/cmux-tui" && CMUX_TUI_BUILD_COMMIT="$commit" CARGO_TARGET_DIR="$target_dir" \

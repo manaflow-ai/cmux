@@ -56,12 +56,15 @@ enum ControlTopologyMapper {
             groupID: model.group?.rawValue,
             unreadCount: model.unreadCount,
             screens: model.screens.map { screen in
-                ControlScreenInfo(id: screen.id, handle: screen.handle.description, name: screen.name,
-                                  zoomedPaneID: screen.zoomedPane.flatMap { handle in screen.pane(handle)?.id },
-                                  panes: screen.panes.map { pane(from: $0, selectedTab: selectedTab, pages: pages) })
+                var info = ControlScreenInfo(id: screen.id, handle: screen.handle.description, name: screen.name,
+                                             zoomedPaneID: screen.zoomedPane.flatMap { handle in screen.pane(handle)?.id },
+                                             panes: screen.panes.map { pane(from: $0, selectedTab: selectedTab, pages: pages) })
+                info.defaultPaneID = screen.defaultPane.flatMap { handle in screen.pane(handle)?.id }
+                return info
             }
         )
         info.resourceID = model.resourceID?.rawValue
+        info.kind = model.kind
         return info
     }
 

@@ -43,11 +43,7 @@ enum DebugNotifications {
         return [
             "unread": .array(unread),
             "windows": .array(windows),
-            "banners": .array(center.desktop.posted.map { banner in
-                ["id": .string(banner.id), "title": .string(banner.title),
-                 "subtitle": banner.subtitle.map(JSONValue.string) ?? .null, "body": .string(banner.body),
-                 "surface": banner.surface.map { .number(Double($0)) } ?? .null]
-            }),
+            "banners": .array(center.desktop.posted.map(banner)),
             "authorization": .string(center.desktop.authorization),
             "log": .array(center.log.map(JSONValue.string)),
             "feed_log": .array((center.feedBridge?.log ?? []).map(JSONValue.string)),
@@ -58,6 +54,19 @@ enum DebugNotifications {
                 "attention_style": .string(attention.style.rawValue), "attention_width": .number(Double(attention.width)),
                 "shows_on_tab": .bool(attention.showsOnTab), "shows_on_sidebar": .bool(attention.showsOnSidebar),
             ],
+        ]
+    }
+
+    /// One banner the app asked for, with its status badge (`attachment`:
+    /// byte count and the PNG as base64, null when the banner had none).
+    static func banner(_ banner: DesktopNotifier.Posted) -> JSONValue {
+        [
+            "id": .string(banner.id), "title": .string(banner.title),
+            "subtitle": banner.subtitle.map(JSONValue.string) ?? .null, "body": .string(banner.body),
+            "surface": banner.surface.map { .number(Double($0)) } ?? .null,
+            "attachment": banner.attachment.map { data in
+                ["bytes": .number(Double(data.count)), "png_base64": .string(data.base64EncodedString())]
+            } ?? .null,
         ]
     }
 }
