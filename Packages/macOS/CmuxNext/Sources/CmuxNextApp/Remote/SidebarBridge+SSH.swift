@@ -18,17 +18,30 @@ extension SidebarBridge {
     }
 
     static func sshStatus(_ session: SSHMachineSession, compatibility: DaemonCompatibility?) -> SidebarMachine.Status {
-        switch session.linkStatus {
+        var connected = false
+        if case .connected = session.daemon.store.connectionState { connected = true }
+        return sshStatus(link: session.linkStatus, startupFailed: session.daemon.startup.isUnavailable, daemonConnected: connected,
+                         compatibility: compatibility)
+    }
+
+    /// The header status of a link state and its daemon: `startupFailed`
+    /// is the first connection's give-up (past its deadline), so a daemon
+    /// that never starts on the machine is a failure, not Connecting for
+    /// ever (cx-zdh8).
+    static func sshStatus(link: SSHConnectionMachine.Status, startupFailed: Bool, daemonConnected: Bool,
+                          compatibility: DaemonCompatibility?) -> SidebarMachine.Status {
+        switch link {
         case .offline: return .offline
         case .installing: return .installing
         case .authFailed, .hostKeyUntrusted: return .authFailed
         case .unreachable: return .unreachable
         case .needsInstall(.protocolMismatch): return .updateRequired
         case .needsInstall, .installFailed: return .installRequired
-        case .connecting, .connected, .failed:
-            guard case .connected = session.daemon.store.connectionState else {
-                if let compatibility, compatibility.level == .incompatible, session.daemon.startup.isUnavailable { return .updateRequired }
-                return .connecting
+        case .failed: return daemonConnected ? .connected : .failed
+        case .connecting, .connected:
+            guard daemonConnected else {
+                if let compatibility, compatibility.level == .incompatible, startupFailed { return .updateRequired }
+                return startupFailed ? .failed : .connecting
             }
             if compatibility?.level == .limited { return .updateAvailable }
             return .connected

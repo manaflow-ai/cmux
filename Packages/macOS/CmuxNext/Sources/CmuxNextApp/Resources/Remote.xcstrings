@@ -6157,6 +6157,137 @@
           }
         }
       }
+    },
+    "remote.status.daemonFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui on the machine did not start: %@ Choose Copy SSH Error for the full text."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يبدأ cmux-tui على الجهاز: %@ اختر نسخ خطأ SSH للحصول على النص الكامل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui na mašini se nije pokrenuo: %@ Odaberite Kopiraj SSH grešku za cijeli tekst."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui på maskinen startede ikke: %@ Vælg Kopiér SSH-fejl for at få hele teksten."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui auf dem Rechner wurde nicht gestartet: %@ Wähle „SSH-Fehler kopieren“ für den vollständigen Text."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui no se inició en la máquina: %@ Elige Copiar error de SSH para ver el texto completo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui n’a pas démarré sur la machine : %@ Choisissez Copier l’erreur SSH pour le texte complet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui non si è avviato sulla macchina: %@ Scegli Copia errore SSH per il testo completo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシン上の cmux-tui が起動しませんでした: %@ 全文は「SSH エラーをコピー」で取得できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui នៅលើម៉ាស៊ីនមិនបានចាប់ផ្ដើមទេ៖ %@ ជ្រើស ចម្លងកំហុស SSH ដើម្បីបានអត្ថបទពេញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "머신의 cmux-tui가 시작되지 않았습니다: %@ 전체 내용은 SSH 오류 복사를 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui på maskinen startet ikke: %@ Velg Kopier SSH-feil for hele teksten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui na maszynie nie uruchomił się: %@ Wybierz Kopiuj błąd SSH, aby uzyskać pełny tekst."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux-tui na máquina não iniciou: %@ Escolha Copiar Erro de SSH para ver o texto completo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui на машине не запустился: %@ Выберите «Копировать ошибку SSH», чтобы получить полный текст."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui บนเครื่องไม่เริ่มทำงาน: %@ เลือก คัดลอกข้อผิดพลาด SSH เพื่อดูข้อความทั้งหมด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Makinedeki cmux-tui başlamadı: %@ Tam metin için SSH Hatasını Kopyala'yı seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui на машині не запустився: %@ Виберіть «Копіювати помилку SSH», щоб отримати повний текст."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui trên máy không khởi động: %@ Chọn Sao chép lỗi SSH để lấy toàn bộ nội dung."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "机器上的 cmux-tui 未能启动：%@ 选择“复制 SSH 错误”获取完整文本。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "機器上的 cmux-tui 未能啟動：%@ 選擇「複製 SSH 錯誤」取得完整文字。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

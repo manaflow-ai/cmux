@@ -20,6 +20,11 @@ final class SSHMachineSession {
     var installPhase: RemoteInstaller.Phase?
     /// The last install or connect failure worth showing.
     var lastError: String?
+    /// Why the machine's cmux-tui did not start: the daemon's error and the
+    /// link's output (the remote error, for example a session db the daemon
+    /// cannot open), set when the first connection gives up and cleared
+    /// when the daemon connects (cx-zdh8).
+    var daemonFailure: String?
     /// Connect at launch (the user did not disconnect it). Saved in the
     /// session registry's transport.
     var autoConnect = true
@@ -28,6 +33,7 @@ final class SSHMachineSession {
     @ObservationIgnored var offersInstall = false
     @ObservationIgnored var onStatusChange: ((SSHMachineSession, SSHConnectionMachine.Status) -> Void)?
     @ObservationIgnored private var statusTask: Task<Void, Never>?
+    @ObservationIgnored private var startupTask: Task<Void, Never>?
 
     init(host: SSHHost, binary: URL, paths: SSHPaths, environment: @escaping @Sendable () async -> [String: String],
          machineID: String? = nil) {
@@ -41,12 +47,31 @@ final class SSHMachineSession {
         statusTask = Task { [weak self] in
             for await status in statuses { self?.linkStatusChanged(status) }
         }
+        let daemon = daemon, link = link
+        // task-owner: follows the daemon's first-connect state for the session's life; cancelled in close()
+        startupTask = Task { [weak self] in
+            for await startup in Observations({ daemon.startup }) {
+                guard case .unavailable(let error) = startup else {
+                    self?.daemonFailure = nil
+                    continue
+                }
+                let output = await link.output()
+                self?.daemonFailure = Self.failureText(error.description, output: output)
+            }
+        }
+    }
+
+    /// The daemon's error, then the link's output when it adds to it.
+    static func failureText(_ error: String, output: String?) -> String {
+        guard let output = output?.trimmingCharacters(in: .whitespacesAndNewlines), !output.isEmpty, !error.contains(output) else { return error }
+        return error + "\n" + output
     }
 
     /// Ends the session for good (forget, quit).
     func close() {
         disconnect(keepAutoConnect: true)
         statusTask?.cancel()
+        startupTask?.cancel()
     }
 
     private func linkStatusChanged(_ status: SSHConnectionMachine.Status) {

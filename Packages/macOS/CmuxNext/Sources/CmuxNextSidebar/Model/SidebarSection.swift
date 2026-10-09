@@ -34,13 +34,16 @@ public nonisolated struct SidebarMachine: Hashable, Sendable {
         case authFailed
         /// The network cannot reach the machine; retried on network change.
         case unreachable
+        /// The machine answers, but its cmux-tui did not start (or the
+        /// remote command failed); the detail carries its error.
+        case failed
 
         /// The machine cannot connect until the person acts (sign-in,
         /// network, install or update): the one list still shows its header,
         /// even with no workspaces, so the failure and its menu stay visible.
         public var needsAttention: Bool {
             switch self {
-            case .authFailed, .unreachable, .installRequired, .updateRequired: true
+            case .authFailed, .unreachable, .installRequired, .updateRequired, .failed: true
             case .connected, .connecting, .offline, .updateAvailable, .installing: false
             }
         }

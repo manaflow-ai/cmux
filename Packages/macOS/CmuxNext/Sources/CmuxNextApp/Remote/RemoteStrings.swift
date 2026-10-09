@@ -128,6 +128,7 @@ enum RemoteStrings {
         case .offline:
             return String(localized: "remote.status.offline", defaultValue: "Disconnected. Choose Reconnect Machine to connect.", table: "Remote", bundle: .module)
         case .connecting, .connected:
+            if let failure = session.daemonFailure { return daemonFailed(failure) }
             return session.lastError
         case .authFailed(let message):
             return String(format: String(localized: "remote.status.authFailed", defaultValue: "SSH sign-in failed: %@ Check your key or agent, then choose Reconnect Machine.", table: "Remote", bundle: .module), message)
@@ -151,10 +152,19 @@ enum RemoteStrings {
         case .authFailed(let message), .hostKeyUntrusted(let message), .unreachable(let message),
              .installFailed(let message), .failed(let message): message
         case .needsInstall(let need): needText(need, session)
-        case .offline, .connecting, .connected, .installing: session.lastError
+        case .connecting, .connected: session.daemonFailure ?? session.lastError
+        case .offline, .installing: session.lastError
         }
         guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
         return text
+    }
+
+    /// The header detail of a machine whose cmux-tui did not start; `error`
+    /// is the daemon's error and the link's output.
+    static func daemonFailed(_ error: String) -> String {
+        String(format: String(localized: "remote.status.daemonFailed",
+                              defaultValue: "cmux-tui on the machine did not start: %@ Choose Copy SSH Error for the full text.",
+                              table: "Remote", bundle: .module), error)
     }
 
     /// The refusal of Copy SSH Error for a machine without a failure.
