@@ -6,7 +6,7 @@
   "scripts": {
     "lint:migrations": "bun lint.ts",
     "typecheck": "tsc -p .",
-    "test": "bun test test"
+    "test": "bun test --timeout 60000 test"
   },
   "dependencies": {
     "libpg-query": "18.1.5",

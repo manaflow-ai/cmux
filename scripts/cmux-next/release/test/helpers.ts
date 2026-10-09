@@ -145,16 +145,13 @@ export const fakeProvider = (prefix: string, roles: Record<string, string> = {})
       provider.calls.push(`create ${database}/${name} from ${from}`)
       const template = provider.staleFrom ?? dbOf(database, from)
       provider.staleFrom = undefined
-      try {
-        await createOwnedDb(dbOf(database, name), owner, template)
-      } catch (e) {
-        // Postgres cannot TEMPLATE-copy a database another session uses (apply holds its lock
-        // connection during the rehearsal; a PlanetScale point-in-time branch has no such limit).
-        // Then the copy is rebuilt: the source's recorded files from the root, then its tracking rows.
-        if (!/being accessed by other users/.test((e as Error).message) || !provider.root) throw e
-        await dropDb(dbOf(database, name))
-        await replayCopy(template, dbOf(database, name), owner, ownerUrl, provider.root)
-      }
+      // Postgres cannot TEMPLATE-copy a database another session uses (apply holds its lock
+      // connection during the rehearsal; a PlanetScale point-in-time branch has no such limit).
+      // Then the copy is rebuilt: the source's recorded files from the root, then its tracking rows.
+      const admin = await adminSql()
+      const busy = Number((await admin.query<{ n: string }>("SELECT count(*)::text AS n FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()", [template]))[0]?.n ?? 0) > 0
+      if (busy && provider.root) await replayCopy(template, dbOf(database, name), owner, ownerUrl, provider.root)
+      else await createOwnedDb(dbOf(database, name), owner, template)
       if (provider.failCreate) {
         provider.failCreate = false
         throw new Error("fake create failed after the branch appeared")

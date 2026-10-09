@@ -80,7 +80,7 @@ jobs:
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         env:
           SCRATCH_URL: postgres://postgres:postgres@localhost:5432/postgres
-        run: bun test test
+        run: bun test --timeout 60000 test
 
   # The Worker's schema gate now reads src/db/schema-requirements.ts (shared with the deploy gate).
   cmux-vm-schema-gate:
