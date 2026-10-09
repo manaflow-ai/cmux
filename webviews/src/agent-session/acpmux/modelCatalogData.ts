@@ -316,7 +316,8 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
   }
   const live = session?.harness !== undefined && chosen?.id === session.harness ? session.configOptions : undefined;
   addSessionModels(models, live, harness.id, listed, join);
-  const offered = foldAliases(models, listed);
+  const current = live?.find((option) => option.category === "model" || option.id === "model")?.currentValue;
+  const offered = foldAliases(models, listed, current);
   return {
     id: harness.id,
     name: harness.name,
@@ -370,8 +371,9 @@ function listedModel(model: HarnessModel, harnessId: string, probed: AcpmuxModel
  * "Opus 5.5", from Claude Code's initialize reply) replaces that release's pinned row: one row,
  * the alias (so a pick follows the harness's newest), with the release's catalog metadata.
  */
-function foldAliases(models: PickerModel[], listed: HarnessModel[]): PickerModel[] {
-  const listedIds = new Set(listed.map((model) => model.id));
+function foldAliases(models: PickerModel[], listed: HarnessModel[], current?: string): PickerModel[] {
+  // The release the session runs keeps its own row, so the chip's model stays pickable and checked.
+  const listedIds = new Set(listed.map((model) => model.id).filter((id) => id !== current));
   // release id -> the alias that takes its row (the first alias the harness names as it)
   const takenBy = new Map<string, PickerModel>();
   for (const model of models) {

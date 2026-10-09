@@ -301,11 +301,14 @@ export function ModelPicker(props: ModelPickerProps) {
       ),
     );
     setQuery("");
-    setOlderOpen(false);
+    // A session on an older version opens with the fold open, its row highlighted.
+    const { latest, older } = sectionsFor(current);
+    const runsOlder = older.some((model) => model.id === props.model);
+    setOlderOpen(runsOlder);
     setActive(
       Math.max(
         0,
-        sectionsFor(current).latest.findIndex((model) => model.id === props.model),
+        (runsOlder ? [...latest, ...older] : latest).findIndex((model) => model.id === props.model),
       ),
     );
     setOpen(true);
@@ -408,8 +411,15 @@ export function ModelPicker(props: ModelPickerProps) {
     if (index >= 0) setActiveHarness(index);
     setActive(0);
   };
-  const move = (step: number) =>
+  const move = (step: number) => {
+    // Moving down past the last row opens the "Older models" fold, so keys reach every model.
+    if (step > 0 && !olderOpen && olderCount > 0 && active >= visible.length - 1) {
+      setOlderOpen(true);
+      setActive(visible.length);
+      return;
+    }
     setActive((index) => (visible.length ? (index + step + visible.length) % visible.length : 0));
+  };
   const keyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
     const shortcut = event.ctrlKey && ["n", "p", "j", "k"].includes(event.key.toLowerCase());
     if (shortcut) {

@@ -184,6 +184,20 @@ describe("buildPickerCatalog", () => {
       }).harnesses[0]!.models;
     expect(reported("Opus 5.5").map((model) => model.id)).toEqual(["opus", "claude-sonnet-5"]);
     expect(reported("Opus 5.5")[0]).toMatchObject({ name: "Claude Opus 5.5", shortName: "Opus 5.5", fast: true });
+    // The session pinned to the release keeps that release's own row.
+    const pinned = buildPickerCatalog({
+      catalog: CATALOG,
+      acpmux: normalizeCatalog({
+        harnesses: { claude: { family: "claude", models: [{ id: "opus", name: "Opus 5.5" }] } },
+      }),
+      session: {
+        harness: "claude",
+        configOptions: [
+          { id: "model", category: "model", currentValue: "claude-opus-5-5", options: [{ value: "opus", name: "Opus 5.5" }] },
+        ] as never,
+      },
+    }).harnesses[0]!.models;
+    expect(pinned.map((model) => model.id)).toEqual(["claude-opus-5-5", "claude-sonnet-5", "opus"]);
     expect(reported("Opus 6").map((model) => [model.id, model.name])).toEqual([
       ["claude-opus-5-5", "Claude Opus 5.5"],
       ["claude-sonnet-5", "Claude Sonnet 5"],

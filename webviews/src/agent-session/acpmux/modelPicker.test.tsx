@@ -420,4 +420,22 @@ describe("T3 model picker", () => {
     await act(async () => search.dispatchEvent(new dom.window.Event("input", { bubbles: true })));
     expect(labels()).toEqual(["Opus 4.1"]);
   });
+
+  test("the arrow keys open the fold, and a session on an older version opens with it open", async () => {
+    await render();
+    await act(async () => modelButton().click());
+    const labels = () => modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent);
+    const input = menu()!.querySelector<HTMLInputElement>("input[role=combobox]")!;
+    await key(input, "ArrowDown");
+    await key(input, "ArrowDown");
+    expect(labels()).toEqual(["Opus 5.5", "Sonnet 5.5", "Opus 4.1"]);
+    expect(modelRows()[2]!.getAttribute("aria-selected")).toBe("true");
+    await act(async () => modelButton().click());
+    const older = snapshot();
+    older.summary = { ...older.summary!, model: "claude-opus-4-1" };
+    await render(older);
+    await act(async () => modelButton().click());
+    expect(labels()).toEqual(["Opus 5.5", "Sonnet 5.5", "Opus 4.1"]);
+    expect(modelRows()[2]!.getAttribute("aria-selected")).toBe("true");
+  });
 });
