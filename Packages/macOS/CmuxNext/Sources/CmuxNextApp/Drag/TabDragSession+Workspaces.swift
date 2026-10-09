@@ -2,7 +2,6 @@ import AppKit
 import CmuxNextBridge
 import CmuxNextDesign
 import CmuxNextSidebar
-import CmuxNextTabs
 
 // Sidebar workspace drags across windows. A row drag (one workspace, a
 // multi-selection, or a group) that leaves its sidebar sideways is handed
@@ -31,9 +30,9 @@ extension TabDragSession {
     func beginTabRow(_ handoff: SidebarTabRowDragHandoff) -> Bool {
         guard drag == nil, let paneModel = services.locateTab(handoff.tab.rawValue)?.1,
               let pane = services.paneController(for: paneModel) else { return false }
-        begin(TabDragStart(tabID: StripTabID(handoff.tab.rawValue), stripID: pane.stripModel.stripID,
-                           screenFrame: handoff.rowScreenFrame, grabOffset: handoff.grabOffset,
-                           screenPoint: handoff.screenPoint, snapshot: nil), from: pane)
+        let id = handoff.tab.rawValue
+        begin(item: .tab(id), payload: .tab(id: id, sourceStripID: pane.stripModel.stripID), frame: handoff.rowScreenFrame,
+              grabOffset: handoff.grabOffset, point: handoff.screenPoint, image: nil, previewTab: id, draggedCount: 1, pane: pane)
         return true
     }
 
