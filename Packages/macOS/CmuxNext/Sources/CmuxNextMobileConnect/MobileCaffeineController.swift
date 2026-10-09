@@ -10,13 +10,17 @@ public final class MobileCaffeineController: MobileCaffeineControl, @unchecked S
 
     public init() {}
 
-    public func status() async -> Bool {
+    public func status() async -> Bool { statusSync() }
+
+    public func statusSync() -> Bool {
         lock.lock()
         defer { lock.unlock() }
         return activity != nil
     }
 
-    public func set(enabled: Bool) async throws {
+    public func set(enabled: Bool) async throws { setSync(enabled: enabled) }
+
+    public func setSync(enabled: Bool) {
         lock.lock()
         defer { lock.unlock() }
         if enabled {
@@ -29,6 +33,9 @@ public final class MobileCaffeineController: MobileCaffeineControl, @unchecked S
             self.activity = nil
         }
     }
+
+    /// Toggles the same assertion used by the phone RPC and the Mac action.
+    public func toggle() { setSync(enabled: !statusSync()) }
 
     deinit {
         if let activity {

@@ -47,6 +47,6 @@ enum MobileLinkFeatureFactory {
         }
         return MobileHostFeatures(handlers: handlers, taskRunner: runner, caps: [MobileGit.cap, "caffeine"],
                                   allowsTaskDispatch: services.allowsTaskDispatch, allowsTerminalSpawn: services.allowsTerminalSpawn,
-                                  caffeine: MobileCaffeineController())
+                                  caffeine: services.caffeine ?? MobileCaffeineController())
     }
 }

@@ -6,6 +6,7 @@ import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextDaemon
 import CmuxNextMobileHostUI
+import CmuxNextMobileConnect
 import CmuxNextPalette
 import CmuxNextPages
 import CmuxNextBrowserImport
@@ -46,6 +47,8 @@ final class AppServices {
     private(set) lazy var serverReach = ServerReachService.app(services: self)
     /// Phone access; started by the account layer once signed in.
     let mobile = MobileHostService()
+    /// Shared process assertion used by the Mac action and phone Keep Awake.
+    let mobileCaffeine = MobileCaffeineController()
     let registry = ActionRegistry.standard()
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
     let updater = UpdaterService()

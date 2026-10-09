@@ -26,6 +26,8 @@ public struct MobileLinkServices: Sendable {
     public var agentHomes: URL?
     public var allowsTaskDispatch: Bool
     public var allowsTerminalSpawn: Bool
+    /// Shared process assertion owner used by the Mac action and phone RPC.
+    public var caffeine: (any MobileCaffeineControl)?
 
     public init(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
                 browserPages: (any BrowserPageHost)? = nil,
@@ -33,7 +35,8 @@ public struct MobileLinkServices: Sendable {
                 simulators: (any SimulatorCaptureHost)? = nil, allowedPorts: [UInt16] = [],
                 acpmuxSocketPath: (@Sendable () async -> String?)? = nil, agentHost: String? = nil,
                 agentHostName: String? = nil, agentHomes: URL? = nil,
-                allowsTaskDispatch: Bool = false, allowsTerminalSpawn: Bool = false) {
+                allowsTaskDispatch: Bool = false, allowsTerminalSpawn: Bool = false,
+                caffeine: (any MobileCaffeineControl)? = nil) {
         self.homeDirectory = homeDirectory
         self.browserPages = browserPages
         self.remoteDesktop = remoteDesktop
@@ -45,5 +48,6 @@ public struct MobileLinkServices: Sendable {
         self.agentHomes = agentHomes
         self.allowsTaskDispatch = allowsTaskDispatch
         self.allowsTerminalSpawn = allowsTerminalSpawn
+        self.caffeine = caffeine
     }
 }

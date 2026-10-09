@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextMobileConnect
 import CmuxNextPalette
 import CmuxNextSettings
 import CmuxNextSettingsWindow
@@ -11,11 +12,7 @@ import CmuxNextSettingsWindow
 /// navigation. Features cmux-next has not built yet report a typed
 /// `ActionFailure` so the CLI and palette say so.
 enum WindowHandlers {
-    /// Held while "Keep Mac Awake" is on.
-    private final class KeepAwake { var activity: (any NSObjectProtocol)? }
-
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        let keepAwake = KeepAwake()
         // Settings and Debug Settings open as internal page tabs.
         context.services.pages.register(context.services.settingsWindow)
         context.services.pages.register(context.services.debugSettings)
@@ -50,7 +47,7 @@ enum WindowHandlers {
         registry.bind("zoomWindow", run: { _ in targeting(context).target?.zoom(nil) })
         registry.bind("selectNextWindow", run: { _ in selectWindow(offset: 1, context) })
         registry.bind("selectPreviousWindow", run: { _ in selectWindow(offset: -1, context) })
-        registry.bind("keepMacAwake", run: { _ in toggleKeepAwake(keepAwake) })
+        registry.bind("keepMacAwake", run: { _ in context.services.mobileCaffeine.toggle() })
         registry.bind("commandPaletteNext", run: { _ in context.services.palette.model.handle(.moveDown) })
         // The palette's own keys as actions (PaletteKeyActionCatalog): the open palette runs the command.
         for id in PaletteKeyMap.paletteKeyActions {
@@ -87,16 +84,4 @@ enum WindowHandlers {
         WindowActivation.show(window, .focus)
     }
 
-    /// Prevents idle system sleep while on; a second run turns it off.
-    private static func toggleKeepAwake(_ state: KeepAwake) {
-        if let activity = state.activity {
-            ProcessInfo.processInfo.endActivity(activity)
-            state.activity = nil
-        } else {
-            state.activity = ProcessInfo.processInfo.beginActivity(
-                options: [.idleSystemSleepDisabled, .userInitiated],
-                reason: "cmux Keep Mac Awake"
-            )
-        }
-    }
 }

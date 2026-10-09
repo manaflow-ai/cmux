@@ -52,6 +52,7 @@ enum AppMobileLinkServices {
             acpmuxSocketPath: socketPath,
             agentHost: agentHost, agentHostName: nil,
             agentHomes: AgentHome.standard.map { URL(fileURLWithPath: $0.base, isDirectory: true) },
-            allowsTaskDispatch: setting.allowsTaskDispatch, allowsTerminalSpawn: setting.allowsTerminalSpawn)
+            allowsTaskDispatch: setting.allowsTaskDispatch, allowsTerminalSpawn: setting.allowsTerminalSpawn,
+            caffeine: services.mobileCaffeine)
     }
 }
