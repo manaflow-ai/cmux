@@ -1,6 +1,7 @@
 import CmuxNextApps
 import CmuxNextCodeRouter
 import CmuxNextControl
+import CmuxNextSettings
 import Foundation
 import Testing
 @testable import CmuxNextApp
@@ -79,23 +80,25 @@ import Testing
     }
 
     /// App reads are redacted: account data reaches apps only through the
-    /// first-party CodeRouter app's ops, which use the redacting socket
+    /// first-party CodeRouter app's ops, which the Mac serves over the app
+    /// supervisor's provider channel and which use the redacting socket
     /// methods (acct_ handles + short labels; CodeRouterAppOpsTests covers the
     /// rows). Every other account op is refused, and no refusal names an email.
     @Test func appReadsAreRedactedOrRefused() async throws {
         let identity = ControlIdentity(version: "1.0", build: "1", bundleID: "com.cmuxterm.app.debug.test", tag: "test", processID: getpid())
-        let router = AppOperationRouter(router: ControlRouter(identity: identity, executor: Executor()),
-                                        storage: AppStorageStore(directory: FileManager.default.temporaryDirectory
-                                            .appending(path: "cmux-app-storage-\(UUID().uuidString)")),
-                                        ledger: { [] })
-        for op in ["coderouter.detect", "coderouter.accounts.list", "accounts.list", "auth.status"] {
-            let result = await router.perform(AppOperationRequest(app: "cmux/test", appVersion: "1", op: op, params: .object([:])))
-            switch result {
-            case .success(let value): Issue.record("\(op) returned \(value)")
-            case .failure(let error):
-                #expect(["operation.unsupported", "method_not_found"].contains(error.code), "\(op): \(error.code)")
-                #expect(PrivacyScan.emails(in: error.message).isEmpty)
-            }
+        let router = ControlRouter(identity: identity, executor: Executor())
+        let control: @Sendable (String, [String: JSONValue]) async throws(AppHostCapabilityError) -> JSONValue = { method, params throws(AppHostCapabilityError) in
+            try await router.appControl(method, params)
+        }
+        let capabilities = AppHostCapabilities([CodeRouterAppOps(control: control), ActionAppOps(control: control)])
+        for (index, op) in ["coderouter.detect", "coderouter.accounts.list", "accounts.list", "auth.status"].enumerated() {
+            let call = try #require(AppsProviderCall(["request_id": .number(Double(index + 1)), "app": "cmux/test", "op": .string(op),
+                                                      "params": .object([:]), "origin": "script"]))
+            let (ok, body) = await call.answer(with: capabilities)
+            #expect(!ok, "\(op) returned \(body)")
+            let code = body["code"]?.stringValue ?? ""
+            #expect(["operation.unsupported", "method_not_found"].contains(code), "\(op): \(code)")
+            #expect(PrivacyScan.emails(in: body["message"]?.stringValue ?? "").isEmpty)
         }
     }
 }

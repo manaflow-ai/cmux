@@ -2,65 +2,56 @@ import Foundation
 import Testing
 @testable import CmuxNextApps
 
-/// The App Store model over the bundled catalog.
+/// The App Store model over the apps client (a fake supervisor with the
+/// bundled first-party apps and samples).
+@MainActor
 struct AppStoreModelTests {
-    private func model() async throws -> AppStoreModel {
-        let root = FileManager.default.temporaryDirectory.appending(path: "cmux-apps-store-\(UUID().uuidString)")
-        let registry = AppRegistry(directory: root, firstPartyRoot: root.appending(path: "no-first-party"))
-        await registry.load()
-        let model = AppStoreModel(catalog: RegistryAppStoreCatalog(registry: registry), registry: registry,
-                                  host: AppHost(sink: AppPreviewSink(), clock: ManualAppClock()),
-                                  previewHost: AppHost(sink: AppPreviewSink(), clock: ManualAppClock()))
-        model.refresh()
-        #expect(await eventually { await MainActor.run { model.listings.count == 3 } })
-        return model
+    private func model() async -> (AppStoreModel, FakeAppsTransport) {
+        let (client, transport) = await TestClient.make()
+        return (AppStoreModel(client: client), transport)
     }
 
-    @Test func bundledCatalogListsTheSamplesAsFirstParty() async throws {
-        let model = try await model()
-        #expect(Set(model.listings.map(\.id)) == ["cmux/github-prs", "cmux/running-agents", "cmux/agent-status"])
-        #expect(model.listings.allSatisfy { $0.tier == .firstParty && $0.publisherVerified })
-        #expect(model.allCategories == ["agents", "git", "monitoring", "sidebar"])
+    @Test func listsEveryAvailableAppButTheStoreItself() async {
+        let (model, transport) = await model()
+        let expected = Set(transport.records.map(\.id)).subtracting([AppStoreListing.storeID])
+        #expect(Set(model.listings.map(\.id)) == expected)
+        #expect(model.listings.contains { $0.id == "cmux/github-prs" && $0.tier == .firstParty && $0.publisherVerified })
+        #expect(model.allCategories == Set(model.listings.flatMap(\.categories)).sorted())
     }
 
-    @Test func searchAndCategoryFilter() async throws {
-        let model = try await model()
+    @Test func searchAndCategoryFilter() async {
+        let (model, _) = await model()
         model.query = "pull"
-        #expect(await eventually { await MainActor.run { model.listings.map(\.id) == ["cmux/github-prs"] } })
+        #expect(model.listings.map(\.id) == ["cmux/github-prs"])
         model.query = ""
         model.category = "monitoring"
-        #expect(await eventually { await MainActor.run { model.listings.map(\.id) == ["cmux/agent-status"] } })
-        #expect(model.allCategories.count == 4)
+        #expect(model.listings.map(\.id).contains("cmux/agent-status"))
+        #expect(model.listings.allSatisfy { $0.categories.contains("monitoring") })
     }
 
-    @Test func openingAListingClearsFiltersThatHideIt() async throws {
-        let model = try await model()
+    @Test func openingAListingClearsFiltersThatHideIt() async {
+        let (model, _) = await model()
         model.category = "git"
-        #expect(await eventually { await MainActor.run { model.listings.count == 1 } })
         model.show(.installed)
         model.open(appID: "cmux/agent-status")
         #expect(model.tab == .discover)
         #expect(model.category == nil)
-        #expect(await eventually { await MainActor.run { model.selectedListing?.id == "cmux/agent-status" } })
+        #expect(model.selectedListing?.id == "cmux/agent-status")
     }
 
-    @Test func removeAndInstallRoundTripAndNotify() async throws {
-        let model = try await model()
-        var removed: [String] = []
+    @Test func removeAndInstallRoundTrip() async throws {
+        let (model, _) = await model()
         try await model.install("cmux/github-prs") // samples are opt-in
-        model.onRemoved = { removed.append($0) }
-        try await model.remove("cmux/github-prs")
-        #expect(model.state(of: "cmux/github-prs")?.isInstalled == false)
-        #expect(!model.installedApps.contains { $0.id == "cmux/github-prs" })
-        #expect(removed == ["cmux/github-prs"])
-        try await model.install("cmux/github-prs")
         #expect(model.state(of: "cmux/github-prs")?.isActive == true)
+        try await model.remove("cmux/github-prs")
+        #expect(model.state(of: "cmux/github-prs")?.installed == false)
+        #expect(!model.installedApps.contains { $0.id == "cmux/github-prs" })
     }
 
     /// Page history (history.md 4.2b): tabs, searches and opened listings
     /// are navigations that Back and Forward walk like a browser tab's.
-    @Test func backAndForwardWalkTabsSearchesAndListings() async throws {
-        let model = try await model()
+    @Test func backAndForwardWalkTabsSearchesAndListings() async {
+        let (model, _) = await model()
         var navigations = 0
         model.onNavigate = { navigations += 1 }
         #expect(!model.canGoBack && !model.canGoForward)
@@ -82,8 +73,8 @@ struct AppStoreModelTests {
         #expect(navigations == 7)
     }
 
-    @Test func showingTheSameLocationIsNotANavigation() async throws {
-        let model = try await model()
+    @Test func showingTheSameLocationIsNotANavigation() async {
+        let (model, _) = await model()
         model.show(.discover)
         model.open(appID: "cmux/github-prs")
         model.open(appID: "cmux/github-prs")
@@ -91,37 +82,33 @@ struct AppStoreModelTests {
     }
 
     @Test func removeIsUndoneWithoutAConfirmation() async throws {
-        let model = try await model()
+        let (model, _) = await model()
         try await model.install("cmux/github-prs")
         await model.requestRemove("cmux/github-prs")
         #expect(model.pendingRemoval == "cmux/github-prs")
-        #expect(model.state(of: "cmux/github-prs")?.isEnabled == false)
-        #expect(model.state(of: "cmux/github-prs")?.isInstalled == true)
+        #expect(model.state(of: "cmux/github-prs")?.enabled == false)
+        #expect(model.state(of: "cmux/github-prs")?.installed == true)
         await model.undoRemove()
         #expect(model.pendingRemoval == nil)
         #expect(model.state(of: "cmux/github-prs")?.isActive == true)
-        #expect(model.host.failures["cmux/github-prs"] == nil, "no stale disabled reason")
     }
 
     @Test func aPendingRemoveCommitsAfterItsUndoWindow() async throws {
-        let model = try await model()
-        var removed: [String] = []
-        model.onRemoved = { removed.append($0) }
+        let (model, transport) = await model()
         model.removalUndoInterval = .zero
         try await model.install("cmux/github-prs")
         await model.requestRemove("cmux/github-prs")
-        #expect(await eventually { await MainActor.run { model.state(of: "cmux/github-prs")?.isInstalled == false } })
-        #expect(removed == ["cmux/github-prs"])
+        #expect(await eventually { await MainActor.run { model.state(of: "cmux/github-prs")?.installed == false } })
+        #expect(transport.records.first { $0.id == "cmux/github-prs" }?.installed == false)
         #expect(model.pendingRemoval == nil)
     }
 
-    /// Opening the store does no disk I/O: the catalog lists what the registry's launch scan found, nothing before it.
-    @Test func catalogReadsTheRegistryScanAndNeverScansItself() async throws {
-        let root = FileManager.default.temporaryDirectory.appending(path: "cmux-apps-store-\(UUID().uuidString)")
-        let registry = AppRegistry(directory: root, firstPartyRoot: root.appending(path: "no-first-party"))
-        let catalog = RegistryAppStoreCatalog(registry: registry)
-        #expect(try await catalog.search(query: "", category: nil).isEmpty)
-        await registry.load()
-        #expect(try await catalog.search(query: "", category: nil).count == 3)
+    /// While the supervisor is unreachable nothing can change and the store says why.
+    @Test func nothingChangesWhileTheSupervisorIsUnreachable() async {
+        let (model, transport) = await model()
+        transport.setAvailable(false)
+        #expect(!model.canChange)
+        #expect(model.client.unavailableReason == .notConnected)
+        await #expect(throws: AppsClientError.unavailable(.notConnected)) { try await model.install("cmux/github-prs") }
     }
 }

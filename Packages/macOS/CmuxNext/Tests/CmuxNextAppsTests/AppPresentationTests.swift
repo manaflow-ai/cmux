@@ -3,43 +3,39 @@ import Testing
 @testable import CmuxNextApps
 
 /// The shipped first-party apps carry manifest v2 `presentation` (app-screens.md 4,
-/// app-platform.md 16): Home, App Store and CodeRouter resolve in the registry
-/// with the same fields as any app, so the sidebar builds its top band from them.
+/// app-platform.md 16): Home, App Store and CodeRouter decode with the same
+/// fields as any app (the supervisor sends these manifests in `apps-list`), so
+/// the sidebar builds its top band from them.
 @MainActor
 @Suite struct AppPresentationTests {
-    private func registry() async throws -> AppRegistry {
-        let root = FileManager.default.temporaryDirectory.appending(path: "cmux-app-presentation-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let registry = AppRegistry(directory: root, bundledRoot: root.appending(path: "no-samples"))
-        await registry.load()
-        return registry
+    private func shipped(_ id: String) throws -> AppManifest {
+        try #require(AppPlatformResources.firstPartyManifests().first { $0.manifest.id == id }?.manifest, "\(id)")
     }
 
-    @Test func homeResolvesWithTheAppColumnScreen() async throws {
-        let home = try #require(try await registry().app("cmux/home"))
-        let presentation = try #require(home.manifest.presentation)
+    @Test func homeResolvesWithTheAppColumnScreen() throws {
+        let presentation = try #require(try shipped("cmux/home").presentation)
         #expect(presentation.screen == .appColumn)
         #expect(presentation.tab)
         #expect(presentation.primaryInput == "home.composer")
         #expect(presentation.sidebarItem?.section == "top" && presentation.sidebarItem?.order == 0)
-        #expect(home.isInstalled)
     }
 
-    @Test func appStoreAndCodeRouterResolveWithTheAppScreen() async throws {
-        let registry = try await registry()
+    @Test func appStoreAndCodeRouterResolveWithTheAppScreen() throws {
         for id in ["cmux/app-store", "cmux/coderouter"] {
-            let app = try #require(registry.app(id), "\(id)")
-            #expect(app.manifest.presentation?.screen == .app, "\(id)")
-            #expect(app.manifest.presentation?.tab == true, "\(id)")
+            let manifest = try shipped(id)
+            #expect(manifest.presentation?.screen == .app, "\(id)")
+            #expect(manifest.presentation?.tab == true, "\(id)")
         }
     }
 
-    /// CodeRouter keeps its v1 manifest for the prototype engine (its
-    /// contributions still mount) and takes presentation from v2.
-    @Test func codeRouterKeepsItsV1ContributionsAndTakesV2Presentation() async throws {
-        let app = try #require(try await registry().app("cmux/coderouter"))
-        #expect(!app.manifest.contributes.entries.isEmpty)
-        #expect(app.manifest.presentation?.sidebarItem?.order == 20)
+    /// CodeRouter's v2 manifest names its scene section and its scene pane;
+    /// Home's pane is native (cmux draws it, no scene).
+    @Test func codeRouterHasASceneSectionAndPaneAndHomeIsNative() throws {
+        let coderouter = try shipped("cmux/coderouter")
+        #expect(coderouter.sections.first?.hasScene == true)
+        #expect(coderouter.scenePane != nil)
+        #expect(coderouter.presentation?.sidebarItem?.order == 20)
+        #expect(try shipped("cmux/home").scenePane == nil)
     }
 
     @Test func aWebAppPresentationReadsItsURLAndProfile() throws {
