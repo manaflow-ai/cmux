@@ -16,7 +16,16 @@ enum ChatOpenPlacement: Sendable, Equatable {
 final class ChatsOpenCoordinator {
     private weak var services: AppServices?
 
-    init(services: AppServices) { self.services = services }
+    init(services: AppServices) {
+        self.services = services
+        // Choose Folder… in a pane whose chat has no folder (cx-nn3e.1): that pane's folder
+        // sheet, then `chat_open` again with the pick.
+        AgentPaneModel.chatFolderChooser = { [weak self] model, chat in
+            guard let self, let view = self.services?.agentTabs.views.values.first(where: { $0.model === model }),
+                  let url = await view.pickFolder() else { return .cancelled }
+            return await self.reopen(chat, in: url.path)
+        }
+    }
 
     func open(_ key: String, placement: ChatOpenPlacement = .currentPane) {
         guard let services, let environment = QuitAgents.environment(services) else { return }
@@ -36,12 +45,14 @@ final class ChatsOpenCoordinator {
         guard let services else { return }
         switch plan.action {
         case .needsFolder(let reason):
-            guard let folder = await chooseFolder(reason: reason) else { return }
-            do {
-                guard let next = try await environment.chatOpenPlan(key: key, cwd: folder) else { return }
-                await dispatch(next, key: key, environment: environment, placement: placement)
-            } catch {
-                services.refusalHUD.show(error.localizedDescription, in: services.windows.active?.window ?? NSApp.keyWindow)
+            // The chat opens in its pane and says why it has no folder, with Choose Folder there
+            // (cx-nn3e.1), never a bare Open panel.
+            guard let pane = services.windows.active?.focusedPane else { return }
+            let seed = AgentPaneSeedSource(AgentPaneSeed(folderNeeded: AgentPaneFolderNeeded(chat: key, reason: reason)))
+            if placement == .splitRight, splitFits(pane) {
+                openAgentTabToTheRight(of: pane, seed: seed)
+            } else {
+                pane.openAgentTab(seed: seed, linked: true)
             }
         case .adopt(let adopt, let cwd, _):
             guard let pane = services.windows.active?.focusedPane else { return }
@@ -82,16 +93,22 @@ final class ChatsOpenCoordinator {
         }
     }
 
-    private func chooseFolder(reason: String) async -> String? {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.message = reason
-        return await withCheckedContinuation { continuation in
-            panel.begin { response in
-                continuation.resume(returning: response == .OK ? panel.url?.path : nil)
+    /// Choose Folder… in the pane of a chat whose folder is missing: acpmux's `chat_open` again
+    /// with the pick. A resumable chat resumes in that pane; another kind opens as Open Chat
+    /// opens it; a pick that still does not work keeps the pane's line with acpmux's reason.
+    func reopen(_ key: String, in folder: String) async -> AgentPaneChatFolderResult {
+        guard let services, let environment = QuitAgents.environment(services) else { return .needsFolder(RefusalStrings.agentTabCreateFailed) }
+        do {
+            guard let plan = try await environment.chatOpenPlan(key: key, cwd: folder) else { return .needsFolder(RefusalStrings.agentTabCreateFailed) }
+            switch plan.action {
+            case .adopt(let adopt, let cwd, _): return .adopt(adopt, cwd: cwd ?? folder)
+            case .needsFolder(let reason): return .needsFolder(reason)
+            case .terminal, .readOnly:
+                await dispatch(plan, key: key, environment: environment, placement: .currentPane)
+                return .opened
             }
+        } catch {
+            return .needsFolder(error.localizedDescription)
         }
     }
 }

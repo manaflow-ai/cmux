@@ -43,7 +43,6 @@
    "CmuxAuthRuntime": 7,
    "CmuxInstallAuthCore": 1,
    "CmuxIrohTransport": 4,
-   "CmuxIrxTransport": 6,
    "CmuxNextApp": 5,
    "CmuxNextBrowserHost": 1,
    "CmuxNextDaemon": 1,
@@ -60,9 +59,6 @@
    "CmuxNextPages": 4,
    "CmuxNextSidebar": 3,
    "MessagesLabHome": 20
-  },
-  "int_conversion": {
-   "CmuxIrxTransport": 2
   },
   "render_font": {
    "CmuxHomeRender": 4,
