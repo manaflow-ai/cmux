@@ -270,7 +270,7 @@ export default agentPaneEntry({
     },
     "slash-fork": {
       note: "Play: type /fork; the cmux-owned fork command appears with the harness commands.",
-      snapshot: chat(finished, {
+      snapshot: chat([...finished.slice(0, -1), summary(9, { status: "completed", seq: 12 })], {
         commands: [
           { name: "compact", description: "Clear conversation history but keep a summary in context" },
           { name: "review", description: "Review a pull request" },
