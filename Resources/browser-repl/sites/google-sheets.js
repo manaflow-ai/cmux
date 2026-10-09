@@ -20,6 +20,33 @@
         await box.press("Enter");
         await t.sleep(300);
       }
+      // What the name box shows (the selection), or null.
+      const shownSelection = (page) =>
+        t.readBack(page, () => { const b = document.querySelector("#t-name-box"); return b && typeof b.value === "string" ? b.value : null; }).catch(() => null);
+      // Whether the name box shows `want` (A1 notation; an open end such as
+      // A:A matches any row the editor fills in).
+      const sameRange = (shown, want) => {
+        if (typeof shown !== "string") return false;
+        try {
+          const a = S.parseA1Range(shown.replace(/^.*!/, ""));
+          const b = S.parseA1Range(want);
+          return a.c0 === b.c0 && a.r0 === b.r0 && (b.c1 === null || a.c1 === b.c1) && (b.r1 === null || a.r1 === b.r1);
+        } catch (e) {
+          return false;
+        }
+      };
+      // Inside an input batch, right before its keys: the editor's
+      // selection must be the range the write confirmed (an editor or
+      // another session that moved it would send them elsewhere).
+      async function expectSelection(page, want, name) {
+        const shown = await shownSelection(page);
+        if (!sameRange(shown, want)) throw new S.SiteError("target_mismatch", `${name}: the editor's selection is ${shown === null ? "unreadable" : JSON.stringify(shown)}, not the confirmed ${want}; nothing was sent by this batch. Make a new draft and show it to the user again`);
+      }
+      // Selects `range` and checks the editor selected it, in one input batch.
+      async function selectChecked(page, range, name) {
+        await selectRange(page, range);
+        await expectSelection(page, range, name);
+      }
       // The tab the editor shows: its gid in the editor's URL (null: the
       // sheet's default tab, as the call named none).
       const tabOf = (page) => {
@@ -119,8 +146,10 @@
             };
             // One paste of the rows as TSV at the top-left cell, as a person
             // pastes a range: Sheets reads the paste event's clipboardData.
-            await selectRange(page, start);
+            // The selection is made and read back inside the batch, right
+            // before the paste.
             await press.input(async () => {
+              await selectChecked(page, start, name);
               await page.clipboard.writeText(values.map((row) => row.map((v) => (v === null || v === undefined ? "" : String(v))).join("\t")).join("\n"));
               await page.keyboard.press("ControlOrMeta+v");
             }, reread(0));
@@ -130,12 +159,15 @@
             if (pasted) return { status: "written", range: target, verified: true };
             // An editor that dropped the paste gets typed keys, cell by cell
             // (Tab moves right, Enter starts the next row).
-            await selectRange(page, start);
             for (const [i, row] of values.entries()) {
               row.forEach((v, j) => {
                 rowOps.push([String(v === null || v === undefined ? "" : v), j < row.length - 1]);
               });
+              // Each row's keys start at its first cell, read back right
+              // before them (the first row selects it).
               await press.input(async () => {
+                if (i === 0) await selectChecked(page, start, name);
+                else await expectSelection(page, `${ed.colName(c0)}${r0 + i}`, name);
                 for (const [text, tab] of rowOps.splice(0)) {
                   if (text) await page.keyboard.type(text);
                   if (tab) await page.keyboard.press("Tab");
@@ -265,8 +297,10 @@
             sent: ["range"],
             observe: async (page) => ({ tab: tabOf(page) }),
             act: async (page, press) => {
-              await selectRange(page, range);
-              await press.input(() => page.keyboard.press("Delete"));
+              await press.input(async () => {
+                await selectChecked(page, range, "googleSheets.clear");
+                await page.keyboard.press("Delete");
+              });
               await ed.saved(page);
               const verified = await ed.verify(async () => (await api.cells(sheet, { ...(options || {}), range })).cells.length === 0);
               return { status: "cleared", range: range.toUpperCase(), verified };

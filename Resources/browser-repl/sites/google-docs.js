@@ -118,9 +118,11 @@
             sent: ["text"],
             observe: async () => ({}),
             act: async (page, press) => {
-              await page.locator(".kix-appview-editor").first().click();
-              await page.keyboard.press("Meta+ArrowDown");
+              // The caret is put at the end inside the batch, right before
+              // the keys, never left from before the account's read-back.
               await press.input(async () => {
+                await page.locator(".kix-appview-editor").first().click();
+                await page.keyboard.press("Meta+ArrowDown");
                 await page.keyboard.press("Enter");
                 await page.keyboard.insertText(text);
               });

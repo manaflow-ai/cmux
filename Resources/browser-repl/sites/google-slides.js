@@ -72,27 +72,44 @@
                 if (at < 0) return { slideId: null };
                 return { slide: at + 1, slideId: slide.id, slideTitle: now[at].title };
               },
-              act: (p, press) => setNotesOn(p, press, `[id="filmstrip-slide-${index - 1}-${slide.id}"]`, index),
+              act: (p, press) => setNotesOn(p, press, `[id="filmstrip-slide-${index - 1}-${slide.id}"]`, index, slide.id),
             };
           });
           // The slide's thumbnail in the filmstrip, then the notes box, with typed keys.
           // Each batch of keys that changes the notes goes through press.input
           // (the account read again right before it).
-          async function setNotesOn(page, press, thumbnail, at) {
-            await page.locator(thumbnail).first().click();
-            await t.sleep(500);
-            await page.locator("#speakernotes-workspace").click();
-            await t.sleep(300);
-            // Select all notes (Meta+A selects nothing there): to the start, then to the end; delete.
-            await page.keyboard.press("Meta+ArrowUp");
-            await page.keyboard.press("Meta+Shift+ArrowDown");
-            await press.input(() => page.keyboard.press("Delete"));
+          // The slide the editor shows: the URL's #slide=id.<object id>.
+          const shownSlide = (page) => {
+            try {
+              const m = /(?:^|[#&])slide=id\.([\w-]+)/.exec(new URL(page.url()).hash);
+              return m ? m[1] : null;
+            } catch (e) {
+              return null;
+            }
+          };
+          async function setNotesOn(page, press, thumbnail, at, slideId) {
+            // The slide is selected and read back inside the first batch,
+            // right before its keys; each later batch reads it back first
+            // (a target field), so notes never go to a slide an editor or
+            // another session switched to.
+            await press.input(async () => {
+              await page.locator(thumbnail).first().click();
+              await t.sleep(500);
+              const shown = shownSlide(page);
+              if (shown !== slideId) throw new S.SiteError("target_mismatch", `googleSlides.setNotes: the editor shows slide ${shown === null ? "(unreadable)" : shown}, not the confirmed ${slideId}; nothing was sent. Make a new draft and show it to the user again`);
+              await page.locator("#speakernotes-workspace").click();
+              await t.sleep(300);
+              // Select all notes (Meta+A selects nothing there): to the start, then to the end; delete.
+              await page.keyboard.press("Meta+ArrowUp");
+              await page.keyboard.press("Meta+Shift+ArrowDown");
+              await page.keyboard.press("Delete");
+            });
             const lines = text.split("\n");
             for (let i = 0; i < lines.length; i++) {
               await press.input(async () => {
                 if (i) await page.keyboard.press("Enter");
                 if (lines[i]) await page.keyboard.type(lines[i]);
-              });
+              }, async () => ({ slideId: shownSlide(page) }));
             }
             await page.keyboard.press("Escape");
             await ed.saved(page);
