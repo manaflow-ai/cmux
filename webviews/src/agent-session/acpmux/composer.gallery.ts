@@ -289,6 +289,57 @@ export default agentPaneEntry({
         });
       },
     },
+    "reasoning-menu": {
+      note: "Play: open Reasoning; a small menu lists only the model's levels and checks the current one.",
+      snapshot: chat(finished, {
+        summary: {
+          sessionId: "gallery-reasoning",
+          harness: "codex",
+          model: "gpt-5.5",
+          cwd: CWD,
+          turnCount: 1,
+          configOptions: [
+            {
+              id: "reasoning_effort",
+              name: "Reasoning",
+              category: "thought_level",
+              currentValue: "high",
+              options: [
+                { value: "low", name: "Low" },
+                { value: "medium", name: "Medium" },
+                { value: "high", name: "High" },
+                { value: "xhigh", name: "Extra high" },
+              ],
+            },
+          ],
+        },
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: '[data-menu="Effort"]' });
+        await ctx.waitFor(() => ctx.document.querySelector('[role="menu"] [role="menuitemradio"]'));
+      },
+    },
+    "reasoning-none": {
+      note: "A model whose only level is the agent's default shows no reasoning control, never Default / Default.",
+      snapshot: chat(finished, {
+        summary: {
+          sessionId: "gallery-reasoning-none",
+          harness: "claude",
+          model: "claude-opus-5-5",
+          cwd: CWD,
+          turnCount: 1,
+          configOptions: [
+            {
+              id: "effort",
+              name: "Effort",
+              category: "thought_level",
+              currentValue: "default",
+              options: [{ value: "default", name: "Default" }],
+            },
+          ],
+        },
+      }),
+    },
     "model-menu-starred": {
       note: "Play: open the model picker, star Sonnet, then open the rail's Starred tab: it lists the starred models of every harness.",
       snapshot: chat(finished, { harness: "claude", model: "claude-opus-5-5", title: "Starred models" }),
