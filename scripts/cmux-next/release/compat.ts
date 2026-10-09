@@ -25,6 +25,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { CONTRACT_PATH, lintTree, LOCK_PATH, readJson, readMigrations, sha256, type Lock, type RoleContract } from "./lint.ts"
 import { actor, readReceipts, receiptsDir, runIdOf, summaryLine, writeReceipt, REHEARSAL_MAX_AGE_MS } from "./receipts.ts"
+import { newestSpec, readGaps, replay } from "./cmux-old.ts"
 import { REPO_ROOT, treeOf, type Tree } from "./trees.ts"
 
 export type Change = { readonly kind: "migrations"; readonly tree: Tree } | { readonly kind: "image"; readonly variable: string; readonly snapshotId: string } | { readonly kind: "deploy"; readonly tree: Tree }
@@ -195,7 +196,6 @@ export const compatProblems = (dir: string, key: string, target: string, now = D
  * pass. Writes compat-static and compat-smoke receipts as records. Empty: compatible.
  */
 export const compatNow = async (root: string, change: Change, env: Record<string, string | undefined> = process.env): Promise<Array<string>> => {
-  const { newestSpec, readGaps, replay } = await import("./cmux-old.ts")
   const problems: Array<string> = []
   // No overrides here: this gate runs inside production steps.
   const latest = latestRelease()
