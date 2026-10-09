@@ -207,6 +207,11 @@ declare namespace Cmux {
   type PairingPreview = { code: Cmux.PairingCode; info: Cmux.PairingInfo; public_jwk: Cmux.PublicJwk; thumbprint: string; country: string | null; expires_at: number }
   type PairingRequestSnapshot = { id: string /* pairing_request_… */; session_id: string /* session_… */; peer: string; code: string; expires_in_seconds: string; status: "pending" | "accepted" | "rejected"; extra?: Record<string, Cmux.JsonValue> }
   type PairingResolutionResult = { pairing_request: Cmux.PairingRequestSnapshot }
+  type PaletteUsageImportResult = { revision: string; imported: boolean }
+  type PaletteUsagePick = { prefix: string; key: string; score: number; last_used_ms: string; last: boolean }
+  type PaletteUsageRecordResult = { revision: string }
+  type PaletteUsageRow = { key: string; score: number; last_used_ms: string }
+  type PaletteUsageSnapshot = { revision: string; half_life_ms: string; pick_half_life_ms: string; entries: Array<Cmux.PaletteUsageRow>; picks: Array<Cmux.PaletteUsagePick>; imported: Array<string> }
   type PaneNeighborResult = { pane?: Cmux.PaneSnapshot | null }
   type PaneSnapshot = { id: string /* pane_… */; screen_id: string /* screen_… */; name: string | null; focused: boolean; zoomed: boolean; extra?: Record<string, Cmux.JsonValue> }
   type ParticipantId = string
@@ -957,6 +962,14 @@ interface CmuxGlobal {
     create: CmuxOp<{ machine?: string; session?: string; title: string; subtitle?: string; body: string; level?: Cmux.NotificationLevel; terminal_id?: string /* terminal_… */; expected_revision?: string }, Cmux.MutationResult<Cmux.NotificationSnapshot>>
     /** `notification.list` (read, scope `notification:read`) */
     list: CmuxOp<{ machine?: string; session?: string; limit?: number }, Array<Cmux.NotificationSnapshot>>
+  }
+  palette_usage: {
+    /** `palette_usage.get` (read, scope `palette_usage:read`) */
+    get: CmuxOp<{ machine?: string; session?: string }, Cmux.PaletteUsageSnapshot>
+    /** `palette_usage.import` (mutation, scope `palette_usage:write`) */
+    import: CmuxOp<{ machine?: string; session?: string; source: string; entries: Array<Cmux.PaletteUsageRow> }, Cmux.MutationResult<Cmux.PaletteUsageImportResult>>
+    /** `palette_usage.record` (mutation, scope `palette_usage:write`) */
+    record: CmuxOp<{ machine?: string; session?: string; key: string; query?: string }, Cmux.MutationResult<Cmux.PaletteUsageRecordResult>>
   }
   pane: {
     /** `pane.create` (mutation, scope `workspace:write`) */
