@@ -48,7 +48,7 @@ public final class MobileKeyboardFrameTracker {
                 let endFrame =
                     notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect
                 guard let endFrame else { return }
-                MainActor.assumeIsolated { self?.lastEndFrame = endFrame }
+                MainActor.assumeIsolated { self?.lastEndFrame = endFrame } // main-proof: observer on queue: .main
             }
         }
     }
