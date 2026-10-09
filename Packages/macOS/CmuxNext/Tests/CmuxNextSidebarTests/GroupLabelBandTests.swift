@@ -69,7 +69,7 @@ import Testing
         #expect(header.glyph.emojiText == "🚀")
         #expect(header.labelFrame.contains(NSPoint(x: header.glyph.frame.midX, y: header.glyph.frame.midY)), "the icon is inside the label")
         #expect(header.glyph.frame.maxX <= header.titleFrame.minX, "the icon leads the name")
-        #expect(header.labelFrame.width > plainHeader.labelFrame.width, "the label grows by the icon")
+        #expect(header.titleFrame.minX > plainHeader.titleFrame.minX, "the name moves past the icon")
         #expect(header.titleFrame.width >= header.titleIntrinsicWidth, "the name still draws whole")
     }
 

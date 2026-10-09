@@ -58,7 +58,8 @@ final class SidebarGroupEditor {
         member = group.workspaces.first?.id
         panel.configure(group, items: items)
         panel.adoptThemeScope(of: themeAnchor)
-        panel.present(below: anchor, parent: parent, ordersFront: ordersFront)
+        // A window off screen (tests, a hidden window) gets no bubble on screen.
+        panel.present(below: anchor, parent: parent, ordersFront: ordersFront && parent.isVisible)
     }
 
     /// Keeps the open editor on its group after a sidebar update: the same
