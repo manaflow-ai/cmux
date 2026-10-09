@@ -176,11 +176,10 @@ final class MorphBubble {
         // The first 1/120 s step from 0.3 s with 12 steps in a row inside every
         // tolerance (each step's checks evaluated once; same result as testing
         // 12 steps per candidate, about 12x less spring math on the send commit).
-        let steps = Int(((2.0 - 0.3) * 120).rounded(.up))
-        var ok = [Bool](repeating: false, count: steps + 12)
-        for i in ok.indices {
+        let steps = CrashGuard.int(((2.0 - 0.3) * 120).rounded(.up)) // cmux: same value, no trapping conversion
+        let ok = (0..<(steps + 12)).map { i in // cmux: no index writes
             let tau = 0.3 + Double(i) / 120
-            ok[i] = checks.allSatisfy { e, a, b, tol in abs(e.value(tau, from: a, to: b) - b) <= tol }
+            return checks.allSatisfy { e, a, b, tol in abs(e.value(tau, from: a, to: b) - b) <= tol }
         }
         var first = steps
         var run = 0
@@ -252,7 +251,7 @@ final class MorphBubble {
         let padded = UIGraphicsImageRenderer(size: CGSize(width: size.width + 2 * p, height: size.height + 2 * p), format: fmt).image { ctx in
             PartRenderer.drawText(ctx.cgContext, tl, in: CGRect(x: p, y: p, width: size.width, height: size.height), outgoing: true)
         }
-        return (img.cgImage, padded.cgImage.flatMap { MorphBubble.boxBlur($0, radiusPx: Int((9 * Fixture.renderScale / 2).rounded())) })
+        return (img.cgImage, padded.cgImage.flatMap { MorphBubble.boxBlur($0, radiusPx: CrashGuard.int((9 * Fixture.renderScale / 2).rounded(), in: 0...64)) }) // cmux
     }
 
     /// The body's bottom edge in window points, `tau` seconds after the send
@@ -336,7 +335,7 @@ final class MorphBubble {
     static let peakScale: CGFloat = {
         let e = Springs.bubbleScale
         var peak = 1.0
-        for i in 0..<Int(max(1, e.settleTime) * 240) { peak = max(peak, e.value(Double(i) / 240, from: 1, to: 1)) }
+        for i in 0..<CrashGuard.int(max(1, e.settleTime) * 240, in: 0...14_400) { // cmux: at most 60 s of samples peak = max(peak, e.value(Double(i) / 240, from: 1, to: 1)) }
         return CGFloat((peak * 1000).rounded(.up) / 1000)
     }()
 
@@ -344,9 +343,10 @@ final class MorphBubble {
     static func boxBlur(_ cg: CGImage, radiusPx r: Int) -> CGImage? {
         guard var format = vImage_CGImageFormat(cgImage: cg),
               var src = try? vImage_Buffer(cgImage: cg, format: format),
-              var dst = try? vImage_Buffer(width: Int(src.width), height: Int(src.height), bitsPerPixel: format.bitsPerPixel) else { return nil }
+              let width = Int(exactly: src.width), let height = Int(exactly: src.height), // cmux: no trapping conversion
+              var dst = try? vImage_Buffer(width: width, height: height, bitsPerPixel: format.bitsPerPixel) else { return nil }
         defer { src.free(); dst.free() }
-        let k = UInt32(2 * r + 1)
+        let k = UInt32(clamping: 2 * max(0, r) + 1) // cmux: a negative radius does not trap
         for _ in 0..<3 {
             vImageBoxConvolve_ARGB8888(&src, &dst, nil, 0, 0, k, k, nil, vImage_Flags(kvImageEdgeExtend))
             swap(&src, &dst)
@@ -360,9 +360,9 @@ final class MorphBubble {
         // cmux: a themed accent interpolates its own stops.
         if let t = Fixture.themedGradient { return Fixture.color(in: t, atPx: px) }
         let s = Fixture.gradientStops
-        var i = 1
-        while i < s.count - 1, s[i].0 < px { i += 1 }
-        let a = s[i - 1], b = s[i]
+        // cmux: the first inner stop at or past px, else the last stop (no index math).
+        let upper = s.dropFirst().dropLast().firstIndex(where: { $0.0 >= px }) ?? s.count - 1
+        guard let a = s[checked: upper - 1], let b = s[checked: upper] else { return Fixture.gradientColor(0, 0) }
         let f = max(0, min(1, (px - a.0) / max(1, b.0 - a.0)))
         return Fixture.gradientColor(a.1 + (b.1 - a.1) * f, a.2 + (b.2 - a.2) * f)
     }

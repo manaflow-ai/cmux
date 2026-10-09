@@ -56,7 +56,7 @@
    "CmuxNextDaemon": 88,
    "CmuxNextMobile": 5,
    "CmuxTerminalSizing": 5,
-   "MessagesLabHome": 739,
+   "MessagesLabHome": 683,
    "MessagesLabSidebar": 57
   },
   "int_conversion": {
@@ -66,7 +66,7 @@
    "CmuxNextControl": 45,
    "CmuxNextDaemon": 8,
    "CmuxNextMobile": 5,
-   "MessagesLabHome": 83,
+   "MessagesLabHome": 67,
    "MessagesLabSidebar": 18
   },
   "render_font": {
