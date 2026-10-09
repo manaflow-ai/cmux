@@ -86,6 +86,24 @@ struct SearchIndexHit: Identifiable, Sendable, Equatable {
     let timestamp: Date
 }
 
+extension SearchIndexHit {
+    func withSnippet(_ snippet: String) -> SearchIndexHit {
+        SearchIndexHit(
+            id: id,
+            windowID: windowID,
+            workspaceID: workspaceID,
+            panelID: panelID,
+            kind: kind,
+            title: title,
+            location: location,
+            anchor: anchor,
+            snippet: snippet,
+            rank: rank,
+            timestamp: timestamp
+        )
+    }
+}
+
 enum SearchIndexError: LocalizedError {
     case openFailed(String)
     case executeFailed(String)
