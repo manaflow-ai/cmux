@@ -545,7 +545,10 @@ person, so Home and the CLI show the same messages live. With `-p <text>`, or
 with text on stdin, it sends one message, prints the Chief's reply (live from
 its `draft` items when stdout is a terminal, else only the posted messages,
 or each as a JSON line with `--json`) and exits 0 when the turn that answers
-the message ends; `--timeout` exits 124. On a terminal it opens an inline
+the message ends; it gives up after `--timeout` seconds (default 1800,
+`0` waits without a limit) and exits 124. After a stream gap it takes the
+turn's state from the reopened stream's snapshot, so a lost typing item
+never makes it wait for nothing. On a terminal it opens an inline
 chat: finished messages go into the terminal's scrollback, the live reply and
 the input stay at the bottom; Enter sends, Alt+Enter or Ctrl+J adds a line,
 Ctrl+D quits, Ctrl+C stops the Chief's turn (`chief.stop`), `/model` and

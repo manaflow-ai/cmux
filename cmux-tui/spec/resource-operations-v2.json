@@ -8540,6 +8540,19 @@
             }
           },
           "description": "Ascending seq."
+        },
+        "typing": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            }
+          },
+          "description": "The participants typing now, sorted (memory only: never stored; a participant whose last bound connection ended is removed)."
         }
       },
       "extra": false
@@ -8681,6 +8694,19 @@
             }
           },
           "description": "The last tail messages, ascending seq."
+        },
+        "typing": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            }
+          },
+          "description": "The participants typing now, sorted (memory only: never stored; a participant whose last bound connection ended is removed)."
         }
       },
       "extra": false

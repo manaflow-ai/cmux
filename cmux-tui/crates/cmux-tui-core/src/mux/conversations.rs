@@ -100,11 +100,75 @@ impl Mux {
         &self.conversations.bindings
     }
 
+    /// Records that `participant` types (or stopped) in `conversation`.
+    pub(crate) fn set_conversation_typing(&self, conversation: &str, participant: &str, on: bool) {
+        let mut typing = self.conversations.typing.lock().unwrap_or_else(PoisonError::into_inner);
+        if on {
+            typing.entry(conversation.to_owned()).or_default().insert(participant.to_owned());
+        } else if let Some(set) = typing.get_mut(conversation) {
+            set.remove(participant);
+            if set.is_empty() {
+                typing.remove(conversation);
+            }
+        }
+    }
+
+    /// The participants typing in `conversation` now, sorted.
+    pub(crate) fn conversation_typing(&self, conversation: &str) -> Vec<String> {
+        let typing = self.conversations.typing.lock().unwrap_or_else(PoisonError::into_inner);
+        typing.get(conversation).map(|set| set.iter().cloned().collect()).unwrap_or_default()
+    }
+
+    /// An agent whose last bound connection ended types nowhere any more:
+    /// clear its typing and tell subscribers, so no client waits on a
+    /// typing indicator nobody will turn off.
+    fn end_agent_typing(&self, participant: &str) {
+        let still_bound = self
+            .conversations
+            .bindings
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .values()
+            .any(|bound| bound == participant);
+        if still_bound {
+            return;
+        }
+        let ended: Vec<String> = {
+            let mut typing =
+                self.conversations.typing.lock().unwrap_or_else(PoisonError::into_inner);
+            let ended = typing
+                .iter_mut()
+                .filter_map(|(conversation, set)| {
+                    set.remove(participant).then(|| conversation.clone())
+                })
+                .collect();
+            typing.retain(|_, set| !set.is_empty());
+            ended
+        };
+        for conversation in ended {
+            self.emit(MuxEvent::Conversation(Arc::new(
+                crate::conversation_store::ConversationEvent::Typing {
+                    conversation,
+                    participant: participant.to_owned(),
+                    on: false,
+                },
+            )));
+        }
+    }
+
     /// Ends `client`'s binding when its connection ends.
     pub(crate) fn unbind_conversation_principal(&self, client: u64) {
         // Safety: a removal never grants access, so a poisoned bindings lock
         // still drops the binding.
-        self.conversations.bindings.lock().unwrap_or_else(PoisonError::into_inner).remove(&client);
+        let bound = self
+            .conversations
+            .bindings
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&client);
+        if let Some(participant) = bound.filter(|p| p.starts_with("agent_")) {
+            self.end_agent_typing(&participant);
+        }
         // Safety: a removal never grants access, so a poisoned peers lock
         // still drops the record.
         self.conversations

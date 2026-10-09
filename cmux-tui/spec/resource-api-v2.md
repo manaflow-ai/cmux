@@ -873,8 +873,8 @@ same owner and the same rules, with nothing added on the v2 path:
   64 KiB (`text_too_large`); a seq at or below the turn's last published seq
   is a replay. Drafts appear only on `conversation.events`, never on the raw
   `subscribe` stream.
-- `events` streams one conversation: a `snapshot` item (summary and the last
-  `tail` messages) unless the cursor is at the head, then `message`,
+- `events` streams one conversation: a `snapshot` item (summary, the last
+  `tail` messages and who is typing) unless the cursor is at the head, then `message`,
   `message_updated`, `read_cursor` and `conversation` items in commit order,
   each with the rev it produced, and live `typing` and `draft` items. The
   cursor is `{generation: conversation id, revision: rev}`. A cursor of
@@ -895,7 +895,11 @@ turn's end. So that turn's `typing` off, after a `read_cursor` of at least
 `S` and a `typing` on, ends it. A turn already running when `S` arrived stops
 for it before the cursor moves, and does not count. A `draft` of turn `T` is
 dropped when the posted message with `client_msg_id` `T` of the same author
-arrives, on `done`, or on `typing` off.
+arrives, on `done`, or on `typing` off. A client whose stream ended with
+`gap` reopens it and takes the turn's state from the snapshot: the
+Chief's read cursor, its replies after `S`, and whether it is still in
+`typing` (`get` carries the same list); typing is memory only, and an agent
+whose last bound connection ends stops typing (a `typing` off item).
 
 Remote relay analysis. A paired device reaches conversations only through
 the remote relay, whose frame gate refuses every `cmux.protocol/2` frame

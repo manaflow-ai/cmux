@@ -334,6 +334,7 @@ pub(super) fn publish_typing(
     mux.conversation_write(
         |store| store.check_typing(conversation, actor),
         |_| {
+            mux.set_conversation_typing(conversation, actor, on);
             Some(MuxEvent::Conversation(Arc::new(ConversationEvent::Typing {
                 conversation: conversation.to_string(),
                 participant: actor.to_string(),

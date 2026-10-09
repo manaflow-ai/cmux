@@ -42,6 +42,10 @@ pub(super) enum Input {
     Term(crossterm::event::Event),
 }
 
+/// How long pipe mode waits for the Chief's turn by default: a Chief turn
+/// can take long, but a script must never wait forever.
+pub(super) const DEFAULT_TIMEOUT_SECS: u64 = 30 * 60;
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(super) struct Args {
     pub prompt: Option<String>,
@@ -60,7 +64,8 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
 }
 
 pub(super) fn parse_args(args: &[String]) -> Result<Args, String> {
-    let mut parsed = Args { history: 20, ..Args::default() };
+    let mut parsed =
+        Args { history: 20, timeout_secs: Some(DEFAULT_TIMEOUT_SECS), ..Args::default() };
     let mut index = 0;
     while index < args.len() {
         let arg = args[index].as_str();
@@ -91,8 +96,9 @@ pub(super) fn parse_args(args: &[String]) -> Result<Args, String> {
             "-p" | "--prompt" => parsed.prompt = Some(value()?),
             "--timeout" => {
                 let text = value()?;
-                parsed.timeout_secs =
-                    Some(text.parse().map_err(|_| format!("--timeout takes seconds, not {text}"))?);
+                let secs: u64 =
+                    text.parse().map_err(|_| format!("--timeout takes seconds, not {text}"))?;
+                parsed.timeout_secs = (secs > 0).then_some(secs);
             }
             "--history" => {
                 let text = value()?;

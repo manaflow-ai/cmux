@@ -31,7 +31,7 @@ pub(super) struct Messages {
 }
 
 static ENGLISH: Messages = Messages {
-    usage: "usage: cmux chief [-p TEXT] [--timeout SECONDS] [--history N]\n       cmux chief engine [--harness H] [--model M] [--effort E] | cmux chief stop\n\n  Talk to your Chief: the same conversation as Home, live in both.\n  On a terminal it opens the chat. With -p, or with text on stdin, it sends\n  one message, prints the Chief's reply and exits when the turn ends.\n\n  -p, --prompt TEXT    send TEXT (pipe mode)\n  --timeout SECONDS    pipe mode: give up after SECONDS (exit 124)\n  --history N          chat: show the last N messages first (default 20)\n  --json               pipe mode: print the reply messages as JSON lines\n  engine               show the Chief's engine, or set --harness, --model, --effort\n  stop                 stop the Chief's running turn",
+    usage: "usage: cmux chief [-p TEXT] [--timeout SECONDS] [--history N]\n       cmux chief engine [--harness H] [--model M] [--effort E] | cmux chief stop\n\n  Talk to your Chief: the same conversation as Home, live in both.\n  On a terminal it opens the chat. With -p, or with text on stdin, it sends\n  one message, prints the Chief's reply and exits when the turn ends.\n\n  -p, --prompt TEXT    send TEXT (pipe mode)\n  --timeout SECONDS    pipe mode: give up after SECONDS (default 1800, 0: no limit; exit 124)\n  --history N          chat: show the last N messages first (default 20)\n  --json               pipe mode: print the reply messages as JSON lines\n  engine               show the Chief's engine, or set --harness, --model, --effort\n  stop                 stop the Chief's running turn",
     help: "Enter sends. Alt+Enter or Ctrl+J adds a line. Up and Down recall sent messages.\nCtrl+C stops the Chief's turn (or clears the input); Ctrl+D quits.\n/model [NAME]   show or set the Chief's model\n/effort [LEVEL] show or set the Chief's effort\n/thoughts       show or hide the Chief's thinking\n/help           this text\n/quit           leave (the Chief keeps working)",
     you: "You",
     chief: "Chief",
@@ -44,7 +44,7 @@ static ENGLISH: Messages = Messages {
     needs_tty: "cmux chief needs a terminal for the chat; pass -p TEXT or pipe text on stdin to send one message",
     empty_message: "nothing to send: the message is empty",
     not_read: "the Chief has not read the message yet; is its brain running? (still waiting, Ctrl+C to leave)",
-    timed_out: "no reply within the timeout; the message stays in the conversation",
+    timed_out: "the Chief's turn did not end within {secs} s (--timeout, 0 waits without a limit); the message stays in the conversation",
     lost: "the session closed the connection",
     rejected: "the session refused the message: {reason}",
     unknown_command: "unknown command {command}; /help lists the commands",
@@ -60,7 +60,7 @@ static ENGLISH: Messages = Messages {
 };
 
 static JAPANESE: Messages = Messages {
-    usage: "使い方: cmux chief [-p TEXT] [--timeout SECONDS] [--history N]\n       cmux chief engine [--harness H] [--model M] [--effort E] | cmux chief stop\n\n  Chief と話します。Home と同じ会話で、両方にすぐ表示されます。\n  端末ではチャットを開きます。-p または標準入力のテキストがあると、\n  メッセージを 1 件送り、Chief の返信を表示して、ターンの終わりに終了します。\n\n  -p, --prompt TEXT    TEXT を送信 (パイプモード)\n  --timeout SECONDS    パイプモード: SECONDS 秒で中止 (終了コード 124)\n  --history N          チャット: 最初に直近 N 件を表示 (既定 20)\n  --json               パイプモード: 返信を JSON Lines で出力\n  engine               Chief のエンジンを表示、または --harness、--model、--effort を設定\n  stop                 Chief の実行中のターンを停止",
+    usage: "使い方: cmux chief [-p TEXT] [--timeout SECONDS] [--history N]\n       cmux chief engine [--harness H] [--model M] [--effort E] | cmux chief stop\n\n  Chief と話します。Home と同じ会話で、両方にすぐ表示されます。\n  端末ではチャットを開きます。-p または標準入力のテキストがあると、\n  メッセージを 1 件送り、Chief の返信を表示して、ターンの終わりに終了します。\n\n  -p, --prompt TEXT    TEXT を送信 (パイプモード)\n  --timeout SECONDS    パイプモード: SECONDS 秒で中止 (既定 1800、0 で無制限、終了コード 124)\n  --history N          チャット: 最初に直近 N 件を表示 (既定 20)\n  --json               パイプモード: 返信を JSON Lines で出力\n  engine               Chief のエンジンを表示、または --harness、--model、--effort を設定\n  stop                 Chief の実行中のターンを停止",
     help: "Enter で送信。Alt+Enter または Ctrl+J で改行。上下キーで送信済みメッセージを呼び出します。\nCtrl+C で Chief のターンを停止 (または入力を消去)、Ctrl+D で終了します。\n/model [NAME]   Chief のモデルを表示または設定\n/effort [LEVEL] Chief の effort を表示または設定\n/thoughts       Chief の思考の表示を切り替え\n/help           このテキスト\n/quit           終了 (Chief は作業を続けます)",
     you: "あなた",
     chief: "Chief",
@@ -73,7 +73,7 @@ static JAPANESE: Messages = Messages {
     needs_tty: "チャットには端末が必要です。メッセージを 1 件送るには -p TEXT を指定するか、標準入力にテキストを渡してください",
     empty_message: "送信する内容がありません: メッセージが空です",
     not_read: "Chief はまだメッセージを読んでいません。頭脳は動いていますか? (待機中、Ctrl+C で終了)",
-    timed_out: "時間内に返信がありませんでした。メッセージは会話に残っています",
+    timed_out: "Chief のターンが {secs} 秒以内に終わりませんでした (--timeout、0 で無制限)。メッセージは会話に残っています",
     lost: "セッションが接続を閉じました",
     rejected: "セッションがメッセージを拒否しました: {reason}",
     unknown_command: "不明なコマンド {command} です。/help でコマンドを確認してください",
