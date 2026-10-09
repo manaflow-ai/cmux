@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "25627fb62c15c4c64527841ff09b16a772d557087d129151b5bbe1d2d0e4e896";
+pub const ir_sha256 = "068a0a920416a357d8e0edfc13ef3270961a289e2105d4c6a5d12f238ac24072";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1949,6 +1949,8 @@ pub const Tab = struct {
     size: wire.Nullable(Size),
     supports_clear_history_key_fallback: ?bool = null,
     surface: Id,
+    /// Why a terminal runs in the daemon process although terminal hosts are on, so it ends with the daemon (`breakaway_denied`: a Windows daemon in a Job Object without breakaway). Null for a terminal with its own host and for browser tabs. A string, not an enum: clients read an unknown value as a fallback for another reason.
+    terminal_host_fallback: wire.Field([]const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
     terminal_incarnation: wire.Field([]const u8) = .absent,
     terminal_resource_id: wire.Field([]const u8) = .absent,

@@ -1,5 +1,6 @@
-//! The kind and browser fields of a raw tree tab, kept out of the tab's main
-//! `json!` literal (which stays under the macro recursion limit).
+//! The kind, browser and terminal host fallback fields of a raw tree tab,
+//! kept out of the tab's main `json!` literal (which stays under the macro
+//! recursion limit).
 
 use std::sync::Arc;
 
@@ -10,8 +11,10 @@ use crate::state::conversation_tabs_store::ConversationTabRecord;
 use crate::workspace_registry::FrontendBrowserRecord;
 use crate::{Surface, SurfaceKind};
 
-/// Add `kind`, `conversation`, the `browser_*` fields and `url` to `tab`.
-pub(super) fn merge_browser_fields(
+/// Add `kind`, `conversation`, the `browser_*` fields, `url` and
+/// `terminal_host_fallback` (set only for a terminal that runs in the daemon
+/// process although hosts are on, so it ends with the daemon) to `tab`.
+pub(super) fn merge_surface_fields(
     tab: &mut Value,
     surface: Option<&Arc<Surface>>,
     frontend_browser: Option<&FrontendBrowserRecord>,
@@ -40,6 +43,9 @@ pub(super) fn merge_browser_fields(
         "browser_owner": frontend_browser.and_then(|record| record.owner.as_deref()),
         "browser_frames_stalled": surface.and_then(|s| s.browser_frames_stalled()),
         "url": surface.and_then(|s| s.browser_url()),
+        "terminal_host_fallback": surface
+            .and_then(|s| s.terminal_host_fallback())
+            .map(|reason| reason.as_str()),
     });
     if let (Some(tab), Value::Object(fields)) = (tab.as_object_mut(), fields) {
         tab.extend(fields);

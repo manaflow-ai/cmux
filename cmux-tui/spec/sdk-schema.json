@@ -1409,6 +1409,15 @@
      "nullable": true,
      "since": 9
     },
+    "terminal_host_fallback": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "description": "Why a terminal runs in the daemon process although terminal hosts are on, so it ends with the daemon (`breakaway_denied`: a Windows daemon in a Job Object without breakaway). Null for a terminal with its own host and for browser tabs. A string, not an enum: clients read an unknown value as a fallback for another reason."
+    },
     "short_id": {
      "type": {
       "kind": "scalar",

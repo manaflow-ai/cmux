@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 25627fb62c15c4c64527841ff09b16a772d557087d129151b5bbe1d2d0e4e896. */
+/* cmux-tui mux protocol 12, IR 068a0a920416a357d8e0edfc13ef3270961a289e2105d4c6a5d12f238ac24072. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "25627fb62c15c4c64527841ff09b16a772d557087d129151b5bbe1d2d0e4e896" as const;
+export const SDK_IR_SHA256 = "068a0a920416a357d8e0edfc13ef3270961a289e2105d4c6a5d12f238ac24072" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -10144,6 +10144,15 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      },
+      "terminal_host_fallback": {
+        "description": "Why a terminal runs in the daemon process although terminal hosts are on, so it ends with the daemon (`breakaway_denied`: a Windows daemon in a Job Object without breakaway). Null for a terminal with its own host and for browser tabs. A string, not an enum: clients read an unknown value as a fallback for another reason.",
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       },
       "terminal_id": {

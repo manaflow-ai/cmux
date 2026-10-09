@@ -23,6 +23,8 @@ public final class Tab implements WireValue {
     private final Size size;
     private final Field<Boolean> supportsClearHistoryKeyFallback;
     private final UInt64 surface;
+    /** Why a terminal runs in the daemon process although terminal hosts are on, so it ends with the daemon (`breakaway_denied`: a Windows daemon in a Job Object without breakaway). Null for a terminal with its own host and for browser tabs. A string, not an enum: clients read an unknown value as a fallback for another reason. */
+    private final Field<String> terminalHostFallback;
     private final Field<String> terminalId;
     private final Field<String> terminalIncarnation;
     private final Field<String> terminalResourceId;
@@ -47,6 +49,7 @@ public final class Tab implements WireValue {
         this.supportsClearHistoryKeyFallback = builder.supportsClearHistoryKeyFallback;
         if (!builder.surfaceSet) throw new IllegalArgumentException("surface is required");
         this.surface = Wire.nonNull(builder.surface, "surface");
+        this.terminalHostFallback = builder.terminalHostFallback;
         this.terminalId = builder.terminalId;
         this.terminalIncarnation = builder.terminalIncarnation;
         this.terminalResourceId = builder.terminalResourceId;
@@ -68,6 +71,7 @@ public final class Tab implements WireValue {
     public Size size() { return size; }
     public Field<Boolean> supportsClearHistoryKeyFallback() { return supportsClearHistoryKeyFallback; }
     public UInt64 surface() { return surface; }
+    public Field<String> terminalHostFallback() { return terminalHostFallback; }
     public Field<String> terminalId() { return terminalId; }
     public Field<String> terminalIncarnation() { return terminalIncarnation; }
     public Field<String> terminalResourceId() { return terminalResourceId; }
@@ -112,6 +116,10 @@ public final class Tab implements WireValue {
         }
         Object rawSurface = Wire.required(object, "surface");
         builder.surface(Wire.uint64(rawSurface, "Tab.surface"));
+        Object rawTerminalHostFallback = Wire.optional(object, "terminal_host_fallback");
+        if (!Wire.isMissing(rawTerminalHostFallback)) {
+            builder.terminalHostFallback(rawTerminalHostFallback == null ? null : Wire.string(rawTerminalHostFallback, "Tab.terminal_host_fallback"));
+        }
         Object rawTerminalId = Wire.optional(object, "terminal_id");
         if (!Wire.isMissing(rawTerminalId)) {
             builder.terminalId(rawTerminalId == null ? null : Wire.string(rawTerminalId, "Tab.terminal_id"));
@@ -144,6 +152,7 @@ public final class Tab implements WireValue {
         Wire.put(object, "size", size);
         Wire.put(object, "supports_clear_history_key_fallback", supportsClearHistoryKeyFallback);
         Wire.put(object, "surface", surface);
+        Wire.put(object, "terminal_host_fallback", terminalHostFallback);
         Wire.put(object, "terminal_id", terminalId);
         Wire.put(object, "terminal_incarnation", terminalIncarnation);
         Wire.put(object, "terminal_resource_id", terminalResourceId);
@@ -154,11 +163,11 @@ public final class Tab implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof Tab that)) return false;
-        return Objects.equals(browserError, that.browserError) && Objects.equals(browserFramesStalled, that.browserFramesStalled) && Objects.equals(browserSource, that.browserSource) && Objects.equals(browserStatus, that.browserStatus) && Objects.equals(dead, that.dead) && Objects.equals(kind, that.kind) && Objects.equals(name, that.name) && Objects.equals(notification, that.notification) && Objects.equals(shortId, that.shortId) && Objects.equals(size, that.size) && Objects.equals(supportsClearHistoryKeyFallback, that.supportsClearHistoryKeyFallback) && Objects.equals(surface, that.surface) && Objects.equals(terminalId, that.terminalId) && Objects.equals(terminalIncarnation, that.terminalIncarnation) && Objects.equals(terminalResourceId, that.terminalResourceId) && Objects.equals(title, that.title);
+        return Objects.equals(browserError, that.browserError) && Objects.equals(browserFramesStalled, that.browserFramesStalled) && Objects.equals(browserSource, that.browserSource) && Objects.equals(browserStatus, that.browserStatus) && Objects.equals(dead, that.dead) && Objects.equals(kind, that.kind) && Objects.equals(name, that.name) && Objects.equals(notification, that.notification) && Objects.equals(shortId, that.shortId) && Objects.equals(size, that.size) && Objects.equals(supportsClearHistoryKeyFallback, that.supportsClearHistoryKeyFallback) && Objects.equals(surface, that.surface) && Objects.equals(terminalHostFallback, that.terminalHostFallback) && Objects.equals(terminalId, that.terminalId) && Objects.equals(terminalIncarnation, that.terminalIncarnation) && Objects.equals(terminalResourceId, that.terminalResourceId) && Objects.equals(title, that.title);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(browserError, browserFramesStalled, browserSource, browserStatus, dead, kind, name, notification, shortId, size, supportsClearHistoryKeyFallback, surface, terminalId, terminalIncarnation, terminalResourceId, title); }
+    public int hashCode() { return Objects.hash(browserError, browserFramesStalled, browserSource, browserStatus, dead, kind, name, notification, shortId, size, supportsClearHistoryKeyFallback, surface, terminalHostFallback, terminalId, terminalIncarnation, terminalResourceId, title); }
 
     @Override
     public String toString() { return "Tab" + toWire(); }
@@ -182,6 +191,7 @@ public final class Tab implements WireValue {
         private Field<Boolean> supportsClearHistoryKeyFallback = Field.omitted();
         private UInt64 surface;
         private boolean surfaceSet;
+        private Field<String> terminalHostFallback = Field.omitted();
         private Field<String> terminalId = Field.omitted();
         private Field<String> terminalIncarnation = Field.omitted();
         private Field<String> terminalResourceId = Field.omitted();
@@ -240,6 +250,10 @@ public final class Tab implements WireValue {
         public Builder surface(UInt64 value) {
             this.surface = value;
             this.surfaceSet = true;
+            return this;
+        }
+        public Builder terminalHostFallback(String value) {
+            this.terminalHostFallback = Field.ofNullable(value);
             return this;
         }
         public Builder terminalId(String value) {

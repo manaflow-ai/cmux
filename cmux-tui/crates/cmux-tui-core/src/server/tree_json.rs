@@ -179,7 +179,7 @@ pub(super) fn pane_json(
                 // Why a dead terminal ended (R41, terminal-state-v1).
                 "end": end,
             });
-            raw_tab::merge_browser_fields(&mut tab, surface, frontend_browser, conversation);
+            raw_tab::merge_surface_fields(&mut tab, surface, frontend_browser, conversation);
             // `app-screens-v1`: the app (and route) an app tab shows.
             if let Some(app) =
                 content_resource_id.and_then(|id| notifications.presentation.app_tabs.get(id))

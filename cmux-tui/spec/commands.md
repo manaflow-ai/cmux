@@ -191,6 +191,16 @@ else `Terminal on <session_name>`). Such a tab has no `terminal_id`,
 `url`, `cwd`, `git_branch`, and browser fields. Its snapshot is never in the
 tree (`remote-terminal-snapshot` reads it).
 
+Terminal tabs carry `terminal_host_fallback: "breakaway_denied"|null`. It is
+null unless the terminal runs in the daemon process although terminal hosts
+are on, so it ends with the daemon instead of surviving a restart. The value
+says why: `breakaway_denied` is a Windows daemon in a Job Object that does not
+allow breakaway, so a host process could not leave the daemon's job. It is set
+before the tab is first published and does not change for the terminal's
+life, so every tree shows it. Browser tabs report null. Clients treat an
+unknown value as a fallback for another reason and ignore the field when the
+server omits it.
+
 Servers advertising `tab-groups-v1` add `tab_groups` to every pane, in strip
 order: `array<object{id:string, name:string, color:string, collapsed:bool,
 saved_id:string|null, start:usize, count:usize, surfaces:array<Id>}>`, and
