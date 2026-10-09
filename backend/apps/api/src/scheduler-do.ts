@@ -295,9 +295,13 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
       else this.succeeded(key)
     }
     this.retryDeferred(now)
-    for (const run of dispatchable(engine.currentState, engine.rows)) {
-      const key = dispatchKey(run.id)
+    for (const planned of dispatchable(engine.currentState, engine.rows)) {
+      const key = dispatchKey(planned.id)
       if ((this.retryAt(key) ?? 0) > now) continue
+      // The list was read before the awaits below: a disable, delete or deny may have cancelled
+      // the run since, and prune may have dropped it with its body. Read it again.
+      const run = runRowOf(engine.rows, planned.id)
+      if (!run || run.state !== "queued" || run.dispatched) continue
       const stored = this.ctx.storage.sql.exec<{ json: string }>(`SELECT json FROM run_inputs WHERE run = ?`, run.id).toArray()[0]
       const params: AutomationRunParams = {
         owner: run.owner,

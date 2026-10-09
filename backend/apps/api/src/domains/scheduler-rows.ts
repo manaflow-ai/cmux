@@ -127,14 +127,17 @@ export const listRuns = (
 ): { items: Array<RunRow>; next: string | null } => {
   if (!rows) return { items: [], next: null }
   const items: Array<StoredRow<RunRow>> = []
+  const done = (more: boolean) => ({ items: items.map((x) => x.row), next: more ? String(items.at(-1)!.n) : null })
   let before = q.before
   for (;;) {
     const page = rows.range<RunRow>(TABLE_RUN, { ...(before === undefined ? {} : { before }), limit: 200, desc: true })
     for (const r of page) {
-      if ((q.automation === undefined || r.row.automation === q.automation) && (q.state === undefined || r.row.state === q.state)) items.push(r)
-      if (items.length === q.limit) return { items: items.map((x) => x.row), next: String(r.n) }
+      if ((q.automation !== undefined && r.row.automation !== q.automation) || (q.state !== undefined && r.row.state !== q.state)) continue
+      // One match past the page: only then is there a next page (never a cursor to an empty one).
+      if (items.length === q.limit) return done(true)
+      items.push(r)
     }
-    if (page.length < 200) return { items: items.map((x) => x.row), next: null }
+    if (page.length < 200) return done(false)
     before = page.at(-1)!.n!
   }
 }

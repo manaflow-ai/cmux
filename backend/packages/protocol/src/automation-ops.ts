@@ -113,7 +113,7 @@ export const AutomationList = def({
   target: "automation",
   principals: ["session", "install"],
   params: AutomationListParams,
-  result: Schema.Struct({ owner: Schema.NullOr(TeamId), automations: Schema.Array(Automation), automation_count: Schema.Number, next_cursor: Schema.NullOr(Schema.String), revision: Schema.String }),
+  result: Schema.Struct({ owner: Schema.NullOr(TeamId), automations: Schema.Array(Automation), automation_count: Schema.optionalKey(Schema.Number), next_cursor: Schema.optionalKey(Schema.NullOr(Schema.String)), revision: Schema.String }),
   errors: ["auth.unauthenticated", "auth.forbidden"],
   docs: "List the automations of the caller's team, oldest first, with their bodies. Without params the first page holds every automation (at most 100); page with limit and cursor (keyset: pass next_cursor).",
   cli: { path: "automation list", visible: true },

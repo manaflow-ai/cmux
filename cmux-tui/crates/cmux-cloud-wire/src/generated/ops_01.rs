@@ -185,8 +185,10 @@ pub struct AutomationListParams {
 pub struct AutomationListResult {
     pub owner: Option<TeamId>,
     pub automations: Vec<Automation>,
-    pub automation_count: WireNumber,
-    pub next_cursor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub automation_count: Option<WireNumber>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub next_cursor: Option<Option<String>>,
     pub revision: String,
 }
 

@@ -10178,7 +10178,7 @@
             }
           },
           "automation_count": {
-            "required": true,
+            "required": false,
             "type": {
               "kind": "union",
               "variants": [
@@ -10198,7 +10198,7 @@
             }
           },
           "next_cursor": {
-            "required": true,
+            "required": false,
             "type": {
               "kind": "nullable",
               "inner": {
@@ -10312,8 +10312,6 @@
         "required": [
           "owner",
           "automations",
-          "automation_count",
-          "next_cursor",
           "revision"
         ],
         "additionalProperties": true,

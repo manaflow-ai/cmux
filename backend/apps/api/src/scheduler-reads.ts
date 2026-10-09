@@ -1,7 +1,7 @@
 import type { Principal, RowReader } from "@cmux/ownership"
 import type { RunState } from "@cmux/protocol"
 import type { SchedulerState } from "./domains/scheduler.ts"
-import { automationOf, automationRowOf, cursorOf, listAutomations, listRuns, publicRun, runOf } from "./domains/scheduler-rows.ts"
+import { automationOf, automationRowOf, cursorOf, isLegacyHead, listAutomations, listRuns, publicRun, runOf } from "./domains/scheduler-rows.ts"
 import type { ReadResult } from "./owner-do.ts"
 
 /** SchedulerDO reads ((g1)): automations, runs and bodies come from rows; lists page by keyset. */
@@ -15,6 +15,8 @@ const notFound = (message: string): ReadResult => ({ ok: false, code: "selector.
 
 export const schedulerRead = (state: SchedulerState, op: string, params: unknown, principal: Principal, rows: RowReader | undefined): ReadResult => {
   if (!principal.team || (state.owner !== null && state.owner !== principal.team)) return { ok: false, code: "auth.forbidden", message: "not this team's scheduler" }
+  // A head from before (g1) has no rows yet: answer like the reducer until scheduler.rows_migrate commits.
+  if (isLegacyHead(state)) return { ok: false, code: "owner.migrating", message: "the scheduler is moving to rows; retry shortly", retryable: true }
   const p = (params ?? {}) as { automation?: unknown; trigger?: unknown; run?: unknown; state?: unknown; cursor?: unknown; limit?: unknown }
   const automation = typeof p.automation === "string" ? p.automation : undefined
   switch (op) {

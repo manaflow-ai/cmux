@@ -415,7 +415,7 @@ interface CmuxGlobal {
     /** `automation.get` (read, scope `automation:read`): Read one automation. */
     get: CmuxOp<{ automation: Cmux.AutomationId }, Cmux.Automation>
     /** `automation.list` (read, scope `automation:read`): List the automations of the caller's team, oldest first, with their bodies. Without params the first page holds every automation (at most 100); page with limit and cursor (keyset: pass next_cursor). */
-    list: CmuxOp<{ cursor?: string; limit?: number }, { owner: Cmux.TeamId | null; automations: Array<Cmux.Automation>; automation_count: unknown; next_cursor: string | null; revision: string }>
+    list: CmuxOp<{ cursor?: string; limit?: number }, { owner: Cmux.TeamId | null; automations: Array<Cmux.Automation>; automation_count?: unknown; next_cursor?: string | null; revision: string }>
     /** `automation.run` (mutation, scope `automation:execute`): Start a run of an automation now (manual trigger). */
     run: CmuxOp<{ automation: Cmux.AutomationId; expected_revision?: string }, Cmux.MutationResult<Cmux.Run>>
     runs: {

@@ -1224,8 +1224,8 @@ export interface CloudOps {
     readonly result: {
       readonly owner: TeamId | null
       readonly automations: ReadonlyArray<Automation>
-      readonly automation_count: number | "Infinity" | "-Infinity" | "NaN"
-      readonly next_cursor: string | null
+      readonly automation_count?: number | "Infinity" | "-Infinity" | "NaN"
+      readonly next_cursor?: string | null
       readonly revision: string
     }
   }
