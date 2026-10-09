@@ -20,9 +20,9 @@
 //!   subagent directory is used.
 //! - Its tools are zoom and date (its own MCP server says `--role
 //!   subagent`), not spawn. Its tool calls stay in its own session.
-//! - The brain (brain/spawns.rs) watches the sessions: when all of one
-//!   spawn's subagents finished a turn, their reports reach the chat as ONE
-//!   `user` message, `[id] report` each.
+//! - The brain (brain/spawns.rs) watches the sessions: when a
+//!   subagent finishes a turn, its report reaches the chat as its own
+//!   `user` message, `[id] report`.
 //!
 //! Deviation: `tell` reaches a running subagent after its current turn
 //! (acpmux queues the prompt; claude-sr offers no steering), not between its
@@ -503,7 +503,7 @@ impl Orchestrator for Spawner {
             .map(|n| format!("\nDirectory: {n}."))
             .unwrap_or_default();
         Ok(format!(
-            "{head}{dir_note}\n{}\nTell the user only what these lines say about workspaces. When all of them finish, their reports reach you as one message, \"[id] report\" each; never wait or poll for them. tell(id, message) sends one more instructions.",
+            "{head}{dir_note}\n{}\nTell the user only what these lines say about workspaces. Each one's report reaches you as a message, \"[id] report\", when it finishes; never wait or poll for them. tell(id, message) sends one more instructions.",
             lines.join("\n")
         ))
     }

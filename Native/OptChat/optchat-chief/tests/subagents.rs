@@ -249,11 +249,15 @@ fn each_report_reaches_the_chat_as_it_finishes_and_tool_calls_stay_out() {
     let reports: Vec<&(String, String)> = log.iter().filter(|(_, t)| t.starts_with("[a")).collect();
     assert_eq!(
         reports,
-        vec![&("user".to_owned(), "[a1] done: list the files in ~/".to_owned())],
+        vec![&(
+            "user".to_owned(),
+            "[a1] done: list the files in ~/".to_owned()
+        )],
         "a1's report alone, logged as user: {log:?}"
     );
     assert!(
-        log.iter().any(|(k, t)| k == "talk" && t.starts_with("answer")),
+        log.iter()
+            .any(|(k, t)| k == "talk" && t.starts_with("answer")),
         "the report started a turn"
     );
     finish(&mut s, "s2", "s1", "a2");
@@ -290,7 +294,12 @@ fn each_report_reaches_the_chat_as_it_finishes_and_tool_calls_stay_out() {
 fn reports_that_arrive_together_go_into_one_turn() {
     let mut s = setup();
     spawn(&mut s, &["list the files in ~/", "say the date"]).unwrap();
-    let talks = |log: &[(String, String)]| log.iter().filter(|(k, _)| k == "talk").count();
+    // A turn ends with its "answer N" reply.
+    let talks = |log: &[(String, String)]| {
+        log.iter()
+            .filter(|(k, t)| k == "talk" && t.starts_with("answer"))
+            .count()
+    };
     let before = talks(&s.h.log());
     // Both finish before the brain takes its next turn.
     finish(&mut s, "s1", "s1", "a1");
@@ -316,7 +325,10 @@ fn a_report_of_a_subagent_the_user_stopped_starts_no_turn() {
     spawn(&mut s, &["stop me"]).unwrap();
     let before = s.h.log().len();
     finish(&mut s, "s1", "s1", "a1");
-    assert!(s.h.brain.is_idle(), "a stopped subagent's report wakes no one");
+    assert!(
+        s.h.brain.is_idle(),
+        "a stopped subagent's report wakes no one"
+    );
     assert_eq!(s.h.log().len(), before, "{:?}", s.h.log());
     // The next turn takes it, before the human message that started it.
     s.h.say("user_local", "what now?");
@@ -324,7 +336,9 @@ fn a_report_of_a_subagent_the_user_stopped_starts_no_turn() {
     let log = s.h.log();
     let report = log
         .iter()
-        .position(|(k, t)| k == "user" && t.starts_with("[a1] (stopped by the user)") && t.contains("half done"))
+        .position(|(k, t)| {
+            k == "user" && t.starts_with("[a1] (stopped by the user)") && t.contains("half done")
+        })
         .unwrap_or_else(|| panic!("the stopped report: {log:?}"));
     let human = log
         .iter()
@@ -417,7 +431,10 @@ fn the_trace_holds_turns_spawns_subagents_tools_and_reports() {
     let stats = optchat_chief::report::stats(&events);
     assert_eq!(stats["subagents"]["spawns"], 1);
     assert_eq!(stats["subagents"]["finished"], 2);
-    assert_eq!(stats["subagents"]["reports_logged"], 2, "one report per subagent");
+    assert_eq!(
+        stats["subagents"]["reports_logged"], 2,
+        "one report per subagent"
+    );
     assert_eq!(stats["turns"]["tools"]["Bash"]["calls"], 2);
     assert!(stats["turns"]["count"].as_u64().unwrap() >= 2);
     let text = optchat_chief::report::stats_text(&stats, &s.traces);
