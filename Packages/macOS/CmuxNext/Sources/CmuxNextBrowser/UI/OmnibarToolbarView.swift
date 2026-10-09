@@ -14,8 +14,19 @@ public final class OmnibarToolbarView: NSView {
     public init(suggestionEngine: OmniboxSuggestionEngine) {
         addressBar = AddressBarView(suggestionEngine: suggestionEngine)
         super.init(frame: .zero)
+        // The bar lays itself out with constraints (it turns off autoresizing), so the row places
+        // it the same way, as the browser toolbar does.
         addSubview(addressBar)
+        NSLayoutConstraint.activate([
+            density.bind(addressBar.leadingAnchor.constraint(equalTo: leadingAnchor)) { OmnibarStyle.toolbarInset },
+            density.bind(addressBar.trailingAnchor.constraint(equalTo: trailingAnchor)) { -OmnibarStyle.toolbarInset },
+            addressBar.topAnchor.constraint(equalTo: topAnchor, constant: OmnibarStyle.toolbarTopPadding),
+            density.bind(addressBar.heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.barHeight },
+        ])
     }
+
+    /// Re-applies the metrics when the density changes (`DensityBinding`).
+    private let density = DensityBinding()
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
@@ -29,9 +40,6 @@ public final class OmnibarToolbarView: NSView {
 
     public override func layout() {
         super.layout()
-        let inset = OmnibarStyle.toolbarInset
-        addressBar.frame = NSRect(x: inset, y: OmnibarStyle.toolbarTopPadding,
-                                  width: max(0, bounds.width - 2 * inset), height: OmnibarStyle.barHeight)
         addressBar.followLayout()
     }
 }
