@@ -15,6 +15,14 @@ enum HistoryAppStrings {
     static var noPane: String { t("history.refusal.noPane", "Open a window on that machine first") }
     static var entryGone: String { t("history.refusal.entryGone", "That history entry is gone") }
 
+    static var deleteCommandsTitle: String { t("history.commands.deleteTitle", "Delete recorded terminal commands?") }
+    static var deleteCommandsButton: String { t("history.commands.deleteButton", "Delete Existing History") }
+    static func deleteCommandsBody(_ days: Int) -> String {
+        String(format: t("history.commands.deleteBody",
+                         "Recording is off. Each connected machine keeps the commands it already recorded until they are %lld days old."),
+               days)
+    }
+
     static func undoClosesPanes(_ count: Int) -> String {
         String(format: t("history.refusal.undoClosesPanes", "Undo closes %lld pane(s). Run Undo Layout Change again to confirm."), count)
     }

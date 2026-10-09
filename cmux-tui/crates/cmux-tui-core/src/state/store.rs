@@ -81,6 +81,7 @@ pub(crate) fn create_state_schema(transaction: &Transaction<'_>) -> anyhow::Resu
     )?;
     super::tab_state_store::add_tab_icon_column(transaction)?;
     super::closed_history_store::create_closed_history_schema(transaction)?;
+    super::command_history_store::create_command_history_schema(transaction)?;
     // Archives of closed terminals (ARCHIVE-1): after closed_groups, whose
     // triggers drop an archive with its group.
     crate::workspace_registry::terminal_archive_store::create_schema(transaction)?;

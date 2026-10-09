@@ -425,6 +425,8 @@
       "server-stats",
       "subscribe-activity",
       "set-terminal-command-history",
+      "list-terminal-commands",
+      "delete-terminal-commands",
       "register-browser-provider",
       "get-browser-provider",
       "unregister-browser-provider",

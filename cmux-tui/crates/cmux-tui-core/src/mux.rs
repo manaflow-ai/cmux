@@ -207,6 +207,7 @@ mod screen_changed;
 pub(crate) mod screen_groups;
 mod signaled_mutex;
 pub(crate) use signaled_mutex::SignaledMutex;
+mod command_history;
 mod session_paths;
 mod shell_history_feed;
 mod sidebar_plugin;
@@ -910,14 +911,13 @@ pub struct Mux {
     /// one terminal shares the same attention marker.
     placement_notifications: Mutex<HashMap<SurfaceId, SurfaceNotification>>,
     terminal_notifications: Mutex<HashMap<TerminalPublicId, SurfaceNotification>>,
-    /// Records finished shell commands in the journal
-    /// (`terminal-command-journal-v1`). Off until a trusted client turns it
-    /// on (`set-terminal-command-history`); never persisted, so a restarted
-    /// daemon records nothing until asked again.
+    /// Records finished shell commands (`terminal-command-history-v1`). Off
+    /// until a trusted client turns it on (`set-terminal-command-history`);
+    /// never persisted, so a restarted daemon records nothing until asked
+    /// again. The rows live in the workspace registry (`terminal_commands`).
     terminal_command_history: AtomicBool,
-    /// The shell command journal worker's bounded queue (started on first use).
-    shell_command_journal:
-        Mutex<Option<SyncSender<(TerminalPublicId, crate::shell_history::FinishedCommand)>>>,
+    /// The command history worker's bounded queue (`mux/command_history.rs`).
+    command_history_worker: Mutex<Option<SyncSender<command_history::CommandHistoryMessage>>>,
     notification_ledger: Mutex<VecDeque<ResourceNotification>>,
     /// Per-client read marks. The shared unread marker above answers "does
     /// this terminal need attention on the shared console"; this map answers

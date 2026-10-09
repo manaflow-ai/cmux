@@ -152,6 +152,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var navigationHistoryScope: String = NavigationHistoryScopeSetting.fallback
     /// `navigation.history.scope`: what a Back/Forward step is (`workspaces`, `everything`).
     public var navigationHistorySteps: String = NavigationHistoryStepSetting.fallback
+    /// `history.commandRetentionDays` (days each daemon keeps terminal commands).
+    public var commandRetentionDays: Int = CommandRetentionSetting.fallback
     /// The rest of `notifications.*`: dismissal, banners, sounds, quiet hours, mutes.
     public var notifications = NotificationPreferences()
     /// `updates.*`: automatic update behavior (R114).
@@ -292,9 +294,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (tasksLayout, tasksLayoutDiagnostic) = TasksLayoutSetting().parse(root)
         snapshot.tasksLayout = tasksLayout
         if let tasksLayoutDiagnostic { snapshot.diagnostics.append(tasksLayoutDiagnostic) }
-        let (recordsCommands, commandsDiagnostic) = TerminalCommandHistorySetting.parse(root)
-        snapshot.recordsTerminalCommands = recordsCommands
-        if let commandsDiagnostic { snapshot.diagnostics.append(commandsDiagnostic) }
+        snapshot.parseTerminalCommandHistory(root)
         snapshot.parseNavigationHistory(root)
         snapshot.notifications = NotificationConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.feedGitHub = FeedGitHubSettings.parse(root, diagnostics: &snapshot.diagnostics)

@@ -861,6 +861,14 @@
       "title" : "Width",
       "type" : "number"
     },
+    "history.commandRetentionDays" : {
+      "default" : 30,
+      "description" : "Each machine deletes recorded commands that are older.",
+      "maximum" : 3650,
+      "minimum" : 1,
+      "title" : "Keep Terminal Commands For",
+      "type" : "number"
+    },
     "history.terminalCommands" : {
       "default" : false,
       "description" : "Lists finished shell commands in History. Command lines can contain secrets.",

@@ -26,18 +26,6 @@ use serde_json::json;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-pub(super) fn set_terminal_command_history(
-    mux: &Arc<Mux>,
-    client: u64,
-    enabled: bool,
-) -> anyhow::Result<Value> {
-    if !mux.control_clients.is_unix(client) {
-        anyhow::bail!("terminal command history requires a trusted local connection");
-    }
-    mux.set_terminal_command_history(enabled);
-    Ok(json!({ "enabled": enabled }))
-}
-
 pub(super) fn list_terminals(mux: &Arc<Mux>) -> anyhow::Result<Value> {
     let snapshot = mux.terminal_registry_snapshot()?;
     let terminals = snapshot

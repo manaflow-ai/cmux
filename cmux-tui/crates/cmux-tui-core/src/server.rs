@@ -162,6 +162,7 @@ mod cmd_tabs;
 mod cmd_terminal_io;
 mod cmd_terminals;
 mod cmd_workspaces;
+mod command_history;
 mod responses;
 mod rows;
 mod screen_json;
@@ -246,9 +247,8 @@ pub const PANE_BROWSER_KIND_CAPABILITY: &str = "pane-browser-kind-v1";
 pub const TAB_WORKSPACE_MOVE_CAPABILITY: &str = "tab-workspace-move-v1";
 pub const LAYOUT_UNDO_CAPABILITY: &str = "layout-undo-v1";
 pub const CLEAR_HISTORY_CAPABILITY: &str = "clear-history-v1";
-/// Finished shell commands (OSC 133) journaled as `shell.command.finished`
-/// when a trusted client turns it on with `set-terminal-command-history`.
-pub const TERMINAL_COMMAND_JOURNAL_CAPABILITY: &str = "terminal-command-journal-v1";
+/// Finished shell commands (OSC 133) as deletable rows with a retention.
+pub const TERMINAL_COMMAND_HISTORY_CAPABILITY: &str = "terminal-command-history-v1";
 pub const CLEAR_HISTORY_KEY_CAPABILITY: &str = "clear-history-key-v1";
 pub const SURFACE_SUBSCRIBE_FILTER_CAPABILITY: &str = "surface-subscribe-filter";
 pub const SESSION_JOURNAL_CAPABILITY: &str = "session-journal-v1";
@@ -699,12 +699,10 @@ enum Command {
     ServerStats {
         include: Option<Vec<String>>,
     },
-    /// Turn terminal command history on or off for this daemon
-    /// (`terminal-command-journal-v1`). Off by default and after a restart;
-    /// trusted local connections only.
-    SetTerminalCommandHistory {
-        enabled: bool,
-    },
+    /// `terminal-command-history-v1`, trusted local only (server/command_history.rs).
+    SetTerminalCommandHistory(command_history::SetParams),
+    ListTerminalCommands(command_history::ListParams),
+    DeleteTerminalCommands(command_history::DeleteParams),
     /// Gracefully hand this daemon's durable session to a replacement.
     /// The caller must fence the request with values from this daemon's `identify` response.
     ShutdownDaemon {
@@ -4844,9 +4842,9 @@ fn handle_command_with_cancellation(
             offset,
             data,
         ),
-        Command::SetTerminalCommandHistory { enabled } => {
-            cmd_terminals::set_terminal_command_history(mux, client, enabled)
-        }
+        command @ (Command::SetTerminalCommandHistory(_)
+        | Command::ListTerminalCommands(_)
+        | Command::DeleteTerminalCommands(_)) => command_history::handle(mux, client, command),
         Command::ServerStats { include } => cmd_server::server_stats(mux, client, include),
         Command::BrowserHostProvider => cmd_browser::browser_host_provider(mux, client),
         Command::Identify => cmd_server::identify(mux),

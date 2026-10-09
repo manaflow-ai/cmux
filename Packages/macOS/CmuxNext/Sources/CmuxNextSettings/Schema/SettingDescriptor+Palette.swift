@@ -102,7 +102,16 @@ extension SettingDescriptor {
         case .points: return String(format: SettingsText.text("settings.value.points", "%@ pt"), number)
         case .seconds: return String(format: SettingsText.text("settings.value.seconds", "%@ s"), number)
         case .minutes: return String(format: SettingsText.text("settings.value.minutes", "%@ min"), number)
+        case .days: return days(Int(value.rounded())) ?? number
         case .count, .fraction: return number
         }
+    }
+
+    /// "30 days", localized by Foundation.
+    private static func days(_ count: Int) -> String? {
+        let formatter = DateComponentsFormatter()
+        formatter.allowedUnits = [.day]
+        formatter.unitsStyle = .full
+        return formatter.string(from: DateComponents(day: count))
     }
 }
