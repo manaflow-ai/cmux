@@ -190,6 +190,9 @@ struct BrowserWindowPortalRegistryNotificationTests {
         advanceAnimations()
 
         let workspace = Workspace()
+        let workspaceManager = TabManager()
+        workspaceManager.window = window
+        workspace.owningTabManager = workspaceManager
         let panelId = try #require(workspace.focusedPanelId)
         let panel = try #require(workspace.terminalPanel(for: panelId))
         let layoutObserver = NotificationCenter.default.addObserver(
