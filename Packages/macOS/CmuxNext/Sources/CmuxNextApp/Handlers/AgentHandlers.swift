@@ -151,8 +151,9 @@ enum AgentHandlers {
     private static let agentPaneZoomPath = AgentPaneZoomSetting.configPath
 
     private static func focusedAgentView(_ context: AppActionContext, _ invocation: ActionInvocation = ActionInvocation()) -> AgentPaneView? {
-        guard let pane = context.scope(invocation).pane,
-              let key = pane.currentTabKey,
+        let scope = context.scope(invocation)
+        guard let pane = scope.pane,
+              let key = scope.tab?.id.rawValue ?? pane.currentTabKey,
               let view = context.services.agentTabs.existingView(key) else {
             context.refuse(MiscHandlerStrings.noAgentChat)
             return nil
