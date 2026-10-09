@@ -13,10 +13,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::Context;
 
-use super::super::sys::{
-    HostStream, PtyCustody, acknowledge_terminal_host_exit_record, connect_with_retry,
-    terminal_host_exit_record, write_record,
-};
+use super::super::sys::{HostStream, PtyCustody, connect_with_retry};
 use super::super::*;
 use super::clipboard_read::{OwnerIntent, owner_rights_for};
 use super::codec::{
@@ -27,6 +24,9 @@ use super::codec::{
 use super::control_responses::{ControlResponseWaiter, ControlResponses};
 use super::host_state::{
     HOST_HANDSHAKE_TRANSIENT_RETRIES, HOST_LAUNCH_ROLLBACK_WAIT, MAX_PENDING_INPUT_ACK_BYTES,
+};
+use super::records::{
+    acknowledge_terminal_host_exit_record, terminal_host_exit_record, write_record,
 };
 use super::renderer_grant::ControlRequestUnanswered;
 

@@ -18,7 +18,7 @@ use std::path::Path;
 
 /// Order `file`'s writes before later writes. Falls back to the full sync
 /// where the filesystem refuses the barrier, and on other platforms.
-pub(super) fn barrier_sync(file: &File) -> io::Result<()> {
+pub(crate) fn barrier_sync(file: &File) -> io::Result<()> {
     #[cfg(target_os = "macos")]
     {
         use std::os::fd::AsRawFd;
@@ -32,7 +32,7 @@ pub(super) fn barrier_sync(file: &File) -> io::Result<()> {
 }
 
 /// [`barrier_sync`] for the directory entry changes in `dir`.
-pub(super) fn barrier_sync_dir(dir: &Path) -> io::Result<()> {
+pub(crate) fn barrier_sync_dir(dir: &Path) -> io::Result<()> {
     barrier_sync(&File::open(dir)?)
 }
 

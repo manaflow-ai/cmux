@@ -147,6 +147,7 @@ mod remote_relay;
 #[cfg(test)]
 use remote_relay::handle_connection_message;
 mod cmd_panes;
+mod cmd_screens;
 mod cmd_tabs;
 mod cmd_workspaces;
 mod responses;
@@ -6367,130 +6368,45 @@ fn handle_command_with_cancellation(
                 }))
             }
         }
-        Command::NewScreen(params) => new_screen::new_screen(mux, client, params),
+        Command::NewScreen(params) => cmd_screens::new_screen(mux, client, params),
         Command::SetScreenMetadata { screen, color, icon } => {
-            let changed = mux.set_screen_metadata_as(&actor, screen, color, icon)?;
-            let presentation = mux.presentation_snapshot();
-            let record = mux
-                .with_state(|state| {
-                    state
-                        .workspaces
-                        .iter()
-                        .flat_map(|w| w.screens.iter())
-                        .find(|s| s.id == screen)
-                        .map(|s| {
-                            presentation
-                                .screens
-                                .screen(s.public_id.as_str())
-                                .cloned()
-                                .unwrap_or_default()
-                        })
-                })
-                .unwrap_or_default();
-            Ok(
-                json!({"screen": screen, "color": record.color, "icon": record.icon, "changed": changed}),
-            )
+            cmd_screens::set_screen_metadata(mux, actor, screen, color, icon)
         }
         Command::SetScreenPinned { screen, pinned } => {
-            let (changed, index) = mux.set_screen_pinned_as(&actor, screen, pinned)?;
-            Ok(json!({"screen": screen, "pinned": pinned, "index": index, "changed": changed}))
+            cmd_screens::set_screen_pinned(mux, actor, screen, pinned)
         }
         Command::MoveScreen { screen, index, workspace, new_workspace } => {
-            let destination = if new_workspace {
-                crate::ScreenDestination::NewWorkspace
-            } else {
-                crate::ScreenDestination::Workspace { workspace, index }
-            };
-            let outcome = mux.move_screen_as(&actor, screen, destination)?;
-            Ok(json!({
-                "screen": outcome.screen,
-                "workspace": outcome.workspace,
-                "key": outcome.key,
-                "index": outcome.index,
-            }))
+            cmd_screens::move_screen(mux, actor, screen, index, workspace, new_workspace)
         }
-        Command::CreateScreenGroup { screens, name, color } => Ok(screen_group_outcome_json(
-            &mux.create_screen_group_as(&actor, &screens, name, color)?,
-        )),
+        Command::CreateScreenGroup { screens, name, color } => {
+            cmd_screens::create_screen_group(mux, actor, screens, name, color)
+        }
         Command::UpdateScreenGroup { group, name, color, collapsed } => {
-            Ok(screen_group_outcome_json(
-                &mux.update_screen_group_as(&actor, &group, name, color, collapsed)?,
-            ))
+            cmd_screens::update_screen_group(mux, actor, group, name, color, collapsed)
         }
         Command::AddScreensToScreenGroup { group, screens, index } => {
-            Ok(screen_group_outcome_json(
-                &mux.add_screens_to_screen_group_as(&actor, &group, &screens, index)?,
-            ))
+            cmd_screens::add_screens_to_screen_group(mux, actor, group, screens, index)
         }
         Command::RemoveScreensFromScreenGroup { screens } => {
-            let groups = mux.remove_screens_from_screen_group_as(&actor, &screens)?;
-            Ok(json!({ "screens": screens, "groups": groups }))
+            cmd_screens::remove_screens_from_screen_group(mux, actor, screens)
         }
         Command::MoveScreenGroup { group, index, workspace, new_workspace } => {
-            let destination = if new_workspace {
-                crate::ScreenDestination::NewWorkspace
-            } else {
-                crate::ScreenDestination::Workspace { workspace, index }
-            };
-            Ok(screen_group_outcome_json(&mux.move_screen_group_as(&actor, &group, destination)?))
+            cmd_screens::move_screen_group(mux, actor, group, index, workspace, new_workspace)
         }
         Command::UngroupScreenGroup { group } => {
-            let screens = mux.ungroup_screen_group_as(&actor, &group)?;
-            Ok(json!({ "group": group, "screens": screens }))
+            cmd_screens::ungroup_screen_group(mux, actor, group)
         }
         Command::CloseScreenGroup { group, end_terminals } => {
-            let closed = mux.close_screen_group_as(&actor, &group, end_terminals)?;
-            Ok(json!({ "group": group, "closed": closed }))
+            cmd_screens::close_screen_group(mux, actor, group, end_terminals)
         }
-        Command::ListSavedScreenGroups => {
-            let presentation = mux.presentation_snapshot();
-            let groups = presentation
-                .saved_screen_groups
-                .iter()
-                .map(|saved| {
-                    let open = presentation
-                        .screens
-                        .groups
-                        .values()
-                        .find(|group| group.saved_id.as_deref() == Some(saved.id.as_str()))
-                        .map(|group| group.id.clone());
-                    json!({
-                        "id": saved.id,
-                        "name": saved.name,
-                        "color": saved.color,
-                        "profile_id": saved.profile_id,
-                        "members": saved.members,
-                        "updated_at_ms": saved.updated_at_ms,
-                        "open_group": open,
-                    })
-                })
-                .collect::<Vec<_>>();
-            Ok(json!({ "groups": groups }))
-        }
-        Command::SaveScreenGroup { group } => {
-            let saved = mux.save_screen_group_as(&actor, &group)?;
-            let mut value = screen_group_outcome_json(&mux.screen_group_outcome_public(&group));
-            value["saved"] = json!(saved);
-            Ok(value)
-        }
-        Command::UnsaveScreenGroup { group } => {
-            mux.unsave_screen_group(&group)?;
-            Ok(screen_group_outcome_json(&mux.screen_group_outcome_public(&group)))
-        }
+        Command::ListSavedScreenGroups => cmd_screens::list_saved_screen_groups(mux),
+        Command::SaveScreenGroup { group } => cmd_screens::save_screen_group(mux, actor, group),
+        Command::UnsaveScreenGroup { group } => cmd_screens::unsave_screen_group(mux, group),
         Command::DeleteSavedScreenGroup { saved } => {
-            mux.delete_saved_screen_group(&saved)?;
-            Ok(json!({}))
+            cmd_screens::delete_saved_screen_group(mux, saved)
         }
         Command::ReopenSavedScreenGroup { saved, workspace } => {
-            let workspace = match workspace {
-                Some(workspace) => workspace,
-                None => mux
-                    .with_state(|state| state.workspaces.get(state.active_workspace).map(|w| w.id))
-                    .context("no workspace to reopen the screen group into")?,
-            };
-            Ok(screen_group_outcome_json(
-                &mux.reopen_saved_screen_group_as(&actor, &saved, workspace)?,
-            ))
+            cmd_screens::reopen_saved_screen_group(mux, actor, saved, workspace)
         }
         Command::NewPane { pane, cols, rows, cwd, env, keep, terminal_id, shell_args } => {
             cmd_panes::new_pane(
@@ -6986,15 +6902,7 @@ fn handle_command_with_cancellation(
             cmd_panes::close_pane(mux, actor, pane, end_terminals)
         }
         Command::CloseScreen { screen, end_terminals } => {
-            if end_terminals {
-                mux.close_container_ending_terminals_as(
-                    &actor,
-                    crate::BatchCloseTarget::Screen(screen),
-                )?;
-            } else if !mux.close_screen_as(&actor, screen)? {
-                anyhow::bail!("unknown screen {screen}");
-            }
-            Ok(json!({}))
+            cmd_screens::close_screen(mux, actor, screen, end_terminals)
         }
         Command::CloseWorkspace { workspace, key, end_terminals, mutation } => {
             cmd_workspaces::close_workspace(mux, client, workspace, key, end_terminals, mutation)
@@ -7010,10 +6918,7 @@ fn handle_command_with_cancellation(
             cmd_tabs::rename_surface(mux, actor, surface, name)
         }
         Command::RenameScreen { screen, name } => {
-            if !mux.rename_screen_as(&actor, screen, name) {
-                anyhow::bail!("unknown screen {screen}");
-            }
-            Ok(json!({}))
+            cmd_screens::rename_screen(mux, actor, screen, name)
         }
         Command::RenameWorkspace { workspace, key, name, mutation } => {
             cmd_workspaces::rename_workspace(mux, client, workspace, key, name, mutation)
@@ -7257,8 +7162,7 @@ fn handle_command_with_cancellation(
             cmd_tabs::select_tab(mux, actor, pane, index, delta)
         }
         Command::SelectScreen { index, delta } => {
-            mux.select_screen_as(&actor, index, delta);
-            Ok(json!({}))
+            cmd_screens::select_screen(mux, actor, index, delta)
         }
         Command::SelectWorkspace { index, delta } => {
             cmd_workspaces::select_workspace(mux, actor, index, delta)
