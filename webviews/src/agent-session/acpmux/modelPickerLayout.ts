@@ -45,6 +45,8 @@ export type ModelPickerProps = {
   onHarnessEnable?(folder: string, id: string): void;
   /// A short note per harness in place of "New chat" (a harness that failed to start).
   harnessNotes?: Readonly<Record<string, string>>;
+  /// Gallery-only placement switch for comparing the inline-end picker with the previous above layout.
+  placement?: "inline-end" | "above";
   /// The room, in px, left of the open menu for its submenus (`menuRoom`). Tests pass a
   /// number in place of real layout.
   measureRoom?(menu: HTMLElement): number;

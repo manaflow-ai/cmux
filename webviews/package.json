@@ -51,6 +51,7 @@
     "prosemirror-state": "^1.4.4",
     "prosemirror-view": "^1.41.8",
     "react": "19.2.3",
+    "react-aria-components": "1.22.0",
     "react-dom": "19.2.3",
     "shiki": "3.23.0",
     "solid-js": "^1.9.13",

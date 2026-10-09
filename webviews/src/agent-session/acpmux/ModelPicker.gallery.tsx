@@ -63,6 +63,7 @@ export default componentEntry<ModelPickerProps>({
         await ctx.click({ role: "button", name: "Refresh models" });
       },
     },
+    "above-reference": { props: { ...base, placement: "above" } },
     fetching: { props: { ...base, catalogRefresh: refresh("fetching", "2026-10-07T10:00:00Z") } },
     updated: { props: { ...base, catalogRefresh: refresh("updated", "2026-10-07T12:30:00Z") } },
     error: { props: { ...base, catalogRefresh: refresh("error", "2026-10-07T10:00:00Z") } },

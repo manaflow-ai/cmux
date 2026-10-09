@@ -6,6 +6,8 @@ const dom = new JSDOM("<!doctype html><div id=root></div>", {
   pretendToBeVisual: true,
   virtualConsole: new VirtualConsole(),
 });
+const css = (dom.window as unknown as { CSS?: { escape?: (value: string) => string } }).CSS ?? {};
+css.escape ??= (value) => value.replace(/[^a-zA-Z0-9_-]/g, (character) => `\\${character}`);
 const globals = globalThis as Record<string, unknown>;
 const saved = Object.fromEntries(
   [
@@ -15,6 +17,15 @@ const saved = Object.fromEntries(
     "HTMLElement",
     "requestAnimationFrame",
     "cancelAnimationFrame",
+    "CSS",
+    "Event",
+    "CustomEvent",
+    "KeyboardEvent",
+    "MouseEvent",
+    "PointerEvent",
+    "FocusEvent",
+    "MutationObserver",
+    "ResizeObserver",
     "IS_REACT_ACT_ENVIRONMENT",
   ].map((key) => [key, globals[key]]),
 );
@@ -29,6 +40,7 @@ Object.assign(globals, {
   // The context popover is the shared Base UI Popover (src/ui), which animates on frames.
   requestAnimationFrame: (callback: FrameRequestCallback) => setTimeout(() => callback(0), 0) as unknown as number,
   cancelAnimationFrame: (handle: number) => clearTimeout(handle),
+  CSS: css,
   IS_REACT_ACT_ENVIRONMENT: true,
 });
 // Base UI reaches for DOM classes by name.
@@ -39,6 +51,9 @@ const domClasses = Object.getOwnPropertyNames(dom.window).filter(
     ) && !(key in globals),
 );
 for (const key of domClasses) globals[key] = (dom.window as unknown as Record<string, unknown>)[key];
+for (const key of ["Event", "CustomEvent", "KeyboardEvent", "MouseEvent", "PointerEvent", "FocusEvent", "MutationObserver", "ResizeObserver"]) {
+  globals[key] = (dom.window as unknown as Record<string, unknown>)[key];
+}
 afterAll(() => {
   Object.assign(globals, saved);
   for (const key of domClasses) delete globals[key];

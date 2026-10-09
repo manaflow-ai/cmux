@@ -6,12 +6,40 @@ const dom = new JSDOM("<!doctype html><div id=root></div>", {
   pretendToBeVisual: true,
   virtualConsole: new VirtualConsole(),
 });
+const css = (dom.window as unknown as { CSS?: { escape?: (value: string) => string } }).CSS ?? {};
+css.escape ??= (value) => value.replace(/[^a-zA-Z0-9_-]/g, (character) => `\\${character}`);
 const globals = globalThis as Record<string, unknown>;
+const domClasses = Object.getOwnPropertyNames(dom.window).filter(
+  (key) =>
+    /^(HTML|SVG|Element|Event|KeyboardEvent|PointerEvent|MouseEvent|FocusEvent|Shadow|Document|Mutation|Resize|getComputedStyle|Node)/.test(
+      key,
+    ) && !(key in globals),
+);
 const saved = Object.fromEntries(
-  ["window", "document", "navigator", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [
-    key,
-    globals[key],
-  ]),
+  [
+    "window",
+    "document",
+    "navigator",
+    "HTMLElement",
+    "Element",
+    "Node",
+    "HTMLButtonElement",
+    "HTMLInputElement",
+    "HTMLTextAreaElement",
+    "HTMLSelectElement",
+    "CSS",
+    "Event",
+    "CustomEvent",
+    "KeyboardEvent",
+    "MouseEvent",
+    "PointerEvent",
+    "FocusEvent",
+    "MutationObserver",
+    "ResizeObserver",
+    "requestAnimationFrame",
+    "cancelAnimationFrame",
+    "IS_REACT_ACT_ENVIRONMENT",
+  ].map((key) => [key, globals[key]]),
 );
 Object.assign(globals, {
   window: dom.window,
@@ -19,10 +47,25 @@ Object.assign(globals, {
   navigator: dom.window.navigator,
   HTMLElement: dom.window.HTMLElement,
   Element: dom.window.Element,
+  Node: dom.window.Node,
+  HTMLButtonElement: dom.window.HTMLButtonElement,
+  HTMLInputElement: dom.window.HTMLInputElement,
+  HTMLTextAreaElement: dom.window.HTMLTextAreaElement,
+  HTMLSelectElement: dom.window.HTMLSelectElement,
+  CSS: css,
+  requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
+  cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
   IS_REACT_ACT_ENVIRONMENT: true,
   localStorage: { getItem: () => null, setItem: () => {} },
 });
-afterAll(() => Object.assign(globals, saved));
+for (const key of domClasses) globals[key] = (dom.window as unknown as Record<string, unknown>)[key];
+for (const key of ["Event", "CustomEvent", "KeyboardEvent", "MouseEvent", "PointerEvent", "FocusEvent", "MutationObserver", "ResizeObserver"]) {
+  globals[key] = (dom.window as unknown as Record<string, unknown>)[key];
+}
+afterAll(() => {
+  Object.assign(globals, saved);
+  for (const key of domClasses) delete globals[key];
+});
 
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");

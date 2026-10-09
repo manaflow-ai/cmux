@@ -3,7 +3,7 @@ import { useLayoutEffect, useState, type CSSProperties, type RefObject } from "r
 /** The gap used by every anchored menu and popover. Keep this in one place. */
 export const UI_ANCHOR_GAP = 6;
 
-export type UiAnchorSide = "above" | "below";
+export type UiAnchorSide = "above" | "below" | "inline-end" | "inline-start";
 export type UiAnchorAlign = "start" | "end";
 
 export interface UiAnchorBox {
@@ -28,6 +28,7 @@ export interface UiOverlayPosition {
   top: number;
   side: UiAnchorSide;
   maxHeight: number;
+  maxWidth?: number;
 }
 
 export interface UiAnchorOptions {
@@ -58,6 +59,29 @@ export function resolveUiOverlayPosition(
   const direction = options.direction ?? "ltr";
   const spaceBelow = Math.max(0, viewport.height - anchor.bottom - gap - margin);
   const spaceAbove = Math.max(0, anchor.top - gap - margin);
+  const spaceInlineEnd = Math.max(0, viewport.width - anchor.right - gap - margin);
+  const spaceInlineStart = Math.max(0, anchor.left - gap - margin);
+  if (side === "inline-end" || side === "inline-start") {
+    const requestedRight = side === "inline-end" ? direction !== "rtl" : direction === "rtl";
+    const requested = requestedRight ? spaceInlineEnd : spaceInlineStart;
+    const opposite = requestedRight ? spaceInlineStart : spaceInlineEnd;
+    const resolvedRight = requested >= overlay.width || requested >= opposite ? requestedRight : !requestedRight;
+    const resolvedSide = resolvedRight === (direction !== "rtl") ? "inline-end" : "inline-start";
+    const available = resolvedRight ? spaceInlineEnd : spaceInlineStart;
+    const idealLeft = resolvedRight ? anchor.right + gap : anchor.left - gap - overlay.width;
+    const maxLeft = Math.max(margin, viewport.width - overlay.width - margin);
+    const left = Math.min(Math.max(idealLeft, margin), maxLeft);
+    const idealTop = align === "start" ? anchor.top : anchor.bottom - overlay.height;
+    const maxTop = Math.max(margin, viewport.height - overlay.height - margin);
+    const top = Math.min(Math.max(idealTop, margin), maxTop);
+    return {
+      left,
+      top,
+      side: resolvedSide,
+      maxHeight: Math.max(0, viewport.height - margin * 2),
+      maxWidth: Math.max(0, available),
+    };
+  }
   const resolvedSide =
     side === "below"
       ? spaceBelow >= overlay.height || spaceBelow >= spaceAbove
@@ -135,6 +159,7 @@ export function useUiAnchor(
         right: "auto",
         bottom: "auto",
         maxHeight: position.maxHeight / scale.y,
+        ...(position.maxWidth === undefined ? {} : { maxWidth: position.maxWidth / scale.x }),
         visibility: "visible",
       });
     };
