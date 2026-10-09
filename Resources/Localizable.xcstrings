@@ -599692,6 +599692,65 @@
         }
       }
     },
+    "teamMembers.error.sessionRefresh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not confirm your cmux sign-in. Try again in a moment."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تأكيد تسجيل دخولك إلى cmux. حاول مرة أخرى بعد لحظات."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine cmux-Anmeldung konnte nicht bestätigt werden. Versuche es gleich noch einmal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo confirmar tu inicio de sesión en cmux. Inténtalo de nuevo en un momento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de confirmer votre connexion à cmux. Réessayez dans un instant."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux のサインインを確認できませんでした。しばらくしてからもう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 로그인을 확인할 수 없습니다. 잠시 후 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法确认你的 cmux 登录状态。请稍后再试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法確認你的 cmux 登入狀態。請稍後再試。"
+          }
+        }
+      }
+    },
     "teamMembers.error.offline": {
       "extractionState": "manual",
       "localizations": {
