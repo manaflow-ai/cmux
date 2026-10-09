@@ -12,6 +12,23 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### OSC 7501 program status protocol
+
+- Branch: `feat-osc7501-program-status`, based on cmux pin `76f5f8c7c`.
+- Commits: upstream `bae2c3cdbf73f2ac33a67e4b0b7811165f0f62d4` was cherry-picked
+  with `-x` as `abfda426093`; cmux-specific protocol forwarding and C ABI work
+  follows on this branch.
+- Summary: OSC 7501 queries echo the fixed query body and terminator, validated
+  reports reach the full-app surface action path, prompt-start and RIS clear
+  events are emitted, and Ghostty terminfo advertises `Pst`.
+- Conflict notes: the upstream patch was based on a newer Ghostty tree. The
+  fork kept its clipboard, APC, CJK, stream-handler, and action behavior while
+  adding the parser, dispatch, callback, and ABI pieces. `kitty_metadata.zig`
+  was restored as the shared parser helper required by the upstream parser.
+- Coverage: upstream parser and stream-terminal behavior tests are present, with
+  an added `build-ghosttykit.yml` filtered `program_status` lane. Hosted CI is
+  required before recording the GhosttyKit artifact URL and checksum.
+
 ### CJK fallback avoids repeated font collection scans
 
 - Branch: `issue-18648-cjk-fallback-latency`, based on the cmux pin

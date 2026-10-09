@@ -68,7 +68,9 @@ struct SidebarAgentUsageFormatter {
                 priority: entry.priority,
                 format: entry.format,
                 timestamp: entry.timestamp,
-                helpText: usage.estimatedCostUSD == nil ? entry.helpText : Self.costHelpText
+                helpText: usage.estimatedCostUSD == nil ? entry.helpText : Self.costHelpText,
+                workState: entry.workState,
+                progress: entry.progress
             )
         }
     }

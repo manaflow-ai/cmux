@@ -644226,7 +644226,105 @@
             }
           }
         }
+      },
+    "programStatus.state.needsPermission": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Needs permission" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Berechtigung erforderlich" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Autorisation requise" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "يتطلب إذنًا" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Se necesita permiso" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "需要許可" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "需要权限" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "권한 필요" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "許可が必要" } }
       }
+    },
+    "programStatus.state.needsAnswer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Needs an answer" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Antwort erforderlich" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Réponse requise" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "يتطلب إجابة" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Se necesita una respuesta" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "需要回答" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "需要回答" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "답변 필요" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "回答が必要" } }
+      }
+    },
+    "programStatus.state.needsSignIn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Needs sign-in" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Anmeldung erforderlich" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Connexion requise" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "يتطلب تسجيل الدخول" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Se necesita iniciar sesión" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "需要登入" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "需要登录" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "로그인 필요" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "サインインが必要" } }
+      }
+    },
+    "programStatus.state.needsInput": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Needs input" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Eingabe erforderlich" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Saisie requise" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "يتطلب إدخالًا" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Se necesita entrada" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "需要輸入" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "需要输入" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "입력 필요" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "入力が必要" } }
+      }
+    },
+    "programStatus.state.working": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Working" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Wird ausgeführt" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "En cours" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "جارٍ التنفيذ" } },
+        "es": { "stringUnit": { "state": "translated", "value": "En curso" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "處理中" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "处理中" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "작업 중" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "処理中" } }
+      }
+    },
+    "programStatus.state.done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Done" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Fertig" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Terminé" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "تم" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Listo" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "完成" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "完成" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "완료" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "完了" } }
+      }
+    },
+    "programStatus.state.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Failed" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Fehlgeschlagen" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Échec" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "فشل" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Error" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "失敗" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "失败" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "실패" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "失敗" } }
+      }
+    }
   },
   "version": "1.0"
 }

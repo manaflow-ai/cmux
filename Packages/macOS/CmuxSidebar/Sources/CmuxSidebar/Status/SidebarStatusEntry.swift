@@ -26,6 +26,8 @@ public struct SidebarStatusEntry: Equatable, Sendable {
     /// entry that is not an agent row, and on agent rows from a reporter that
     /// does not report it.
     public let workState: SidebarAgentWorkState?
+    /// Optional determinate progress for this status.
+    public let progress: SidebarProgressState?
 
     /// Creates a status row (defaults mirror the legacy initializer).
     public init(
@@ -38,7 +40,8 @@ public struct SidebarStatusEntry: Equatable, Sendable {
         format: SidebarMetadataFormat = .plain,
         timestamp: Date = Date(),
         helpText: String? = nil,
-        workState: SidebarAgentWorkState? = nil
+        workState: SidebarAgentWorkState? = nil,
+        progress: SidebarProgressState? = nil
     ) {
         self.key = key
         self.value = value
@@ -50,5 +53,6 @@ public struct SidebarStatusEntry: Equatable, Sendable {
         self.timestamp = timestamp
         self.helpText = helpText
         self.workState = workState
+        self.progress = progress
     }
 }
