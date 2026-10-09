@@ -80,7 +80,7 @@ public final class DiagnosticLog: Sendable {
         capacity: Int = 4096,
         buildStamp: String = "",
         role: DiagnosticRuntimeRole = .unspecified,
-        anchorWallNanos: UInt64 = UInt64(max(0, Date().timeIntervalSince1970 * 1_000_000_000)),
+        anchorWallNanos: UInt64 = (Date().timeIntervalSince1970 * 1_000_000_000).saturatedInteger(UInt64.self) ?? 0,
         anchorMonotonicNanos: UInt64 = DispatchTime.now().uptimeNanoseconds
     ) {
         let capacity = max(1, capacity)
@@ -342,7 +342,7 @@ public final class DiagnosticLog: Sendable {
     /// the store has reset, so no old event can reappear after this returns.
     /// Recording itself remains non-blocking.
     public func clear(
-        anchorWallNanos: UInt64 = UInt64(max(0, Date().timeIntervalSince1970 * 1_000_000_000)),
+        anchorWallNanos: UInt64 = (Date().timeIntervalSince1970 * 1_000_000_000).saturatedInteger(UInt64.self) ?? 0,
         anchorMonotonicNanos: UInt64 = DispatchTime.now().uptimeNanoseconds
     ) async {
         await withCheckedContinuation { acknowledgement in

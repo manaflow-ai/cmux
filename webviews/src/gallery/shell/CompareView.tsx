@@ -11,6 +11,7 @@ import {
   COMPARE_GRIDS,
   COMPARE_SPEEDS,
   compareSummary,
+  interactionStats,
   visibleArms,
   type CompareFrameCommand,
   type CompareFrameEvent,
@@ -150,7 +151,11 @@ const fmt = (stats: Pick<StepStats, "p50" | "p95" | "max" | "over16">) =>
 
 function measuredLine(measured: ArmMeasurement): string {
   const plan = measured.planMs !== undefined ? ` · plan ${measured.planMs} ms` : "";
-  return `VM ${measured.engine} (${measured.run}): ${fmt(measured)}${plan}`;
+  const settle =
+    measured.settleP50 !== undefined && measured.settleP95 !== undefined && measured.settleMax !== undefined
+      ? ` · settle p50 ${measured.settleP50} · p95 ${measured.settleP95} · max ${measured.settleMax} ms (${measured.settleCount ?? 0})`
+      : "";
+  return `VM ${measured.engine} (${measured.run}): ${fmt(measured)}${settle}${plan}`;
 }
 
 export function CompareView({
@@ -396,6 +401,7 @@ function CompareCell({
 }) {
   const definition = experiment.definition.arms[arm]!;
   const stats = run.stats(arm);
+  const settle = stats ? interactionStats(stats.interactionMs) : undefined;
   const measured = experiment.measurements?.[arm];
   const isDefault = experiment.definition.defaultArm === arm;
   // The iframe's src is fixed for the cell's life: the cell is keyed by the reload generation.
@@ -438,7 +444,11 @@ function CompareCell({
         )}
         {stats && (
           <div className="gallery-compare-measure">
-            here, last step: {fmt(stats)} · {stats.durationMs} ms · plan {stats.planMs} ms
+            here, last step: {fmt(stats)} · {stats.durationMs} ms ·{" "}
+            {settle?.count
+              ? `settle p50 ${settle.p50} · p95 ${settle.p95} · max ${settle.max} ms (${settle.count})`
+              : "no click, key or press-drag samples"}{" "}
+            · plan {stats.planMs} ms
           </div>
         )}
       </figcaption>

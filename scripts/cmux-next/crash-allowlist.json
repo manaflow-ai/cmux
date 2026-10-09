@@ -4,8 +4,11 @@
   "swift.as_bang",
   "swift.assume_isolated",
   "swift.fatal_error",
+  "swift.force_unwrap",
+  "swift.iuo",
   "swift.objc_selector",
-  "swift.precondition"
+  "swift.precondition",
+  "swift.unowned"
  ],
  "allow": [
   {
@@ -21,6 +24,531 @@
    "count": 1,
    "reason": "UICollectionView stand-in of the AppKit port: only the --transcript collection lab flag constructs it, the app never does (the row recycler is the transcript).",
    "reviewer": "crash-lead 2026-10-08"
+  },
+  {
+   "path": "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/appkit-native/NativeScroll.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owned child, nested lifetime: the scroll view owns its physics, which end with it (MessagesLab OwnedChildLifetimeTests)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/appkit-native/TranscriptAccess.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owned child, nested lifetime: the chat controller owns its transcript selection, which ends with it (MessagesLab OwnedChildLifetimeTests)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Accounts/AccountsService.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentActivity/AgentActivityPageService.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Apps/AppPanePage.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner AppsService is a child of the explicit process root AppServices (held for the life of the process)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Apps/AppsService.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Bookmarks/BookmarkPageService.swift",
+   "class": "swift.unowned",
+   "count": 2,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Bookmarks/BookmarkService.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/BrowserProfiles/BrowserProfileService.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/BrowserProfiles/BrowserProfileTargetSource.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppBrowserPageEngine.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/ControlSnapshotPublisher.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Drag/TabDragSession.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/ExtensionMenuRouter.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Feed/FeedPageService.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/FocusEffectApplier.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owned child, nested lifetime: the window controller owns its focus applier, which ends with it (OwnedChildLifetimeTests.focusApplierEndsWithItsWindowController)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/KeyRouter.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "sibling under the explicit process root AppServices: it holds both the registry and this key router for the life of the process",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/Keybindings/KeybindingsPage.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/Keybindings/KeybindingsPageProvider.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/ClosedTabTracker.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/AgentHistory.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/CommandHistory.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/HiddenHistoryStore.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/HistoryPageService.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/HistoryService.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/LocationTrailService.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeService.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/NewTab/NewTabSparePool.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Onboarding/AppOnboardingServices.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner OnboardingService is a child of the explicit process root AppServices (held for the life of the process)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Onboarding/ExternalOpenController.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Onboarding/OnboardingService.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/Diff/DiffPageService.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/Files/FilePageOpener.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/Files/FilePageService.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/PageFactory.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/PageProviders.swift",
+   "class": "swift.unowned",
+   "count": 2,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaletteShortcutEditor.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaletteSourcesBridge.swift",
+   "class": "swift.unowned",
+   "count": 2,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneController.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Quit/QuitCoordinator.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Remote/RemoteTerminalService.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Screens/ScreenBarController.swift",
+   "class": "swift.unowned",
+   "count": 2,
+   "reason": "owned child, nested lifetime: the workspace content owns its screen bar and the bar's preview source, which end with it (OwnedChildLifetimeTests.screenBarEndsWithItsWorkspaceContent)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Screens/ScreenTargetSource.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Settings/DebugSettingsService.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Settings/SettingsWindowService.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/SidebarBridge.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/SidebarSections/SidebarLayoutRemote.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/SidebarSections/SidebarSectionTargetSource.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/TabAndGroupTargetSource.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/TabPreviewSource.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "sibling under the explicit process root AppServices: it holds both the tab cache and this preview source",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/TabSearch/AppTabSearchSource.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Tasks/TasksPageService.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Themes/ThemeCoordinator.swift",
+   "class": "swift.unowned",
+   "count": 2,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts); and the terminal theme binding's scope: sibling under TerminalEntry, which holds the scope (let) and the binding",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Usage/AppResourceSource.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Viewers/DiffPageService+Viewers.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner ViewerService is a child of the explicit process root AppServices (held for the life of the process)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Viewers/ViewerService.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/WebAuth/WebAuthSessionWindows.swift",
+   "class": "swift.unowned",
+   "count": 2,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/DividerMouseCatchers.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owned child, nested lifetime: the shell window owns its overlay layer and divider catchers, which end with it (OwnedChildLifetimeTests.overlayLayerAndDividerCatchersEndWithTheirWindow)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/SessionRegistrar.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "sibling under the explicit process root AppServices: it holds the machine registry, and the registrar lives in its WindowManager",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/WindowController.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/WindowManager.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/WindowOverlayLayer.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owned child, nested lifetime: the shell window owns its overlay layer and divider catchers, which end with it (OwnedChildLifetimeTests.overlayLayerAndDividerCatchersEndWithTheirWindow)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/WindowRecordSaver.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner WindowManager is a child of the explicit process root AppServices (held for the life of the process)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/WindowTargetSource.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/WorkspaceContentController.swift",
+   "class": "swift.unowned",
+   "count": 2,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts); and its window state: sibling under WindowController, which holds both the state and this content (OwnedChildLifetimeTests.screenBarEndsWithItsWorkspaceContent)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFExtensionBackend.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the process singleton CEFRuntime.shared (static let, private init): never freed while the process runs",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFExtensionPrompts.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the process singleton CEFRuntime.shared (static let, private init): never freed while the process runs",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFExtensionStores.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the process singleton CEFRuntime.shared (static let, private init): never freed while the process runs",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFOrphanTabs.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the process singleton CEFRuntime.shared (static let, private init): never freed while the process runs",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFPaneHost.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the process singleton CEFRuntime.shared (static let, private init): never freed while the process runs",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFTab.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the process singleton CEFRuntime.shared (static let, private init): never freed while the process runs",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/PaletteShortcutRecorder.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "sibling under PaletteController, a child of the explicit process root AppServices: it holds both the model and this recorder",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarDragAutoscroll.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owned child, nested lifetime: the list view owns its drag autoscroll, which ends with it (SidebarChildLifetimeTests)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarSpacePaging.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owned child, nested lifetime: the sidebar view owns its space paging, which ends with it (SidebarChildLifetimeTests)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalCopyMode.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owned child, nested lifetime: the surface view owns its copy mode, which ends with it (TerminalCopyModeLifetimeTests)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
   }
  ]
 }

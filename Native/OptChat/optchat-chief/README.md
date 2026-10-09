@@ -148,6 +148,12 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
 - A subagent prompt the harness fails ends that run with `[a<N>] (failed:
   <error>)`, never a subagent that waits forever.
 
+- A codex Chief's isolated turns run on the Chief's own `CODEX_HOME`
+  (`optchat/turn-codex`: the user's routing and model keys, the sign-in
+  linked, no user MCP servers, hooks, plugins or skills, and
+  `features.multi_agent = false`), so `chief spawn` is its only way to start
+  a subagent, as `TURN_TOOLS` leaves a Claude turn no Task tool.
+
 Deviation: `tell` reaches a running subagent after its current turn (acpmux
 queues the prompt; claude-sr has no steering), not between its tool calls.
 A subagent's first message carries no cache mark of ours, and all of a
@@ -670,8 +676,16 @@ so it would make 5 on the session's second request, which the API refuses.
 So a turn or a compactor node that carries our mark runs with
 `DISABLE_PROMPT_CACHING=1` in its directory's settings env: Claude Code
 places none, every request of the session reads up to our mark, and a
-turn's tool steps send their own tail uncached. A turn or node too small
-for a mark keeps Claude Code's own. Subagents never carry our mark: their
+turn's tool steps send their own tail uncached. The `<chat>` header is its
+own block, so a view with no whole 4-line block marks the header and every
+turn and node carries our mark (early turns read 93-94% instead of 86-87%,
+measured). The trade-off, measured on a 30 KB view through `sr`
+(2026-10-08): our mark wins 11x on a one-request turn and 20% at 12 tool
+steps with tiny outputs; Claude Code's own rolling marks win only past
+about 400 output tokens per step at 12 steps (32% cheaper at about 1k).
+Claude Code reads the setting at process start, so a turn cannot switch
+after its first step, and 11 of 13 real turns made 1-2 requests: every
+turn keeps our mark, and tool-heavy work goes to subagents. Subagents never carry our mark: their
 sessions are long, and Claude Code's own marks cache them step by step.
 
 `turn.start` records the marked piece and the TTL (`layout.mark`,
@@ -1070,7 +1084,7 @@ compactions 98.1% of their prefix (spec: 98.6% and 96.2%). What differs:
 - **Single-flight** releases waiting calls at the writer's response start
   (on acpmux: its first streamed output), and the prefix then counts as
   written for 5 minutes, so later calls on it go at once.
-- **Model.** The compactor runs Claude Haiku 5.5 at high effort
+- **Model.** The compactor runs Claude Haiku 5.5 at medium effort (measured: as good as high, 20% cheaper, 36% faster)
   (`OPTCHAT_COMPACTOR_MODEL`, `OPTCHAT_COMPACTOR_EFFORT` or engine.json's
   `compactor-model` pick another). An account without the model builds
   with the turn model, logged once. Haiku and the turns' model have

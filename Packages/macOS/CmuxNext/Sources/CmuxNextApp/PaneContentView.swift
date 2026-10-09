@@ -33,6 +33,15 @@ final class PaneContentView: NSView, PaneContentChrome {
         didSet { if barPosition != oldValue { updateBand() } }
     }
     private var placementObservation: Task<Void, Never>?
+    /// No strip: the chat dock or a lone chat with one tab (``ChatDockChrome``).
+    var hidesStrip = false {
+        didSet {
+            guard hidesStrip != oldValue else { return }
+            stripView.isHidden = hidesStrip
+            refreshBandHeight()
+            needsLayout = true
+        }
+    }
     /// A browser's tab bar above or below its toolbar (`tabs.barOrder`, R109).
     var barOrder: TabBarOrder = .aboveToolbar {
         didSet { if barOrder != oldValue { updateBand() } }
@@ -132,7 +141,7 @@ final class PaneContentView: NSView, PaneContentChrome {
     /// pane cell's top, through the pane padding) and below (to the content
     /// border), on this window's pixel grid (`PaneChromeMetrics`).
     var stripHeight: CGFloat {
-        PaneChromeMetrics.current.resolvedStripHeight(scale: window?.backingScaleFactor ?? 2)
+        hidesStrip ? 0 : PaneChromeMetrics.current.resolvedStripHeight(scale: window?.backingScaleFactor ?? 2)
     }
 
     override func viewDidChangeBackingProperties() {
