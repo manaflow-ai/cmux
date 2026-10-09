@@ -178,7 +178,8 @@ export class StackTeamSync {
     }
     const mirrored = commit("team.stack_mirror", { team: deps.team, stack_team: ev.stack_team, display_name: displayName(team.display_name, "Team") })
     if (mirrored) return mirrored
-    if (ev.stack_user === undefined) return "team_mirrored"
+    // Stack sends no membership event for a team's creator or a sign-up personal team: a team event mirrors Stack's member list.
+    if (ev.stack_user === undefined) return (await this.syncMembers(deps, stack, ev, attempt, commit)) ?? "team_mirrored"
     const member = await stack.getTeamMember(ev.stack_team, ev.stack_user)
     // The team was there a moment ago: never a tombstone from this read, only a later re-check.
     if (member === "team_gone") return schedule(deps.sql, ev, attempt, Date.now()) ? "team_missing_recheck" : "team_missing_dropped"
@@ -187,7 +188,33 @@ export class StackTeamSync {
     if (member === null) return commit("team.member.remove", { user, from_stack: true }) ?? "member_absent"
     return commit("team.member.provision", { user, role: "member", source: "stack", display_name: displayName(member.display_name, "Member") }) ?? "member_present"
   }
+
+  /** Adds every member Stack lists and removes every member it no longer lists; a reject or a missing team is the outcome, else undefined. */
+  private async syncMembers(deps: StackSyncDeps, stack: StackServer, ev: StackEvent, attempt: number, commit: (op: string, params: Record<string, unknown>) => string | undefined): Promise<string | undefined> {
+    const listed = await stack.listTeamMembers(ev.stack_team)
+    if (listed === "team_gone") return schedule(deps.sql, ev, attempt, Date.now()) ? "team_missing_recheck" : "team_missing_dropped"
+    const want = new Map(listed.map((m) => [userIdFor(deps.stackProjectId, UUIDISH.test(m.user_id) ? m.user_id.toLowerCase() : m.user_id), m] as const))
+    for (const [user, m] of want) {
+      const r = commit("team.member.provision", { user, role: "member", source: "stack", display_name: displayName(m.display_name, "Member") })
+      if (r) return r
+    }
+    const gone: Array<string> = []
+    let after: string | undefined
+    for (;;) {
+      const page = listMembers(deps.state(), deps.rows(), after, 200)
+      for (const m of page.items) if (!want.has(m.user)) gone.push(m.user)
+      if (!page.next) break
+      after = page.next
+    }
+    for (const user of gone) {
+      const r = commit("team.member.remove", { user, from_stack: true })
+      if (r) return r
+    }
+    return undefined
+  }
 }
+
+const UUIDISH = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 const ensureTables = (sql: SqlStorage) => {
   sql.exec(`CREATE TABLE IF NOT EXISTS stack_webhook_events (svix_id TEXT PRIMARY KEY, at INTEGER NOT NULL, outcome TEXT NOT NULL)`)
