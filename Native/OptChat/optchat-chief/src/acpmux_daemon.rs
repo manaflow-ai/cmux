@@ -194,6 +194,10 @@ fn spawn(socket: &Path, bin: Option<&str>, log: &dyn Fn(&str)) -> Result<u32, St
         .args(["daemon", "run"])
         .env("ACPMUX_HOME", &home)
         .env("ACPMUX_SOCKET", socket)
+        // LAUNCH-NO-TCC-PROMPTS: in its own home, never the host's folder
+        // (the app's `/`, or the home folder); what it starts without a
+        // folder of its own inherits this one.
+        .current_dir(&home)
         .stdin(Stdio::null())
         .stdout(out)
         .stderr(err)

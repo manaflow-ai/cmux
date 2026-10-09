@@ -114,7 +114,9 @@ public struct InviteReceipt: Hashable, Sendable {
 
 /// Why the owner refused an op, or why the client refused to send it.
 public enum HomeRejection: Error, Hashable, Sendable {
-    /// The owner is unreachable; nothing queues (U5).
+    /// The owner is unreachable. Ops other than sends are refused (U5); a
+    /// send waits for the reconnect and fails with this only after
+    /// `HomeStore.offlineSendDeadline` (Messages parity).
     case ownerUnreachable
     case notAuthorized
     case invalid(String)
