@@ -22,6 +22,13 @@
 //! same-origin frame documents). Equal counts mean no closed root holds a
 //! node, and the walk is skipped (about 30 ms on 200k nodes). Any other
 //! result, or an error, walks.
+//!
+//! A skip cannot be cached: without `getDocument` no node events come, so
+//! the next sync counts again. A walk can be cached until the next DOM
+//! event. So a session counts while the counts it paid since its last walk
+//! cost less than a walk is estimated to cost (`walk_is_cheaper`), and then
+//! walks once: a static page stops paying per call, a changing page keeps
+//! the count. Both paths read the same roots.
 
 use super::driver::{Inner, Session};
 use super::evaluate::{Context, handle_group};
@@ -73,6 +80,21 @@ pub struct SessionRoots {
     /// DOM events since the last walk, and when that walk ran.
     events_since_read: u64,
     last_read: Option<Instant>,
+    /// Node counts since the last walk: their total ms, and the node count
+    /// the last one found (the walk's cost estimate).
+    counted_ms: f64,
+    last_count: Option<u64>,
+}
+
+/// Estimated cost of `DOM.getDocument {pierce}` per node: about 700 ms for
+/// 200k nodes on the Testbox and on an M5 Pro.
+const WALK_MS_PER_NODE: f64 = 0.0035;
+
+/// True when the counts paid since the last walk reach the estimated cost
+/// of a walk of `nodes` nodes, so walking (cached until a DOM event) is now
+/// the cheaper choice. Without a count yet, counting is.
+pub fn walk_is_cheaper(counted_ms: f64, nodes: Option<u64>) -> bool {
+    nodes.is_some_and(|nodes| counted_ms >= nodes as f64 * WALK_MS_PER_NODE)
 }
 
 impl SessionRoots {
@@ -210,44 +232,58 @@ impl Inner {
         world: World,
         deadline: Instant,
     ) -> Result<(), DriverError> {
-        let root_frame = {
+        let (root_frame, dom_was_on, counted_ms, last_count) = {
             let mut state = self.lock();
             let Some(tab) = state.tabs.get_mut(&session.target_id) else {
                 return Ok(());
             };
             let entry = tab.closed_roots.entry(cdp.to_owned()).or_default();
+            let dom_was_on = entry.dom_on;
+            let (counted_ms, last_count) = (entry.counted_ms, entry.last_count);
             // Fresh from now on: a DOM event during the walk marks it stale
             // again. The walk's getDocument turns the DOM domain on.
             *entry = SessionRoots {
                 fresh: true,
                 dom_on: true,
                 last_read: Some(Instant::now()),
+                counted_ms,
+                last_count,
                 ..SessionRoots::default()
             };
-            if cdp == tab.session_id {
+            let root_frame = if cdp == tab.session_id {
                 tab.main_frame.clone()
             } else {
                 tab.frame_sessions.iter().find(|(_, s)| s.as_str() == cdp).map(|(f, _)| f.clone())
-            }
+            };
+            (root_frame, dom_was_on, counted_ms, last_count)
         };
         let Some(root_frame) = root_frame else {
             return Ok(());
         };
         let started = Instant::now();
-        if self.no_closed_root_nodes(session, cdp, &root_frame, world, deadline) {
+        if !walk_is_cheaper(counted_ms, last_count) {
+            let count = self.closed_root_count(session, cdp, &root_frame, world, dom_was_on, deadline);
+            let ms = started.elapsed().as_secs_f64() * 1000.0;
             let mut state = self.lock();
             if let Some(tab) = state.tabs.get_mut(&session.target_id) {
-                tab.closed_root_stats.skips += 1;
-                tab.closed_root_stats.skip_ms += started.elapsed().as_secs_f64() * 1000.0;
-                // Not fresh: without getDocument no node events come, so
-                // the next sync counts again.
                 if let Some(entry) = tab.closed_roots.get_mut(cdp) {
-                    entry.fresh = false;
-                    entry.by_frame.clear();
+                    entry.counted_ms += ms;
+                    entry.last_count = count.map(|(nodes, _)| nodes).or(entry.last_count);
+                }
+                if count.is_some_and(|(_, none)| none) {
+                    tab.closed_root_stats.skips += 1;
+                    tab.closed_root_stats.skip_ms += ms;
+                    // Not fresh: without getDocument no node events come,
+                    // so the next sync counts again.
+                    if let Some(entry) = tab.closed_roots.get_mut(cdp) {
+                        entry.fresh = false;
+                        entry.by_frame.clear();
+                    }
+                    return Ok(());
                 }
             }
-            return Ok(());
         }
+        let started = Instant::now();
         let document =
             self.send_on(cdp, "DOM.getDocument", json!({"depth": -1, "pierce": true}), deadline)?;
         let mut by_frame = HashMap::new();
@@ -261,26 +297,27 @@ impl Inner {
             stats.roots += roots as u64;
             if let Some(entry) = tab.closed_roots.get_mut(cdp) {
                 entry.by_frame = by_frame;
+                entry.counted_ms = 0.0;
             }
         }
         Ok(())
     }
 
-    /// True when the node count shows that no closed shadow root of the
-    /// session holds a node. False on any error (the caller walks).
-    fn no_closed_root_nodes(
+    /// The session's node count (`DOM.performSearch`) and whether it shows
+    /// that no closed shadow root holds a node. None on any error (the
+    /// caller walks).
+    fn closed_root_count(
         &self,
         session: &Session,
         cdp: &str,
         root_frame: &str,
         world: World,
+        dom_on: bool,
         deadline: Instant,
-    ) -> bool {
-        let Ok(context) = self.context(session, root_frame, world, deadline) else {
-            return false;
-        };
+    ) -> Option<(u64, bool)> {
+        let context = self.context(session, root_frame, world, deadline).ok()?;
         if context.session != cdp {
-            return false;
+            return None;
         }
         let reachable = self
             .send_on(
@@ -291,25 +328,24 @@ impl Inner {
             )
             .ok()
             .and_then(|reply| reply["result"]["value"].as_u64());
-        let Some(reachable) = reachable else {
-            return false;
-        };
+        let reachable = reachable?;
         // performSearch needs the DOM domain (a walk turns it on too).
-        if self.send_on(cdp, "DOM.enable", json!({}), deadline).is_err() {
-            return false;
+        if !dom_on {
+            self.send_on(cdp, "DOM.enable", json!({}), deadline).ok()?;
         }
-        let Ok(search) = self.send_on(
-            cdp,
-            "DOM.performSearch",
-            json!({"query": "", "includeUserAgentShadowDOM": false}),
-            deadline,
-        ) else {
-            return false;
-        };
+        let search = self
+            .send_on(
+                cdp,
+                "DOM.performSearch",
+                json!({"query": "", "includeUserAgentShadowDOM": false}),
+                deadline,
+            )
+            .ok()?;
         if let Some(id) = search["searchId"].as_str() {
             let _ = self.send_on(cdp, "DOM.discardSearchResults", json!({"searchId": id}), deadline);
         }
-        search["resultCount"].as_u64() == Some(reachable)
+        let nodes = search["resultCount"].as_u64()?;
+        Some((nodes, nodes == reachable))
     }
 
     fn adopt(
@@ -395,6 +431,19 @@ mod tests {
 
     fn roots(state: &State) -> &SessionRoots {
         &state.tabs["T"].closed_roots["S"]
+    }
+
+    #[test]
+    fn a_session_counts_until_the_counts_cost_a_walk() {
+        // No count yet: count.
+        assert!(!walk_is_cheaper(0.0, None));
+        assert!(!walk_is_cheaper(1e9, None));
+        // 200k nodes: a walk is about 700 ms.
+        assert!(!walk_is_cheaper(0.0, Some(200_000)));
+        assert!(!walk_is_cheaper(699.0, Some(200_000)));
+        assert!(walk_is_cheaper(700.0, Some(200_000)));
+        // A small page walks soon: its walk is cheap too.
+        assert!(walk_is_cheaper(1.0, Some(100)));
     }
 
     #[test]
