@@ -1818,16 +1818,31 @@ fn size_retries_of_a_marked_node_end_with_our_mark_and_stay_within_4() {
     run_node(&compactor, &request).unwrap();
     let prompts = agents.inner.lock().unwrap().prompts.clone();
     assert_eq!(prompts.len(), optchat_core::TRIES, "the size loop ran out");
-    let marks = |blocks: &[Value]| blocks.iter().filter(|b| b.get("cache_control").is_some()).count();
+    let marks = |blocks: &[Value]| {
+        blocks
+            .iter()
+            .filter(|b| b.get("cache_control").is_some())
+            .count()
+    };
     assert_eq!(marks(&prompts[0]), 1, "the view mark");
     let mut total = 1;
     for (k, p) in prompts.iter().enumerate().skip(1) {
         let m = marks(p);
         if k <= 3 {
             assert_eq!(m, 1, "retry {k} ends with our mark: {p:?}");
-            assert!(p.last().unwrap().get("cache_control").is_some(), "on its last block");
+            assert!(
+                p.last().unwrap().get("cache_control").is_some(),
+                "on its last block"
+            );
             let ttl = &p.last().unwrap()["cache_control"];
-            assert_eq!(ttl, &prompts[0].iter().find(|b| b.get("cache_control").is_some()).unwrap()["cache_control"], "the node's TTL");
+            assert_eq!(
+                ttl,
+                &prompts[0]
+                    .iter()
+                    .find(|b| b.get("cache_control").is_some())
+                    .unwrap()["cache_control"],
+                "the node's TTL"
+            );
         }
         total += m;
     }

@@ -317,6 +317,8 @@ struct Live {
     system: Option<String>,
     /// The node's first message carries our mark (Claude Code's own off).
     ours: bool,
+    /// The TTL of the node's marks.
+    ttl: CacheTtl,
     opened: Instant,
     prompts: u32,
     /// Token use the harness reported, summed over the node's prompts.
@@ -593,6 +595,7 @@ impl AcpmuxCompactor {
                     preset,
                     system: system.map(str::to_owned),
                     ours,
+                    ttl,
                     opened: Instant::now(),
                     prompts: 0,
                     usage: None,
@@ -959,14 +962,23 @@ impl AcpmuxCompactor {
                 )
             }
             Some(last) => {
-                let session = self
+                let (session, ours, ttl) = self
                     .live
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .get(&node)
-                    .map(|l| l.id.clone())
+                    .map(|l| (l.id.clone(), l.ours, l.ttl))
                     .ok_or_else(|| ModelError::new("the node's compactor session is gone"))?;
-                (session, vec![text_block(&last.retry)])
+                let mut block = text_block(&last.retry);
+                // With our mark, Claude Code places none of its own: each
+                // retry ends with ours, so it reads the previous request
+                // from the cache. The view mark and RETRY_MARKS retry marks
+                // stay within the API's 4; a later retry reads the last
+                // marked request's entry unmarked.
+                if ours && followups.len() <= RETRY_MARKS {
+                    block["cache_control"] = ttl.cache_control();
+                }
+                (session, vec![block])
             }
         };
         self.prompt(node, &session, blocks, started)
@@ -1131,6 +1143,10 @@ pub(crate) fn private_dir(dir: &Path) -> io::Result<()> {
         .create(dir)?;
     std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
 }
+
+/// Size-loop retries of a node with our mark that carry a mark of their own:
+/// with the view mark, the API's limit of 4 per request.
+pub const RETRY_MARKS: usize = 3;
 
 fn text_block(text: &str) -> Value {
     json!({"type": "text", "text": text})
