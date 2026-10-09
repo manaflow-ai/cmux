@@ -334,13 +334,13 @@ struct TerminalImageTransferConcurrencyTests {
         let service = TerminalImageTransferPreparationService(
             deadline: .seconds(30),
             operation: { try await operation.run($0) },
+            cleanup: { _ in },
             fastOperation: { request in
                 guard request.pasteboard.pasteboardName.contains("fast") else {
                     return nil
                 }
                 return .terminal(.insertText("fast-path"))
             },
-            cleanup: { _ in },
             failureSignal: { _ in }
         )
         var started = operation.startedEvents().makeAsyncIterator()
