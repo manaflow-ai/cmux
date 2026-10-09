@@ -329,6 +329,8 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.click({ selector: ".acpmux-effort .acpmux-picker-button" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-effort-menu"));
+        await ctx.click({ role: "menuitemradio", name: /^Fast/ });
+        await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-effort-menu"));
       },
     },
     "model-menu-keyboard": {

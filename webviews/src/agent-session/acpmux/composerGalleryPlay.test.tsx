@@ -7,7 +7,19 @@ import composerGallery from "./composer.gallery";
 const dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true });
 const doc = dom.window.document;
 const scope = globalThis as Record<string, unknown>;
-const keys = ["window", "document", "navigator", "HTMLElement", "Element", "localStorage", "IS_REACT_ACT_ENVIRONMENT"];
+const keys = [
+  "window",
+  "document",
+  "navigator",
+  "HTMLElement",
+  "Element",
+  "Node",
+  "getComputedStyle",
+  "localStorage",
+  "requestAnimationFrame",
+  "cancelAnimationFrame",
+  "IS_REACT_ACT_ENVIRONMENT",
+];
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, {
   window: dom.window,
@@ -15,7 +27,11 @@ Object.assign(scope, {
   navigator: dom.window.navigator,
   HTMLElement: dom.window.HTMLElement,
   Element: dom.window.Element,
+  Node: dom.window.Node,
+  getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
   localStorage: { getItem: () => null, setItem: () => {} },
+  requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
+  cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
   IS_REACT_ACT_ENVIRONMENT: true,
 });
 afterAll(() => {
@@ -144,6 +160,28 @@ test("keyboard gallery play checks that the highlighted model actually changes",
     await variant.play!(ctx);
   } finally {
     dom.window.HTMLInputElement.prototype.focus = focus;
+    await act(async () => root.unmount());
+  }
+});
+
+test("Codex reasoning gallery play selects a service tier and closes the menu", async () => {
+  const variant = composerGallery.variants["reasoning-codex"]!;
+  const root = createRoot(doc.getElementById("root")!);
+  try {
+    await act(async () => {
+      root.render(
+        createElement(ComposerPickers, {
+          snapshot: variant.snapshot,
+          onModel: () => {},
+          onMode: () => {},
+          onEffort: () => {},
+          onHarness: () => {},
+        }),
+      );
+    });
+    await variant.play!(ctx);
+    expect(doc.querySelector(".acpmux-effort-menu")).toBeNull();
+  } finally {
     await act(async () => root.unmount());
   }
 });
