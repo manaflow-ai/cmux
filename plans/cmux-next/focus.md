@@ -264,7 +264,7 @@ palette, a directional move, a script). A pane position breaks a tie.
   never focused has no history, so position decides.
 
 Tests: `FocusHistoryNavigationTests` (reducer plus navigation in several split layouts,
-strip columns, screens, workspaces, closed panes, every source), `FocusNavigationTests`.
+strip columns, screens, workspaces, closed panes, every source).
 
 ## 5. Keyboard routing (one router, `KeyRouter`)
 

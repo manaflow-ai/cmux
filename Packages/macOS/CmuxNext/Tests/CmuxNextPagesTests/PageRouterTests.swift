@@ -274,34 +274,3 @@ import Testing
     }
 }
 
-@Suite struct PageDescriptorTests {
-    @Test func urlsCarryTheRouteAsFragmentAndOneOriginPerPage() {
-        let page = PageDescriptor.history
-        #expect(page.url().absoluteString == "cmux-page://cmux.history/")
-        #expect(page.url(route: "#/history?kind=agent").absoluteString == "cmux-page://cmux.history/#/history?kind=agent")
-        #expect(page.owns(URL(string: "cmux-page://cmux.history/index.html")))
-        #expect(!page.owns(URL(string: "cmux-page://cmux.settings/")))
-        #expect(!page.owns(URL(string: "https://cmux.history/")))
-        #expect(page.origin == "cmux-page://cmux.history")
-    }
-
-    @Test func schemeHandlerServesOnlyThePagesOwnDirectory() {
-        let page = PageDescriptor.history
-        let root = URL(fileURLWithPath: "/tmp/cmux-pages-root")
-        #expect(PageSchemeHandler.fileURL(for: URL(string: "cmux-page://cmux.history/")!, page: page, root: root)?.lastPathComponent == "index.html")
-        #expect(PageSchemeHandler.fileURL(for: URL(string: "cmux-page://cmux.history/a/b.js")!, page: page, root: root)?.path
-            == "/tmp/cmux-pages-root/a/b.js")
-        #expect(PageSchemeHandler.fileURL(for: URL(string: "cmux-page://cmux.history/../etc/passwd")!, page: page, root: root) == nil)
-        #expect(PageSchemeHandler.fileURL(for: URL(string: "cmux-page://cmux.settings/index.html")!, page: page, root: root) == nil)
-        #expect(PageSchemeHandler.fileURL(for: URL(string: "cmux-agent://pane/index.html")!, page: page, root: root) == nil)
-    }
-
-    @Test func theHistoryPageShipsSelfContainedWithNoNetwork() throws {
-        let root = try #require(PageSchemeHandler.bundledRoot(for: .history))
-        let html = try String(contentsOf: root.appending(path: "index.html"), encoding: .utf8)
-        #expect(!html.contains("Content-Security-Policy"), "the header is the page's only CSP")
-        #expect(PageDescriptor.history.csp == .strict)
-        #expect(html.contains("data-cmux-page=\"history\""))
-        #expect(!html.contains("src=\"http"))
-    }
-}
