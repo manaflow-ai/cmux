@@ -75,6 +75,22 @@ on:
         required: false
         default: false
         type: boolean
+      notary_test_import_part:
+        description: nightly-next only. cx-f58x notary bisect. One diagnostic notary submission of a build with exactly this one browser-import part compiled out (cookies = CMUX_NO_COOKIE_IMPORT, safe-storage = CMUX_NO_SAFE_STORAGE_READ, history = CMUX_NO_HISTORY_IMPORT, registry = empty browser-sources.json). Every other import part stays in. Nothing is published.
+        required: false
+        default: none
+        type: choice
+        options:
+          - none
+          - cookies
+          - safe-storage
+          - history
+          - registry
+      notary_probe_production_identity:
+        description: nightly-next only. One notary submission of this build as the production identity (com.cmuxterm.app, cmux.release.entitlements, release profile) with the browser-data import compiled out. There is no Sparkle key or feed, no DMG or app artifact, and no recovery artifact. Only text receipts are uploaded and nothing is published.
+        required: false
+        default: false
+        type: boolean
       promote_nightly_next_sha:
         description: Main only. Move branch nightly-next to this green feat-cmux-next commit (40 hex) and build nothing in this run; the push run on nightly-next publishes it.
         required: false
@@ -116,7 +132,7 @@ concurrency:
   # Keep scheduled and manually requested cache seeds in different groups. A
   # scheduled tick may replace an older scheduled tick, but must never cancel
   # an explicit manual refresh that happens to be running at the same time.
-  group: nightly-build-${{ github.ref_name == 'main' && 'nightly-shared' || github.ref_name }}-${{ github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && format('nightly-next-promote-{0}', github.run_id) || github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled' || inputs.seed_only && 'cache-seed-manual' || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && (inputs.notary_test_without_password_import || inputs.notary_test_without_browser_data_import) && format('notary-test-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
+  group: nightly-build-${{ github.ref_name == 'main' && 'nightly-shared' || github.ref_name }}-${{ github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && format('nightly-next-promote-{0}', github.run_id) || github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled' || inputs.seed_only && 'cache-seed-manual' || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && (inputs.notary_test_without_password_import || inputs.notary_test_without_browser_data_import || inputs.notary_probe_production_identity || (inputs.notary_test_import_part || 'none') != 'none') && format('notary-test-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
   cancel-in-progress: false
 
 permissions: {}
@@ -136,6 +152,16 @@ env:
   # SUPublicEDKey of the cmux-next track. The build refuses a
   # SPARKLE_NEXT_PRIVATE_KEY that does not derive this public key.
   NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY: IOPItMLjtc4NsROTNZ6a/jsUW+C4fcicl6SNjVVvzRM=
+  # cx-f58x (Lawrence, 2026-10-09): Apple notarizes nightly-next only with the
+  # browser-data import compiled out. On commit 73210f2 the normal build
+  # (de5255b1) got status 7000 and the compiled-out build (52c6c12d) was
+  # Accepted. While this is `compiled-out`, every nightly-next build compiles
+  # the import out (CMUX_NO_PASSWORD_IMPORT, CMUX_NO_BROWSER_DATA_IMPORT, empty
+  # browser-sources.json), proves it, and may notarize and publish even with
+  # NIGHTLY_NEXT_NOTARY_PAUSED=1. Any other value builds the import in, and the
+  # pause then still stops that build before notarization, so a build with the
+  # import is never published while the pause is set.
+  NIGHTLY_NEXT_BROWSER_DATA_IMPORT: compiled-out
 
 jobs:
   decide:
@@ -159,6 +185,19 @@ jobs:
       notary_test: ${{ steps.decide.outputs.notary_test }}
       notary_test_browser_data: ${{ steps.decide.outputs.notary_test_browser_data }}
       no_publish: ${{ steps.decide.outputs.no_publish }}
+      # Which browser-import code this build carries (cx-f58x). `full`,
+      # `no-passwords`, `no-browser-data`, or `no-<part>` for a bisect build.
+      import_variant: ${{ steps.decide.outputs.import_variant }}
+      # The -D flags for OTHER_SWIFT_FLAGS (empty for `full`).
+      swift_import_flags: ${{ steps.decide.outputs.swift_import_flags }}
+      empty_browser_sources: ${{ steps.decide.outputs.empty_browser_sources }}
+      password_readers_out: ${{ steps.decide.outputs.password_readers_out }}
+      # The production-identity notary probe (receipts only, publishes nothing).
+      notary_probe: ${{ steps.decide.outputs.notary_probe }}
+      # Channel for the signing checks and the provisioning profile secret:
+      # the channel itself, or `stable` / `RELEASE` for the probe.
+      sign_channel: ${{ steps.decide.outputs.sign_channel }}
+      profile_channel: ${{ steps.decide.outputs.profile_channel }}
       variants: ${{ steps.decide.outputs.variants }}
       feeds: ${{ steps.decide.outputs.feeds }}
       legacy_variant: ${{ steps.decide.outputs.legacy_variant }}
@@ -212,8 +251,10 @@ jobs:
           # nothing (cx-f58x: every nightly-next DMG got notary status 7000
           # "Team is not yet configured for notarization" from 2026-10-07 12:34Z).
           NIGHTLY_NEXT_NOTARY_PAUSED: ${{ vars.NIGHTLY_NEXT_NOTARY_PAUSED || '' }}
-          NOTARY_TEST: ${{ github.event_name == 'workflow_dispatch' && (inputs.notary_test_without_password_import || inputs.notary_test_without_browser_data_import) && 'true' || 'false' }}
+          NOTARY_TEST_PASSWORDS: ${{ github.event_name == 'workflow_dispatch' && inputs.notary_test_without_password_import && 'true' || 'false' }}
           NOTARY_TEST_BROWSER_DATA: ${{ github.event_name == 'workflow_dispatch' && inputs.notary_test_without_browser_data_import && 'true' || 'false' }}
+          NOTARY_IMPORT_PART: ${{ github.event_name == 'workflow_dispatch' && inputs.notary_test_import_part || 'none' }}
+          NOTARY_PROBE: ${{ github.event_name == 'workflow_dispatch' && inputs.notary_probe_production_identity && 'true' || 'false' }}
         with:
           script: |
             const forceBuild = process.env.FORCE_BUILD === 'true';
@@ -296,6 +337,25 @@ jobs:
                 iconName: 'AppIcon-Nightly',
               },
             }[track];
+            // The production-identity notary probe (cx-f58x): this build is
+            // signed and notarized as the stable app. It never gets a feed, a
+            // Sparkle key, a release or a DMG artifact (see notary_probe below).
+            const notaryProbe = track === 'nightly-next' && process.env.NOTARY_PROBE === 'true';
+            if (notaryProbe) {
+              Object.assign(channelIdentity, {
+                bundleId: 'com.cmuxterm.app',
+                appName: 'cmux',
+                dmgPrefix: 'cmux-next-prodprobe-macos',
+                releaseTag: 'none',
+                releaseName: 'Production-identity notary probe',
+                feedBase: '',
+                entitlements: 'cmux.release.entitlements',
+                iconName: 'AppIcon',
+              });
+            }
+            core.setOutput('notary_probe', notaryProbe ? 'true' : 'false');
+            core.setOutput('sign_channel', notaryProbe ? 'stable' : channel);
+            core.setOutput('profile_channel', notaryProbe ? 'RELEASE' : channel.toUpperCase());
             core.setOutput('channel', channel);
             core.setOutput('track', track);
             core.setOutput('environment', isNextRef ? 'release-next' : 'release');
@@ -514,22 +574,71 @@ jobs:
             core.setOutput('short_sha', headSha.slice(0, 7));
             core.setOutput('published_sha', publishedSha || '');
             core.setOutput('should_publish', shouldPublish ? 'true' : 'false');
-            // The cx-f58x notary test: one nightly-next submission of a build
-            // without the password-import readers; never published.
-            const notaryTest = track === 'nightly-next' && process.env.NOTARY_TEST === 'true';
-            if (process.env.NOTARY_TEST === 'true' && !notaryTest) {
-              core.setFailed('notary_test_without_password_import runs only on nightly-next');
+            // cx-f58x notary tests: one nightly-next submission of a diagnostic
+            // build, never published. Exactly one selector per run.
+            const importPart = process.env.NOTARY_IMPORT_PART || 'none';
+            const partFlags = {
+              cookies: '-DCMUX_NO_COOKIE_IMPORT',
+              'safe-storage': '-DCMUX_NO_SAFE_STORAGE_READ',
+              history: '-DCMUX_NO_HISTORY_IMPORT',
+              registry: '',
+            };
+            if (importPart !== 'none' && !(importPart in partFlags)) {
+              core.setFailed(`unknown notary_test_import_part ${importPart}`);
             }
-            const notaryPaused = track === 'nightly-next' && process.env.NIGHTLY_NEXT_NOTARY_PAUSED === '1' && !notaryTest;
+            const selectors = [
+              process.env.NOTARY_TEST_PASSWORDS === 'true',
+              process.env.NOTARY_TEST_BROWSER_DATA === 'true',
+              importPart !== 'none',
+              process.env.NOTARY_PROBE === 'true',
+            ].filter(Boolean).length;
+            if (selectors > 1) {
+              core.setFailed('choose one notary test input per run (password, browser data, import part, or production probe)');
+            }
+            const notaryDispatch = selectors > 0;
+            const notaryTest = track === 'nightly-next' && notaryDispatch;
+            if (notaryDispatch && !notaryTest) {
+              core.setFailed('the notary test inputs run only on nightly-next');
+            }
+            // The browser-import code this build carries.
+            const shipWithoutImport = track === 'nightly-next' && process.env.NIGHTLY_NEXT_BROWSER_DATA_IMPORT === 'compiled-out';
+            let importVariant = 'full';
+            let swiftImportFlags = '';
+            let emptyBrowserSources = false;
+            if (notaryTest && importPart !== 'none') {
+              importVariant = `no-${importPart}`;
+              swiftImportFlags = partFlags[importPart] || '';
+              emptyBrowserSources = importPart === 'registry';
+            } else if (notaryTest && process.env.NOTARY_TEST_PASSWORDS === 'true') {
+              importVariant = 'no-passwords';
+              swiftImportFlags = '-DCMUX_NO_PASSWORD_IMPORT';
+            } else if (track === 'nightly-next' && (notaryTest || shipWithoutImport)) {
+              // The browser-data notary test, the production probe, and every
+              // published nightly-next build while the import is compiled out.
+              importVariant = 'no-browser-data';
+              swiftImportFlags = '-DCMUX_NO_PASSWORD_IMPORT -DCMUX_NO_BROWSER_DATA_IMPORT';
+              emptyBrowserSources = true;
+            }
+            const browserDataOut = importVariant === 'no-browser-data';
+            core.setOutput('import_variant', importVariant);
+            core.setOutput('swift_import_flags', swiftImportFlags);
+            core.setOutput('empty_browser_sources', emptyBrowserSources ? 'true' : 'false');
+            core.setOutput('password_readers_out', browserDataOut || importVariant === 'no-passwords' ? 'true' : 'false');
+            // NIGHTLY_NEXT_NOTARY_PAUSED=1 stops every nightly-next build that
+            // carries browser-import code; a compiled-out build may notarize.
+            const notaryPaused = track === 'nightly-next' && process.env.NIGHTLY_NEXT_NOTARY_PAUSED === '1' && !notaryTest && !browserDataOut;
             core.setOutput('notary_paused', notaryPaused ? 'true' : 'false');
             core.setOutput('notary_test', notaryTest ? 'true' : 'false');
-            core.setOutput('notary_test_browser_data', notaryTest && process.env.NOTARY_TEST_BROWSER_DATA === 'true' ? 'true' : 'false');
+            // Kept name: the browser-data absence proof runs for this output.
+            core.setOutput('notary_test_browser_data', browserDataOut ? 'true' : 'false');
             core.setOutput('no_publish', notaryPaused || notaryTest ? 'true' : 'false');
             if (notaryTest) {
-              core.notice('cx-f58x notary test: the browser password-import readers are compiled out (CMUX_NO_PASSWORD_IMPORT); one notary submission, nothing published.');
+              core.notice(`cx-f58x notary test (${notaryProbe ? 'production-identity probe, ' : ''}import ${importVariant}): one notary submission, nothing published.`);
+            } else if (browserDataOut) {
+              core.notice('nightly-next ships with the browser-data import compiled out (NIGHTLY_NEXT_BROWSER_DATA_IMPORT=compiled-out).');
             }
             if (notaryPaused && appBuildSelected) {
-              core.notice('nightly-next notarization is paused (repository variable NIGHTLY_NEXT_NOTARY_PAUSED=1): this run builds and signs, stops before the notary submission and publishes nothing.');
+              core.notice('nightly-next notarization is paused (repository variable NIGHTLY_NEXT_NOTARY_PAUSED=1) for a build that includes the browser import: this run builds and signs, stops before the notary submission and publishes nothing.');
             }
             core.summary
               .addHeading(`${channelIdentity.releaseName} build decision`)
@@ -1504,23 +1613,24 @@ jobs:
 
       - name: Build nightly app (Release)
         env:
-          NOTARY_TEST: ${{ needs.decide.outputs.notary_test }}
-          NOTARY_TEST_BROWSER_DATA: ${{ needs.decide.outputs.notary_test_browser_data }}
+          IMPORT_VARIANT: ${{ needs.decide.outputs.import_variant }}
+          SWIFT_IMPORT_FLAGS: ${{ needs.decide.outputs.swift_import_flags }}
+          EMPTY_BROWSER_SOURCES: ${{ needs.decide.outputs.empty_browser_sources }}
         run: |
           set -euo pipefail
-          # cx-f58x notary test only: compile out the browser password-import
-          # readers, and with notary_test_without_browser_data_import every read
-          # of another browser's files or Keychain items plus the shipped
-          # browser target list.
+          # cx-f58x: compile out browser-import code as `decide` chose (the
+          # notary tests, and every nightly-next build while
+          # NIGHTLY_NEXT_BROWSER_DATA_IMPORT=compiled-out).
+          echo "browser import variant: $IMPORT_VARIANT (flags: ${SWIFT_IMPORT_FLAGS:-none}, empty browser-sources.json: $EMPTY_BROWSER_SOURCES)"
           notary_test_flags=(build)
-          if [[ "$NOTARY_TEST_BROWSER_DATA" == true ]]; then
+          if [[ "$EMPTY_BROWSER_SOURCES" == true ]]; then
             printf '%s\n' '{"schemaVersion": 1, "engines": {}, "browsers": []}' \
               > Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport/Resources/browser-sources.json
+          fi
+          if [[ -n "$SWIFT_IMPORT_FLAGS" ]]; then
+            [[ "$SWIFT_IMPORT_FLAGS" =~ ^(-DCMUX_NO_[A-Z_]+ ?)+$ ]] || { echo "unexpected import flags: $SWIFT_IMPORT_FLAGS" >&2; exit 1; }
             # shellcheck disable=SC2016 # $(inherited) is an Xcode build setting, not a shell expansion
-            notary_test_flags=('OTHER_SWIFT_FLAGS=$(inherited) -DCMUX_NO_PASSWORD_IMPORT -DCMUX_NO_BROWSER_DATA_IMPORT' build)
-          elif [[ "$NOTARY_TEST" == true ]]; then
-            # shellcheck disable=SC2016 # $(inherited) is an Xcode build setting, not a shell expansion
-            notary_test_flags=('OTHER_SWIFT_FLAGS=$(inherited) -DCMUX_NO_PASSWORD_IMPORT' build)
+            notary_test_flags=("OTHER_SWIFT_FLAGS=\$(inherited) $SWIFT_IMPORT_FLAGS" build)
           fi
           if [[ "$NIGHTLY_FAST_BUILD" == "true" ]]; then
             archs="arm64"
@@ -1560,7 +1670,7 @@ jobs:
             "${notary_test_flags[@]}"
 
       - name: Prove the password-import readers are compiled out (cx-f58x notary test)
-        if: needs.decide.outputs.notary_test == 'true'
+        if: needs.decide.outputs.password_readers_out == 'true'
         run: |
           set -euo pipefail
           app="build-universal/Build/Products/Release/cmux.app"
@@ -1870,7 +1980,9 @@ jobs:
     # Apple's first wait overlaps useful work; finish it before the final DMG.
     # Sparkle delta generation runs after the full publication in a separate
     # best-effort lane, so it cannot delay the first update users can install.
-    timeout-minutes: 80
+    # A cx-f58x notary test waits up to 160 minutes for Apple (52c6c12d took
+    # over 90) because it has no recovery hand-off.
+    timeout-minutes: ${{ needs.decide.outputs.notary_test == 'true' && 200 || 80 }}
     # One universal Xcode build feeds every variant: the thin variants are cut
     # from it with lipo, so each user downloads only their architecture.
     strategy:
@@ -2040,6 +2152,8 @@ jobs:
           echo "$wrapper_dir" >> "$GITHUB_PATH"
 
       - name: Derive Sparkle public key from private key
+        # The production probe carries no Sparkle key, so it can never update.
+        if: needs.decide.outputs.notary_probe != 'true'
         env:
           # scripts/ci/nightly-sparkle-key.sh picks the key per channel and
           # NIGHTLY_SPARKLE_KEY; unset keeps the shared key.
@@ -2215,6 +2329,8 @@ jobs:
           fi
 
       - name: Inject nightly identities and metadata
+        env:
+          NOTARY_PROBE: ${{ needs.decide.outputs.notary_probe }}
         run: |
           set -euo pipefail
           SHORT_SHA="${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}"
@@ -2259,20 +2375,31 @@ jobs:
             /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:1:CFBundleURLSchemes:0 ${CHANNEL_URL_SCHEME}" "$app_plist"
             /usr/libexec/PlistBuddy -c "Delete :SUPublicEDKey" "$app_plist" >/dev/null 2>&1 || true
             /usr/libexec/PlistBuddy -c "Delete :SUFeedURL" "$app_plist" >/dev/null 2>&1 || true
-            /usr/libexec/PlistBuddy -c "Add :SUPublicEDKey string ${SPARKLE_PUBLIC_KEY}" "$app_plist"
-            /usr/libexec/PlistBuddy -c "Add :SUFeedURL string ${feed_url}" "$app_plist"
+            if [ "$NOTARY_PROBE" = true ]; then
+              # Production-identity probe: no key and no feed. Without
+              # SUPublicEDKey the updater never starts and Sparkle accepts no
+              # update, so this app can never update itself into any channel.
+              if /usr/libexec/PlistBuddy -c "Print :SUPublicEDKey" "$app_plist" >/dev/null 2>&1; then
+                echo "probe app still has SUPublicEDKey" >&2; exit 1
+              fi
+            else
+              /usr/libexec/PlistBuddy -c "Add :SUPublicEDKey string ${SPARKLE_PUBLIC_KEY}" "$app_plist"
+              /usr/libexec/PlistBuddy -c "Add :SUFeedURL string ${feed_url}" "$app_plist"
+            fi
             /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${NIGHTLY_MARKETING_VERSION}" "$app_plist"
             /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${NIGHTLY_BUILD}" "$app_plist"
             /usr/libexec/PlistBuddy -c "Delete :CMUXCommit" "$app_plist" >/dev/null 2>&1 || true
             /usr/libexec/PlistBuddy -c "Add :CMUXCommit string ${SHORT_SHA}" "$app_plist"
-            mv "$app_dir/cmux.app" "$app_dir/${CHANNEL_APP_NAME}.app"
+            if [ "$CHANNEL_APP_NAME" != cmux ]; then
+              mv "$app_dir/cmux.app" "$app_dir/${CHANNEL_APP_NAME}.app"
+            fi
           }
 
           prepare_variant \
             "$APP_DIR" \
             "$CHANNEL_BUNDLE_ID" \
             "${CHANNEL_FEED_BASE}/${NIGHTLY_APPCAST}"
-          if [ "$TRACK" = "nightly-next" ]; then
+          if [ "$TRACK" = "nightly-next" ] && [ "$NOTARY_PROBE" != true ]; then
             python3 scripts/ci/nightly-next-guard.py feed-url \
               "$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "$APP_DIR/${CHANNEL_APP_NAME}.app/Contents/Info.plist")"
           fi
@@ -2335,8 +2462,8 @@ jobs:
       # APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64 / APPLE_RC_PROVISIONING_PROFILE_BASE64.
       - name: Embed channel provisioning profile
         env:
-          APP_PROVISIONING_PROFILE_BASE64: ${{ secrets[format('APPLE_{0}_PROVISIONING_PROFILE_BASE64', needs.decide.outputs.channel_upper)] }}
-          PROFILE_SECRET_NAME: APPLE_${{ needs.decide.outputs.channel_upper }}_PROVISIONING_PROFILE_BASE64
+          APP_PROVISIONING_PROFILE_BASE64: ${{ secrets[format('APPLE_{0}_PROVISIONING_PROFILE_BASE64', needs.decide.outputs.profile_channel)] }}
+          PROFILE_SECRET_NAME: APPLE_${{ needs.decide.outputs.profile_channel }}_PROVISIONING_PROFILE_BASE64
         run: |
           if [ -z "$APP_PROVISIONING_PROFILE_BASE64" ]; then
             echo "Missing $PROFILE_SECRET_NAME secret" >&2
@@ -2372,6 +2499,15 @@ jobs:
             fi
           else
             echo "$CHANNEL entitlements do not request the WebAuthn browser entitlement; skipping the profile check"
+          fi
+
+          # Refuse an expired profile (an unparsable date is only reported).
+          EXPIRES="$(/usr/libexec/PlistBuddy -c "Print :ExpirationDate" "$TMP_PLIST" 2>/dev/null || true)"
+          EXPIRES_EPOCH="$(date -j -f '%a %b %d %T %Z %Y' "$EXPIRES" +%s 2>/dev/null || true)"
+          echo "$PROFILE_SECRET_NAME expires: ${EXPIRES:-unknown}"
+          if [ -n "$EXPIRES_EPOCH" ] && [ "$EXPIRES_EPOCH" -le "$(date +%s)" ]; then
+            echo "$CHANNEL provisioning profile expired: $EXPIRES" >&2
+            exit 1
           fi
 
           PROVISIONS_ALL_DEVICES="$(/usr/libexec/PlistBuddy -c "Print :ProvisionsAllDevices" "$TMP_PLIST")"
@@ -2456,15 +2592,17 @@ jobs:
         # an Accepted build is stapled and published by this run, and one still
         # in Apple's queue is handed to a later nightly-next run through the
         # recovery artifact below.
-        timeout-minutes: 50
+        timeout-minutes: ${{ needs.decide.outputs.notary_test == 'true' && 170 || 50 }}
         env:
-          CMUX_NOTARY_WAIT_TIMEOUT: 40m
+          CMUX_NOTARY_WAIT_TIMEOUT: ${{ needs.decide.outputs.notary_test == 'true' && '160m' || '40m' }}
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          CMUX_NOTARY_PENDING_ON_TIMEOUT: ${{ needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && 'true' || 'false' }}
-          CMUX_CHANNEL: ${{ needs.decide.outputs.channel }}
+          # Only a build that may publish hands a pending submission to a
+          # later run; a notary test waits here and is never continued.
+          CMUX_NOTARY_PENDING_ON_TIMEOUT: ${{ needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && 'true' || 'false' }}
+          CMUX_CHANNEL: ${{ needs.decide.outputs.sign_channel }}
         run: |
           ./scripts/ci/notarize-nightly-dmg.sh \
             "$CHANNEL_APP_PATH" \
@@ -2474,7 +2612,7 @@ jobs:
       - name: Prepare pending notarization recovery artifact
         id: prepare-notarization-recovery
         if: >-
-          always() && needs.decide.outputs.track == 'nightly-next' &&
+          always() && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.no_publish != 'true' &&
           (steps.notarize-nightly.outputs.submission_pending == 'true' || steps.notarize-nightly.outcome == 'failure')
         run: |
           set -euo pipefail
@@ -2614,7 +2752,7 @@ jobs:
         run: syspolicy_check distribution "$CHANNEL_APP_PATH"
 
       - name: Generate Sparkle appcasts (nightly)
-        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && steps.notarize-nightly.outputs.submission_pending != 'true'
+        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && steps.notarize-nightly.outputs.submission_pending != 'true' && needs.decide.outputs.notary_test != 'true'
         env:
           NIGHTLY_SPARKLE_KEY: ${{ vars.NIGHTLY_SPARKLE_KEY }}
           CHANNEL: ${{ needs.decide.outputs.channel }}
@@ -2643,7 +2781,7 @@ jobs:
           fi
 
       - name: Upload nightly variant artifacts
-        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && steps.notarize-nightly.outputs.submission_pending != 'true'
+        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && steps.notarize-nightly.outputs.submission_pending != 'true' && needs.decide.outputs.notary_test != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-variant-${{ matrix.variant }}
@@ -2665,6 +2803,62 @@ jobs:
             remote-daemon-assets/cmuxd-remote-*
           if-no-files-found: error
           retention-days: 3
+
+      # cx-f58x notary tests leave text receipts only: the repository is
+      # public, so no app, DMG or recovery artifact of a diagnostic build or
+      # of the production-identity probe is ever uploaded.
+      - name: Write notary test receipt
+        id: notary-receipt
+        if: always() && needs.decide.outputs.notary_test == 'true' && steps.notarize-nightly.outcome != 'skipped'
+        env:
+          IMPORT_VARIANT: ${{ needs.decide.outputs.import_variant }}
+          SWIFT_IMPORT_FLAGS: ${{ needs.decide.outputs.swift_import_flags }}
+          EMPTY_BROWSER_SOURCES: ${{ needs.decide.outputs.empty_browser_sources }}
+          NOTARY_PROBE: ${{ needs.decide.outputs.notary_probe }}
+          NOTARIZE_OUTCOME: ${{ steps.notarize-nightly.outcome }}
+        run: |
+          set -uo pipefail
+          out="notary-receipt"
+          mkdir -p "$out"
+          {
+            echo "run: $GITHUB_RUN_ID attempt ${GITHUB_RUN_ATTEMPT:-1}"
+            echo "commit: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}"
+            echo "bundle id: $CHANNEL_BUNDLE_ID"
+            echo "production probe: $NOTARY_PROBE"
+            echo "import variant: $IMPORT_VARIANT"
+            echo "swift flags: ${SWIFT_IMPORT_FLAGS:-none}"
+            echo "empty browser-sources.json: $EMPTY_BROWSER_SOURCES"
+            echo "notarize step: $NOTARIZE_OUTCOME"
+            if [ -f "$NIGHTLY_DMG_RELEASE" ]; then echo "dmg sha256: $(shasum -a 256 "$NIGHTLY_DMG_RELEASE" | cut -d' ' -f1)"; fi
+            if [ -f "$NIGHTLY_DMG_RELEASE.notarization.state" ]; then grep -E '^(submission_id|status)=' "$NIGHTLY_DMG_RELEASE.notarization.state" || true; fi
+          } > "$out/receipt.txt"
+          [ -f "$NIGHTLY_DMG_RELEASE.notarization.log" ] && cp "$NIGHTLY_DMG_RELEASE.notarization.log" "$out/notarization.log"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$CHANNEL_APP_PATH/Contents/Info.plist" > "$out/bundle-id.txt" 2>&1
+          if /usr/libexec/PlistBuddy -c "Print :SUPublicEDKey" "$CHANNEL_APP_PATH/Contents/Info.plist" >/dev/null 2>&1; then
+            echo "SUPublicEDKey present" > "$out/sparkle.txt"
+          else
+            echo "SUPublicEDKey absent (Sparkle disabled)" > "$out/sparkle.txt"
+          fi
+          codesign -dvv "$CHANNEL_APP_PATH" > "$out/codesign.txt" 2>&1
+          xcrun stapler validate "$CHANNEL_APP_PATH" > "$out/stapler-app.txt" 2>&1
+          [ -f "$NIGHTLY_DMG_RELEASE" ] && xcrun stapler validate "$NIGHTLY_DMG_RELEASE" > "$out/stapler-dmg.txt" 2>&1
+          spctl -a -vv -t exec "$CHANNEL_APP_PATH" > "$out/spctl-app.txt" 2>&1
+          [ -f "$NIGHTLY_DMG_RELEASE" ] && spctl -a -vv -t open --context context:primary-signature "$NIGHTLY_DMG_RELEASE" > "$out/spctl-dmg.txt" 2>&1
+          syspolicy_check distribution "$CHANNEL_APP_PATH" > "$out/syspolicy-check.txt" 2>&1
+          cat "$out/receipt.txt" "$out/sparkle.txt" "$out/stapler-app.txt"
+          { echo "### cx-f58x notary test receipt"; echo '```'; cat "$out/receipt.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          # Receipts are text only: refuse to upload anything else.
+          if find "$out" -type f ! -name '*.txt' ! -name '*.log' | grep -q .; then echo "non-text receipt file" >&2; exit 1; fi
+          exit 0
+
+      - name: Upload notary test receipt
+        if: always() && steps.notary-receipt.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-notary-test-receipt-${{ needs.decide.outputs.import_variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
+          path: notary-receipt/
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Cleanup keychain
         if: always()
@@ -3665,7 +3859,7 @@ jobs:
   # (run 37526646874 published with its notes job cancelled and no alarm).
   report-nightly-failure:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client, build-sign-notarize-nightly, publish-nightly, generate-nightly-deltas, republish-nightly-deltas, sign-release-notes, publish-release-notes]
-    if: always() && needs.decide.outputs.should_publish == 'true' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || needs.publish-nightly.outputs.tag_status == 'stale' || (needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && (needs.sign-release-notes.result != 'success' || needs.publish-release-notes.result != 'success')))
+    if: always() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.notary_test != 'true' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || needs.publish-nightly.outputs.tag_status == 'stale' || (needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && (needs.sign-release-notes.result != 'success' || needs.publish-release-notes.result != 'success')))
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
