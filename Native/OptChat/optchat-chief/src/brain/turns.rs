@@ -163,7 +163,7 @@ impl Brain {
                             marked.then_some(CacheTtl::FiveMinutes)
                         };
                         let stale = ttl_stale.load(Ordering::SeqCst);
-                        match (&outcome.error, ours) {
+                        let outcome = match (&outcome.error, ours) {
                             // The API refused our TTL next to Claude Code's.
                             // A pooled session started under the other TTL
                             // (cache.ttl changed since the prewarm): the
@@ -237,7 +237,10 @@ impl Brain {
                                 turn::run_with_drafts(&*agents, &chat, &again, &interrupt, &*log, &progress, &trace, &draft)
                             }
                             _ => outcome,
-                        }
+                        };
+                        crate::turn::run_after_capacity_waits(outcome, &start, &interrupt, &*log, &trace, |again| {
+                            turn::run_with_drafts(&*agents, &chat, again, &interrupt, &*log, &progress, &trace, &draft)
+                        })
                     }
                     Engine::Native(native) => {
                         let mailbox = || {

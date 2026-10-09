@@ -11,7 +11,10 @@ use common::*;
 use serde_json::json;
 
 fn owner() -> Arc<Mutex<Owner>> {
-    Arc::new(Mutex::new(Owner { summary: Some(summary()), ..Owner::default() }))
+    Arc::new(Mutex::new(Owner {
+        summary: Some(summary()),
+        ..Owner::default()
+    }))
 }
 
 const EXHAUSTED: &str = "API Error: 503 no non-exhausted claude accounts available; next account frees up in 1m (retry after 1s). This is a server-side issue, usually temporary";
@@ -44,13 +47,20 @@ fn a_turn_on_an_exhausted_route_waits_and_runs_again_with_no_error_posted() {
     h.say("user_local", "hello");
     h.settle();
     let prompts = h.agents.inner.lock().unwrap().prompts.len();
-    assert_eq!(prompts, 2, "the refused turn, then the same turn after the retry-after");
+    assert_eq!(
+        prompts, 2,
+        "the refused turn, then the same turn after the retry-after"
+    );
     let sends = h.owner.lock().unwrap().sends();
     assert_eq!(sends.len(), 1, "only the reply: {sends:?}");
     assert!(!sends[0].1.contains("turn failed"), "{sends:?}");
     assert!(!sends[0].1.contains("503"), "{sends:?}");
     assert!(
-        lines.lock().unwrap().iter().any(|l| l.contains("no capacity") && l.contains("again")),
+        lines
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|l| l.contains("no capacity") && l.contains("again")),
         "one quiet log line: {:?}",
         lines.lock().unwrap()
     );
@@ -60,7 +70,10 @@ fn a_turn_on_an_exhausted_route_waits_and_runs_again_with_no_error_posted() {
 fn capacity_errors_are_told_from_other_errors() {
     use optchat_chief::turn::capacity_retry_after;
     use std::time::Duration;
-    assert_eq!(capacity_retry_after(EXHAUSTED), Some(Duration::from_secs(1)));
+    assert_eq!(
+        capacity_retry_after(EXHAUSTED),
+        Some(Duration::from_secs(1))
+    );
     assert_eq!(
         capacity_retry_after("API Error: 529 overloaded_error (retry after 30s)"),
         Some(Duration::from_secs(30))
@@ -70,6 +83,12 @@ fn capacity_errors_are_told_from_other_errors() {
         capacity_retry_after("API Error: 503 no non-exhausted claude accounts available"),
         Some(Duration::from_secs(60))
     );
-    assert_eq!(capacity_retry_after("API Error: 400 invalid_request_error"), None);
-    assert_eq!(capacity_retry_after("No conversation found with session ID x"), None);
+    assert_eq!(
+        capacity_retry_after("API Error: 400 invalid_request_error"),
+        None
+    );
+    assert_eq!(
+        capacity_retry_after("No conversation found with session ID x"),
+        None
+    );
 }
