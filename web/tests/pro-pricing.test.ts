@@ -21,7 +21,7 @@ import {
 } from "../services/vms/entitlements";
 
 describe("pricing plans", () => {
-  test("prices Pro at $50/mo or $480/yr, the only yearly plan", () => {
+  test("prices Pro at $50/mo or $480/yr", () => {
     expect(PRO_PRICING_USD).toEqual({
       month: {
         billedAmount: 50,
@@ -48,7 +48,7 @@ describe("pricing plans", () => {
     expect("year" in TEAM_PRICING_USD).toBe(false);
   });
 
-  test("prices Max at $200/mo, monthly only", () => {
+  test("prices Max at $200/mo or $1,920/yr with the same 20% discount", () => {
     expect(MAX_PRICING_USD).toEqual({
       month: {
         billedAmount: 200,
@@ -56,9 +56,14 @@ describe("pricing plans", () => {
         discountPercent: 0,
         lookupKey: "cmux-max-monthly-200",
       },
+      year: {
+        billedAmount: 1920,
+        monthlyEquivalent: 160,
+        discountPercent: 20,
+        lookupKey: "cmux-max-yearly-1920",
+      },
     });
-    expect("year" in MAX_PRICING_USD).toBe(false);
-    expect(MAX_BILLING_INTERVALS).toEqual(["month"]);
+    expect(MAX_BILLING_INTERVALS).toEqual(["month", "year"]);
   });
 
   test("lookup keys carry their amount and never reuse a grandfathered key", () => {

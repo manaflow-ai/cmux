@@ -3393,7 +3393,7 @@ function resumeResourcePoolForMachine(
   planId: string | null | undefined,
   maxActiveVms: number | null,
 ): VmResourcePoolPolicy | null {
-  const normalizedPlanId = planId || vm.billingPlanId;
+  const normalizedPlanId = planId || vm.billingPlanId || "";
   if (!isPaidVmPlan(normalizedPlanId) || normalizedPlanId === "go") {
     return resourcePoolPolicyForPlan(normalizedPlanId, maxActiveVms);
   }
