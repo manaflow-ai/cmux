@@ -2058,7 +2058,7 @@ line_regex = ["^working$", "^missing line$"]
     #[test]
     fn screen_detect_imported_codex_weak_blocker_ignores_previous_prompt() {
         let codex = ManifestSet::bundled().identify("codex").unwrap();
-        assert_eq!(codex.version().map(ToString::to_string).as_deref(), Some("2026.09.15.1"));
+        assert_eq!(codex.version().map(ToString::to_string).as_deref(), Some("2026.10.01.1"));
 
         let screen = "previous question [y/n]\n\
                       \u{203A} ";
@@ -2160,16 +2160,15 @@ line_regex = ["^working$", "^missing line$"]
     }
 
     #[test]
-    fn screen_detect_grok_local_patch_rejects_older_remote_manifest() {
+    fn screen_detect_bundled_grok_rejects_older_remote_manifest() {
         let bundled = include_str!("../manifests/grok.toml");
-        let upstream =
-            bundled.replacen("version = \"2026.09.18.1\"", "version = \"2026.09.18\"", 1);
+        let upstream = bundled.replacen("version = \"2026.10.05.1\"", "version = \"2026.10\"", 1);
         let mut set = ManifestSet::from_sources(&[("grok", bundled)]).unwrap();
         let remote = compile_manifest_source_with_source(
             &upstream,
             ManifestSource::Remote {
                 path: PathBuf::from("/tmp/grok.toml"),
-                version: ManifestVersion::parse("2026.09.18").unwrap(),
+                version: ManifestVersion::parse("2026.10").unwrap(),
             },
         )
         .unwrap();
@@ -2177,7 +2176,7 @@ line_regex = ["^working$", "^missing line$"]
         set.insert_compiled(remote).unwrap();
 
         let active = set.identify("grok").unwrap();
-        assert_eq!(active.version().map(ToString::to_string).as_deref(), Some("2026.09.18.1"));
+        assert_eq!(active.version().map(ToString::to_string).as_deref(), Some("2026.10.05.1"));
         assert!(
             active
                 .diagnostics()
