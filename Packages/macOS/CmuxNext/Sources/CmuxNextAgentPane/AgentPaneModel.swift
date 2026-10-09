@@ -25,9 +25,9 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onFramePacing: (([Double]) -> [String: Any])?
     /// Applies the page's adaptive rendering decision.
     @ObservationIgnored public var onRenderRate: ((Bool) -> Void)?
-    /// The new tab page this pane shows until it has a session, nil for a
-    /// plain chat. Cleared once the page reports a session.
-    public private(set) var newTab: AgentPaneNewTab?
+    /// The new tab page this pane shows until it has a session (cleared then), nil for a plain chat.
+    public private(set) var newTab: AgentPaneNewTab? { didSet { if (oldValue == nil) != (newTab == nil) { onNewTabChange?() } } }
+    @ObservationIgnored var onNewTabChange: (() -> Void)? // it became or left a New Tab page (the view's bar on top)
     /// Receives the current opening’s focused-field acknowledgement.
     @ObservationIgnored public var onNewTabInputReady: ((String) -> Void)?
     /// The new tab page chose a terminal or browser (`tab.open`).

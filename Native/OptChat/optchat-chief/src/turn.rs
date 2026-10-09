@@ -62,7 +62,7 @@ impl Interrupt {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .as_ref()
         {
-            let _ = tx.send(TurnSignal::Changed);
+            let _ = tx.send(TurnSignal::Noted);
         }
     }
 
@@ -412,7 +412,7 @@ pub fn run_with_drafts(
                 Err(RecvTimeoutError::Timeout)
                     if stream_due.is_some_and(|due| Instant::now() >= due) =>
                 {
-                    TurnSignal::Changed
+                    TurnSignal::Noted
                 }
                 Err(RecvTimeoutError::Timeout) if deadline.is_none_or(|d| Instant::now() < d) => {
                     continue;
@@ -434,9 +434,15 @@ pub fn run_with_drafts(
                 Err(RecvTimeoutError::Disconnected) => TurnSignal::Lost,
             },
         };
+        // Only the harness's own events are progress: our steers' echoes,
+        // a stop request and the draft timer are not (the idle watchdog).
         if matches!(signal, TurnSignal::Changed | TurnSignal::Streamed) {
             last_event = Instant::now();
         }
+        let signal = match signal {
+            TurnSignal::Noted => TurnSignal::Changed,
+            other => other,
+        };
         // Streamed text is read at most every STREAM_GAP; a change at once.
         let signal = match signal {
             TurnSignal::Streamed if last_fetch.elapsed() < crate::draft::STREAM_GAP => {
@@ -452,7 +458,10 @@ pub fn run_with_drafts(
                 let mut last = TurnSignal::Changed;
                 loop {
                     match rx.try_recv() {
-                        Ok(TurnSignal::Changed | TurnSignal::Streamed) => {}
+                        Ok(TurnSignal::Changed | TurnSignal::Streamed) => {
+                            last_event = Instant::now();
+                        }
+                        Ok(TurnSignal::Noted) => {}
                         Ok(other) => {
                             last = other;
                             break;
@@ -466,7 +475,7 @@ pub fn run_with_drafts(
         };
         match signal {
             TurnSignal::Streamed => {}
-            TurnSignal::Changed => {
+            TurnSignal::Changed | TurnSignal::Noted => {
                 stream_due = None;
                 last_fetch = Instant::now();
                 if let Err(e) = fetch(&mut fold) {
@@ -522,7 +531,7 @@ pub fn run_with_drafts(
     let until = Instant::now() + ANSWER_WAIT;
     while !answered {
         match rx.recv_timeout(until.saturating_duration_since(Instant::now())) {
-            Ok(TurnSignal::Changed | TurnSignal::Streamed) => {}
+            Ok(TurnSignal::Changed | TurnSignal::Noted | TurnSignal::Streamed) => {}
             Ok(TurnSignal::Done(answer)) => {
                 totals = answer.as_ref().ok().and_then(answer_usage);
                 cost = answer.as_ref().ok().and_then(answer_cost);

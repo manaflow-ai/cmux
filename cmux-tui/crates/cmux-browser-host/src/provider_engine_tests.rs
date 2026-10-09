@@ -94,6 +94,12 @@ impl FakeApp {
                             "Page.getFrameTree" => json!({"frameTree": {"frame": {
                                 "id": format!("CDP-{target_id}"), "loaderId": "L1",
                                 "url": "https://a.test/"}}}),
+                            // The page loaded before the relay attached.
+                            "Runtime.evaluate"
+                                if message["params"]["expression"] == "document.readyState" =>
+                            {
+                                json!({"result": {"type": "string", "value": "complete"}})
+                            }
                             _ => json!({}),
                         };
                         let mut reply = json!({"id": message["id"], "result": result});
@@ -622,6 +628,49 @@ fn a_cef_bring_to_front_goes_to_the_app() {
     cef.call("tab.bringToFront", &json!({"targetId": "c1"})).unwrap();
     assert_eq!(calls(&app, "tab.bringToFront"), 1);
     assert!(app.cdp_messages("c1").iter().all(|m| m["method"] != "Target.activateTarget"));
+}
+
+/// A download in one of the person's tabs reaches the session as the app's
+/// `download.started` / `download.finished` events; `download.path` answers
+/// from the finished event (waiting for it), as on headless. Before,
+/// `download.path` on a provider session had no answer at all.
+#[test]
+fn download_path_answers_from_the_apps_finished_event() {
+    let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("c1", "cef")]);
+    let cef = engine(&provider, "cef");
+    let finished = |id: &str, outcome: Value| {
+        let mut payload = json!({"targetId": "c1", "downloadId": id});
+        payload.as_object_mut().unwrap().extend(outcome.as_object().unwrap().clone());
+        Frame::Event { name: "download.finished".into(), payload }
+    };
+    app.send(finished("d1", json!({"path": "/tmp/d1.txt"})));
+    let path = cef.call("download.path", &json!({"downloadId": "d1"})).unwrap();
+    assert_eq!(path, json!({"path": "/tmp/d1.txt"}));
+    // A path asked for before the download ends waits for it.
+    let late = std::thread::spawn(move || {
+        engine(&provider, "cef")
+            .call("download.path", &json!({"downloadId": "d2", "timeoutMs": 5000}))
+    });
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    app.send(finished("d2", json!({"error": "canceled"})));
+    let error = late.join().unwrap().unwrap_err();
+    assert!(error.message.contains("canceled"), "{error}");
+    // An unknown download times out at the call's deadline.
+    let unknown = cef.call("download.path", &json!({"downloadId": "nope", "timeoutMs": 50}));
+    assert_eq!(unknown.unwrap_err().code, crate::protocol::ErrorCode::Timeout);
+}
+
+/// A Chromium page that finished loading before the relay attached (a
+/// popup, a tab the person opened) is `load` at once: the driver reads its
+/// readyState when it attaches. Before, it waited for a load event that had
+/// already passed (popup.waitForLoadState timed out).
+#[test]
+fn a_page_loaded_before_the_relay_attached_is_loaded() {
+    let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("c1", "cef")]);
+    app.access(&provider, "c1");
+    let cef = engine(&provider, "cef");
+    let info = cef.call("tab.info", &json!({"targetId": "c1"})).unwrap();
+    assert_eq!(info["loadState"], "load", "{info}");
 }
 
 /// A WebKit session's URL still goes to the app (its driver navigates).

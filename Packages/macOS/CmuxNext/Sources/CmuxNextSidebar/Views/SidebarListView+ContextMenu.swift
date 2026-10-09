@@ -23,8 +23,8 @@ extension SidebarListView {
             return nil
         case let .section(id)?, let .emptySection(id)?:
             target = .section(id)
-        case let .tab(workspace, _)?:
-            target = .workspaces([workspace])
+        case let .tab(workspace, tab)?:
+            target = .tab(workspace, tab)
         case nil:
             target = .background
         }

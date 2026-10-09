@@ -276,6 +276,8 @@ extension HomeStore {
 
     static func rejection(for error: Error) -> HomeRejection {
         if let rejection = error as? HomeRejection { return rejection }
+        // Nothing sent, the owner is down: it waits like a disconnect.
+        if error is HomeOwnerOffline { return .ownerUnreachable }
         if error is URLError { return .ownerUnreachable }
         if error is CancellationError { return .indeterminate }
         return .invalid("attachment_upload_failed")
