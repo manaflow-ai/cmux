@@ -81,4 +81,46 @@ struct PaneContentParkingTests {
         pane.show(chrome)
         #expect(terminal.superview == nil, "only browsers stay in the pane")
     }
+
+    @Test func aClosedTabsBrowserLeavesTheWindow() {
+        let (pane, window) = pane()
+        defer { window.close() }
+        let (first, firstMoves) = browser()
+        let (second, _) = browser()
+        pane.show(first)
+        pane.show(second)
+        #expect(pane.parked.compactMap(\.view) == [first])
+        pane.prunePark { $0 !== first }
+        #expect(first.superview == nil, "a parked browser whose tab closed goes")
+        #expect(firstMoves.left == 1)
+        #expect(pane.parked.isEmpty)
+    }
+
+    @Test func aBrowserParkedInAnotherPaneShowsWhenMovedHere() {
+        let (left, window) = pane()
+        defer { window.close() }
+        let right = PaneContentView(stripModel: TabStripModel())
+        right.frame = window.contentView!.bounds
+        window.contentView!.addSubview(right)
+        let (moved, _) = browser()
+        let (other, _) = browser()
+        left.show(moved)
+        left.show(other)
+        #expect(moved.isHidden)
+        right.show(moved)
+        #expect(moved.superview === right.contentHost)
+        #expect(!moved.isHidden, "a moved tab shows in its new pane")
+        left.prunePark()
+        #expect(left.parked.isEmpty, "the old pane forgets it")
+    }
+
+    @Test func theParkLimitBoundsHiddenBrowsers() {
+        let (pane, window) = pane()
+        defer { window.close() }
+        let browsers = (0...PaneContentView.parkLimit + 1).map { _ in browser().0 }
+        for chrome in browsers { pane.show(chrome) }
+        #expect(pane.parked.count == PaneContentView.parkLimit)
+        #expect(browsers[0].superview == nil, "the oldest leaves")
+        #expect(browsers[1].superview === pane.contentHost)
+    }
 }
