@@ -66,4 +66,16 @@ struct ProgramStatusNotificationTests {
         #expect(ProgramStatusNotification.Reason.failed.indicator == .error)
         #expect(ProgramStatusNotification.Reason.done.indicator == .success)
     }
+
+    /// The session events stream can deliver a record after its alert (live
+    /// run 1008-201829-3d11f5: two of twenty banners had no badge), so the app
+    /// holds an alert-shaped notification until its record arrives.
+    @Test func alertShapedTextIsRecognizedBeforeItsRecordArrives() {
+        #expect(ProgramStatusNotification.looksLikeAlert(title: "Login needs sign-in", level: .warning))
+        #expect(ProgramStatusNotification.looksLikeAlert(title: "Build failed", level: .error))
+        #expect(ProgramStatusNotification.looksLikeAlert(title: "deploy is done", level: .info))
+        #expect(!ProgramStatusNotification.looksLikeAlert(title: "Build failed", level: .warning))
+        #expect(!ProgramStatusNotification.looksLikeAlert(title: "nine", level: .info))
+        #expect(!ProgramStatusNotification.looksLikeAlert(title: "needs approval", level: .warning), "a name comes first")
+    }
 }
