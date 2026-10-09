@@ -105,7 +105,8 @@ public struct BrowserReplDownloadSource: Sendable, Equatable {
     /// session grants those files, so this holds with or without a domain
     /// policy.
     func appServedRefusal(_ hop: String) -> String? {
-        if let reason = BrowserReplFileSandbox.appServedRefusal(url: hop, documentOrigin: BrowserReplDomainPolicy.blobOrigin(hop)) {
+        let isBlob = hop.prefix(while: { $0 != ":" }).lowercased() == "blob"
+        if let reason = BrowserReplFileSandbox.appServedRefusal(url: hop, documentOrigin: isBlob ? BrowserReplDomainPolicy.blobOrigin(hop) : nil) {
             return reason
         }
         guard Self.isWriting(hop), let initiator else { return nil }
