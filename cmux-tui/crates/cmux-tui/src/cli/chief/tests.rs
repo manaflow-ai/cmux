@@ -392,3 +392,35 @@ fn a_brain_gets_the_harness_logins_and_nothing_else() {
         assert!(!brain_env_allowed(name), "{name}");
     }
 }
+
+/// The cmux-next app reads the same vectors (ChiefHomeVectorTests.swift).
+#[test]
+fn the_cli_resolves_every_chief_home_vector_as_the_app_does() {
+    use super::home::ChiefHome;
+    use std::path::Path;
+    let vectors: Value =
+        serde_json::from_str(include_str!("../../../../../../schemas/chief-home/vectors.json"))
+            .unwrap();
+    let cases = vectors["cases"].as_array().unwrap();
+    assert!(cases.len() >= 6);
+    for case in cases {
+        let mut env: Vec<(String, String)> = case["environment"]
+            .as_object()
+            .unwrap()
+            .iter()
+            .map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned()))
+            .collect();
+        if let Some(tag) = case["tag"].as_str() {
+            env.push(("CMUX_TAG".into(), tag.into()));
+        }
+        let lookup = |key: &str| env.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone());
+        let user = Path::new(case["user_home"].as_str().unwrap());
+        let home = ChiefHome::resolve(None, lookup, user, Path::new("/"));
+        let name = case["name"].as_str().unwrap();
+        assert_eq!(home.root.to_str().unwrap(), case["root"].as_str().unwrap(), "{name}");
+        assert_eq!(home.session(), case["session"].as_str().unwrap(), "{name}");
+        if let Some(isolated) = case["isolated"].as_bool() {
+            assert_eq!(home.isolated, isolated, "{name}");
+        }
+    }
+}

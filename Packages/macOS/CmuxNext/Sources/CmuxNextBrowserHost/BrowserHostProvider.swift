@@ -54,6 +54,7 @@ public final class BrowserHostProvider {
     @ObservationIgnored weak var accessSource: (any ProviderAccessSource)?
     @ObservationIgnored weak var relay: (any ProviderDevToolsRelay)?
     @ObservationIgnored weak var marking: (any ProviderAgentMarking)?
+    @ObservationIgnored weak var opener: (any ProviderTabOpening)?
     @ObservationIgnored let driver: (any DriverCallHandler)?
     @ObservationIgnored let clock: any Clock<Duration>
     @ObservationIgnored let dial: @Sendable (ProviderCredentials) async throws -> ProviderConnection
@@ -95,6 +96,7 @@ public final class BrowserHostProvider {
                 driver: (any DriverCallHandler)?,
                 relay: any ProviderDevToolsRelay,
                 marking: any ProviderAgentMarking,
+                opener: (any ProviderTabOpening)? = nil,
                 clock: any Clock<Duration> = ContinuousClock(),
                 backoff: Backoff = Backoff(initial: .milliseconds(250), maximum: .seconds(30)),
                 prepareDeadline: Duration = .seconds(8),
@@ -106,6 +108,7 @@ public final class BrowserHostProvider {
         self.driver = driver
         self.relay = relay
         self.marking = marking
+        self.opener = opener
         self.clock = clock
         self.backoff = backoff
         retryTimer = DemandTimer(owner: "browser-host.provider-retry", clock: clock)
