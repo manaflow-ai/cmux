@@ -5,7 +5,15 @@
 //! file's owner set to the token user; `connect_same_user`: that owner is
 //! ours). Unix uses `/tmp/cmux-th-<uid>/<terminal_hex>.sock`.
 
+use std::io;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+/// The B1 seam `HostStream` on Windows: the one transport type of the
+/// platform (`cmux::local_socket::Stream` = `uds_windows::UnixStream`, as
+/// `platform::transport` uses).
+pub type HostStream = cmux::local_socket::Stream;
+pub use cmux::local_socket::Listener as HostListener;
 
 /// The endpoint directory for `user` under `temp`.
 pub fn endpoint_dir_in(temp: &Path, user: &str) -> PathBuf {
@@ -30,6 +38,54 @@ pub fn endpoint_path_in(dir: &Path, terminal_hex: &str) -> Option<PathBuf> {
 /// path is refused).
 pub fn endpoint_matches(dir: &Path, terminal_hex: &str, endpoint: &Path) -> bool {
     endpoint_path_in(dir, terminal_hex).is_some_and(|want| same_path(&want, endpoint))
+}
+
+/// The host side: binds terminal `terminal_hex`'s socket in `dir`, made or
+/// checked owner-only by `cmux::local_socket::listen`, with our token user
+/// as the socket file's owner; its `accept` refuses another user, below
+/// Medium integrity and AppContainer peers. A leftover socket file of ours
+/// (a host that died) is removed first; one owned by anyone else is refused.
+pub fn bind(dir: &Path, terminal_hex: &str) -> io::Result<(PathBuf, HostListener)> {
+    let path = endpoint_path_in(dir, terminal_hex).ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidInput, format!("not a terminal id: {terminal_hex}"))
+    })?;
+    if path.exists() {
+        let me = cmux::local_socket::win::current_identity()?;
+        let owner = cmux::local_socket::win::owner_of(&path)?;
+        cmux::local_socket::owner_allowed(&owner, &me.user_sid).map_err(|refusal| {
+            io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                format!("{refusal}: {}", path.display()),
+            )
+        })?;
+        std::fs::remove_file(&path)?;
+    }
+    let listener = cmux::local_socket::listen(&path)?;
+    Ok((path, listener))
+}
+
+/// The daemon side: connects to a record's endpoint only when it is exactly
+/// this user's endpoint for `terminal_hex` and the socket file's owner is our
+/// token user (`connect_same_user`), retrying a host still starting until
+/// `timeout`.
+pub fn connect_record(
+    dir: &Path,
+    terminal_hex: &str,
+    endpoint: &Path,
+    timeout: Duration,
+) -> io::Result<HostStream> {
+    if !endpoint_matches(dir, terminal_hex, endpoint) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "host endpoint {} is not this user's endpoint for {terminal_hex}",
+                endpoint.display()
+            ),
+        ));
+    }
+    cmux::local_socket::connect_with_deadline(endpoint, timeout, Duration::from_millis(25), || {
+        Ok(())
+    })
 }
 
 fn is_terminal_hex(value: &str) -> bool {
@@ -82,6 +138,56 @@ mod tests {
             ID,
             Path::new(r"C:\t\cmux-th-u\0123456789abcdef0123456789abcdee.sock")
         ));
+    }
+
+    fn unique_dir(tag: &str) -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .subsec_nanos();
+        std::env::temp_dir().join(format!("cth-ep-{tag}-{}-{nanos}", std::process::id()))
+    }
+
+    #[test]
+    fn a_host_binds_its_endpoint_and_the_daemon_connects_through_the_record() {
+        use std::io::{Read, Write};
+        let dir = unique_dir("bind");
+        let (path, listener) = bind(&dir, ID).unwrap();
+        assert_eq!(path, dir.join(format!("{ID}.sock")));
+        let me = cmux::local_socket::win::current_identity().unwrap();
+        assert!(
+            cmux::local_socket::win::directory_is_owner_only(&dir, &me.user_sid).unwrap(),
+            "owner-only directory"
+        );
+        let server = std::thread::spawn(move || {
+            let mut stream = listener.accept().unwrap();
+            let mut buf = [0u8; 4];
+            stream.read_exact(&mut buf).unwrap();
+            stream.write_all(&buf).unwrap();
+        });
+        let mut stream = connect_record(&dir, ID, &path, Duration::from_secs(5)).unwrap();
+        stream.write_all(b"ping").unwrap();
+        let mut buf = [0u8; 4];
+        stream.read_exact(&mut buf).unwrap();
+        assert_eq!(&buf, b"ping");
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn a_record_naming_another_endpoint_is_never_connected() {
+        let dir = unique_dir("other");
+        let elsewhere = std::env::temp_dir().join(format!("{ID}.sock"));
+        let error = connect_record(&dir, ID, &elsewhere, Duration::from_millis(50)).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn a_leftover_socket_of_ours_is_replaced() {
+        let dir = unique_dir("stale");
+        let (path, first) = bind(&dir, ID).unwrap();
+        drop(first);
+        assert!(path.exists(), "a dropped listener leaves its socket file");
+        let (_, _second) = bind(&dir, ID).expect("our own leftover is removed");
     }
 
     #[test]
