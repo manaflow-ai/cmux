@@ -148,6 +148,12 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
 - A subagent prompt the harness fails ends that run with `[a<N>] (failed:
   <error>)`, never a subagent that waits forever.
 
+- A codex Chief's isolated turns run on the Chief's own `CODEX_HOME`
+  (`optchat/turn-codex`: the user's routing and model keys, the sign-in
+  linked, no user MCP servers, hooks, plugins or skills, and
+  `features.multi_agent = false`), so `chief spawn` is its only way to start
+  a subagent, as `TURN_TOOLS` leaves a Claude turn no Task tool.
+
 Deviation: `tell` reaches a running subagent after its current turn (acpmux
 queues the prompt; claude-sr has no steering), not between its tool calls.
 A subagent's first message carries no cache mark of ours, and all of a

@@ -32,6 +32,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     var isVisible: Bool { presence == .visible }
     /// Tabs closed locally while the daemon confirms, so a close looks instant.
     var pendingClosed: Set<String> = []
+    var pendingDock: Set<String> = [] // chats bound for a new chat dock, never in this strip (NewChatPlacement)
     /// A tab this app just created here; selected once the daemon reports it (`selectWhenReported`).
     private(set) var pendingSelectSurface: SurfaceID?
     /// Same, named by tab resource id (a reopened tab's restored view).
@@ -45,6 +46,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         var connected: Bool
         var generation: String?
         var surfaces: [UInt64]
+        var hidesStrip = false // the chat dock or a lone chat with one tab (ChatDockChrome)
     }
 
     init(pane: PaneModel, daemon: DaemonService, layoutPaneID: LayoutPaneID, services: AppServices, state: WindowState) {
@@ -100,7 +102,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // Terminals on another machine carry its name; browsers always run here.
         let machine = daemon.isLocal ? nil : services.machines.machineBadge(daemon.machineID)
         let workspaceID = store.workspace(containing: pane.handle)?.id
-        var items = pane.tabs.filter { !pendingClosed.contains($0.id) }.map { tab -> StripTabItem in
+        // A dock-bound chat stays hidden under the id the store gave it (`dockBound`).
+        let hidden = pendingClosed.union(dockBound)
+        var items = pane.tabs.filter { !hidden.contains($0.id) }.map { tab -> StripTabItem in
             // A new tab page is "New Tab", with the new-tab icon, until it
             // becomes a chat (then the chat's title and icon).
             let isNewTabPage = tab.agentSession != nil && services.agentTabs.pageTabs.ids.contains(tab.id)
@@ -143,7 +147,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             TabItemMapping.shared.applyUserIcon(tab, to: &item)
             return item
         }
-        for local in state?.localBrowserTabs[paneKey] ?? [] where !pendingClosed.contains(local.id) {
+        for local in state?.localBrowserTabs[paneKey] ?? [] where !hidden.contains(local.id) {
             let page = services.cache.existingBrowser(local.id)?.tab.state
             let title = page?.title.flatMap { $0.isEmpty ? nil : $0 } ?? page?.url?.host() ?? Strings.untitledBrowser
             var item = StripTabItem(id: StripTabID(local.id), title: title, subtitle: page?.url?.absoluteString,
@@ -152,7 +156,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             browserIcon(key: local.id, recordFavicon: nil).apply(to: &item)
             items.append(item)
         }
-        items += services.localTabItems(in: paneKey, hiding: pendingClosed)
+        items += services.localTabItems(in: paneKey, hiding: hidden)
         let saved = Set(store.savedTabGroups.compactMap(\.openGroup))
         let groups = pane.tabGroups.map { group in
             TabGroupItem(id: TabGroupID(group.id.rawValue), name: group.name,
@@ -161,7 +165,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
         }
         let connected = if case .connected = store.connectionState { true } else { false }
         return Snapshot(items: items, groups: groups, defaultIndex: pane.defaultTabIndex, connected: connected,
-                        generation: store.generation?.rawValue, surfaces: pane.tabs.map(\.surface.rawValue))
+                        generation: store.generation?.rawValue, surfaces: pane.tabs.map(\.surface.rawValue),
+                        hidesStrip: ChatDockChrome.hidesStrip(self, tabCount: items.count))
     }
 
     /// The page icon, favicon, throbber or globe of browser tab `key`: its live page's
@@ -179,6 +184,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// state after a rejected command (order, membership, closes).
     func apply(_ snapshot: Snapshot, force: Bool = false) {
         if force { view.stripView.discardPendingReorder() }
+        if view.hidesStrip != snapshot.hidesStrip { view.hidesStrip = snapshot.hidesStrip }
         if stripModel.groups != snapshot.groups { stripModel.groups = snapshot.groups }
         if stripModel.tabs != snapshot.items { stripModel.tabs = snapshot.items }
         if !snapshot.items.isEmpty { LaunchReveal.shared.markReady(.tabs) }
