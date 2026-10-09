@@ -27,10 +27,7 @@ fn missing_socket_path() -> PathBuf {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|elapsed| elapsed.as_nanos())
         .unwrap_or_default();
-    std::env::temp_dir().join(format!(
-        "cmux-host-exit-{}-{nanos}/missing.sock",
-        std::process::id()
-    ))
+    std::env::temp_dir().join(format!("cmux-host-exit-{}-{nanos}/missing.sock", std::process::id()))
 }
 
 #[test]

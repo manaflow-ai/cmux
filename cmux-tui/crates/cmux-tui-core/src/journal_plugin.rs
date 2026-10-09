@@ -593,6 +593,9 @@ fn spawn_plugin(
         .env("CMUX_TUI_SESSION_ID", session)
         .env("CMUX_PLUGIN_ID", &options.id)
         .env("CMUX_PLUGIN_GENERATION", generation.to_string())
+        // The plugin exits when this pid exits, so a `kill -9` of the daemon
+        // does not leave an orphan that reconnects to the next daemon.
+        .env("CMUX_PLUGIN_HOST_PID", std::process::id().to_string())
         .env("CMUX_PLUGIN_PROTOCOL_VERSION", "1")
         .env("CMUX_PLUGIN_KIND", "journal")
         .env("CMUX_JOURNAL_PLUGIN", "1")
