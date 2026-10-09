@@ -179,6 +179,7 @@ struct CloudTreeHeaderActionsTests {
         #expect(tree.outline.selectedRow == rowIndex)
     }
 
+    /// Refreshing hover must preserve the window-space pointer when the window is moved.
     @Test("Hover refresh uses window coordinates when leaving for the create control")
     func hoverRefreshDoesNotOffsetPointerByWindowOrigin() throws {
         let fixture = CloudSidebarOrderingFixture()
