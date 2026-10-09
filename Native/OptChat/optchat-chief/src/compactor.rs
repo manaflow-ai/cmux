@@ -864,7 +864,7 @@ impl AcpmuxCompactor {
         let deadline = Instant::now() + self.spec.timeout;
         let answer = loop {
             match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-                Ok(TurnSignal::Changed) => {
+                Ok(TurnSignal::Changed | TurnSignal::Noted) => {
                     // The first streamed output: the response started.
                     if !begun
                         && self.port.events(session, before).is_ok_and(|events| {
@@ -1182,7 +1182,7 @@ impl AcpmuxCompactor {
         self.trace.emit(
             "node",
             json!({
-                "node": node.name(),
+                "node": node_label(node),
                 "harness": live.route,
                 "model": self.model(),
                 "ms": live.opened.elapsed().as_millis() as u64,
@@ -1232,14 +1232,33 @@ impl AcpmuxCompactor {
             None => "tokens not reported".to_owned(),
         };
         let cost = live.cost.map_or(String::new(), |c| format!(", ${c:.3}"));
+        let what = if node == PROBE_NODE {
+            "compactor probe".to_owned()
+        } else if is_describe(node) {
+            "compactor image description".to_owned()
+        } else {
+            format!("compactor node {}", node.name())
+        };
         self.say(&format!(
-            "compactor node {} ({}, {}): {:.1} s, {} prompt(s), {tokens}{cost}",
-            node.name(),
+            "{what} ({}, {}): {:.1} s, {} prompt(s), {tokens}{cost}",
             live.route,
             self.model().as_deref().unwrap_or("default model"),
             live.opened.elapsed().as_secs_f64(),
             live.prompts
         ));
+    }
+}
+
+/// The trace's name of `node`: `probe` and `describe` for the ids no chat
+/// node has (the start-up probe's level 63, image descriptions'), else its
+/// `id+n`.
+fn node_label(node: NodeId) -> String {
+    if node == PROBE_NODE {
+        "probe".to_owned()
+    } else if is_describe(node) {
+        "describe".to_owned()
+    } else {
+        node.name()
     }
 }
 

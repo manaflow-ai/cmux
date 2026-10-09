@@ -33,7 +33,7 @@
 }
 
 .ui-positioner {
-  z-index: 50;
+  z-index: var(--layer-dropdown);
   outline: none;
 }
 
@@ -44,7 +44,8 @@
   border-radius: var(--ui-popup-radius);
   background: var(--ui-surface);
   color: var(--ui-fg);
-  font-size: 13px;
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
   box-shadow: var(--ui-popup-shadow);
   outline: none;
   /* Base UI's positioner names the side the popup grows from. */
@@ -65,7 +66,7 @@
   margin-inline-start: auto;
   padding-inline-start: 20px;
   color: var(--ui-fg-2);
-  font-size: 11px;
+  font-size: var(--text-caption);
   font-variant-numeric: tabular-nums;
 }
 
@@ -162,7 +163,7 @@
 .ui-drill-section {
   padding: 6px 8px 2px;
   color: var(--ui-fg-2);
-  font-size: 11px;
+  font-size: var(--text-caption);
   font-weight: 600;
 }
 
@@ -185,8 +186,8 @@
   background: color-mix(in srgb, var(--ui-surface) 96%, var(--ui-fg));
   border: 1px solid var(--ui-line);
   color: var(--ui-fg);
-  font-size: 11.5px;
-  line-height: 1.35;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
   box-shadow: 0 2px 10px color-mix(in srgb, black 14%, transparent);
   pointer-events: none;
 }

@@ -35,6 +35,7 @@ use shutdown::ShutdownPlan;
 #[cfg(test)]
 mod remote_sandbox_adopt_tests;
 mod spawn;
+mod steer_end;
 mod stream;
 mod tap;
 #[cfg(test)]
@@ -492,6 +493,7 @@ impl Hub {
             inbound_tx,
             inbound_rx: Mutex::new(Some(inbound_rx)),
             steering: AtomicBool::new(false),
+            steer_end: tokio::sync::watch::channel(None).0,
             fork_from: StdMutex::new(None),
             purged: AtomicBool::new(false),
             state_seq: AtomicU64::new(0),
