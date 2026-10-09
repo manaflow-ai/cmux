@@ -59,10 +59,28 @@ fn escaped(what: String) -> anyhow::Error {
     anyhow::Error::new(ScopeEscaped(what))
 }
 
+#[cfg(test)]
+thread_local! {
+    static CROSSCHECK_OFF: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Run `body` with the cross-check off on this thread, as release builds run.
+#[cfg(test)]
+pub(super) fn without_crosscheck<R>(body: impl FnOnce() -> R) -> R {
+    CROSSCHECK_OFF.with(|off| off.set(true));
+    let result = body();
+    CROSSCHECK_OFF.with(|off| off.set(false));
+    result
+}
+
 /// Debug builds always compare; release builds when the daemon runs with
 /// `CMUX_TUI_PROJECTION_CROSSCHECK=1`.
 fn crosscheck_enabled() -> bool {
     static ENABLED: OnceLock<bool> = OnceLock::new();
+    #[cfg(test)]
+    if CROSSCHECK_OFF.with(std::cell::Cell::get) {
+        return false;
+    }
     cfg!(debug_assertions)
         || *ENABLED.get_or_init(|| {
             std::env::var_os("CMUX_TUI_PROJECTION_CROSSCHECK").is_some_and(|value| value == "1")
@@ -128,16 +146,25 @@ impl Mux {
             scoped: true,
         });
         if crosscheck_enabled() {
+            // The reference rebuilds every index; keep the scoped walk's
+            // indexes so the cross-check does not change what later
+            // projections see.
+            let indexes = state.resource_indexes.clone();
             let difference = self
                 .full_projection_spans(registry, state, result)
                 .and_then(|(full, _)| projection_difference(registry, &projection, &full))
                 .unwrap_or_else(|error| Some(format!("cross-check failed: {error:#}")));
+            state.resource_indexes = indexes;
             registry.resource_projection_stats().crosschecked(difference.is_none());
-            debug_assert!(
-                difference.is_none(),
-                "scoped projection differs from the full projection: {}",
-                difference.unwrap_or_default()
-            );
+            if let Some(difference) = difference {
+                #[cfg(test)]
+                // crash-allow: unit tests only; a release daemon counts and logs it.
+                panic!("scoped projection differs from the full projection: {difference}");
+                #[cfg(not(test))]
+                eprintln!(
+                    "cmux-tui: scoped projection differs from the full projection: {difference}"
+                );
+            }
         }
         Ok(projection)
     }
@@ -317,6 +344,24 @@ fn reindex_scope(state: &mut State, scope: &HashSet<WorkspacePublicId>) -> anyho
     split_ids::mint_split_public_ids(state, splits)
 }
 
+/// A published value without the fields that a live surface changes on its
+/// own threads (output revision, title, size, directory, status): two walks
+/// a moment apart may read different ones.
+fn stable_value(change: &Value) -> Value {
+    let mut value = change["value"].clone();
+    let volatile: &[&str] = match change["resource"].as_str() {
+        Some("terminal") => &["stream_revision", "title", "cols", "rows", "cwd", "extra"],
+        Some("browser") => &["title", "loading", "status", "error", "frames_stalled", "size"],
+        _ => &[],
+    };
+    if let Some(fields) = value.as_object_mut() {
+        for field in volatile {
+            fields.remove(*field);
+        }
+    }
+    value
+}
+
 fn scope_list(scope: &HashSet<WorkspacePublicId>) -> Vec<WorkspacePublicId> {
     scope.iter().cloned().collect()
 }
@@ -326,22 +371,24 @@ fn scope_list(scope: &HashSet<WorkspacePublicId>) -> Vec<WorkspacePublicId> {
 fn terminal_tab_ids(state: &State, id: &TerminalPublicId) -> anyhow::Result<Vec<TabPublicId>> {
     let mut tabs = Vec::new();
     for slot in state.placements_of_content(&ContentPublicId::Terminal(id.clone())) {
+        // Indexes outside the scope may lag until the next full projection;
+        // a view they cannot place falls back to it.
         let pane = state
             .resource_indexes
             .tab_pane
             .get(slot)
             .and_then(|pane| state.panes.get(pane))
-            .with_context(|| format!("terminal {id} view {slot} has no pane"))?;
+            .ok_or_else(|| escaped(format!("terminal {id} view {slot} has no indexed pane")))?;
         let position = pane
             .tabs
             .iter()
             .position(|tab| tab == slot)
-            .with_context(|| format!("terminal {id} view {slot} is not in its pane"))?;
+            .ok_or_else(|| escaped(format!("terminal {id} view {slot} left its pane")))?;
         let tab = state
             .resource_indexes
             .tab_ids
             .get(slot)
-            .with_context(|| format!("terminal {id} view {slot} has no tab identity"))?;
+            .ok_or_else(|| escaped(format!("terminal {id} view {slot} has no tab identity")))?;
         tabs.push((id.clone(), pane.public_id.clone(), position, tab.clone()));
     }
     Ok(terminal_tab_ids_in_canonical_order(tabs).remove(id).unwrap_or_default())
@@ -378,17 +425,35 @@ fn projection_difference(
     let scoped_changes = scoped.changes.as_array().unwrap_or(&empty);
     let full_values = full_changes
         .iter()
-        .map(|change| (key(change), &change["value"]))
+        .map(|change| (key(change), stable_value(change)))
         .collect::<HashMap<_, _>>();
-    for change in scoped_changes {
-        if full_values.get(&key(change)) != Some(&&change["value"]) {
-            return Ok(Some(format!("the full projection does not publish {change}")));
+    let scoped_values = scoped_changes
+        .iter()
+        .map(|change| (key(change), stable_value(change)))
+        .collect::<HashMap<_, _>>();
+    for (change_key, value) in &scoped_values {
+        if full_values.get(change_key) != Some(value) {
+            return Ok(Some(format!(
+                "the full projection does not publish {change_key:?} {value}"
+            )));
         }
     }
-    let scoped_keys = scoped_changes.iter().map(key).collect::<HashSet<_>>();
-    for change in full_changes.iter().filter(|change| change["kind"] == "delete") {
-        if !scoped_keys.contains(&key(change)) {
-            return Ok(Some(format!("the scoped projection omits {change}")));
+    for (change_key, value) in &full_values {
+        if scoped_values.contains_key(change_key) {
+            continue;
+        }
+        let (kind, resource, id) = change_key;
+        if kind == "delete" {
+            return Ok(Some(format!("the scoped projection omits the delete of {resource} {id}")));
+        }
+        // An upsert the scoped walk left out must be one the journal states
+        // already (when the fold can tell).
+        if let Some(stated) = registry.stated_topology_value(resource, id) {
+            let stated =
+                stated.map(|value| stable_value(&json!({"resource":resource,"value":value})));
+            if stated.as_ref() != Some(value) {
+                return Ok(Some(format!("the scoped projection omits a changed {resource} {id}")));
+            }
         }
     }
     Ok(None)

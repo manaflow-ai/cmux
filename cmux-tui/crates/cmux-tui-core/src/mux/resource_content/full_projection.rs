@@ -427,6 +427,7 @@ impl Mux {
             }
         }
         if scope.is_some() {
+            check_scope_containment(input, state, &live_screens, &live_panes, &live_tabs)?;
             self.publish_out_of_scope_content(
                 input,
                 state,
@@ -435,7 +436,6 @@ impl Mux {
                 &mut changes,
                 &mut public,
             )?;
-            check_scope_containment(input, state, &live_screens, &live_panes, &live_tabs)?;
         }
         let catalog = if scope.is_some() { None } else { Some(&state.terminal_catalog) };
         for (terminal_id, surface) in catalog.into_iter().flatten() {
