@@ -11,8 +11,10 @@
 //! until the program replaces or clears them; "seen" is client view state,
 //! keyed by `updated_seq`. A record without `app` shows the app of its
 //! nearest ancestor that has one. A record that starts waiting on the user
-//! (`blocked`) or fails (`error`) raises one [`ProgramStatusAlert`], which the
-//! terminal's reader posts as a rate-limited terminal notification.
+//! (`blocked`), fails (`error`) or finishes (`done`) raises one
+//! [`ProgramStatusAlert`], which the terminal's reader posts as a
+//! rate-limited terminal notification (the client shows a `done` only for a
+//! terminal the user cannot see).
 //!
 //! Text is untrusted program output: display only, never interpreted.
 //! libghostty already removed control characters; this module also removes
@@ -74,8 +76,8 @@ impl ProgramStatusRecord {
 /// Alerts kept between two takes; more in one output chunk drop the oldest.
 const MAX_PENDING_ALERTS: usize = 8;
 
-/// A notification a record asks for: it started waiting on the user or
-/// failed. `title` names the program and says what it needs; `body` is the
+/// A notification a record asks for: it started waiting on the user,
+/// failed or finished. `title` names the program and says what it needs; `body` is the
 /// record's message. Both are shown text (no control or invisible
 /// formatting characters).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -85,7 +87,7 @@ pub(crate) struct ProgramStatusAlert {
     pub(crate) id: String,
     pub(crate) title: String,
     pub(crate) body: String,
-    /// `Error` for a failed record, else `Blocked`.
+    /// `Blocked`, `Error` or `Done`.
     pub(crate) state: ProgramStatusState,
 }
 
@@ -168,6 +170,7 @@ impl ProgramStatusRecords {
             (ProgramStatusState::Blocked, Some(ProgramStatusKind::Auth)) => "needs sign-in",
             (ProgramStatusState::Blocked, None) => "needs input",
             (ProgramStatusState::Error, _) => "failed",
+            (ProgramStatusState::Done, _) => "is done",
             _ => return,
         };
         if previous
