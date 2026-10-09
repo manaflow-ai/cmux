@@ -10,11 +10,15 @@
 
 use std::net::{IpAddr, SocketAddr};
 use std::path::Path;
+use std::path::PathBuf;
+use std::sync::Arc;
 
+use cmux_host::cloud::wire::{BOUND_FILE, Bound};
 use cmux_link::dial::{MAX_LINE_BYTES, Service, ServiceHello, parse_line};
+use cmux_link::keyset::read_keyset;
 use cmux_link::overlay_addr::overlay_address;
 use cmux_link::stamp::StampCheck;
-use cmux_link::token::{Expected, TokenVerifier};
+use cmux_link::token::{ControlPlaneTokenVerifier, Expected, TokenVerifier};
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use super::inbound::{InboundRefused, hand_to_entry};
@@ -27,6 +31,80 @@ pub(super) struct HostIdentity<'a> {
     pub session_socket: &'a Path,
     /// The host's sshd (127.0.0.1:22 on a Cloud VM).
     pub sshd: SocketAddr,
+}
+
+/// The immutable identity and verifier a Cloud VM link uses for inbound
+/// streams. This is loaded from the root-owned bind result once when the link
+/// starts; tokens and key material never enter the pairing mirror or a child
+/// process environment.
+pub(super) struct CloudHost {
+    pub(super) host: String,
+    pub(super) epoch: u64,
+    pub(super) session_socket: PathBuf,
+    pub(super) sshd: SocketAddr,
+    pub(super) verifier: Arc<dyn TokenVerifier>,
+}
+
+impl CloudHost {
+    /// Construct a host from the VM agent's `bound.json` value. The caller
+    /// supplies the session socket because the link process does not infer
+    /// one from the Cloud identity. This validates every field that is used
+    /// by the inbound admission path before opening the overlay listener.
+    pub(super) fn from_bound(bound: Bound, session_socket: PathBuf) -> Result<Self, String> {
+        if !cmux_link::stamp::valid_id(&bound.host) {
+            return Err("bound.json has an invalid host id".into());
+        }
+        if bound.epoch == 0 {
+            return Err("bound.json has an invalid epoch".into());
+        }
+        if !cmux_link::stamp::valid_id(&bound.install)
+            || !cmux_link::stamp::valid_id(&bound.team)
+            || !cmux_link::stamp::valid_id(&bound.user)
+        {
+            return Err("bound.json has an invalid install identity".into());
+        }
+        let keyset = read_keyset(&bound.keyset).map_err(|why| {
+            format!("bound.json keyset refused ({})", why.as_str())
+        })?;
+        Ok(Self {
+            host: bound.host,
+            epoch: bound.epoch,
+            session_socket,
+            // Cloud images expose sshd only on loopback. The token's service
+            // grant, not this address, decides whether SSH is reachable.
+            sshd: SocketAddr::new(IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), 22),
+            verifier: Arc::new(ControlPlaneTokenVerifier::new(keyset.keys)),
+        })
+    }
+}
+
+/// Load the VM's bound identity. A missing or malformed file is fail-closed:
+/// the link can still serve paired peers, but it never treats a network peer
+/// as a Cloud host without an authenticated token verifier.
+pub(super) fn load_cloud_host(session_socket: Option<&Path>) -> Option<Arc<CloudHost>> {
+    let session_socket = session_socket?.to_path_buf();
+    let text = match std::fs::read_to_string(BOUND_FILE) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(error) => {
+            eprintln!("cmux link: bound.json unavailable ({error}); Cloud inbound disabled");
+            return None;
+        }
+    };
+    let bound: Bound = match serde_json::from_str(&text) {
+        Ok(bound) => bound,
+        Err(error) => {
+            eprintln!("cmux link: bound.json refused ({error}); Cloud inbound disabled");
+            return None;
+        }
+    };
+    match CloudHost::from_bound(bound, session_socket) {
+        Ok(host) => Some(Arc::new(host)),
+        Err(error) => {
+            eprintln!("cmux link: {error}; Cloud inbound disabled");
+            None
+        }
+    }
 }
 
 /// Why a host refused a stream (beyond [`InboundRefused`]).

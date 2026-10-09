@@ -41,7 +41,7 @@ use cmux_wg::{InterfaceAddress, WgMesh, WgMeshConfig};
 use serde_json::json;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-use self::control::{Peers, serve_local, serve_overlay};
+use self::control::{Peers, serve_local, serve_overlay_with_cloud};
 use self::dial::Overlay as _;
 use self::mesh::MeshOverlay;
 use self::state::{LINK_MTU, LinkConfig, LinkState};
@@ -347,9 +347,20 @@ async fn serve(
         "udp": overlay.local_addr()?.to_string(),
         "relay_available": cmux_link::dial::RELAY_AVAILABLE,
     }));
+    // A bound Cloud VM accepts only token-bearing streams for hosts that are
+    // not in its paired-peer table. The mode is selected by the daemon's
+    // startup environment (and stripped before children); malformed or
+    // missing bound state leaves this link in paired-peer-only mode.
+    let cloud_host = if cmux_link::token::daemon_verifier_choice().config
+        == cmux_link::token::VerifierConfig::ControlPlane
+    {
+        host_inbound::load_cloud_host(session_socket.as_deref())
+    } else {
+        None
+    };
     let result = tokio::select! {
         served = serve_local(local, overlay.clone(), peers.clone(), resolver) => served.map_err(anyhow::Error::from),
-        () = serve_overlay(listener, peers.clone(), session_socket, owner) => Ok(()),
+        () = serve_overlay_with_cloud(listener, peers.clone(), session_socket, owner, cloud_host) => Ok(()),
         signal = shutdown_signal() => signal,
     };
     registration::remove_if_owned(&state.registration_dir(), pid);

@@ -16,6 +16,7 @@ use tokio::net::{UnixListener, UnixStream};
 
 use super::cloud::{CloudResolver, ConnectInfoSource, apply_cloud_event};
 use super::dial::{Overlay, serve_dial_line};
+use super::host_inbound::{CloudHost, HostIdentity, HostRefused, serve_host_inbound};
 use super::inbound::{InboundRefused, OpenOwnerSessions, Revocations, serve_inbound_watched};
 use super::lines::read_line;
 
@@ -148,12 +149,47 @@ pub(super) async fn serve_overlay<L: OverlayListener>(
     session_socket: Option<PathBuf>,
     owner: Option<Arc<OwnerSession>>,
 ) {
+    serve_overlay_with_cloud(listener, peers, session_socket, owner, None).await;
+}
+
+/// Serve overlay streams for paired peers and, when this process is a bound
+/// Cloud VM, token-authenticated streams from mobile installs. A WireGuard
+/// peer that is present in `peers.json` keeps the paired protocol; unknown
+/// peers are offered to the Cloud host verifier and are closed on any token,
+/// epoch, address or service mismatch.
+pub(super) async fn serve_overlay_with_cloud<L: OverlayListener>(
+    mut listener: L,
+    peers: Arc<Peers>,
+    session_socket: Option<PathBuf>,
+    owner: Option<Arc<OwnerSession>>,
+    cloud_host: Option<Arc<CloudHost>>,
+) {
     while let Some((stream, key, address)) = listener.accept().await {
         let Some(session_socket) = session_socket.clone() else { continue };
         let pairings = peers.snapshot();
         let owner = owner.clone();
         let revocations = peers.revocations();
+        let cloud_host = cloud_host.clone();
         tokio::spawn(async move {
+            if pairings.by_key(&key).is_none()
+                && let Some(cloud_host) = cloud_host
+            {
+                let identity = HostIdentity {
+                    host: &cloud_host.host,
+                    epoch: cloud_host.epoch,
+                    session_socket: &cloud_host.session_socket,
+                    sshd: cloud_host.sshd,
+                };
+                if let Err(why) =
+                    serve_host_inbound(stream, key, address, cloud_host.verifier.as_ref(), &identity)
+                        .await
+                {
+                    if !matches!(why, HostRefused::Token) {
+                        eprintln!("cmux link: Cloud inbound refused ({why:?}) for {address}");
+                    }
+                }
+                return;
+            }
             let served = serve_inbound_watched(
                 stream,
                 key,

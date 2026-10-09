@@ -2,6 +2,7 @@
 //! accepts, for its epoch, from the install's own overlay address.
 
 use std::net::{IpAddr, SocketAddr};
+use serde_json::json;
 
 use cmux_link::overlay_addr::overlay_address;
 use cmux_link::stamp::LinkPeer;
@@ -169,4 +170,60 @@ async fn a_valid_daemon_hello_reaches_the_remote_entry_stamped_as_the_token_inst
     };
     let (result, ()) = tokio::join!(task, check);
     assert_eq!(result, Ok(()));
+}
+
+#[test]
+fn cloud_host_loads_the_bound_identity_and_public_keyset_without_retaining_tokens() {
+    let bound = cmux_host::cloud::wire::Bound {
+        machine: "vm_00000000000000000001".into(),
+        team: "team_00000000000000000001".into(),
+        host: "host_00000000000000000001".into(),
+        epoch: 7,
+        install: "inst_00000000000000000001".into(),
+        user: "user_00000000000000000001".into(),
+        grant: "grant_00000000000000000001".into(),
+        env: cmux_host::cloud::wire::Env::Dev,
+        api_origin: cmux_host::cloud::wire::Env::Dev.api_origin().into(),
+        keyset: json!({
+            "version": "0123456789abcdef",
+            "keys": {
+                "test-k2": {
+                    "kty": "OKP", "crv": "Ed25519", "alg": "EdDSA",
+                    "kid": "test-k2",
+                    "x": "-IW5hjSjOqC3WBiaZ8uwfsemALBF4XaHTp8jxg8zcuY"
+                }
+            }
+        }),
+        bound_at: 0,
+    };
+    let host = CloudHost::from_bound(bound, "/run/cmux/cloud.sock".into()).unwrap();
+    assert_eq!(host.host, "host_00000000000000000001");
+    assert_eq!(host.epoch, 7);
+    assert_eq!(host.session_socket, std::path::Path::new("/run/cmux/cloud.sock"));
+    assert_eq!(host.sshd, "127.0.0.1:22".parse().unwrap());
+    // The verifier stores only public keys. `CloudHost` has no token or bind
+    // credential field, so the one-shot grant cannot leak into link state.
+}
+
+#[test]
+fn cloud_host_refuses_zero_epoch_or_malformed_keyset() {
+    let mut bound = cmux_host::cloud::wire::Bound {
+        machine: "vm_00000000000000000001".into(),
+        team: "team_00000000000000000001".into(),
+        host: "host_00000000000000000001".into(),
+        epoch: 0,
+        install: "inst_00000000000000000001".into(),
+        user: "user_00000000000000000001".into(),
+        grant: "grant_00000000000000000001".into(),
+        env: cmux_host::cloud::wire::Env::Dev,
+        api_origin: cmux_host::cloud::wire::Env::Dev.api_origin().into(),
+        keyset: json!({
+            "version": "0123456789abcdef",
+            "keys": {}
+        }),
+        bound_at: 0,
+    };
+    assert!(CloudHost::from_bound(bound.clone(), "/run/cmux/cloud.sock".into()).is_err());
+    bound.epoch = 1;
+    assert!(CloudHost::from_bound(bound, "/run/cmux/cloud.sock".into()).is_err());
 }
