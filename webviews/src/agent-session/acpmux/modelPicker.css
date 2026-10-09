@@ -19,7 +19,7 @@
   border-radius: var(--ui-popup-radius, 8px);
   box-shadow:
     inset 0 0 0 0.5px var(--acpmux-composer-edge),
-    var(--ui-popup-shadow, 0 4px 14px rgb(0 0 0 / 0.12));
+    var(--ui-popup-shadow, 0 2px 8px color-mix(in srgb, black 12%, transparent));
 }
 .acpmux-mp-main {
   display: flex;
