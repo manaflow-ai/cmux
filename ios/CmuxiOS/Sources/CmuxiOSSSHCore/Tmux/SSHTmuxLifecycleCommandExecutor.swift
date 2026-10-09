@@ -23,7 +23,7 @@ public struct SSHTmuxLifecycleCommandExecutor: SSHTmuxLifecycleExecutor {
 
     public func execute(_ mutation: SSHTmuxLifecycleMutation) async throws -> SSHTmuxLifecycleExecution {
         guard mutation.isValid else { throw Error.malformedResult }
-        let output = try await runner.run("/bin/sh -s", input: script(for: mutation))
+        let output = try await runner.run("/bin/sh -s", input: try script(for: mutation))
         let lines = output.split(whereSeparator: \.isNewline).map(String.init)
         let revision: String
         switch mutation {
@@ -49,7 +49,7 @@ public struct SSHTmuxLifecycleCommandExecutor: SSHTmuxLifecycleExecutor {
         }
     }
 
-    private func script(for mutation: SSHTmuxLifecycleMutation) -> String {
+    private func script(for mutation: SSHTmuxLifecycleMutation) throws -> String {
         let binary = binary.path.posixShellSingleQuoted
         let epoch: SSHTmuxServerEpoch
         let command: String
@@ -64,6 +64,9 @@ public struct SSHTmuxLifecycleCommandExecutor: SSHTmuxLifecycleExecutor {
         case .killWindow(let server, let windowID):
             epoch = server
             command = "${binary} kill-window -t \(windowID.posixShellSingleQuoted); printf 'CMUX_OK\\n'"
+        case .createScreen, .renameScreen, .killScreen,
+             .createCmuxTUI, .renameCmuxTUI, .killCmuxTUI:
+            throw Error.unsupported
         }
         // `$binary` is assigned once and is never formed from user text.  The
         // command itself is quoted as individual shell arguments above.
