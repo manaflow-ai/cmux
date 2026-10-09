@@ -1,11 +1,12 @@
 //! Section 9 in the brain: the spawns and their subagents (state.rs
 //! `SpawnRecord`), each subagent's turn ends read from its acpmux session,
-//! and the combined report: when all of one spawn's subagents finished,
-//! their reports reach the chat as ONE message, `[id] report` each, queued
-//! like a human message (so on acpmux it stops a working Chief between its
-//! tool calls, and the next turn takes it; otherwise it starts a turn). A
-//! subagent that runs again later (a `tell`, or the user writing in its
-//! chat) reports alone when it finishes.
+//! and the reports: each subagent's report reaches the chat as its own
+//! message, `[id] report`, when it finishes (the reference client's `work`
+//! message), queued like a human message (so on acpmux it stops a working
+//! Chief between its tool calls, and the next turn takes it; otherwise it
+//! starts a turn). Reports queued while the Chief is busy go into one turn.
+//! The report of a run the user stopped (`session/cancel` in its pane) is
+//! queued quiet: the next turn logs it, and it starts none.
 //!
 //! A report is the subagent's last finished reply: its final reply is its
 //! report to the Chief (section 9's subagent prompt).
@@ -13,7 +14,7 @@
 use cmux_chief::acp::{AcpmuxEvent, SessionStatus, SessionSummary};
 use serde_json::{Value, json};
 
-use super::children::ended_replies;
+use super::children::{ended_replies, report_of};
 use super::{Brain, Queued, Source};
 use crate::fold::TurnFold;
 use crate::state::{SpawnRecord, SpawnRef, SubRecord, SubStatus};
@@ -96,6 +97,7 @@ impl Brain {
         };
         sub.status = SubStatus::Done;
         sub.report = Some(format!("(did not start: {error})"));
+        sub.stopped = false;
         let spawn = self.state.sub(id).map(|(s, _)| s.clone());
         self.save();
         if let Some(spawn) = spawn {
@@ -144,7 +146,7 @@ impl Brain {
                     "(stopped without a report: its session is {:?})",
                     session.status
                 );
-                self.sub_done(&id, report, None, None);
+                self.sub_done(&id, report, false, None, None);
             }
             _ => {}
         }
@@ -162,21 +164,19 @@ impl Brain {
                 return;
             }
         };
-        let (replies, last_end) = ended_replies(&events);
+        let (replies, last_end, cancelled) = ended_replies(&events);
         // Idle before its prompt started (a new session is ready first).
         let Some(last_end) = last_end else { return };
         self.trace_sub_events(id, &events, floor);
-        let report = replies
-            .last()
-            .cloned()
-            .unwrap_or_else(|| "(no reply text)".to_owned());
-        self.sub_done(id, report, Some(last_end), Some(&events));
+        let report = report_of(&replies, cancelled);
+        self.sub_done(id, report, cancelled, Some(last_end), Some(&events));
     }
 
     fn sub_done(
         &mut self,
         id: &str,
         report: String,
+        stopped: bool,
         floor: Option<u64>,
         events: Option<&[AcpmuxEvent]>,
     ) {
@@ -186,6 +186,7 @@ impl Brain {
         let run_ms = if let Some(sub) = self.state.sub_mut(id) {
             sub.status = SubStatus::Done;
             sub.report = Some(report.clone());
+            sub.stopped = stopped;
             if let Some(floor) = floor {
                 sub.floor = floor;
             }
@@ -210,6 +211,7 @@ impl Brain {
                 "report": self.trace.text(&report),
                 "tools": tools,
                 "tool_errors": tool_errors,
+                "stopped": stopped,
             }),
         );
         (self.log)(&format!("subagent {id} finished"));
@@ -265,52 +267,48 @@ impl Brain {
         });
     }
 
-    /// Queues the spawn's report once nothing of it runs (or, after the
-    /// combined report, each later one as it comes).
+    /// Queues each finished subagent's report of `spawn` as its own item
+    /// (or updates the one still queued). A stopped run's is quiet.
     pub(super) fn deliver(&mut self, spawn: &str) {
         let Some(record) = self.state.spawns.get(spawn) else {
             return;
         };
-        let running = record
-            .subs
-            .iter()
-            .any(|s| matches!(s.status, SubStatus::Starting | SubStatus::Running));
-        if running && !record.delivered {
-            return;
-        }
-        let done: Vec<&SubRecord> = record
+        let done: Vec<(String, String, u64, bool)> = record
             .subs
             .iter()
             .filter(|s| s.status == SubStatus::Done)
+            .map(|s| {
+                let report = s.report.as_deref().unwrap_or("");
+                (
+                    s.id.clone(),
+                    format!("[{}] {report}", s.id),
+                    s.floor,
+                    s.stopped,
+                )
+            })
             .collect();
-        if done.is_empty() {
-            return;
-        }
-        let text = done
-            .iter()
-            .map(|s| format!("[{}] {}", s.id, s.report.as_deref().unwrap_or("")))
-            .collect::<Vec<_>>()
-            .join("\n\n");
-        let source = Source::Spawn(SpawnRef {
-            spawn: spawn.to_owned(),
-            subs: done.iter().map(|s| (s.id.clone(), s.floor)).collect(),
-        });
-        let queued = self
-            .queue
-            .iter()
-            .position(|q| matches!(&q.source, Source::Spawn(r) if r.spawn == spawn));
-        match queued {
-            Some(k) => {
-                self.queue[k] = Queued {
-                    text,
-                    source,
-                    images: Vec::new(),
-                    conversation: None,
+        for (id, text, floor, quiet) in done {
+            let source = Source::Spawn(SpawnRef {
+                spawn: spawn.to_owned(),
+                subs: vec![(id.clone(), floor)],
+                quiet,
+            });
+            let queued = self.queue.iter().position(|q| {
+                matches!(&q.source, Source::Spawn(r) if r.spawn == spawn && r.subs.iter().any(|(s, _)| *s == id))
+            });
+            match queued {
+                Some(k) => {
+                    self.queue[k] = Queued {
+                        text,
+                        source,
+                        images: Vec::new(),
+                        conversation: None,
+                    }
                 }
-            }
-            None => {
-                (self.log)(&format!("spawn {spawn}: queued its report"));
-                self.queue(text, source);
+                None => {
+                    (self.log)(&format!("subagent {id}: queued its report"));
+                    self.queue(text, source);
+                }
             }
         }
     }
@@ -400,6 +398,7 @@ impl Brain {
                 None => self.sub_done(
                     &id,
                     "(did not start: the Chief host stopped while starting it)".into(),
+                    false,
                     None,
                     None,
                 ),
@@ -410,6 +409,7 @@ impl Brain {
                     None => self.sub_done(
                         &id,
                         "(gone: its session no longer exists, so no report will come)".into(),
+                        false,
                         None,
                         None,
                     ),

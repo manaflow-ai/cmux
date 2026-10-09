@@ -115,13 +115,16 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   failed. The Chief is told to repeat only that. Before 2026-10-06 the answer
   always said "each in its own cmux workspace", and a headless brain without
   an app socket told the user about workspaces that did not exist.
-- When ALL of one spawn's subagents finished a turn, their reports (each one's
-  last reply) reach the chat as ONE `user` message, `[a1] report\n\n[a2] report`.
-  It is queued like a human message: it starts a turn when the Chief is idle,
-  and on acpmux it stops a working turn once no tool runs (the next fresh turn
-  takes it; the native engine delivers it at the next tool boundary). A
-  subagent that runs again later (a `tell`, the user writing in its chat)
-  reports alone.
+- Each subagent's report (its last reply) reaches the chat as its own `user`
+  message, `[a<N>] report`, when it finishes a turn; the Chief never waits for
+  the other subagents of its spawn. It is queued like a human message: it
+  starts a turn when the Chief is idle, and on acpmux it stops a working turn
+  once no tool runs (the next fresh turn takes it; the native engine delivers
+  it at the next tool boundary). Reports queued while the Chief is busy go
+  into one turn. A run the user stopped (stop in its pane, `session/cancel`)
+  reports `[a<N>] (stopped by the user) ...` quietly: the next turn logs it,
+  and it starts no turn. A subagent that runs again later (a `tell`, the user
+  writing in its chat) reports again when it finishes.
 
 Deviation: `tell` reaches a running subagent after its current turn (acpmux
 queues the prompt; claude-sr has no steering), not between its tool calls.
@@ -701,8 +704,10 @@ acpmux unless `OPTCHAT_COMPACTOR=api`:
   transcript of it is deleted, and host.log gets one line with the node's
   seconds, prompts and token use (`compactor node <id> (<model>): 9.8 s, 1
   prompt(s), uncached .. cache write .. cache read .. output .., $..`). At
-  most JOBS (8) compactor sessions live at once, main and fallback model
-  together. Nothing pretends to be Claude Code and no API key is involved:
+  most COMPACTOR_SESSIONS (16) compactor sessions live at once, main and
+  fallback model together; the main compactor keeps up to WARM_SESSIONS (4)
+  of them started ahead, so a node prompts a ready Claude Code process (one
+  node per session: each node needs a fresh conversation). Nothing pretends to be Claude Code and no API key is involved:
   the harness signs in as it always does.
 - `api`: the Messages API at `OPTCHAT_ANTHROPIC_BASE_URL` with
   `OPTCHAT_ANTHROPIC_API_KEY` (or `ANTHROPIC_API_KEY` off the subrouter),
@@ -978,10 +983,17 @@ compactions 98.1% of their prefix (spec: 98.6% and 96.2%). What differs:
   `zoom("Name")`; the mid-turn line says a message interrupts at once.
 - **view.json** is the `memory/checkpoint` state row of the SQLite store,
   written after every message.
-- **Single-flight** waits for the writer's reply, not its first streamed
-  byte (a compaction reply is one line).
-- **Model.** The compactor stays Claude Sonnet 5.5 at medium effort (spec:
-  Haiku at xhigh): untested here.
+- **Single-flight** releases waiting calls at the writer's response start
+  (on acpmux: its first streamed output), and the prefix then counts as
+  written for 5 minutes, so later calls on it go at once.
+- **Model.** The compactor runs Claude Haiku 5.5 at high effort
+  (`OPTCHAT_COMPACTOR_MODEL`, `OPTCHAT_COMPACTOR_EFFORT` or engine.json's
+  `compactor-model` pick another). An account without the model builds
+  with the turn model, logged once. Haiku and the turns' model have
+  separate cache entries, so compactions read only each other's.
+- **Width.** JOBS and AHEAD are 64 (spec: 8): 64 calls of about 1 s stay
+  under 4,000 requests a minute. The acpmux compactor runs at most 16
+  sessions (Claude Code processes on one sticky account); the rest wait.
 - **Long messages.** A message over 200,000 characters is still logged
   whole and cut in its compaction call only (STEP_MESSAGE), not split.
 - **Failed compactions** are retried after the fixed 10 s wait (and at the
