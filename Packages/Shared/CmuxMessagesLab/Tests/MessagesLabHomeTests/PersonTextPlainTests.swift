@@ -23,7 +23,7 @@ import Testing
     }
 
     private func laidOut(_ c: ChatController) {
-        c.host.layoutSubtreeIfNeeded(); c.demo.layoutIfNeeded(); c.demo.collection.layoutIfNeeded()
+        c.host.layoutSubtreeIfNeeded(); c.demo!.layoutIfNeeded(); c.demo!.collection.layoutIfNeeded()
     }
 
     /// My own send never went through HomeMapping before MessagesLab's reducer made and
@@ -44,23 +44,23 @@ import Testing
         c.dispatch(.setDraft(typed))
         p.send()
         laidOut(c)
-        let atPress = try #require(c.demo.lastTextRow(mine: true))
+        let atPress = try #require(c.demo!.lastTextRow(mine: true))
         #expect(atPress.row.markdown == nil, "the local message at the press takes the plain path")
         #expect(atPress.row.text?.text == typed)
-        let local = try #require(c.store.state.conversation.messages.last)
+        let local = try #require(c.store!.state.conversation.messages.last)
         let key = try #require(p.aliases.first(where: { $0.value == local.id })?.key)
         await waitUntil { store.transcript(for: Fixture2.id).contains { $0.key == key } }
         await source.publish(.message(Fixture2.message(2, Fixture2.me, typed, key: key.rawValue), rev: 11))
         await waitUntil { p.shown.last?.seq == 2 }
         laidOut(c)
-        let echoed = try #require(c.demo.lastTextRow(mine: true))
+        let echoed = try #require(c.demo!.lastTextRow(mine: true))
         #expect(echoed.row.markdown == nil, "the committed echo takes the plain path")
         #expect(echoed.row.text?.text == typed)
         p.stop()
         let (p2, c2) = Fixture2.projection(store: store)
         p2.start()
         laidOut(c2)
-        let reopened = try #require(c2.demo.lastTextRow(mine: true))
+        let reopened = try #require(c2.demo!.lastTextRow(mine: true))
         #expect(reopened.row.markdown == nil, "a later open takes the plain path")
         #expect(reopened.row.text?.text == typed)
         p2.stop()
