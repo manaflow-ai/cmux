@@ -62,6 +62,9 @@ final class AppBrowserHost {
             driver.agentBundle = bundle
         }
         provider.onTabGone = { [driver] targetID in driver.tabClosed(BrowserTabID(rawValue: targetID)) }
+        services.cache.pageRequests.downloads.onDownload = { [weak provider] item, tab in
+            Self.report(item, tab: tab, to: provider)
+        }
         services.cache.pageRequests.openers.onChildPlaced = { [weak services, weak provider] child, opener in
             guard let services, let provider, let tab = services.locateTab(surface: child),
                   let parent = services.locateTab(surface: opener) else { return }
@@ -176,5 +179,28 @@ final class AppProviderCredentials: ProviderCredentialsSource {
     static func code(of error: any Error) -> String {
         if case DaemonError.command(_, _, let code?, _, _) = error { return code }
         return String(describing: type(of: error))
+    }
+
+}
+
+extension AppBrowserHost {
+    /// Reports a download of tab `tab` to the host: its start now, its end
+    /// once (the saved file, or why it ended).
+    static func report(_ item: BrowserDownload, tab: String, to provider: BrowserHostProvider?) {
+        let id = item.id.uuidString.lowercased()
+        provider?.reportDownloadStarted(targetID: tab, downloadID: id, url: item.sourceURL?.absoluteString ?? "",
+                                        suggestedFilename: item.filename)
+        item.onFinish { [weak provider] item in
+            switch item.status {
+            case .finished:
+                provider?.reportDownloadFinished(targetID: tab, downloadID: id, path: item.destination?.path, error: item.destination == nil ? "the download has no file" : nil)
+            case .failed(let reason), .blocked(let reason):
+                provider?.reportDownloadFinished(targetID: tab, downloadID: id, path: nil, error: reason)
+            case .cancelled:
+                provider?.reportDownloadFinished(targetID: tab, downloadID: id, path: nil, error: "canceled")
+            case .inProgress:
+                break
+            }
+        }
     }
 }
