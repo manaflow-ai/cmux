@@ -952,3 +952,30 @@ fn a_chief_turn_starts_subagents_only_through_spawn() {
         "codex native subagents stay off on Chief turns"
     );
 }
+
+/// DEV and NIGHTLY app builds bundle the cmux codex fork next to the brain
+/// host (`Resources/bin/chief-codex/codex`): without a copy in the Chief
+/// home, the Chief runs the bundled one. The Chief home's copy wins.
+#[test]
+fn the_bundled_codex_is_the_fallback_for_the_chiefs_own_codex() {
+    use optchat_chief::codex_home::chief_codex_in;
+    let dir = tempfile::tempdir().unwrap();
+    let paths = optchat_chief::paths::Paths::new(&dir.path().join("mux"));
+    let exe_dir = dir.path().join("Resources").join("bin");
+    assert_eq!(
+        chief_codex_in(&paths, &exe_dir),
+        None,
+        "neither: PATH codex"
+    );
+    let bundled = exe_dir.join("chief-codex").join("codex");
+    std::fs::create_dir_all(bundled.parent().unwrap()).unwrap();
+    std::fs::write(&bundled, "#!/bin/sh\n").unwrap();
+    assert_eq!(chief_codex_in(&paths, &exe_dir), Some(bundled));
+    std::fs::create_dir_all(paths.codex_bin.parent().unwrap()).unwrap();
+    std::fs::write(&paths.codex_bin, "#!/bin/sh\n").unwrap();
+    assert_eq!(
+        chief_codex_in(&paths, &exe_dir),
+        Some(paths.codex_bin.clone()),
+        "the Chief home's copy wins"
+    );
+}

@@ -43,7 +43,6 @@ rust-file	cmux-tui/crates/cmux-remote/src/workspace/process.rs	4086	162
 rust-file	cmux-tui/crates/cmux-terminal-client/src/lib.rs	4256	139
 rust-file	cmux-tui/crates/cmux-tui-cdp/src/client.rs	3947	150
 rust-file	cmux-tui/crates/cmux-tui-core/src/agent_hooks.rs	1391	39
-rust-file	cmux-tui/crates/cmux-tui-core/src/browser.rs	1933	75
 rust-file	cmux-tui/crates/cmux-tui-core/src/journal_checkpoint.rs	1427	39
 rust-file	cmux-tui/crates/cmux-tui-core/src/journal_hooks.rs	2028	54
 rust-file	cmux-tui/crates/cmux-tui-core/src/journal_ingress.rs	2993	98
@@ -58,10 +57,10 @@ rust-file	cmux-tui/crates/cmux-tui-core/src/resource_router/auxiliary.rs	1025	44
 rust-file	cmux-tui/crates/cmux-tui-core/src/resource_router/content.rs	2728	82
 rust-file	cmux-tui/crates/cmux-tui-core/src/resource_router/topology.rs	1930	46
 rust-file	cmux-tui/crates/cmux-tui-core/src/resource_selector.rs	1139	33
-rust-file	cmux-tui/crates/cmux-tui-core/src/server.rs	8329	141
+rust-file	cmux-tui/crates/cmux-tui-core/src/server.rs	8175	140
 rust-file	cmux-tui/crates/cmux-tui-core/src/server/loopback_forward.rs	1091	46
 rust-file	cmux-tui/crates/cmux-tui-core/src/surface.rs	3123	98
-rust-file	cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime.rs	8629	292
+rust-file	cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime.rs	7456	244
 rust-file	cmux-tui/crates/cmux-tui-core/src/workspace_registry.rs	6055	229
 rust-file	cmux-tui/crates/cmux-tui-core/src/workspace_registry/effect_store.rs	1410	25
 rust-file	cmux-tui/crates/cmux-tui-core/src/workspace_registry/journal_extensions.rs	3444	73
@@ -80,7 +79,6 @@ rust-file	cmux-tui/crates/cmux-tui/src/app.rs	2625	58
 rust-file	cmux-tui/crates/cmux-tui/src/bin/cmux-tui-hook.rs	1139	54
 rust-file	cmux-tui/crates/cmux-tui/src/browser_input.rs	2025	101
 rust-file	cmux-tui/crates/cmux-tui/src/cli/command.rs	4304	141
-rust-file	cmux-tui/crates/cmux-tui/src/config.rs	1790	45
 rust-file	cmux-tui/crates/cmux-tui/src/machine.rs	1364	63
 rust-file	cmux-tui/crates/cmux-tui/src/machine_agent/runtime.rs	2618	124
 rust-file	cmux-tui/crates/cmux-tui/src/machine_provider_client.rs	2723	110
