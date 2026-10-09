@@ -113,13 +113,14 @@ pub struct TerminalSizingState {
 /// A wire value the shared sizing contract does not accept.
 #[derive(Debug, PartialEq, Eq, uniffi::Error)]
 pub enum TerminalSizingWireError {
-    Invalid { message: String },
+    // Not `message`: Kotlin errors extend Throwable, which owns `message`.
+    Invalid { detail: String },
 }
 
 impl fmt::Display for TerminalSizingWireError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Invalid { message } => write!(f, "invalid terminal sizing JSON: {message}"),
+            Self::Invalid { detail } => write!(f, "invalid terminal sizing JSON: {detail}"),
         }
     }
 }
@@ -128,7 +129,7 @@ impl std::error::Error for TerminalSizingWireError {}
 
 impl From<serde_json::Error> for TerminalSizingWireError {
     fn from(error: serde_json::Error) -> Self {
-        Self::Invalid { message: error.to_string() }
+        Self::Invalid { detail: error.to_string() }
     }
 }
 
