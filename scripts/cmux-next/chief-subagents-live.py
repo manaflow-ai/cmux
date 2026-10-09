@@ -380,7 +380,11 @@ def type_in_pane(text):
         clicked = wait(lambda: (lambda r: r if not r.get("error") else None)(
             rpc("debug.agent_pane", {"action": "click", "text": "Trust"}) or {"error": "none"}), 30)
         print("trust:", json.dumps(clicked)[:200], flush=True)
-        sent = {"first": sent, "trusted": clicked}
+        # The refused prompt never went (acpmux trust_gate: it goes back to the composer), so
+        # the user sends it again after Trust, as the proof does.
+        again = wait(lambda: (lambda r: r if "trust.pending" not in json.dumps(r) else None)(
+            rpc("debug.agent_pane", {"action": "send_prompt", "text": text})), 30)
+        sent = {"first": sent, "trusted": clicked, "again": again}
     return sent
 
 
