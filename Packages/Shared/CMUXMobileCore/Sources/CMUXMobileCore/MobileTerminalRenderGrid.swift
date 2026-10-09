@@ -12,6 +12,11 @@ public enum MobileTerminalRenderGridError: Error, Equatable, Sendable {
 
 public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     public static let currentFormat = "cmux.render-grid.v1"
+    /// Largest column or row count a frame may carry (a terminal's size is 16-bit).
+    public static let maximumDimension = Int(UInt16.max)
+    /// Largest scrollback row count a frame may carry, far above the phone's
+    /// 20000-row preference (`MobileTerminalScrollbackPreference.maximumRows`).
+    public static let maximumScrollbackRows = 1_000_000
 
     public var format: String
     public var surfaceID: String
@@ -145,7 +150,12 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         guard format == Self.currentFormat else {
             throw MobileTerminalRenderGridError.invalidFormat(format)
         }
-        guard columns > 0, rows > 0 else {
+        // A terminal's columns and rows are 16-bit (Ghostty), and no host sends
+        // scrollback near `maximumScrollbackRows`: a frame past them is
+        // malformed, and replaying it would build an unbounded byte stream on
+        // the phone (crash program phase 3, MobileProtocolFuzzTests).
+        guard (1...Self.maximumDimension).contains(columns), (1...Self.maximumDimension).contains(rows),
+              scrollbackRows <= Self.maximumScrollbackRows else {
             throw MobileTerminalRenderGridError.invalidDimensions(columns: columns, rows: rows)
         }
         if let cursor,
@@ -170,7 +180,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
                 throw MobileTerminalRenderGridError.invalidStyleID(span.styleID)
             }
             let width = span.gridCellWidth
-            guard width > 0, span.column + width <= columns else {
+            guard width > 0, width <= columns - span.column else {
                 throw MobileTerminalRenderGridError.invalidSpanWidth(
                     row: span.row,
                     column: span.column,
@@ -191,7 +201,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
                 throw MobileTerminalRenderGridError.invalidStyleID(span.styleID)
             }
             let width = span.gridCellWidth
-            guard width > 0, span.column + width <= columns else {
+            guard width > 0, width <= columns - span.column else {
                 throw MobileTerminalRenderGridError.invalidSpanWidth(
                     row: span.row,
                     column: span.column,
