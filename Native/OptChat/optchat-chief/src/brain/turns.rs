@@ -170,7 +170,7 @@ impl Brain {
                 };
                 let _ = tx.send(Input::TurnEnded {
                     key: start.key,
-                    outcome,
+                    outcome: Box::new(outcome),
                 });
             });
         if let Err(e) = spawned {
@@ -721,6 +721,10 @@ impl Brain {
                 "requests": s.requests,
                 "tools": s.tools,
                 "tool_errors": s.tool_errors,
+                // Time to first token (parity item 10): the session's start,
+                // then the first request's first token.
+                "start_ms": s.start_ms,
+                "ttft_ms": s.ttft_ms,
                 // What answered (harness_gate): the engine panel reads these.
                 "harness_profile": outcome.harness.as_ref().map(|h| h.profile.as_str()),
                 "harness_kind": outcome.harness.as_ref().map(|h| h.kind.as_str()),
