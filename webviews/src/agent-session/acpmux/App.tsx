@@ -1813,6 +1813,12 @@ function AcpmuxPane() {
             ),
           "chat.harness.cancelPrompt": async ({ promptId }) => harnessSwitch.cancelQueued(String(promptId)),
           "chat.retryPrompt": ({ rowId }) => client.retryPrompt(String(rowId)),
+          // Edit and Resend (the message menu): the prompt goes back into the composer, before
+          // anything typed since, with the caret in it.
+          "chat.editPrompt": async ({ text }) => {
+            restorePrompt(String(text ?? ""), []);
+            composerHandle.current?.focus();
+          },
           "chat.history": () => client.loadOlder(),
           "acp.trust.get": ({ cwd }) => client.trustGet(String(cwd)),
           "acp.trust.set": ({ cwd, level }) => client.trustSet(String(cwd), String(level)),
@@ -2142,6 +2148,8 @@ function AcpmuxPane() {
       active = false;
     };
   }, [freshChat, newTab, quick, loadNewTabProjects]);
+  // A started local chat moves to another folder in place; a Cloud chat's folder is a label.
+  const canMove = Boolean(snapshot.sessionId) && composerSnapshot.summary?.hostKind !== "cloud";
   const newTabProjects = useMemo(() => {
     const byPath = new Map<string, { cwd: string; label: string }>();
     for (const project of directProjects) byPath.set(project.cwd, project);
@@ -2328,7 +2336,8 @@ function AcpmuxPane() {
               () => undefined,
             )
           }
-          projectChoices={freshChat && !quick ? newTabProjects : undefined}
+          // A started local chat lists the same folders to move to (dogfood 09).
+          projectChoices={!quick && (freshChat || canMove) ? newTabProjects : undefined}
           onBrowseProject={
             freshChat && !quick
               ? () => {
@@ -2354,9 +2363,17 @@ function AcpmuxPane() {
           }
           localName={machineName}
           movedTo={movedTo}
+          onBrowseFolder={
+            canMove
+              ? () =>
+                  callNative<{ cwd?: string }>("project.browse")
+                    .then((result) => result?.cwd)
+                    .catch(() => undefined)
+              : undefined
+          }
           // A started local chat moves to another folder in place; a Cloud chat's folder is a label.
           onMove={
-            snapshot.sessionId && composerSnapshot.summary?.hostKind !== "cloud"
+            canMove
               ? (cwd) => {
                   const move: ChatMove = {
                     id: `${Date.now().toString(36)}-${chatMoves.length}`,

@@ -248,7 +248,7 @@ struct SidebarMetrics: Equatable {
     /// 3 at normal widths, 2 when 3 do not fit, 1 in the compact list.
     var columns: Int {
         if compact { return 1 }
-        return max(1, min(Self.pinColumns, Int((width - 2 * Self.pinInsetX) / Self.minTileWidth)))
+        return max(1, min(Self.pinColumns, CrashGuard.int((width - 2 * Self.pinInsetX) / Self.minTileWidth))) // cmux: no trap on NaN
     }
     var tileWidth: CGFloat { ((width - 2 * Self.pinInsetX) / CGFloat(columns)).rounded(.down) }
     /// Grows with the tile in the 3-column grid, from 52 pt at its narrowest to 76 pt; with fewer

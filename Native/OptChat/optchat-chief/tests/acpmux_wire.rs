@@ -271,7 +271,7 @@ fn a_turn_over_the_acpmux_wire() {
     let prompt = find("session/prompt");
     assert_eq!(prompt["params"]["sessionId"], "s-1");
     assert_eq!(prompt["params"]["_meta"]["acpmux"]["promptId"], "optchat:0");
-    assert_eq!(prompt["params"]["prompt"][1]["text"], "what is x?");
+    assert_eq!(prompt["params"]["prompt"][2]["text"], "what is x?");
     assert_eq!(
         find("_acpmux/kill")["params"],
         json!({"sessionId": "s-1", "purge": true})

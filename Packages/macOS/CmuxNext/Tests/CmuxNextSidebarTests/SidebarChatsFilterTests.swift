@@ -58,7 +58,8 @@ import Testing
 
     @Test func theSectionKeepsOneSearchField() {
         let view = chats()
-        let searches = view.subviews.filter { $0 is NSSearchField }
+        // The search lives in the section's hover-revealed header row (cx-xub5).
+        let searches = (view.subviews + view.header.subviews).filter { $0 is NSSearchField }
         #expect(searches.count == 1)
         #expect(!view.projectMenu().items.contains { $0.view is NSSearchField }, "no second search field")
     }

@@ -223,5 +223,50 @@ class PublishToken(unittest.TestCase):
                          "${{ steps.app-token.outputs.token || steps.app-token-workflows.outputs.token }}")
 
 
+REPIN = ROOT / "scripts/cmux-next/repin-app-ffi.sh"
+
+
+class RePin(unittest.TestCase):
+    def test_repin_rewrites_the_url_and_checksum(self):
+        with tempfile.TemporaryDirectory() as temp:
+            manifest = Path(temp) / "Package.swift"
+            old_sum, other_sum = "a" * 64, "b" * 64
+            manifest.write_text(textwrap.dedent(f"""\
+                .binaryTarget(
+                    name: "CCmuxAppFFI",
+                    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-{SHA}/CCmuxAppFFI.xcframework.zip",
+                    checksum: "{old_sum}"
+                ),
+                .binaryTarget(name: "Other", url: "https://example.com/x.zip", checksum: "{other_sum}"),
+                """))
+            new_sha, new_sum = "d" * 40, "e" * 64
+            subprocess.run(["bash", str(REPIN), new_sha, new_sum, str(manifest)], check=True, capture_output=True)
+            text = manifest.read_text()
+            self.assertIn(f"cmux-app-ffi-{new_sha}/CCmuxAppFFI.xcframework.zip", text)
+            self.assertIn(f'checksum: "{new_sum}"', text)
+            self.assertNotIn(SHA, text)
+            self.assertIn(f'checksum: "{other_sum}"', text)
+            for bad in (("x", new_sum), (new_sha, "y")):
+                result = subprocess.run(["bash", str(REPIN), *bad, str(manifest)], capture_output=True)
+                self.assertNotEqual(result.returncode, 0, bad)
+
+    def test_repin_job_opens_or_updates_a_pull_request(self):
+        workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        job = workflow["jobs"]["repin"]
+        self.assertEqual(job["needs"], ["build", "publish"])
+        self.assertIn("needs.publish.result == 'success'", job["if"])
+        mint = next(step for step in job["steps"] if step.get("id") == "app-token")
+        self.assertEqual(mint["with"]["permission-contents"], "write")
+        self.assertNotIn("permission-pull-requests", mint["with"])
+        pr_mint = next(step for step in job["steps"] if step.get("id") == "pr-token")
+        self.assertEqual(pr_mint["with"]["permission-pull-requests"], "write")
+        self.assertTrue(pr_mint.get("continue-on-error"))
+        script = "\n".join(str(step.get("run", "")) for step in job["steps"])
+        for needle in ("scripts/cmux-next/repin-app-ffi.sh", "app-ffi-repin", "gh pr create",
+                       "gh pr edit", "--jq '.[0].number // empty'", "--base feat-cmux-next",
+                       "compare/feat-cmux-next...$branch"):
+            self.assertIn(needle, script)
+
+
 if __name__ == "__main__":
     unittest.main()
