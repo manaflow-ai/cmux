@@ -33,6 +33,7 @@ public final class WebKitDriver: DriverCallHandler {
 
     public func call(method: String, params json: DriverJSON) async throws(DriverError) -> DriverJSON {
         let params = try DriverParams(method: method, json: json)
+        await keepRendering(params)
         switch method {
         case "tabs.list": return try tabsList(params)
         case "tabs.open": return try await tabsOpen(params)
@@ -55,6 +56,30 @@ public final class WebKitDriver: DriverCallHandler {
         case "cookies.get": return try await cookiesGet(params)
         case "cookies.clear": return try await cookiesClear(params)
         default: throw DriverError(.unsupported, "Unsupported driver method \(method)")
+        }
+    }
+
+    /// A call on a tab no pane shows: the App moves it into its render
+    /// window first, and the call waits until WebKit applied the window,
+    /// visibility and focus state, or input would reach an unfocused page.
+    private func keepRendering(_ params: DriverParams) async {
+        guard params.method != "tabs.close", let raw = try? params.optionalString("targetId"),
+              let provider, let tab = provider.automationTabs(all: true).first(where: { $0.tab.id.rawValue == raw })?.tab,
+              tab.webView.window == nil else { return }
+        guard await provider.keepRendering(tab) else { return }
+        await Self.afterActivityStateUpdate(tab.webView)
+    }
+
+    /// Resumes once WebKit has sent the view's activity state (visible,
+    /// focused, in a window) to the web process.
+    static func afterActivityStateUpdate(_ webView: WKWebView) async {
+        let selector = NSSelectorFromString("_doAfterActivityStateUpdate:")
+        guard webView.responds(to: selector) else { return }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            typealias Action = @convention(block) () -> Void
+            typealias Function = @convention(c) (AnyObject, Selector, Action) -> Void
+            let function = unsafeBitCast(webView.method(for: selector), to: Function.self)
+            function(webView, selector) { continuation.resume() }
         }
     }
 

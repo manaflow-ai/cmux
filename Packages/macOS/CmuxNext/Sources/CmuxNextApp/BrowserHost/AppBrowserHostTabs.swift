@@ -19,6 +19,8 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
     /// Extension access depends on manifests read from disk: computed again
     /// only when the profile's extension list or the page URL changes.
     private var accessMemo: [String: (extensions: [BrowserExtensionInfo], url: URL?, names: [String])] = [:]
+    /// Hidden agent-driven WebKit tabs render here (``keepRendering(_:)``).
+    let renderWindows = AgentRenderWindows()
 
     init(services: AppServices) {
         self.services = services
@@ -206,6 +208,14 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
         }
         guard !browserTabs.isIncognitoPane(pane) else { throw .noPane }
         return pane
+    }
+
+    /// A WebKit tab no pane shows moves its chrome into an off-screen render
+    /// window before a driver call (``AgentRenderWindows``); a pane that
+    /// shows it later takes it back.
+    func keepRendering(_ tab: WebKitTab) async -> Bool {
+        guard let services, let entry = services.cache.existingBrowser(tab.id.rawValue), (entry.tab as? WebKitTab) === tab else { return false }
+        return renderWindows.keepRendering(tabID: tab.id.rawValue, chrome: entry.chrome, webView: tab.webView)
     }
 
     /// Tabs belong to the person's layout: the provider never closes one.
