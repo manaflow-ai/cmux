@@ -219,7 +219,7 @@
          if map.count > BlockLayoutCache.capacity + 64 {
              let keep = map.sorted { $0.value.1 > $1.value.1 }.prefix(BlockLayoutCache.capacity)
              map = Dictionary(uniqueKeysWithValues: keep.map { ($0.key, $0.value) })
-@@ -417,31 +422,34 @@
+@@ -417,32 +422,35 @@
          self.markdown = index.markdown && (markdown ?? true)
          column = Metrics(width: width).maxTextWidth
          let col = Float(column)
@@ -259,11 +259,13 @@
          exact = ex
          measured = ex.filter { $0 }.count
 -        placeholderLines = index.ready ? 0 : max(1, Int(Double(index.count) * Double(Fixture.bodyFont.pointSize) * 0.5 * 1.06 / Double(column)))
+-        if index.ready, index.count <= 512 * 1024 { require(blocks: 0..<min(index.blockCount, keep ?? index.blockCount)) }
 +        placeholderLines = index.ready ? 0 : max(1, CrashGuard.int(Double(index.count) * Double(Fixture.bodyFont.pointSize) * 0.5 * 1.06 / Double(column),
 +                                                                   in: CrashGuard.countRange)) // cmux: no trap on a zero column
-         if index.ready, index.count <= 512 * 1024 { require(blocks: 0..<min(index.blockCount, keep ?? index.blockCount)) }
++        if index.ready, index.count <= 512 * 1024 { require(blocks: 0..<max(0, min(index.blockCount, keep ?? index.blockCount))) } // cmux: a negative keep built an inverted range
      }
  
+     var totalLines: Int {
 @@ -454,15 +462,15 @@
          CGSize(width: column + 2 * Fixture.bubblePadX, height: textHeight + 2 * Fixture.bubblePadY)
      }
@@ -517,11 +519,17 @@
                  if same {
                      let i = LongTextIndex.build(t, lineage: prev.lineage, prefix: prev, keep: keep)
                      LongTextStats.streamExtends += 1
-@@ -891,7 +904,7 @@
+@@ -887,11 +900,11 @@
+                         let tailOffMain = LongText.offMainTail
+                         let l = LongTextLayout(index: i, width: o.width, carry: o, markdown: o.markdown, provisional: tailOffMain ? keep : nil)
+                         lock.lock(); layouts[ObjectIdentifier(i), default: [:]][o.markdown || !i.markdown ? o.width : -o.width] = l; lock.unlock()
+-                        if tailOffMain { l.measureTail(keep..<i.blockCount); continue }
++                        if tailOffMain { l.measureTail(keep..<max(keep, i.blockCount)); continue } // cmux: never an inverted range
                          // The previous rule: the new tail is measured now (about 4 KB).
                          let reuse = BlockLayoutCache.shared.get(o.key(keep))
-                         let tail = max(0, keep)..<i.blockCount
+-                        let tail = max(0, keep)..<i.blockCount
 -                        if i.count - i.starts[tail.lowerBound] <= 16 * 1024 { l.measureNow(tail, reuse: reuse) } else { l.require(blocks: tail) }
++                        let tail = max(0, keep)..<max(max(0, keep), i.blockCount) // cmux: never an inverted range
 +                        if i.count - (i.starts[checked: tail.lowerBound] ?? 0) <= 16 * 1024 /* cmux */ { l.measureNow(tail, reuse: reuse) } else { l.require(blocks: tail) }
                      }
                      return i
