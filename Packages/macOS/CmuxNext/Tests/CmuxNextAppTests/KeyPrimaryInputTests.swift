@@ -19,7 +19,7 @@ struct KeyPrimaryInputTests {
 
     @Test func typingOnAnOpenScreenGoesToItsPrimaryInput() throws {
         let services = M.services()
-        let router = services.keyRouter!
+        let router = services.keyRouter
         let letter = try K.key("h", keyCode: 4, [])
         let screens: [(String, FocusState)] = [
             ("Home", M.focused(M.homeKind, tab: "home-1")),
@@ -39,7 +39,7 @@ struct KeyPrimaryInputTests {
 
     @Test func navigationKeysAndOtherSurfacesKeepTheirKeys() throws {
         let services = M.services()
-        let router = services.keyRouter!
+        let router = services.keyRouter
         let home = M.focused(M.homeKind, tab: "home-1")
         let up = String(UnicodeScalar(NSUpArrowFunctionKey)!)
         for event in [try K.key(up, keyCode: 126, [.function, .numericPad]), try K.key("\r", keyCode: 36, []),

@@ -103,6 +103,7 @@ fn claude_settings_and_the_launcher_carry_the_pinned_socket() {
         env,
         instructions: None,
         tools: Tools::Mcp,
+        user_env: Default::default(),
     };
     let paths = Paths::new(Path::new("/h"));
     let settings = settings_json(

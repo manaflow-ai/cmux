@@ -102,7 +102,7 @@ extension PaneController {
         let workspace = services.workspaceKey(of: pane)
         guard let connection = daemon.connection else { return }
         let intent = self.workspace?.beginFocusIntent()
-        services.registry.track(Task {
+        services.registry.track(Task { [services] in
             do {
                 var start = cwd
                 if let agent, let agentCwd = await agent.workingContext()?.cwd, WorkingURL.isDirectory(agentCwd) { start = agentCwd }
@@ -161,7 +161,7 @@ extension PaneController {
         let keys = Set(ids.map(\.rawValue))
         let runs = daemon.closeRuns(surfaces: surfaces, commands: commands.map { ($0.label, $0.run) })
         let userClose = CloseUndoToasts.isUserClose // a refused user close shows RefusedCloseNotice
-        services.registry.track(Task {
+        services.registry.track(Task { [services] in
             let (failed, unknown, codes) = await daemon.runReportingOutcomes(runs)
             if failed, userClose { RefusedCloseNotice(services: services).show(codes: codes, in: view.window) }
             // A close that missed its deadline under daemon load usually still
@@ -199,13 +199,13 @@ extension PaneController {
             services.registry.refuse(daemon.missingCapabilityMessage(DaemonCapabilities.shared.tabMetadata))
             return
         }
-        services.registry.track(Task {
+        services.registry.track(Task { [services] in
             let ok = await daemon.intend("set-tab-pinned", .setTabPinned(surface: surface, pinned: pinned)) { connection in
                 if let resource { return try await connection.state.setTabPinned(resource, pinned) }
                 _ = try await connection.setTabPinned(surface, pinned)
             }
             if !ok { resyncStrip() }
-            return ok ? nil : "set-tab-pinned failed (see the app log)"
+            return withExtendedLifetime(services) { ok ? nil : "set-tab-pinned failed (see the app log)" }
         })
     }
 

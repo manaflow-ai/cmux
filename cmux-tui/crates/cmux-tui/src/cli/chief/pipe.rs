@@ -18,6 +18,8 @@ use crate::cli::OutputMode;
 
 /// How long before pipe mode says the Chief has not read the message.
 const NOT_READ_AFTER: Duration = Duration::from_secs(30);
+/// Messages in the snapshot of a stream reopened after a gap.
+const GAP_TAIL: usize = 50;
 
 pub(super) fn run(mut session: Session, text: &str, args: &Args, output: OutputMode) -> i32 {
     let m = messages();
@@ -45,6 +47,7 @@ pub(super) fn run(mut session: Session, text: &str, args: &Args, output: OutputM
     let started = Instant::now();
     let deadline = args.timeout_secs.map(|s| started + Duration::from_secs(s));
     let mut hinted = false;
+    let mut printed = 0;
     while !watch.done {
         let now = Instant::now();
         let mut wait =
@@ -57,7 +60,8 @@ pub(super) fn run(mut session: Session, text: &str, args: &Args, output: OutputM
             Err(RecvTimeoutError::Timeout) => {
                 if deadline.is_some_and(|d| Instant::now() >= d) {
                     out.end();
-                    eprintln!("cmux: {}", m.timed_out);
+                    let secs = args.timeout_secs.unwrap_or_default().to_string();
+                    eprintln!("cmux: {}", m.timed_out.replace("{secs}", &secs));
                     return 124;
                 }
                 if !hinted && !watch.read && Instant::now() >= started + NOT_READ_AFTER {
@@ -70,15 +74,22 @@ pub(super) fn run(mut session: Session, text: &str, args: &Args, output: OutputM
         };
         let line = match input {
             Input::Daemon(line) => line,
-            Input::Closed(reason) if reason == "gap" && session.reopen(0).is_ok() => continue,
+            // The reopened stream's snapshot carries the missed state
+            // (cursor, replies, typing), so a lost item never stalls it.
+            Input::Closed(reason) if reason == "gap" && session.reopen(GAP_TAIL).is_ok() => {
+                continue;
+            }
             Input::Closed(_) => break,
             Input::Term(_) => continue,
         };
         let Some(event) = adapt(&line, &session.conversation) else { continue };
-        if let Some(reply) = watch.on(&event) {
-            out.message(&reply);
-            drafts.on_message(&reply);
+        watch.on(&event);
+        // A snapshot after a gap can add several replies at once.
+        for reply in &watch.replies[printed..] {
+            out.message(reply);
+            drafts.on_message(reply);
         }
+        printed = watch.replies.len();
         if let UiEvent::Draft(draft) = &event
             && stream
             && watch.working

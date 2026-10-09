@@ -128,12 +128,12 @@ final class HomeProjection: @preconcurrency ChatIntents {
 
     /// The whole current value; unchanged values return before any work.
     func apply(items: [TranscriptItem], summary: ConversationSummary?, typing: Set<ParticipantID>, hasOlder newHasOlder: Bool) {
-        if controller.store == nil {
+        guard let store = controller.store else {
             install(items: items, summary: summary, typing: typing, hasOlder: newHasOlder)
             restoreDraft()
             return
         }
-        let typingChanged = Set(controller.store.state.ui.typing) != Set(typing.filter { $0 != me }.map(\.rawValue))
+        let typingChanged = Set(store.state.ui.typing) != Set(typing.filter { $0 != me }.map(\.rawValue))
         guard items != shown || summary != shownSummary || typingChanged || newHasOlder != hasOlder else { return }
         appliedUpdates += 1
         if newHasOlder != hasOlder { olderRequested = false }
@@ -144,17 +144,17 @@ final class HomeProjection: @preconcurrency ChatIntents {
         // MessagesLab bd65bbf: a keystroke goes first. Statuses and typing that arrive in a
         // keystroke frame are committed at the start of the next display frame; anything
         // else (a message, a tapback, a page) is committed now, in order.
-        let typingActions = core.typing(controller.store.state, wanted: typing)
+        let typingActions = core.typing(store.state, wanted: typing)
         let ambient = !diff.rebuild && (diff.actions + typingActions).allSatisfy {
             switch $0 { case .status, .typing: return true; default: return false }
         }
         if ambient, controller.inKeystrokeFrame, !(diff.actions + typingActions).isEmpty {
             let held = diff.actions
             controller.nextFrame { [weak self] in
-                guard let self, !self.stopped, self.controller.store != nil else { return }
+                guard let self, !self.stopped, let store = self.controller.store else { return }
                 for a in held { self.controller.dispatch(a) }
                 // Typing against the projection then (a receive in between may have ended it).
-                for a in self.core.typing(self.controller.store.state, wanted: typing) { self.controller.dispatch(a) }
+                for a in self.core.typing(store.state, wanted: typing) { self.controller.dispatch(a) }
                 self.onRowsChange()
             }
         } else {
@@ -166,7 +166,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
                     controller.dispatch(a)
                 }
             }
-            for a in core.typing(controller.store.state, wanted: typing) { controller.dispatch(a) }
+            for a in core.typing(store.state, wanted: typing) { controller.dispatch(a) }
         }
         if titleChanged { applyHeader() }
         refreshAttachments()
@@ -180,8 +180,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
     private func install(items: [TranscriptItem], summary: ConversationSummary?, typing: Set<ParticipantID>, hasOlder: Bool) {
         let (conv, w) = core.install(conversation, items: items, summary: summary)
         self.hasOlder = hasOlder
-        controller.install(conv, windowStart: w.start, total: w.total)
-        controller.store.linkPreviews = linkPreviews
+        let store = controller.install(conv, windowStart: w.start, total: w.total)
+        store.linkPreviews = linkPreviews
         if let previews = linkPreviews?.previews {
             // MessagesLab 85684b4: the LinkPresentation fallback runs only for an OUTGOING card on
             // screen (a link I sent); a late answer fills the card.
@@ -192,7 +192,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
             }
         }
         applyHeader()
-        for a in core.typing(controller.store.state, wanted: typing) { controller.dispatch(a) }
+        for a in core.typing(store.state, wanted: typing) { controller.dispatch(a) }
         if notice != nil { controller.dispatch(.cmuxNotice(notice)) }
         refreshAttachments()
         onSummaryChange(summary)
@@ -203,12 +203,12 @@ final class HomeProjection: @preconcurrency ChatIntents {
     /// for it): `.replaceWindow`, then the pin or the first visible row's
     /// window position is restored.
     private func rebuild() {
-        guard let demo = controller.demo else { return }
+        guard let demo = controller.demo, let store = controller.store else { return }
         rebuilds += 1
-        let pinned = controller.store.state.ui.scroll.pinnedToBottom
+        let pinned = store.state.ui.scroll.pinnedToBottom
         let anchor = demo.anchorProbe
         let msgs = shown.map { HomeMapping.message($0, aliases: aliases, me: me, summary: shownSummary, media: core.media, links: core.links) }
-        let pendingLocal = controller.store.state.conversation.messages.filter { m in
+        let pendingLocal = store.state.conversation.messages.filter { m in
             aliases.contains { $0.value == m.id } && !msgs.contains { $0.id == m.id }
         }
         controller.dispatch(.replaceWindow(msgs + pendingLocal, start: HomeMapping.window(shown, summary: shownSummary).start))
@@ -246,7 +246,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         linkPreviews?.allowSend(text)
         controller.dispatch(.send)
         homeStore.setDraft("", for: conversation)
-        guard core.recordSend(key, in: controller.store.state) else { return }
+        guard core.recordSend(key, in: store.state) else { return }
         for a in attachments {
             media.useLocal(a.files, for: a.ref.hash)
             drafts[a.ref.hash] = nil
@@ -280,7 +280,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         guard !stopped, !homeStore.transcript(for: conversation).contains(where: { $0.key == key }) else { return }
         core.forget(key)
         rebuild()
-        if controller.store.state.ui.draft.text.isEmpty, !text.isEmpty { controller.dispatch(.setDraft(text)) }
+        if controller.store?.state.ui.draft.text.isEmpty == true, !text.isEmpty { controller.dispatch(.setDraft(text)) }
         for a in attachments { restoreDraft(a) }
         if let notice { onAttachmentRefusal(notice) }
     }

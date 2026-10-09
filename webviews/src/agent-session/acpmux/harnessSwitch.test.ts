@@ -330,6 +330,22 @@ describe("harness switch: failure", () => {
     expect(draw().switching?.phase).toBe("starting");
   });
 
+  test("a trust refusal hands the prompt back without leaving a generic failed switch card", async () => {
+    const { store, port, draw, restored } = setup();
+    const done = store.switchTo("claude", "/work");
+    const turn = store.send("who are you");
+    const refusal = Object.assign(new Error("trust.pending: answer the trust question first (/work)"), {
+      reason: "trust.pending",
+      cwd: "/work",
+    });
+    port.creates[0]!.reply.reject(refusal);
+
+    expect(await done).toBeUndefined();
+    await expect(turn!).rejects.toMatchObject({ reason: "trust.pending", cwd: "/work", handedBack: true });
+    expect(restored).toEqual(["who are you"]);
+    expect(draw().switching).toBeUndefined();
+  });
+
   // Data loss: a queued prompt's attachments must come back with its text, exactly as they were.
   test("a failed or cancelled queued prompt hands back its attachments with its text", async () => {
     const image = { id: "a1", kind: "image" as const, name: "shot.png", mimeType: "image/png", size: 3, data: "AAA" };

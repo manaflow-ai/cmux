@@ -1,15 +1,20 @@
 /* The composer's attachment row (Composer.tsx AttachmentChip), laid out like a native chat composer:
    the row sits inside the composer at the text's own inset, the attachments keep a gap between them
    and above the text, and each thumbnail's corners nest in the composer's (inner radius = the
-   composer's radius minus the inset). The remove button is a badge inside the thumbnail, never over
-   its edge or the composer's border, with a 22px click target. Theme tokens only. */
+   composer's radius minus the inset). The row is its own band above the prompt, so the caret never
+   draws over a thumbnail. The remove button is a small × inside the thumbnail's corner, shown while
+   the chip is hovered or focused. Theme tokens only. */
 .acpmux-composer-box {
   --acpmux-attach-inset: 16px;
   --acpmux-attach-gap: 8px;
   --acpmux-attach-radius: max(4px, calc(var(--acpmux-composer-radius, 22px) - var(--acpmux-attach-inset)));
 }
 .acpmux-attachments {
-  flex-basis: 100%;
+  /* A column flex item: a 100% basis would be the box's height, and shrinking would clip the
+     thumbnails under the prompt. */
+  flex: none;
+  position: relative;
+  z-index: 1;
   min-width: 0;
   display: flex;
   align-items: center;
@@ -20,6 +25,7 @@
   padding: var(--acpmux-attach-inset) var(--acpmux-attach-inset) 0;
   border: 0;
   overflow-x: auto;
+  overflow-y: hidden;
 }
 .acpmux-attachment {
   position: relative;
@@ -32,6 +38,20 @@
 .acpmux-attachment-image {
   width: 56px;
   height: 56px;
+}
+.acpmux-attachment-open {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: var(--acpmux-attach-radius);
+  background: none;
+  cursor: zoom-in;
+}
+.acpmux-attachment-open:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: 1px;
 }
 .acpmux-attachment-image img {
   display: block;
@@ -57,15 +77,15 @@
   position: absolute;
   top: 4px;
   right: 4px;
-  width: 22px;
-  height: 22px;
+  width: 16px;
+  height: 16px;
   padding: 0;
   border: 0;
-  border-radius: 11px;
+  border-radius: 8px;
   display: grid;
   place-items: center;
-  font-size: 14px;
-  line-height: 1;
+  opacity: 0;
+  transition: opacity 120ms ease-out;
   /* The composer's own surface, so the badge reads as a cut-out in the thumbnail in every theme. */
   background: color-mix(in srgb, var(--acpmux-composer-bg) 82%, transparent);
   box-shadow: 0 0 0 0.5px var(--acpmux-composer-edge);
@@ -73,7 +93,11 @@
   cursor: pointer;
 }
 .acpmux-attachment-file .acpmux-attachment-remove {
-  top: 5px;
+  top: 8px;
+}
+.acpmux-attachment:hover .acpmux-attachment-remove,
+.acpmux-attachment:focus-within .acpmux-attachment-remove {
+  opacity: 1;
 }
 .acpmux-composer .acpmux-attachment-remove:hover {
   background: color-mix(in srgb, var(--agent-text) 22%, var(--acpmux-composer-bg));

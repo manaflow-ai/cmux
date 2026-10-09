@@ -167,7 +167,7 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
     /// pane's active tab stays: every client reads it; no selection or focus
     /// changes), in ``sessionTabPane(_:)``. Answers once the store shows it.
     private func openSessionTab(_ engine: BrowserEngineTag, url: String?) async throws -> TabModel {
-        guard let services, let browserTabs = services.cache.browserTabs, browserTabs.isAvailable() else {
+        guard let services, case let browserTabs = services.cache.browserTabs, browserTabs.isAvailable() else {
             throw AutomationTabError.unavailable
         }
         if engine == .cef, let reason = browserTabs.cefUnavailable() {

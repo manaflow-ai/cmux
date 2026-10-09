@@ -255,8 +255,11 @@ extension TranscriptDocumentView {
 final class ChatController: NSObject, NSTextViewDelegate {
     var window: NSWindow? { host.window }
     let host: HostView
-    private(set) var store: Store!
-    private(set) var demo: MessagesWindowView!
+    /// The projection, nil until `install` (crash program: no longer an IUO that trapped
+    /// when read early).
+    private(set) var store: Store?
+    /// The window view over `store`, nil until `install`.
+    private(set) var demo: MessagesWindowView?
     /// cmux: where the user's changes go (the HomeStore adapter).
     weak var intents: ChatIntents?
     /// cmux: one-shot wake-ups on the host's timer (CmuxNext: DemandTimer).
@@ -315,11 +318,14 @@ final class ChatController: NSObject, NSTextViewDelegate {
 
     /// cmux: install the window view over the adapter's projection (the
     /// loaded HomeStore window), in place of `load()` over a source.
-    func install(_ conv: Conversation, windowStart lo: Int, total: Int) {
-        store = Store(conversation: conv, baseDate: Date(), windowStart: lo, total: total)
+    @discardableResult
+    func install(_ conv: Conversation, windowStart lo: Int, total: Int) -> Store {
+        let store = Store(conversation: conv, baseDate: Date(), windowStart: lo, total: total)
+        self.store = store
         store.responder = nil
         start = CACurrentMediaTime()
-        demo = MessagesWindowView(store: store)
+        let demo = MessagesWindowView(store: store)
+        self.demo = demo
         demo.clock = { [weak self] in self?.clock ?? 0 }
         demo.requestWake = { [weak self] t in self?.requestViewWake(t) }
         demo.drawsChrome = false
@@ -365,9 +371,9 @@ final class ChatController: NSObject, NSTextViewDelegate {
         tv.view.onPastePasteboard = { [weak self] pb in self?.intents?.takeAttachments(from: pb) ?? false }
         tv.view.onPasteImage = { _ in }
         tv.view.onMarkedTextChange = { [weak self] in
-            guard let self else { return }
-            let s = self.demo.compose.textView.view.string
-            if s != self.store.state.ui.draft.text { self.dispatch(.setDraft(s)) }
+            guard let self, let demo = self.demo, let store = self.store else { return }
+            let s = demo.compose.textView.view.string
+            if s != store.state.ui.draft.text { self.dispatch(.setDraft(s)) }
         }
         demo.onScrollPosition = { [weak self] in
             ScaleKeeper.shared.setNeedsApply()
@@ -378,6 +384,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         if intents?.canReply == true { swipe.install() }
         host.needsLayout = true
         onInstalled.forEach { $0(self) }
+        return store
     }
 
     /// cmux: the host moved to a window (or left one): key-state palette and
@@ -391,8 +398,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
         guard let window, let demo else { return }
         let nc = NotificationCenter.default
         if !Self.noFocus {
-            observers.append(nc.addObserver(forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main) { [weak self] _ in self?.demo.setInactive(false) })
-            observers.append(nc.addObserver(forName: NSWindow.didResignKeyNotification, object: window, queue: .main) { [weak self] _ in self?.demo.setInactive(true) })
+            observers.append(nc.addObserver(forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main) { [weak self] _ in self?.demo?.setInactive(false) })
+            observers.append(nc.addObserver(forName: NSWindow.didResignKeyNotification, object: window, queue: .main) { [weak self] _ in self?.demo?.setInactive(true) })
             demo.setInactive(!window.isKeyWindow)
         } else {
             demo.setInactive(!Self.args.contains("--active"))
@@ -461,7 +468,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         ScaleKeeper.shared.setNeedsApply()
         host.scrollView.syncFromModel()
         if !selection.isEmpty { selection.refresh() }
-        host.fieldChrome.follow(field: demo.compose.fieldRect)
+        if let demo { host.fieldChrome.follow(field: demo.compose.fieldRect) }
         scheduleWake()
     }
 
@@ -501,10 +508,10 @@ final class ChatController: NSObject, NSTextViewDelegate {
     private func wakeFired() {
         wakeAt = .infinity
         let now = clock
-        store.advance(to: now)
+        store?.advance(to: now)
         if viewWakeAt <= now {
             viewWakeAt = .infinity
-            demo.settle(at: now)
+            demo?.settle(at: now)
         }
         afterEngine()
     }
@@ -522,6 +529,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
     }
 
     func textDidChange(_ notification: Notification) {
+        guard let demo else { return }
         dispatch(.setDraft(demo.compose.textView.view.string))
         intents?.draftChanged()
     }
@@ -610,7 +618,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
 
     func showPicker(for hit: MessagesWindowView.Hit) {
         closePicker()
-        let mine = hit.row.reactions.first { $0.senderId == store.state.me }?.kind
+        let mine = hit.row.reactions.first { $0.senderId == store?.state.me }?.kind
         let p = TapbackPickerView(ref: hit.row.ref, selected: mine) { [weak self] kind in
             guard let self, let picker = self.picker else { return }
             self.intents?.react(picker.ref, kind)

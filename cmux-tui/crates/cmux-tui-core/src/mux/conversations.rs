@@ -7,19 +7,18 @@ use super::*;
 use crate::conversation_store::ConversationStore;
 use crate::remote_relay_state::{RelayLock, RelayStateError, lock_checked};
 
+/// The binding of a connection whose agent token was replaced.
+pub(crate) const REVOKED_BINDING_PREFIX: &str = "revoked:";
+
 impl Mux {
     /// `conversation.draft`'s replay and rate gate (memory only).
     pub(crate) fn admit_conversation_draft(
         &self,
-        conversation: &str,
-        turn: &str,
-        seq: u64,
-        fresh: bool,
-        text_bytes: usize,
+        draft: crate::conversation_drafts::DraftAdmission<'_>,
         now: Instant,
     ) -> Result<bool, crate::conversation_drafts::DraftRefusal> {
         let mut gate = self.conversations.drafts.lock().unwrap_or_else(PoisonError::into_inner);
-        gate.admit(conversation, turn, seq, fresh, text_bytes, now)
+        gate.admit(draft, now)
     }
 
     /// Run `operation` on the conversation store, opening
@@ -101,11 +100,75 @@ impl Mux {
         &self.conversations.bindings
     }
 
+    /// Records that `participant` types (or stopped) in `conversation`.
+    pub(crate) fn set_conversation_typing(&self, conversation: &str, participant: &str, on: bool) {
+        let mut typing = self.conversations.typing.lock().unwrap_or_else(PoisonError::into_inner);
+        if on {
+            typing.entry(conversation.to_owned()).or_default().insert(participant.to_owned());
+        } else if let Some(set) = typing.get_mut(conversation) {
+            set.remove(participant);
+            if set.is_empty() {
+                typing.remove(conversation);
+            }
+        }
+    }
+
+    /// The participants typing in `conversation` now, sorted.
+    pub(crate) fn conversation_typing(&self, conversation: &str) -> Vec<String> {
+        let typing = self.conversations.typing.lock().unwrap_or_else(PoisonError::into_inner);
+        typing.get(conversation).map(|set| set.iter().cloned().collect()).unwrap_or_default()
+    }
+
+    /// An agent whose last bound connection ended types nowhere any more:
+    /// clear its typing and tell subscribers, so no client waits on a
+    /// typing indicator nobody will turn off.
+    fn end_agent_typing(&self, participant: &str) {
+        let still_bound = self
+            .conversations
+            .bindings
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .values()
+            .any(|bound| bound == participant);
+        if still_bound {
+            return;
+        }
+        let ended: Vec<String> = {
+            let mut typing =
+                self.conversations.typing.lock().unwrap_or_else(PoisonError::into_inner);
+            let ended = typing
+                .iter_mut()
+                .filter_map(|(conversation, set)| {
+                    set.remove(participant).then(|| conversation.clone())
+                })
+                .collect();
+            typing.retain(|_, set| !set.is_empty());
+            ended
+        };
+        for conversation in ended {
+            self.emit(MuxEvent::Conversation(Arc::new(
+                crate::conversation_store::ConversationEvent::Typing {
+                    conversation,
+                    participant: participant.to_owned(),
+                    on: false,
+                },
+            )));
+        }
+    }
+
     /// Ends `client`'s binding when its connection ends.
     pub(crate) fn unbind_conversation_principal(&self, client: u64) {
         // Safety: a removal never grants access, so a poisoned bindings lock
         // still drops the binding.
-        self.conversations.bindings.lock().unwrap_or_else(PoisonError::into_inner).remove(&client);
+        let bound = self
+            .conversations
+            .bindings
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&client);
+        if let Some(participant) = bound.filter(|p| p.starts_with("agent_")) {
+            self.end_agent_typing(&participant);
+        }
         // Safety: a removal never grants access, so a poisoned peers lock
         // still drops the record.
         self.conversations
@@ -122,13 +185,20 @@ impl Mux {
         }
     }
 
-    /// Ends every binding of `participant` (its token was replaced).
+    /// Ends every binding of `participant` (its token was replaced). The
+    /// connection keeps a revoked marker instead of losing its binding: an
+    /// unbound trusted connection is `user_local`, so removing the binding
+    /// would make the old agent connection the person. The marker names no
+    /// participant (`:` is not allowed in a participant id), so it fails
+    /// closed until the connection binds again with the new token.
     pub(crate) fn unbind_conversation_participant(&self, participant: &str) {
-        // Safety: a removal never grants access.
-        self.conversations
-            .bindings
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .retain(|_, bound| bound != participant);
+        let revoked = format!("{REVOKED_BINDING_PREFIX}{participant}");
+        let mut bindings =
+            self.conversations.bindings.lock().unwrap_or_else(PoisonError::into_inner);
+        for bound in bindings.values_mut() {
+            if bound == participant {
+                bound.clone_from(&revoked);
+            }
+        }
     }
 }
