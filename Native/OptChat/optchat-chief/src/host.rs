@@ -557,7 +557,7 @@ fn start(
         env: session_env,
         instructions: instructions.clone(),
         tools,
-        user_env: session_dir::user_settings_env(&crate::compactor::user_claude_home()),
+        user_env: session_dir::host_user_env(),
     };
     session_dir::write(paths, &setup).map_err(|e| format!("writing the session directory: {e}"))?;
     // Section 9: every subagent's directory and system prompt.
@@ -725,7 +725,7 @@ fn start(
             let compactor_claude = compactor_family == Family::Claude;
             let compactor_model = env("OPTCHAT_COMPACTOR_MODEL")
                 .or_else(|| engine_choice_file.compactor_model.clone())
-                .or_else(|| compactor_claude.then(|| config.model.clone()));
+                .or_else(|| crate::compactor::compactor_model_for(compactor_family));
             let compactor_effort = env("OPTCHAT_COMPACTOR_EFFORT");
             let port: Arc<dyn AgentPort> = agents.clone();
             // One gate: at most COMPACTOR_SESSIONS sessions across both models.

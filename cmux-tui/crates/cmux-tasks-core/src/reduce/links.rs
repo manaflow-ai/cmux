@@ -98,7 +98,11 @@ impl Tx<'_> {
                 comment.version
             )));
         }
-        let c = self.state.comments.get_mut(&p.comment).expect("validated comment");
+        let c = self
+            .state
+            .comments
+            .get_mut(&p.comment)
+            .ok_or_else(|| not_found("comment", &p.comment))?;
         c.body = p.body.clone();
         c.version += 1;
         c.edited_at = Some(self.now);
@@ -114,7 +118,7 @@ impl Tx<'_> {
 
     pub(super) fn comment_delete(&mut self, id: &str) -> Result<OpResult, Reject> {
         self.own_comment(id)?;
-        let c = self.state.comments.get_mut(id).expect("validated comment");
+        let c = self.state.comments.get_mut(id).ok_or_else(|| not_found("comment", id))?;
         c.deleted = true;
         c.body.clear();
         c.edited_at = Some(self.now);

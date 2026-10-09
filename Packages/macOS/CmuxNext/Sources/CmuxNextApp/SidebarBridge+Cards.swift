@@ -44,11 +44,12 @@ enum SidebarCardFeed {
             handle(id, action, updater: updater)
         }
         return Task {
-            for await (cards, card, tip) in Observations({ () -> ([SidebarCard], SidebarUpdateCard?, SidebarTipCard?) in
-                (cards(updater), updateCard(updater), tipCard(updater, registry: registry))
+            for await (cards, card, updated, tip) in Observations({ () -> ([SidebarCard], SidebarUpdateCard?, SidebarUpdatedCard?, SidebarTipCard?) in
+                (cards(updater), updateCard(updater), updatedCard(updater), tipCard(updater, registry: registry))
             }) {
                 if model.cards != cards { model.cards = cards }
                 if model.updateCard != card { model.updateCard = card }
+                if model.updatedCard != updated { model.updatedCard = updated }
                 if model.tipCard != tip { model.tipCard = tip }
             }
         }
@@ -65,8 +66,30 @@ enum SidebarCardFeed {
         case .openUpdateLink(let url): openUpdateLink(url, services: services)
         case .tryTip(let id): services.updater.tryTip(id)
         case .dismissTip(let id): services.updater.dismissTip(id)
+        case .openWhatsNew, .shareCmux, .dismissUpdated: route(intent, registry: services.registry, updater: services.updater)
         default: break
         }
+    }
+
+    /// The "cmux Updated!" card (cx-7py7): its rows run the palette's own
+    /// actions as the user's (`updates.whatsNew` opens the page and marks
+    /// this version seen; `app.shareCmux` opens the modal); its x marks this
+    /// version seen, so the card and the What's New dot go together.
+    static func route(_ intent: SidebarIntent, registry: ActionRegistry, updater: UpdaterService) {
+        switch intent {
+        case .openWhatsNew: _ = registry.perform("updates.whatsNew", invocation: ActionInvocation(origin: .user))
+        case .shareCmux: _ = registry.perform("app.shareCmux", invocation: ActionInvocation(origin: .user))
+        case .dismissUpdated: updater.whatsNew.dismissUpdated()
+        default: break
+        }
+    }
+
+    /// The "cmux Updated!" card while it shows (nil while an update is staged:
+    /// the update card has the slot).
+    static func updatedCard(_ updater: UpdaterService) -> SidebarUpdatedCard? {
+        guard updater.readyCard == nil, updater.whatsNew.showsUpdatedCard else { return nil }
+        return SidebarUpdatedCard(title: UpdaterService.updatedCardTitle, whatsNewTitle: UpdaterService.updatedCardWhatsNewTitle,
+                                  shareTitle: UpdaterService.updatedCardShareTitle, dismissLabel: UpdaterService.updatedCardDismissLabel)
     }
 
     /// A link in the update card's popover (a pull request, the release
@@ -93,9 +116,10 @@ enum SidebarCardFeed {
     }
 
     /// The "Did you know" card (BOTTOM-LEFT-CARDS K1): today's tip with its
-    /// action's shortcut; nil while the update card shows (one card at a time).
+    /// action's shortcut; nil while the update card or the "cmux Updated!"
+    /// card shows (one card at a time; the tip waits).
     static func tipCard(_ updater: UpdaterService, registry: ActionRegistry?) -> SidebarTipCard? {
-        guard updater.readyCard == nil, let tip = updater.tip else { return nil }
+        guard updater.readyCard == nil, !updater.whatsNew.showsUpdatedCard, let tip = updater.tip else { return nil }
         return SidebarTipCard(id: tip.id, eyebrow: UpdaterService.tipEyebrow, title: tip.title, benefit: tip.benefit,
                               shortcut: registry?.shortcutDisplay(for: ActionID(rawValue: tip.action)),
                               tryTitle: UpdaterService.announcementActionTitle, dismissLabel: UpdaterService.tipDismissLabel)

@@ -775,16 +775,16 @@ fn a_claude_spawn_warms_the_shared_view_once_then_starts_the_rest_marked() {
         .iter()
         .filter(|sp| sp.name.starts_with("optchat-sub-h0me-"))
         .collect();
-    for spec in &sub_specs {
-        assert_eq!(
-            spec.env
-                .get("CLAUDE_CODE_PROMPT_CACHE_TTL")
-                .map(String::as_str),
-            Some("1h"),
-            "Claude Code marks with the same TTL"
-        );
-    }
+    assert_eq!(sub_specs.len(), 3, "acpmux took every session");
     drop(agents);
+    // Claude Code marks with the same TTL: the subagent directory's project
+    // settings say so (as the turns' session directory does); acpmux takes
+    // no TTL variable in a session's env.
+    let settings: Value = serde_json::from_str(
+        &std::fs::read_to_string(s.h.dir.path().join("subagent/.claude/settings.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(settings["promptCacheTtl"], "1h", "{settings}");
     let events = trace_events(&s.traces);
     let warm = events
         .iter()
@@ -815,4 +815,40 @@ fn the_rest_start_after_the_warm_wait_when_the_first_never_speaks() {
         .find(|e| e["ev"] == "spawn.warm")
         .unwrap();
     assert_eq!(warm["started"], false, "{warm}");
+}
+
+/// A spawn in a directory of the user's gets no mark: the TTL Claude Code
+/// marks with there is not ours to set, and nothing is written into it.
+#[test]
+fn a_claude_spawn_in_the_users_directory_takes_no_mark() {
+    let mut s = setup();
+    s.h.agents.inner.lock().unwrap().system_prompts = true;
+    for k in 0..12 {
+        s.h.say("user_local", &format!("line {k}"));
+        s.h.settle();
+    }
+    let theirs = tempfile::tempdir().unwrap();
+    let dir = theirs.path().display().to_string();
+    call(&mut s, move |sp| {
+        sp.spawn(vec!["one".into(), "two".into()], Some(dir))
+    })
+    .unwrap();
+    let agents = s.h.agents.inner.lock().unwrap();
+    let subs: Vec<&Vec<Value>> = agents
+        .prompt_ids
+        .iter()
+        .zip(&agents.prompts)
+        .filter(|(id, _)| id.starts_with("optchat-sub:"))
+        .map(|(_, p)| p)
+        .collect();
+    assert_eq!(subs.len(), 2);
+    assert!(
+        subs.iter()
+            .all(|p| p.iter().all(|b| b.get("cache_control").is_none())),
+        "no mark"
+    );
+    assert!(
+        !theirs.path().join(".claude").exists(),
+        "nothing written there"
+    );
 }

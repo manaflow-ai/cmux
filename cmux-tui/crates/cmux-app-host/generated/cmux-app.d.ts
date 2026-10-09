@@ -49,8 +49,24 @@ declare namespace Cmux {
   type Connection = { id: Cmux.ConnectionId; owner: Cmux.TeamId; created_by: Cmux.UserId; provider: Cmux.IntegrationProvider; account: { key: string; name: string; url?: string } | null; scopes_requested: Array<string>; scopes_granted: Array<string>; status: Cmux.ConnectionStatus; status_detail?: string; sharing: "private" | "team"; resources?: { repos: Array<string> | null }; created_at: number; updated_at: number }
   type ConnectionId = string
   type ConnectionStatus = "pending" | "active" | "needs_reauth" | "error" | "revoked" | "expired"
+  type ConversationChangedItem = { type: "conversation"; conversation: string; rev: number; summary: Cmux.ConversationSummary }
+  type ConversationDraftItem = { type: "draft"; conversation: string; participant: string; turn: string; segment: number; seq: number; kind: "talk" | "thought"; text: string; fresh: boolean; done: boolean; truncated?: boolean; harness?: string }
+  type ConversationEventItem = unknown
   type ConversationId = string
   type ConversationKind = "chief" | "dm" | "group"
+  type ConversationMessage = { id: string; conversation: string; seq: number; client_msg_id: string; author: string; parts: Array<Cmux.JsonValue>; reply_to?: Cmux.ConversationPartRef; created_at: string; edited_at?: string; retracted_at?: string; reactions: Array<Cmux.JsonValue>; origin?: Cmux.ConversationOrigin }
+  type ConversationMessageItem = { type: "message" | "message_updated"; conversation: string; rev: number; message: Cmux.ConversationMessage }
+  type ConversationOrigin = { kind: "remote"; install: string }
+  type ConversationPage = { conversation: Cmux.ConversationSummary; messages: Array<Cmux.ConversationMessage> }
+  type ConversationParticipant = { id: string; kind: "human" | "agent"; display_name: string; agent_class?: "mux" | "agent"; acp_session?: string; person?: string }
+  type ConversationPartRef = { message_id: string; part_index: number }
+  type ConversationPublishResult = { published: boolean }
+  type ConversationReadCursorItem = { type: "read_cursor"; conversation: string; rev: number; participant: string; seq: number }
+  type ConversationSearchHit = { conversation: string; title: string; seq: number; message_id: string; author: string; created_at: string; snippet: string }
+  type ConversationSendResult = { message: Cmux.ConversationMessage; rev: number }
+  type ConversationSnapshotItem = { type: "snapshot"; reset_reason: "initial" | "cursor_expired"; conversation: Cmux.ConversationSummary; messages: Array<Cmux.ConversationMessage> }
+  type ConversationSummary = { id: string; owner: "local"; title: string; participants: Array<Cmux.ConversationParticipant>; last_seq: number; rev: number; created_at: string; updated_at: string; last_message?: Cmux.ConversationMessage; read_cursors: Record<string, number> }
+  type ConversationTypingItem = { type: "typing"; conversation: string; participant: string; on: boolean }
   type CreatedBrowserPath = { kind: "browser"; workspace_id: string /* workspace_… */; screen_id: string /* screen_… */; pane_id: string /* pane_… */; tab_id: string /* tab_… */; browser_id: string /* browser_… */ }
   type CreatedPath = unknown
   type CreatedTerminalPath = { kind: "terminal"; workspace_id: string /* workspace_… */; screen_id: string /* screen_… */; pane_id: string /* pane_… */; tab_id: string /* tab_… */; terminal_id: string /* terminal_… */ }
@@ -613,19 +629,31 @@ interface CmuxGlobal {
   conversation: {
     /** `conversation.create` (mutation, scope `conversation:write`): Create a group conversation. The Worker derives the id from the caller and the idempotency key, so a retry reaches the same conversation. At most 60 per hour per caller (home.rate_limited, with details.retry_after_ms); home.user_not_ready (not retryable) until the caller ran user.ensure once. */
     create: CmuxOp<{ kind?: "group"; title?: string; participants: Array<Cmux.HomeParticipantInput>; settings?: Cmux.HomeConversationSettings; expected_revision?: string }, Cmux.MutationResult<{ conversation: Cmux.HomeConversationSummary }>>
-    /** `conversation.history` (read, scope `conversation:read`): Page older messages before before_seq (newest first within the page). */
-    history: CmuxOp<{ conversation: Cmux.ConversationId; before_seq?: number; limit?: number }, { messages: Array<Cmux.HomeMessage>; next_before_seq: number | null; revision: string }>
+    /** `conversation.draft` (mutation, scope `conversation:write`) */
+    draft: CmuxOp<{ machine?: string; session?: string; conversation: string; turn: string; segment: number; seq: number; kind: "talk" | "thought"; text: string; fresh: boolean; done: boolean; truncated?: boolean; harness?: string }, Cmux.MutationResult<Cmux.ConversationPublishResult>>
+    /** `conversation.get` (read, scope `conversation:read`) */
+    get: CmuxOp<{ machine?: string; session?: string; conversation: string; tail?: number }, Cmux.ConversationPage>
+    /** `conversation.history` (read, scope `conversation:read`) */
+    history: CmuxOp<{ machine?: string; session?: string; conversation: string; before_seq: number; limit: number }, Array<Cmux.ConversationMessage>>
     /** `conversation.import` (mutation, scope `conversation:write`): Promote a Mac conversation (home-messaging.md section 22). The first call names its source; the Worker derives the id from the signed-in user and the source. Later calls send {id, after_seq, messages}. At most 500 messages and 1 MiB per batch. */
     import: CmuxOp<{ id?: Cmux.ConversationId; source?: { kind: "mac"; host: string; local_id: string }; kind?: "group" | "chief"; title?: string; participants?: Array<Cmux.HomeParticipantInput>; after_seq?: number; messages: Array<string>; read_cursors?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeConversationCommit>> & {
       /** `conversation.import.commit` (mutation, scope `conversation:write`): Finish an import: read cursors are clamped, normal ops open, each human gets one inbox entry. */
       commit: CmuxOp<{ id: Cmux.ConversationId; last_seq: number; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeConversationCommit>>
     }
+    /** `conversation.list` (read, scope `conversation:read`) */
+    list: CmuxOp<{ machine?: string; session?: string }, Array<Cmux.ConversationSummary>>
+    /** `conversation.search` (read, scope `conversation:read`) */
+    search: CmuxOp<{ machine?: string; session?: string; query: string; limit?: number }, Array<Cmux.ConversationSearchHit>>
+    /** `conversation.send` (mutation, scope `conversation:write`) */
+    send: CmuxOp<{ machine?: string; session?: string; conversation: string; text?: string; parts?: Array<Cmux.JsonValue>; reply_to?: Cmux.ConversationPartRef }, Cmux.MutationResult<Cmux.ConversationSendResult>>
     settings: {
       /** `conversation.settings.set` (mutation, scope `conversation:write`): Change the chief wake policy, agent turn budget or history visibility (conversation owner). */
       set: CmuxOp<{ conversation: Cmux.ConversationId; wake_policy?: "auto" | "mentions" | "all"; agent_budget?: { turns: number; gap_ms: number }; history_visible?: "all" | "since_join"; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeConversationCommit>>
     }
     /** `conversation.snapshot` (read, scope `conversation:read`): Read the conversation and its newest messages (history_visible since_join hides earlier ones). */
     snapshot: CmuxOp<{ conversation: Cmux.ConversationId; tail?: number }, { conversation: Cmux.HomeConversationSummary; messages: Array<Cmux.HomeMessage>; revision: string }>
+    /** `conversation.typing` (mutation, scope `conversation:write`) */
+    typing: CmuxOp<{ machine?: string; session?: string; conversation: string; on: boolean }, Cmux.MutationResult<Cmux.ConversationPublishResult>>
   }
   diffs: {
     /** `diffs.cycle_variant` (mutation, scope `diffs:write`, owner `app:cmux/diffs`): Switch to the next Diffs design variant (DEV and NIGHTLY). */

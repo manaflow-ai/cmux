@@ -251,7 +251,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           return yield* Effect.tryPromise({ try: () => rpc<DomainReply>(env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!)).ssoOp(p.team!, p, frame)), catch: unreachable })
         }
         // TeamDO, outside its reducer: the SSH CA (team-ssh-ca.ts; keys never enter params) and a tainted team VM's owner actions (cx-q4f3).
-        if (["team_vm.ssh_cert", "team_vm.ssh_cert.challenge", "team_vm.ssh_cert.revoke", "team_vm.ssh_ca.rotate", "team_vm.taint.accept", "team_vm.rebuild", "team_vm.retired.delete"].includes(payload.op)) {
+        if (["team_vm.ssh_cert", "team_vm.ssh_cert.challenge", "team_vm.ssh_cert.revoke", "team_vm.ssh_ca.rotate", "team_vm.taint.accept", "team_vm.rebuild", "team_vm.retired.delete", "team_vm.retired.export"].includes(payload.op)) {
           const p = yield* principalFor("cloud:TeamDO", principal)
           const stub = env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!))
           return yield* Effect.tryPromise({ try: () => rpc<DomainReply>(payload.op.startsWith("team_vm.ssh_") ? stub.sshOp(p.team!, p, frame) : stub.vmAdminOp(p.team!, p, frame)), catch: unreachable })

@@ -353,6 +353,23 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
     } as CloudOpDef
   ],
   [
+    "install.mac_execute_narrow",
+    {
+      name: "install.mac_execute_narrow",
+      owner: "cloud:UserDO",
+      class: "mutation",
+      risk: "mutate-own",
+      target: "install",
+      principals: ["system"],
+      params: Schema.Struct({}),
+      result: Schema.Unknown,
+      errors: [],
+      docs: "Internal: UserDO drops execute once from the grants of its active mac installs made before the mac grant cap (read, mutate-own, mutate-shared, cloud-link), on bind, then marks the migration done (cx-wb5.64).",
+      cli: { path: "", visible: false },
+      mcp: { expose: "never", group: "internal" }
+    } as CloudOpDef
+  ],
+  [
     "install.register_server",
     {
       name: "install.register_server",
