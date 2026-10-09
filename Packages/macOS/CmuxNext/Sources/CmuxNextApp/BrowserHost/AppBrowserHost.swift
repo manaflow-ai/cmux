@@ -32,6 +32,7 @@ final class AppBrowserHost {
         let tabs = AppBrowserHostTabs(services: services)
         let relay = AppDevToolsRelay(services: services, marking: tabs)
         relay.drivable = { [weak tabs] id in tabs?.isDrivable(id) ?? false }
+        relay.renderWindows = tabs.renderWindows
         let driver = WebKitDriver(provider: tabs)
         let credentials = AppProviderCredentials(daemon: services.daemon)
         self.credentials = credentials

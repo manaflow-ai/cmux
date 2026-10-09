@@ -27,9 +27,11 @@ final class AgentRenderWindows {
     private var parked: [String: AgentRenderPanel] = [:]
 
     /// Moves a hidden tab's `chrome` into its render window, with `webView`
-    /// first responder there. True when it moved; false when the tab already
-    /// has a window (a pane shows it, or it is parked).
-    func keepRendering(tabID: String, chrome: NSView, webView: WKWebView) -> Bool {
+    /// (a WebKit page) first responder there. A Chromium tab's content view
+    /// entering a window presents the tab (its pane's Chromium window moves
+    /// there and activates it). True when it moved; false when the tab
+    /// already has a window (a pane shows it, or it is parked).
+    func keepRendering(tabID: String, chrome: NSView, webView: WKWebView?) -> Bool {
         guard chrome.window == nil else { return false }
         parked.removeValue(forKey: tabID)?.finish()
         let panel = AgentRenderPanel(viewport: Self.viewport, screens: NSScreen.screens.map(\.frame))
@@ -97,17 +99,16 @@ final class AgentRenderPanel: NSPanel {
     /// AppKit's real key window and keyboard focus are unaffected.
     nonisolated override var isKeyWindow: Bool { true }
 
-    func park(_ chrome: NSView, webView: WKWebView) {
+    func park(_ chrome: NSView, webView: WKWebView?) {
         guard let content = contentView else { return }
         self.webView = webView
-        Self.setOcclusionDetection(false, on: webView)
+        if let webView { Self.setOcclusionDetection(false, on: webView) }
         chrome.frame = content.bounds
         chrome.autoresizingMask = [.width, .height]
-        content.addSubview(chrome)
         orderBack(nil)
-        makeFirstResponder(webView)
+        content.addSubview(chrome)
+        if let webView { makeFirstResponder(webView) }
         content.layoutSubtreeIfNeeded()
-        webView.layoutSubtreeIfNeeded()
     }
 
     /// Closes the window and turns occlusion detection back on; the chrome
