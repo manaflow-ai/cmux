@@ -68,6 +68,16 @@ fn script() -> Script {
                 json!({"dir": "mux", "kind": "turn_end", "msg": {"stopReason": "end_turn"}}),
             ];
         }
+        if last.contains("keep working") {
+            // A turn still at work (its end is pushed by the test).
+            return vec![
+                json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+                update(
+                    "agent_message_chunk",
+                    json!({"content": {"type": "text", "text": "Working."}}),
+                ),
+            ];
+        }
         if last.starts_with("more:") {
             return vec![
                 json!({"dir": "mux", "kind": "user_message", "msg": {"promptId": "optchat-tell:x", "text": last}}),
@@ -820,4 +830,43 @@ fn a_claude_spawn_in_the_users_directory_takes_no_mark() {
         !theirs.path().join(".claude").exists(),
         "nothing written there"
     );
+}
+
+/// Decision 2026-10-09 (hq-6d): a report never stops the running turn.
+/// When the turn cannot be steered (here: the session does not steer), the
+/// report waits and the next turn answers it; no cancel. A human message
+/// in that case still stops the turn (audit2.rs, 2026-10-04 rule).
+#[test]
+fn a_report_during_a_turn_that_cannot_steer_queues_without_a_cancel() {
+    let mut s = setup();
+    spawn(&mut s, &["count the files"]).unwrap();
+    s.h.agents.hold(true);
+    s.h.say("user_local", "keep working");
+    s.h.step(); // settled: the turn starts
+    s.h.step(); // the turn's session exists
+    s.h.agents.wait_prompts(2);
+    finish(&mut s, "s1", "s1", "a1");
+    // A stop would leave off the brain thread at once.
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    assert!(
+        s.h.agents.inner.lock().unwrap().cancels.is_empty(),
+        "the report does not stop the turn"
+    );
+    s.h.agents.push_events(
+        "s2",
+        vec![json!({"dir": "mux", "kind": "turn_end", "msg": {"stopReason": "end_turn"}})],
+    );
+    s.h.agents.hold(false);
+    s.h.agents.release();
+    s.h.agents.release();
+    s.h.settle();
+    assert!(s.h.agents.inner.lock().unwrap().cancels.is_empty());
+    let prompts = s.h.agents.inner.lock().unwrap().prompts.clone();
+    assert_eq!(
+        prompts.len(),
+        3,
+        "the subagent, the turn, then the next turn"
+    );
+    let last = prompts[2].last().unwrap()["text"].as_str().unwrap();
+    assert!(last.starts_with("[a1] done: count the files"), "{last}");
 }
