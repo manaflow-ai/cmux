@@ -118,6 +118,28 @@ describe("turn footer", () => {
     await unmount();
   });
 
+  test("an authentication failure has plain copy and a Sign in again action", async () => {
+    let reauthenticated = 0;
+    const { container, unmount } = await render(
+      createElement(TurnFooter, {
+        row: {
+          ...summary,
+          status: "failed",
+          error: "Not logged in · Please run /login",
+        },
+      }),
+      { reauthenticate: () => (reauthenticated += 1) },
+    );
+    expect(container.querySelector(".cv-turn-note")?.textContent).toBe(
+      "Your sign-in expired. Sign in again to continue.",
+    );
+    const action = container.querySelector<HTMLButtonElement>(".cv-turn-auth-action")!;
+    expect(action.textContent).toBe("Sign in again");
+    await act(async () => action.click());
+    expect(reauthenticated).toBe(1);
+    await unmount();
+  });
+
   test("no Retry on an earlier turn, or while acpmux is unreachable", async () => {
     const earlier = await render(createElement(TurnFooter, { row: summary }), { retry: () => {} });
     expect(earlier.container.querySelector('button[aria-label="Retry"]')).toBeNull();

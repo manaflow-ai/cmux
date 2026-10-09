@@ -446,6 +446,8 @@ pub struct Agents {
     /// `new_session` of a session whose name contains the text takes this
     /// long (a Claude Code process that starts slowly).
     pub slow_session: Option<(String, Duration)>,
+    /// `new_session` on this harness profile fails with the text.
+    pub session_errors: BTreeMap<String, String>,
     /// Each session's turn signals, for `push_events`.
     pub signals: BTreeMap<String, Sender<TurnSignal>>,
     /// The `_acpmux/harnesses` answer; None: `catalog()` (claude-sr and
@@ -584,6 +586,9 @@ impl FakeAgents {
 
 impl AgentPort for FakeAgents {
     fn new_session(&self, spec: &SessionSpec) -> Result<String, String> {
+        if let Some(e) = self.inner.lock().unwrap().session_errors.get(&spec.harness) {
+            return Err(e.clone());
+        }
         let slow = self.inner.lock().unwrap().slow_session.clone();
         if let Some((part, delay)) = slow
             && spec.name.contains(&part)

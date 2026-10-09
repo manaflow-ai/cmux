@@ -313,7 +313,7 @@ final class AgentTabStore {
         model.onRememberNewTab = { [weak self] agent in self?.newTabPage(provisional)?.handler.remember(agent) }
         model.onJump = { [weak self] target, id in self?.newTabPage(provisional)?.handler.jump(target, id) }
         model.onEditShortcut = { [weak self] kind in self?.newTabPage(provisional)?.handler.editShortcut(kind) }
-        model.onSetDefaultKind = { [weak self] kind in self?.newTabPage(provisional)?.handler.setDefaultKind(kind) }
+        model.onNewTabSetting = { [weak self] setting in self?.newTabPage(provisional)?.handler.write(setting) }
         model.onRunAction = { [weak self] id in
             guard let self else { return false }
             // On this tab's pane: the New Tab page opens beside the tab that asked.

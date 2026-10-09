@@ -271,7 +271,8 @@ describe("acpmux composer pickers", () => {
     expect(menu.textContent).toContain("Unrestricted");
   });
 
-  test("model rows keep a fixed order across openings and put the newest model nearest the anchor", async () => {
+  // cx-jqkx: newest first; older versions fold under "Older models" so a release is never below the fold.
+  test("model rows keep a fixed order across openings with the newest model first", async () => {
     const catalog = [
       {
         id: "codex",
@@ -291,8 +292,8 @@ describe("acpmux composer pickers", () => {
     await act(async () => model.click());
     const labels = () => [...doc.querySelectorAll(".acpmux-mp-row .acpmux-menu-label")].map((row) => row.textContent);
     const first = labels();
-    expect(first.at(-1)).toBe("6.1 Sol");
-    expect(first).toEqual(["6 Astra", "6 Luna", "6 Mini", "6 Nano", "6.1 Sol"]);
+    // Each name is its own line here (no catalog family), so every model is a newest one.
+    expect(first).toEqual(["6 Astra", "6.1 Sol", "6 Luna", "6 Mini", "6 Nano"]);
     await act(async () => model.click());
     await render(long({ model: "sol", configOptions: [effort] }));
     await act(async () => button("Model")!.click());

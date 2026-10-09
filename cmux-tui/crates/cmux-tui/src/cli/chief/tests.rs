@@ -267,6 +267,52 @@ fn wrap_keeps_lines_and_breaks_at_spaces_by_width() {
 }
 
 #[test]
+fn the_chief_home_resolves_as_the_app_resolves_it() {
+    use super::home::ChiefHome;
+    use std::path::{Path, PathBuf};
+    let user = Path::new("/Users/a");
+    let cwd = Path::new("/work");
+    let none = |_: &str| None::<String>;
+    let default = ChiefHome::resolve(None, none, user, cwd);
+    assert_eq!(default.root, PathBuf::from("/Users/a/.cmux/chief/default"));
+    assert!(!default.isolated);
+    // The app's FNV-1a 32 of the root path (ChiefHome.sessionName).
+    assert_eq!(default.session(), "cmux-chief-aa441d8a");
+    let env = |key: &str| match key {
+        "CMUX_NEXT_CHIEF_ACCOUNT" => Some("work acct!".to_owned()),
+        _ => None,
+    };
+    assert_eq!(
+        ChiefHome::resolve(None, env, user, cwd).root,
+        PathBuf::from("/Users/a/.cmux/chief/work-acct")
+    );
+    let isolated = |key: &str| (key == "CMUX_NEXT_NO_ACTIVATE").then(|| "1".to_owned());
+    assert_eq!(
+        ChiefHome::resolve(None, isolated, user, cwd).root,
+        PathBuf::from("/Users/a/.cmux/chief/isolated/untagged")
+    );
+    // --chief-home wins over every variable, relative to the working
+    // directory, standardized like Foundation's path.
+    let both = |key: &str| (key == "CMUX_CHIEF_HOME").then(|| "/tmp/x/iso".to_owned());
+    let explicit = ChiefHome::resolve(Some(Path::new("tests/../iso/")), both, user, cwd);
+    assert_eq!(explicit.root, PathBuf::from("/work/iso"));
+    assert!(explicit.isolated);
+    let by_env = ChiefHome::resolve(None, both, user, cwd);
+    assert_eq!(by_env.root, PathBuf::from("/tmp/x/iso"));
+    assert_eq!(by_env.session(), "cmux-chief-36e35ec2");
+}
+
+#[test]
+fn the_acpmux_socket_follows_acpmux_length_rule() {
+    use super::home::ChiefHome;
+    let short = ChiefHome { root: "/h/c".into(), isolated: true };
+    assert_eq!(short.acpmux_socket(501), std::path::PathBuf::from("/h/c/acpmux/acpmux.sock"));
+    let long = ChiefHome { root: format!("/{}", "x".repeat(100)).into(), isolated: true };
+    let socket = long.acpmux_socket(501).to_string_lossy().into_owned();
+    assert!(socket.starts_with("/tmp/acpmux-501/") && socket.ends_with(".sock"), "{socket}");
+}
+
+#[test]
 fn engine_and_stop_are_one_call_each() {
     use super::control::{Control, engine_line};
     let parsed = parse_args(&strings(&["engine", "--model", "m", "--effort=high"])).unwrap();
@@ -275,6 +321,8 @@ fn engine_and_stop_are_one_call_each() {
         Some(Control::Engine(vec![("model".into(), "m".into()), ("effort".into(), "high".into())]))
     );
     assert_eq!(parse_args(&strings(&["stop"])).unwrap().control, Some(Control::Stop));
+    let homed = parse_args(&strings(&["--chief-home", "/tmp/h", "engine"])).unwrap();
+    assert_eq!(homed.control, Some(Control::Engine(vec![])), "a global flag may come first");
     assert!(parse_args(&strings(&["--model", "m"])).is_err(), "--model goes with engine");
     let report = json!({"engine": {"harness": "claude", "model": "", "effort": "high"}});
     assert_eq!(engine_line(&report), "claude · default · high");
@@ -307,4 +355,20 @@ fn a_dropped_typing_off_is_recovered_from_the_snapshot_after_a_gap() {
     assert_eq!(busy.replies.len(), 1, "a reply posted during the gap is kept");
     busy.on(&typing(false));
     assert!(busy.done);
+}
+
+#[test]
+fn a_reply_posted_after_the_typing_off_still_ends_the_turn() {
+    // The owner's agent rate limit can hold the brain's reply in its outbox
+    // until after the turn's typing-off (seen live): the turn ends with the
+    // reply, not with the typing-off.
+    let mut watch = TurnWatch::new(3);
+    watch.on(&cursor(3));
+    watch.on(&typing(true));
+    watch.on(&typing(false));
+    assert!(!watch.done, "no reply yet");
+    assert!(
+        watch.on(&UiEvent::Message(message(4, "agent_mux", "late", "turn:optchat:2"))).is_some()
+    );
+    assert!(watch.done);
 }

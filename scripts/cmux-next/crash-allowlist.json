@@ -4,6 +4,7 @@
   "swift.as_bang",
   "swift.assume_isolated",
   "swift.fatal_error",
+  "swift.force_unwrap",
   "swift.iuo",
   "swift.objc_selector",
   "swift.precondition",

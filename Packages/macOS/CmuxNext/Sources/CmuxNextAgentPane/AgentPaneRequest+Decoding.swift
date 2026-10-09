@@ -18,19 +18,6 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
-        case "chat.readDraft":
-            if let id = params?["sessionId"] as? String, !id.isEmpty {
-                self = .readDraft(id)
-            } else {
-                self = .unsupported(method)
-            }
-        case "chat.writeDraft":
-            if let id = params?["sessionId"] as? String, !id.isEmpty,
-               let text = params?["text"] as? String {
-                self = .writeDraft(id, text: String(text.prefix(Self.maximumDraftText)))
-            } else {
-                self = .unsupported(method)
-            }
         case "pane.checkpointAvailability":
             if let available = params?["available"] as? Bool {
                 self = .checkpointAvailability(available)
@@ -120,6 +107,12 @@ extension AgentPaneRequest {
         case "tab.setDefaultKind":
             if let kind = params?["kind"] as? String, !kind.isEmpty, kind.count <= 32 {
                 self = .setDefaultKind(kind)
+            } else {
+                self = .unsupported(method)
+            }
+        case "newTab.setTemplate":
+            if let template = params?["template"] as? String, !template.isEmpty, template.count <= 32 {
+                self = .setNewTabTemplate(template)
             } else {
                 self = .unsupported(method)
             }
