@@ -196,9 +196,9 @@ extension SidebarBridge {
     func resync() {
         guard let state else { return }
         model.ungroupedFirst = !usesMixedOrder
-        model.setSections(Self.sections(services.machines, members: services.windows.registry.members(of: state.id), profile: state.profileID,
-                                        hidesHome: Self.hidesHome(services.sidebarLayout.document), selection: state.selection,
-                                        newTabPages: services.agentTabs.pageTabs.ids, muted: services.notifications.preferences.mutedWorkspaces))
+        rows.show(Self.sections(services.machines, members: services.windows.registry.members(of: state.id), profile: state.profileID,
+                                       hidesHome: Self.hidesHome(services.sidebarLayout.document), selection: state.selection,
+                                       newTabPages: services.agentTabs.pageTabs.ids, muted: services.notifications.preferences.mutedWorkspaces))
         model.profiles = Self.profiles(services.machines.local.store)
         groupFlow.openPendingEditor()
     }

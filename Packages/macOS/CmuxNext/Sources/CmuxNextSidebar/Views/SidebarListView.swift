@@ -32,6 +32,8 @@ final class SidebarListView: NSView {
     var drag: Drag?
     /// Rows kept invisible while a lifted view stands in for them.
     var suppressed: Set<SidebarRowKey> = []
+    /// Workspaces a pin drop took to the band: out of the list until its card lands (cx-odqn).
+    var leaving: Set<WorkspaceID> = []
     /// Inline rename of a workspace or group row.
     let inlineRename = SidebarInlineRename()
     /// Drag autoscroll frames from the window's FrameScheduler.
@@ -132,6 +134,7 @@ final class SidebarListView: NSView {
     func options(includeGap: Bool) -> SidebarLayoutOptions {
         var o = model.listOptions()
         o.showsSoleMachineHeader = true
+        o.excludedWorkspaces.formUnion(leaving)
         if includeGap, case let .newWorkspace(section, group, index)? = external?.proposal {
             o.gap = DropPosition(section: section, group: group, index: index)
             o.gapHeight = metrics.rowHeight
@@ -139,12 +142,12 @@ final class SidebarListView: NSView {
         guard let drag else { return o }
         switch drag.payload {
         case let .workspaces(ids):
-            o.excludedWorkspaces = Set(ids)
+            o.excludedWorkspaces.formUnion(ids)
             o.showEmptyPinned = true
         case let .group(group):
             o.excludedGroup = group
         }
-        if includeGap, case let .position(position) = drag.target {
+        if includeGap, drag.pinTarget == nil, case let .position(position) = drag.target {
             o.gap = position
             o.gapHeight = drag.gapHeight
         }

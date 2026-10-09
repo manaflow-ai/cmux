@@ -31,6 +31,9 @@ final class SidebarRegionView: NSView {
     /// A workspace item was dropped on the list.
     var onDropToList: ((LayoutItemID) -> Void)?
     var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)?
+    /// The region's height changed outside its host's layout (a drag's
+    /// preview, a landed drop): the host lays its bands out again.
+    var onHeightChange: (() -> Void)?
     /// The view of an app section (`SectionContent.app`), from the sidebar's provider.
     var appView: ((LayoutSection) -> NSView?)?
     private(set) var appViews: [LayoutSectionID: NSView] = [:]
@@ -88,7 +91,9 @@ final class SidebarRegionView: NSView {
     func relayout(animated: Bool) {
         guard let content else { return }
         let shown = displayed(content)
+        let height = layoutResult.height
         layoutResult = Self.layout(shown, width: width)
+        if layoutResult.height != height { onHeightChange?() }
         guard animated else { return apply(shown) }
         Motion.animate(.move, in: self, {
             self.animatesFrames = true
@@ -182,7 +187,10 @@ final class SidebarRegionView: NSView {
                 place(view, row.frame)
             }
         }
-        for (id, view) in itemViews where !liveItems.contains(id) {
+        // A dragged item's view owns the press (AppKit sends it the drags
+        // and the release): it stays, hidden, while a preview leaves it out.
+        let pressed = Set((reorder?.hidden ?? []).map(ObjectIdentifier.init))
+        for (id, view) in itemViews where !liveItems.contains(id) && !pressed.contains(ObjectIdentifier(view)) {
             view.removeFromSuperview()
             itemViews[id] = nil
         }
