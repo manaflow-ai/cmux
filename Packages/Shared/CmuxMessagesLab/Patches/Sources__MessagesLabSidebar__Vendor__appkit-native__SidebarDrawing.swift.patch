@@ -5,7 +5,16 @@
  import AppKit
  import CoreText
  
-@@ -104,12 +105,32 @@
+@@ -94,7 +95,7 @@
+ 
+ /// The drawing: pure functions of a summary and a render context (any thread).
+ enum SidebarDraw {
+-    static let p3 = CGColorSpace(name: CGColorSpace.displayP3)!
++    static let p3 = CGColorSpace(name: CGColorSpace.displayP3) ?? CGColorSpaceCreateDeviceRGB() // cmux: no force unwrap
+     /// Where `AvatarSpec.image` paths resolve (the host sets it; default: the app bundle's
+     /// "assets" folder).
+     static var assetDirectory: URL? = Bundle.main.resourceURL?.appendingPathComponent("assets")
+@@ -104,11 +105,31 @@
          guard !images.isEmpty else { return }
          DispatchQueue.main.async { DispatchQueue.global(qos: .utility).async { withExtendedLifetime(images) {} } }
      }
@@ -20,7 +29,7 @@
 +    static let timeFont = uiFont(.system, SidebarMetrics.timeSize)
 +    static let pinNameFont = uiFont(.system, SidebarMetrics.pinNameSize)
 +    static let bubbleFont = uiFont(.system, 11)
- 
++
 +    // cmux: the UI font, or Helvetica at that size when Core Text returns none.
 +    static func uiFont(_ type: CTFontUIFontType, _ size: CGFloat) -> CTFont {
 +        CTFontCreateUIFontForLanguage(type, size, nil) ?? CTFontCreateWithName("Helvetica" as CFString, size, nil)
@@ -39,12 +48,16 @@
 +            return font
 +        }
 +    }
-+
+ 
      /// A flipped (top-left origin) bitmap in the context's color space at its scale.
      static func bitmap(size: CGSize, ctx: SidebarRenderContext, _ draw: (CGContext) -> Void) -> CGImage {
-         let w = max(1, Int((size.width * ctx.scale).rounded(.up))), h = max(1, Int((size.height * ctx.scale).rounded(.up)))
-@@ -173,7 +194,7 @@
-             let grad = CGGradient(colorsSpace: nil, colors: [p.monogramTop, p.monogramBottom] as CFArray, locations: [0, 1])!
+@@ -170,10 +191,11 @@
+         case let .monogram(m):
+             g.saveGState()
+             g.addEllipse(in: r); g.clip()
+-            let grad = CGGradient(colorsSpace: nil, colors: [p.monogramTop, p.monogramBottom] as CFArray, locations: [0, 1])!
++            // cmux: an optional gradient draws nothing when it fails (SidebarCrashSafe).
++            let grad = CGGradient(colorsSpace: nil, colors: [p.monogramTop, p.monogramBottom] as CFArray, locations: [0, 1])
              g.drawLinearGradient(grad, start: CGPoint(x: r.midX, y: r.minY), end: CGPoint(x: r.midX, y: r.maxY), options: [])
              g.restoreGState()
 -            let font = CTFontCreateUIFontForLanguage(.emphasizedSystem, (r.width * 0.42).rounded(), nil)!
@@ -52,7 +65,16 @@
              let white = CGColor(gray: 1, alpha: 1)
              let l = line(m.uppercased(), font, white)
              let lw = width(l)
-@@ -295,7 +316,7 @@
+@@ -230,7 +252,7 @@
+     /// the visible rows' text at the exact width in every frame.
+     static func rowTime(_ c: ConversationSummary, emphasized: Bool, ctx: SidebarRenderContext, time: ConversationTimeFormatter) -> CGImage {
+         let p = ctx.palette
+-        let secondary = emphasized ? p.selectedText.copy(alpha: 0.82)! : p.secondary
++        let secondary = emphasized ? p.selectedText.copy(alpha: 0.82) ?? p.selectedText : p.secondary // cmux: no force unwrap
+         // `.distantPast`: a row without a time (the host's extra search results).
+         let tl = line(c.lastAt == .distantPast ? "" : time.string(c.lastAt, now: ctx.now), timeFont, secondary)
+         let bell = c.muted ? (emphasized ? ctx.bellSelected : ctx.bellSecondary) : nil
+@@ -295,7 +317,7 @@
      /// The title of the host's extra search section: 11 pt semibold, secondary, at the row
      /// text's x, baseline 20 pt in a 28 pt band (to verify against Messages' search sections).
      static func sectionHeader(_ title: String, width: CGFloat, ctx: SidebarRenderContext) -> CGImage {
@@ -61,3 +83,12 @@
          let l = truncated(line(title, font, ctx.palette.secondary), width - 2 * SidebarMetrics.selectionInsetX - 10, font, ctx.palette.secondary)
          return bitmap(size: CGSize(width: max(1, width), height: 28), ctx: ctx) { g in
              draw(l, x: SidebarMetrics.selectionInsetX + 10, baseline: 20, g)
+@@ -469,7 +491,7 @@
+         if let m = map[k] { lock.unlock(); return m }
+         lock.unlock()
+         let nameColor = emphasized ? p.selectedText : p.name
+-        let secondary = emphasized ? p.selectedText.copy(alpha: 0.82)! : p.secondary
++        let secondary = emphasized ? p.selectedText.copy(alpha: 0.82) ?? p.selectedText : p.secondary // cmux: no force unwrap
+         let text = (c.lastReaction.map(SidebarStrings.reaction) ?? c.preview).replacingOccurrences(of: "\n", with: " ")
+         let attr = NSAttributedString(string: text, attributes: [
+             NSAttributedString.Key(kCTFontAttributeName as String): SidebarDraw.previewFont,
