@@ -30,7 +30,10 @@ async fn call(hub: &Arc<Hub>, origin: Origin, m: &str, params: Value) -> Result<
     tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, origin));
     tx.send(Message::request(1, m, params).to_line()).await.unwrap();
     loop {
-        let line = tokio::time::timeout(Duration::from_secs(60), rx.recv()).await.expect("no reply").unwrap();
+        let line = tokio::time::timeout(Duration::from_secs(60), rx.recv())
+            .await
+            .expect("no reply")
+            .unwrap();
         let v: Value = serde_json::from_str(&line).unwrap();
         if v.get("id") == Some(&json!(1)) {
             return match v.get("error") {
@@ -60,7 +63,8 @@ async fn add_and_doctor_are_unix_socket_only() {
     for origin in [Origin::LocalApp, Origin::Web, Origin::Peer] {
         let refused = call(&hub, origin, "_acpmux/harness/add", add("fromremote")).await;
         assert!(refused.is_err(), "{origin:?} added a harness: {refused:?}");
-        let doctor = call(&hub, origin, "_acpmux/harness/doctor", json!({"id": "fromremote"})).await;
+        let doctor =
+            call(&hub, origin, "_acpmux/harness/doctor", json!({"id": "fromremote"})).await;
         assert!(doctor.is_err(), "{origin:?} ran doctor: {doctor:?}");
     }
     assert!(!user.join("fromremote.toml").exists(), "a refused add wrote a file");
@@ -74,7 +78,9 @@ async fn add_and_doctor_are_unix_socket_only() {
         .await
         .expect("local app restore");
     assert!(user.join("local.toml").exists());
-    let reg = call(&hub, Origin::LocalApp, "_acpmux/registry", json!({})).await.expect("local app registry");
+    let reg = call(&hub, Origin::LocalApp, "_acpmux/registry", json!({}))
+        .await
+        .expect("local app registry");
     assert!(reg["agents"].as_array().is_some_and(|a| !a.is_empty()));
 
     // Web and peer change and read nothing here.

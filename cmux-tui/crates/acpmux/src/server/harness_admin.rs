@@ -92,7 +92,8 @@ pub(super) async fn handle(
             json!({"id": added.id, "path": added.path, "diagnostics": added.diagnostics})
         }
         method::MUX_HARNESS_REMOVE => {
-            let id = text("id").ok_or_else(|| RpcError::invalid_params("id is required"))?.to_owned();
+            let id =
+                text("id").ok_or_else(|| RpcError::invalid_params("id is required"))?.to_owned();
             let cfg = hub.config.read().await.clone();
             let removed =
                 tokio::task::spawn_blocking(move || admin::remove(&id, &cfg, &sources, &home))
@@ -103,8 +104,9 @@ pub(super) async fn handle(
             json!({"id": removed.id, "backup": removed.backup})
         }
         method::MUX_HARNESS_RESTORE => {
-            let backup =
-                text("backup").ok_or_else(|| RpcError::invalid_params("backup is required"))?.to_owned();
+            let backup = text("backup")
+                .ok_or_else(|| RpcError::invalid_params("backup is required"))?
+                .to_owned();
             let restored =
                 tokio::task::spawn_blocking(move || admin::restore(&backup, &sources, &home))
                     .await
@@ -114,9 +116,11 @@ pub(super) async fn handle(
             json!({"id": restored.id, "path": restored.path})
         }
         method::MUX_HARNESS_DOCTOR => {
-            let id = text("id").ok_or_else(|| RpcError::invalid_params("id is required"))?.to_owned();
+            let id =
+                text("id").ok_or_else(|| RpcError::invalid_params("id is required"))?.to_owned();
             let cfg = hub.config.read().await.clone();
-            let secs = params.get("timeoutSecs").and_then(Value::as_u64).unwrap_or(20).clamp(5, 120);
+            let secs =
+                params.get("timeoutSecs").and_then(Value::as_u64).unwrap_or(20).clamp(5, 120);
             let opts = DoctorOptions {
                 // Catalog harnesses only: a folder profile is checked from its folder (CLI).
                 folder: None,

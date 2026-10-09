@@ -126,9 +126,9 @@ impl AddParams {
             Some(Value::Object(map)) => map
                 .iter()
                 .map(|(k, v)| {
-                    v.as_str().map(|v| (k.clone(), v.to_owned())).ok_or_else(|| {
-                        AdminError::Invalid(format!("env {k} must be a string"))
-                    })
+                    v.as_str()
+                        .map(|v| (k.clone(), v.to_owned()))
+                        .ok_or_else(|| AdminError::Invalid(format!("env {k} must be a string")))
                 })
                 .collect::<Result<_, _>>()?,
             Some(_) => return Err(AdminError::Invalid("env must be an object".into())),
@@ -186,7 +186,12 @@ fn env_line(id: &str, key: &str, value: &str) -> Result<String, AdminError> {
 }
 
 /// A profile file for a program: what `add` writes for `command`.
-fn command_profile(id: &str, p: &AddParams, command: &str, protocol: &str) -> Result<String, AdminError> {
+fn command_profile(
+    id: &str,
+    p: &AddParams,
+    command: &str,
+    protocol: &str,
+) -> Result<String, AdminError> {
     let name = p.display_name.clone().unwrap_or_else(|| default_name(id));
     let mut out = format!(
         "# cmux harness profile. Guide: docs/add-your-harness.md\n\
@@ -274,16 +279,20 @@ pub fn add(
     }
     let protocol = p.protocol.clone().unwrap_or_else(|| "acp".into());
     if !matches!(protocol.as_str(), "acp" | "terminal") {
-        return Err(AdminError::Invalid(format!("protocol must be acp or terminal, got {protocol:?}")));
+        return Err(AdminError::Invalid(format!(
+            "protocol must be acp or terminal, got {protocol:?}"
+        )));
     }
     if p.command.is_none() && (!p.args.is_empty() || !p.env.is_empty()) {
         return Err(AdminError::Invalid(
-            "args and env go with command; edit an example or registry profile after adding it".into(),
+            "args and env go with command; edit an example or registry profile after adding it"
+                .into(),
         ));
     }
     let dir = user_dir(sources)?;
     if let Some(rid) = &p.registry {
-        let reg = registry.ok_or_else(|| AdminError::Failed("the ACP Registry is not loaded".into()))?;
+        let reg =
+            registry.ok_or_else(|| AdminError::Failed("the ACP Registry is not loaded".into()))?;
         let agent = reg
             .agent(rid)
             .ok_or_else(|| AdminError::NotFound(format!("no ACP Registry agent {rid:?}")))?;
@@ -303,7 +312,8 @@ pub fn add(
             .map_err(|e| AdminError::Invalid(format!("{e:#}")))?;
         if let Some(name) = &p.display_name {
             let text = std::fs::read_to_string(&path).map_err(failed)?;
-            crate::config::write_atomic(&path, with_name(&text, name).as_bytes()).map_err(failed)?;
+            crate::config::write_atomic(&path, with_name(&text, name).as_bytes())
+                .map_err(failed)?;
         }
         let text = std::fs::read_to_string(&path).map_err(failed)?;
         return Ok(Added { diagnostics: diagnostics_text(&text, &path, &id), id, path });
@@ -322,9 +332,13 @@ pub fn add(
             && dir.join(format!("{id}.toml")).exists()
             && !p.replace
         {
-            return Err(AdminError::Exists(format!("{} exists", dir.join(format!("{id}.toml")).display())));
+            return Err(AdminError::Exists(format!(
+                "{} exists",
+                dir.join(format!("{id}.toml")).display()
+            )));
         }
-        let added = harness::add(&req, sources).map_err(|e| AdminError::Invalid(format!("{e:#}")))?;
+        let added =
+            harness::add(&req, sources).map_err(|e| AdminError::Invalid(format!("{e:#}")))?;
         if let Some(name) = &p.display_name {
             let text = std::fs::read_to_string(&added.path).map_err(failed)?;
             crate::config::write_atomic(&added.path, with_name(&text, name).as_bytes())
@@ -413,7 +427,9 @@ pub fn remove(
                 "{id} comes from {from}; only profiles in your harness folder can be removed here"
             )));
         }
-        return Err(AdminError::NotFound(format!("no harness profile {id} in your harness folder")));
+        return Err(AdminError::NotFound(format!(
+            "no harness profile {id} in your harness folder"
+        )));
     }
     let dir = backup_dir(acpmux_home);
     ensure_dir(&dir)?;
@@ -429,7 +445,11 @@ pub struct Restored {
 }
 
 /// Moves backup `name` (as `remove` named it) back into the user folder.
-pub fn restore(name: &str, sources: &ProfileSources, acpmux_home: &Path) -> Result<Restored, AdminError> {
+pub fn restore(
+    name: &str,
+    sources: &ProfileSources,
+    acpmux_home: &Path,
+) -> Result<Restored, AdminError> {
     let valid = name.ends_with(".toml")
         && !name.starts_with('.')
         && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | '_'));
@@ -540,7 +560,10 @@ mod tests {
             "API_KEY = { keychain = \"cmux-harness/a/API_KEY\" }"
         );
         assert_eq!(env_line("a", "HOME_DIR", "env:HOME").unwrap(), "HOME_DIR = { env = \"HOME\" }");
-        assert!(matches!(env_line("a", "OPENAI_API_KEY", "sk-1"), Err(AdminError::SecretInline(_))));
+        assert!(matches!(
+            env_line("a", "OPENAI_API_KEY", "sk-1"),
+            Err(AdminError::SecretInline(_))
+        ));
         assert!(matches!(env_line("a", "1BAD", "x"), Err(AdminError::Invalid(_))));
     }
 
@@ -564,7 +587,10 @@ mod tests {
         let cfg = Config::default();
         let removed = remove("acme", &cfg, &src, &root.join("home")).unwrap();
         assert!(!added.path.exists());
-        assert!(matches!(remove("acme", &cfg, &src, &root.join("home")), Err(AdminError::NotFound(_))));
+        assert!(matches!(
+            remove("acme", &cfg, &src, &root.join("home")),
+            Err(AdminError::NotFound(_))
+        ));
         let restored = restore(&removed.backup, &src, &root.join("home")).unwrap();
         assert_eq!(restored.id, "acme");
         assert!(added.path.exists());

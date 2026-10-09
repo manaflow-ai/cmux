@@ -48,7 +48,12 @@ impl Client {
 
     /// The reply to one request: Ok(result) or Err(error object). Notifications
     /// that arrive first are kept for `note`.
-    async fn call(&mut self, m: &str, params: Value, notes: &mut Vec<Value>) -> Result<Value, Value> {
+    async fn call(
+        &mut self,
+        m: &str,
+        params: Value,
+        notes: &mut Vec<Value>,
+    ) -> Result<Value, Value> {
         let id = self.next;
         self.next += 1;
         self.tx.send(Message::request(id, m, params).to_line()).await.unwrap();
@@ -70,7 +75,11 @@ impl Client {
     }
 
     /// The first harnesses_changed (kept or new) whose harness list passes `wanted`.
-    async fn changed(&mut self, notes: &mut Vec<Value>, wanted: impl Fn(&[String]) -> bool) -> bool {
+    async fn changed(
+        &mut self,
+        notes: &mut Vec<Value>,
+        wanted: impl Fn(&[String]) -> bool,
+    ) -> bool {
         let names = |n: &Value| -> Vec<String> {
             n["params"]["harnesses"]
                 .as_array()
@@ -146,7 +155,10 @@ async fn people_add_check_remove_and_restore_their_own_harness() {
     let text = std::fs::read_to_string(&path).unwrap();
     assert!(text.contains("Acme Agent") && text.contains("keychain"), "{text}");
     assert!(added["diagnostics"].as_array().is_some_and(Vec::is_empty), "{added}");
-    assert!(app.changed(&mut notes, |h| h.iter().any(|n| n == "acme")).await, "no harnesses_changed");
+    assert!(
+        app.changed(&mut notes, |h| h.iter().any(|n| n == "acme")).await,
+        "no harnesses_changed"
+    );
     {
         let cfg = hub.config.read().await;
         assert_eq!(cfg.harnesses["acme"].argv, vec!["/bin/echo", "acp", "--fast"]);
@@ -191,7 +203,11 @@ async fn people_add_check_remove_and_restore_their_own_harness() {
 
     // Doctor reports its steps as data and never an env value.
     let report = app
-        .call("_acpmux/harness/doctor", json!({"id": "acme", "noPrompt": true, "timeoutSecs": 5}), &mut notes)
+        .call(
+            "_acpmux/harness/doctor",
+            json!({"id": "acme", "noPrompt": true, "timeoutSecs": 5}),
+            &mut notes,
+        )
         .await
         .expect("doctor");
     assert_eq!(report["id"], "acme");
@@ -204,15 +220,20 @@ async fn people_add_check_remove_and_restore_their_own_harness() {
     assert!(!report.to_string().contains("zzplainmarker"), "doctor leaked an env value: {report}");
 
     // Remove moves the file to a backup; restore brings it back.
-    let removed = app.call("_acpmux/harness/remove", json!({"id": "acme"}), &mut notes).await.expect("remove");
+    let removed = app
+        .call("_acpmux/harness/remove", json!({"id": "acme"}), &mut notes)
+        .await
+        .expect("remove");
     assert_eq!(removed["id"], "acme");
     let backup = removed["backup"].as_str().unwrap().to_owned();
     assert!(!user.join("acme.toml").exists());
     assert!(acpmux_home.join("harness-backups").read_dir().unwrap().next().is_some());
     assert!(app.changed(&mut notes, |h| !h.iter().any(|n| n == "acme")).await);
     assert!(!hub.config.read().await.harnesses.contains_key("acme"));
-    let restored =
-        app.call("_acpmux/harness/restore", json!({"backup": backup}), &mut notes).await.expect("restore");
+    let restored = app
+        .call("_acpmux/harness/restore", json!({"backup": backup}), &mut notes)
+        .await
+        .expect("restore");
     assert_eq!(restored["id"], "acme");
     assert!(user.join("acme.toml").exists());
     assert!(app.changed(&mut notes, |h| h.iter().any(|n| n == "acme")).await);
@@ -224,7 +245,10 @@ async fn people_add_check_remove_and_restore_their_own_harness() {
     assert!(escape["message"].is_string());
 
     // Managed (company) profiles and unknown ids are not removable.
-    let company = app.call("_acpmux/harness/remove", json!({"id": "company"}), &mut notes).await.expect_err("managed");
+    let company = app
+        .call("_acpmux/harness/remove", json!({"id": "company"}), &mut notes)
+        .await
+        .expect_err("managed");
     assert_eq!(reason(&company), "harness.not_removable", "{company}");
     assert!(managed.join("company.toml").exists());
 
@@ -234,7 +258,10 @@ async fn people_add_check_remove_and_restore_their_own_harness() {
     let agents = reg["agents"].as_array().unwrap();
     let copilot = agents.iter().find(|a| a["id"] == "github-copilot-cli").expect("copilot");
     assert!(copilot["name"].is_string() && copilot["version"].is_string(), "{copilot}");
-    assert!(["path", "npx", "uvx", "none"].contains(&copilot["launch"].as_str().unwrap()), "{copilot}");
+    assert!(
+        ["path", "npx", "uvx", "none"].contains(&copilot["launch"].as_str().unwrap()),
+        "{copilot}"
+    );
     assert!(copilot["installed"].is_boolean(), "{copilot}");
     let grok = agents.iter().find(|a| a["id"] == "grok-build").expect("grok");
     assert_eq!(grok["harnessId"], "grok");

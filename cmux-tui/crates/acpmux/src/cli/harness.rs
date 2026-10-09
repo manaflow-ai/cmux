@@ -144,7 +144,10 @@ pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
             )?;
             let reloaded = reload_daemon().await;
             if json_out {
-                println!("{}", json!({"id": removed.id, "backup": removed.backup, "daemonReloaded": reloaded}));
+                println!(
+                    "{}",
+                    json!({"id": removed.id, "backup": removed.backup, "daemonReloaded": reloaded})
+                );
             } else {
                 println!("removed {id}; undo with `cmux harness restore {}`", removed.backup);
             }
@@ -158,7 +161,10 @@ pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
             )?;
             let reloaded = reload_daemon().await;
             if json_out {
-                println!("{}", json!({"id": restored.id, "path": restored.path, "daemonReloaded": reloaded}));
+                println!(
+                    "{}",
+                    json!({"id": restored.id, "path": restored.path, "daemonReloaded": reloaded})
+                );
             } else {
                 println!("restored {} to {}", restored.id, restored.path.display());
             }
