@@ -15,6 +15,17 @@ final class SidebarChatsHeader: NSView {
 
     override var isFlipped: Bool { true }
 
+    /// One accessibility button named like the section: a press opens or closes it.
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+        setAccessibilityLabel(SidebarChatsView.title)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard let hit = super.hitTest(point) else { return nil }
         let icon = icons.first { hit === $0 || hit.isDescendant(of: $0) }

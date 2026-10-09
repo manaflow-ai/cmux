@@ -55,7 +55,11 @@ public struct WebKitPrivateCalls: Sendable {
         // crash-allow: WebKit private selector, used only after responds(to:) confirms it exists (no unknown-selector exception).
         let selector = NSSelectorFromString("_doAfterActivityStateUpdate:")
         guard isVerified, webView.responds(to: selector) else {
-            _ = try? await webView.callAsyncJavaScript("return 0;", arguments: [:], in: nil, contentWorld: .defaultClient)
+            // Bounded too: a page whose web process never answers must not
+            // hang the call.
+            _ = await awaitCallback { done in
+                webView.callAsyncJavaScript("return 0;", arguments: [:], in: nil, in: .defaultClient) { _ in done() }
+            }
             return
         }
         typealias Action = @convention(block) () -> Void

@@ -43,7 +43,7 @@ enum EphemeralWorkspaces {
                 manager.claimNew(workspaceID: workspace.id, window: windowID)
                 let tab = workspace.screens.flatMap(\.panes).lazy.flatMap(\.tabs).first { $0.resourceID == created.tabID }
                 guard let tab, let pane = daemon.store.pane(containing: tab.surface) else { return }
-                _ = try await browserTabs.open(choice, in: pane.handle, url: address, incognito: true)
+                _ = try await browserTabs.open(choice, in: pane.handle, on: daemon, url: address, incognito: true)
                 try await connection.closeTab(tab.surface)
             } catch {
                 daemon.logger.error("new incognito window failed: \(String(describing: error), privacy: .public)")

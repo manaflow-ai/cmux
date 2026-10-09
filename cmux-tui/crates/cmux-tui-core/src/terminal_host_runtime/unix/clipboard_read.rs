@@ -5,8 +5,6 @@
 
 use super::super::shared::clipboard_read::*;
 use super::*;
-use std::sync::PoisonError;
-
 #[cfg(test)]
 use ghostty_vt::ClipboardReadRequest;
 
@@ -88,91 +86,6 @@ impl HostShared {
             let _ = self.parser_commands.send(ParserCommand::ClipboardReadComplete { token, text });
         }
         true
-    }
-}
-
-impl ControlResponses {
-    pub(super) fn with_clipboard_reads(negotiated: bool) -> Self {
-        let responses = Self::new();
-        responses.clipboard_reads.negotiated.store(negotiated, Ordering::Release);
-        responses
-    }
-
-    #[cfg(test)]
-    pub(crate) fn negotiate_clipboard_reads_for_test(&self) {
-        self.clipboard_reads.negotiated.store(true, Ordering::Release);
-    }
-
-    pub(crate) fn clipboard_reads_negotiated(&self) -> bool {
-        self.clipboard_reads.negotiated.load(Ordering::Acquire)
-    }
-
-    /// Installs the broker's handler for this connection's reads.
-    pub(crate) fn set_clipboard_read_handler(&self, handler: ClipboardReadHandler) {
-        *lock(&self.clipboard_reads.handler) = Some(handler);
-    }
-
-    /// The connection's frame reader got a `ClipboardReadRequest`. False
-    /// ends the connection: unnegotiated, or a malformed envelope or payload.
-    pub(crate) fn accept_clipboard_read_request(
-        &self,
-        frame: &Frame,
-        protocol_version: u16,
-    ) -> bool {
-        if !self.clipboard_reads_negotiated() || !clipboard_envelope_valid(frame, protocol_version)
-        {
-            return false;
-        }
-        let Ok(request) = decode_clipboard_read_request(&frame.payload) else {
-            return false;
-        };
-        *lock(&self.clipboard_reads.pending) = Some(request);
-        self.clipboard_reads.signal(ClipboardReadSignal::Request(request));
-        true
-    }
-
-    /// The connection's frame reader got a `ClipboardReadCancel`. A cancel
-    /// for a read that is no longer pending (answered, or replaced) is stale
-    /// and ignored. False ends the connection, as for a request.
-    pub(crate) fn accept_clipboard_read_cancel(
-        &self,
-        frame: &Frame,
-        protocol_version: u16,
-    ) -> bool {
-        if !self.clipboard_reads_negotiated() || !clipboard_envelope_valid(frame, protocol_version)
-        {
-            return false;
-        }
-        let Ok(token) = decode_clipboard_read_cancel(&frame.payload) else {
-            return false;
-        };
-        if self.take_clipboard_read(token) {
-            self.clipboard_reads.signal(ClipboardReadSignal::Cancel(token));
-        }
-        true
-    }
-
-    /// The connection's stream ended: its host refused the pending read, so
-    /// the broker withdraws it.
-    pub(crate) fn end_clipboard_reads(&self) {
-        let pending = lock(&self.clipboard_reads.pending).take();
-        if let Some(pending) = pending {
-            self.clipboard_reads.signal(ClipboardReadSignal::Cancel(pending.token));
-        }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn pending_clipboard_read(&self) -> Option<ClipboardReadRequest> {
-        *lock(&self.clipboard_reads.pending)
-    }
-
-    fn take_clipboard_read(&self, token: u64) -> bool {
-        self.clipboard_reads
-            .pending
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .take_if(|pending| pending.token == token)
-            .is_some()
     }
 }
 
