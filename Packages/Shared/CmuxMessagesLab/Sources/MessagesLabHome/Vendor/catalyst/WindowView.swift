@@ -112,9 +112,10 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         collection.showsVerticalScrollIndicator = false
         clip.addSubview(collection)
         if let r = collection as? RowRecycler {
-            r.configure = { [unowned self] cell, i in self.decorate(cell, i) }
-            r.key = { [unowned self] i in self.model.rows[i].spec.key }
-            r.count = { [unowned self] in self.model.count }
+            // cmux: weak captures, not unowned; a recycler that outlives this view gets the recycler defaults ("" and 0).
+            r.configure = { [weak self] cell, i in self?.decorate(cell, i) }
+            r.key = { [weak self] i in self?.model.rows[i].spec.key ?? "" }
+            r.count = { [weak self] in self?.model.count ?? 0 }
         }
 
         threadDim.backgroundColor = .clear

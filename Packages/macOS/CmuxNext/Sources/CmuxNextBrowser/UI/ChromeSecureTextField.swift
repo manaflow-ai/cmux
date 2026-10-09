@@ -15,7 +15,8 @@ final class ChromeSecureTextField: NSSecureTextField {
         isBezeled = false
         drawsBackground = false
         focusRingType = .none
-        density.update { [unowned self] in
+        density.update { [weak self] in
+            guard let self else { return }
             font = BrowserMetrics.bodyFont
             applyColors()
         }
