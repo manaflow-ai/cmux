@@ -3,6 +3,8 @@
 //! length-prefixed payload reader and writers. Moved from `mod unix`
 //! (cx-ko2e table A) so the Windows host can share them.
 
+use std::io::Read;
+
 use cmux_pty::PtyOpenError;
 use ghostty_vt::CursorShape;
 
@@ -803,4 +805,9 @@ pub(crate) fn host_launch_failure(error: &anyhow::Error) -> HostLaunchFailure {
         HostLaunchFailureKind::LaunchFailed
     };
     HostLaunchFailure::bounded(kind, format!("terminal launch failed: {error:#}"))
+}
+
+pub(crate) fn read_required_frame(reader: &mut impl Read, context: &str) -> anyhow::Result<Frame> {
+    read_frame(reader, MAX_FRAME_PAYLOAD)?
+        .ok_or_else(|| anyhow::anyhow!("terminal host closed before {context}"))
 }
