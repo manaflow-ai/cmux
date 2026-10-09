@@ -149,9 +149,7 @@ describe("turn footer", () => {
       ["14", "14"],
     ]);
     expect(group!.nextElementSibling?.tagName).toBe("TIME");
-    await act(async () =>
-      group!.querySelector<HTMLButtonElement>('button[aria-label="Fork from here"]')!.click(),
-    );
+    await act(async () => group!.querySelector<HTMLButtonElement>('button[aria-label="Fork from here"]')!.click());
     expect(forked).toEqual([7]);
     await unmount();
   });
