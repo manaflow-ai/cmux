@@ -12,7 +12,7 @@ struct DaemonCapabilityExportTests {
 
     /// Entries in `unservedByBundledDaemon` on 2026-10-02. The list only
     /// shrinks: a new feature lands with its daemon half and goes in `optional`.
-    private static let unservedCeiling: Set<String> = ["remote-terminal-tabs-v1", "detached-terminals-v1"]
+    private static let unservedCeiling: Set<String> = ["remote-terminal-tabs-v1", "detached-terminals-v1", "chief-inspect-v1"]
 
     /// Every capability string `DaemonCapabilities` names is in exactly one
     /// list, so the check cannot miss a capability the app references.
@@ -28,6 +28,11 @@ struct DaemonCapabilityExportTests {
     @Test func unservedListOnlyShrinks() {
         let added = Set(capabilities.unservedByBundledDaemon).subtracting(Self.unservedCeiling)
         #expect(added.isEmpty, "new unserved capabilities \(added.sorted()): land the daemon half on this branch and list them in optional")
+    }
+
+    @Test func chiefInspectIsUnservedWithoutToolsSocket() {
+        #expect(capabilities.unservedByBundledDaemon.contains(capabilities.chiefInspect))
+        #expect(!capabilities.optional.contains(capabilities.chiefInspect))
     }
 
     @Test func exportIsFresh() throws {

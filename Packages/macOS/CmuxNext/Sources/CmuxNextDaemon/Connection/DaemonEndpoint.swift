@@ -252,7 +252,7 @@ public struct DaemonCapabilities: Sendable {
                                             workspaceKind, workspaceAgentFolder, conversationTabs, agentSessionTabs, agentSessionAttach, pageTabs, conversationSearch, cloudConversations, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
                                             terminalClipboardRead, personalMixedOrder, sidebarLayout,
-                                            workspaceGroupIcon, workspaceGroupPin, chiefInspect] }
+                                            workspaceGroupIcon, workspaceGroupPin] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
     /// feature shows disabled with its reason (or refuses with it) while the
@@ -260,7 +260,7 @@ public struct DaemonCapabilities: Sendable {
     /// (DaemonCapabilityExportTests): new app features land with their
     /// daemon half, and check-daemon-capabilities.sh fails once the bundled
     /// daemon serves an entry, so it moves to `optional`.
-    public var unservedByBundledDaemon: [String] { [remoteTerminalTabs, detachedTerminals] }
+    public var unservedByBundledDaemon: [String] { [remoteTerminalTabs, detachedTerminals, chiefInspect] }
 
     /// Whether the bundled daemon (this tree's cmux-tui) serves `capability`:
     /// a daemon without it is an older build, and restarting cmux updates it.
