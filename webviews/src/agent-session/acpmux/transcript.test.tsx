@@ -2835,7 +2835,53 @@ describe("acpmux turn counts", () => {
         ),
       );
       expect(dom.window.document.querySelector(".cv-worked")?.textContent).toBe("Worked for 3s");
+      expect(dom.window.document.querySelector(".cv-worked")?.getAttribute("aria-controls")).toBeNull();
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, {
+            rows: turnView(turn, new Set(["worked-u"])),
+            onToggleActivity: () => {},
+            expanded: new Set(["worked-u"]),
+          }),
+        ),
+      );
+      const worked = dom.window.document.querySelector<HTMLButtonElement>(".cv-worked")!;
+      const controls = worked.getAttribute("aria-controls")?.split(" ") ?? [];
+      expect(controls).toEqual(["acpmux-row-a"]);
+      expect(dom.window.document.getElementById("acpmux-row-a")).not.toBeNull();
       expect(dom.window.document.querySelector(".cv-turn-summary")).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      restore();
+    }
+  });
+
+  test("the Worked-for disclosure controls folded assistant commentary as well as tools", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const turn: AcpmuxRow[] = [
+      { id: "u", version: 1, at: 1, kind: "user", text: "investigate" },
+      { id: "tool", version: 1, at: 2, kind: "activity", items: [{ kind: "tool", text: "Read" }] },
+      { id: "commentary", version: 1, at: 3, kind: "assistant", text: "I found the relevant file." },
+      { id: "answer", version: 1, at: 4, kind: "assistant", text: "The fix is small." },
+      { id: "summary", version: 1, at: 5, kind: "turnSummary", durationMs: 4_000, toolCount: 1 },
+    ];
+    try {
+      const open = new Set(["worked-u"]);
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, {
+            rows: turnView(turn, open),
+            onToggleActivity: () => {},
+            expanded: open,
+          }),
+        ),
+      );
+      const controls = dom.window.document
+        .querySelector<HTMLButtonElement>(".cv-worked")
+        ?.getAttribute("aria-controls");
+      expect(controls?.split(" ")).toEqual(["acpmux-row-tool", "acpmux-row-commentary"]);
+      expect(dom.window.document.getElementById("acpmux-row-commentary")).not.toBeNull();
     } finally {
       await act(async () => root.unmount());
       restore();
