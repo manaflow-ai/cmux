@@ -20,6 +20,8 @@ final class GroupHeaderRowView: SidebarRowView {
     /// The group's icon inside its chip, before the name (`workspace-group-icon-v1`).
     let glyph = SidebarIconView()
     private let pill = CALayer()
+    /// The members' bar starts under the chip (the members' rows continue it).
+    private let connector = CALayer()
     /// The more button (⋮): the group editor. Shows on hover and while the editor is open.
     let moreButton = SidebarIconButton(symbol: "ellipsis", pointSize: { Metrics.smallIconSize - Metrics.space1 }, weight: .bold,
                                        label: GroupEditorStrings.more)
@@ -27,6 +29,7 @@ final class GroupHeaderRowView: SidebarRowView {
     private var hasIcon = false
     private var color: GroupColor = .grey
     private var collapsed = false
+    private var hasMembers = false
     private var chevronFrame: CGRect = .zero
     var isDropTarget = false { didSet { if isDropTarget != oldValue { needsDisplay = true } } }
     /// Arrow keys stopped here (`SidebarListView+GroupKeys`): a focus ring, not a selection.
@@ -39,13 +42,18 @@ final class GroupHeaderRowView: SidebarRowView {
 
     required init(key: SidebarRowKey) {
         super.init(key: key)
+        layer?.addSublayer(connector)
         layer?.addSublayer(pill)
-        pill.actions = ["bounds": NSNull(), "position": NSNull(), "backgroundColor": NSNull()]
+        for sublayer in [pill, connector] { sublayer.actions = ["bounds": NSNull(), "position": NSNull(), "backgroundColor": NSNull()] }
         glyph.drawsUncoloredSymbolAsText = true
         // The more glyph stands upright (⋮), like the Chrome chip's.
-        moreButton.frameCenterRotation = 90
+        moreButton.image = Self.verticalEllipsis()
         [glyph, name, pin, chevron, activity, badge, moreButton].forEach(addSubview)
         moreButton.onPress = { [weak self] in self?.onMore?() }
+        setAccessibilityCustomActions([NSAccessibilityCustomAction(name: GroupEditorStrings.editor) { [weak self] in
+            self?.onMore?()
+            return self?.onMore != nil
+        }])
     }
 
     override func prepareForReuse(key: SidebarRowKey) {
@@ -75,7 +83,9 @@ final class GroupHeaderRowView: SidebarRowView {
         glyph.configure(icon: group.icon)
         pin.image = pinned ? NSImage.icon(.statePinned, size: Metrics.smallIconSize) : nil
         collapsed = row.isCollapsed
+        hasMembers = row.childCount > 0
         chevron.image = Self.chevronImage(collapsed: collapsed)
+        moreButton.image = Self.verticalEllipsis()
         activity.configure(collapsed ? group.aggregateActivity : .idle)
         let unread = group.unreadTotal
         badge.configure(collapsed && unread > 0 ? .count(unread) : .none)
@@ -86,6 +96,20 @@ final class GroupHeaderRowView: SidebarRowView {
         setAccessibilityExpanded(!collapsed)
         needsLayout = true
         needsDisplay = true
+    }
+
+    /// Three dots stacked, the Chrome chip's more glyph, as a template image.
+    private static func verticalEllipsis() -> NSImage {
+        let side = Metrics.smallIconSize, dot = max(2, side / 6)
+        let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
+            for i in 0..<3 {
+                let y = rect.midY + CGFloat(i - 1) * dot * 2.2 - dot / 2
+                NSBezierPath(ovalIn: NSRect(x: rect.midX - dot / 2, y: y, width: dot, height: dot)).fill()
+            }
+            return true
+        }
+        image.isTemplate = true
+        return image
     }
 
     private static func chevronImage(collapsed: Bool) -> NSImage? {
@@ -124,6 +148,7 @@ final class GroupHeaderRowView: SidebarRowView {
             if isHovered || isEditing { fill = fill.blended(withFraction: 0.08, of: Palette.textPrimary) ?? fill }
             if isDropTarget { fill = fill.blended(withFraction: 0.16, of: Palette.textPrimary) ?? fill }
             pill.backgroundColor = fill.cgColor
+            connector.backgroundColor = (color.themed ?? Palette.textTertiary.withAlphaComponent(0.5)).cgColor
             if isDropTarget {
                 pill.borderColor = (color.themed ?? Palette.focusRing).cgColor
                 pill.borderWidth = Metrics.dividerThickness * 1.5
@@ -189,14 +214,19 @@ final class GroupHeaderRowView: SidebarRowView {
         name.frame = NSRect(x: nx, y: (b.height - nh) / 2, width: nameWidth, height: nh)
         let moreX = nx + nameWidth + Metrics.space1
         moreButton.frame = NSRect(x: moreX, y: (b.height - control) / 2, width: control, height: control)
-        moreButton.isHidden = !showsMore
-        // At rest the chip ends after the chevron; the more slot shows inside it on hover.
-        let chevronX = showsMore ? moreX + control : nx + nameWidth + Metrics.space1
+        // The chip keeps its width: the more button fades in its slot on hover.
+        moreButton.isHidden = false
+        moreButton.alphaValue = showsMore ? 1 : 0
+        let chevronX = moreX + control
         chevronFrame = CGRect(x: chevronX, y: (b.height - chevronSide) / 2, width: chevronSide, height: chevronSide)
         chevron.frame = chevronFrame
         pill.isHidden = renaming
         pill.frame = NSRect(x: chipX, y: chipY, width: chevronFrame.maxX + pad - chipX, height: chipHeight)
         pill.cornerRadius = chipHeight / 2
+        // The members' bar begins right under the chip's rounded start.
+        connector.isHidden = collapsed || !hasMembers || renaming
+        connector.frame = NSRect(x: SidebarStyle.groupBarX - b.minX, y: pill.frame.maxY, width: SidebarStyle.groupBarWidth,
+                                 height: max(0, b.height - pill.frame.maxY))
         pin.isHidden = !pinned
         pin.frame = NSRect(x: pill.frame.maxX + Metrics.space2, y: (b.height - pinSide) / 2, width: pinSide, height: pinSide)
         needsDisplay = true

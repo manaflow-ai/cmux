@@ -20,6 +20,12 @@ final class SidebarGroupEditor {
     /// A member of the shown group: the store may give a group the sidebar
     /// made another id, and the editor follows it.
     private var member: WorkspaceID?
+    /// The groups the last update showed (`follow`).
+    private var known: Set<GroupID> = []
+    /// The group whose editor closed last, and the event time it closed at.
+    private var lastClosed: (group: GroupID, time: TimeInterval)?
+    /// The responder to give the keys back to when the editor closes.
+    weak var previousResponder: NSResponder?
 
     var isVisible: Bool { shownGroup != nil }
     /// False in tests: the bubble is laid out but never put on screen.
@@ -45,6 +51,7 @@ final class SidebarGroupEditor {
             guard let self, let id = self.shownGroup else { return }
             self.shownGroup = nil
             self.member = nil
+            self.lastClosed = (id, NSApp.currentEvent?.timestamp ?? ProcessInfo.processInfo.systemUptime)
             self.onClose?(id)
         }
         shownGroup = group.id
@@ -58,18 +65,29 @@ final class SidebarGroupEditor {
     /// group refreshes its color; a group the store re-identified is found
     /// by its member; a group that is gone closes the editor.
     func follow(_ groups: [GroupID: SidebarGroup]) {
+        defer { known = Set(groups.keys) }
         guard let shown = shownGroup else { return }
         if let group = groups[shown] {
             panel?.refresh(group)
             if member == nil { member = group.workspaces.first?.id }
             return
         }
-        if let member, let moved = groups.values.first(where: { $0.workspaces.contains { $0.id == member } }) {
+        // Only a group that just appeared can be the shown one under a new
+        // id; a member dragged into another group ends the editor.
+        if let member, let moved = groups.values.first(where: { !known.contains($0.id) && $0.workspaces.contains { $0.id == member } }) {
             shownGroup = moved.id
             panel?.refresh(moved)
             return
         }
         hide()
+    }
+
+    /// Whether the editor of `group` closed during the click that is
+    /// happening now (the click made the sidebar's window key, which closes
+    /// the bubble first): that click toggles it closed, it does not reopen it.
+    func closedByThisClick(_ group: GroupID, at timestamp: TimeInterval?) -> Bool {
+        guard let closed = lastClosed, closed.group == group, let timestamp else { return false }
+        return timestamp - closed.time <= NSEvent.doubleClickInterval
     }
 
     func hide() {

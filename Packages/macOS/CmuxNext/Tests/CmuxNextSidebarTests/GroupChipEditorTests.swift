@@ -55,12 +55,13 @@ import Testing
         let header = try h.header(g1)
         header.isHovered = false
         header.layoutSubtreeIfNeeded()
-        let rest = header.titleFrame
-        #expect(header.moreButton.isHidden)
+        let rest = header.titleFrame, chip = header.labelFrame
+        #expect(header.moreButton.alphaValue == 0)
         header.isHovered = true
         header.layoutSubtreeIfNeeded()
-        #expect(!header.moreButton.isHidden)
+        #expect(header.moreButton.alphaValue == 1)
         #expect(header.titleFrame == rest)
+        #expect(header.labelFrame == chip, "the chip keeps its width on hover")
         #expect(header.labelFrame.contains(NSPoint(x: header.moreButton.frame.midX, y: header.moreButton.frame.midY)), "inside the chip")
     }
 
@@ -114,6 +115,28 @@ import Testing
         bubble.dismiss()
         #expect(!h.intents.contains { if case .renameGroup = $0 { true } else { false } })
         #expect(h.intents.last == .groupEditorEnded(g1))
+    }
+
+    @Test func theMoreRowReachesTheAppToo() throws {
+        let h = Harness()
+        h.list.groupEditing.open(g1)
+        let bubble = try #require(h.list.groupEditor.bubble)
+        bubble.press(SidebarGroupEditing.moreActionsItem)
+        #expect(h.items.map(\.1) == [SidebarGroupEditing.moreActionsItem], "the App keeps a group made empty for the menu's action")
+    }
+
+    /// A member dragged into another group that already existed ends the
+    /// editor; only a group that just appeared can carry the shown one on.
+    @Test func theEditorDoesNotFollowItsMemberIntoAnotherGroup() throws {
+        let h = Harness()
+        h.list.groupEditing.open(g1)
+        var sections = fixture()
+        sections[1].nodes.remove(at: 1)
+        // local is now: a, b, G2, c; G2 takes G1's members.
+        sections[1].nodes[2] = .group(SidebarGroup(id: g2, name: "G2", color: .green, workspaces: [w("h1"), w("h2"), w("g1"), w("g2"), w("g3")]))
+        h.list.model.setSections(sections)
+        h.list.reload(animated: false)
+        #expect(h.list.groupEditor.shownGroup == nil)
     }
 
     @Test func aRowGoesToTheAppWithTheGroupAndClosesTheEditor() throws {

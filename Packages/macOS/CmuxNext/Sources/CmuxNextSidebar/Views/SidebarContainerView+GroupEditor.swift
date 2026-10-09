@@ -20,6 +20,9 @@ extension SidebarContainerView {
 
     /// The editor's standard rows: New Workspace in Group, Move Group to New
     /// Window, Close Group; Ungroup, Delete Group, More Group Actions.
+    /// The editor row that shows the group's full menu (the sidebar shows it).
+    public static var moreActionsItem: String { SidebarGroupEditing.moreActionsItem }
+
     public static func standardGroupEditorItems() -> [[SidebarGroupEditorItem]] {
         SidebarGroupEditing.standardItems()
     }

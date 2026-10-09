@@ -323,6 +323,7 @@ final class SidebarListView: NSView {
     /// Adds views for rows scrolled into range and drops far-away ones.
     func realizeVisibleRows() {
         guard !isShiftingViewport else { return }
+        groupEditing.followScroll()
         let realize = realizationRect()
         for row in displayed.rows where rowViews[row.key] == nil {
             let target = frame(for: row)
@@ -342,7 +343,7 @@ final class SidebarListView: NSView {
         let keepRect = realizationRect().insetBy(dx: 0, dy: -SidebarStyle.overscan)
         for row in displayed.rows {
             guard let view = rowViews[row.key], !frame(for: row).intersects(keepRect),
-                  inlineRename.session?.key != row.key else { continue }
+                  inlineRename.session?.key != row.key, row.key != groupEditor.shownGroup.map(SidebarRowKey.group) else { continue }
             recycle(view)
             rowViews[row.key] = nil
         }

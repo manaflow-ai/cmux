@@ -92,8 +92,7 @@ struct SidebarGroupFlow {
         let id = WorkspaceGroupID(rawValue: group.rawValue), members = bridge.placements(ids)
         let life = bridge.life, ending = life.emptied(by: members, into: id)
         bridge.model.apply(intent)
-        life.commit("set-personal-workspace", ending: ending, recheck: { life.emptied(by: members, into: id) }, failed: { bridge.resync() },
-                    settled: holdRows()) { connection in
+        life.commit("set-personal-workspace", ending: ending, recheck: { life.emptied(by: members, into: id) }, failed: { bridge.resync() }) { connection in
             for workspace in members {
                 try await connection.state.placePersonalWorkspace(session: workspace.session, key: workspace.key, resource: workspace.resource,
                                                                   group: .set(id))
@@ -113,9 +112,10 @@ struct SidebarGroupFlow {
         let place = bridge.usesMixedOrder && v2
             ? PersonalSidebarPlanner(machines: bridge.services.machines).groupPlacement(of: group, in: bridge.model.sections)
             : PersonalSidebar.GroupPlacement()
-        let move = place.move, top = place.topIndex
+        let move = place.move, top = place.topIndex, flow = self
+        editor.creating[id] = (nil, nil)
         life.commit("create-personal-group", ending: ending, recheck: { life.emptied(by: members, into: nil) }, failed: { bridge.resync() },
-                    settled: holdRows()) { connection in
+                    settled: holdRows(), landed: { created in flow.landed(id, as: created) }) { connection -> WorkspaceGroupID in
             // The v2 operation names the group itself.
             let created = v2 ? WorkspaceGroupID(rawValue: try await connection.state.createWorkspaceGroup(
                 name: SidebarGroup.named(name), room: room.rawValue, color: color.rawValue, index: move).id)
@@ -125,6 +125,38 @@ struct SidebarGroupFlow {
                 try await connection.state.placePersonalWorkspace(session: workspace.session, key: workspace.key, resource: workspace.resource,
                                                                   group: .set(created))
             }
+            return created
+        }
+    }
+
+    /// The daemon made the group under `created`: edits made meanwhile go to it.
+    private func landed(_ local: WorkspaceGroupID, as created: WorkspaceGroupID) {
+        editor.created[local] = created
+        guard let pending = editor.creating.removeValue(forKey: local), pending.name != nil || pending.color != nil else { return }
+        send(created, name: pending.name, color: pending.color)
+    }
+
+    /// `.renameGroup` / `.setGroupColor`. The editor opens on a new group at
+    /// once, under the sidebar's own id: an edit before the daemon made the
+    /// group waits for it, and later ones go to the daemon's id.
+    func edit(_ group: CmuxNextSidebar.GroupID, name: String? = nil, color: GroupColor? = nil, _ intent: SidebarIntent) {
+        bridge.model.apply(intent)
+        let id = WorkspaceGroupID(rawValue: group.rawValue)
+        if let pending = editor.creating[id] {
+            editor.creating[id] = (name ?? pending.name, color ?? pending.color)
+            return
+        }
+        send(editor.created[id] ?? id, name: name, color: color)
+    }
+
+    private func send(_ id: WorkspaceGroupID, name: String?, color: GroupColor?) {
+        let v2 = bridge.statePersonal, bridge = bridge, colorUpdate: FieldUpdate<String> = color.map { .set($0.rawValue) } ?? .unchanged
+        Task {
+            let done = await bridge.services.machines.local.request("update-personal-group") { connection in
+                if v2 { return try await connection.state.updateWorkspaceGroup(id.rawValue, name: name, color: colorUpdate) }
+                try await connection.updatePersonalGroup(id, name: name, color: colorUpdate)
+            }
+            if done == nil { bridge.resync() }
         }
     }
 
@@ -170,9 +202,12 @@ struct SidebarGroupFlow {
     }
 
     private func performEditorItem(_ group: CmuxNextSidebar.GroupID, _ item: String) {
-        // A person acted on the group: a group made empty is no longer ended
-        // by closing the editor (New Workspace in Group fills it).
-        editor.explicit.remove(WorkspaceGroupID(rawValue: group.rawValue))
+        // A group made empty that is about to get a member (New Workspace in
+        // Group, or an action from its full menu) does not go when the editor closes.
+        if item == "workspaceGroup.newWorkspace" || item == SidebarContainerView.moreActionsItem {
+            editor.explicit.remove(WorkspaceGroupID(rawValue: group.rawValue))
+        }
+        guard item != SidebarContainerView.moreActionsItem else { return }
         let invocation = ActionInvocation(target: ActionTargetRef(kind: .workspaceGroup, id: group.rawValue), origin: .user)
         _ = bridge.services.registry.perform(ActionID(rawValue: item), invocation: invocation)
     }

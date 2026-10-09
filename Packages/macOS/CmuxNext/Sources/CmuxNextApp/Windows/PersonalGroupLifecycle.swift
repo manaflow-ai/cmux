@@ -1,4 +1,5 @@
 import CmuxNextDaemon
+import CmuxNextDesign
 
 /// When a personal workspace group ends (cx-rcby). The home daemon keeps a
 /// group until a client deletes it, so the client that moves workspaces
@@ -103,21 +104,23 @@ struct PersonalGroupLife {
     /// The delete goes only to the groups `recheck` still names once the
     /// command landed, read from the latest personal state: a member
     /// another window or client placed meanwhile keeps its group.
-    /// `failed` runs when a command fails (the caller re-syncs); `settled`
-    /// runs last either way.
-    func commit(_ label: String, ending: [WorkspaceGroupID], recheck: @escaping @MainActor () -> [WorkspaceGroupID] = { [] },
-                failed: @escaping @MainActor () -> Void, settled: @escaping @MainActor () -> Void = {},
-                _ body: @escaping @Sendable (DaemonConnection) async throws -> Void) {
+    /// `failed` runs when a command fails (the caller re-syncs); `landed`
+    /// gets the command's value once it landed; `settled` runs last either way.
+    func commit<Value: Sendable>(_ label: String, ending: [WorkspaceGroupID], recheck: @escaping @MainActor () -> [WorkspaceGroupID] = { [] },
+                                 failed: @escaping @MainActor () -> Void, settled: @escaping @MainActor () -> Void = {},
+                                 landed: @escaping @MainActor (Value) -> Void = { _ in },
+                                 _ body: @escaping @Sendable (DaemonConnection) async throws -> Value) {
         let home = machines.local, personal = personal, v2 = home.store.servesStateResources
         personal.endingGroups.formUnion(ending)
         Task {
             // Shown again before a failure re-syncs, so a kept group never stays hidden.
             @MainActor func end() { personal.endingGroups.subtract(ending) }
             defer { settled() }
-            guard await home.request(label, body) != nil else {
+            guard let value = await home.request(label, body) else {
                 end()
                 return failed()
             }
+            landed(value)
             let still = Set(recheck())
             let doomed = ending.filter(still.contains)
             guard !doomed.isEmpty else { return end() }
@@ -135,7 +138,7 @@ struct PersonalGroupLife {
     func deleteIfEmpty(_ group: WorkspaceGroupID, failed: @escaping @MainActor () -> Void) {
         guard isEmptyUnpinned(group) else { return }
         let life = self
-        commit("delete-personal-group", ending: [group], recheck: { life.isEmptyUnpinned(group) ? [group] : [] }, failed: failed) { _ in }
+        commit("delete-personal-group", ending: [group], recheck: { life.isEmptyUnpinned(group) ? [group] : [] }, failed: failed) { _ -> Void in }
     }
 }
 
@@ -149,4 +152,9 @@ final class PersonalGroupEditorState {
     /// Organization changes in flight; the sidebar keeps its optimistic
     /// rows while any is (`SidebarGroupFlow.holdRows`).
     var rowHolds = 0
+    /// Groups the sidebar made that the daemon is still creating: name and
+    /// color edits made meanwhile (the editor is open on the new group).
+    var creating: [WorkspaceGroupID: (name: String?, color: GroupColor?)] = [:]
+    /// The daemon's id for a group the sidebar made under its own id.
+    var created: [WorkspaceGroupID: WorkspaceGroupID] = [:]
 }

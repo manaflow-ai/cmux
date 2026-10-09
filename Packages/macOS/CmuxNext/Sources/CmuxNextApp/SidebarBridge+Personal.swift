@@ -30,19 +30,9 @@ extension SidebarBridge {
         case .groupEditorEnded(let group):
             groupFlow.editorEnded(WorkspaceGroupID(rawValue: group.rawValue))
         case .renameGroup(let group, let name):
-            model.apply(intent)
-            let v2 = statePersonal
-            personal("update-personal-group") {
-                if v2 { return try await $0.state.updateWorkspaceGroup(group.rawValue, name: name) }
-                try await $0.updatePersonalGroup(WorkspaceGroupID(rawValue: group.rawValue), name: name)
-            }
+            groupFlow.edit(group, name: name, intent)
         case .setGroupColor(let group, let color):
-            model.apply(intent)
-            let v2 = statePersonal
-            personal("update-personal-group") {
-                if v2 { return try await $0.state.updateWorkspaceGroup(group.rawValue, color: .set(color.rawValue)) }
-                try await $0.updatePersonalGroup(WorkspaceGroupID(rawValue: group.rawValue), color: .set(color.rawValue))
-            }
+            groupFlow.edit(group, color: color, intent)
         case .toggleCollapse(.group(let group)):
             model.apply(intent)
             guard let collapsed = model.group(group)?.isCollapsed else { return true }
@@ -90,8 +80,7 @@ extension SidebarBridge {
         // Only the dropped workspaces leave their group; a group they empty goes (cx-rcby).
         let moving = plan.steps.filter(\.moves).map(\.workspace), life = self.life
         let ending = life.emptied(by: moving, into: group)
-        life.commit("set-personal-workspace", ending: ending, recheck: { life.emptied(by: moving, into: group) }, failed: resync,
-                    settled: groupFlow.holdRows()) { connection in
+        life.commit("set-personal-workspace", ending: ending, recheck: { life.emptied(by: moving, into: group) }, failed: resync) { connection in
             for step in plan.steps {
                 try await connection.state.placePersonalWorkspace(session: step.workspace.session, key: step.workspace.key,
                                                                   resource: step.workspace.resource,

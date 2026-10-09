@@ -38,15 +38,16 @@ struct SidebarGroupEditing {
         }
         editor.onItem = { [weak list] id, item in
             guard let list else { return }
-            if item == Self.moreActionsItem { return SidebarGroupEditing(list: list).showMenu(id) }
+            // The App hears every row, More too (a menu action may add a member).
             list.onGroupEditorItem?(id, item)
+            if item == Self.moreActionsItem { SidebarGroupEditing(list: list).showMenu(id) }
         }
-        editor.onClose = { [weak list] id in
+        editor.onClose = { [weak list, weak editor] id in
             guard let list else { return }
             for case let header as GroupHeaderRowView in list.rowViews.values { header.isEditing = false }
             list.model.send(.groupEditorEnded(id))
             list.reload(animated: true)
-            list.window?.makeFirstResponder(list)
+            list.window?.makeFirstResponder(editor?.previousResponder ?? list)
         }
     }
 
@@ -54,6 +55,8 @@ struct SidebarGroupEditing {
     /// a group not shown opens nothing.
     func open(_ id: GroupID) {
         guard list.groups[id] != nil, let window = list.window, list.model.presentation == .shown, list.drag == nil else { return }
+        // A click whose mouse-down closed this group's editor toggles it closed.
+        if list.groupEditor.closedByThisClick(id, at: NSApp.currentEvent?.timestamp) { return }
         if let row = list.displayed.row(for: .group(id)) { list.scrollToVisible(list.frame(for: row)) }
         list.realizeVisibleRows()
         guard let group = list.groups[id], let view = list.rowViews[.group(id)] as? GroupHeaderRowView else { return }
@@ -62,10 +65,12 @@ struct SidebarGroupEditing {
         let rowFrame = list.displayed.row(for: .group(id)).map(list.frame(for:)) ?? view.frame
         let chip = view.labelFrame.offsetBy(dx: rowFrame.minX, dy: rowFrame.minY)
         let anchor = window.convertToScreen(list.convert(chip, to: nil))
-        view.isEditing = true
         list.hoverCards.dismiss(.click)
+        let responder = window.firstResponder
         list.groupEditor.show(group, items: list.groupEditorItems?(id) ?? Self.standardItems(), anchor: anchor, parent: window,
                               themeAnchor: list)
+        list.groupEditor.previousResponder = responder
+        view.isEditing = true
     }
 
     /// Opens the editor for the group `member` is in (a group a drop just made).
@@ -78,6 +83,13 @@ struct SidebarGroupEditing {
     private func showMenu(_ id: GroupID) {
         guard let menu = list.contextMenuProvider?(.group(id)), let view = list.rowViews[.group(id)] as? GroupHeaderRowView else { return }
         _ = menu.popUp(positioning: nil, at: NSPoint(x: view.labelFrame.minX, y: view.labelFrame.maxY + Metrics.space1), in: view)
+    }
+
+    /// Keeps the open editor with its chip: a chip scrolled out of view closes it.
+    func followScroll() {
+        guard let shown = list.groupEditor.shownGroup else { return }
+        let visible = list.enclosingScrollView?.contentView.bounds ?? list.bounds
+        guard let row = list.displayed.row(for: .group(shown)), visible.intersects(list.frame(for: row)) else { return list.groupEditor.hide() }
     }
 
     /// Whether `point` (list coordinates) is on the group's chip, off its chevron.
@@ -102,6 +114,7 @@ struct SidebarGroupEditing {
                 }
             }
             guard let previous, let view = list.rowViews.removeValue(forKey: previous.key) else { continue }
+            if case let .group(oldID) = previous.key, list.focusedGroup == oldID { list.focusedGroup = id }
             view.key = row.key
             view.configuredContent = nil
             list.rowViews[row.key] = view
