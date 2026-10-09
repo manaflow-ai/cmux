@@ -40,8 +40,6 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// The last theme payload sent, so a redraw that changes nothing sends nothing.
     private var appliedTheme: String?
     private var uiScaleObservation: Task<Void, Never>?
-    /// A surface-owned multiplier layered on top of the app-wide `uiScale`.
-    /// Agent chat uses this for its persisted per-surface zoom.
     public var additionalZoom: Double = 1 {
         didSet { if additionalZoom != oldValue { applyUIScale() } }
     }

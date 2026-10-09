@@ -46,7 +46,6 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var browserOmnibar = BrowserOmnibarSetting.fallback
     /// `agentPane.editedFiles.*`: the agent pane's edited-files card.
     public var agentPaneEditedFiles = AgentPaneEditedFilesSetting.fallback
-    /// `agentPane.zoom`, the agent chat's per-surface display zoom.
     public var agentPaneZoom: Double = AgentPaneZoomSetting.fallback
     /// `browser.remoteLocalhost` and `browser.remoteLocalhostWorkspaces`.
     public var remoteLocalhost: RemoteLocalhostSetting = .fallback

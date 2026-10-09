@@ -64,12 +64,8 @@ public final class AgentPaneView: NSView {
     /// page's `--agent-motion-*` fades follow them (AgentPaneTheme.values).
     private var motionObservation: Task<Void, Never>?
     private var uiScaleObservation: Task<Void, Never>?
-    /// The agent pane's own display zoom. App-wide `uiScale` remains separate.
     public var zoom: Double = 1 {
-        didSet {
-            guard zoom != oldValue else { return }
-            applyZoom()
-        }
+        didSet { guard zoom != oldValue else { return }; applyZoom() }
     }
     private var reduceMotionObserver: (any NSObjectProtocol)?
     private var reduceMotionOverrideObserver: (any NSObjectProtocol)?
