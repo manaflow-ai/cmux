@@ -4,6 +4,14 @@ import Foundation
 // and int_conversion). An index that comes from daemon data or from arithmetic
 // is used through these helpers, which return nil or false instead of trapping.
 
+extension Collection {
+    /// The element at `index`, or nil when `index` is outside the collection.
+    subscript(checked index: Index) -> Element? {
+        guard index >= startIndex, index < endIndex else { return nil }
+        return self[index]
+    }
+}
+
 extension MutableCollection {
     /// Calls `body` with the element at `index` and returns true; returns false
     /// without calling it when `index` is outside the collection.

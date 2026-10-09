@@ -480,6 +480,7 @@
         },
         "trail" : [
           "harnesses",
+          "agentHarnesses",
           "computerUse"
         ]
       },

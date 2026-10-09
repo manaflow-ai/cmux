@@ -927,7 +927,11 @@ reply text for that conversation. The policy tests are in
 control of the Chief brain that runs with this session (risk: owner). The
 daemon forwards one line to the brain host's tools socket
 (`CMUX_TUI_CHIEF_TOOLS_SOCKET`, as `chief-inspect` does) and answers the
-brain's JSON: the engine report (passed through unchanged) or `{stopped}`.
+brain's JSON: the engine report (passed through unchanged) or `{stopped,
+subagents?, note?}`. `chief.engine.set` also takes `speed` and
+`compactor_speed` (`default` or `fast`, the codex priority tier; a Claude
+harness refuses `fast` with `invalid_speed`); `chief.stop` takes an optional
+subagent `name` and then stops only that subagent.
 Only the owner's trusted connection may call them: a registered Unix client
 with no link peer record whose principal is `user_local`, which is a local
 client or the link's `owner_session` splice. An agent-bound connection (the

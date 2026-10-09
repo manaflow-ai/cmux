@@ -97,7 +97,6 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
     opacity: 0;
   }
 }
-
 /* Hover and press colors ease, and the picker and slash menus fade in; with Reduce Motion they apply at once. */
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-picker-button,

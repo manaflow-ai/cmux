@@ -185,7 +185,7 @@ public final class ControlSocketServer: Sendable {
                     unlink(staged)
                     throw StartError.system(call: "chmod", errno: code)
                 }
-                guard renamex_np(staged, path, UInt32(RENAME_EXCL)) == 0 else {
+                guard renamex_np(staged, path, UInt32(clamping: RENAME_EXCL)) == 0 else {
                     let code = errno
                     unlink(staged)
                     throw code == EEXIST ? StartError.addressInUse(path) : StartError.system(call: "rename", errno: code)
@@ -201,9 +201,10 @@ public final class ControlSocketServer: Sendable {
     private func bindAddress(_ descriptor: Int32, _ path: String) throws {
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
-        withUnsafeMutableBytes(of: &address.sun_path) { buffer in
+        withUnsafeMutableBytes(of: &address.sun_path) { sunPath in
+            var buffer = sunPath  // the same memory; `modify` is mutating on the view
             buffer.copyBytes(from: path.utf8)
-            buffer[path.utf8.count] = 0
+            buffer.modify(checked: path.utf8.count) { $0 = 0 }
         }
         let bound = withUnsafePointer(to: &address) {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
@@ -278,9 +279,10 @@ public final class ControlSocketServer: Sendable {
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
         guard path.utf8.count < MemoryLayout.size(ofValue: address.sun_path) else { return .inconclusive(ENAMETOOLONG) }
-        withUnsafeMutableBytes(of: &address.sun_path) { buffer in
+        withUnsafeMutableBytes(of: &address.sun_path) { sunPath in
+            var buffer = sunPath  // the same memory; `modify` is mutating on the view
             buffer.copyBytes(from: path.utf8)
-            buffer[path.utf8.count] = 0
+            buffer.modify(checked: path.utf8.count) { $0 = 0 }
         }
         let result = withUnsafePointer(to: &address) {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {

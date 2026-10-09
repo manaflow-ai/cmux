@@ -24,7 +24,7 @@ const START_SLACK_MS: u64 = 1_000;
 /// `{"name", "ppid", "parent_name"}` of the sender `pid` of a signal sent at
 /// `signal_at_ms`; `{"reused": true}` when that PID now names a process that
 /// started later; `None` once it is gone (or unreadable).
-pub(crate) fn describe_sender(pid: u32, signal_at_ms: u64) -> Option<Value> {
+pub fn describe_sender(pid: u32, signal_at_ms: u64) -> Option<Value> {
     if pid == 0 {
         return None;
     }

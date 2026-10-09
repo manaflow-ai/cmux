@@ -239,4 +239,75 @@ if out="$(ratchet)"; then fail "hits inside a binding's argument list passed: $o
 [[ "$out" == *"swift MessagesLabHome: int_conversion 0 -> 1"* ]] || fail "the conversion inside the binding is not reported: $out"
 reset
 
+# 14. async_closure_default_arg (cx-bsue, Swift 6.3.3 weak-symbol context size mismatch): an
+#    async closure literal as a parameter default counts; a stored property with an async
+#    closure value and a non-async default do not.
+cat > "$app/Sources/M/A.swift" <<'SWIFT'
+init(sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {}
+func f(isOnline: @escaping @Sendable () async -> Bool = { true },
+       other: Int = 1) {}
+SWIFT
+if out="$(ratchet)"; then fail "async closure defaults passed: $out"; fi
+[[ "$out" == *"swift M: async_closure_default_arg 0 -> 2"* ]] || fail "async_closure_default_arg is not reported: $out"
+cat > "$app/Sources/M/A.swift" <<'SWIFT'
+var sleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+func g(done: @escaping () -> Void = {}) {}
+SWIFT
+out="$(ratchet)" || fail "a stored async closure or a sync default counted: $out"
+reset
+
+# 14b. The file's own declarations decide (H6 round 2): a dictionary declared in this
+#     file stays a dictionary when another file of the module has a same-named array;
+#     a name this file declares another way still counts.
+cat > "$shared/Sources/MessagesLabHome/F.swift" <<'SWIFT'
+var pending: [String: Int] = [:]
+func f() { pending[key] = 1 }
+SWIFT
+printf 'var pending = Data()\nfunc g() { let x = pending.count }\n' > "$shared/Sources/MessagesLabHome/G.swift"
+g add -A
+out="$(ratchet)" || fail "a dictionary declared in its own file counted because of another file: $out"
+printf 'var pending = Data()\nfunc g() { pending[i] = 1 }\n' > "$shared/Sources/MessagesLabHome/G.swift"
+g add -A
+if out="$(ratchet)"; then fail "an index on a file-local non-dictionary passed: $out"; fi
+[[ "$out" == *"swift MessagesLabHome: index_subscript 0 -> 1"* ]] || fail "the file-local Data index is not reported: $out"
+g reset -q
+reset
+
+# 15. A string parse with radix: returns nil, so it does not count; Int(x) still does.
+printf 'let a = Int(text, radix: 10) ?? 0\nlet b = UInt8(s, radix: 16)\nlet c = Int(x)\n' > "$shared/Sources/MessagesLabHome/F.swift"
+if out="$(ratchet)"; then fail "Int(x) passed next to radix parses: $out"; fi
+[[ "$out" == *"swift MessagesLabHome: int_conversion 0 -> 1"* ]] || fail "radix parses counted or Int(x) was missed: $out"
+reset
+
+# 16. Every dictionary parameter on a func line is a dictionary, not only the first.
+printf 'func f(a: [String: Int], b: [String: String]) -> Bool { b[k] == nil }\n' > "$shared/Sources/MessagesLabHome/F.swift"
+out="$(ratchet)" || fail "the second dictionary parameter counted: $out"
+reset
+
+# 17. A parameter list that continues on later lines declares its dictionaries too.
+printf 'func f(\n    a: Int,\n    base: [String: String] = [:]\n) -> String? {\n    base[k]\n}\nlet x = foo(\n    base: other\n)\n' > "$shared/Sources/MessagesLabHome/F.swift"
+out="$(ratchet)" || fail "a dictionary parameter on a continuation line counted: $out"
+reset
+
+# 18. Review findings: a member of another value uses the module rule (an array
+#     member elsewhere still counts), a `.init(` call label is not a declaration,
+#     and a radix: inside a nested call does not exempt the outer conversion.
+cat > "$shared/Sources/MessagesLabHome/F.swift" <<'SWIFT'
+var pending: [String: Int] = [:]
+let a = transport.pending[i]
+let e = self.transport.pending[i]
+let b = Box.init(
+    rows: [k: v]
+)
+let c = rows[j]
+let d = UInt8(String(v, radix: 2).count)
+SWIFT
+printf 'struct T { var pending: [Int] = [] }\n' > "$shared/Sources/MessagesLabHome/G.swift"
+g add -A
+if out="$(ratchet)"; then fail "a qualified array member, an init label or a nested radix passed: $out"; fi
+[[ "$out" == *"swift MessagesLabHome: index_subscript 0 -> 3"* ]] || fail "transport.pending[i], self.transport.pending[i] or rows[j] was exempt: $out"
+[[ "$out" == *"swift MessagesLabHome: int_conversion 0 -> 1"* ]] || fail "the nested radix exempted UInt8(...): $out"
+g reset -q
+reset
+
 echo "crash-ratchet-v2.test.sh: ok"

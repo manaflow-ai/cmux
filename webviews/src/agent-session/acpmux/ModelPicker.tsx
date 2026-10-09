@@ -195,6 +195,7 @@ export function ModelPicker(props: ModelPickerProps) {
     onHarness,
     onHarnessHint,
     onHarnessEnable,
+    onAddAgent,
     onCombo,
     fastMode,
     catalogRefresh,
@@ -205,6 +206,7 @@ export function ModelPicker(props: ModelPickerProps) {
   const harnessText = t("picker.harness");
   const noMatchesText = t("picker.noMatches");
   const starredText = t("picker.starred");
+  const addAgentText = t("picker.addAgent");
   const fastText = t("picker.fastOn");
   const unavailableText = t("picker.unavailable");
   const modelRowId = (id: string) => `${menuId}-model-${encodeURIComponent(id)}`;
@@ -606,6 +608,23 @@ export function ModelPicker(props: ModelPickerProps) {
                 <span className="sr-only">{entry.name}</span>
               </PickerOption>,
             ])}
+            {onAddAgent && (
+              // Add agent… (BRING-YOUR-OWN-HARNESS): Settings > Agents > Add. Not a tab: a click runs it.
+              <button
+                type="button"
+                className={`acpmux-mp-add-agent mt-auto ${railTab}`}
+                aria-label={addAgentText}
+                title={addAgentText}
+                onClick={() => {
+                  close();
+                  onAddAgent();
+                }}
+              >
+                <span aria-hidden="true" className="text-[18px] leading-none">
+                  +
+                </span>
+              </button>
+            )}
           </PickerOptionList>
           <div className="flex min-w-0 flex-1 flex-col">
             <div className="acpmux-mp-search flex h-10 flex-none items-center gap-2 border-b-[0.5px] border-edge pr-1.5 pl-3 text-muted focus-within:text-fg">
