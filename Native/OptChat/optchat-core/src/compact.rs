@@ -285,8 +285,11 @@ pub fn compact_request(
                 b.name(),
                 node.start(),
                 node.end() - 1,
-                view_line(a, Some(&ta)),
-                view_line(b, Some(&tb))
+                // The texts alone, as the reference client sends them
+                // (Memory.flat): with `id+n|` heads the model copied the
+                // first input, head and all, and cut the second.
+                ta.replace('\n', " "),
+                tb.replace('\n', " ")
             )
         }
     };
