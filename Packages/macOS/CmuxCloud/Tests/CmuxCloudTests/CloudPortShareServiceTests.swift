@@ -1,4 +1,4 @@
-import CmuxCloud
+@testable import CmuxCloud
 import Foundation
 import Testing
 
@@ -45,8 +45,6 @@ struct CloudPortShareServiceTests {
 
     @Test("the signed-out readiness request uses a safe HTTP method")
     func readinessRequestIsSafe() async throws {
-        try #require(URLProtocol.registerClass(PortShareProbeProtocol.self))
-        defer { URLProtocol.unregisterClass(PortShareProbeProtocol.self) }
         let url = try #require(URL(string: "https://port-share-probe-test.invalid/"))
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [PortShareProbeProtocol.self]
@@ -194,9 +192,9 @@ struct CloudPortShareStoreTests {
     @Test("a cancelled operation cannot clear its replacement")
     func cancelledOperationDoesNotClearReplacement() throws {
         let store = CloudPortShareStore()
-        let first = #require(store.beginCreating(key))
+        let first = try #require(store.beginCreating(key))
         store.clear(key, operationID: first)
-        let replacement = #require(store.beginCreating(key))
+        let replacement = try #require(store.beginCreating(key))
         store.clear(key, operationID: first)
         #expect(store.phase(for: key) == .creating)
         store.clear(key, operationID: replacement)
