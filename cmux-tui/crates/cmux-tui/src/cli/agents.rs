@@ -174,7 +174,7 @@ fn command(args: &[String]) -> Result<AgentCommand, UsageError> {
                 .chain(rest.iter().map(|value| (*value).into()))
                 .collect(),
         }),
-        _ => Err(UsageError::new(format!("unknown agents command; run `cmux agents --help`"))),
+        _ => Err(UsageError::new("unknown agents command; run `cmux agents --help`")),
     }
 }
 
@@ -298,7 +298,7 @@ fn dialog_answer(args: &[String]) -> Result<(&'static str, Value, Duration), Usa
                         .filter(|value| !value.starts_with("--"))
                         .ok_or_else(|| UsageError::new("--mode needs a value"))?
                         .clone(),
-                )
+                );
             }
             "--selection" => {
                 if mode.is_some() {
@@ -311,7 +311,7 @@ fn dialog_answer(args: &[String]) -> Result<(&'static str, Value, Duration), Usa
                         .filter(|value| !value.starts_with("--"))
                         .ok_or_else(|| UsageError::new("--selection needs a value"))?
                         .clone(),
-                )
+                );
             }
             value => {
                 return Err(UsageError::new(format!("unknown dialog answer argument {value:?}")));
@@ -513,23 +513,19 @@ fn collect_app_tabs(topology: &Value, workspace_ids: Option<&HashSet<String>>) -
                     })
                     .or(workspace_context);
                 for (key, child) in object {
-                    if matches!(key.as_str(), "tabs" | "pageTabs" | "page_tabs") {
-                        if let Value::Array(tabs) = child {
-                            for tab in tabs {
-                                if !is_app_page_tab(tab)
-                                    || !tab_belongs_to_workspace(
-                                        tab,
-                                        workspace_ids,
-                                        workspace_context,
-                                    )
-                                {
-                                    continue;
-                                }
-                                if let Some(id) = tab.get("id").and_then(Value::as_str)
-                                    && ids.insert(id.to_owned())
-                                {
-                                    out.push(tab.clone());
-                                }
+                    if matches!(key.as_str(), "tabs" | "pageTabs" | "page_tabs")
+                        && let Value::Array(tabs) = child
+                    {
+                        for tab in tabs {
+                            if !is_app_page_tab(tab)
+                                || !tab_belongs_to_workspace(tab, workspace_ids, workspace_context)
+                            {
+                                continue;
+                            }
+                            if let Some(id) = tab.get("id").and_then(Value::as_str)
+                                && ids.insert(id.to_owned())
+                            {
+                                out.push(tab.clone());
                             }
                         }
                     }

@@ -50,9 +50,11 @@ export interface Delivery {
   ts?: number
   secret?: string
   signatures?: (good: string) => string
+  /** The exact body to sign and send instead of {type, data}. */
+  rawBody?: string
 }
 export const deliver = async (type: string, data: unknown, o: Delivery = {}) => {
-  const body = JSON.stringify({ type, data })
+  const body = o.rawBody ?? JSON.stringify({ type, data })
   const id = o.id ?? `msg_${crypto.randomUUID().replace(/-/g, "")}`
   const ts = String(o.ts ?? Math.floor(Date.now() / 1000))
   const good = `v1,${await signSvixContent(o.secret ?? SECRET, `${id}.${ts}.${body}`)}`

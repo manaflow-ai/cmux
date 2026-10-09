@@ -18725,6 +18725,32 @@
       "title_table" : "RemoteActions"
     },
     {
+      "cli" : "clipboard",
+      "cli_name" : "action remote-copy-error",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sshMachine"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "remote.copyError",
+      "mcp" : "clipboard",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.remote",
+        "order" : 111,
+        "title" : "Remote Machines",
+        "title_key" : "category.remote",
+        "title_table" : "RemoteActions"
+      },
+      "title" : "Copy SSH Error",
+      "title_key" : "action.remote.copyError",
+      "title_table" : "RemoteActions"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "remote forget",
       "context_menu" : "offered",
@@ -29297,9 +29323,26 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "remote.forget",
+          "id" : "remote.copyError",
           "kind" : "action",
           "order" : 6,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : "remoteHosts",
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 7
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "remote.forget",
+          "kind" : "action",
+          "order" : 8,
           "visible_when" : {
             "debug_only" : false,
             "feature" : "remoteHosts",
