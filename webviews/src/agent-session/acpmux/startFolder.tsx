@@ -30,7 +30,11 @@ function read(reply: unknown, cwd: string): { status: string; reason?: string; c
 /// the question, the browser dev page) uses the folder as before: the question is the pane's
 /// courtesy, and the relay still refuses the home folder until the user answered it
 /// (AcpmuxPathPolicy).
-export async function pickFolder(callNative: Native, cwd: string, use: (cwd: string) => void): Promise<FolderAsk | undefined> {
+export async function pickFolder(
+  callNative: Native,
+  cwd: string,
+  use: (cwd: string) => void,
+): Promise<FolderAsk | undefined> {
   let reply: unknown;
   try {
     reply = await callNative("workspace.useFolder", { cwd });
@@ -85,7 +89,9 @@ export function StartFolderAsk({
         </button>
       )}{" "}
       <button type="button" className="acpmux-folder-choice-button" onClick={onCancel}>
-        {current && !isAgentHome(current) ? t("startFolder.keep", { folder: projectLabel(current) }) : t("startFolder.usePrivate")}
+        {current && !isAgentHome(current)
+          ? t("startFolder.keep", { folder: projectLabel(current) })
+          : t("startFolder.usePrivate")}
       </button>
       {error && (
         <>

@@ -72,7 +72,9 @@ test("the answer confirms with the host, then uses the folder at once", async ()
 test("a refused answer uses nothing and says why", async () => {
   const { callNative } = host(() => Object.assign(new Error("gesture"), { code: "transport.gesture_required" }));
   const used: string[] = [];
-  await expect(confirmFolder(callNative, { cwd: "/Users/me", reason: "home" }, (cwd) => used.push(cwd))).rejects.toBeDefined();
+  await expect(
+    confirmFolder(callNative, { cwd: "/Users/me", reason: "home" }, (cwd) => used.push(cwd)),
+  ).rejects.toBeDefined();
   expect(used).toEqual([]);
 });
 

@@ -25,7 +25,8 @@ export default agentPaneEntry({
   checks: {
     anchorMovePx: {
       value: 64,
-      reason: "The question replaces the one-line private-folder note and may wrap, so the composer moves by its extra lines.",
+      reason:
+        "The question replaces the one-line private-folder note and may wrap, so the composer moves by its extra lines.",
     },
     layoutShiftMax: {
       value: 0.1,

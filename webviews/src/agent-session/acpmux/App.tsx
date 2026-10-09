@@ -2312,20 +2312,22 @@ function AcpmuxPane() {
             setFolderAsk(undefined);
           }}
         />
-      ) : showsFolderChoice({ offered: chooseFolder, freshChat, quick, projectDraft, sessionId: snapshot.sessionId }) && (
-        <FolderChoice
-          error={folderError}
-          onChoose={() => {
-            setFolderError(undefined);
-            void callNative<{ cwd?: string }>("workspace.chooseFolder")
-              .then((result) => {
-                if (!result?.cwd) return;
-                setChooseFolder(false);
-                chooseProject(result.cwd);
-              })
-              .catch((error: unknown) => setFolderError(errorMessage(error) || undefined));
-          }}
-        />
+      ) : (
+        showsFolderChoice({ offered: chooseFolder, freshChat, quick, projectDraft, sessionId: snapshot.sessionId }) && (
+          <FolderChoice
+            error={folderError}
+            onChoose={() => {
+              setFolderError(undefined);
+              void callNative<{ cwd?: string }>("workspace.chooseFolder")
+                .then((result) => {
+                  if (!result?.cwd) return;
+                  setChooseFolder(false);
+                  chooseProject(result.cwd);
+                })
+                .catch((error: unknown) => setFolderError(errorMessage(error) || undefined));
+            }}
+          />
+        )
       )}
       {/* An attached image opens in the chat's image viewer, as a transcript image does. */}
       <ImageViewerContext.Provider value={quick ? undefined : openImage}>
