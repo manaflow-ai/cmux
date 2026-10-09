@@ -370,6 +370,23 @@ fn rename_by_key(daemon: &Path, key: &str, name: &str) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    /// Live proof subp3: every done mark failed with "unknown workspace key":
+    /// the renames went to the Chief's conversation owner (--daemon-socket),
+    /// while the app makes the workspaces in its own daemon.
+    #[test]
+    fn app_workspaces_rename_in_the_apps_daemon() {
+        let env = |k: &str| match k {
+            "CMUX_SOCKET_PATH" => Some("/tmp/control.sock".to_owned()),
+            "CMUX_APP_DAEMON_SOCKET" => Some("/tmp/app-daemon.sock".to_owned()),
+            _ => None,
+        };
+        let app = AppWorkspaces::resolve("/tmp/chief-owner.sock", &env).unwrap();
+        assert_eq!(app.daemon, std::path::PathBuf::from("/tmp/app-daemon.sock"));
+        let without = |k: &str| (k == "CMUX_SOCKET_PATH").then(|| "/tmp/control.sock".to_owned());
+        let app = AppWorkspaces::resolve("/tmp/own.sock", &without).unwrap();
+        assert_eq!(app.daemon, std::path::PathBuf::from("/tmp/own.sock"));
+    }
+
     use super::*;
 
     #[test]
