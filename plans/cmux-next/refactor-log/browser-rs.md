@@ -1,0 +1,10 @@
+# browser.rs refactor lane (cmux-tui-core/src/browser.rs)
+
+Move-only split of the browser surface runtime into `browser/` child modules.
+Baseline: browser.rs 11,480 lines, 387 fns, 123 inline unit tests.
+Incremental `cargo build -p cmux-tui-core` after a one-line edit in
+`normalize_url` (32 vCPU Testbox, warm): 19.4 s / 18.5 s before the split.
+
+## Landings
+
+- 2026-10-09 step 1: `mod tests` (6,085 lines, 123 tests) -> browser/tests/{mod.rs (helpers), runtime_routes, worker_and_input_mapping, document_authority, pointer_capture, navigation_barriers, reconfigure_and_attach}.rs; tests 123 -> 123; browser.rs 11,480 -> 5,396; gate 7 min (fmt, clippy -D warnings, cmux-tui-core tests 2,603 pass, windows-gnu check --tests).
