@@ -157,8 +157,10 @@ jobs:
           "$smoke/smoke-arm64"
           dist="$RUNNER_TEMP/dist"
           rm -rf "$dist"; mkdir -p "$dist"
-          # Stable zip bytes for a rerun of the same build.
-          find "$xcf" -exec touch -t 198001010000 {} +
+          # Source commit time on every file and directory: stable zip bytes
+          # for a rerun of the same commit, and new header mtimes after a pin
+          # change so a warm tree rebuilds the Clang module (cx-vqwl).
+          bash scripts/cmux-next/stamp-app-ffi-mtimes.sh "$xcf" "$GITHUB_SHA"
           (cd "$OUT" && ditto -c -k --keepParent CCmuxAppFFI.xcframework "$dist/CCmuxAppFFI.xcframework.zip")
           archive="$dist/CCmuxAppFFI.xcframework.zip"
           checksum="$(shasum -a 256 "$archive" | awk '{print $1}')"
