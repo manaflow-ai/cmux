@@ -320,10 +320,6 @@ struct AgentFeedRow: View, Equatable {
         var alignment: Alignment { self == .user ? .trailing : .leading }
     }
 
-    /// Keeps a bubble from spanning the full column, leaving the
-    /// opposite-side gutter Messages uses.
-    private static let bubbleOppositeInset: CGFloat = 40
-
     /// Pads bubble content so the text clears the tail on its tail edge.
     private func bubbleContentPadding<Content: View>(
         _ content: Content,
@@ -338,38 +334,72 @@ struct AgentFeedRow: View, Equatable {
     }
 
     /// Places a bubble on its sender's side of the text column.
-    private func bubbleSide<Content: View>(_ content: Content, sender: BubbleSender) -> some View {
-        content
-            .padding(
-                sender == .user ? .leading : .trailing,
-                Self.bubbleOppositeInset
-            )
-            .frame(maxWidth: .infinity, alignment: sender.alignment)
+    private func bubbleSide<Content: View>(
+        _ content: Content,
+        sender: BubbleSender,
+        fullWidth: Bool
+    ) -> some View {
+        Group {
+            if fullWidth {
+                content
+                    .frame(maxWidth: .infinity, alignment: sender.alignment)
+            } else {
+                HStack {
+                    if sender == .user { Spacer(minLength: 0) }
+                    content.fixedSize(horizontal: true, vertical: false)
+                    if sender == .agent { Spacer(minLength: 0) }
+                }
+            }
+        }
     }
 
     /// An iMessage-style quoted message inside an outlined bubble: accent for
     /// the user's own words, secondary gray for the agent's.
     private func bubbleQuote(_ message: String, lineLimit: Int, sender: BubbleSender) -> some View {
         let tint: Color = sender == .user ? .accentColor : .secondary
-        return HStack(spacing: 0) {
-            bubbleContentPadding(
-                AgentFeedMarkdownText(
-                    markdown: message,
-                    font: .footnote,
-                    color: tint,
-                    lineLimit: lineLimit
+        let content = bubbleContentPadding(
+            AgentFeedMarkdownText(
+                markdown: message,
+                font: .footnote,
+                color: tint,
+                lineLimit: lineLimit
+            )
+            .fixedSize(horizontal: false, vertical: true),
+            sender: sender,
+            vertical: 7
+        )
+        let compactContent = content.overlay(
+            AgentFeedBubbleShape(tailEdge: sender.tailEdge)
+                .stroke(tint.opacity(sender == .user ? 0.55 : 0.45), lineWidth: 1)
+        )
+
+        return Group {
+            if message.contains("\n") {
+                // Multiline quotes use the entire text column.
+                bubbleSide(
+                    content,
+                    sender: sender,
+                    fullWidth: true
                 )
-                .fixedSize(horizontal: false, vertical: true),
-                sender: sender,
-                vertical: 7
-            )
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .overlay(
-                AgentFeedBubbleShape(tailEdge: sender.tailEdge)
-                    .stroke(tint.opacity(sender == .user ? 0.55 : 0.45), lineWidth: 1)
-            )
+                .overlay(
+                    AgentFeedBubbleShape(tailEdge: sender.tailEdge)
+                        .stroke(tint.opacity(sender == .user ? 0.55 : 0.45), lineWidth: 1)
+                )
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    bubbleSide(compactContent, sender: sender, fullWidth: false)
+                    bubbleSide(
+                        content,
+                        sender: sender,
+                        fullWidth: true
+                    )
+                    .overlay(
+                        AgentFeedBubbleShape(tailEdge: sender.tailEdge)
+                            .stroke(tint.opacity(sender == .user ? 0.55 : 0.45), lineWidth: 1)
+                    )
+                }
+            }
         }
-        .padding(.horizontal, 4)
     }
 
     private func barQuote(_ message: String) -> some View {
@@ -500,20 +530,36 @@ struct AgentFeedRow: View, Equatable {
     /// a filled accent bubble, sized like the quoted-prompt bubbles. Bubbles
     /// belong to user text alone.
     private func bubbleReplyMarker(reply: String, reference: String?) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            bubbleSide(
-                bubbleContentPadding(
-                    AgentFeedMarkdownText(markdown: reply, font: .footnote, color: .white)
-                        .fixedSize(horizontal: false, vertical: true),
-                    sender: .user,
-                    vertical: 7
-                )
-                .background(
-                    AgentFeedBubbleShape(tailEdge: .trailing)
-                        .fill(Color.accentColor)
-                ),
-                sender: .user
-            )
+        let content = bubbleContentPadding(
+            AgentFeedMarkdownText(markdown: reply, font: .footnote, color: .white)
+                .fixedSize(horizontal: false, vertical: true),
+            sender: .user,
+            vertical: 7
+        )
+        let compactContent = content.background(
+            AgentFeedBubbleShape(tailEdge: .trailing)
+                .fill(Color.accentColor)
+        )
+
+        return VStack(alignment: .leading, spacing: 6) {
+            Group {
+                if reply.contains("\n") {
+                    bubbleSide(content, sender: .user, fullWidth: true)
+                        .background(
+                            AgentFeedBubbleShape(tailEdge: .trailing)
+                                .fill(Color.accentColor)
+                        )
+                } else {
+                    ViewThatFits(in: .horizontal) {
+                        bubbleSide(compactContent, sender: .user, fullWidth: false)
+                        bubbleSide(content, sender: .user, fullWidth: true)
+                            .background(
+                                AgentFeedBubbleShape(tailEdge: .trailing)
+                                    .fill(Color.accentColor)
+                            )
+                    }
+                }
+            }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(
                 Text(String(
