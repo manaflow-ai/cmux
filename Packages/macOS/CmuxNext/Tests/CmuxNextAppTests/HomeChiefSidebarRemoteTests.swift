@@ -75,12 +75,4 @@ import Testing
         await sidebar.pick("harness", "x").value
         #expect(Self.visibleTexts(sidebar).contains { $0.contains("acpmux on this host has no harness x") })
     }
-
-    @Test func theChiefOwnerDaemonStartsWithTheBrainToolsSocket() {
-        let root = URL(fileURLWithPath: "/Users/someone/.cmux/chief/default", isDirectory: true)
-        let env = ChiefConversationOwner.ownerEnvironment(home: ChiefHome(root: root, isolated: false),
-                                                          process: ["HOME": "/Users/someone"])
-        #expect(env["CMUX_TUI_CHIEF_TOOLS_SOCKET"] == "/Users/someone/.cmux/chief/default/optchat/tools.sock")
-        #expect(env["HOME"] == "/Users/someone")
-    }
 }

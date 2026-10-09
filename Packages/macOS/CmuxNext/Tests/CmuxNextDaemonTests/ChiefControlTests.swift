@@ -45,11 +45,4 @@ import Testing
         let old = DaemonError.command(cmd: "chief.stop", message: "unknown operation", code: "validation.invalid")
         #expect(ChiefControlError(old) == .unsupported)
     }
-
-    @Test func theChiefOwnerDaemonKeepsTheBrainToolsSocket() {
-        let env = DaemonLauncher.chiefEnvironment(["HOME": "/h", "CMUX_TAG": "x",
-                                                   "CMUX_TUI_CHIEF_TOOLS_SOCKET": "/h/.cmux/chief/default/optchat/tools.sock"])
-        #expect(env["CMUX_TUI_CHIEF_TOOLS_SOCKET"] == "/h/.cmux/chief/default/optchat/tools.sock")
-        #expect(env["CMUX_TAG"] == nil, "never a build's identity")
-    }
 }

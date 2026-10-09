@@ -217,4 +217,26 @@ SWIFT
 out="$(ratchet)" || fail "a block observer or an unrelated addObserver counted: $out"
 reset
 
+# 12. A per-module ban ("swift.<class>@<Module>"): that class fails in that module even with
+#    an inline crash-allow, and stays a ratchet class elsewhere.
+cat > "$tmp/scripts/cmux-next/crash-allowlist.json" <<'JSON'
+{"banned": ["swift.as_bang", "swift.objc_selector", "swift.index_subscript@MessagesLabHome"], "allow": []}
+JSON
+printf 'let a = rows[i] // crash-allow: x\n' > "$shared/Sources/MessagesLabHome/F.swift"
+if out="$(ratchet)"; then fail "a module-banned class passed: $out"; fi
+[[ "$out" == *"banned index_subscript in"* ]] || fail "the module ban is not reported: $out"
+reset
+
+# 13. A binding skips only its own bound value: a subscript or conversion elsewhere on a
+#    binding line still counts (H7: guard let ctx = CGContext(width: Int(w * scale) ...)).
+cat > "$shared/Sources/MessagesLabHome/F.swift" <<'SWIFT'
+if let a = map[key] { use(a) }
+guard let n = Int(text), let m = map[k] else { return }
+guard let ctx = CGContext(width: Int(w * scale), height: rows[i]) else { return }
+SWIFT
+if out="$(ratchet)"; then fail "hits inside a binding's argument list passed: $out"; fi
+[[ "$out" == *"swift MessagesLabHome: index_subscript 0 -> 1"* ]] || fail "the index inside the binding is not reported: $out"
+[[ "$out" == *"swift MessagesLabHome: int_conversion 0 -> 1"* ]] || fail "the conversion inside the binding is not reported: $out"
+reset
+
 echo "crash-ratchet-v2.test.sh: ok"

@@ -11,7 +11,7 @@ import Observation
 /// `claude --resume <session> --fork-session` in a new terminal placed by
 /// daemon commands. New Agent Chat opens the React acpmux pane in a tab
 /// (CmuxNextAgentPane), and Toggle Dictation drives its composer's mic.
-/// Quick Agent Chat toggles the floating `QuickComposerController` panel.
+/// Start Agent toggles the floating `QuickComposerController` panel.
 /// Computer Use Setup and its two grants run `ComputerUseSetup`.
 /// Terminal-as-chat, Teams, and Computer Use focus/stop are
 /// typed-unavailable.
@@ -39,14 +39,17 @@ enum AgentHandlers {
         registry.bind(HomeChiefControl.stopAction, run: { _ in
             NotificationCenter.default.post(name: HomeChiefControl.stopNotification, object: nil)
         })
-        // Quick Agent Chat: the global hot key, palette, menu and CLI toggle one floating panel.
+        // Start Agent: its key, the palette, the menu and the CLI toggle one floating panel, and so
+        // does Start Agent from Any App, its opt-in system-wide key (`app.startAgentGlobalHotKey`).
         // The panel takes the keyboard from the frontmost app, so automation
         // cannot open it unless it asks for focus.
-        registry.bind("palette.quickAgentChat", run: { invocation in
-            guard invocation.allowsViewChange else { return context.refuse(MiscHandlerStrings.quickChatNeedsFocus) }
-            guard context.services.agentTabs.canHostChat else { return context.refuse(MiscHandlerStrings.quickChatUnavailable) }
-            context.services.quickComposer.toggle()
-        })
+        for id: ActionID in ["palette.quickAgentChat", "palette.startAgentFromAnyApp"] {
+            registry.bind(id, run: { invocation in
+                guard invocation.allowsViewChange else { return context.refuse(MiscHandlerStrings.quickChatNeedsFocus) }
+                guard context.services.agentTabs.canHostChat else { return context.refuse(MiscHandlerStrings.quickChatUnavailable) }
+                context.services.quickComposer.toggle()
+            })
+        }
         // Computer Use Setup: one model (`ComputerUseSetup`) behind the palette, the CLI, the
         // Settings card and the onboarding step. Setup opens the guided step; the two grant
         // actions open their Privacy & Security list.

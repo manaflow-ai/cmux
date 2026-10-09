@@ -39831,127 +39831,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quick Agent Chat…"
+            "value": "Start Agent…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "クイックエージェントチャット…"
+            "value": "エージェントを開始…"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "محادثة سريعة مع الوكيل…"
+            "state": "needs_review",
+            "value": "بدء وكيل…"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Brzi razgovor s agentom…"
+            "value": "Pokreni agenta…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hurtig agentchat…"
+            "value": "Start agent…"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Schneller Agent-Chat…"
+            "state": "needs_review",
+            "value": "Agent starten…"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Chat rápido con agente…"
+            "state": "needs_review",
+            "value": "Iniciar agente…"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Chat rapide avec l’agent…"
+            "state": "needs_review",
+            "value": "Démarrer un agent…"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chat rapida con agente…"
+            "value": "Avvia agente…"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ការជជែកភ្នាក់ងាររហ័ស…"
+            "value": "ចាប់ផ្តើមភ្នាក់ងារ…"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "빠른 에이전트 채팅…"
+            "state": "needs_review",
+            "value": "에이전트 시작…"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Rask agentchat…"
+            "value": "Start agent…"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Szybki czat z agentem…"
+            "value": "Uruchom agenta…"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chat rápido com agente…"
+            "value": "Iniciar agente…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Быстрый чат с агентом…"
+            "value": "Запустить агента…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "แชทเอเจนต์ด่วน…"
+            "value": "เริ่มเอเจนต์…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hızlı Ajan Sohbeti…"
+            "value": "Ajan Başlat…"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Швидкий чат з агентом…"
+            "value": "Запустити агента…"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Trò chuyện agent nhanh…"
+            "value": "Bắt đầu tác tử…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "快速代理聊天…"
+            "state": "needs_review",
+            "value": "启动智能体…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "快速代理程式聊天…"
+            "state": "needs_review",
+            "value": "啟動代理…"
           }
         }
       }
@@ -71392,6 +71392,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "更改背景…"
+          }
+        }
+      }
+    },
+    "action.palette.startAgentFromAnyApp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start Agent from Any App"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "どのアプリからでもエージェントを開始"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "بدء وكيل من أي تطبيق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokreni agenta iz bilo koje aplikacije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Start agent fra enhver app"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agent aus jeder App starten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iniciar agente desde cualquier app"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Démarrer un agent depuis n’importe quelle app"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avvia agente da qualsiasi app"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចាប់ផ្តើមភ្នាក់ងារពីកម្មវិធីណាមួយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모든 앱에서 에이전트 시작"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Start agent fra hvilken som helst app"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uruchom agenta z dowolnej aplikacji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iniciar agente de qualquer app"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запуск агента из любого приложения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เริ่มเอเจนต์จากแอปใดก็ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Herhangi Bir Uygulamadan Ajan Başlat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запуск агента з будь-якої програми"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bắt đầu tác tử từ mọi ứng dụng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "从任意应用启动智能体"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "從任何 App 啟動代理"
           }
         }
       }

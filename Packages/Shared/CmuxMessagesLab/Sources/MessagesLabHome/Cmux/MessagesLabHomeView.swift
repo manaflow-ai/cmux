@@ -251,10 +251,11 @@ public final class MessagesLabHomeView: NSView {
         guard let demo = controller.demo else { return [:] }
         var out: [String: Double] = ["fieldHeight": Double(demo.compose.fieldRect.height)]
         let rows = demo.model.rows
-        for i in stride(from: rows.count - 2, through: 0, by: -1) where !rows[i].ghost {
-            guard case .receipt = rows[i].spec.kind, let next = (i + 1..<rows.count).first(where: { !rows[$0].ghost }) else { continue }
+        // crash program: no index math.
+        for (i, row) in rows.enumerated().reversed().dropFirst() where !row.ghost {
+            guard case .receipt = row.spec.kind, let next = rows.enumerated().dropFirst(i + 1).first(where: { !$0.element.ghost })?.offset else { continue }
             out["receiptToNextBody"] = Double(demo.layout.contentTop(next) - demo.layout.contentTop(i))
-            out["receiptHeight"] = Double(rows[i].spec.height)
+            out["receiptHeight"] = Double(row.spec.height)
             break
         }
         return out

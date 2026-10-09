@@ -62,7 +62,7 @@ reviewed `// crash-allow: <reason>` (Swift) or `// crash-allow: <reason>`
     exit              process::exit / process::abort
 
 BAN mode (crash-allowlist.json next to this script): a class named in "banned"
-("swift.<class>"; Rust classes are not bannable yet) is not in the baseline. Every hit fails, an inline
+("swift.<class>", or "swift.<class>@<Module>" for one module; Rust classes are not bannable yet) is not in the baseline. Every hit fails, an inline
 crash-allow does not waive it; only an "allow" entry {path, class, count, reason,
 reviewer} passes that many hits in that file. Flip a class to banned in the commit
 that brings it to zero (moving its reviewed crash-allow lines into the allowlist).
@@ -122,6 +122,18 @@ PARAMETER_TYPE = re.compile(r"[(,]\s*(?:\w+\s+)?(\w+)\s*:\s*(?:inout\s+)?(\[.*|(
 FUNC_OR_INIT = re.compile(r"\b(?:func\s+\w+|init\??)\s*(?:<[^>]*>)?\s*\(")
 
 
+BOUND_BEFORE = re.compile(r"(?:\b(?:if|guard|while)\s+|,\s*)(?:let|var)\s+\w+(?:\s*:\s*[^=,]+)?\s*=\s*$")
+BOUND_AFTER = re.compile(r"^\s*(?:,|\{|else\b|$)")
+
+
+def is_bound_value(code, start, end):
+    """True when CODE[start:end] is the whole value of an optional binding
+    (`if let x = map[k] {`, `guard let n = Int(s), ...`): the binding unwraps it, so
+    it cannot trap. A subscript or conversion elsewhere on a binding line still counts
+    (`guard let c = CGContext(width: Int(w * scale), ...)` traps on NaN)."""
+    return bool(BOUND_BEFORE.search(code[:start]) and BOUND_AFTER.match(code[end:]))
+
+
 def int_conversion_hits(code):
     """Integer conversions in CODE that can trap. `Int(someString)` returns an optional:
     a conversion followed by `?`/`??` or inside an optional binding is not counted."""
@@ -138,7 +150,7 @@ def int_conversion_hits(code):
                     end = pos + 1
                     break
         after = code[end:].lstrip() if end else ""
-        if after.startswith("?") or (binding and binding.start() < match.start()):
+        if after.startswith("?") or (binding and end and is_bound_value(code, match.start(), end)):
             continue
         hits += 1
     return hits
@@ -202,10 +214,23 @@ def index_hits(code, dictionaries=frozenset()):
         after = code[match.end():].lstrip()
         if after.startswith("?"):
             continue
-        if binding and binding.start() < match.start():
+        if binding and is_bound_value(code, match.start(), match.end()):
+            continue
+        if checked_slot(code, match):
             continue
         hits += 1
     return hits
+
+
+CHECKED_SLOT = re.compile(r"\blet\s+(\w+)\s*=\s*([\w.]+)\.checkedIndex\(")
+
+
+def checked_slot(code, match):
+    """`if let slot = rows.checkedIndex(i) { rows[slot] = v }`: the index came from the
+    same collection's checked accessor on this line, so it is in range."""
+    base = match.group(0)[:match.group(0).index("[")]
+    inner = match.group(1).strip()
+    return any(m.group(1) == inner and m.group(2) == base for m in CHECKED_SLOT.finditer(code[:match.start()]))
 ADD_OBSERVER = re.compile(r"\baddObserver\(")
 SELECTOR_OBSERVER = re.compile(r"addObserver\(\s*[^,()]+?,\s*selector\s*:")
 OBJC_ATTR = re.compile(r"@objc(?![\w(])")
@@ -429,6 +454,7 @@ def scan_swift(repo, counts, banned_files=None):
     """Ratchet counts per module into COUNTS; hits of banned classes per file (crash-allow
     ignored) into BANNED_FILES {(kind, repo-relative path): hits}."""
     banned = banned_kinds("swift")
+    banned_modules = banned_in("swift")
     dictionaries = module_dictionaries(repo)
     for root in swift_source_roots(repo):
         sources = os.path.join(repo, root)
@@ -443,7 +469,7 @@ def scan_swift(repo, counts, banned_files=None):
                     continue
                 is_allowed = allowed(lines, index)
                 for kind, hits in swift_line_hits(lines, index, rel, dictionaries.get(rel, frozenset())).items():
-                    if kind in banned:
+                    if kind in banned or (kind, rel) in banned_modules:
                         if banned_files is not None:
                             key = (kind, os.path.relpath(path, repo))
                             banned_files[key] = banned_files.get(key, 0) + hits
@@ -464,7 +490,17 @@ def load_allowlist():
 
 
 def banned_kinds(lang):
-    return {entry.split(".", 1)[1] for entry in load_allowlist()["banned"] if entry.startswith(lang + ".")}
+    """Classes banned everywhere ("swift.<class>"); a "swift.<class>@<Module>" entry bans
+    the class in that module only (see banned_in)."""
+    return {entry.split(".", 1)[1] for entry in load_allowlist()["banned"]
+            if entry.startswith(lang + ".") and "@" not in entry}
+
+
+def banned_in(lang):
+    """{(class, module)} of per-module bans: a module that reached zero keeps zero while
+    the class stays a ratchet elsewhere."""
+    return {tuple(entry.split(".", 1)[1].split("@", 1)) for entry in load_allowlist()["banned"]
+            if entry.startswith(lang + ".") and "@" in entry}
 
 
 def module_of(path):
@@ -578,6 +614,7 @@ def main():
         for kind, files in baseline.get(lang, {}).items():
             if kind in banned_kinds(lang):
                 continue
+            files = {m: n for m, n in files.items() if (kind, m) not in banned_in(lang)}
             for rel, hits in files.items():
                 if counts[lang].get(kind, {}).get(rel, 0) < hits:
                     shrunk += 1
