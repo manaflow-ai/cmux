@@ -181,11 +181,23 @@ jobs:
       - name: Apply to cmux-next/staging
         env:
           CMUX_NEXT_PG_MIGRATOR_URL: ${{ secrets.CMUX_NEXT_PG_MIGRATOR_URL }}
+          PLANETSCALE_SERVICE_TOKEN_ID: ${{ secrets.PLANETSCALE_SERVICE_TOKEN_ID }}
+          PLANETSCALE_SERVICE_TOKEN: ${{ secrets.PLANETSCALE_SERVICE_TOKEN }}
+        # Release rails (plans/cmux-next/release-rails.md): lint, owner check, rehearsal on a throwaway
+        # branch in the same run, apply, receipt. The tooling comes from the trusted base checkout.
         run: |
+          bash trusted/scripts/cmux-next/release/ci-backend-apply.sh staging "$GITHUB_WORKSPACE/head-migrations"
           (cd trusted/backend && bun install --frozen-lockfile)
           cd trusted/backend/db
-          bun migrate.ts --env staging --dir "$GITHUB_WORKSPACE/head-migrations"
           bun migrate.ts --env staging --dir "$GITHUB_WORKSPACE/head-migrations" --verify
+      - name: Upload release receipts
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-receipts-staging
+          path: ${{ runner.temp }}/release-rails/receipts
+          if-no-files-found: ignore
+          retention-days: 90
 
   apply-production:
     needs: apply-staging
@@ -211,11 +223,24 @@ jobs:
       - name: Apply to cmux-next/main (production)
         env:
           CMUX_NEXT_PG_MIGRATOR_URL: ${{ secrets.CMUX_NEXT_PG_MIGRATOR_URL }}
+          CMUX_NEXT_STAGING_MIGRATOR_URL: ${{ secrets.CMUX_NEXT_STAGING_MIGRATOR_URL }}
+          PLANETSCALE_SERVICE_TOKEN_ID: ${{ secrets.PLANETSCALE_SERVICE_TOKEN_ID }}
+          PLANETSCALE_SERVICE_TOKEN: ${{ secrets.PLANETSCALE_SERVICE_TOKEN }}
+        # Release rails (plans/cmux-next/release-rails.md): lint, owner check, rehearsal on a throwaway
+        # branch in the same run, apply, receipt. The tooling comes from the trusted base checkout.
         run: |
+          bash trusted/scripts/cmux-next/release/ci-backend-apply.sh production "$GITHUB_WORKSPACE/head-migrations"
           (cd trusted/backend && bun install --frozen-lockfile)
           cd trusted/backend/db
-          bun migrate.ts --env production --confirm-production --dir "$GITHUB_WORKSPACE/head-migrations"
           bun migrate.ts --env production --dir "$GITHUB_WORKSPACE/head-migrations" --verify
+      - name: Upload release receipts
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-receipts-production
+          path: ${{ runner.temp }}/release-rails/receipts
+          if-no-files-found: ignore
+          retention-days: 90
 
   gate:
     name: backend migrations applied
