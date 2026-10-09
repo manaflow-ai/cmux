@@ -559,6 +559,13 @@ fn ensure_session_journal_content_schema(transaction: &Transaction<'_>) -> anyho
     if !columns.contains("content") {
         transaction.execute("ALTER TABLE session_journal ADD COLUMN content BLOB", [])?;
     }
+    // Every append writes `actor`, and an upgrade can append (the v9
+    // migration record) before the open-time ledger pass runs (cx-0b8z).
+    // `ADD COLUMN` keeps every row, its sequence and the AUTOINCREMENT
+    // high-water mark, so external journal cursors stay valid.
+    if !columns.contains("actor") {
+        transaction.execute("ALTER TABLE session_journal ADD COLUMN actor TEXT", [])?;
+    }
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS journal_terminal_streams (
            terminal_id TEXT NOT NULL,

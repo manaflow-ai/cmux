@@ -2419,6 +2419,13 @@ fn ensure_daemon(
     let explicit_mux_socket = mux_socket_override
         .map(Path::to_path_buf)
         .or_else(|| std::env::var_os("CMUX_MUX_SOCKET").map(PathBuf::from));
+    // A session with its own state root has its own mux owner: the default
+    // per-session socket may be served by an owner of the default state root.
+    let explicit_mux_socket = match (explicit_mux_socket, state_root) {
+        (Some(socket), _) => Some(socket),
+        (None, Some(_)) => Some(crate::remote_runtime::daemon_mux_socket_path(session_state)?),
+        (None, None) => None,
+    };
     let mux_socket_is_derived = explicit_mux_socket.is_none();
     let attach_only = mux_socket_override.is_some();
     let mux_socket = explicit_mux_socket
@@ -2436,7 +2443,7 @@ fn ensure_daemon(
             .with_context(|| format!("could not open daemon log {}", log_path.display()))?;
         let mut mux_owner = Command::new(&executable);
         mux_owner
-            .args(mux_owner_args(session, &mux_socket, mux_socket_is_derived))
+            .args(mux_owner_args(session, &mux_socket, mux_socket_is_derived, state_root))
             .stdin(Stdio::null())
             .stdout(Stdio::from(log.try_clone()?))
             .stderr(Stdio::from(log));

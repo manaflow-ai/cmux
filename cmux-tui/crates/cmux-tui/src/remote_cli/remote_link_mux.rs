@@ -8,17 +8,21 @@
 //! a down daemon is an error the client shows as unreachable.
 
 use std::ffi::OsString;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::anyhow;
 
 /// Arguments for the headless mux owner `ensure_daemon` starts. A derived
 /// socket path is left for the owner to derive again from the same session,
 /// so it keeps the owner checks it applies to its own runtime directory.
+/// With `state_root` (`remote-link --state-dir`) the owner keeps its
+/// workspace registry under that root, never in the default durable state
+/// root, which can hold an older registry of the same session (cx-0b8z).
 pub(super) fn mux_owner_args(
     session: &str,
     mux_socket: &Path,
     mux_socket_is_derived: bool,
+    state_root: Option<&Path>,
 ) -> Vec<OsString> {
     let mut args: Vec<OsString> =
         ["--headless", "--session", session].into_iter().map(OsString::from).collect();
@@ -26,7 +30,18 @@ pub(super) fn mux_owner_args(
         args.push("--socket".into());
         args.push(mux_socket.into());
     }
+    if let Some(state_root) = state_root {
+        args.push("--state".into());
+        args.push(mux_state_root(state_root).into());
+    }
     args
+}
+
+/// The workspace state root of the mux owner for remote state `state_root`:
+/// its own directory, apart from the remote daemon's `sessions` and identity
+/// files.
+pub(super) fn mux_state_root(state_root: &Path) -> PathBuf {
+    state_root.join("workspace")
 }
 
 /// The refusal for an explicit `--mux-socket` whose daemon does not answer.
@@ -45,13 +60,31 @@ mod tests {
     fn private_socket_remote_mux_owner_derives_its_own_socket() {
         let socket = Path::new("/tmp/cmux-tui-501/work.sock");
         assert_eq!(
-            mux_owner_args("work", socket, true),
+            mux_owner_args("work", socket, true, None),
             ["--headless", "--session", "work"].map(OsString::from)
         );
         assert_eq!(
-            mux_owner_args("work", socket, false),
+            mux_owner_args("work", socket, false, None),
             ["--headless", "--session", "work", "--socket", "/tmp/cmux-tui-501/work.sock"]
                 .map(OsString::from)
+        );
+    }
+
+    #[test]
+    fn a_state_dir_gives_the_mux_owner_its_own_state_root() {
+        let socket = Path::new("/srv/state/sessions/d29yaw/mux.sock");
+        assert_eq!(
+            mux_owner_args("work", socket, false, Some(Path::new("/srv/state"))),
+            [
+                "--headless",
+                "--session",
+                "work",
+                "--socket",
+                "/srv/state/sessions/d29yaw/mux.sock",
+                "--state",
+                "/srv/state/workspace",
+            ]
+            .map(OsString::from)
         );
     }
 

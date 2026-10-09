@@ -470,6 +470,9 @@ pub(super) fn create_journal_extensions_schema(
         transaction
             .execute("ALTER TABLE journal_hook_deliveries ADD COLUMN started_event_id TEXT", [])?;
     }
+    // A seal writes `actors_json`; a table from before it gains it here, so
+    // its owner never depends on the later ledger pass (cx-0b8z).
+    mutation_ledger::add_nullable_column(transaction, "journal_segments", "actors_json")?;
     session_journal::ensure_journal_event_index_schema(transaction)?;
     Ok(())
 }
