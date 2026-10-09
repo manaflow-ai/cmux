@@ -60,7 +60,7 @@ import Testing
             + "the first one-word text would cut it off after its first line and draw the rest outside the bubble."
         p.apply(items: [Fixture2.item(1, them, "Hi"), Fixture2.item(2, me, long, key: "k2")], summary: Fixture2.summary(lastSeq: 2),
                 typing: [], hasOlder: false)
-        let row = try #require(c.demo.model.rows.first { $0.spec.key == "part:k2:0" })
+        let row = try #require(c.demo!.model.rows.first { $0.spec.key == "part:k2:0" })
         let lines = TextLayout.make(long, runs: [], maxWidth: row.spec.metrics.maxTextWidth).lines.count
         #expect(lines >= 3)
         #expect(row.spec.height >= CGFloat(lines) * Fixture.lineHeight, "row \(row.spec.height) pt for \(lines) lines")
@@ -74,11 +74,11 @@ import Testing
                 summary: Fixture2.summary(lastSeq: 2), typing: [], hasOlder: false)
         p.apply(items: [Fixture2.item(1, them, "Hi"), Fixture2.item(2, me, Self.urlAndText, key: "k2")],
                 summary: Fixture2.summary(lastSeq: 2), typing: [], hasOlder: false)
-        let message = try #require(c.store.state.message("k2"))
+        let message = try #require(c.store!.state.message("k2"))
         try #require(message.parts.count == 2, "card + text bubble, got \(message.parts)")
-        let keys = c.demo.model.rows.map(\.spec.key).filter { $0.hasPrefix("part:k2:") }
+        let keys = c.demo!.model.rows.map(\.spec.key).filter { $0.hasPrefix("part:k2:") }
         #expect(keys == ["part:k2:0", "part:k2:1"])
-        let text = try #require(c.demo.model.rows.first { $0.spec.key == "part:k2:1" })
+        let text = try #require(c.demo!.model.rows.first { $0.spec.key == "part:k2:1" })
         #expect(text.spec.height >= Fixture.lineHeight)
     }
 

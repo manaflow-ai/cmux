@@ -84,7 +84,7 @@ public final class MockTabPreviewProvider: TabPreviewProvider {
         let height = Int(maxPixelSize.height)
         guard width > 0, height > 0, let context = CGContext(
             data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
-            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         ) else { return nil }
         context.setFillColor(CGColor(gray: 0.08, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: width, height: height))
