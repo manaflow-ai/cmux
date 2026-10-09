@@ -50,13 +50,48 @@ public final class CmuxNextSceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     public func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
         guard let windowScene = scene as? UIWindowScene else { return }
+        install(in: windowScene)
+        for context in connectionOptions.urlContexts { model?.handleOpenURL(context.url) }
+    }
+
+    private func install(in windowScene: UIWindowScene) {
+        guard window == nil else { return }
         let model = AppModel.live(bundle: .main)
         self.model = model
         let window = UIWindow(windowScene: windowScene)
         window.rootViewController = ShellHostingController(model: model)
         window.makeKeyAndVisible()
         self.window = window
-        for context in connectionOptions.urlContexts { model.handleOpenURL(context.url) }
+    }
+
+    /// Upgrades over a build that used the SwiftUI `App` lifecycle restore
+    /// the saved scene session with SwiftUI's scene delegate, which shows a
+    /// black window here. Call once from `didFinishLaunching`: any window
+    /// scene that connects with a foreign delegate gets this delegate and
+    /// the shell's window instead.
+    @MainActor
+    public static func adoptScenesWithForeignDelegates() {
+        recoveryObserver = NotificationCenter.default.addObserver(
+            forName: UIScene.willConnectNotification, object: nil, queue: .main
+        ) { note in
+            // Delivered on the main queue (`queue: .main`).
+            nonisolated(unsafe) let object = note.object
+            MainActor.assumeIsolated {
+                guard let scene = object as? UIWindowScene else { return }
+                adopt(scene)
+            }
+        }
+    }
+
+    @MainActor private static var recoveryObserver: (any NSObjectProtocol)?
+
+    @MainActor
+    static func adopt(_ scene: UIWindowScene) {
+        guard !(scene.delegate is CmuxNextSceneDelegate) else { return }
+        let delegate = CmuxNextSceneDelegate()
+        scene.delegate = delegate
+        delegate.install(in: scene)
+        if scene.activationState == .foregroundActive { delegate.sceneDidBecomeActive(scene) }
     }
 
     public func scene(_ scene: UIScene, openURLContexts contexts: Set<UIOpenURLContext>) {
