@@ -137,4 +137,28 @@ printf 'pub fn f() {}\n#[cfg(all(not(test), unix))]\nmod m {\n    fn t() { x.unw
 if out="$(ratchet)"; then fail "an unwrap in a cfg(all(not(test), unix)) module passed: $out"; fi
 reset
 
+# 9. index_subscript and int_conversion (Lawrence, 2026-10-09) count only in the
+#    background, render and decoder modules; optional lookups, literal indexes,
+#    types and checked conversions do not count.
+cat > "$shared/Sources/MessagesLabHome/F.swift" <<'SWIFT'
+let a = rows[i]
+let b = bytes[n - 1]
+let c = UInt8(value)
+SWIFT
+if out="$(ratchet)"; then fail "a computed index and a trapping conversion passed: $out"; fi
+[[ "$out" == *"swift MessagesLabHome: index_subscript 0 -> 2"* ]] || fail "index_subscript is not reported: $out"
+[[ "$out" == *"swift MessagesLabHome: int_conversion 0 -> 1"* ]] || fail "int_conversion is not reported: $out"
+cat > "$shared/Sources/MessagesLabHome/F.swift" <<'SWIFT'
+let a = rows[0]
+let b = map[key] ?? 0
+if let c = map[key] { use(c) }
+let d: [String: Int] = [:]
+let e = UInt8(truncatingIfNeeded: value)
+let f = Int(text) ?? 0
+let g = UInt32(exactly: big)
+SWIFT
+printf 'let a = rows[i]\nlet c = UInt8(value)\n' > "$app/Sources/M/A.swift"
+out="$(ratchet)" || fail "safe forms or code outside the index modules counted: $out"
+reset
+
 echo "crash-ratchet-v2.test.sh: ok"

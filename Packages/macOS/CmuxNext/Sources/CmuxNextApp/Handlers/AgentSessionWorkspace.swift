@@ -28,7 +28,7 @@ enum AgentSessionWorkspace {
         guard !session.isEmpty else { throw ActionFailure(message: MiscHandlerStrings.sessionRequired) }
         guard services.agentTabs.canHostChat else { throw ActionFailure(message: MiscHandlerStrings.quickChatUnavailable) }
         let daemon = services.daemon
-        guard let connection = daemon.connection, let repair = services.emptyWorkspaces else {
+        guard let connection = daemon.connection, case let repair = services.emptyWorkspaces else {
             throw ActionFailure(message: MiscHandlerStrings.daemonOffline)
         }
         let name = invocation["name"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
