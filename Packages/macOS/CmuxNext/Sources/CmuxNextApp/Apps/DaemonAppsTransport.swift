@@ -15,7 +15,7 @@ import Observation
 /// takes `apps-provider-*`.
 @MainActor
 final class DaemonAppsTransport: AppsTransport {
-    static let capability = "apps-v1"
+    nonisolated static let capability = "apps-v1"
     /// `apps-run` waits for the app's op; everything else uses the control-plane deadline.
     static let runTimeout: Duration = .seconds(30)
 
