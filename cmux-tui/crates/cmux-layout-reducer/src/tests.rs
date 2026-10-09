@@ -666,3 +666,53 @@ proptest! {
         }
     }
 }
+
+/// The vectors the app's optimistic split (Swift `ProvisionalSplit`) must
+/// match (rule L4, plans/cmux-next/layer-ownership.md; S3 of
+/// remote-state-ownership.md): for each column and target, the column's pane
+/// order after `SplitNew` with a right or bottom edge. Regenerate with
+/// `CMUX_UPDATE_SPLIT_VECTORS=1 cargo test -p cmux-layout-reducer split_new_vectors`.
+#[test]
+fn split_new_vectors_match_the_fixture() {
+    let path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/split_new_vectors.json");
+    let mut cases = Vec::new();
+    for layout in
+        [vec![vec![vec![1]]], vec![vec![vec![1, 2, 1]]], vec![vec![vec![2, 1], vec![1, 1, 1]]]]
+    {
+        let (state, next_id) = build(&[layout]);
+        for column in &state.workspaces[0].screens[0].columns {
+            for (index, &pane) in column.panes.iter().enumerate() {
+                for edge in [Edge::Right, Edge::Bottom] {
+                    let new_tab = NewTab {
+                        tab: next_id + 1,
+                        content: TabContent { runtime: 1, terminal: None, dead: false },
+                    };
+                    let kind = LayoutOpKind::SplitNew { pane, edge, new_pane: next_id, new_tab };
+                    let (after, _) = apply(&state, &op(&format!("v{index}"), kind)).unwrap();
+                    let result = after.workspaces[0].screens[0]
+                        .columns
+                        .iter()
+                        .find(|candidate| candidate.panes.contains(&next_id))
+                        .map(|candidate| candidate.panes.clone())
+                        .unwrap();
+                    cases.push(serde_json::json!({
+                        "column": column.panes,
+                        "target": pane,
+                        "direction": if edge == Edge::Right { "right" } else { "down" },
+                        "new_pane": next_id,
+                        "expected": result,
+                    }));
+                }
+            }
+        }
+    }
+    let generated =
+        serde_json::to_string_pretty(&serde_json::json!({ "cases": cases })).unwrap() + "\n";
+    if std::env::var_os("CMUX_UPDATE_SPLIT_VECTORS").is_some() {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, &generated).unwrap();
+    }
+    let stored = std::fs::read_to_string(&path).unwrap_or_default();
+    assert_eq!(stored, generated, "split vectors drifted: regenerate {}", path.display());
+}
