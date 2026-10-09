@@ -65,11 +65,11 @@ describe("runtime confinement guard (P0): writes outside cmux_vm roll back", () 
     }
   })
 
-  it("an unqualified name lands in cmux_vm (search_path = cmux_vm, pg_catalog)", async () => {
+  it("C an unqualified name never lands outside cmux_vm (search_path = pg_catalog, cmux_vm)", async () => {
     const sql = await fresh()
     try {
-      await applyPending(sql, vm, [...base, file("0009_t.sql", "CREATE TABLE things (id text);")], { by: "t", target: "staging" })
-      expect((await sql.query<{ a: string | null; b: string | null }>("SELECT to_regclass('cmux_vm.things')::text AS a, to_regclass('public.things')::text AS b"))[0]).toEqual({ a: "cmux_vm.things", b: null })
+      await expect(applyPending(sql, vm, [...base, file("0009_t.sql", "CREATE TABLE things (id text);")], { by: "t", target: "staging" })).rejects.toThrow()
+      expect((await sql.query<{ a: string | null; b: string | null }>("SELECT to_regclass('cmux_vm.things')::text AS a, to_regclass('public.things')::text AS b"))[0]).toEqual({ a: null, b: null })
     } finally {
       await sql.end()
     }

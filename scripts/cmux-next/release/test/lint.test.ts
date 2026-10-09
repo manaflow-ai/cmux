@@ -347,3 +347,11 @@ describe("re-review of 1217bf4b5eba: nested functions and the rest (one fixture 
     expect((await errorsOf("UPDATE cmux_vm.resources SET labels = '{}' WHERE 'a' = 'a';")).length).toBeGreaterThan(0)
   })
 })
+
+describe("design E (third review)", () => {
+  it("refuses a --base that does not resolve", async () => {
+    const root = tempRoot()
+    execFileSync("git", ["-C", root, "init", "-q"])
+    expect((await lintTree(vm, { ...optionsFor(root), base: "0123456789abcdef0123456789abcdef01234567" })).errors.join()).toContain("does not resolve")
+  })
+})
