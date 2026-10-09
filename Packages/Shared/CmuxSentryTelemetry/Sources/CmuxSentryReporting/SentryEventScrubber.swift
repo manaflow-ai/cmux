@@ -101,9 +101,13 @@ public struct SentryEventScrubber: Sendable {
         }
 
         if let breadcrumbs = event.breadcrumbs {
-            for breadcrumb in breadcrumbs {
-                scrub(breadcrumb)
-            }
+            // The scope hands every captured event its own breadcrumb objects
+            // (`applyToEvent` takes a subarray, it does not copy), and
+            // `beforeSend` runs on the capturing thread. Writing those crumbs in
+            // place races with any other capture and over-releases their data,
+            // so the event gets scrubbed copies and the shared crumbs stay as
+            // `beforeBreadcrumb` left them.
+            event.breadcrumbs = breadcrumbs.map { scrubbedCopy(of: $0) }
         }
 
         // Attribute after scrubbing: watchdog attribution reads the SDK's
@@ -114,8 +118,10 @@ public struct SentryEventScrubber: Sendable {
 
     /// Redacts sensitive content from a breadcrumb in place and returns it.
     ///
-    /// Suitable as `beforeBreadcrumb`. Returns the same breadcrumb (never `nil`,
-    /// which would drop it).
+    /// Suitable as `beforeBreadcrumb`, which runs before the scope stores the
+    /// breadcrumb. Do not call it on a breadcrumb the scope already holds; an
+    /// event's breadcrumbs are scrubbed as copies by ``scrub(_:)-(Event)``.
+    /// Returns the same breadcrumb (never `nil`, which would drop it).
     ///
     /// - Parameter breadcrumb: The breadcrumb Sentry is about to record.
     /// - Returns: The scrubbed breadcrumb.
@@ -126,6 +132,24 @@ public struct SentryEventScrubber: Sendable {
             breadcrumb.replaceData(scrubber.scrub(dictionary: data))
         }
         return breadcrumb
+    }
+
+    /// Returns a scrubbed copy of a breadcrumb that may be shared with the scope.
+    ///
+    /// Reads the shared breadcrumb but never writes it. Copies every field
+    /// `SentryBreadcrumb.serialize` writes in sentry-cocoa 9.3.0 (macOS) and
+    /// 9.24+ (iOS): level, category, timestamp, type, origin, message, data.
+    /// A field added by a later SDK must be copied here too.
+    private func scrubbedCopy(of breadcrumb: Breadcrumb) -> Breadcrumb {
+        let copy = Breadcrumb(level: breadcrumb.level, category: breadcrumb.category)
+        copy.timestamp = breadcrumb.timestamp
+        copy.type = breadcrumb.type
+        copy.origin = breadcrumb.origin
+        copy.message = scrubber.scrub(optional: breadcrumb.message)
+        if let data = breadcrumb.data {
+            copy.replaceData(scrubber.scrub(dictionary: data))
+        }
+        return copy
     }
 
     /// Redacts the description, data, and tags of a performance span in place.
