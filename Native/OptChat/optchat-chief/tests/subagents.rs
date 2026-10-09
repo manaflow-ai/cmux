@@ -15,7 +15,7 @@ use cmux_chief::acp::SessionSummary;
 use common::*;
 use optchat_chief::acpmux::AgentEvent;
 use optchat_chief::subagents::{SPAWN_TAG, SUBAGENT_TAG, Spawner, SubagentSettings};
-use optchat_chief::tools::Orchestrator;
+use optchat_chief::tools::{Call, Orchestrator};
 use optchat_chief::trace::Trace;
 use optchat_chief::workspaces::Workspaces;
 use serde_json::{Value, json};
@@ -26,6 +26,18 @@ fn script() -> Script {
     Box::new(|turn, blocks| {
         let last = blocks.last().and_then(|b| b["text"].as_str()).unwrap_or("");
         if let Some(task) = last.strip_prefix("Your task:\n\n") {
+            if task == "silent" {
+                // Its response never starts streaming.
+                return vec![
+                    json!({"dir": "mux", "kind": "user_message", "msg": {"promptId": "optchat-sub:x", "text": last}}),
+                    json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+                    json!({"dir": "mux", "kind": "turn_end", "msg": {"stopReason": "end_turn"}}),
+                ];
+            }
+            if task == "fail me" {
+                // The harness fails the prompt and records no turn.
+                return Vec::new();
+            }
             if task == "stop me" {
                 // The user pressed stop in the subagent's pane (session/cancel).
                 return vec![
@@ -75,6 +87,7 @@ fn script() -> Script {
 struct FakeWorkspaces {
     opened: Mutex<Vec<(String, String)>>,
     renamed: Mutex<Vec<(String, String)>>,
+    closed: Mutex<Vec<String>>,
 }
 
 impl Workspaces for FakeWorkspaces {
@@ -94,6 +107,11 @@ impl Workspaces for FakeWorkspaces {
         "the test app".to_owned()
     }
 
+    fn close(&self, key: &str) -> Result<(), String> {
+        self.closed.lock().unwrap().push(key.to_owned());
+        Ok(())
+    }
+
     fn rename(&self, key: &str, name: &str) -> Result<(), String> {
         self.renamed
             .lock()
@@ -111,6 +129,10 @@ struct Setup {
 }
 
 fn setup() -> Setup {
+    setup_with(|sp| sp)
+}
+
+fn setup_with(f: impl FnOnce(Spawner) -> Spawner) -> Setup {
     let mut h = Harness::new(script());
     let traces = h.dir.path().join("traces");
     let trace = Trace::open(&traces, false).unwrap();
@@ -137,9 +159,12 @@ fn setup() -> Setup {
     )
     .with_trace(trace)
     .with_workspaces(Some(workspaces.clone() as Arc<dyn Workspaces>));
+    let spawner = Arc::new(f(spawner));
+    // Subagents queued over the cap start when one finishes.
+    h.brain.set_sub_starter(Some(spawner.queue_starter()));
     Setup {
         h,
-        spawner: Arc::new(spawner),
+        spawner,
         workspaces,
         traces,
     }
@@ -251,7 +276,7 @@ fn each_report_reaches_the_chat_as_it_finishes_and_tool_calls_stay_out() {
         reports,
         vec![&(
             "user".to_owned(),
-            "[a1] done: list the files in ~/".to_owned()
+            "[a1] done: list the files in ~/\nFull chat: zoom(\"a1\")".to_owned()
         )],
         "a1's report alone, logged as user: {log:?}"
     );
@@ -265,7 +290,7 @@ fn each_report_reaches_the_chat_as_it_finishes_and_tool_calls_stay_out() {
     let log = s.h.log();
     assert!(
         log.iter()
-            .any(|(k, t)| k == "user" && t == "[a2] done: say the date"),
+            .any(|(k, t)| k == "user" && t == "[a2] done: say the date\nFull chat: zoom(\"a2\")"),
         "{log:?}"
     );
     assert!(
@@ -313,7 +338,10 @@ fn reports_that_arrive_together_go_into_one_turn() {
         .collect();
     assert_eq!(
         reports,
-        vec!["[a1] done: list the files in ~/", "[a2] done: say the date"],
+        vec![
+            "[a1] done: list the files in ~/\nFull chat: zoom(\"a1\")",
+            "[a2] done: say the date\nFull chat: zoom(\"a2\")"
+        ],
         "{log:?}"
     );
     assert_eq!(talks(&log), before + 1, "one turn answers both: {log:?}");
@@ -372,7 +400,7 @@ fn tell_reaches_a_subagent_and_a_later_report_comes_alone() {
     let log = s.h.log();
     assert!(
         log.iter()
-            .any(|(k, t)| k == "user" && t == "[a1] ack more: please"),
+            .any(|(k, t)| k == "user" && t == "[a1] ack more: please\nFull chat: zoom(\"a1\")"),
         "{log:?}"
     );
 }
@@ -465,4 +493,326 @@ fn a_subagents_mcp_server_offers_zoom_and_date_only() {
     )
     .unwrap();
     assert_eq!(answer["result"]["isError"], true);
+}
+
+#[test]
+fn zoom_with_a_subagents_id_gives_its_whole_chat_in_pages() {
+    let mut s = setup();
+    s.h.say("user_local", "hello");
+    s.h.settle();
+    spawn(&mut s, &["list the files in ~/"]).unwrap();
+    finish(&mut s, "s2", "s1", "a1");
+    s.h.settle();
+    // zoom takes a subagent id where it takes a message id.
+    assert_eq!(
+        Call::parse("zoom", &json!({"id": "a1"})).unwrap(),
+        Call::ZoomAgent {
+            id: "a1".into(),
+            at: 0
+        }
+    );
+    assert_eq!(
+        Call::parse("zoom", &json!({"id": "a1", "at": 40})).unwrap(),
+        Call::ZoomAgent {
+            id: "a1".into(),
+            at: 40
+        }
+    );
+    let chat = call(&mut s, |sp| sp.agent_chat("a1", 0)).unwrap();
+    // Its task, its tool call and result, its reply; never the view it got.
+    assert!(chat.contains("user: Your task:"), "{chat}");
+    assert!(chat.contains("list the files in ~/"), "{chat}");
+    assert!(chat.contains("tool: Bash"), "{chat}");
+    assert!(chat.contains("echo: Desktop"), "{chat}");
+    assert!(chat.contains("talk: done: list the files in ~/"), "{chat}");
+    assert!(!chat.contains("<chat>"), "the view stays out: {chat}");
+    assert!(chat.lines().next().unwrap().starts_with("0|"), "{chat}");
+    // Pages: from character `at`, saying where the text goes on.
+    let page = call(&mut s, |sp| sp.agent_chat_page("a1", 0, 30)).unwrap();
+    assert!(page.contains("zoom(\"a1\", at=30)"), "{page}");
+    let rest = call(&mut s, |sp| sp.agent_chat_page("a1", 30, 100_000)).unwrap();
+    assert!(!rest.contains("at="), "{rest}");
+    assert!(
+        call(&mut s, |sp| sp.agent_chat("a9", 0)).is_err(),
+        "no such subagent"
+    );
+}
+
+/// The new messages' block of the turn prompt whose messages contain `needle`.
+fn turn_tail(s: &Setup, needle: &str) -> String {
+    let agents = s.h.agents.inner.lock().unwrap();
+    agents
+        .prompts
+        .iter()
+        .filter_map(|p| p.last().and_then(|b| b["text"].as_str()).map(str::to_owned))
+        .find(|t| t.contains(needle))
+        .unwrap_or_else(|| panic!("no turn prompt with {needle}"))
+}
+
+#[test]
+fn a_turn_says_which_subagents_are_at_work_after_the_view() {
+    let mut s = setup();
+    spawn(&mut s, &["list the files in ~/", "say the date"]).unwrap();
+    finish(&mut s, "s1", "s1", "a1");
+    s.h.settle();
+    // a1's report turn: a2 still works.
+    let tail = turn_tail(&s, "[a1] done");
+    assert!(tail.starts_with("Subagents at work now: a2.\n\n"), "{tail}");
+    finish(&mut s, "s2", "s1", "a2");
+    s.h.settle();
+    let tail = turn_tail(&s, "[a2] done");
+    assert!(!tail.contains("at work now"), "none works: {tail}");
+}
+
+/// Steps the brain until `done` holds (the queue starter works on its own thread).
+fn pump_until(s: &mut Setup, what: &str, done: impl Fn(&Setup) -> bool) {
+    let deadline = std::time::Instant::now() + WAIT;
+    while !done(s) {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "timed out waiting for {what}"
+        );
+        if let Ok(input) = s.h.rx.recv_timeout(std::time::Duration::from_millis(20)) {
+            s.h.brain.step(input);
+        }
+    }
+}
+
+fn sub_names(s: &Setup) -> Vec<String> {
+    s.h.agents
+        .inner
+        .lock()
+        .unwrap()
+        .specs
+        .iter()
+        .map(|spec| spec.name.clone())
+        .filter(|n| n.starts_with("optchat-sub-h0me-"))
+        .collect()
+}
+
+#[test]
+fn a_spawn_over_the_live_cap_queues_and_starts_when_one_finishes() {
+    use optchat_chief::subagents::MAX_LIVE;
+    assert_eq!(MAX_LIVE, 16);
+    let mut s = setup();
+    let eight: Vec<String> = (1..=8).map(|k| format!("task {k}")).collect();
+    let refs: Vec<&str> = eight.iter().map(String::as_str).collect();
+    spawn(&mut s, &refs).unwrap();
+    spawn(&mut s, &refs).unwrap();
+    assert_eq!(sub_names(&s).len(), 16);
+    let answer = spawn(&mut s, &["the seventeenth"]).unwrap();
+    assert!(answer.contains("a17: queued"), "{answer}");
+    assert_eq!(sub_names(&s).len(), 16, "a17 waits for a free slot");
+    let state = s.h.brain.state();
+    let a17 = &state.spawns["s17"].subs[0];
+    assert_eq!(a17.status, optchat_chief::state::SubStatus::Queued);
+    // a1 finishes: a17 starts, with the view and its task.
+    finish(&mut s, "s1", "s1", "a1");
+    pump_until(&mut s, "a17's session", |s| {
+        sub_names(s).iter().any(|n| n.ends_with("-a17"))
+    });
+    pump_until(&mut s, "a17's prompt", |s| {
+        s.h.agents
+            .inner
+            .lock()
+            .unwrap()
+            .prompt_ids
+            .iter()
+            .any(|p| p.starts_with("optchat-sub:a17:"))
+    });
+    let state = s.h.brain.state();
+    assert_ne!(
+        state.spawns["s17"].subs[0].status,
+        optchat_chief::state::SubStatus::Queued
+    );
+}
+
+#[test]
+fn chief_stop_stops_every_subagent_at_work() {
+    let mut s = setup();
+    spawn(&mut s, &["one", "two"]).unwrap();
+    let (reply, answer) = std::sync::mpsc::channel();
+    s.h.brain.step(optchat_chief::brain::Input::Stop { reply });
+    assert_eq!(
+        answer.recv().unwrap(),
+        json!({"stopped": true, "subagents": ["a1", "a2"]})
+    );
+    let cancels = s.h.agents.inner.lock().unwrap().cancels.clone();
+    assert_eq!(cancels, vec!["s1".to_owned(), "s2".to_owned()]);
+}
+
+#[test]
+fn a_subagent_whose_harness_fails_reports_the_failure() {
+    let mut s = setup();
+    s.h.agents.inner.lock().unwrap().answer_error = Some("the harness crashed".into());
+    spawn(&mut s, &["fail me"]).unwrap();
+    pump_until(&mut s, "the failure report", |s| {
+        s.h.log()
+            .iter()
+            .any(|(k, t)| k == "user" && t.starts_with("[a1] (failed: the harness crashed)"))
+    });
+    s.h.settle();
+    assert!(
+        s.h.log()
+            .iter()
+            .any(|(k, t)| k == "talk" && t.starts_with("answer")),
+        "the failure report started a turn"
+    );
+}
+
+#[test]
+fn after_a_restart_each_report_arrives_once() {
+    let mut s = setup();
+    spawn(&mut s, &["list the files in ~/", "say the date"]).unwrap();
+    finish(&mut s, "s1", "s1", "a1");
+    s.h.settle();
+    // a2 finishes while the host is down.
+    let events = {
+        let old = s.h.agents.inner.lock().unwrap();
+        old.events.clone()
+    };
+    let Setup { h, spawner, .. } = s;
+    drop(spawner);
+    let Harness {
+        dir,
+        chat,
+        owner,
+        brain,
+        ..
+    } = h;
+    drop(brain);
+    chat.shutdown();
+    drop(chat);
+    let mut h = Harness::in_dir(dir, script(), owner);
+    h.agents.inner.lock().unwrap().events = events;
+    h.brain
+        .step(optchat_chief::brain::Input::from(AgentEvent::Up(vec![
+            summary("s1", "idle", sub_tags("s1", "a1")),
+            summary("s2", "idle", sub_tags("s1", "a2")),
+        ])));
+    // The conversation owner comes up too (its acpmux Up has no sessions:
+    // nothing runs any more, so nothing changes).
+    h.connect();
+    h.settle();
+    let log = h.log();
+    let count = |id: &str| {
+        log.iter()
+            .filter(|(k, t)| k == "user" && t.starts_with(&format!("[{id}] ")))
+            .count()
+    };
+    assert_eq!(count("a1"), 1, "{log:?}");
+    assert_eq!(count("a2"), 1, "{log:?}");
+}
+
+#[test]
+fn the_close_setting_closes_a_finished_subagents_workspace() {
+    let mut s = setup();
+    s.h.brain.set_sub_close_on_finish(true);
+    spawn(&mut s, &["list the files in ~/"]).unwrap();
+    finish(&mut s, "s1", "s1", "a1");
+    s.h.settle();
+    let deadline = std::time::Instant::now() + WAIT;
+    while s.workspaces.closed.lock().unwrap().is_empty() && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert_eq!(
+        s.workspaces.closed.lock().unwrap().clone(),
+        vec!["ws-1".to_owned()]
+    );
+    assert!(
+        s.workspaces.renamed.lock().unwrap().is_empty(),
+        "closed, not renamed"
+    );
+}
+
+/// A Claude spawn of many subagents: the first starts alone and warms the
+/// cache of the shared view; the rest start once its response began, each
+/// first message marked at the view's end with the turns' TTL (1 hour by
+/// default), and Claude Code told the same TTL.
+#[test]
+fn a_claude_spawn_warms_the_shared_view_once_then_starts_the_rest_marked() {
+    let mut s = setup();
+    s.h.agents.inner.lock().unwrap().system_prompts = true;
+    for k in 0..12 {
+        s.h.say("user_local", &format!("line {k}"));
+        s.h.settle();
+    }
+    spawn(&mut s, &["one", "two", "three"]).unwrap();
+    let agents = s.h.agents.inner.lock().unwrap();
+    let subs: Vec<usize> = agents
+        .prompt_ids
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| p.starts_with("optchat-sub:"))
+        .map(|(k, _)| k)
+        .collect();
+    assert_eq!(subs.len(), 3);
+    for k in &subs {
+        let marks: Vec<&Value> = agents.prompts[*k]
+            .iter()
+            .filter_map(|b| b.get("cache_control"))
+            .collect();
+        assert_eq!(
+            marks,
+            vec![&json!({"type": "ephemeral", "ttl": "1h"})],
+            "one 1h mark on the shared view: {:?}",
+            agents.prompts[*k]
+        );
+    }
+    // The same view blocks up to the mark in every first message.
+    let upto = |k: usize| {
+        let p = &agents.prompts[k];
+        let m = p
+            .iter()
+            .position(|b| b.get("cache_control").is_some())
+            .unwrap();
+        p[..=m].to_vec()
+    };
+    assert_eq!(upto(subs[0]), upto(subs[1]));
+    assert_eq!(upto(subs[0]), upto(subs[2]));
+    let sub_specs: Vec<_> = agents
+        .specs
+        .iter()
+        .filter(|sp| sp.name.starts_with("optchat-sub-h0me-"))
+        .collect();
+    for spec in &sub_specs {
+        assert_eq!(
+            spec.env
+                .get("CLAUDE_CODE_PROMPT_CACHE_TTL")
+                .map(String::as_str),
+            Some("1h"),
+            "Claude Code marks with the same TTL"
+        );
+    }
+    drop(agents);
+    let events = trace_events(&s.traces);
+    let warm = events
+        .iter()
+        .find(|e| e["ev"] == "spawn.warm")
+        .expect("the trace says the shared view was warmed");
+    assert_eq!(warm["first"], "a1");
+    assert_eq!(warm["started"], true, "{warm}");
+}
+
+#[test]
+fn the_rest_start_after_the_warm_wait_when_the_first_never_speaks() {
+    let mut s = setup_with(|sp| sp.with_warm_wait(std::time::Duration::from_millis(300)));
+    s.h.agents.inner.lock().unwrap().system_prompts = true;
+    for k in 0..12 {
+        s.h.say("user_local", &format!("line {k}"));
+        s.h.settle();
+    }
+    // The first subagent's turn stays open without output (its answer is held).
+    s.h.agents.hold(true);
+    let began = std::time::Instant::now();
+    spawn(&mut s, &["silent", "two"]).unwrap();
+    assert!(began.elapsed() >= std::time::Duration::from_millis(300));
+    s.h.agents.hold(false);
+    s.h.agents.release();
+    assert_eq!(sub_names(&s).len(), 2, "the second still starts");
+    let warm = trace_events(&s.traces)
+        .into_iter()
+        .find(|e| e["ev"] == "spawn.warm")
+        .unwrap();
+    assert_eq!(warm["started"], false, "{warm}");
 }

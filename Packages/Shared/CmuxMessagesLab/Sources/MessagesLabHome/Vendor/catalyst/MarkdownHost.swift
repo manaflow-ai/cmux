@@ -70,6 +70,13 @@ extension MessagesWindowView {
         }
     }
 
+    /// Whether a window point is over a block that scrolls horizontally (code wider than the
+    /// bubble, a wide table). Gestures there scroll the block; swipe-to-reply skips them.
+    func markdownScrollable(at p: CGPoint) -> Bool {
+        guard let (_, md, local) = markdownHit(p), let r = md.region(at: local) else { return false }
+        return md.regions[r].scrollable
+    }
+
     /// A horizontal scroll over a scrollable block: scrolls it. Returns the (key, region)
     /// that took it, or nil (the transcript scrolls).
     func markdownScroll(at p: CGPoint, dx: CGFloat, lock: (String, Int)?) -> (String, Int)? {

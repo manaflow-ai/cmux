@@ -554,6 +554,10 @@ jobs:
         if: ${{ matrix.group == 'release-tooling' }}
         run: bash tests/test_ci_password_import_readers_guard.sh
 
+      - name: Validate browser-data import binary guard
+        if: ${{ matrix.group == 'release-tooling' }}
+        run: bash tests/test_ci_browser_data_import_guard.sh
+
       - name: Validate Ghostty Zig workflow pinning
         if: ${{ matrix.group == 'release-tooling' }}
         run: python3 tests/test_check_ghostty_zig_workflows.py
@@ -1060,6 +1064,10 @@ jobs:
       - name: Validate nightly notarization behavior
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_notarize_nightly_dmg.sh
+
+      - name: Validate the nightly-next notarization handoff
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_next_notary_handoff.py
 
       - name: Validate Sparkle delta finalization
         if: ${{ matrix.group == 'release-notary' }}

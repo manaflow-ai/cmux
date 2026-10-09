@@ -16,6 +16,8 @@ mod permission_groups;
 mod questions;
 #[path = "hub_integration/steer_only.rs"]
 mod steer_only;
+#[path = "hub_integration/xai_requests.rs"]
+mod xai_requests;
 
 struct TestClient {
     tx: mpsc::Sender<String>,
