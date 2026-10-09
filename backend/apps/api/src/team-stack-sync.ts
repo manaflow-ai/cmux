@@ -68,7 +68,7 @@ export class StackTeamSync {
   deliver(ev: StackEvent, deadlineMs = DELIVERY_DEADLINE_MS): Promise<StackSyncReply> {
     const expires = Date.now() + deadlineMs
     // Past its deadline the caller already answered 503 and Svix retries: drop it, so a Stack outage cannot grow the queue.
-    const run = (): Promise<StackSyncReply> => (Date.now() > expires ? Promise.resolve({ ok: false, reason: "expired" }) : this.process(this.deps(), ev))
+    const run = (): Promise<StackSyncReply> => (Date.now() >= expires ? Promise.resolve({ ok: false, reason: "expired" }) : this.process(this.deps(), ev))
     const reply = this.queue.then(run, run)
     this.queue = reply.catch(() => undefined)
     let timer: ReturnType<typeof setTimeout> | undefined

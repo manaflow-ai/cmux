@@ -441,7 +441,7 @@ impl Spawner {
         std::thread::spawn(move || {
             while let Ok(signal) = rx.recv() {
                 match signal {
-                    TurnSignal::Changed | TurnSignal::Streamed => {}
+                    TurnSignal::Changed | TurnSignal::Noted | TurnSignal::Streamed => {}
                     TurnSignal::Done(answer) => {
                         let _ = tx.send(Input::SubagentAnswer { id, answer });
                         return;
