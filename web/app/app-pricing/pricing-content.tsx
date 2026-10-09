@@ -33,6 +33,7 @@ import {
   PricingCategorySection,
   PricingCompareTable,
   PrimaryLink,
+  ResumePlanButton,
   SecondaryLink,
   visibleCompareRows,
   visibleFaqItems,
@@ -108,6 +109,10 @@ export function AppPricingContent({
     manageBilling: canManageBilling && !snapshot.isPro,
   });
   const portalVisible = canManageBilling && !appStorePaymentGated;
+  // While a cancellation is scheduled the current plan's action is Resume.
+  const resumeLabel = (plan: string) => snapshot.cancelScheduled
+    ? pricingMessage(pricing.resumePlan, { plan })
+    : undefined;
   // The app that opened this page tags it with the button it came from and
   // its release channel; forward that to checkout. An app build that predates
   // the tags still counts as an app-originated checkout.
@@ -223,7 +228,9 @@ export function AppPricingContent({
             <AppStoreManageAction portalVisible={portalVisible} />
           ) : isGo ? (
             <div className="space-y-2">
-              {portalVisible ? (
+              {portalVisible && snapshot.cancelScheduled ? (
+                <ResumePlanButton>{resumeLabel(pricing.go.name)}</ResumePlanButton>
+              ) : portalVisible ? (
                 <SecondaryLink href="/api/billing/portal">
                   {pricing.manageBilling}
                 </SecondaryLink>
@@ -275,6 +282,7 @@ export function AppPricingContent({
             state={proAction}
             unavailableLabel={pending ? pricing.pro.cta : undefined}
             portalVisible={portalVisible}
+            resumeLabel={resumeLabel(pricing.pro.name)}
             checkout={null}
           />
         )}
@@ -298,6 +306,7 @@ export function AppPricingContent({
           state={maxAction}
           unavailableLabel={pending ? pricing.max.cta : undefined}
           portalVisible={portalVisible}
+          resumeLabel={resumeLabel(pricing.max.name)}
           checkout={
             <PricingCheckoutButton
               href={maxCheckoutHref}
@@ -455,6 +464,8 @@ export type AppPlanSnapshot = {
   billingManagement: BillingManagementKind;
   /** An App Store subscriber manages personal plans in the App Store. */
   billingSource?: PersonalBillingSource;
+  /** The Stripe subscription ends at period end; pricing offers Resume. */
+  cancelScheduled?: boolean;
   email: string | null;
 };
 
@@ -485,17 +496,23 @@ function PersonalPlanAction({
   state,
   portalVisible,
   unavailableLabel,
+  resumeLabel,
   checkout,
 }: {
   state: PersonalPlanActionState;
   portalVisible: boolean;
   unavailableLabel?: string;
+  /** Set while the current plan's cancellation is scheduled. */
+  resumeLabel?: string;
   checkout: ReactNode;
 }) {
   switch (state) {
     case "app_store":
       return <AppStoreManageAction portalVisible={portalVisible} />;
     case "current":
+      if (portalVisible && resumeLabel) {
+        return <ResumePlanButton>{resumeLabel}</ResumePlanButton>;
+      }
       return portalVisible ? (
         <SecondaryLink href="/api/billing/portal">
           {pricing.manageBilling}

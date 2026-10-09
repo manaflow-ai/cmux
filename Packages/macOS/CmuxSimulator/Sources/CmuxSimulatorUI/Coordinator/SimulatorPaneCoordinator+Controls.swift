@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import CmuxSimulator
 import Foundation
 
@@ -8,9 +9,13 @@ private let simulatorDroppedMediaExtensions = Set([
 ])
 
 // `@TaskLocal` storage is necessarily type-scoped; the struct carries no
-// domain behavior and exists only to bind the task-local key.
+// domain behavior and exists only to bind the task-local key. A UUID has a
+// run-time size, so it is bound by reference: macOS 14's back-deployed
+// TaskLocal fallback aborts on dynamically sized async payloads.
 private struct SimulatorControlActionTaskContext {
-    @TaskLocal static var token: UUID?
+    @TaskLocal static var boundToken: TaskLocalReference<UUID>?
+
+    static var token: UUID? { boundToken?.value }
 }
 
 extension SimulatorPaneCoordinator {
@@ -36,7 +41,7 @@ extension SimulatorPaneCoordinator {
         controlActionTaskTokens[key] = token
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
-            await SimulatorControlActionTaskContext.$token.withValue(token) {
+            await SimulatorControlActionTaskContext.$boundToken.withReferencedValue(token) {
                 if !Task.isCancelled { await operation(self) }
             }
             guard self.controlActionTaskTokens[key] == token else { return }

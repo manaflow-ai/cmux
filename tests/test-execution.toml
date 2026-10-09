@@ -21,6 +21,11 @@ lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_cli_omx_hud_command_match.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_open_wrapper.py"
 lane = "macos-shell"
 
@@ -137,6 +142,10 @@ lane = "macos-cli-no-socket"
 
 [[test]]
 path = "tests/test_cmux_cua_mcp_smoke.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
+path = "tests/test_cmux_cua_compat_contract.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
@@ -476,6 +485,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_app_host_pipe_capture.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_app_host_socket_evidence.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1656,4 +1669,17 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_poll_notary_submission.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_resume_tracks.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_surface_task_local_reservations.py"
+lane = "manual"
+reason = "Runs in .github/workflows/cloud-task-local-tests.yml on the pinned macOS 26 Xcode, whose back-deployed TaskLocal fallback it exercises; newer toolchains no longer emit that path."
+
+[[test]]
+path = "tests/test_ci_signing_secrets_need_release_environment.py"
 lane = "linux-guard"

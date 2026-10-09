@@ -48,7 +48,7 @@ jobs:
     # keepalive releases the runner after an idle timeout clamped to 15
     # minutes, so this is only a hard ceiling for one continuously active
     # session (observed sessions run 10-60 minutes).
-    timeout-minutes: 90
+    timeout-minutes: 240
     steps:
       # Every check here is main-controlled. `blacksmith testbox warmup`
       # resolves both this file and the hydrated source from the same --ref, so
