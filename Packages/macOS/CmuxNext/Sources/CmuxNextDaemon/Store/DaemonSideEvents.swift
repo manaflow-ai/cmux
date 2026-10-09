@@ -23,7 +23,7 @@ public final class DaemonSideEvents {
     /// An event of the app supervisor (capability `apps-v1`): `apps-changed`,
     /// `apps-scene`, `apps-provider-request` and the rest. This module does not
     /// model them (`DaemonEvent.unknown`); the apps client reads them.
-    nonisolated static func isAppsEvent(_ name: String) -> Bool { name.hasPrefix("apps-") }
+    public nonisolated static func isAppsEvent(_ name: String) -> Bool { name.hasPrefix("apps-") }
 
     func deliver(_ event: DaemonEvent) {
         for subscriber in subscribers.values { subscriber(event) }
