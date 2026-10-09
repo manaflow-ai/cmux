@@ -45,6 +45,16 @@ export function Menu({ open, onOpenChange, children }: MenuProps) {
   const context: MenuContextValue = {
     beginPointer(event) {
       if (!isMousePress(event)) return;
+      const wasOpen = isOpen;
+      pointerCleanup.current?.();
+      pointerCleanup.current = null;
+      session.current = null;
+      // A mouse press on an open trigger is a toggle. Base UI's click handler would
+      // otherwise see the outside press close the menu and reopen it on the same click.
+      if (wasOpen) {
+        setMenuOpen(false);
+        return;
+      }
       session.current = {
         pointerId: event.pointerId,
         x: event.clientX,
@@ -53,7 +63,6 @@ export function Menu({ open, onOpenChange, children }: MenuProps) {
         handled: false,
       };
       setMenuOpen(true);
-      pointerCleanup.current?.();
       pointerCleanup.current = trackPressRelease(event, {
         hover: (row) => row.focus({ preventScroll: true }),
         // Base UI items act on the click.
