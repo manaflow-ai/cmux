@@ -1023,6 +1023,31 @@ function ensureExistingMachineReservation(
   );
 }
 
+function refreshLegacyMachineReservation(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+): Effect.Effect<CloudVmRow, VmWorkflowError> {
+  if (hasVmResourceReservationMetadata(vm.providerMetadata) || !providers.getStats) return Effect.succeed(vm);
+  return measureMachineReservation(providers, vm, providerVmId).pipe(
+    Effect.flatMap((reservation) => {
+      if (!repo.setResourceReservation) return Effect.succeed(vm);
+      return repo.setResourceReservation({ id: vm.id, reservation }).pipe(
+        Effect.map((persisted) => persisted
+          ? {
+            ...vm,
+            providerMetadata: {
+              ...vm.providerMetadata,
+              [VM_RESOURCE_RESERVATION_METADATA_KEY]: reservation,
+            },
+          }
+          : vm),
+      );
+    }),
+  );
+}
+
 function requestedCreateMemory(input: { memoryMb?: number; imageSize?: { memoryMb: number }; resourceReservation?: { memoryMb: number } }) {
   return Math.max(input.memoryMb ?? 0, input.imageSize?.memoryMb ?? 0, input.resourceReservation?.memoryMb ?? 0);
 }
@@ -5167,24 +5192,9 @@ function requireAccessibleUserVm(input: ExistingVmAccessInput) {
     // Existing machines are grandfathered during the entitlement rollout.
     // Plan checks belong on new allocations and future CPU/RAM growth; an
     // oversized VM must remain usable while the customer migrates.
-    if (input.callerPlanId && isPaidVmPlan(input.callerPlanId) &&
-      !hasVmResourceReservationMetadata(vm.providerMetadata)) {
+    if (input.callerPlanId && isPaidVmPlan(input.callerPlanId)) {
       const providers = yield* VmProviderGateway;
-      if (providers.getStats) {
-        const measured = yield* measureMachineReservation(providers, vm, input.providerVmId);
-        if (repo.setResourceReservation) {
-          const persisted = yield* repo.setResourceReservation({ id: vm.id, reservation: measured });
-          if (persisted) {
-            vm = {
-              ...vm,
-              providerMetadata: {
-                ...vm.providerMetadata,
-                [VM_RESOURCE_RESERVATION_METADATA_KEY]: measured,
-              },
-            };
-          }
-        }
-      }
+      vm = yield* refreshLegacyMachineReservation(repo, providers, vm, input.providerVmId);
     }
     if (isVmFreeAccessExpired(input.callerPlanId, vm.createdAt ?? undefined)) {
       return yield* Effect.fail(new VmFreeAccessExpiredError({
