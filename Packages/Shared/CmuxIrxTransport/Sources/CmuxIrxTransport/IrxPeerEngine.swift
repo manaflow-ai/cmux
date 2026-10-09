@@ -529,6 +529,7 @@ public actor IrxPeerEngine {
         }
     }
 
+    // probe: comment-only change.
     /// Capped, cancellable backoff. The woken redial is an ordinary automatic
     /// trigger that joins whatever else happened since.
     private func scheduleRedial(error: any Error) {
