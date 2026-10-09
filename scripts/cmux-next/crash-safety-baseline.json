@@ -48,11 +48,8 @@
    "CmuxNextSidebar": 3,
    "MessagesLabHome": 20
   },
-  "index_subscript": {
-   "CmuxIrxTransport": 15
-  },
   "int_conversion": {
-   "CmuxIrxTransport": 10
+   "CmuxIrxTransport": 2
   },
   "objc_observer": {
    "CmuxNextApp": 3,
