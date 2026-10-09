@@ -632,6 +632,8 @@ public final class ConversationViewController: UIViewController {
             }
         }
         if animateLive, wasAtBottom || sentByMe {
+            // A flight still in the air rides with its row (a rapid second send).
+            let flightTops = flightScreenTops()
             // Pinned: insertions and the scroll to the new bottom share one
             // spring, ChatKit's transcript update spring on iOS 26 and 27
             // (stiffness 438.649, damping 41.888: 0.3 s, critically damped).
@@ -640,6 +642,7 @@ public final class ConversationViewController: UIViewController {
                 if structural, !updated.isEmpty { self.collectionView.reconfigureItems(at: updated) }
                 self.collectionView.layoutIfNeeded()
                 self.collectionView.contentOffset = self.bottomOffset
+                self.moveFlights(from: flightTops)
             }
         } else if animateLive {
             // Away from bottom: animate in place, keep the reader's anchor fixed.

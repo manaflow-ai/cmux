@@ -130,9 +130,11 @@ extension ConversationViewController: ConversationComposerViewDelegate {
             mover.addSubview(bubble)
             mover.addSubview(clip)
             container.addSubview(mover)
-            // Start as the composer field (tail included), trailing edge at
-            // the bubble's, bottom-aligned with the field.
-            let height = max(ConversationTheme.composerMinHeight, min(flight.fieldFrame.height, to.height))
+            // Start at the field's width, trailing edge at the bubble's and
+            // bottom-aligned with the field, but already the bubble's full
+            // height: ChatKit's throw balloon never changes height, so a
+            // long draft shows every line at once, rising over the transcript.
+            let height = to.height
             let from = CGRect(x: flight.fieldFrame.minX, y: flight.fieldFrame.maxY - height, width: max(to.width, to.maxX - flight.fieldFrame.minX), height: height)
             // Text starts where it was typed: leading edge at the typed
             // glyphs, bottom-aligned (a scrolled draft showed its end).
@@ -210,6 +212,25 @@ extension ConversationViewController {
         flyingRowIDs.remove(rowID)
         if let index = indexPath(for: rowID), let cell = collectionView.cellForItem(at: index) as? MessageCell {
             cell.setFlightHidden(false)
+        }
+    }
+
+    /// Each flying row's top on screen, before a transcript update.
+    func flightScreenTops() -> [String: CGFloat] {
+        var tops: [String: CGFloat] = [:]
+        for id in activeFlights.keys {
+            guard let index = rowIndex[id], let frame = layout.frame(at: index) else { continue }
+            tops[id] = frame.minY - collectionView.contentOffset.y
+        }
+        return tops
+    }
+
+    /// Moves each flight by its row's move on screen (call inside the
+    /// update's animation, so the flight rides the same spring).
+    func moveFlights(from tops: [String: CGFloat]) {
+        for (id, top) in tops {
+            guard let container = activeFlights[id], let index = rowIndex[id], let frame = layout.frame(at: index) else { continue }
+            container.center.y += frame.minY - collectionView.contentOffset.y - top
         }
     }
 
