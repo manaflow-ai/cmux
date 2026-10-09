@@ -454,7 +454,7 @@ mod unix {
     use std::io as std_io;
     use std::io::{Read, Write};
     use std::os::fd::{AsRawFd, RawFd};
-    use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt};
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
     use std::os::unix::net::{UnixListener, UnixStream};
     use std::os::unix::process::CommandExt;
     use std::process::{Command, Stdio};
@@ -653,9 +653,6 @@ mod unix {
         crate::host_exe::hold_in_use_lock();
         host_signals::install()
     }
-
-    pub mod unadoptable;
-    pub(crate) use unadoptable::process_definitely_absent;
 
     /// The ProcessTree seam, Unix side (cx-ko2e table C): signal the PTY's
     /// process groups.
@@ -933,6 +930,7 @@ mod unix {
         mod parser_order;
         use super::super::shared::control_responses::ControlResponseWaiter;
         use super::super::shared::host_serve::*;
+        use super::super::sys::process_definitely_gone as process_definitely_absent;
         use super::super::sys::terminal_host_publication_lock_path;
         use super::*;
         use cmux_pty::{Child, PtyOpenError, PtySize};
@@ -4634,6 +4632,8 @@ pub use shared::records::{
 #[cfg(unix)]
 pub(crate) use shared::records::{live_successor_record, record_owner_token};
 #[cfg(unix)]
+pub use shared::unadoptable::*;
+#[cfg(unix)]
 pub(crate) use sys::acquire_terminal_host_reset_lock;
 #[cfg(all(unix, test))]
 pub(crate) use sys::{
@@ -4641,8 +4641,6 @@ pub(crate) use sys::{
 };
 #[cfg(all(unix, test))]
 pub(crate) use unix::input_ack_surface_fixture;
-#[cfg(unix)]
-pub use unix::unadoptable::*;
 #[cfg(unix)]
 pub(crate) use unix::{
     ClipboardReadSignal, ControlResponses, DeferredCellPixelResolution, StandbyTerminalHost,
