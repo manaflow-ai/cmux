@@ -147,6 +147,9 @@ pub struct CompactorSpec {
     pub timeout: Duration,
     /// This Chief's home id: the `cmux.chief` tag on every compactor session.
     pub chief: String,
+    /// The `env` of the user's Claude Code settings: the slots load no user
+    /// setting source, so their project settings carry it.
+    pub user_env: BTreeMap<String, String>,
 }
 
 /// Compactor sessions that live at once across the main and fallback
@@ -502,7 +505,11 @@ impl AcpmuxCompactor {
         // (sr resets CLAUDE_CONFIG_DIR, so the preset's user settings are
         // not), and the ones that take denied tools off the model's list.
         std::fs::create_dir_all(dir.join(".claude"))?;
-        write_settings_for(&dir.join(".claude").join("settings.json"), ttl)?;
+        write_settings_for(
+            &dir.join(".claude").join("settings.json"),
+            ttl,
+            &self.spec.user_env,
+        )?;
         std::fs::canonicalize(&dir)
     }
 
@@ -1102,13 +1109,17 @@ pub fn request_blocks(request: &CompactRequest) -> Vec<Value> {
 
 /// The compactor presets' harness arguments on a Claude harness: acpmux's
 /// allowlist of preset args, every one of which takes a capability away: no
-/// tools, no MCP servers, no transcript. The system prompt is the preset's
+/// tools, no MCP servers, no transcript, no user or local settings, no
+/// skills or slash commands. The system prompt is the preset's
 /// `systemPrompt` text (acpmux writes and checks the file), never a path.
-pub const COMPACTOR_ARGS: [&str; 4] = [
+pub const COMPACTOR_ARGS: [&str; 7] = [
     "--tools",
     "",
     "--strict-mcp-config",
     "--no-session-persistence",
+    "--setting-sources",
+    "project",
+    "--disable-slash-commands",
 ];
 
 /// The slot presets' system prompt at install, before any node sets its
@@ -1302,15 +1313,33 @@ pub fn prepare_config(dir: &Path) -> io::Result<()> {
 }
 
 fn write_settings(path: &Path) -> io::Result<()> {
-    write_settings_for(path, CacheTtl::OneHour)
+    write_settings_for(path, CacheTtl::OneHour, &BTreeMap::new())
 }
 
-fn write_settings_for(path: &Path, ttl: CacheTtl) -> io::Result<()> {
+/// The slot settings at `ttl`, with `user_env` (the user's Claude Code
+/// settings env: the slot loads no user setting source) under the slot's
+/// own env.
+fn write_settings_for(
+    path: &Path,
+    ttl: CacheTtl,
+    user_env: &BTreeMap<String, String>,
+) -> io::Result<()> {
+    let mut settings = compactor_settings_for(ttl);
+    if !user_env.is_empty() {
+        let mut env: serde_json::Map<String, Value> = user_env
+            .iter()
+            .map(|(k, v)| (k.clone(), Value::String(v.clone())))
+            .collect();
+        if let Some(own) = settings.get("env").and_then(Value::as_object) {
+            env.extend(own.clone());
+        }
+        settings["env"] = Value::Object(env);
+    }
     crate::session_dir::write_if_changed(
         path,
         format!(
             "{}\n",
-            serde_json::to_string_pretty(&compactor_settings_for(ttl)).map_err(io::Error::other)?
+            serde_json::to_string_pretty(&settings).map_err(io::Error::other)?
         )
         .as_bytes(),
     )
@@ -1444,6 +1473,7 @@ pub fn compactor_effort(family: Family) -> Option<String> {
 pub fn is_model_unavailable(message: &str) -> bool {
     let lower = message.to_ascii_lowercase();
     lower.contains("issue with the selected model")
+        || lower.contains("unrecognized_model")
         || lower.contains("may not exist or you may not have access")
         || (lower.contains("not_found_error") && lower.contains("model"))
 }
@@ -1469,6 +1499,7 @@ pub fn compactor_spec(
         effort: compactor_effort(family),
         timeout: CALL_TIMEOUT,
         chief: home_id(home),
+        user_env: crate::session_dir::user_settings_env(&user_claude_home()),
     }
 }
 
