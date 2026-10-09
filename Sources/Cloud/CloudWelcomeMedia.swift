@@ -228,12 +228,14 @@ struct CloudWelcomeMediaCarousel: View {
         }
         .frame(width: mediaFrame.width, height: mediaFrame.height)
         .background(shape.fill(Color.black.opacity(0.35)))
-        .overlay { mediaControls }
-        .clipShape(shape)
         .contentShape(shape)
         .onTapGesture {
             if autoplays { setPaused(!playback.isPaused) }
         }
+        // Keep the controls outside the clip's gesture so one button click
+        // cannot also toggle playback through the surrounding media surface.
+        .overlay { mediaControls }
+        .clipShape(shape)
         .onHover { hovering in
             withAnimation(.easeOut(duration: 0.15)) { isHoveringMedia = hovering }
         }
