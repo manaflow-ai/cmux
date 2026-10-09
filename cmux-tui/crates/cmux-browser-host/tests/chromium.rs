@@ -602,6 +602,66 @@ fn eval_without_a_session_is_one_shot() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Back-to-back one-shot calls (the agent default) share the profile's
+/// browser: the browser stays a while after a call ends, so the next call
+/// does not launch Chromium again (browser perf report R1: a relaunch cost
+/// 0.45-0.6 s per call on macOS).
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn one_shot_calls_reuse_the_profile_browser() {
+    let binary = std::env::var("CMUX_BROWSER_HOST_TEST_CHROME")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let dir = std::env::temp_dir().join(format!("cmux-host-linger-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("host.sock");
+    // The test's own host: stopped (exact PID) when the test ends, also on failure.
+    let _host = HostGuard::start(&socket, &binary);
+    let eval = |code: &str| -> (String, Duration) {
+        let started = Instant::now();
+        let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"))
+            .args(["eval", "--engine", "headless", "--socket"])
+            .arg(&socket)
+            .arg("-")
+            .current_dir(&dir)
+            .env("CMUX_BROWSER_HOST_CHROMIUM", &binary)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("run cmux-browser-host eval");
+        child.stdin.take().unwrap().write_all(code.as_bytes()).unwrap();
+        let out = child.wait_with_output().unwrap();
+        let text = format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        (text, started.elapsed())
+    };
+    // A call that opens no tab: the browser is unused when it ends. The
+    // first call launches Chromium; the next ones must find it running.
+    let times: Vec<Duration> = (0..5)
+        .map(|_| {
+            let (out, took) = eval("console.log(1 + 1);");
+            assert_eq!(out.trim(), "2");
+            took
+        })
+        .collect();
+    eprintln!("one-shot call times: {times:?}");
+    let mut later = times[1..].to_vec();
+    later.sort();
+    let median = later[later.len() / 2];
+    assert!(
+        median * 2 < times[0],
+        "one-shot calls after the first should reuse the running browser: first {:?}, later {:?}",
+        times[0],
+        &times[1..]
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A document navigation answers the main document's HTTP status, as
 /// Playwright's goto() Response does (scenario 12); reload too.
 #[test]
