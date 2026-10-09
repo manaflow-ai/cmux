@@ -43,7 +43,8 @@ enum AgentPaneContextMenu {
     }
 
     /// Replaces WebKit's items in `menu` with the pane's, in groups split by separators.
-    static func rebuild(_ menu: NSMenu, target: AgentPaneMessageTarget?, devTools: Bool, actions: Actions) {
+    static func rebuild(_ menu: NSMenu, target: AgentPaneMessageTarget?, devTools: Bool, chatMenu: [NSMenuItem] = [],
+                        actions: Actions) {
         let edits = menu.items.filter { editItems.contains($0.identifier?.rawValue ?? "") }
         let inspect = devTools ? menu.items.first { $0.identifier?.rawValue == inspectItem } : nil
         menu.removeAllItems()
