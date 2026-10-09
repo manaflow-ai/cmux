@@ -56,7 +56,7 @@ extension SidebarController {
             state.drag = SidebarPinDrag(id: c.id, source: .row, pinned: pinnedIDs)
         }
         state.grab = CGSize(width: p.x - frame.midX, height: p.y - frame.midY)
-        mouseMoved(nil)
+        // No hover to clear: MessagesLab f6fa7f5 removed the sidebar hover.
         CATransaction.begin(); CATransaction.setDisableActions(true)
         state.ghost?.removeFromSuperlayer()
         let ghost: CALayer
