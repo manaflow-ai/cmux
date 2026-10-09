@@ -180,6 +180,11 @@ final class LoadStateMessages: NSObject, WKScriptMessageHandler {
     }
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        if message.name == PageConsole.handler {
+            guard let (name, payload) = PageConsole.event(message.body) else { return }
+            driver?.emit(name, payload.merging(["targetId": .string(tabID.rawValue)]) { $1 })
+            return
+        }
         guard let body = message.body as? [String: Any], let name = body["state"] as? String,
               let state = LoadState(name: name), let document = body["doc"] as? String else { return }
         driver?.received(state, document: document, url: body["url"] as? String ?? "", title: body["title"] as? String,
