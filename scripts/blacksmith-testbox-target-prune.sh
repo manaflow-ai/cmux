@@ -19,7 +19,12 @@
 set -euo pipefail
 
 target="${1:?target dir}"
-max_bytes="${2:-$((40 * 1024 * 1024 * 1024))}"
+# 100 GiB: a cold feat-cmux-next session (workspace build, test build, test
+# run, clippy --all-targets) leaves a 92 GB target dir (Testbox
+# tbx_01m4ga0aa7r4zkaxqjbttdj0dq, 2026-10-09). A 40 GiB bound evicted whole
+# profiles on every release, so the next box rebuilt test and clippy output.
+# The sticky disk is 590 GB.
+max_bytes="${2:-$((100 * 1024 * 1024 * 1024))}"
 stale_days="${3:-3}"
 [[ "$max_bytes" =~ ^[0-9]+$ && "$stale_days" =~ ^[0-9]+$ ]] || {
   echo "max-bytes and stale-days must be integers" >&2
