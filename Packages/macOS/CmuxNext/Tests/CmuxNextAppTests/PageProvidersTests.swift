@@ -130,7 +130,7 @@ struct PageProvidersTests {
     /// cx-qoxe: a page writes the pasteboard only right after the person's own key, click or
     /// native menu choice in that page view (`PageCallContext.userGesture`, tracked by the host's
     /// PageWKWebView, never trusted from page script). Script alone cannot replace the clipboard.
-    @Test func aPageWritesTheClipboardOnlyOnTheUsersGesture() async throws {
+    @Test(.requiresPasteboard) func aPageWritesTheClipboardOnlyOnTheUsersGesture() async throws {
         let native = AppPageNativeProvider(services: ActionBindingCoverageTests.boundServices(), page: .history)
         var clipboard = ["mine"]
         native.writeClipboard = { clipboard.append($0) }
