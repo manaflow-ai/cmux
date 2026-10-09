@@ -29,6 +29,7 @@ Append-only. One line per landing: date, SHA, what moved where, old -> new lines
 - 2026-10-09 29db27d7f766: attach lifecycle -> server/attach_lifecycle.rs (388), tree/pane JSON views -> server/tree_json.rs (382), connection surface scheduler -> server/connection_scheduler.rs (443), worker and surface-operation admission -> server/worker_admission.rs (172). server.rs 6005 -> 4751. Gate: gate-run receipt (spec inventory + checker tests, tree inputs, godfile, fmt, clippy -D warnings core+cmux-tui, Windows --tests, core tests).
 - 2026-10-09 d9afdb93d999: subscribe arms (2) + subscribed_event_json, subscription_overflow_json -> server/cmd_subscribe.rs (308 lines). server.rs 4751 -> 4478. Gate: gate-run receipt (spec inventory + checker tests, tree inputs, godfile, fmt, clippy -D warnings core+cmux-tui, Windows --tests, core tests).
 - 2026-10-09 1a903c25edad: resource connection routing -> server/resource_connection.rs (446 lines). server.rs 4478 -> 4094. Gate: gate-run receipt (spec inventory + checker tests, tree inputs, godfile, fmt, clippy -D warnings core+cmux-tui, Windows --tests, core tests).
+- 2026-10-09 a1806a818923: client disconnect and detach -> server/disconnect.rs (271 lines). server.rs 4094 -> 3870. Gate: gate-run receipt (spec inventory + checker tests, tree inputs, godfile, fmt, clippy -D warnings core+cmux-tui, Windows --tests, core tests).
 
 ## Map: cmux-tui-core/src/server.rs (lane refactor-server-rs, base 2dba648cdbde, 27,370 lines)
 
@@ -74,3 +75,12 @@ Production families and their target modules (each one landing, file-disjoint):
 | 15917-27370 | inline unit tests | `server/tests/*.rs` by the same families, each at most 1,500 lines |
 
 Dependency rule for the later crate split: each new module imports only what it uses (no `use super::*` in production modules), items are `pub(super)` unless a client crate already uses the `crate::server::` path, and `pub` items stay re-exported from server.rs so outside paths do not change.
+
+## Status after round 3 (2026-10-09)
+
+server.rs is 3,870 lines (27,370 at the base). What stays and why:
+- `Command` (about 1,400 lines) and its wire types (`Request`, `DetachClientTarget`, `ClientIdentityWire`, `MutationRequest`, `LayoutRequest`): check-spec-inventory.py and check-sdk-schema.py read the enum and its field types from server.rs by path. Splitting the enum into family sub-enums changes the serde parser: a design task, not a move.
+- `handle_command_with_cancellation` (about 830 lines): pure routing now; every arm calls `cmd_<family>::<handler>`. Its size is the rustfmt-wrapped field patterns. Shrinking it means changing the arm shape (for example `cmd @ Command::X { .. }` with destructuring in the handler), which needs the checker's arm parser to learn that shape first.
+- The connection entry (`handle_connection_frame`, `handle_request_with_cancellation`), vt-state responses, auth helpers, and small shared helpers (`optional_surface_size`, `get_surface`, `require_pty`, `terminal_colors_json`).
+- About 60 one-line arms that already delegate to their family modules (conversations, cloud, bookmarks, browser profiles, URL open, clipboard).
+Next candidates: the shared response/request helper types to `server/wire.rs`, and the checker change that lets the dispatch arms use the compact shape.

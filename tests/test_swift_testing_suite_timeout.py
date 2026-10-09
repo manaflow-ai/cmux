@@ -956,6 +956,48 @@ class DirectBundleSuiteTests(unittest.TestCase):
             self.assertIn("CMUX_SWIFT_TEST_DIRECT", completed.stdout)
             self.assertFalse((temp / "swift-calls.txt").exists())
 
+    def test_debug_info_option_reaches_every_swift_call(self) -> None:
+        """aws-m4pro-8, Xcode 26.6 (2026-10-09): dsymutil of the 444 MB CmuxNext
+        test bundle took 8.1 s of every test build. CMUX_SWIFT_TEST_DEBUG_INFO=none
+        passes -debug-info-format none to the list build and to every later swift
+        call (with other flags they would plan a different build); dwarf adds none."""
+        for value, want in (("none", True), ("dwarf", False)):
+            for direct in ("1", "0"):
+                with self.subTest(value=value, direct=direct), tempfile.TemporaryDirectory() as temp_dir:
+                    temp = pathlib.Path(temp_dir).resolve()
+                    package, env = self._setup(temp)
+                    env["CMUX_SWIFT_TEST_DEBUG_INFO"] = value
+                    env["CMUX_SWIFT_TEST_DIRECT"] = direct
+                    if direct == "0":
+                        # The fallback runs the suites through the fake swift.
+                        (temp / "bin" / "swift").write_text(
+                            "#!/usr/bin/env bash\n"
+                            "printf 'swift %s\\n' \"$*\" >> \"$CMUX_SWIFT_TEST_CALLS\"\n"
+                            "if [[ \"$*\" == *\"test list\"* ]]; then echo 'Example.StSuite/one()'; exit 0; fi\n"
+                            "echo 'Test run with 1 test passed after 0.001 seconds.'\n",
+                            encoding="utf-8",
+                        )
+
+                    completed = run_runner(package, env, default_direct=None)
+
+                    self.assertEqual(completed.returncode, 0, completed.stdout)
+                    swift_calls = (temp / "swift-calls.txt").read_text(encoding="utf-8").splitlines()
+                    self.assertGreaterEqual(len(swift_calls), 2, swift_calls)
+                    for call in swift_calls:
+                        self.assertEqual("-debug-info-format none" in call, want, call)
+
+    def test_invalid_debug_info_value_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp = pathlib.Path(temp_dir).resolve()
+            package, env = self._setup(temp)
+            env["CMUX_SWIFT_TEST_DEBUG_INFO"] = "line-tables"
+
+            completed = run_runner(package, env)
+
+            self.assertEqual(completed.returncode, 2, completed.stdout)
+            self.assertIn("CMUX_SWIFT_TEST_DEBUG_INFO must be", completed.stdout)
+            self.assertFalse((temp / "swift-calls.txt").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

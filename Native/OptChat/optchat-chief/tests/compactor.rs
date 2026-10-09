@@ -2281,3 +2281,39 @@ fn every_compactor_request_stays_within_four_cache_marks() {
     }
     assert!(ours_total >= 3, "the marked shapes carried no mark of ours");
 }
+
+/// Import time is 5.7x the reference's; before changing the session count,
+/// each node's trace says where its time went: waiting for a session slot,
+/// starting the Claude Code sessions, and each prompt until its first
+/// output and until its answer (a fresh size retry adds its own).
+#[test]
+fn a_node_trace_splits_its_time_by_slot_wait_session_start_and_prompt() {
+    let dir = tempfile::tempdir().unwrap();
+    let traces = dir.path().join("traces");
+    let agents = FakeAgents::new(Box::new(|turn, _| {
+        if turn == 0 {
+            answer(&format!("user: {}", "w".repeat(700)))
+        } else {
+            answer("user: a line")
+        }
+    }));
+    let compactor = compactor(&agents, dir.path())
+        .with_trace(optchat_chief::trace::Trace::open(&traces, false).unwrap());
+    run_node(&compactor, &request(7)).unwrap();
+    let mut nodes = Vec::new();
+    for entry in std::fs::read_dir(&traces).unwrap().flatten() {
+        let text = std::fs::read_to_string(entry.path()).unwrap();
+        nodes.extend(
+            text.lines()
+                .map(|l| serde_json::from_str::<Value>(l).unwrap())
+                .filter(|e| e["ev"] == "node"),
+        );
+    }
+    assert_eq!(nodes.len(), 1, "{nodes:?}");
+    let timing = &nodes[0]["timing"];
+    assert_eq!(nodes[0]["prompts"], 2);
+    assert_eq!(timing["prompt_ms"].as_array().unwrap().len(), 2, "{timing}");
+    assert_eq!(timing["ttft_ms"].as_array().unwrap().len(), 2, "{timing}");
+    assert!(timing["slot_wait_ms"].is_u64(), "{timing}");
+    assert!(timing["session_start_ms"].is_u64(), "{timing}");
+}
