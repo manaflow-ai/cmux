@@ -67,6 +67,48 @@ struct BrowserReplPinnedFileAccessTests {
         #expect(text?.contains("outside secret") != true, "the load read a file outside the session's directories through a link swapped in after it started")
     }
 
+    /// WebKit loads a history item (back, forward), a reload or a
+    /// restored page itself, without the driver's check. A link another
+    /// session swapped in below the root since the page first loaded must
+    /// not lead such a load outside the session's directories either.
+    @Test("Going back to, or reloading, a session's file page after a link was swapped in below the root reads nothing outside it")
+    func aHistoryLoadAfterALinkSwapReadsNothingOutside() async throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let manager = FileManager.default
+        try manager.createDirectory(atPath: scratch.root + "/site", withIntermediateDirectories: true)
+        try Data("<p>own page</p>".utf8).write(to: URL(fileURLWithPath: scratch.root + "/site/index.html"))
+        try Data("<p>other page</p>".utf8).write(to: URL(fileURLWithPath: scratch.root + "/other.html"))
+        try Data("<p>outside secret</p>".utf8).write(to: URL(fileURLWithPath: scratch.outside + "/index.html"))
+        let roots = [BrowserReplFileRoot(path: scratch.root)]
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
+        func load(_ path: String) async throws {
+            let waiter = FileLoadWaiter()
+            webView.navigationDelegate = waiter
+            let url = URL(fileURLWithPath: scratch.root + path)
+            _ = try BrowserReplFileSandbox.withPinnedFileAccess(url.absoluteString, roots: roots, in: webView) { readAccess in
+                webView.loadFileURL(url, allowingReadAccessTo: readAccess)
+            }
+            await waiter.wait()
+        }
+        func replay(_ start: (WKWebView) -> WKNavigation?) async -> String? {
+            let waiter = FileLoadWaiter()
+            webView.navigationDelegate = waiter
+            if start(webView) != nil { await waiter.wait() }
+            return try? await webView.evaluateJavaScript("document.body ? document.body.innerText : ''") as? String
+        }
+        try await load("/site/index.html")
+        try await load("/other.html")
+        // Another session moves the page's directory away and a link to a
+        // directory outside takes its name.
+        try manager.moveItem(atPath: scratch.root + "/site", toPath: scratch.root + "/site-old")
+        try manager.createSymbolicLink(atPath: scratch.root + "/site", withDestinationPath: scratch.outside)
+        let back = await replay { $0.goBack() }
+        #expect(back?.contains("outside secret") != true, "going back read a file outside the session's directories through the swapped link")
+        let reloaded = await replay { $0.reload() }
+        #expect(reloaded?.contains("outside secret") != true, "a reload read a file outside the session's directories through the swapped link")
+    }
+
     @Test("A pinned load with nothing renamed shows its own page")
     func aPinnedLoadWithNothingRenamedShowsItsPage() async throws {
         let scratch = try Scratch()
