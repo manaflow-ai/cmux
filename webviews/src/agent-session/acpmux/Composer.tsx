@@ -84,6 +84,8 @@ export type ComposerHandle = {
   /// Sends what is typed now, as Enter would, even while `blocked` is still drawn (the user just
   /// answered Trust for the prompt the composer held). False when nothing went.
   send(): boolean;
+  /// Puts the caret in the prompt (Edit and Resend).
+  focus(): void;
 };
 
 type Props = {
@@ -302,6 +304,7 @@ export function Composer({
           ]);
       },
       send: () => submitNow.current(true),
+      focus: () => field.current?.focus(),
     }),
     [],
   );
