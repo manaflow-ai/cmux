@@ -4,7 +4,7 @@ search field (Lawrence 2026-10-09: "after cmd ctrl m we need to be focused in th
 models' area"). GUI host only (cmux-lawrence-2), under nx-remote; never on a laptop.
 
 It downloads the fleet build of `--job`, starts it with its own tag and ACPMUX_HOME, opens an agent
-chat, and for each opener (Cmd-Ctrl-M through debug.key, automation open_menu "Model") reads the
+chat, and for each opener (Cmd-Ctrl-M through debug.key, the palette action agentPane.switchModel, automation open_menu "Model") reads the
 page's focused element (chat_state.focus) after the menu opens. On exit the tag's daemons stop
 (tag_teardown.py); only this job's own app copy is stopped, by exact PID.
 
@@ -150,6 +150,12 @@ try:
     time.sleep(0.8)
     report["cmd_ctrl_m"] = {"key": key, "focus": focus()}
     say("after Cmd-Ctrl-M focus:", report["cmd_ctrl_m"]["focus"])
+    closed()
+    # 2. The palette's Switch Model… (agentPane.switchModel; absent on builds without it).
+    ran = rpc("action.run", {"action": "agentPane.switchModel", "focus": True})
+    time.sleep(0.8)
+    report["palette_switch_model"] = {"result": ran, "focus": focus()}
+    say("after action.run agentPane.switchModel:", json.dumps(ran)[:160], "focus:", report["palette_switch_model"]["focus"])
     closed()
     # 2. Automation opens the menu by its label, as a click does.
     menu = pane("open_menu", label="Model")
