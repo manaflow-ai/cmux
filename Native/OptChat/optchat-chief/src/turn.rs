@@ -688,7 +688,8 @@ pub fn capacity_retry_after(error: &str) -> Option<Duration> {
 }
 
 /// Runs `outcome`'s turn again while its route refuses it for want of
-/// capacity: each time it waits the retry-after (a newer message ends the
+/// capacity or cannot be reached ([`transient_retry_after`]): each time it
+/// waits (a newer message ends the
 /// wait, and the turn then stops as for that message), with one log line
 /// and one trace event, and never posts the refusal. Past
 /// [`CAPACITY_MAX_WAIT`] in all, the refusal stays the turn's error.
@@ -703,15 +704,21 @@ pub fn run_after_capacity_waits(
     let mut waited = Duration::ZERO;
     let mut attempt = 0u32;
     loop {
-        let Some(wait) = outcome.error.as_deref().and_then(capacity_retry_after) else {
+        let error = outcome.error.clone().unwrap_or_default();
+        let Some(wait) = transient_retry_after(&error, attempt) else {
             return outcome;
+        };
+        let why = if capacity_retry_after(&error).is_some() {
+            "the model route has no capacity now"
+        } else {
+            "the model API cannot be reached now"
         };
         if outcome.reply.is_some() || waited + wait > CAPACITY_MAX_WAIT || interrupt.is_set() {
             return outcome;
         }
         attempt += 1;
         log(&format!(
-            "turn {}: the model route has no capacity now; running the turn again in {} s (attempt {attempt})",
+            "turn {}: {why}; running the turn again in {} s (attempt {attempt})",
             start.key,
             wait.as_secs()
         ));
@@ -727,4 +734,46 @@ pub fn run_after_capacity_waits(
         next.prompt_id = format!("{}:capacity{attempt}", start.prompt_id);
         outcome = again(&next);
     }
+}
+
+/// Tries a turn gets after a connection error before the error stands.
+pub const CONNECTION_TRIES: u32 = 8;
+/// The longest wait between two tries after a connection error.
+pub const CONNECTION_MAX_WAIT: Duration = Duration::from_secs(60);
+
+/// Whether `error` says the model API could not be reached at all (DNS,
+/// refused or reset connections, Claude Code's "Can't reach the API
+/// server" once its own retries end).
+pub fn is_connection_error(error: &str) -> bool {
+    let lower = error.to_ascii_lowercase();
+    [
+        "can't reach the api",
+        "connection error",
+        "enotfound",
+        "econnrefused",
+        "econnreset",
+        "etimedout",
+        "eai_again",
+        "getaddrinfo",
+        "fetch failed",
+        "socket hang up",
+        "network error",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle))
+}
+
+/// The wait before try `attempt` (0-based) runs a turn again after a
+/// transient error: a capacity refusal's own retry-after, or for a
+/// connection error 1 s doubling to [`CONNECTION_MAX_WAIT`] for
+/// [`CONNECTION_TRIES`] tries. None for any other error, and once the tries
+/// are spent.
+pub fn transient_retry_after(error: &str, attempt: u32) -> Option<Duration> {
+    if let Some(wait) = capacity_retry_after(error) {
+        return Some(wait);
+    }
+    if !is_connection_error(error) || attempt >= CONNECTION_TRIES {
+        return None;
+    }
+    Some(Duration::from_secs(1u64 << attempt.min(16)).min(CONNECTION_MAX_WAIT))
 }

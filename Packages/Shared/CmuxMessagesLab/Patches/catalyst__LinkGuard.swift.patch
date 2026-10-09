@@ -1,0 +1,45 @@
+--- a/Sources/MessagesLabHome/Vendor/catalyst/LinkGuard.swift
++++ b/Sources/MessagesLabHome/Vendor/catalyst/LinkGuard.swift
+@@ -126,7 +126,7 @@
+         var out: [String] = []
+         var p = list
+         while let ai = p {
+-            var buf = [CChar](repeating: 0, count: Int(NI_MAXHOST))
++            var buf = [CChar](repeating: 0, count: Int(truncatingIfNeeded: NI_MAXHOST)) /* cmux: a constant that widens exactly */
+             if getnameinfo(ai.pointee.ai_addr, ai.pointee.ai_addrlen, &buf, socklen_t(buf.count), nil, 0, NI_NUMERICHOST) == 0 {
+                 let s = String(cString: buf)
+                 out.append(s.split(separator: "%").first.map(String.init) ?? s)   // drop a scope id
+@@ -168,21 +168,25 @@
+ 
+     /// Sixteen bytes.
+     static func isPublicV6(_ b: [UInt8]) -> Bool {
+-        let zero10 = b[0..<10].allSatisfy { $0 == 0 }
++        // cmux: checked reads and clamped slices (crash program); not sixteen bytes is not public.
++        guard b.count == 16 else { return false }
++        func at(_ i: Int) -> UInt8? { b[checked: i] }
++        func v4(_ lo: Int) -> Bool { isPublicV4(Array(b.slice(lo, lo + 4))) }
++        let zero10 = b.slice(0, 10).allSatisfy { $0 == 0 }
+         if b.allSatisfy({ $0 == 0 }) { return false }                                    // ::
+-        if b[0..<15].allSatisfy({ $0 == 0 }) && b[15] == 1 { return false }               // ::1
+-        if zero10 && b[10] == 0xff && b[11] == 0xff { return isPublicV4(Array(b[12..<16])) }   // ::ffff:a.b.c.d
+-        if b[0..<12].allSatisfy({ $0 == 0 }) { return isPublicV4(Array(b[12..<16])) }    // ::a.b.c.d (compatible)
+-        if b[0] == 0x00 && b[1] == 0x64 && b[2] == 0xff && b[3] == 0x9b && b[4..<12].allSatisfy({ $0 == 0 }) {
+-            return isPublicV4(Array(b[12..<16]))                                          // NAT64 64:ff9b::/96
++        if b.slice(0, 15).allSatisfy({ $0 == 0 }) && at(15) == 1 { return false }               // ::1
++        if zero10 && at(10) == 0xff && at(11) == 0xff { return v4(12) }                       // ::ffff:a.b.c.d
++        if b.slice(0, 12).allSatisfy({ $0 == 0 }) { return v4(12) }                           // ::a.b.c.d (compatible)
++        if at(0) == 0x00 && at(1) == 0x64 && at(2) == 0xff && at(3) == 0x9b && b.slice(4, 12).allSatisfy({ $0 == 0 }) {
++            return v4(12)                                                                     // NAT64 64:ff9b::/96
+         }
+         if b[0] == 0xfe && (b[1] & 0xc0) == 0x80 { return false }                         // fe80::/10 link-local
+         if b[0] == 0xfe && (b[1] & 0xc0) == 0xc0 { return false }                         // fec0::/10 site-local
+         if (b[0] & 0xfe) == 0xfc { return false }                                         // fc00::/7 unique-local
+         if b[0] == 0xff { return false }                                                  // multicast
+         if b[0] == 0x20 && b[1] == 0x01 && b[2] == 0x0d && b[3] == 0xb8 { return false }  // 2001:db8::/32 documentation
+-        if b[0] == 0x01 && b[1..<8].allSatisfy({ $0 == 0 }) { return false }              // 100::/64 discard
+-        if b[0] == 0x20 && b[1] == 0x02 { return isPublicV4(Array(b[2..<6])) }           // 6to4 2002::/16 embeds v4
++        if at(0) == 0x01 && b.slice(1, 8).allSatisfy({ $0 == 0 }) { return false }              // 100::/64 discard
++        if at(0) == 0x20 && at(1) == 0x02 { return v4(2) }                                      // 6to4 2002::/16 embeds v4
+         return true
+     }
+ }
