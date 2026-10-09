@@ -1,7 +1,7 @@
 public import AppKit
 public import CmuxHomeCore
 public import CmuxHomeRender
-import CmuxNextDesign
+public import CmuxNextDesign
 import MessagesLabHome
 
 /// The Home transcript (plans/cmux-next/home-mac.md): MessagesLabAppKitNative's
