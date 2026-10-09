@@ -320,6 +320,39 @@ SOFTWARE.
 
 ---
 
+<!-- notices-section: manual-monocode-live-model-lists -->
+## MonoCode (live model lists)
+
+acpmux's live model lists (`cmux-tui/crates/acpmux/src/live_models/`) follow
+MonoCode's catalog probes: the Claude Code `initialize` and `list_models`
+control requests, the `codex app-server` `model/list` pages, and how their
+rows map to models, reasoning efforts and fast mode. The adapted files keep
+the copyright line below in their headers.
+
+- **License:** MIT License
+- **Copyright:** Copyright (c) 2026 Nick
+- **Source:** https://github.com/hardbeat920/monocode (commit `d26871f246d34479795bc9a00513b43d4d18add2`)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
 <!-- notices-section: manual-sparkle -->
 ## Sparkle
 
