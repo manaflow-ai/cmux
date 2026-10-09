@@ -186,6 +186,7 @@ mod tests {
 
     fn request() -> CompactRequest {
         CompactRequest {
+            imported: false,
             node: NodeId::new(0, 3),
             system: "SYS".into(),
             context: "<chat>\n</chat>".into(),
@@ -224,6 +225,7 @@ mod tests {
         }
         context.push_str("</chat>");
         let request = CompactRequest {
+            imported: false,
             context: context.clone(),
             ..request()
         };
