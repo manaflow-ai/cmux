@@ -166,3 +166,31 @@ fn without_a_db_rollout_files_are_read_and_zst_has_no_count() {
     assert!(old.archived);
     assert_eq!(old.created_ms, Some(1_788_251_400_000));
 }
+
+/// Codex 0.159/0.160 `threads`: `has_user_event` stays 0 on every thread
+/// (it is no longer written); the prompt columns carry the user's text.
+#[test]
+fn codex_0_160_threads_with_has_user_event_0_are_listed_when_they_have_a_prompt() {
+    let dir = tempfile::tempdir().unwrap();
+    let conn = Connection::open(dir.path().join("state_5.sqlite")).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE threads (id TEXT PRIMARY KEY, rollout_path TEXT, created_at INTEGER, updated_at INTEGER,
+         source TEXT, cwd TEXT, title TEXT, has_user_event INTEGER NOT NULL DEFAULT 0, archived INTEGER DEFAULT 0,
+         cli_version TEXT, first_user_message TEXT, agent_nickname TEXT, agent_role TEXT,
+         created_at_ms INTEGER, updated_at_ms INTEGER, thread_source TEXT, preview TEXT, name TEXT, originator TEXT);
+         INSERT INTO threads (id, cwd, title, has_user_event, cli_version, first_user_message, created_at_ms, updated_at_ms, preview)
+           VALUES ('t-prompted', '/w', 'fix the build', 0, '0.160.0', 'fix the build', 1790848800000, 1790852400000, 'fix the build');
+         INSERT INTO threads (id, cwd, has_user_event, cli_version, created_at_ms, updated_at_ms, name)
+           VALUES ('t-named', '/w', 0, '0.160.0', 1790848800000, 1790852400000, 'Named thread');
+         INSERT INTO threads (id, cwd, has_user_event, cli_version, created_at_ms, updated_at_ms, title, first_user_message, preview)
+           VALUES ('t-empty', '/w', 0, '0.160.0', 1790848800000, 1790852400000, '', '', '');
+         INSERT INTO threads (id, cwd, has_user_event, cli_version, first_user_message, created_at_ms, updated_at_ms, thread_source)
+           VALUES ('t-sub', '/w', 0, '0.160.0', 'spawned task', 1790848800000, 1790852400000, 'subagent');",
+    )
+    .unwrap();
+    let scan = scan(AdapterKind::Codex, dir.path());
+    assert_eq!(ids(&scan), ["t-prompted", "t-named"].map(String::from).into());
+    let chats = by_id(&scan);
+    assert_eq!(chats["t-prompted"].title.as_deref(), Some("fix the build"));
+    assert_eq!(chats["t-named"].title_source, Some(TitleSource::Custom));
+}
