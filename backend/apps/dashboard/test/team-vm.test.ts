@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { TeamVmCard, type TeamVmCardProps } from "../src/lib/team-vm-card.tsx"
-import { initialCardState, reduceCard, taintBadge, teamVmRequest, type CardState, type TeamVmView } from "../src/lib/team-vm.ts"
+import { callerRole, initialCardState, reduceCard, taintBadge, teamVmRequest, type CardState, type TeamVmView } from "../src/lib/team-vm.ts"
 import { teamVmErrorText, teamVmText } from "../src/lib/team-vm-strings.ts"
 
 const NOW = 1_800_000_000_000
@@ -160,5 +160,24 @@ describe("team VM strings", () => {
     const html = render({ view: tainted(), role: "owner", locale: "ja" })
     expect(html).toContain(teamVmText("ja", "action.rebuild"))
     expect(html).not.toContain(">Rebuild from snapshot<")
+  })
+})
+
+describe("caller role", () => {
+  const rows = (from: number, n: number) => Array.from({ length: n }, (_, i) => ({ user: `usr_${String(from + i).padStart(4, "0")}`, role: "member" }))
+  it("reads the role from the directory, and pages team.members.list for a caller past the first 200", async () => {
+    const calls: Array<string> = []
+    const page = async (cursor: string) => {
+      calls.push(cursor)
+      return cursor === "usr_0199" ? { members: [...rows(200, 199), { user: "usr_owner", role: "owner" }], next_cursor: "usr_owner" } : { members: [], next_cursor: null }
+    }
+    expect(await callerRole("usr_0005", rows(0, 200), page)).toBe("member")
+    expect(calls).toEqual([])
+    expect(await callerRole("usr_owner", rows(0, 200), page)).toBe("owner")
+    expect(calls).toEqual(["usr_0199"])
+    // A small team's directory is complete: no extra reads; an unknown caller has no role.
+    expect(await callerRole("usr_x", rows(0, 3), page)).toBeNull()
+    expect(await callerRole("usr_x", rows(0, 200), page)).toBeNull()
+    expect(calls).toEqual(["usr_0199", "usr_0199", "usr_owner"])
   })
 })

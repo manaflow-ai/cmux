@@ -109,3 +109,31 @@ export const teamVmRequest = (view: TeamVmView, dialog: Dialog | null): TeamVmRe
     }
   }
 }
+
+export interface MemberRow {
+  readonly user: string
+  readonly role: string
+}
+
+/** One team.members.list page: members after `cursor` (a user id), and the cursor of the next page or null. */
+export type MembersPage = (cursor: string) => Promise<{ readonly members: ReadonlyArray<MemberRow>; readonly next_cursor: string | null } | null>
+
+/**
+ * The caller's role. team.directory holds only the first `pageSize` members, so for a larger team
+ * this pages team.members.list from the directory's last member until it finds the caller (at most
+ * `maxPages` reads); null when the caller is not found.
+ */
+export const callerRole = async (me: string, directory: ReadonlyArray<MemberRow>, page: MembersPage, pageSize = 200, maxPages = 50): Promise<TeamRole | null> => {
+  if (!me) return null
+  const own = directory.find((m) => m.user === me)
+  if (own) return roleOf(own.role)
+  let cursor = directory.length >= pageSize ? directory.at(-1)?.user : undefined
+  for (let i = 0; cursor && i < maxPages; i++) {
+    const p = await page(cursor)
+    if (!p) return null
+    const found = p.members.find((m) => m.user === me)
+    if (found) return roleOf(found.role)
+    cursor = p.next_cursor ?? undefined
+  }
+  return null
+}
