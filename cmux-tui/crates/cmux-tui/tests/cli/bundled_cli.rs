@@ -27,7 +27,8 @@ impl Fixture {
             fs::create_dir_all(path).unwrap();
         }
         symlink(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../Resources/cmux-cli-path"),
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../../Resources/cmux-cli-path"),
             resources.join("cmux-cli-path"),
         )
         .unwrap();
@@ -153,7 +154,8 @@ fn daemon_started_shells_run_the_bundled_cli_after_user_startup_files() {
             assert_eq!(created.len(), 1, "{name} {create:?}: new surfaces {created:?}");
             let out = fixture.dir.join(format!("{name}-{index}.out"));
             let text = format!("{}\n", probe_text(&out));
-            let send = serde_json::json!({"id": 2, "cmd": "send", "surface": created[0], "text": text});
+            let send =
+                serde_json::json!({"id": 2, "cmd": "send", "surface": created[0], "text": text});
             json_socket_request(&server.socket, send);
             let label = format!("{name} {create:?}");
             let lines = Fixture::lines(&out, &label);
