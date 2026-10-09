@@ -19,6 +19,10 @@ export type MessageMenuTarget = {
   links?: string[];
 };
 
+/// What the page reports on `contextmenu`: the message under the pointer, and the selected
+/// transcript text when the pointer is inside it (Quote in Reply, Search the Web...).
+export type MessageMenuReport = Partial<MessageMenuTarget> & { selection?: string };
+
 /// Whether a turn can be forked now: acpmux serves forks, the pane is connected, no turn is
 /// running and the chat is on this computer (acpmux refuses the rest). The turn footer's Fork
 /// shows on the same rule.

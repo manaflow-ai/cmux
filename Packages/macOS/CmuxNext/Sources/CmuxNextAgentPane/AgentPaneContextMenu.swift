@@ -62,11 +62,18 @@ enum AgentPaneContextMenu {
         var retry: (String) -> Void = { _ in }
         var edit: (String) -> Void = { _ in }
         var open: (URL) -> Void = { _ in }
+        var search: (String) -> Void = { _ in }
+    }
+
+    /// The selected transcript text the page reported with the menu (it reports a selection only
+    /// when the pointer is inside it, never the composer's); nil without one.
+    static func selection(report body: Any?) -> String? {
+        nil
     }
 
     /// Replaces WebKit's items in `menu` with the pane's, in groups split by separators.
-    static func rebuild(_ menu: NSMenu, target: AgentPaneMessageTarget?, devTools: Bool, chatMenu: [NSMenuItem] = [],
-                        actions: Actions) {
+    static func rebuild(_ menu: NSMenu, target: AgentPaneMessageTarget?, selection: String? = nil, devTools: Bool,
+                        chatMenu: [NSMenuItem] = [], actions: Actions) {
         let edits = menu.items.filter { editItems.contains($0.identifier?.rawValue ?? "") }
         let inspect = devTools ? menu.items.first { $0.identifier?.rawValue == inspectItem } : nil
         menu.removeAllItems()
@@ -138,6 +145,23 @@ enum AgentPaneMenuStrings {
 
     static var openLinks: String {
         String(localized: "agentPane.menu.openLinks", defaultValue: "Open Links", bundle: .module)
+    }
+
+    static var quoteInReply: String {
+        String(localized: "agentPane.menu.quoteInReply", defaultValue: "Quote in Reply", bundle: .module)
+    }
+
+    static var askAboutThis: String {
+        String(localized: "agentPane.menu.askAboutThis", defaultValue: "Ask About This", bundle: .module)
+    }
+
+    /// What Ask About This writes under the quote, for the person to send or change.
+    static var askAboutThisPrompt: String {
+        String(localized: "agentPane.menu.askAboutThis.prompt", defaultValue: "Explain this.", bundle: .module)
+    }
+
+    static var searchTheWeb: String {
+        String(localized: "agentPane.menu.searchTheWeb", defaultValue: "Search the Web", bundle: .module)
     }
 
     static var forkFromHere: String {
