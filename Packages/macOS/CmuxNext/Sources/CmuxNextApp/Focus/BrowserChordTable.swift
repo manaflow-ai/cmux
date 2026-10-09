@@ -16,9 +16,9 @@ import CmuxNextActions
 /// consulted, so cmux keeps them.
 enum BrowserChordTable {
     private static let left = Shortcut.leftArrowKey
-    private static let right = String(Character(UnicodeScalar(UInt32(NSRightArrowFunctionKey))!))
-    private static let pageUp = String(Character(UnicodeScalar(UInt32(NSPageUpFunctionKey))!))
-    private static let pageDown = String(Character(UnicodeScalar(UInt32(NSPageDownFunctionKey))!))
+    private static let right = Shortcut.rightArrowKey
+    private static let pageUp = FunctionKeyCharacter.string(NSPageUpFunctionKey)
+    private static let pageDown = FunctionKeyCharacter.string(NSPageDownFunctionKey)
 
     /// The standard browser shortcuts on macOS, limited to Command and
     /// Control chords.

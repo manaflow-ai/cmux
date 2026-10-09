@@ -17,7 +17,7 @@ struct StaticURLTests {
 
 @MainActor
 struct FunctionKeyCharacterTests {
-    static let codes = [NSLeftArrowFunctionKey, NSRightArrowFunctionKey, NSUpArrowFunctionKey, NSDownArrowFunctionKey,
+    nonisolated static let codes = [NSLeftArrowFunctionKey, NSRightArrowFunctionKey, NSUpArrowFunctionKey, NSDownArrowFunctionKey,
                         NSPageUpFunctionKey, NSPageDownFunctionKey, NSHomeFunctionKey, NSEndFunctionKey, NSDeleteFunctionKey]
 
     @Test(arguments: codes)
