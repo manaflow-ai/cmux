@@ -364,3 +364,6 @@ fn a_close_after_a_host_loss_is_never_respawned() {
     assert_ne!(resolved["data"]["lifecycle"], "running", "{resolved}");
     wait_for_no_host_records(&harness.host_root());
 }
+
+#[path = "tab_restart.rs"]
+mod tab_restart;
