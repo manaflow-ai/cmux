@@ -152,6 +152,9 @@ use cmd_browser::browser_provider_registration;
 mod cmd_panes;
 mod cmd_profiles;
 mod cmd_screens;
+mod cmd_server;
+#[cfg(test)]
+use cmd_server::{machine_listening_tcp_json, stamped_build_commit, stamped_ghostty_commit};
 mod cmd_sizing;
 mod cmd_tabs;
 mod cmd_terminal_io;
@@ -445,16 +448,6 @@ pub(crate) use protocol_key::{
     decode_terminal_host_clear_history, encode_terminal_host_clear_history,
 };
 
-fn validate_client_focus_id(client_id: &str) -> anyhow::Result<()> {
-    if client_id.is_empty()
-        || client_id.len() > 128
-        || !client_id.bytes().all(|byte| byte.is_ascii_graphic())
-    {
-        anyhow::bail!("bad request: invalid client_id");
-    }
-    Ok(())
-}
-
 /// `machine-usage` result and `machine-usage-changed` payload body: `usage`
 /// is the readout object or null when the daemon has none.
 fn machine_usage_json(usage: Option<&MachineUsage>) -> Value {
@@ -467,57 +460,6 @@ fn machine_usage_json(usage: Option<&MachineUsage>) -> Value {
             "as_of": usage.as_of,
         })),
     })
-}
-
-fn machine_listening_tcp_json() -> anyhow::Result<Value> {
-    #[cfg(not(unix))]
-    {
-        anyhow::bail!("machine listening TCP inventory is not supported on this platform");
-    }
-    #[cfg(unix)]
-    {
-        const MAX_LISTING_BYTES: usize = 512 * 1024;
-        // The Cloud daemon runs as cmux while containerd runs as root. Use the
-        // guest's existing noninteractive sudo permission for this fixed read-only
-        // inventory when available; otherwise preserve the unprivileged inventory.
-        #[cfg(target_os = "linux")]
-        let candidates: &[(&str, &[&str])] = &[
-            ("sudo", &["-n", "ss", "-H", "-ltnp"]),
-            ("sudo", &["-n", "netstat", "-ltnp"]),
-            ("ss", &["-H", "-ltnp"]),
-            ("netstat", &["-ltnp"]),
-        ];
-        // netstat's -p means protocol on BSD/macOS.
-        #[cfg(not(target_os = "linux"))]
-        let candidates: &[(&str, &[&str])] = &[("ss", &["-H", "-ltnp"]), ("netstat", &["-ltn"])];
-        let mut failures = Vec::new();
-        for &(program, arguments) in candidates {
-            let output = match std::process::Command::new(program).args(arguments).output() {
-                Ok(output) => output,
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
-                Err(error) => {
-                    failures.push(format!("{program}: {error}"));
-                    continue;
-                }
-            };
-            if !output.status.success() {
-                failures.push(format!("{program}: exited with {}", output.status));
-                continue;
-            }
-            if output.stdout.len() > MAX_LISTING_BYTES {
-                anyhow::bail!("machine listening TCP inventory exceeded {MAX_LISTING_BYTES} bytes");
-            }
-            let stdout = String::from_utf8(output.stdout)
-                .context("machine listening TCP inventory was not UTF-8")?;
-            return Ok(json!({ "stdout": stdout }));
-        }
-        let detail = if failures.is_empty() {
-            "neither ss nor netstat is installed".to_string()
-        } else {
-            failures.join("; ")
-        };
-        anyhow::bail!("machine listening TCP inventory failed: {detail}");
-    }
 }
 
 #[derive(Deserialize)]
@@ -5187,77 +5129,21 @@ fn handle_command_with_cancellation(
         Command::SetTerminalCommandHistory { enabled } => {
             cmd_terminals::set_terminal_command_history(mux, client, enabled)
         }
-        Command::ServerStats { include } => {
-            if !mux.control_clients.is_unix(client) {
-                anyhow::bail!("server stats requires a trusted local connection");
-            }
-            Ok(serde_json::to_value(server_stats::server_stats(mux, include.as_deref()))?)
-        }
+        Command::ServerStats { include } => cmd_server::server_stats(mux, client, include),
         Command::BrowserHostProvider => cmd_browser::browser_host_provider(mux, client),
-        Command::Identify => {
-            let (registry_id, generation) = mux.registry_identity();
-            Ok(json!({
-                "app": "cmux-tui",
-                "version": env!("CARGO_PKG_VERSION"),
-                "build_commit": stamped_build_commit(),
-                "ghostty_commit": stamped_ghostty_commit(),
-                "protocol": PROTOCOL_VERSION,
-                "capabilities": identify_capabilities(mux),
-                "session": mux.session,
-                "pid": std::process::id(),
-                "session_id": registry_id,
-                "machine_name": crate::machine_name::machine_name(),
-                "registry_id": registry_id,
-                "generation": generation,
-                "workspace_revision": mux.with_state(|state| state.workspace_revision),
-                "terminal_revision": mux.terminal_registry_snapshot()?.revision,
-                "daemon_handoff": 1,
-                "lifecycle_ready": mux.server_lifecycle_ready(),
-                "launch_snapshot_path": mux.launch_snapshot_path(),
-            }))
-        }
+        Command::Identify => cmd_server::identify(mux),
         Command::ShutdownDaemon { pid, generation, force, end_terminals, keep_layout } => {
-            anyhow::ensure!(
-                end_terminals || !keep_layout,
-                "bad request: keep_layout requires end_terminals"
-            );
-            let actual_identity = mux.begin_daemon_handoff(
+            cmd_server::shutdown_daemon(
+                mux,
                 client,
-                DaemonHandoffRequest::fenced(pid, generation, force),
-            )?;
-            // The fenced handoff reservation is held, so no second shutdown
-            // can start while the hosts end. A failure releases it and keeps
-            // this daemon serving.
-            let ended_terminals = if end_terminals {
-                let ended = if keep_layout {
-                    mux.end_all_terminals_keeping_layout()
-                } else {
-                    mux.end_all_terminals()
-                };
-                match ended {
-                    Ok(ended) => Some(ended.len()),
-                    Err(error) => {
-                        mux.cancel_daemon_handoff(client);
-                        return Err(error);
-                    }
-                }
-            } else {
-                None
-            };
-            Ok(json!({
-                "accepted": true,
-                "pid": actual_identity.pid,
-                "generation": actual_identity.generation,
-                "ended_terminals": ended_terminals,
-            }))
+                pid,
+                generation,
+                force,
+                end_terminals,
+                keep_layout,
+            )
         }
-        Command::Ping => Ok(json!({
-            "ok": true,
-            "version": env!("CARGO_PKG_VERSION"),
-            "build_commit": stamped_build_commit(),
-            "ghostty_commit": stamped_ghostty_commit(),
-            "protocol": PROTOCOL_VERSION,
-        })),
+        Command::Ping => cmd_server::ping(),
         Command::SetClientInfo {
             name,
             kind,
@@ -5267,21 +5153,21 @@ fn handle_command_with_cancellation(
             device_kind,
             device_name,
             device_id,
-        } => {
-            let identity =
-                ClientIdentityWire { user_id, display_name, device_kind, device_name, device_id };
-            let identity_changed = !identity.is_empty();
-            let (name, kind) = mux.control_clients.set_info(client, name, kind, capabilities)?;
-            if identity_changed {
-                mux.control_clients.set_sizing_identity(client, identity);
-            }
-            mux.refresh_terminal_client_identity(client);
-            mux.emit(MuxEvent::ClientChanged { client, name, kind });
-            Ok(json!({}))
-        }
-        Command::ListClients => Ok(mux.control_clients_json(client)),
-        Command::MachineUsage => Ok(machine_usage_json(mux.machine_usage().as_ref())),
-        Command::MachineListeningTcp => machine_listening_tcp_json(),
+        } => cmd_server::set_client_info(
+            mux,
+            client,
+            name,
+            kind,
+            capabilities,
+            user_id,
+            display_name,
+            device_kind,
+            device_name,
+            device_id,
+        ),
+        Command::ListClients => cmd_server::list_clients(mux, client),
+        Command::MachineUsage => cmd_server::machine_usage(mux),
+        Command::MachineListeningTcp => cmd_server::machine_listening_tcp(),
         Command::RegisterBrowserProvider {
             provider_id,
             endpoint,
@@ -5307,15 +5193,7 @@ fn handle_command_with_cancellation(
             cmd_sizing::set_client_sizing(mux, client, surface, target, enabled, exclusive)
         }
         Command::PairingResponse { request, approve } => {
-            if !mux.control_clients.is_unix(client) {
-                anyhow::bail!("pairing decisions require a trusted local connection");
-            } else if approve && !origin_gate::may_approve_pairing(mux, client) {
-                anyhow::bail!(origin_gate::PAIRING_APPROVAL_NEEDS_HUMAN);
-            }
-            if !mux.respond_pairing(request, approve) {
-                anyhow::bail!("unknown or expired pairing request {request}");
-            }
-            Ok(json!({}))
+            cmd_server::pairing_response(mux, client, request, approve)
         }
         Command::DetachClient { client: target, by, surface } => {
             cmd_attach::detach_client(mux, client, target, by, surface)
@@ -5342,21 +5220,9 @@ fn handle_command_with_cancellation(
             cmd_attach::reattach_view(mux, client, surface, counts)
         }
         Command::GetSizeState { surface } => cmd_sizing::get_size_state(mux, client, surface),
-        Command::ReloadConfig => {
-            mux.request_config_reload()?;
-            Ok(json!({
-                "reloaded": true,
-                "path": platform::config_path().map(|path| path.display().to_string()),
-            }))
-        }
-        Command::SetWindowTitle { title } => {
-            mux.emit(MuxEvent::WindowTitleRequested(title));
-            Ok(json!({}))
-        }
-        Command::ClearWindowTitle => {
-            mux.emit(MuxEvent::WindowTitleRequested(String::new()));
-            Ok(json!({}))
-        }
+        Command::ReloadConfig => cmd_server::reload_config(mux),
+        Command::SetWindowTitle { title } => cmd_server::set_window_title(mux, title),
+        Command::ClearWindowTitle => cmd_server::clear_window_title(mux),
         Command::ListWorkspaces => cmd_workspaces::list_workspaces(mux),
         Command::GetFrontendProjection { frontend, scope, subject_key } => {
             let projection = mux.get_frontend_projection(&frontend, &scope, &subject_key)?;
@@ -6092,24 +5958,9 @@ fn handle_command_with_cancellation(
             cmd_workspaces::select_workspace(mux, actor, index, delta)
         }
         Command::ReportFocus { client_id, pane, tab } => {
-            validate_client_focus_id(&client_id)?;
-            if !mux.with_state(|state| state.panes.contains_key(&pane)) {
-                anyhow::bail!("unknown pane {pane}");
-            }
-            // A report only writes memory (the session's last reported focus
-            // and this client's own record). It never moves the live shared
-            // focus, so other attached clients stay where they are.
-            mux.record_session_focus(pane, tab);
-            mux.remember_client_focus(client_id, pane, tab);
-            Ok(json!({}))
+            cmd_server::report_focus(mux, client_id, pane, tab)
         }
-        Command::ClientFocus { client_id } => {
-            validate_client_focus_id(&client_id)?;
-            Ok(match mux.client_focus(&client_id).or_else(|| mux.session_focus()) {
-                Some((pane, tab)) => json!({"pane": pane, "tab": tab}),
-                None => json!({"pane": null, "tab": null}),
-            })
-        }
+        Command::ClientFocus { client_id } => cmd_server::client_focus(mux, client_id),
         Command::SnapshotRequest(params) => cmd_terminal_io::snapshot_request(mux, client, params),
         Command::TerminalHistory(params) => cmd_terminals::terminal_history(mux, params),
         Command::TerminalReadRange(params) => cmd_terminals::terminal_read_range(mux, params),
@@ -6276,16 +6127,6 @@ fn keep_created_terminal(mux: &Mux, terminal_id: Option<&str>) -> anyhow::Result
         Some(terminal_id) => mux.set_terminal_keep(terminal_id, true),
         None => Ok(()),
     }
-}
-
-fn stamped_build_commit() -> Option<&'static str> {
-    option_env!("CMUX_TUI_BUILD_COMMIT")
-        .or(option_env!("CMUX_MUX_BUILD_COMMIT"))
-        .filter(|commit| !commit.is_empty())
-}
-
-fn stamped_ghostty_commit() -> Option<&'static str> {
-    option_env!("CMUX_TUI_GHOSTTY_COMMIT").filter(|commit| !commit.is_empty())
 }
 
 fn subscribed_event_json(event: &MuxEvent) -> Value {
