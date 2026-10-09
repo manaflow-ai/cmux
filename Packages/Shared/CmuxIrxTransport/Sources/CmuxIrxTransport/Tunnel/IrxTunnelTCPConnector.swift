@@ -51,7 +51,7 @@ public struct IrxTunnelNetworkConnector: IrxTunnelConnecting {
             var cursor: UnsafeMutablePointer<addrinfo>? = first
             while let info = cursor, addresses.count < 16 {
                 if let sockaddr = info.pointee.ai_addr {
-                    switch Int32(sockaddr.pointee.sa_family) {
+                    switch Int32(clamping: sockaddr.pointee.sa_family) {
                     case AF_INET:
                         sockaddr.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { pointer in
                             var address = pointer.pointee.sin_addr

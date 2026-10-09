@@ -608,7 +608,7 @@ actor CmxConnectivityPeerSession {
                 } else if expiredRetiredDialWaiters.remove(waiterID) != nil {
                     continuation.resume()
                 } else {
-                    retiredDialWaiters[waiterID] = continuation
+                    retiredDialWaiters.updateValue(continuation, forKey: waiterID)
                 }
             }
         } onCancel: {

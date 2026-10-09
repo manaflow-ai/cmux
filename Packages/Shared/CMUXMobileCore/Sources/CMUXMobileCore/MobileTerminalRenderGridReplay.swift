@@ -64,7 +64,7 @@ public struct MobileTerminalRenderGridReplay: Sendable {
 
     private func deltaPatchBytes() -> Data {
         var bytes = Data()
-        let stylesByID = styleMapByID(frame.styles)
+        let stylesByID: [Int: MobileTerminalRenderGridFrame.Style] = styleMapByID(frame.styles)
         let defaultStyle = stylesByID[0] ?? .default
         let autowrapMode = deltaReplayAutowrapMode()
         if frame.cursor == nil { bytes.append(Data("\u{1B}[s".utf8)) }
@@ -108,7 +108,7 @@ public struct MobileTerminalRenderGridReplay: Sendable {
 
     private func fullSnapshotBytes() -> Data {
         var bytes = Data()
-        let stylesByID = styleMapByID(frame.styles)
+        let stylesByID: [Int: MobileTerminalRenderGridFrame.Style] = styleMapByID(frame.styles)
         let defaultStyle = stylesByID[0] ?? .default
         // Leads with DECSCUSR 0: cursor shape is per-screen state in Ghostty
         // and survives the alternate-screen roundtrip, so without this a stale

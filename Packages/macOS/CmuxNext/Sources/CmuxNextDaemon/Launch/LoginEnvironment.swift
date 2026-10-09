@@ -50,7 +50,7 @@ public struct LoginEnvironment: Sendable {
                 timeout: timeout,
                 clock: clock
             )
-            guard result.status == 0, let env = parse(result.stdout), env["PATH"] != nil else {
+            guard result.status == 0, let env: [String: String] = parse(result.stdout), env["PATH"] != nil else {
                 logger.error("login env capture failed: status \(result.status)")
                 return nil
             }
