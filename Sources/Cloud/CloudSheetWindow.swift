@@ -145,6 +145,5 @@ struct CloudSheetContent<Content: View>: View {
             } action: { size in
                 report.owner?.contentIdealSizeChanged(size)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 }
