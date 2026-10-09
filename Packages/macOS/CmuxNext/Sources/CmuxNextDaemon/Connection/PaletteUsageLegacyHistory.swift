@@ -30,7 +30,7 @@ public struct PaletteUsageLegacyHistory: Sendable, Equatable {
             .compactMap { file in
                 guard let data = try? Data(contentsOf: file),
                       let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
-                      let stored = plist[key] as? Data,
+                      let stored = plist.first(where: { $0.key == key })?.value as? Data,
                       let former = try? JSONDecoder().decode(Former.self, from: stored) else { return nil }
                 let rows = importRows(former)
                 return rows.isEmpty ? nil : PaletteUsageLegacyHistory(source: file.deletingPathExtension().lastPathComponent, rows: rows)
@@ -43,8 +43,10 @@ public struct PaletteUsageLegacyHistory: Sendable, Equatable {
                 && $0.value.score.isFinite && $0.value.score > 0 }
             .sorted { $0.key < $1.key }
             .prefix(500)
-            .map { key, entry in
-                let milliseconds = UInt64(max(0, (entry.lastUsed + Date.timeIntervalBetween1970AndReferenceDate) * 1000))
+            .compactMap { key, entry in
+                // A time that is not a whole non-negative millisecond count is skipped, not trapped.
+                let millisecondsValue = ((entry.lastUsed + Date.timeIntervalBetween1970AndReferenceDate) * 1000).rounded(.down)
+                guard let milliseconds = UInt64(exactly: max(0, millisecondsValue)) else { return nil }
                 return .object(["key": .string(key), "score": .number(entry.score), "last_used_ms": .string(String(milliseconds))])
             }
     }
