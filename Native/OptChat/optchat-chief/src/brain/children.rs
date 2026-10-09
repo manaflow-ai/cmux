@@ -42,6 +42,7 @@ impl Brain {
                 }
                 self.adopt_orphans();
                 self.reconcile_children();
+                self.prewarm_next_turn();
                 self.maybe_start_turn();
             }
             AgentEvent::Down => self.agents_up = false,
@@ -266,7 +267,7 @@ impl Brain {
         );
         let (text, next_floor) = match self.agents.events(id, floor) {
             Ok(events) => {
-                let (mut replies, last_end) = ended_replies(&events);
+                let (mut replies, last_end, _) = ended_replies(&events);
                 if replies.is_empty() {
                     replies.push("(no reply text)".to_owned());
                 }
@@ -317,14 +318,19 @@ impl Brain {
 
 /// The final reply of every turn that ended in `events`, oldest first (a
 /// failed turn's error included), and the seq of the last turn end.
-pub(super) fn ended_replies(events: &[AcpmuxEvent]) -> (Vec<String>, Option<u64>) {
+pub(super) fn ended_replies(events: &[AcpmuxEvent]) -> (Vec<String>, Option<u64>, bool) {
     let mut folder = TurnFolder::default();
     let mut replies = Vec::new();
     let mut last_end = None;
+    let mut cancelled = false;
     for event in events {
+        // A turn the user stopped (`session/cancel`) ends with stopReason cancelled.
+        let stopped = event.kind == "turn_end"
+            && event.msg.get("stopReason").and_then(Value::as_str) == Some("cancelled");
         for output in folder.apply(event) {
             if let TurnOutput::Ended { turn, seq, error } = output {
                 last_end = Some(seq);
+                cancelled = stopped || crate::fold::is_cancelled(error.as_deref());
                 let text = turn.text.trim();
                 let reply = match error {
                     Some(error) if text.is_empty() => format!("(turn failed: {error})"),
@@ -337,7 +343,31 @@ pub(super) fn ended_replies(events: &[AcpmuxEvent]) -> (Vec<String>, Option<u64>
             }
         }
     }
-    (replies, last_end)
+    (replies, last_end, cancelled)
+}
+
+/// A subagent's report, its replies since its floor: the last one, and when
+/// the user stopped it, said so (and no failure note).
+pub(super) fn report_of(replies: &[String], cancelled: bool) -> String {
+    let last = replies.last().map_or("", |r| r.as_str());
+    if !cancelled {
+        return if last.is_empty() {
+            "(no reply text)".to_owned()
+        } else {
+            last.to_owned()
+        };
+    }
+    let note = format!(
+        "(turn failed: {})",
+        crate::fold::stop_error("cancelled").unwrap_or_default()
+    );
+    let text = last.replace(&note, "");
+    let text = text.trim();
+    if text.is_empty() {
+        "(stopped by the user)".to_owned()
+    } else {
+        format!("(stopped by the user) {text}")
+    }
 }
 
 /// A child's permission request as a message to the Chief.
