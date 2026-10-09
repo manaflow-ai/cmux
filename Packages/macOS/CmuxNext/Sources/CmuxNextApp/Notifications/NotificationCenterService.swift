@@ -218,7 +218,7 @@ final class NotificationCenterService {
         let title = notification.title.isEmpty ? (tab?.displayTitle ?? "cmux") : notification.title
         desktop.post(id: id, title: title, subtitle: program.map { Self.reasonLine($0.reason) }, body: notification.body,
                      surface: notification.surface?.rawValue, workspace: workspace, defaultSound: sound == "default",
-                     attachment: program.flatMap { StatusNotificationImage.write($0.reason) })
+                     attachment: program.flatMap { StatusNotificationImage.data($0.reason) })
         if let sound, sound != "default" { NotificationSounds.play(sound) }
         if let tab { banners[tab.id, default: []].append(id) }
     }

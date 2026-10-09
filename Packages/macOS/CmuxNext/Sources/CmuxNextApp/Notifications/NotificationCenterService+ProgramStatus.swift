@@ -23,18 +23,19 @@ extension NotificationCenterService {
         guard let services else { return .hidden }
         let pane = located.pane
         let fallback = pane.tabs.indices.contains(pane.defaultTabIndex) ? pane.tabs[pane.defaultTabIndex].id : nil
+        // One window must both select the tab and be visible; flags from
+        // different windows never combine.
+        let shown = services.windows.controllers.contains { controller in
+            controller.state.workspaceID == located.workspace.id && controller.state.page == nil
+                && (controller.state.selection.selection(in: pane.id) ?? fallback) == located.tab.id
+                && (controller.window?.occlusionState.contains(.visible) ?? false)
+        }
         var visibility = TerminalVisibility.hidden
         visibility.appActive = NSApp.isActive
-        for controller in services.windows.controllers where controller.state.workspaceID == located.workspace.id
-            && controller.state.page == nil {
-            let selected = (controller.state.selection.selection(in: pane.id) ?? fallback) == located.tab.id
-            let shown = controller.window?.occlusionState.contains(.visible) ?? false
-            if selected && shown {
-                return TerminalVisibility(tabSelected: true, paneOnScreen: true, windowShown: true, appActive: visibility.appActive)
-            }
-            visibility.tabSelected = visibility.tabSelected || selected
-            visibility.windowShown = visibility.windowShown || shown
+        if shown {
+            visibility.tabSelected = true
             visibility.paneOnScreen = true
+            visibility.windowShown = true
         }
         return visibility
     }
@@ -72,18 +73,16 @@ extension NotificationCenterService {
 enum StatusNotificationImage {
     static let side: CGFloat = 64
 
-    /// A fresh PNG for `reason`, nil when it cannot be drawn or written.
-    static func write(_ reason: ProgramStatusNotification.Reason) -> URL? {
-        guard let data = png(reason) else { return nil }
-        let folder = FileManager.default.temporaryDirectory.appending(path: "cmux-status-notifications", directoryHint: .isDirectory)
-        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let url = folder.appending(path: "\(reason.rawValue)-\(UUID().uuidString).png")
-        do {
-            try data.write(to: url)
-            return url
-        } catch {
-            return nil
-        }
+    /// PNG data per reason (six images; drawn once per theme).
+    private static var cache: [String: Data] = [:]
+
+    /// The badge PNG for `reason`, cached per reason and theme.
+    static func data(_ reason: ProgramStatusNotification.Reason) -> Data? {
+        let key = "\(reason.rawValue)-\(ThemeScope.app.tokens.surfaceBackground)"
+        if let cached = cache[key] { return cached }
+        let drawn = png(reason)
+        cache[key] = drawn
+        return drawn
     }
 
     static func png(_ reason: ProgramStatusNotification.Reason) -> Data? {
