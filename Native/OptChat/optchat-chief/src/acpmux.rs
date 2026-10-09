@@ -174,6 +174,17 @@ pub trait AgentPort: Send + Sync {
     ) -> Result<(), String> {
         Err("answering permissions is not supported".into())
     }
+    /// Hints acpmux's session pool (`_acpmux/prewarm`) to start a hidden
+    /// session of `harness` and `preset` in `cwd`, so the next `session/new`
+    /// of exactly that shape takes a harness that is already up.
+    fn prewarm(
+        &self,
+        _harness: &str,
+        _preset: Option<&str>,
+        _cwd: &std::path::Path,
+    ) -> Result<(), String> {
+        Ok(())
+    }
     /// Whether the connected daemon installed `preset` with its `args`.
     fn preset_args(&self, _preset: &str) -> bool {
         false
