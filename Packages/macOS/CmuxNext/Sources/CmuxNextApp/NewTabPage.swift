@@ -270,13 +270,15 @@ extension PaneController {
     /// else a new tab page, whose field takes the keyboard. ⌃L stays the
     /// terminal's (clear screen).
     func focusLocation(_ invocation: ActionInvocation) {
-        if case .browser = currentContent {
-            _ = services.registry.perform("focusBrowserAddressBar", invocation: invocation)
-        } else if let key = currentTabKey, services.agentTabs.isNewTabPage(key) {
+        let newTabKey = currentTabKey.flatMap { services.agentTabs.isNewTabPage($0) ? $0 : nil }
+        var showsBrowser = false
+        if case .browser = currentContent { showsBrowser = true }
+        switch NewTabPage.locationTarget(showsBrowser: showsBrowser, showsNewTabPage: newTabKey != nil) {
+        case .browserAddressBar: _ = services.registry.perform("focusBrowserAddressBar", invocation: invocation)
+        case .newTabOmnibar:
             services.windowController(showing: self)?.focus.send(.focusPane(paneKey, source: .intent))
-            if let view = services.agentTabs.view(for: key), !NewTabOmnibar.focus(in: view) { view.focusLocation() }
-        } else {
-            newTabPage()
+            if let key = newTabKey, let view = services.agentTabs.view(for: key), !NewTabOmnibar.focus(in: view) { view.focusLocation() }
+        case .openNewTabWithOmnibar: NewTabPage.open(in: self, seed: nil, omnibar: true)
         }
     }
 }
@@ -291,7 +293,7 @@ extension NewTabPage {
     /// turn, with no hop: the spare waited at this pane's content size, so its adoption changes
     /// no size and WebKit shows the page at its final layout; the strip shows the tab now at full
     /// width; and the turn's one commit puts the tab and the page on screen in the same frame.
-    static func open(in pane: PaneController, seed: AgentPaneSeedSource?) {
+    static func open(in pane: PaneController, seed: AgentPaneSeedSource?, omnibar: Bool = false) {
         let start = ContinuousClock.now
         let services = pane.services
         let openingKey = ObjectIdentifier(pane)
@@ -302,13 +304,17 @@ extension NewTabPage {
             return
         }
         guard openingPanes.insert(openingKey).inserted else { return }
-        guard let inputToken = services.keyRouter.newTabInputCoordinator.begin(for: pane) else {
+        // Cmd-L (`omnibar`): the omnibar row is native and takes the keyboard in this turn, so no
+        // key waits for the page; any other open buffers keys until the page's field is ready.
+        let inputToken = omnibar ? nil : services.keyRouter.newTabInputCoordinator.begin(for: pane)
+        guard omnibar || inputToken != nil else {
             openingPanes.remove(openingKey)
             return
         }
         let cwd = pane.selectedTab?.cwd
         var page = Self.page(services, selected: pane.selectedTab)
         page.inputToken = inputToken
+        if omnibar { page.focusesField = false }
         var handler = Self.handler(services, cwd: cwd) { [weak pane] key, request in
             if let pane { BenchSpans.measure("newTab.replace") { Self.replace(key, with: request, cwd: request.cwd ?? cwd, in: pane) } }
         }
@@ -328,8 +334,9 @@ extension NewTabPage {
         openingPanes.remove(openingKey)
         // The adopted page is alive: show it this frame and give it the keyboard now, so the
         // first key typed after the open reaches its field (fleet test: it went to the old responder).
-        if spare != nil, services.presentation.showNow(pane) {
+        if spare != nil || omnibar, services.presentation.showNow(pane) {
             services.windowController(showing: pane)?.focus.send(.focusPane(pane.paneKey, source: .intent))
+            if omnibar, let key = pane.currentTabKey, let view = services.agentTabs.existingView(key) { _ = NewTabOmnibar.focus(in: view) }
         }
         BenchSpans.measure("newTab.strip") { pane.view.stripView.sync(fromModel: true, animating: false) }
         services.newTabSpares.record(.init(spare: spare != nil, crossWindow: spare?.crossWindow == true,

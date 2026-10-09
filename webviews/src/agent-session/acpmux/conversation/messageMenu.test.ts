@@ -175,6 +175,25 @@ describe("the page's report on contextmenu", () => {
     setMessageMenuSource(undefined);
   });
 
+  test("a selection that crosses into the composer is not offered as transcript text", () => {
+    setMessageMenuSource((rowId) => messageMenuTarget(snapshot(), rowId));
+    const dom = new JSDOM(
+      '<article data-row-id="a1"><p><span id="inside">Fixed</span></p></article>' +
+        '<div contenteditable="true"><span id="draft">my draft</span></div>',
+    );
+    const doc = dom.window.document;
+    const posted: unknown[] = [];
+    installMessageMenuReporter(doc, () => ({ postMessage: (body) => posted.push(body) }));
+    const range = doc.createRange();
+    range.setStart(doc.getElementById("inside")!.firstChild!, 0);
+    range.setEnd(doc.getElementById("draft")!.firstChild!, "my draft".length);
+    dom.window.getSelection()!.removeAllRanges();
+    dom.window.getSelection()!.addRange(range);
+    doc.getElementById("inside")!.dispatchEvent(new dom.window.MouseEvent("contextmenu", { bubbles: true }));
+    expect(posted).toEqual([messageMenuTarget(snapshot(), "a1")]);
+    setMessageMenuSource(undefined);
+  });
+
   test("before the client connects every report is null", () => {
     const { posted, rightClick } = page();
     rightClick("inside");
