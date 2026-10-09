@@ -113,7 +113,7 @@ pub fn prepare_codex_homes(paths: &Paths, user_home: &Path) -> Result<(), String
         .map_err(|e| format!("creating {}: {e}", paths.compactor_codex.display()))?;
     let id = chief_installation_id(&paths.compactor_codex)
         .map_err(|e| format!("the compactor's codex installation id: {e}"))?;
-    for k in 0..optchat_core::JOBS {
+    for k in 0..crate::compactor::COMPACTOR_SESSIONS {
         let dir = codex_slot_home(&paths.compactor_codex, k);
         let made = private_dir(&dir)
             .and_then(|()| wipe_codex_home(&dir))

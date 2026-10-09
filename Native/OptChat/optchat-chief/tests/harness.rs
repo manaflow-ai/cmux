@@ -425,7 +425,7 @@ fn the_chiefs_turn_and_compactor_sessions_carry_cmux_chief_and_children_do_not()
     let compactor = optchat_chief::compactor::AcpmuxCompactor::new(
         agents.clone(),
         spec,
-        optchat_chief::compactor::Slots::new(optchat_core::JOBS),
+        optchat_chief::compactor::Slots::new(optchat_chief::compactor::COMPACTOR_SESSIONS),
     );
     let request = optchat_host::CompactRequest {
         node: optchat_host::NodeId::new(0, 0),
