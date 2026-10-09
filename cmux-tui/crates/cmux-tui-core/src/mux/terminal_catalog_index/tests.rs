@@ -61,3 +61,20 @@ fn binding_a_created_terminal_scans_no_catalog() {
     }
     assert_eq!(catalog_scans_for_test(), scans, "a bind scanned the terminal catalog");
 }
+
+#[cfg(unix)]
+#[test]
+fn a_closed_terminal_leaves_no_host_index_entry() {
+    let mux = Mux::new_for_test("catalog-index-close", SurfaceOptions::default());
+    let workspace = mux.create_empty_workspace(None, Some(WORKSPACE.into()), None).unwrap();
+    let surface = hosted_terminal(&mux, &workspace.key, 1);
+    mux.bind_running_terminal_to_canonical_workspace(&surface).unwrap();
+    let public_id = surface.terminal_public_id().unwrap().clone();
+    let host = surface.terminal_host_identity().unwrap().terminal_id;
+    mux.with_state(|state| assert!(mux.catalog_terminal_by_host(state, &host).unwrap().is_some()));
+    remove_terminal_content_from_state(&mux, &mut mux.state.lock().unwrap(), &public_id);
+    mux.with_state(|state| {
+        assert!(mux.catalog_terminal_by_host(state, &host).unwrap().is_none());
+        assert!(state.terminal_catalog_by_host.is_empty(), "the host index kept a closed terminal");
+    });
+}
