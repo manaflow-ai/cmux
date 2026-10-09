@@ -30,10 +30,11 @@ struct WebKitPrivateCallTests {
     }
 
     /// The private signatures are trusted only on the macOS versions they
-    /// were verified on (27); any other version takes the public path.
+    /// were verified on (26 and 27); any other version takes the public path.
     @Test func privateCallsRunOnlyOnVerifiedVersions() {
         #expect(WebKitPrivateCalls.isVerified(osMajor: 27))
-        #expect(!WebKitPrivateCalls.isVerified(osMajor: 26))
+        #expect(WebKitPrivateCalls.isVerified(osMajor: 26))
+        #expect(!WebKitPrivateCalls.isVerified(osMajor: 25))
         #expect(!WebKitPrivateCalls.isVerified(osMajor: 28))
     }
 }
