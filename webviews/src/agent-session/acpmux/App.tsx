@@ -108,6 +108,7 @@ import { MoveRow } from "./shell/MoveRow";
 import { ShellActionsContext, ShellRow, type ShellActions } from "./shell/ShellRow";
 import { SwitchNotice } from "./SwitchNotice";
 import { FolderChoice, showsFolderChoice } from "./FolderChoice";
+import { type FolderAsk, StartFolderAsk, confirmFolder, pickFolder } from "./startFolder";
 import { LiveChatChoice } from "./LiveChatChoice";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
@@ -906,6 +907,9 @@ function AcpmuxPane() {
   const [chooseFolder, setChooseFolder] = useState(false);
   /// The host's localized refusal of the last Choose Folder… click.
   const [folderError, setFolderError] = useState<string | undefined>();
+  /// A folder the user picked that waits for their answer (startFolder.tsx): the question shows
+  /// above the composer, and `use` runs with the folder once they answer Use Home Folder.
+  const [folderAsk, setFolderAsk] = useState<{ ask: FolderAsk; use(cwd: string): void; error?: string }>();
   const [importError, setImportError] = useState<string | undefined>();
   /// Shell mode's commands (shell/shellRuns.ts), across the chats this page showed.
   const [shellRuns] = useState(() => new ShellRuns(callNative));
@@ -999,6 +1003,12 @@ function AcpmuxPane() {
     !snapshot.handoff?.receipt;
   const handoffLoading = !!snapshot.sessionId && !!snapshot.canHandoff && !snapshot.handoff?.ready;
   const freshChat = !reviewing && !handoffLoading && isNewChat(snapshot, newSession);
+  /// The chat's start folder (startFolder.tsx): the host's folder for a new chat or the user's
+  /// pick, for every start of this new chat (the agent row, a harness pick, the first Send).
+  /// Undefined: the host fills the chat's folder (the workspace's agent-home folder).
+  const startFolder = freshChat && !snapshot.sessionId ? projectDraft : undefined;
+  const startFolderRef = useRef(startFolder);
+  startFolderRef.current = startFolder;
   /// Takes acpmux's trust refusal of a prompt (useFolderTrustAsk.ts): the question shows for the
   /// folder it named, and `again` sends the held prompt after Trust.
   const trustRefused = useRef<((error: unknown, again?: () => void) => boolean) | undefined>(undefined);
@@ -1400,16 +1410,33 @@ function AcpmuxPane() {
     }),
     [shellRuns],
   );
+  /// A folder the user picked on this Mac: the host takes it at once or asks first
+  /// (startFolder.tsx); `use` runs only with a folder the host took.
+  const requestFolder = useCallback((cwd: string, use: (folder: string) => void) => {
+    setFolderAsk(undefined);
+    void pickFolder(callNative, cwd, use)
+      .then((ask) => {
+        if (ask) setFolderAsk({ ask, use });
+      })
+      .catch(() => undefined);
+  }, []);
   const chooseProject = useCallback(
     (cwd: string, peer?: string) => {
-      if (freshChat && !snapshot.sessionId && !peer) {
-        setProjectDraft(cwd);
+      // Another computer's folder is that computer's to check.
+      if (peer) {
+        void callNative("chat.new", { cwd, peer }).catch(() => undefined);
         return;
       }
-      void callNative("chat.new", { cwd, ...(peer ? { peer } : {}) }).catch(() => undefined);
+      const fresh = freshChat && !snapshot.sessionId;
+      requestFolder(cwd, (folder) => {
+        if (fresh) setProjectDraft(folder);
+        else void callNative("chat.new", { cwd: folder }).catch(() => undefined);
+      });
     },
-    [freshChat, snapshot.sessionId],
+    [freshChat, snapshot.sessionId, requestFolder],
   );
+  const automationPick = useRef<(cwd: string) => void>(undefined);
+  automationPick.current = (cwd) => chooseProject(cwd);
   useEffect(() => {
     window.React = React;
     window.cmuxAcpmuxRegistry = {
@@ -1518,6 +1545,7 @@ function AcpmuxPane() {
         selectSession: (sessionId) => automationView.current?.selectSession(sessionId),
         openDiff: (rowId) => automationView.current?.openDiff(rowId),
         diff: () => automationView.current?.diff ?? { open: false, paths: [] },
+        pickFolder: (cwd) => automationPick.current?.(cwd),
       },
     });
     let cancelled = false;
@@ -1767,15 +1795,13 @@ function AcpmuxPane() {
             return persistSession(await client.select(String(sessionId)));
           },
           // A pick of another harness is a switch: drawn now, started behind it.
+          // A new chat without a folder starts in the chat's start folder (startFolder.tsx).
           "chat.new": async ({ harness, cwd, peer }) => {
-            if (harness && !peer) return harnessSwitch.switchTo(String(harness), cwd ? String(cwd) : undefined);
+            const folder = cwd ? String(cwd) : peer ? undefined : startFolderRef.current;
+            if (harness && !peer) return harnessSwitch.switchTo(String(harness), folder);
             harnessSwitch.cancel();
             return persistSession(
-              await client.create(
-                harness ? String(harness) : undefined,
-                cwd ? String(cwd) : undefined,
-                peer ? String(peer) : undefined,
-              ),
+              await client.create(harness ? String(harness) : undefined, folder, peer ? String(peer) : undefined),
             );
           },
           "chat.harness.hint": async ({ harness }) => harnessSwitch.hint(harness ? String(harness) : undefined),
@@ -2102,11 +2128,17 @@ function AcpmuxPane() {
       void callNative("tab.open", cwd ? { kind, text, cwd } : { kind, text });
       return;
     }
+    const inherited = newTab?.cwd;
     setNewTab(undefined);
-    void (async () => {
-      if (cwd) await callNative("chat.new", { cwd });
-      if (text) await callNative("chat.send", { text });
-    })().catch(() => undefined);
+    const start = (folder?: string) =>
+      void (async () => {
+        if (folder) await callNative("chat.new", { cwd: folder });
+        if (text) await callNative("chat.send", { text });
+      })().catch(() => undefined);
+    // The page's own folder is inherited (`~` in a fresh workspace): the chat starts in its start
+    // folder. Another project the user picked there goes through the host first.
+    if (cwd && cwd !== inherited) requestFolder(cwd, start);
+    else start(startFolder);
   };
   const loadNewTabProjects = useCallback(
     () =>
@@ -2244,7 +2276,24 @@ function AcpmuxPane() {
       {harnessCard ?? (
         <SwitchNotice switching={snapshot.switching} onRetry={() => void callNative("chat.harness.retry")} />
       )}
-      {showsFolderChoice({ offered: chooseFolder, freshChat, quick, projectDraft, sessionId: snapshot.sessionId }) && (
+      {folderAsk ? (
+        <StartFolderAsk
+          ask={folderAsk.ask}
+          current={freshChat && !snapshot.sessionId ? projectDraft : (movedTo ?? snapshot.summary?.cwd)}
+          error={folderAsk.error}
+          onUse={() => {
+            const pending = folderAsk;
+            void confirmFolder(callNative, pending.ask, pending.use).then(
+              () => setFolderAsk((current) => (current === pending ? undefined : current)),
+              (error: unknown) =>
+                setFolderAsk((current) =>
+                  current === pending ? { ...pending, error: errorMessage(error) || String(error) } : current,
+                ),
+            );
+          }}
+          onCancel={() => setFolderAsk(undefined)}
+        />
+      ) : showsFolderChoice({ offered: chooseFolder, freshChat, quick, projectDraft, sessionId: snapshot.sessionId }) && (
         <FolderChoice
           error={folderError}
           onChoose={() => {
@@ -2367,7 +2416,8 @@ function AcpmuxPane() {
           onOpenInWindow={quick ? openInWindow : undefined}
           prompt={prompt}
           handle={composerRef}
-          blocked={trustAsk.blocked}
+          // No prompt goes while a picked folder waits for the user's answer.
+        blocked={folderAsk ? {} : trustAsk.blocked}
           accessory={<DictationButton dictation={dictation} />}
           onImportFile={importFile}
         />
@@ -2411,6 +2461,7 @@ function AcpmuxPane() {
               {...newTabScreenActions({
                 callNative,
                 cwd: newTab.cwd,
+                chatCwd: startFolder,
                 leave: () => setNewTab(undefined),
                 selectSession,
                 showAllChats,

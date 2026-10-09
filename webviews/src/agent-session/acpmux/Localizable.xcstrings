@@ -1,6 +1,666 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "startFolder.homeQuestion": {
+      "comment": "Agent pane: the question above the composer when the user picks the home folder (or / ) for a chat (cx-nn3e)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هل تريد بدء هذه المحادثة في مجلد المنزل؟ يمكن للوكيل قراءة كل ما فيه، وقد يطلب macOS الوصول إلى الصور والمستندات ومجلدات أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokrenuti ovaj razgovor u vašem početnom folderu? Agent može čitati sve u njemu, a macOS može tražiti pristup Fotografijama, Dokumentima i drugim folderima."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vil du starte denne chat i din hjemmemappe? Agenten kan læse alt i den, og macOS kan bede om adgang til Fotos, Dokumenter og andre mapper."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diesen Chat in deinem Benutzerordner starten? Der Agent kann alles darin lesen, und macOS fragt eventuell nach Zugriff auf Fotos, Dokumente und andere Ordner."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start this chat in your home folder? The agent can read everything in it, and macOS may ask for access to Photos, Documents and other folders."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "¿Empezar este chat en tu carpeta de inicio? El agente puede leer todo lo que contiene y macOS puede pedir acceso a Fotos, Documentos y otras carpetas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Démarrer cette discussion dans votre dossier de départ ? L’agent peut tout y lire, et macOS peut demander l’accès à Photos, Documents et d’autres dossiers."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avviare questa chat nella tua cartella Inizio? L’agente può leggere tutto ciò che contiene e macOS potrebbe chiedere l’accesso a Foto, Documenti e altre cartelle."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットをホームフォルダで開始しますか？エージェントはその中のすべてを読み取れます。macOS が写真、書類、その他のフォルダへのアクセスを求めることがあります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចាប់ផ្ដើមការជជែកនេះក្នុងថតផ្ទះរបស់អ្នកឬ? ភ្នាក់ងារអាចអានអ្វីៗទាំងអស់ក្នុងនោះ ហើយ macOS អាចសុំសិទ្ធិចូលប្រើរូបថត ឯកសារ និងថតផ្សេងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 채팅을 홈 폴더에서 시작할까요? 에이전트가 그 안의 모든 것을 읽을 수 있으며, macOS가 사진, 문서 및 기타 폴더에 대한 접근을 요청할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vil du starte denne chatten i hjemmemappen din? Agenten kan lese alt i den, og macOS kan be om tilgang til Bilder, Dokumenter og andre mapper."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rozpocząć ten czat w folderze domowym? Agent może czytać wszystko w nim, a macOS może poprosić o dostęp do Zdjęć, Dokumentów i innych folderów."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iniciar este chat na sua pasta pessoal? O agente pode ler tudo nela, e o macOS pode pedir acesso a Fotos, Documentos e outras pastas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Начать этот чат в домашней папке? Агент сможет читать всё в ней, а macOS может запросить доступ к Фото, Документам и другим папкам."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เริ่มแชตนี้ในโฟลเดอร์โฮมของคุณหรือไม่ เอเจนต์จะอ่านทุกอย่างในนั้นได้ และ macOS อาจขอสิทธิ์เข้าถึงรูปภาพ เอกสาร และโฟลเดอร์อื่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sohbet ana klasörünüzde başlatılsın mı? Aracı içindeki her şeyi okuyabilir ve macOS Fotoğraflar, Belgeler ve diğer klasörlere erişim isteyebilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Почати цей чат у домашній папці? Агент зможе читати все в ній, а macOS може попросити доступ до Фото, Документів та інших папок."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bắt đầu cuộc trò chuyện này trong thư mục chính của bạn? Tác tử có thể đọc mọi thứ trong đó, và macOS có thể yêu cầu quyền truy cập Ảnh, Tài liệu và các thư mục khác."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "要在你的个人文件夹中开始此聊天吗？代理可以读取其中的所有内容，macOS 可能会请求访问照片、文稿和其他文件夹。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "要在你的個人資料夾中開始此聊天嗎？代理可以讀取其中的所有內容，macOS 可能會要求取用照片、文件和其他資料夾。"
+          }
+        }
+      }
+    },
+    "startFolder.root": {
+      "comment": "Agent pane: the question above the composer when the user picks the home folder (or / ) for a chat (cx-nn3e)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يمكن بدء المحادثات في {folder}. اختر مجلد مشروع بدلًا من ذلك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Razgovori ne mogu početi u {folder}. Umjesto toga odaberite folder projekta."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chats kan ikke starte i {folder}. Vælg en projektmappe i stedet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chats können nicht in {folder} starten. Wähle stattdessen einen Projektordner."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats can’t start in {folder}. Choose a project folder instead."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Los chats no pueden empezar en {folder}. Elige una carpeta de proyecto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les discussions ne peuvent pas démarrer dans {folder}. Choisissez plutôt un dossier de projet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le chat non possono iniziare in {folder}. Scegli invece una cartella di progetto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{folder} ではチャットを開始できません。プロジェクトフォルダを選択してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការជជែកមិនអាចចាប់ផ្ដើមក្នុង {folder} បានទេ។ សូមជ្រើសថតគម្រោងជំនួសវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{folder}에서는 채팅을 시작할 수 없습니다. 대신 프로젝트 폴더를 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chatter kan ikke starte i {folder}. Velg en prosjektmappe i stedet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Czaty nie mogą zaczynać się w {folder}. Wybierz zamiast tego folder projektu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Os chats não podem começar em {folder}. Escolha uma pasta de projeto."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Чаты не могут начинаться в {folder}. Выберите папку проекта."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เริ่มแชตใน {folder} ไม่ได้ เลือกโฟลเดอร์โปรเจกต์แทน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbetler {folder} içinde başlayamaz. Bunun yerine bir proje klasörü seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Чати не можуть починатися в {folder}. Натомість виберіть папку проєкту."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể bắt đầu cuộc trò chuyện trong {folder}. Hãy chọn một thư mục dự án."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天不能在 {folder} 中开始。请改为选择一个项目文件夹。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天不能在 {folder} 中開始。請改為選擇一個專案資料夾。"
+          }
+        }
+      }
+    },
+    "startFolder.useHome": {
+      "comment": "Agent pane: the question above the composer when the user picks the home folder (or / ) for a chat (cx-nn3e)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "استخدام مجلد المنزل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koristi početni folder"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brug hjemmemappe"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Benutzerordner verwenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Home Folder"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usar carpeta de inicio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utiliser le dossier de départ"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usa cartella Inizio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホームフォルダを使用"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រើថតផ្ទះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "홈 폴더 사용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bruk hjemmemappe"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Użyj folderu domowego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usar pasta pessoal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Использовать домашнюю папку"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ใช้โฟลเดอร์โฮม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ana klasörü kullan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Використати домашню папку"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dùng thư mục chính"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "使用个人文件夹"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "使用個人資料夾"
+          }
+        }
+      }
+    },
+    "startFolder.usePrivate": {
+      "comment": "Agent pane: the question above the composer when the user picks the home folder (or / ) for a chat (cx-nn3e)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "استخدام المجلد الخاص"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koristi privatni folder"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brug privat mappe"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Privaten Ordner verwenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Private Folder"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usar carpeta privada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utiliser le dossier privé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usa cartella privata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プライベートフォルダを使用"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រើថតឯកជន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "비공개 폴더 사용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bruk privat mappe"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Użyj folderu prywatnego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usar pasta privada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Использовать личную папку"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ใช้โฟลเดอร์ส่วนตัว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Özel klasörü kullan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Використати приватну папку"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dùng thư mục riêng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "使用私有文件夹"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "使用私人資料夾"
+          }
+        }
+      }
+    },
+    "startFolder.keep": {
+      "comment": "Agent pane: the question above the composer when the user picks the home folder (or / ) for a chat (cx-nn3e)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الإبقاء على {folder}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zadrži {folder}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Behold {folder}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{folder} behalten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep {folder}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mantener {folder}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Garder {folder}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mantieni {folder}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{folder} のままにする"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រក្សា {folder}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{folder} 유지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Behold {folder}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zachowaj {folder}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Manter {folder}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оставить {folder}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คง {folder} ไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{folder} kalsın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Залишити {folder}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Giữ {folder}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "保留 {folder}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "保留 {folder}"
+          }
+        }
+      }
+    },
     "adopt.live.fork": {
       "comment": "Agent pane",
       "extractionState": "manual",

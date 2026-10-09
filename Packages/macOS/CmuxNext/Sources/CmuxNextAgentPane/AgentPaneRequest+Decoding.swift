@@ -125,6 +125,12 @@ extension AgentPaneRequest {
             }
         case "project.browse": self = .browseProject
         case "workspace.chooseFolder": self = .chooseFolder
+        case "workspace.useFolder":
+            if let cwd = params?["cwd"] as? String, cwd.hasPrefix("/"), cwd.utf8.count <= Self.maximumOpenTabText {
+                self = .useFolder(cwd, confirm: params?["confirm"] as? Bool == true)
+            } else {
+                self = .unsupported(method)
+            }
         case "project.list":
             let query = (params?["query"] as? String).map { String($0.prefix(512)) }
             self = .listProjects(query)

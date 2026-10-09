@@ -6,7 +6,11 @@ type Native = (method: string, params?: Record<string, unknown>) => Promise<unkn
 
 export function newTabScreenActions(deps: {
   callNative: Native;
+  /// The tab's inherited folder: where a terminal opened from the page starts.
   cwd?: string;
+  /// The folder a chat from the page starts in: the chat's start folder (startFolder.tsx), which
+  /// the host named. Never the inherited folder: a fresh workspace's page sits at `~` (cx-nn3e).
+  chatCwd?: string;
   /// The page leaves the new tab screen (it becomes a chat).
   leave(): void;
   selectSession(sessionId: string): void;
@@ -23,7 +27,7 @@ export function newTabScreenActions(deps: {
     onAsk(harness, text) {
       remember(harness);
       deps.leave();
-      const params: Record<string, unknown> = { harness, ...(cwd ? { cwd } : {}) };
+      const params: Record<string, unknown> = { harness, ...(deps.chatCwd ? { cwd: deps.chatCwd } : {}) };
       ignore(callNative("chat.new", params).then(() => (text ? callNative("chat.send", { text }) : undefined)));
     },
     onOpen: (url) => {

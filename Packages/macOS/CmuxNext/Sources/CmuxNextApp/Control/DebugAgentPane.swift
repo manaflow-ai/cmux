@@ -23,7 +23,7 @@ import WebKit
 /// the chat automation verbs (webviews automation.ts; each runs the page
 /// action a click or key runs, so a no-activate window can be driven end to
 /// end): `chat_state`, `send_prompt` (`text`), `new_chat` (`harness`, `cwd`),
-/// `select_session` (`session`), `answer_permission` (`option`, `allow`,
+/// `select_session` (`session`), `pick_folder` (`cwd`: the folder chip's pick), `answer_permission` (`option`, `allow`,
 /// `decision`), `open_changes` (the latest turn's changes view),
 /// `models` (the harness's models), `set_model` (`model`, `effort`),
 /// `readiness` (page body, transcript and composer metrics), `click` (`selector`
@@ -44,7 +44,7 @@ enum DebugAgentPane {
         "open_menu": "openMenu", "acp_log": "acpLog", "acp_log_export": "acpLogExport",
         "chat_state": "chatState", "send_prompt": "sendPrompt", "new_chat": "newChat",
         "select_session": "selectSession", "answer_permission": "answerPermission", "open_changes": "openChanges",
-        "set_model": "setModel", "models": "models", "stream": "stream",
+        "set_model": "setModel", "models": "models", "stream": "stream", "pick_folder": "pickFolder",
     ]
 
     /// Runs `fn(...args)` on the page and returns its result as JSON text.
@@ -97,7 +97,7 @@ enum DebugAgentPane {
             return await toggleInspector(view, open: params["open"]?.boolValue, pane: pane)
         }
         guard let function = functions[action] else {
-            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, answer_permission, open_changes, set_model, models, stream, readiness, click, pid, full_rate, gesture_state or inspector")])
+            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, pick_folder, answer_permission, open_changes, set_model, models, stream, readiness, click, pid, full_rate, gesture_state or inspector")])
         }
         do {
             let result = try await view.webView.callAsyncJavaScript(
@@ -205,6 +205,8 @@ enum DebugAgentPane {
             return [params["model"]?.stringValue ?? "", params["effort"]?.stringValue ?? NSNull()]
         case "select_session":
             return [params["session"]?.stringValue ?? ""]
+        case "pick_folder":
+            return [params["cwd"]?.stringValue ?? ""]
         case "answer_permission":
             var options: [String: Any] = [:]
             if let option = params["option"]?.stringValue { options["optionId"] = option }

@@ -36,6 +36,7 @@ export type AcpmuxDebug = {
   chatState(): Record<string, unknown>;
   sendPrompt(text: string): Promise<Record<string, unknown>>;
   newChat(harness?: string, cwd?: string): Promise<Record<string, unknown>>;
+  pickFolder(cwd: string): Record<string, unknown>;
   selectSession(sessionId: string): Record<string, unknown>;
   answerPermission(options?: {
     optionId?: string;
@@ -199,6 +200,9 @@ export function createAcpmuxDebug(
     },
     async newChat(harness, cwd) {
       return host.automation ? automation.newChat(host.automation, harness, cwd) : NO_AUTOMATION;
+    },
+    pickFolder(cwd) {
+      return host.automation ? automation.pickFolder(host.automation, String(cwd ?? "")) : NO_AUTOMATION;
     },
     selectSession(sessionId) {
       return host.automation ? automation.selectSession(host.automation, String(sessionId ?? "")) : NO_AUTOMATION;

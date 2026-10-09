@@ -8,6 +8,8 @@ test("the page's chat and shell command start in the folder the tab inherited", 
       calls.push([method, params]);
     },
     cwd: "/src/old",
+    // The host names a project folder as the chat's start folder too.
+    chatCwd: "/src/old",
     leave: () => calls.push(["leave"]),
     selectSession() {},
     showAllChats() {},

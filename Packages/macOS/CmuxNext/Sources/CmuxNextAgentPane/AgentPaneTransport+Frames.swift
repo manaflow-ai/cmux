@@ -199,10 +199,12 @@ extension AgentPaneTransport {
             guard id == current, self.socket === socket else { return .stop(.staleConnection) }
             // A folder outside every root that the user typed: their gesture adds it as a root, at
             // once and without a sheet (Lawrence 2026-10-07, "Remove dialogues."). A folder harness
-            // never: its program comes from that folder, so outside the roots it stays refused.
+            // never: its program comes from that folder, so outside the roots it stays refused. The
+            // home folder (or above it) never by a plain click either: the pane asks about it first
+            // (`workspace.useFolder`, cx-nn3e), and only that answer makes it a root.
             if case .failure(let refusal) = result, refusal.error == .pathOutsideRoots, let folder = refusal.outsidePath,
-               !facts.harnessEnable, gestures.consume() {
-                if !addedRoots.contains(folder) { addedRoots.append(folder) }
+               !facts.harnessEnable, !refusal.outsideIsHomeOrAbove, gestures.consume() {
+                grant(folder)
                 result = await checkPathsInScope(box)
                 guard id == current, self.socket === socket else { return .stop(.staleConnection) }
             }

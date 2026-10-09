@@ -63,6 +63,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// "Choose Folder…" (`workspace.chooseFolder`): the native folder sheet that sets the
     /// workspace's agent folder, after a real gesture (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE).
     case chooseFolder
+    /// A folder the user picked for a chat (`workspace.useFolder {cwd, confirm}`, cx-nn3e): the
+    /// host answers whether it is used at once, asked about first (the home folder) or refused
+    /// (`/`, above the home folder). `confirm` is the user's answer to the question, on its click.
+    case useFolder(String, confirm: Bool)
     /// Returns bounded recent project paths for the new-tab picker.
     case listProjects(String?)
     /// The empty-chat action opens the existing onboarding project/history import flow.

@@ -61,6 +61,28 @@ extension AgentPaneModel {
         }
     }
 
+    /// `workspace.useFolder` (cx-nn3e): a folder the user picked for a chat, before any chat starts
+    /// there. A project folder is used at once (`ok`; a folder outside every root still passes the
+    /// relay on the user's click). The home folder is asked about first (`confirm`, reason `home`):
+    /// an agent there can read all of it, and macOS asks for Photos, Documents and more. The
+    /// answer (`confirm`) spends its click's gesture and makes the home folder a root, so the chat
+    /// starts there at once. `/` and the folders above the home folder are refused (reason `root`).
+    func useFolder(_ path: String, confirm: Bool) async -> [String: Any] {
+        let homeFolder = transport.homeFolder
+        let (canonical, home) = await Task.detached {
+            (AcpmuxPathPolicy.canonical(path).flatMap { AcpmuxPathPolicy.isDirectory($0) ? $0 : nil },
+             homeFolder.flatMap(AcpmuxPathPolicy.canonical))
+        }.value
+        guard let folder = canonical else { return Self.transportFailure(.pathInvalid) }
+        guard AgentHome.isHomeOrAbove(folder, home: home) else { return AgentPaneReply.success(["status": "ok", "cwd": folder]) }
+        guard let home, folder == home else { return AgentPaneReply.success(["status": "refused", "reason": "root", "cwd": folder]) }
+        if transport.addedRoots.contains(folder) { return AgentPaneReply.success(["status": "ok", "cwd": folder]) }
+        guard confirm else { return AgentPaneReply.success(["status": "confirm", "reason": "home", "cwd": folder]) }
+        guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
+        transport.grant(folder)
+        return AgentPaneReply.success(["status": "ok", "cwd": folder])
+    }
+
     /// Whether `path` is the user's home folder (``AgentPaneTransport/homeFolder``) or above it.
     func isHomeOrAbove(_ path: String) -> Bool {
         AgentHome.isHomeOrAbove(path, home: transport.homeFolder)

@@ -73,6 +73,11 @@ import Synchronization
     public var homeFolder: String? = NSHomeDirectory()
     /// Folders the user added or picked by a gesture: roots from then on.
     public internal(set) var addedRoots: [String] = []
+
+    /// Makes `folder` (canonical) a root: the user's answer to a folder question (`workspace.useFolder`).
+    func grant(_ folder: String) {
+        if !addedRoots.contains(folder) { addedRoots.append(folder) }
+    }
     /// Whether the daemon's asking table (acpmux `web_modes.rs`) lists `mode` for the session's
     /// family: true or false, nil when it cannot tell (which needs the confirmation, fail closed).
     /// The host's default asks the daemon over its unix socket (`_acpmux/web_modes`).

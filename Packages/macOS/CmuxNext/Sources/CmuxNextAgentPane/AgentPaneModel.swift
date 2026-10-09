@@ -223,6 +223,10 @@ public final class AgentPaneModel {
                 if sessionMustExist, sessionId != nil { handshake.sessionMustExist = true }
                 // An inherited or default `~`, or an agent-home folder, is no chat folder (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE).
                 if sessionId == nil, let cwd = handshake.cwd, isHomeOrAbove(cwd) || isAgentHome(cwd) { handshake.cwd = nil }
+                // The page shows the folder a new chat starts in, so it names the workspace's
+                // folder the relay would fill in (cx-nn3e: the chip and the start disagreed). A
+                // reconnect keeps the page's own pick.
+                if request == .ready, sessionId == nil, handshake.cwd == nil, let root = primaryRoot() { handshake.cwd = root }
                 // A new chat with no folder starts in agent-home; the page offers Choose Folder….
                 if sessionId == nil, handshake.cwd == nil, primaryRoot() == nil, onChooseFolder != nil,
                    workspaceAgentHome?() != nil {
@@ -298,6 +302,8 @@ public final class AgentPaneModel {
             return AgentPaneReply.success()
         case .chooseFolder:
             return await chooseFolder()
+        case .useFolder(let cwd, let confirm):
+            return await useFolder(cwd, confirm: confirm)
         case .browseProject:
             guard let onBrowseProject else { return Self.unsupported("project.browse") }
             guard let cwd = await onBrowseProject() else { return AgentPaneReply.success() }

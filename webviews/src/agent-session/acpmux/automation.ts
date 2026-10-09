@@ -20,6 +20,8 @@ export type AutomationHost = {
   openDiff(rowId: string): void;
   /// The open changes view: whether it shows and the paths it lists.
   diff(): { open: boolean; paths: string[] };
+  /// The location row's folder pick (startFolder.tsx: the host takes it or asks first).
+  pickFolder?(cwd: string): void;
 };
 
 /// What a script needs to decide its next step, as plain JSON.
@@ -84,6 +86,15 @@ export async function sendPrompt(host: AutomationHost, text: string, acceptWindo
 export async function newChat(host: AutomationHost, harness?: string, cwd?: string) {
   await host.call("chat.new", { ...(harness ? { harness } : {}), ...(cwd ? { cwd } : {}) });
   return { sessionId: host.snapshot().sessionId ?? null };
+}
+
+/// Picks `cwd` as the folder chip's menu does; a folder that needs the user's answer shows the
+/// question above the composer (answer it with a native `click` on its button).
+export function pickFolder(host: AutomationHost, cwd: string) {
+  if (!cwd.startsWith("/")) return { error: "cwd must be an absolute path" };
+  if (!host.pickFolder) return { error: "the page cannot pick a folder" };
+  host.pickFolder(cwd);
+  return { picked: cwd };
 }
 
 export function selectSession(host: AutomationHost, sessionId: string) {
