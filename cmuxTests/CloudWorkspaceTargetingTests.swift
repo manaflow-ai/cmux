@@ -138,7 +138,7 @@ struct CloudWorkspaceTargetingTests {
         #expect(fixture.manager.rememberedCloudWorkspaceSelection?.machineID == "a")
     }
 
-    @Test("Shift-Command-Y dispatches the configured action to the last selected Cloud machine")
+    @Test("Command-Y dispatches the configured action to the last selected Cloud machine")
     func actualShortcut() async throws {
 #if DEBUG
         let previousStore = KeyboardShortcutSettings.installIsolatedTestFileStore(prefix: "cloud-workspace-target")
@@ -158,7 +158,7 @@ struct CloudWorkspaceTargetingTests {
         KeyboardShortcutSettings.resetShortcut(for: .newCloudWorkspace)
         fixture.app.debugResetShortcutRoutingStateForTesting()
         let event = try #require(NSEvent.keyEvent(
-            with: .keyDown, location: .zero, modifierFlags: [.command, .shift], timestamp: 0,
+            with: .keyDown, location: .zero, modifierFlags: [.command], timestamp: 0,
             windowNumber: window.windowNumber, context: nil, characters: "Y",
             charactersIgnoringModifiers: "y", isARepeat: false, keyCode: 16
         ))

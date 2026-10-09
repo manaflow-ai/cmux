@@ -1678,7 +1678,7 @@ struct ContentView: View {
             onSendFeedback: presentFeedbackComposer,
             onToggleSidebar: { sidebarState.toggle() },
             onNewTab: {
-                AppDelegate.shared?.performNewWorkspaceAction(
+                AppDelegate.shared?.performNewLocalWorkspaceAction(
                     tabManager: tabManager,
                     debugSource: "titlebar.hiddenNewWorkspace"
                 )
@@ -2030,7 +2030,7 @@ struct ContentView: View {
                 )
             },
             onNewTab: {
-                AppDelegate.shared?.performNewWorkspaceAction(
+                AppDelegate.shared?.performNewLocalWorkspaceAction(
                     tabManager: tabManager,
                     debugSource: "titlebar.fullscreenNewWorkspace"
                 )
@@ -8889,7 +8889,7 @@ struct ContentView: View {
         }
 
         registry.register(commandId: "palette.newWorkspace") {
-            AppDelegate.shared?.performNewWorkspaceAction(
+            AppDelegate.shared?.performNewLocalWorkspaceAction(
                 tabManager: tabManager,
                 debugSource: "palette.newWorkspace"
             )

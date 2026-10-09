@@ -93,7 +93,7 @@ final class CloudTreeNode: NSObject {
         case coderouterProviderGroup(CoderouterProvider, count: Int)
         case coderouterAccount(CoderouterAccount)
         /// The collapsible Cloud Machines section header. `canCreateMachine` shows its
-        /// hover "+" (New Machine, Cmd-Y), false while Cloud Machines is off and the
+        /// hover "+" (New Machine, Cmd-Shift-Y), false while Cloud Machines is off and the
         /// header stands alone; `usage` is the plan's count (nil until it loads), `refresh` its refresh icon.
         case cloudMachinesSection(canCreateMachine: Bool, usage: CloudMachinesUsage? = nil, refresh: CloudTreeSectionRefresh? = nil)
         case createAction(CloudTreeCreateAction)

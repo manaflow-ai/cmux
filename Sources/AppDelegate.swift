@@ -2692,7 +2692,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         TerminalController.shared.cloudTunnel = cloudTunnel
         // Warms the New Machine sheet's plan and network catalog per signed-in
-        // account so Cmd+Y never waits on the network.
+        // account so Cmd+Shift+Y never waits on the network.
         NewMachineSheetDataCache.bootstrap(auth: auth.coordinator)
         RemotesClient.bootstrap(auth: auth.coordinator)
         TeamsClient.bootstrap(auth: auth.coordinator)
@@ -8509,6 +8509,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         placementOverride: WorkspacePlacement? = nil,
         debugSource: String = "newWorkspace"
     ) -> Bool {
+        // This is the context-following path used by configured/sidebar
+        // actions. The primary Cmd-N/File/palette controls call
+        // `performNewLocalWorkspaceAction` so they always stay local.
         let context = preferredTabManager.flatMap { mainWindowContext(for: $0) }
             ?? preferredMainWindowContextForWorkspaceCreation(event: event, debugSource: debugSource)
         let manager = context?.tabManager ?? preferredTabManager
@@ -8528,6 +8531,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             event: event,
             placementOverride: placementOverride,
             debugSource: debugSource
+        )
+    }
+
+    /// Creates a local workspace on this Mac, independent of the selected
+    /// Cloud or remote workspace context.
+    @discardableResult
+    func performNewLocalWorkspaceAction(
+        tabManager preferredTabManager: TabManager? = nil,
+        event: NSEvent? = nil,
+        debugSource: String = "newLocalWorkspace"
+    ) -> Bool {
+        let manager = preferredTabManager
+            ?? event.flatMap { mainWindowContext(forShortcutEvent: $0, debugSource: debugSource)?.tabManager }
+        if let manager {
+            return manager.addWorkspaceIfActive(inheritWorkingDirectory: false) != nil
+        }
+        return performNewWorkspaceCreationAction(
+            initialSurface: .terminal,
+            preferredTabManager: nil,
+            event: event,
+            debugSource: debugSource,
+            skipConfiguredAction: true
         )
     }
 
@@ -8750,7 +8775,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         initialBrowserTransparentBackground: Bool = false,
         applyCreationTitleAsCustomTitle: Bool = true,
         focusInitialBrowserAddressBarOnCreate: Bool = true,
-        createdWorkspaceHandler: ((Workspace) -> Void)? = nil
+        createdWorkspaceHandler: ((Workspace) -> Void)? = nil,
+        skipConfiguredAction: Bool = false
     ) -> Bool {
         let preferredContext = preferredTabManager.flatMap { mainWindowContext(for: $0) }
         let livePreferredContext: MainWindowContext? = {
@@ -8777,11 +8803,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 let initialWorkspace = context.tabManager.selectedWorkspace
                 switch initialSurface {
                 case .terminal:
-                    _ = executeConfiguredNewWorkspaceActionIfAvailable(
-                        in: context,
-                        debugSource: debugSource,
-                        replacingInitialWorkspace: initialWorkspace
-                    )
+                    if !skipConfiguredAction {
+                        _ = executeConfiguredNewWorkspaceActionIfAvailable(
+                            in: context,
+                            debugSource: debugSource,
+                            replacingInitialWorkspace: initialWorkspace
+                        )
+                    } else {
+                        _ = context.tabManager.addWorkspaceIfActive(
+                            inheritWorkingDirectory: false
+                        )
+                    }
                 case .browser:
                     // The fresh window boots with a terminal workspace; add the
                     // browser workspace and close that initial one so the
@@ -8831,6 +8863,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // plain New Workspace behavior; the browser variant keeps its own
         // fixed semantics and skips it.
         if initialSurface == .terminal,
+           !skipConfiguredAction,
            let context,
            executeConfiguredNewWorkspaceActionIfAvailable(
                in: context,
@@ -15529,7 +15562,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             cmuxDebugLog("shortcut.action name=newWorkspace \(debugShortcutRouteSnapshot(event: event))")
 #endif
-            performNewWorkspaceAction(event: event, debugSource: "shortcut.cmdN")
+            performNewLocalWorkspaceAction(event: event, debugSource: "shortcut.cmdN")
             return true
         }
 
@@ -15547,7 +15580,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return performNewCloudWorkspaceOnResolvedMachineAction(
                 preferredWindow: mainWindowForShortcutEvent(event),
-                debugSource: "shortcut.cmdShiftY"
+                debugSource: "shortcut.cmdY"
             )
         }
 
@@ -15555,7 +15588,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             cmuxDebugLog("shortcut.action name=newCloudMachine \(debugShortcutRouteSnapshot(event: event))")
 #endif
-            return performNewCloudMachineAction(event: event, debugSource: "shortcut.cmdY")
+            return performNewCloudMachineAction(event: event, debugSource: "shortcut.cmdShiftY")
         }
 
         // New Window: Cmd+Shift+N

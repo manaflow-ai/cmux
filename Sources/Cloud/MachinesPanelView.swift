@@ -466,7 +466,7 @@ struct MachinesPanelView: View {
         nodeActions.setDeviceIncomingAccess = { [weak devicesModel] enabled in
             Task { await devicesModel?.preferences?.setIncomingAccessEnabled(enabled) }
         }
-        // The header "+" is Cmd-Y from this window: same gates, sheet, optimistic create, and no workspace until the sheet completes.
+        // The header "+" is Cmd-Shift-Y from this window: same gates, sheet, optimistic create, and no workspace until the sheet completes.
         nodeActions.newMachine = { [weak tabManager] in
             _ = AppDelegate.shared?.performNewCloudMachineAction(
                 tabManager: tabManager,

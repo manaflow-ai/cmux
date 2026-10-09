@@ -87,7 +87,7 @@ struct CloudTreeNodeActions {
     var refreshCoderouter: @MainActor () -> Void = {}
     /// Explains why a display cannot open in the currently selected workspace.
     var showDisplayOpenHint: @MainActor (_ resource: SurfaceResourceID) -> Bool = { _ in false }
-    /// Opens the New Machine flow through the same action as Cmd-Y.
+    /// Opens the New Machine flow through the same action as Cmd-Shift-Y.
     var newMachine: @MainActor () -> Void = {}
     /// Creates a workspace on the remembered or selected Cloud machine.
     var newWorkspaceOnResolvedMachine: @MainActor () -> Void = {}

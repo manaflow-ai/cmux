@@ -13,7 +13,7 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct SidebarNewLocalWorkspaceTests {
-    @Test func plusMenuCreatesLocalWhileCommandNStillTargetsSelectedCloudMachine() async throws {
+    @Test func plusMenuAndCommandNCreateLocalWhileCloudIsSelected() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let fixture = try Fixture()
             defer { fixture.tearDown() }
@@ -53,11 +53,17 @@ struct SidebarNewLocalWorkspaceTests {
 
             fixture.manager.selectedTabId = cloudWorkspace.id
             targets.removeAll()
-            // This is the same action called by the File menu and shortcut.cmdN.
-            #expect(fixture.app.performNewWorkspaceAction(tabManager: fixture.manager))
+            // This is the action called by the File menu and shortcut.cmdN.
+            #expect(fixture.app.performNewLocalWorkspaceAction(
+                tabManager: fixture.manager,
+                debugSource: "test.shortcut.cmdN"
+            ))
             await fixture.app.cloudWorkspaceOperationController?.waitForPendingOperations()
-            #expect(targets == ["selected-machine"])
-            #expect(fixture.manager.tabs.count == originalCount + 1)
+            #expect(targets.isEmpty)
+            #expect(fixture.manager.tabs.count == originalCount + 2)
+            let secondLocalWorkspace = try #require(fixture.manager.selectedWorkspace)
+            #expect(secondLocalWorkspace.cloudVMID == nil)
+            #expect(secondLocalWorkspace.currentDirectory == fixture.root.path)
             #expect(machinePinStore.pinnedMachineIDs == ["different-pinned-machine"])
         }
     }

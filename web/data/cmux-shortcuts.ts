@@ -133,7 +133,7 @@ export const shortcutCategories: ShortcutCategory[] = [
     shortcuts: [
       { id: "toggleSidebar", combos: [["⌘", "B"]], description: { en: "Toggle left sidebar", ja: "左サイドバーを切り替え" } },
       { id: "toggleFileExplorer", combos: [["⌘", "⌥", "B"]], description: { en: "Toggle right sidebar", ja: "右サイドバーを切り替え" } },
-      { id: "newTab", combos: [["⌘", "N"]], description: { en: "New workspace", ja: "新規ワークスペース" } },
+      { id: "newTab", combos: [["⌘", "N"]], description: { en: "New local workspace", ja: "新規ローカルワークスペース" } },
       {
         id: "newBrowserWorkspace",
         combos: [["⌥", "⌘", "N"]],
@@ -145,15 +145,15 @@ export const shortcutCategories: ShortcutCategory[] = [
       },
       {
         id: "newCloudWorkspace",
-        combos: [["⇧", "⌘", "Y"]],
+        combos: [["⌘", "Y"]],
         description: { en: "New cloud workspace", ja: "新規クラウドワークスペース", "zh-CN": "新建云工作区", "zh-TW": "新增雲端工作區", "ko": "새 클라우드 워크스페이스", "de": "Neuer Cloud-Arbeitsbereich", "es": "Nuevo espacio de trabajo en la nube", "fr": "Nouvel espace de travail cloud", "it": "Nuovo spazio di lavoro cloud", "da": "Nyt cloud-arbejdsområde", "pl": "Nowy obszar roboczy w chmurze", "ru": "Новое облачное рабочее пространство", "bs": "Novi cloud radni prostor", "ar": "مساحة عمل سحابية جديدة", "no": "Nytt skyarbeidsområde", "pt-BR": "Novo espaço de trabalho na nuvem", "th": "เวิร์กสเปซคลาวด์ใหม่", "tr": "Yeni bulut çalışma alanı", "km": "កន្លែងធ្វើការលើពពកថ្មី", "uk": "Новий хмарний робочий простір" },
         note: {
-          en: "uses the most recently selected Cloud workspace's machine, then the first machine in the right sidebar",
-          ja: "最後に選択した Cloud ワークスペースのマシンを使い、なければ右サイドバーの先頭のマシンを使います",
+          en: "uses the most recently selected Cloud workspace's machine, then the active or first machine in the right sidebar; if no usable machine exists, it opens New Cloud Machine",
+          ja: "最後に選択した Cloud ワークスペースのマシン、次にアクティブまたは右サイドバーの先頭のマシンを使い、利用できるマシンがなければ新規クラウドマシンを開きます",
           "zh-CN": "使用最近选中的 Cloud 工作区所属机器；如果没有，则使用右侧边栏中的第一台机器", "zh-TW": "使用最近選取的 Cloud 工作區所屬機器；若沒有，則使用右側邊欄中的第一台機器", "ko": "마지막으로 선택한 Cloud 워크스페이스의 머신을 사용하고, 없으면 오른쪽 사이드바의 첫 번째 머신을 사용합니다", "de": "Verwendet die Maschine des zuletzt ausgewählten Cloud-Arbeitsbereichs, danach die erste Maschine in der rechten Seitenleiste", "es": "Usa la máquina del espacio de trabajo Cloud seleccionado más recientemente y, si no existe, la primera máquina de la barra lateral derecha", "fr": "Utilise la machine du dernier espace de travail Cloud sélectionné, puis la première machine de la barre latérale droite", "it": "Usa la macchina dell'ultimo spazio di lavoro Cloud selezionato, poi la prima macchina nella barra laterale destra", "da": "Bruger maskinen fra det senest valgte Cloud-arbejdsområde og derefter den første maskine i højre sidepanel", "pl": "Używa maszyny ostatnio wybranego obszaru Cloud, a następnie pierwszej maszyny na prawym pasku bocznym", "ru": "Использует машину последнего выбранного рабочего пространства Cloud, затем первую машину на правой боковой панели", "bs": "Koristi mašinu posljednjeg odabranog Cloud radnog prostora, a zatim prvu mašinu u desnoj bočnoj traci", "ar": "يستخدم جهاز آخر مساحة عمل Cloud محددة، ثم أول جهاز في الشريط الجانبي الأيمن", "no": "Bruker maskinen til det sist valgte Cloud-arbeidsområdet, deretter den første maskinen i høyre sidefelt", "pt-BR": "Usa a máquina do espaço de trabalho Cloud selecionado mais recentemente e depois a primeira máquina na barra lateral direita", "th": "ใช้เครื่องของพื้นที่ทำงาน Cloud ที่เลือกครั้งล่าสุด แล้วจึงใช้เครื่องแรกในแถบด้านขวา", "tr": "En son seçilen Cloud çalışma alanının makinesini, ardından sağ kenar çubuğundaki ilk makineyi kullanır", "km": "ប្រើម៉ាស៊ីនរបស់ Cloud workspace ដែលបានជ្រើសចុងក្រោយ បន្ទាប់មកម៉ាស៊ីនដំបូងក្នុង sidebar ខាងស្ដាំ", "uk": "Використовує машину останнього вибраного робочого простору Cloud, потім першу машину на правій бічній панелі",
         },
       },
-      { id: "newCloudMachine", combos: [["⌘", "Y"]], description: {"en": "New cloud machine", "ja": "新規クラウドマシン", "zh-CN": "新建云机器", "zh-TW": "新增雲端機器", "ko": "새 클라우드 머신", "de": "Neue Cloud-Maschine", "es": "Nueva máquina en la nube", "fr": "Nouvelle machine cloud", "it": "Nuova macchina cloud", "da": "Ny cloud-maskine", "pl": "Nowa maszyna w chmurze", "ru": "Новая облачная машина", "bs": "Nova mašina u oblaku", "ar": "جهاز سحابي جديد", "no": "Ny skymaskin", "pt-BR": "Nova máquina na nuvem", "th": "เครื่องคลาวด์ใหม่", "tr": "Yeni bulut makinesi", "km": "ម៉ាស៊ីនលើពពកថ្មី", "uk": "Нова хмарна машина"} },
+      { id: "newCloudMachine", combos: [["⇧", "⌘", "Y"]], description: {"en": "New cloud machine", "ja": "新規クラウドマシン", "zh-CN": "新建云机器", "zh-TW": "新增雲端機器", "ko": "새 클라우드 머신", "de": "Neue Cloud-Maschine", "es": "Nueva máquina en la nube", "fr": "Nouvelle machine cloud", "it": "Nuova macchina cloud", "da": "Ny cloud-maskine", "pl": "Nowa maszyna w chmurze", "ru": "Новая облачная машина", "bs": "Nova mašina u oblaku", "ar": "جهاز سحابي جديد", "no": "Ny skymaskin", "pt-BR": "Nova máquina na nuvem", "th": "เครื่องคลาวด์ใหม่", "tr": "Yeni bulut makinesi", "km": "ម៉ាស៊ីនលើពពកថ្មី", "uk": "Нова хмарна машина"} },
       { id: "saveLayoutTemplate", combos: [["⌃", "⌘", "S"]], description: { en: "Save current workspace layout as a template", ja: "現在のワークスペースレイアウトをテンプレートとして保存" } },
       { id: "openFolder", combos: [["⌘", "O"]], description: { en: "Open folder", ja: "フォルダを開く" } },
       {
