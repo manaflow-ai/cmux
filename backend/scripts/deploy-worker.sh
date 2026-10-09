@@ -27,7 +27,13 @@ secrets="$(mktemp "${TMPDIR:-/tmp}/cmux-api-secrets.XXXXXX")"
 trap 'rm -f "$secrets"' EXIT
 secret_file="$HOME/.secrets/cmux-next-api-${env_name}.env"
 case "$target" in preview-*) secret_file="$HOME/.secrets/cmux-next-api-preview.env" ;; esac
-if [ -n "${JWT_PRIVATE_JWK:-}" ]; then
+# CMUX_DEPLOY_NO_SECRETS=1 (the development CI job): ship code only. No --secrets-file, so the
+# Worker keeps the secrets it has; the job checks first that the vars would not change either.
+no_secrets=""
+if [ "${CMUX_DEPLOY_NO_SECRETS:-}" = 1 ]; then
+  [ "$target" = development ] || { echo "CMUX_DEPLOY_NO_SECRETS is for development only" >&2; exit 2; }
+  no_secrets=1
+elif [ -n "${JWT_PRIVATE_JWK:-}" ]; then
   printf '{"JWT_PRIVATE_JWK":%s}\n' "$(python3 -c 'import json,os;print(json.dumps(os.environ["JWT_PRIVATE_JWK"]))')" > "$secrets"
 elif [ -f "$secret_file" ]; then
   python3 - "$secret_file" > "$secrets" <<'PY'
@@ -60,6 +66,8 @@ esac
 rails="../../../scripts/cmux-next/release/worker-release.ts"
 case "$env_name" in
   staging) worker=cmux-api-staging; origin=https://cloud-api-staging.cmux.dev ;;
+  # Development gets the rails in CI only (backend.yml deploy-development); local deploys stay as they were.
+  development) if [ "${CMUX_RELEASE_VERIFY_STEP:-}" = 1 ]; then worker=cmux-api-development; else worker=""; fi; origin=https://cmux-api-development.debussy.workers.dev ;;
   production) worker=cmux-api; origin=https://cloud-api.cmux.dev ;;
   *) worker="" ;;
 esac
@@ -75,7 +83,11 @@ if [ -n "$worker" ]; then
   fi
   bun "$rails" previous --worker "$worker" --wrangler ./node_modules/.bin/wrangler --out "$previous"
 fi
-./node_modules/.bin/wrangler deploy "${config[@]}" --env "$env_name" "${extra[@]}" --secrets-file "$secrets"
+if [ -n "$no_secrets" ]; then
+  ./node_modules/.bin/wrangler deploy "${config[@]}" --env "$env_name" "${extra[@]}"
+else
+  ./node_modules/.bin/wrangler deploy "${config[@]}" --env "$env_name" "${extra[@]}" --secrets-file "$secrets"
+fi
 if [ -n "$worker" ] && [ "${CMUX_RELEASE_VERIFY_STEP:-}" != 1 ]; then
   bun "$rails" verify --worker "$worker" --url "$origin" --routes release-smoke.json --previous-file "$previous" \
     --changed-since "${CMUX_RELEASE_CHANGED_SINCE:-}" --source-dir . --wrangler ./node_modules/.bin/wrangler

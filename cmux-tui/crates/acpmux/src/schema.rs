@@ -51,6 +51,11 @@ mod tests {
             method::ACP_TRUST_GET,
             method::ACP_TRUST_SET,
             method::MUX_HARNESS_ENABLE,
+            method::MUX_HARNESS_ADD,
+            method::MUX_HARNESS_REMOVE,
+            method::MUX_HARNESS_RESTORE,
+            method::MUX_HARNESS_DOCTOR,
+            method::MUX_REGISTRY,
             crate::catalog::RPC_GET,
             crate::catalog::RPC_REFRESH,
         ] {
