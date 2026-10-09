@@ -48,6 +48,7 @@ afterAll(() => {
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { ComposerContext } = await import("./ComposerContext");
+const { webKitPress } = await import("./popoverTriggerTesting");
 
 const sessions: AcpmuxSnapshot["sessions"] = [
   { sessionId: "local", cwd: "/Users/me/code/cmux", host: "This Mac", hostKind: "local" },
@@ -400,4 +401,29 @@ test("a started chat's folder picker lists the folders and Choose folder…, and
   await act(async () => choose()!.click());
   expect(moved).toEqual(["/Users/me/Projects/relay", "/Users/me/Downloads"]);
   expect(doc.querySelector(".acpmux-location-menu")).toBeNull();
+});
+
+// Cursor review (#18715): WebKit's press on Choose folder… blurs the folder field first (it never
+// focuses a clicked button), and the field's blur closed the picker before the click arrived.
+test("Choose folder… pressed as WebKit delivers the press still opens the folder dialog", async () => {
+  const moved: string[] = [];
+  await act(async () =>
+    root.render(
+      createElement(ComposerContext, {
+        summary: { sessionId: "s", cwd: "/Users/me/code/cmux", host: "This Mac", hostKind: "local", turnCount: 1 },
+        sessions,
+        started: true,
+        projectChoices: freshFolders,
+        onMove: (cwd: string) => moved.push(cwd),
+        onBrowseFolder: async () => "/Users/me/Downloads",
+      }),
+    ),
+  );
+  await act(async () => folderButton().click());
+  const choose = doc.querySelector<HTMLButtonElement>(".acpmux-location-menu .acpmux-location-choose")!;
+  // The folder field has the keyboard while the picker is open.
+  await act(async () => doc.querySelector<HTMLInputElement>(".acpmux-location-menu input")!.focus());
+  await webKitPress(dom.window as never, act as never, choose);
+  await act(async () => {});
+  expect(moved).toEqual(["/Users/me/Downloads"]);
 });
