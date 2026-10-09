@@ -119,10 +119,7 @@ pub fn turn_preset(
     if family == Family::Claude && isolate {
         // The preset's system prompt carries the instructions: no CLAUDE.md
         // file reaches a turn (the user's own ~/.claude/CLAUDE.md included).
-        env.insert(
-            "CLAUDE_CODE_DISABLE_CLAUDE_MDS".to_owned(),
-            "1".to_owned(),
-        );
+        env.insert("CLAUDE_CODE_DISABLE_CLAUDE_MDS".to_owned(), "1".to_owned());
     }
     if family == Family::Claude {
         // claude-sr (when chosen): every turn of this Chief on one sticky
@@ -132,13 +129,69 @@ pub fn turn_preset(
             codex_cache_key(home, "turn"),
         );
     }
+    // The reference's Claude Code path: no user settings (user MCP servers,
+    // hooks, plugins), no skills or slash commands; the session directory's
+    // own settings and .mcp.json stay, and the user's login still signs in.
+    let args = if family == Family::Claude && isolate {
+        TURN_ISOLATION_ARGS
+            .iter()
+            .map(|a| (*a).to_owned())
+            .collect()
+    } else {
+        Vec::new()
+    };
     (isolate || family != Family::Other).then(|| Preset {
         name: turn_preset_name(home, family),
         harness: harness.to_owned(),
         env,
-        args: Vec::new(),
+        args,
         system_prompt: (family == Family::Claude).then(|| system_text.to_owned()),
     })
+}
+
+/// The Claude Code args of an isolated turn: no user or local setting
+/// source, no skills or slash commands (acpmux's preset allowlist).
+pub const TURN_ISOLATION_ARGS: [&str; 3] =
+    ["--setting-sources", "project", "--disable-slash-commands"];
+
+/// A subagent preset `name`: the user's own environment (subagents do real
+/// work in the user's repositories), the pinned cmux env, its cache key,
+/// and on a Claude harness its system prompt `text`.
+#[allow(clippy::too_many_arguments)]
+pub fn subagent_preset(
+    paths: &Paths,
+    home: &std::path::Path,
+    name: String,
+    profile: &str,
+    family: Family,
+    isolate: bool,
+    text: &str,
+    pinned: &BTreeMap<String, String>,
+) -> Preset {
+    let mut env = if isolate {
+        session_dir::isolation_env(paths)
+    } else {
+        BTreeMap::new()
+    };
+    env.insert(session_dir::SUBAGENT_ENV.to_owned(), "1".to_owned());
+    // Subagents' cmux calls reach the same app daemon as the Chief's.
+    env.extend(pinned.clone());
+    if family == Family::Codex {
+        env.insert(CODEX_CACHE_KEY_ENV.to_owned(), codex_cache_key(home, "sub"));
+    }
+    if family == Family::Claude {
+        env.insert(
+            crate::compactor::SUBROUTER_SESSION_KEY_ENV.to_owned(),
+            codex_cache_key(home, "sub"),
+        );
+    }
+    Preset {
+        name,
+        harness: profile.to_owned(),
+        env,
+        args: Vec::new(),
+        system_prompt: (family == Family::Claude).then(|| text.to_owned()),
+    }
 }
 
 /// The turn preset's name: `optchat-chief-<home id>`, and
@@ -486,6 +539,7 @@ fn start(
         env: session_env,
         instructions: instructions.clone(),
         tools,
+        user_env: session_dir::user_settings_env(&crate::compactor::user_claude_home()),
     };
     session_dir::write(paths, &setup).map_err(|e| format!("writing the session directory: {e}"))?;
     // Section 9: every subagent's directory and system prompt.
@@ -561,30 +615,7 @@ fn start(
     // turn preset (whose system prompt is the Chief's view).
     let sub_preset_name = format!("optchat-sub-{}", crate::paths::home_id(home));
     let sub_preset = |name: String, profile: &str, family: Family, text: &str| {
-        let mut env = if isolate {
-            session_dir::isolation_env(paths)
-        } else {
-            BTreeMap::new()
-        };
-        env.insert(session_dir::SUBAGENT_ENV.to_owned(), "1".to_owned());
-        // Subagents' cmux calls reach the same app daemon as the Chief's.
-        env.extend(pinned.clone());
-        if family == Family::Codex {
-            env.insert(CODEX_CACHE_KEY_ENV.to_owned(), codex_cache_key(home, "sub"));
-        }
-        if family == Family::Claude {
-            env.insert(
-                crate::compactor::SUBROUTER_SESSION_KEY_ENV.to_owned(),
-                codex_cache_key(home, "sub"),
-            );
-        }
-        Preset {
-            name,
-            harness: profile.to_owned(),
-            env,
-            args: Vec::new(),
-            system_prompt: (family == Family::Claude).then(|| text.to_owned()),
-        }
+        subagent_preset(paths, home, name, profile, family, isolate, text, &pinned)
     };
     if uses_acpmux {
         required.push(sub_preset(
