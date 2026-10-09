@@ -170,7 +170,7 @@ impl Brain {
                 };
                 let _ = tx.send(Input::TurnEnded {
                     key: start.key,
-                    outcome,
+                    outcome: Box::new(outcome),
                 });
             });
         if let Err(e) = spawned {
@@ -286,14 +286,10 @@ impl Brain {
         let engine = self.turn_engine_choice();
         let family = self.family_of(&engine.harness);
         self.note_engine(&engine);
-        let default_family = self.family_of(&self.settings.harness);
         // The cached layout on a Claude harness whose acpmux takes a preset
         // system prompt; else the view and the messages as blocks.
-        let cached = (matches!(self.settings.engine, Engine::Acpmux)
-            && family == crate::acpmux::Family::Claude)
-            .then_some(self.settings.turn_preset.as_deref())
-            .flatten()
-            .filter(|preset| self.agents.system_prompt(preset));
+        let (cached, plain_preset) = self.session_presets(family);
+        let cached = cached.as_deref();
         let marker = !self.marker_refused.load(Ordering::SeqCst);
         let (blocks, system_prompt, preset) = match cached {
             Some(preset) => {
@@ -305,18 +301,7 @@ impl Brain {
                 );
                 (layout.blocks, Some(layout.system), Some(preset.to_owned()))
             }
-            None => {
-                // The family's own preset when the turn left the default
-                // harness's family (the port falls back to the default's).
-                let preset = match family {
-                    crate::acpmux::Family::Codex => self.settings.codex_preset.clone(),
-                    crate::acpmux::Family::Claude if default_family != family => {
-                        self.settings.turn_preset.clone()
-                    }
-                    _ => None,
-                };
-                (turn_blocks(&view.text, &texts), None, preset)
-            }
+            None => (turn_blocks(&view.text, &texts), None, plain_preset),
         };
         let image_count = image_blocks.len();
         let blocks = with_images(blocks, image_blocks);
@@ -618,20 +603,12 @@ impl Brain {
     /// This turn's engine: engine.json over the defaults. A harness acpmux
     /// does not know keeps the default harness, and says so.
     fn turn_engine_choice(&mut self) -> crate::engine::TurnEngine {
-        let s = &self.settings;
-        let choice = s
-            .engine_file
-            .as_deref()
-            .map(crate::engine::load)
-            .unwrap_or_default();
-        let mut engine =
-            crate::engine::resolve(&choice, &s.harness, s.model.as_deref(), s.effort.as_deref());
-        if !s.families.is_empty() && !s.families.contains_key(&engine.harness) {
+        let (engine, unknown) = self.next_engine();
+        if let Some(named) = unknown {
             (self.log)(&format!(
-                "engine.json names harness {}, which acpmux does not have; this turn runs on {}",
-                engine.harness, s.harness
+                "engine.json names harness {named}, which acpmux does not have; this turn runs on {}",
+                engine.harness
             ));
-            engine.harness = s.harness.clone();
         }
         self.turn_engine = Some(engine.clone());
         engine
@@ -651,7 +628,7 @@ impl Brain {
 
     /// A harness's family (the default harness is Claude in a brain made
     /// without acpmux's metadata when it has a turn preset).
-    fn family_of(&self, harness: &str) -> crate::acpmux::Family {
+    pub(super) fn family_of(&self, harness: &str) -> crate::acpmux::Family {
         match self.settings.families.get(harness) {
             Some(f) => *f,
             None if self.settings.families.is_empty() && self.settings.turn_preset.is_some() => {
@@ -723,6 +700,10 @@ impl Brain {
                 "requests": s.requests,
                 "tools": s.tools,
                 "tool_errors": s.tool_errors,
+                // Time to first token (parity item 10): the session's start,
+                // then the first request's first token.
+                "start_ms": s.start_ms,
+                "ttft_ms": s.ttft_ms,
                 // What answered (harness_gate): the engine panel reads these.
                 "harness_profile": outcome.harness.as_ref().map(|h| h.profile.as_str()),
                 "harness_kind": outcome.harness.as_ref().map(|h| h.kind.as_str()),
@@ -813,6 +794,7 @@ impl Brain {
         if let Some(hook) = &self.after_turn {
             hook(key);
         }
+        self.prewarm_next_turn();
         self.maybe_start_turn();
     }
 }
