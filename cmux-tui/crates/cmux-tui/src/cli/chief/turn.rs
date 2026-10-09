@@ -50,19 +50,38 @@ impl TurnWatch {
                 }
                 None
             }
-            UiEvent::Message(message) => {
-                let author = message.get("author").and_then(Value::as_str);
-                let seq = message.get("seq").and_then(Value::as_u64).unwrap_or(0);
-                if author == Some(AGENT_MUX)
-                    && seq > self.seq
-                    && !self.replies.iter().any(|m| m.get("seq") == message.get("seq"))
-                {
-                    self.replies.push(message.clone());
-                    return Some(message.clone());
+            UiEvent::Snapshot { summary, messages, typing } => {
+                // A reopened stream after a gap: the state it missed.
+                let cursor = summary.pointer("/read_cursors/agent_mux").and_then(Value::as_u64);
+                if cursor.is_some_and(|c| c >= self.seq) {
+                    self.read = true;
+                }
+                for message in messages {
+                    self.keep_reply(message);
+                }
+                if self.read && typing.iter().any(|p| p == AGENT_MUX) {
+                    self.working = true;
+                } else if self.read && !self.replies.is_empty() {
+                    // Read, answered, and no longer typing: the turn ended
+                    // while the stream was down.
+                    self.done = true;
                 }
                 None
             }
+            UiEvent::Message(message) => self.keep_reply(message),
             _ => None,
         }
+    }
+
+    /// Keeps `message` when it is a new Chief message after `seq`.
+    fn keep_reply(&mut self, message: &Value) -> Option<Value> {
+        let author = message.get("author").and_then(Value::as_str);
+        let seq = message.get("seq").and_then(Value::as_u64).unwrap_or(0);
+        let known = self.replies.iter().any(|m| m.get("seq") == message.get("seq"));
+        if author != Some(AGENT_MUX) || seq <= self.seq || known {
+            return None;
+        }
+        self.replies.push(message.clone());
+        Some(message.clone())
     }
 }
