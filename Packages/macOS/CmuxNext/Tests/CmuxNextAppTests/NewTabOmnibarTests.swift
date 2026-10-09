@@ -23,9 +23,10 @@ struct NewTabOmnibarTests {
         #expect(NewTabOmnibar.outcome(for: .didEndEditing(.switchToTab(key: "tab-7"))) == .reveal("tab-7"))
     }
 
-    @Test func escapeHandsTheKeyboardBackToThePagesField() {
+    /// A spare page whose omnibar was used is never recycled with its text (NewTabSparePool).
+    @Test func escapeHandsTheKeyboardBackToThePagesFieldAndEditingTouchesThePage() {
         #expect(NewTabOmnibar.outcome(for: .didEndEditing(.cancel)) == .returnToPage)
         #expect(NewTabOmnibar.outcome(for: .didEndEditing(.blur)) == .none)
-        #expect(NewTabOmnibar.outcome(for: .didBeginEditing) == .none)
+        #expect(NewTabOmnibar.outcome(for: .didBeginEditing) == .touch)
     }
 }

@@ -357,6 +357,24 @@ test("a key typed anywhere on the page goes into the field, the first key kept",
   await act(async () => root.unmount());
 });
 
+test("Space on a focused button presses it; a typed key replaces a still-selected location", async () => {
+  const { container, root, field } = await mount({ location: "https://cmux.dev/" });
+  const card = container.querySelector<HTMLButtonElement>(".nt-card")!;
+  card.focus();
+  await act(async () => {
+    card.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true }));
+  });
+  expect(dom.window.document.activeElement).toBe(card);
+  expect(field.value).toBe("https://cmux.dev/");
+  field.select();
+  card.focus();
+  await act(async () => {
+    card.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "g", bubbles: true, cancelable: true }));
+  });
+  expect(field.value).toBe("g");
+  await act(async () => root.unmount());
+});
+
 test("a key typed in another field on the page stays in that field", async () => {
   const { root, field } = await mount();
   const other = dom.window.document.createElement("input");

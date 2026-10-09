@@ -848,9 +848,10 @@ function PermissionAsk({ permission }: { permission: AcpmuxPermission }) {
   );
 }
 
-/// The composer chips on the New Tab page (cx-e2aa): no chat exists yet, so a pick starts one for
-/// the shown agent in the page's project, and the pick lands on it as it starts (harnessSwitch keeps
-/// picks made while a switch runs). Enter then sends the prompt into that same chat.
+/// The composer chips on the New Tab page (cx-e2aa): no chat exists yet, so a pick starts a deferred
+/// switch to the shown agent in the page's project (`chat.new {deferred}`): acpmux starts the session
+/// behind the page, which stays, and the pick lands on it (harnessSwitch keeps picks made while a
+/// switch runs). Enter asks the same agent in the same folder, the same switch, which then shows.
 function NewTabComposerChips({ snapshot, cwd }: { snapshot: AcpmuxSnapshot; cwd?: string }) {
   return <DefaultComposerChips snapshot={snapshot} cwd={cwd} startsChat />;
 }
@@ -866,7 +867,7 @@ function DefaultComposerChips({
   /// The chips belong to a page with no chat yet: a model, mode or effort pick starts one first.
   startsChat?: boolean;
 }) {
-  const inFolder = startsChat && cwd ? { cwd } : {};
+  const inFolder = startsChat ? { ...(cwd ? { cwd } : {}), deferred: true } : {};
   // `chat.new` for the same agent and folder is the switch already running, so a second pick
   // never restarts it.
   const start = () => {
@@ -1813,8 +1814,11 @@ function AcpmuxPane() {
             return persistSession(await client.select(String(sessionId)));
           },
           // A pick of another harness is a switch: drawn now, started behind it.
-          "chat.new": async ({ harness, cwd, peer }) => {
-            if (harness && !peer) return harnessSwitch.switchTo(String(harness), cwd ? String(cwd) : undefined);
+          "chat.new": async ({ harness, cwd, peer, deferred }) => {
+            if (harness && !peer)
+              return harnessSwitch.switchTo(String(harness), cwd ? String(cwd) : undefined, {
+                deferred: deferred === true,
+              });
             harnessSwitch.cancel();
             return persistSession(
               await client.create(

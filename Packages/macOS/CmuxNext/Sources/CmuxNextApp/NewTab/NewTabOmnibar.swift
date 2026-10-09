@@ -10,6 +10,8 @@ import CmuxNextBrowser
 enum NewTabOmnibar {
     /// What an omnibar boundary does on the page.
     enum Outcome: Equatable {
+        /// Editing began: the page counts as touched (a recycled spare must not keep the text).
+        case touch
         /// The page becomes this tab (the page's `tab.open`).
         case open(AgentPaneOpenTab)
         /// A Switch to Tab row: reveal that tab.
@@ -23,7 +25,7 @@ enum NewTabOmnibar {
 
     static func outcome(for event: OmnibarEvent) -> Outcome {
         switch event {
-        case .didBeginEditing: .none
+        case .didBeginEditing: .touch
         // A modified commit (Cmd-Enter) has no current page to keep: the page opens it too.
         case .didEndEditing(.commit(let url)), .didEndEditing(.open(let url, _)):
             .open(AgentPaneOpenTab(kind: .browser, text: url.absoluteString))
@@ -50,6 +52,8 @@ enum NewTabOmnibar {
                 page.handler.open(key, request)
             case .reveal(let tab):
                 _ = services.revealTab(tab)
+            case .touch:
+                Task { _ = await view.model.respond(to: .touched) }
             case .returnToPage:
                 view.window?.makeFirstResponder(view.webView)
             case .none:

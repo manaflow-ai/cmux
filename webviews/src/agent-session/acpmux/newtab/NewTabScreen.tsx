@@ -103,6 +103,8 @@ export function NewTabScreen(props: Props) {
     () => (touched && !shell ? screenRows(text, { omnibar, home }) : []),
     [touched, shell, text, omnibar, home],
   );
+  // New tabs or pages from the host can shorten the rows under a highlight.
+  const current = selected < rows.length ? selected : -1;
   const t = useT();
   const cards = useMemo(() => recentChatCards(snapshot.sessions, now, t), [snapshot.sessions, now, t]);
   const list = useRef<HTMLDivElement>(null);
@@ -161,7 +163,7 @@ export function NewTabScreen(props: Props) {
     setSelected(initialSelection(next, home));
   };
   const submit = () => {
-    const row = rows[selected];
+    const row = rows[current];
     if (row) return activate(row);
     const prompt = text.trim();
     if (!prompt || initialSelection(prompt, home) === 0 || !harness) return;
@@ -176,11 +178,16 @@ export function NewTabScreen(props: Props) {
     if (!input || event.defaultPrevented || event.isComposing) return;
     if (event.metaKey || event.ctrlKey || event.altKey || event.key.length !== 1) return;
     const target = event.target as Element | null;
-    if (target === input || (target && typeof target.closest === "function" && ownsKeys(target))) return;
+    const element = target && typeof target.closest === "function" ? target : undefined;
+    if (target === input || (element && ownsKeys(element))) return;
+    // Space on a focused button presses it.
+    if (event.key === " " && element?.closest('button, a, summary, [role="button"]')) return;
     event.preventDefault();
     input.focus();
-    wholeSelection.current = false;
-    edit(input.value + event.key);
+    // A location the page put in the field, still selected, is replaced as a typed key would.
+    const whole = input.value !== "" && input.selectionStart === 0 && input.selectionEnd === input.value.length;
+    wholeSelection.current = whole;
+    edit(whole ? event.key : input.value + event.key);
   };
   const screen = useCallback((node: HTMLDivElement | null) => {
     const document = node?.ownerDocument;
@@ -211,7 +218,7 @@ export function NewTabScreen(props: Props) {
     const step = listStep(event);
     if (step && rows.length) {
       event.preventDefault();
-      setSelected((current) => stepSelection(current, step, rows.length));
+      setSelected(stepSelection(current, step, rows.length));
     } else if (event.key === "Enter") {
       event.preventDefault();
       submit();
@@ -235,6 +242,7 @@ export function NewTabScreen(props: Props) {
       }
     : undefined;
   const Chips = props.chips;
+  const chatFolder = project ?? props.cwd;
 
   return (
     <div ref={screen} className="nt-screen" data-shell={shell || undefined}>
@@ -248,7 +256,9 @@ export function NewTabScreen(props: Props) {
           {...(browseProject ? { onBrowse: browseProject } : {})}
           side="bottom"
         />
-        {Chips && <Chips snapshot={chipSnapshot} {...(project ? { cwd: project } : {})} />}
+        {/* The folder Enter asks in (screenActions: the picked project, else the tab's), so a pick's
+            switch is the one Enter reuses. */}
+        {Chips && <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />}
       </div>
       <div className="nt-box">
         {shell && (
@@ -263,7 +273,7 @@ export function NewTabScreen(props: Props) {
           placeholder={shell ? t("composer.shellPlaceholder") : nt("placeholder")}
           value={text}
           aria-controls="nt-rows"
-          aria-activedescendant={rows[selected] ? `nt-row-${selected}` : undefined}
+          aria-activedescendant={rows[current] ? `nt-row-${current}` : undefined}
           spellCheck={!shell}
           autoCapitalize="off"
           autoCorrect="off"
@@ -284,14 +294,14 @@ export function NewTabScreen(props: Props) {
             <div
               key={rowKey(row)}
               id={`nt-row-${index}`}
-              ref={index === selected ? keepInView : undefined}
+              ref={index === current ? keepInView : undefined}
               // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
               role="option"
               tabIndex={-1}
-              aria-selected={index === selected}
+              aria-selected={index === current}
               data-type={row.type}
-              className={index === selected ? "nt-row is-selected" : "nt-row"}
-              onMouseMove={() => index !== selected && setSelected(index)}
+              className={index === current ? "nt-row is-selected" : "nt-row"}
+              onMouseMove={() => index !== current && setSelected(index)}
               onMouseDown={(event) => {
                 event.preventDefault();
                 activate(row);
@@ -304,7 +314,7 @@ export function NewTabScreen(props: Props) {
               {rowDetail(row) && <span className="nt-row-detail">{rowDetail(row)}</span>}
               <span className="nt-row-action">
                 {rowAction(t, row)}
-                {index === selected && <kbd>↵</kbd>}
+                {index === current && <kbd>↵</kbd>}
               </span>
             </div>
           ))}
