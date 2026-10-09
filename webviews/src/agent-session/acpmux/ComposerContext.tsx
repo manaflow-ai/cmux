@@ -56,6 +56,8 @@ export function ComposerContext({
   /// The folder a started chat moved to.
   movedTo?: string;
   onMove?(cwd: string): void;
+  /// A started chat's Choose folder…: the host's folder panel, then the chat moves there.
+  onBrowseFolder?(): Promise<string | undefined>;
   /// A turn runs: the folder holds still.
   busy?: boolean;
   /// A new chat's Computer menu ends with SSH… and cmux Cloud…, which open the host's
