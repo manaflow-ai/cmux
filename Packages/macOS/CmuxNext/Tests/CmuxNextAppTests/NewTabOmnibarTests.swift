@@ -29,4 +29,12 @@ struct NewTabOmnibarTests {
         #expect(NewTabOmnibar.outcome(for: .didEndEditing(.blur)) == .none)
         #expect(NewTabOmnibar.outcome(for: .didBeginEditing) == .touch)
     }
+
+    /// cx-e2aa decision (chief 2026-10-09): Cmd-L from any tab opens the New Tab page with the
+    /// omnibar focused; on a New Tab page it focuses that page's omnibar; a browser keeps its own bar.
+    @Test func focusLocationAlwaysEndsInAnOmnibar() {
+        #expect(NewTabPage.locationTarget(showsBrowser: true, showsNewTabPage: false) == .browserAddressBar)
+        #expect(NewTabPage.locationTarget(showsBrowser: false, showsNewTabPage: true) == .newTabOmnibar)
+        #expect(NewTabPage.locationTarget(showsBrowser: false, showsNewTabPage: false) == .openNewTabWithOmnibar)
+    }
 }

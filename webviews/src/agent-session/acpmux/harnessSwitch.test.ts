@@ -664,4 +664,21 @@ describe("harness switch: a deferred pick from the New Tab page", () => {
     void store.switchTo("claude", "/src/b", { deferred: true });
     expect(store.view().intent?.config.model).toBeUndefined();
   });
+
+  test("closing the page discards the unsent chat a pick started; a shown chat is never touched", async () => {
+    const { store, port } = setup();
+    port.session = undefined;
+    void store.switchTo("codex", "/src/app", { deferred: true });
+    port.creates[0]!.reply.resolve("codex-2");
+    await settle();
+    store.cancelDeferred();
+    expect(port.calls).toEqual(["create codex", "discard codex-2"]);
+    expect(store.view().intent).toBeUndefined();
+    void store.switchTo("codex", "/src/app");
+    port.creates[1]!.reply.resolve("codex-3");
+    await settle();
+    store.cancelDeferred();
+    expect(port.calls).not.toContain("discard codex-3");
+  });
 });
+

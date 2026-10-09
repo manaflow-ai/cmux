@@ -139,18 +139,17 @@
   font-family: inherit;
   font-weight: 400;
 }
-/* The template dots, centered at the bottom of every template. */
+/* The template dots, centered under every template, in the page's own flow after the scrolling
+   screen (never over it: nxdog82, "Integrate a harness" ran under the dots in a short window). */
 .nt-templates {
-  position: absolute;
-  z-index: var(--layer-raised);
-  left: 50%;
-  bottom: 14px;
-  transform: translateX(-50%);
+  order: 1;
+  flex: none;
+  align-self: center;
   display: flex;
   gap: 4px;
   margin: 0;
   border: 0;
-  padding: 0;
+  padding: 6px 0 12px;
   min-inline-size: 0;
 }
 .nt-template-dot {
@@ -181,7 +180,4 @@
   outline: 1.5px solid color-mix(in srgb, var(--agent-text) 45%, transparent);
   outline-offset: 0;
   border-radius: 50%;
-}
-.nt-screen {
-  padding-bottom: 48px;
 }

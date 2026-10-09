@@ -345,6 +345,7 @@ fn compactor_requests_never_put_a_one_hour_mark_after_a_five_minute_one() {
     }
     context.push_str("</chat>");
     let request = optchat_core::CompactRequest {
+        imported: false,
         node: optchat_core::NodeId::new(0, 40),
         system: "system".into(),
         context,
