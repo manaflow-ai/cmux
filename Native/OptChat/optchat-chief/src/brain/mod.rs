@@ -384,6 +384,9 @@ pub struct Brain {
     workspaces: Option<Arc<dyn crate::workspaces::Workspaces>>,
     /// Starts a queued subagent by id (`Spawner::queue_starter`).
     sub_starter: Option<Sender<String>>,
+    /// A finished subagent's workspace closes instead of taking the done
+    /// mark (`OPTCHAT_SUBAGENT_ON_FINISH=close`).
+    sub_close_on_finish: bool,
     /// The previous turn's view, to measure how much of it stayed (cache).
     prev_view: Option<String>,
     /// When the current settle wait and turn began.
@@ -479,6 +482,7 @@ impl Brain {
             trace: crate::trace::Trace::off(),
             workspaces: None,
             sub_starter: None,
+            sub_close_on_finish: false,
             prev_view: None,
             settle_clock: None,
             settle_status: None,
@@ -518,6 +522,12 @@ impl Brain {
 
     pub fn set_workspaces(&mut self, workspaces: Option<Arc<dyn crate::workspaces::Workspaces>>) {
         self.workspaces = workspaces;
+    }
+
+    /// Finished subagents' workspaces close (true) or stay with the done
+    /// mark (false, the default).
+    pub fn set_sub_close_on_finish(&mut self, close: bool) {
+        self.sub_close_on_finish = close;
     }
 
     /// Where queued subagents are started when a slot frees.

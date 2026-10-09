@@ -496,3 +496,12 @@ fn write_executable(path: impl AsRef<std::path::Path>, contents: impl AsRef<[u8]
     child.stdin.take().unwrap().write_all(contents.as_ref()).unwrap();
     assert!(child.wait().unwrap().success(), "could not write {}", path.display());
 }
+
+#[test]
+fn grok_on_path_is_a_harness_through_its_own_acp_mode() {
+    let found = discover_harnesses_from(None, &on_path(&["grok"]));
+    let grok = &found["grok"];
+    assert_eq!(grok.kind, HarnessKind::Acp);
+    assert_eq!(grok.argv, vec!["/u/bin/grok".to_owned(), "agent".into(), "stdio".into()]);
+    assert_eq!(super::derive_family("grok", grok), "grok");
+}
