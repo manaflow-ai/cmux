@@ -12,9 +12,12 @@ import Testing
 @MainActor
 @Suite("Frame gate policy change", .serialized)
 struct BrowserReplFrameGatePolicyChangeTests {
+    /// A session without a policy sets its first one while a read is in
+    /// flight (a read under a policy is judged again after it runs anyway).
     @Test func aReadInFlightWhenThePolicyNarrowsReturnsNothingFromTheNewlyBlockedFrame() async throws {
         let page = try await FramePage.load()
-        let gate = BrowserReplFrameGateTests.gate(prohibiting: "cmux-test://other.test")
+        let gate = BrowserReplFrameGate(world: BrowserReplFrameGateTests.world)
+        #expect(!gate.isActive(in: page.webView))
         let frame = try #require(page.frame(host: "blocked.test"))
         let webView = page.webView
         let read = Task { @MainActor in
