@@ -16,7 +16,13 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 RUNNER = ROOT / "scripts" / "ci" / "run-swift-testing-suites.sh"
 
 
-def run_runner(package: pathlib.Path, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+def run_runner(
+    package: pathlib.Path, env: dict[str, str], default_direct: str | None = "0"
+) -> subprocess.CompletedProcess[str]:
+    # The swift-test-per-suite tests below pin the fallback path
+    # (CMUX_SWIFT_TEST_DIRECT=0); the direct tests set 1; None keeps the default.
+    if default_direct is not None and "CMUX_SWIFT_TEST_DIRECT" not in env:
+        env = {**env, "CMUX_SWIFT_TEST_DIRECT": default_direct}
     process = subprocess.Popen(
         [str(RUNNER), str(package)],
         cwd=ROOT,
@@ -842,6 +848,22 @@ class DirectBundleSuiteTests(unittest.TestCase):
             self.assertNotEqual(completed.returncode, 0, completed.stdout)
             self.assertIn("no .xctest bundle", completed.stdout)
             self.assertEqual(self._direct_calls(temp), [])
+
+    def test_direct_is_the_default(self) -> None:
+        """Fleet 2026-10-09 at 2914cce3af0e (CmuxNext, 1339 suites): the same 1339
+        passed both ways; direct halved the summed suite time (2054 s -> 974 s)
+        and had no build.db lock retries (18 with swift test at 4 shards)."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp = pathlib.Path(temp_dir).resolve()
+            package, env = self._setup(temp)
+            del env["CMUX_SWIFT_TEST_DIRECT"]
+
+            completed = run_runner(package, env, default_direct=None)
+
+            self.assertEqual(completed.returncode, 0, completed.stdout)
+            swift_calls = (temp / "swift-calls.txt").read_text(encoding="utf-8").splitlines()
+            self.assertFalse([call for call in swift_calls if "--filter" in call], swift_calls)
+            self.assertEqual(len(self._direct_calls(temp)), 3)
 
     def test_invalid_direct_value_is_refused(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
