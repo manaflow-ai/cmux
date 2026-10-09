@@ -259,18 +259,24 @@ struct BrowserReplPinnedFileAccessTests {
         let first = await frameText()
         #expect(first?.contains("own frame") == true, "the frame did not show its own page: \(String(describing: first))")
 
-        /// Reloads the frame and returns what it showed, if its response
-        /// was admitted.
+        /// Reloads the frame and returns what it shows once it loaded, or
+        /// `nil` when its navigation or response was refused. WebKit itself
+        /// may refuse the file with no response to judge (macOS 27): the
+        /// frame's `load` event ends the wait then.
         func reloadFrame(_ query: String) async throws -> String? {
-            waiter.forgetChildFrames()
-            _ = try await webView.callAsyncJavaScript("""
+            waiter.onChildFrameRefused = {
+                webView.evaluateJavaScript("window.frameRefused && frameRefused()", completionHandler: nil)
+            }
+            let outcome = try await webView.callAsyncJavaScript("""
                 const frame = document.querySelector('iframe')
-                window.frameDone = new Promise(resolve => frame.addEventListener('load', resolve, { once: true }))
+                const done = new Promise(resolve => {
+                    frame.addEventListener('load', () => resolve('loaded'), { once: true })
+                    window.frameRefused = () => resolve('refused')
+                })
                 frame.src = 'frame/inner.html?\(query)'
-                """, contentWorld: .page)
-            guard await waiter.childFrameResponse() else { return nil }
-            _ = try await webView.callAsyncJavaScript("await window.frameDone", contentWorld: .page)
-            return await frameText()
+                return await done
+                """, contentWorld: .page) as? String
+            return outcome == "loaded" ? await frameText() : nil
         }
         // Another session moves the frame's directory away and a link to a
         // directory outside takes its name, after the frame's navigation
@@ -349,9 +355,8 @@ final class FileLoadWaiter: NSObject, WKNavigationDelegate {
     var afterChildFrameDecision: (() -> Void)?
     /// The child frame whose file navigation was decided last.
     private(set) var childFrame: WKFrameInfo?
-    private var childFrameResults: [Bool] = []
-    private var childFrameContinuation: CheckedContinuation<Bool, Never>?
-
+    /// Runs when a child frame's file navigation or response is refused.
+    var onChildFrameRefused: (() -> Void)?
     init(roots: [BrowserReplFileRoot]? = nil) {
         self.roots = roots
     }
@@ -361,31 +366,10 @@ final class FileLoadWaiter: NSObject, WKNavigationDelegate {
         await withCheckedContinuation { continuation = $0 }
     }
 
-    /// Whether the next child frame's file load was admitted: `false` when
-    /// its navigation or its response was refused.
-    func childFrameResponse() async -> Bool {
-        if !childFrameResults.isEmpty { return childFrameResults.removeFirst() }
-        return await withCheckedContinuation { childFrameContinuation = $0 }
-    }
-
-    /// Forgets the child frames' loads judged so far.
-    func forgetChildFrames() {
-        childFrameResults = []
-    }
-
     private func finish() {
         done = true
         continuation?.resume()
         continuation = nil
-    }
-
-    private func noteChildFrame(_ admitted: Bool) {
-        if let childFrameContinuation {
-            self.childFrameContinuation = nil
-            childFrameContinuation.resume(returning: admitted)
-        } else {
-            childFrameResults.append(admitted)
-        }
     }
 
     /// Pins a frame's file navigation as the app's navigation delegate
@@ -409,7 +393,7 @@ final class FileLoadWaiter: NSObject, WKNavigationDelegate {
             }
         } catch {
             decisionHandler(.cancel)
-            if frame.isMainFrame { finish() } else { noteChildFrame(false) }
+            if frame.isMainFrame { finish() } else { onChildFrameRefused?() }
         }
     }
 
@@ -427,9 +411,7 @@ final class FileLoadWaiter: NSObject, WKNavigationDelegate {
             in: webView
         )
         decisionHandler(admitted ? .allow : .cancel)
-        if !navigationResponse.isForMainFrame, navigationResponse.response.url?.isFileURL == true {
-            noteChildFrame(admitted)
-        }
+        if !admitted, !navigationResponse.isForMainFrame { onChildFrameRefused?() }
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { finish() }
