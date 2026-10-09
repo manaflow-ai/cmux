@@ -188,7 +188,8 @@ final class LongTextIndex: @unchecked Sendable {
     func blockString(_ b: Int) -> NSString {
         let a = starts[b], e = starts[b + 1]
         return withBytes { p in
-            NSString(bytes: p.baseAddress! + a, length: e - a, encoding: String.Encoding.utf8.rawValue) ?? ""
+            guard let base = p.baseAddress else { return "" } // cmux: no force unwrap
+            return NSString(bytes: base + a, length: e - a, encoding: String.Encoding.utf8.rawValue) ?? ""
         }
     }
 
@@ -208,8 +209,10 @@ final class LongTextIndex: @unchecked Sendable {
         guard !n.isEmpty, from < count else { return nil }
         return withBytes { p in
             n.withUnsafeBufferPointer { q in
-                guard let r = memmem(p.baseAddress! + from, count - from, q.baseAddress!, q.count) else { return nil }
-                let o = UnsafeRawPointer(r) - UnsafeRawPointer(p.baseAddress!)
+                // cmux: no force unwraps (crash program)
+                guard let base = p.baseAddress, let needle = q.baseAddress,
+                      let r = memmem(base + from, count - from, needle, q.count) else { return nil }
+                let o = UnsafeRawPointer(r) - UnsafeRawPointer(base)
                 return o..<(o + q.count)
             }
         }
@@ -283,14 +286,15 @@ final class BlockLayout: @unchecked Sendable {
         let a = NSMutableAttributedString(string: string as String,
                                           attributes: [.font: Fixture.bodyFont, .foregroundColor: color, .kern: Fixture.bodyKern])
         if string.range(of: "http").location != NSNotFound || string.range(of: "www.").location != NSNotFound {
-            for m in BlockLayout.detector.matches(in: string as String, range: NSRange(location: 0, length: string.length)) {
+            for m in BlockLayout.detector?.matches(in: string as String, range: NSRange(location: 0, length: string.length)) ?? [] {
                 a.addAttributes([.foregroundColor: link, .underlineStyle: NSUnderlineStyle.single.rawValue], range: m.range)
             }
         }
         drawAttr[outgoing] = a
         return a
     }
-    static let detector = try! NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+    // cmux: optional, no try! (crash program); without it no link is underlined.
+    static let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
 }
 
 /// Block layouts by (lineage, byte range, column): LRU, 256 blocks.
@@ -630,7 +634,8 @@ final class LongTextStore: @unchecked Sendable {
     }
 
     func layout(_ text: String, width: CGFloat) -> LongTextLayout {
-        let idx = index(for: text)!
+        // cmux: index(for:) builds one when asked to; an unregistered index stands in (crash program).
+        let idx = index(for: text) ?? LongTextIndex.build(text, lineage: 0)
         lock.lock()
         let id = ObjectIdentifier(idx)
         tick += 1
@@ -681,7 +686,10 @@ final class LongTextStore: @unchecked Sendable {
             if let prev, prev.ready, prev.count < p.count, prev.blockCount > 0 {
                 let keep = prev.blockCount - 1
                 let from = max(0, prev.starts[keep] - 256)
-                let same = prev.withBytes { q in memcmp(q.baseAddress! + from, p.baseAddress! + from, prev.count - from) == 0 }
+                let same = prev.withBytes { q in // cmux: no force unwraps
+                    guard let qb = q.baseAddress, let pb = p.baseAddress else { return false }
+                    return memcmp(qb + from, pb + from, prev.count - from) == 0
+                }
                 if same {
                     let i = LongTextIndex.build(t, lineage: prev.lineage, prefix: prev, keep: keep)
                     LongTextStats.streamExtends += 1

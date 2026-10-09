@@ -413,7 +413,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             MessagesWindowView.createdInCommits += RowCell.created - created0
             MessagesWindowView.destroyedInCommits += RowCell.destroyed - destroyed0
             if MessagesWindowView.logCells, RowCell.destroyed - destroyed0 > 0 {
-                FileHandle.standardError.write("commit \(String(describing: action).prefix(30)) destroyed \(RowCell.destroyed - destroyed0)\n".data(using: .utf8)!)
+                FileHandle.standardError.write(Data("commit \(String(describing: action).prefix(30)) destroyed \(RowCell.destroyed - destroyed0)\n".utf8)) // cmux: no force unwrap
             }
         }
         let t0 = CACurrentMediaTime()
@@ -766,7 +766,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         for i in band {
             let key = model.rows[i].spec.key
             let newWin = layout.contentTop(i) - newOffset
-            if let ot = oldSnap.contentTop(key), oldSnap.row(oldSnap.index(key)!).ghost == model.rows[i].ghost || model.rows[i].ghost {
+            // cmux: no force unwrap; contentTop(key) found the key, so index(key) does too.
+            if let ot = oldSnap.contentTop(key), let oi = oldSnap.index(key), oldSnap.row(oi).ghost == model.rows[i].ghost || model.rows[i].ghost {
                 let d = (ot + oldRowsTop - oldOffset) - newWin
                 deltas[key] = d
                 for j in pendingNew { deltas[model.rows[j].spec.key] = d }
@@ -1059,7 +1060,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     func collectionView(_ cv: UICollectionView, numberOfItemsInSection section: Int) -> Int { model.count }
 
     func collectionView(_ cv: UICollectionView, cellForItemAt ip: IndexPath) -> UICollectionViewCell {
-        let cell = cv.dequeueReusableCell(withReuseIdentifier: RowCell.id, for: ip) as! RowCell
+        // cmux: no as! (crash program); the AppKit stand-in's dequeue is not a RowCell.
+        guard let cell = cv.dequeueReusableCell(withReuseIdentifier: RowCell.id, for: ip) as? RowCell else { return UICollectionViewCell(frame: .zero) }
         decorate(cell, ip.item)
         return cell
     }

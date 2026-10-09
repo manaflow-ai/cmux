@@ -193,7 +193,8 @@ final class CaretView: NSView {
 /// layer (the shared code removes animations from it).
 final class ComposeTextView {
     let view: FieldTextView
-    var layer: CALayer { view.layer! }
+    // cmux: init sets wantsLayer, so the layer exists; a detached layer stands in otherwise (crash program).
+    var layer: CALayer { view.layer ?? CALayer() }
     var onSend: () -> Void { get { view.onSend } set { view.onSend = newValue } }
     var onEscape: () -> Void { get { view.onEscape } set { view.onEscape = newValue } }
     var text: String { view.string }
@@ -485,8 +486,9 @@ final class ComposeView: UIView {
             let grey = NSColor(white: 55 / 255, alpha: 1)
             let space = CGColorSpace(name: CGColorSpace.sRGB)
             for (stops, fromTop) in [(top, true), (bottom, false)] {
+                // cmux: an optional gradient draws nothing when it fails (CrashSafeGraphics).
                 let g = CGGradient(colorsSpace: space, colors: stops.map { grey.withAlphaComponent($0.1).cgColor } as CFArray,
-                                   locations: stops.map { $0.0 / cap })!
+                                   locations: stops.map { $0.0 / cap })
                 c.drawLinearGradient(g, start: CGPoint(x: 0, y: fromTop ? 0 : h), end: CGPoint(x: 0, y: fromTop ? cap : h - cap), options: [])
             }
             c.restoreGState()

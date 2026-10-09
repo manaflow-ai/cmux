@@ -38,7 +38,28 @@
      var maxLinkWidth: CGFloat { min(Fixture.maxLinkWidth, maxTextWidth + 2 * Fixture.bubblePadX) }
      var mediaWidth: CGFloat { min(Fixture.mediaWidth, maxTextWidth + 2 * Fixture.bubblePadX) }
  }
-@@ -683,7 +696,8 @@
+@@ -606,7 +619,7 @@
+             let outgoing = m.senderId == me
+             var gap: CGFloat
+             var connector: String?
+-            if prev == nil || m.date.timeIntervalSince(prev!.date) > separatorGap {
++            if prev.map({ m.date.timeIntervalSince($0.date) > separatorGap }) ?? true { // cmux: no force unwrap
+                 rows.append(RowSpec(key: "sep:\(m.id)", kind: .separator(bold: Format.day(m.date, now: now), rest: Format.time(m.date)),
+                                     gap: prev == nil ? 12 : 0, height: 35.5))
+                 gap = 0
+@@ -651,8 +664,9 @@
+             if m.retractedAt != nil {
+                 rows.append(RowSpec(key: "unsent:\(m.id)", kind: .unsent(outgoing: outgoing), gap: max(gap, 8), height: 16))
+             } else {
+-                let lastOfGroup = next == nil || next!.senderId != m.senderId || next!.date.timeIntervalSince(m.date) >= groupGap
+-                    || next!.retractedAt != nil || next!.replyTo != m.replyTo
++                // cmux: no force unwrap (crash program)
++                let lastOfGroup = next.map { next in next.senderId != m.senderId || next.date.timeIntervalSince(m.date) >= groupGap
++                    || next.retractedAt != nil || next.replyTo != m.replyTo } ?? true
+                 for (pi, part) in m.parts.enumerated() {
+                     let measured = MeasureCache.shared.size(m, pi, width: width, estimate: exact.map { !$0.contains(idx) } ?? false)
+                     let (size, tl) = (measured.size, measured.text)
+@@ -683,7 +697,8 @@
                                          gap: 1, height: 14))
                  }
                  if case .failed = m.status {
@@ -48,18 +69,18 @@
                                          gap: 1, height: 14))
                  }
                  if !threadMode, let n = replyCount[m.id], n >= 2, m.replyTo == nil {
-@@ -695,6 +709,10 @@
-                 }
+@@ -696,6 +711,10 @@
              }
              prev = m
-+        }
+         }
 +        // cmux: the host's notice, centered like the date row, under the newest message.
 +        if !threadMode, span.upperBound == messages.count, s.atNewest, let notice = s.ui.notice {
 +            rows.append(RowSpec(key: "notice", kind: .separator(bold: "", rest: notice), gap: 0, height: 35.5))
-         }
++        }
          if !threadMode, span.upperBound == messages.count, s.atNewest, s.ui.typing.contains(where: { $0 != me }) {
              rows.append(RowSpec(key: "typing", kind: .typing, gap: 0, height: 35))
-@@ -747,7 +765,7 @@
+         }
+@@ -747,7 +766,7 @@
  enum Format {
      private static let timeFormatter: DateFormatter = {
          let f = DateFormatter()
@@ -68,7 +89,7 @@
          f.timeZone = Instant.zone
          f.dateFormat = "h:mm\u{202F}a"
          return f
-@@ -766,7 +784,7 @@
+@@ -766,7 +785,7 @@
      private static let calendar: Calendar = { var c = Calendar(identifier: .gregorian); c.timeZone = Instant.zone; return c }()
      private static func formatter(_ f: String) -> DateFormatter {
          let d = DateFormatter()
@@ -77,7 +98,7 @@
          d.timeZone = Instant.zone
          d.dateFormat = f
          return d
-@@ -785,56 +803,58 @@
+@@ -785,56 +804,58 @@
      static func duration(_ s: Double) -> String { String(format: "%d:%02d", Int(s) / 60, Int(s) % 60) }
  }
  

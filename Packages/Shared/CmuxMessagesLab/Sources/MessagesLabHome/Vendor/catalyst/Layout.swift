@@ -619,7 +619,7 @@ enum RowBuilder {
             let outgoing = m.senderId == me
             var gap: CGFloat
             var connector: String?
-            if prev == nil || m.date.timeIntervalSince(prev!.date) > separatorGap {
+            if prev.map({ m.date.timeIntervalSince($0.date) > separatorGap }) ?? true { // cmux: no force unwrap
                 rows.append(RowSpec(key: "sep:\(m.id)", kind: .separator(bold: Format.day(m.date, now: now), rest: Format.time(m.date)),
                                     gap: prev == nil ? 12 : 0, height: 35.5))
                 gap = 0
@@ -664,8 +664,9 @@ enum RowBuilder {
             if m.retractedAt != nil {
                 rows.append(RowSpec(key: "unsent:\(m.id)", kind: .unsent(outgoing: outgoing), gap: max(gap, 8), height: 16))
             } else {
-                let lastOfGroup = next == nil || next!.senderId != m.senderId || next!.date.timeIntervalSince(m.date) >= groupGap
-                    || next!.retractedAt != nil || next!.replyTo != m.replyTo
+                // cmux: no force unwrap (crash program)
+                let lastOfGroup = next.map { next in next.senderId != m.senderId || next.date.timeIntervalSince(m.date) >= groupGap
+                    || next.retractedAt != nil || next.replyTo != m.replyTo } ?? true
                 for (pi, part) in m.parts.enumerated() {
                     let measured = MeasureCache.shared.size(m, pi, width: width, estimate: exact.map { !$0.contains(idx) } ?? false)
                     let (size, tl) = (measured.size, measured.text)

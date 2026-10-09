@@ -18,3 +18,14 @@
                  UIBezierPath(roundedRect: r, cornerRadius: Self.corner).fill()
                  // Page icon: 30 x 40 pt, folded corner, the extension under the lines.
                  let ic = CGRect(x: r.minX + 12, y: r.midY - 20, width: 30, height: 40)
+@@ -260,7 +260,9 @@
+     }
+ 
+     /// The thumbnail shown for an image (tests).
+-    func shownImage(_ id: ID) -> CGImage? { imageLayers[id].flatMap { $0.image.contents.map { $0 as! CGImage } } }
++    func shownImage(_ id: ID) -> CGImage? { // cmux: no as! (crash program)
++        imageLayers[id].flatMap { labCFCast($0.image.contents, typeID: CGImage.typeID, as: CGImage.self) }
++    }
+ }
+ 
+ private extension CGRect {

@@ -1,5 +1,14 @@
 --- a/Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarView.swift
 +++ b/Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarView.swift
+@@ -70,7 +70,7 @@
+     /// width it is designed for (to verify against Messages' default).
+     var minimumWidth: CGFloat { SidebarMetrics.minimumWidth }
+     var preferredWidth: CGFloat? { SidebarMetrics.preferredWidth }
+-    private var palette = SidebarPalette.resolve(NSAppearance(named: .darkAqua)!)
++    private var palette = SidebarPalette.resolve(NSAppearance(named: .darkAqua) ?? NSAppearance.currentDrawing()) // cmux: no force unwrap
+     private var generation = 0
+     private var scale: CGFloat { document.window?.backingScaleFactor ?? 2 }
+     private let cache = SidebarBitmapCache()
 @@ -449,7 +449,9 @@
          let selected = c.id == highlightID
          let k = key(.row, item: i, emphasized: emphasized(i))
@@ -11,6 +20,15 @@
          l.selection.frame = CGRect(x: SidebarMetrics.selectionInsetX, y: 0, width: frame.width - 2 * SidebarMetrics.selectionInsetX, height: frame.height)
          l.selection.cornerRadius = SidebarMetrics.selectionRadius
          l.selection.isHidden = !selected
+@@ -823,7 +825,7 @@
+         case #selector(NSResponder.moveDown(_:)): moveSelection(1); return true
+         case #selector(NSResponder.moveUp(_:)): moveSelection(-1); return true
+         case #selector(NSResponder.insertNewline(_:)):
+-            if highlightID == nil || position(of: highlightID!) == nil { moveSelection(1) }
++            if highlightID.map({ position(of: $0) == nil }) ?? true { moveSelection(1) } // cmux: no force unwrap
+             view.window?.makeFirstResponder(document)
+             return true
+         case #selector(NSResponder.cancelOperation(_:)):
 @@ -836,6 +838,9 @@
      }
  

@@ -1,0 +1,30 @@
+--- a/Sources/MessagesLabHome/Vendor/catalyst/MarkdownParser.swift
++++ b/Sources/MessagesLabHome/Vendor/catalyst/MarkdownParser.swift
+@@ -991,7 +991,8 @@
+             let hex = body.hasPrefix("#x") || body.hasPrefix("#X")
+             let digits = body.dropFirst(hex ? 2 : 1)
+             guard !digits.isEmpty, digits.count <= (hex ? 6 : 7), let v = UInt32(digits, radix: hex ? 16 : 10) else { return nil }
+-            let scalar = (v == 0 || v > 0x10FFFF) ? Unicode.Scalar(0xFFFD)! : (Unicode.Scalar(v) ?? Unicode.Scalar(0xFFFD)!)
++            let replacement: Unicode.Scalar = "\u{FFFD}" // cmux: a literal, no force unwrap
++            let scalar = (v == 0 || v > 0x10FFFF) ? replacement : (Unicode.Scalar(v) ?? replacement)
+             return (String(scalar), semi - i + 1)
+         }
+         guard let r = entities[body] else { return nil }
+@@ -1004,7 +1005,7 @@
+         guard !body.isEmpty, !body.contains(where: { $0 == " " || $0 == "<" || $0 == "\n" }) else { return nil }
+         if let colon = body.firstIndex(of: ":") {
+             let scheme = body[..<colon]
+-            guard (2...32).contains(scheme.count), scheme.first!.isLetter,
++            guard (2...32).contains(scheme.count), scheme.first?.isLetter == true, // cmux: no force unwrap
+                   scheme.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "+" || $0 == "." || $0 == "-" }) else { return nil }
+             return (body, end - i + 1, body)
+         }
+@@ -1034,7 +1035,7 @@
+         let labels = domain.split(separator: ".", omittingEmptySubsequences: false)
+         let port = j < s.count && s[j] == ":"
+         guard !domain.isEmpty, !domain.hasPrefix("."), !labels.suffix(2).contains(where: { $0.contains("_") }) else { return nil }
+-        if labels.count < 2 || labels.last!.isEmpty {
++        if labels.count < 2 || labels.last?.isEmpty != false { // cmux: no force unwrap
+             // "www." needs a real domain; "http://" also takes localhost and a host with a port.
+             guard prefix.isEmpty, domain == "localhost" || port else { return nil }
+         }

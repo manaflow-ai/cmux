@@ -320,7 +320,8 @@ final class TiledBody {
         guard key != bandKey else { return }
         bandKey = key
         if let img = TiledBody.bandImages[key] { band.contentsScale = s; band.contents = img; return }
-        defer { if let img = band.contents { TiledBody.bandImages[key] = (img as! CGImage); if TiledBody.bandImages.count > 64 { TiledBody.bandImages.removeAll() } } }
+        // cmux: no as! (crash program)
+        defer { if let img = labCFCast(band.contents, typeID: CGImage.typeID, as: CGImage.self) { TiledBody.bandImages[key] = img; if TiledBody.bandImages.count > 64 { TiledBody.bandImages.removeAll() } } }
         let font = UIFont.systemFont(ofSize: Fixture.bodyFont.pointSize, weight: .semibold)
         let color = p.outgoing ? Fixture.outgoingText : UIColor(red: 0.27, green: 0.55, blue: 1, alpha: 1)
         let rule = (p.outgoing ? Fixture.outgoingText : Fixture.incomingText).withAlphaComponent(0.25)

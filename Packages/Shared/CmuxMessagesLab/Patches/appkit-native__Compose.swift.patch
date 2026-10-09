@@ -10,11 +10,10 @@
      /// Marked (IME) text changed. UITextView reports marked text through
      /// `textViewDidChange`, so the draft (and the field height) follows the
      /// composition; NSTextView does not post a text change for it.
-@@ -17,6 +20,15 @@
-     /// container origin to whole points, which put the text 0.24 pt higher
+@@ -18,6 +21,15 @@
      /// than Catalyst's (measured by the text probe's first baseline).
      override var textContainerOrigin: NSPoint { NSPoint(x: textContainerInset.width, y: textContainerInset.height) }
-+
+ 
 +    /// cmux: the caret's NSTextInsertionIndicator shows no effects view. Its
 +    /// glass bubble (input source, dictation, caps lock) sits just left of the
 +    /// caret, which is 7 pt into the field, so it covered the "+" glass. The
@@ -23,9 +22,10 @@
 +        super.didAddSubview(subview)
 +        (subview as? NSTextInsertionIndicator)?.automaticModeOptions.remove(.showEffectsView)
 +    }
- 
++
      override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
          super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
+         onMarkedTextChange()
 @@ -166,6 +178,7 @@
  
      override func paste(_ sender: Any?) {
@@ -34,7 +34,17 @@
          if pb.string(forType: .string) == nil, let img = NSImage(pasteboard: pb) { onPasteImage(img); return }
          super.paste(sender)
      }
-@@ -253,7 +266,8 @@
+@@ -180,7 +193,8 @@
+ /// layer (the shared code removes animations from it).
+ final class ComposeTextView {
+     let view: FieldTextView
+-    var layer: CALayer { view.layer! }
++    // cmux: init sets wantsLayer, so the layer exists; a detached layer stands in otherwise (crash program).
++    var layer: CALayer { view.layer ?? CALayer() }
+     var onSend: () -> Void { get { view.onSend } set { view.onSend = newValue } }
+     var onEscape: () -> Void { get { view.onEscape } set { view.onEscape = newValue } }
+     var text: String { view.string }
+@@ -253,7 +267,8 @@
      var onSendPulse: ((CFTimeInterval) -> Void)?
  
      static func height(lines: Int, chips: Bool) -> CGFloat { ComposeMetrics.height(lines: lines, chips: chips) }
@@ -44,7 +54,7 @@
      static func fieldWidth(_ windowWidth: CGFloat) -> CGFloat { 526 + windowWidth - Fixture.windowWidth }
      static let font = Fixture.bodyFont
      static let maxLines = 8
-@@ -266,19 +280,20 @@
+@@ -266,19 +281,20 @@
          default: return .limited
          }
      }()
@@ -69,7 +79,18 @@
      /// The placeholders, localized once (each `Strings` read is a bundle table lookup; every
      /// commit asked for one).
      private static let placeholders = (field: Strings.placeholder, reply: Strings.replyPlaceholder)
-@@ -485,11 +500,11 @@
+@@ -470,8 +486,9 @@
+             let grey = NSColor(white: 55 / 255, alpha: 1)
+             let space = CGColorSpace(name: CGColorSpace.sRGB)
+             for (stops, fromTop) in [(top, true), (bottom, false)] {
++                // cmux: an optional gradient draws nothing when it fails (CrashSafeGraphics).
+                 let g = CGGradient(colorsSpace: space, colors: stops.map { grey.withAlphaComponent($0.1).cgColor } as CFArray,
+-                                   locations: stops.map { $0.0 / cap })!
++                                   locations: stops.map { $0.0 / cap })
+                 c.drawLinearGradient(g, start: CGPoint(x: 0, y: fromTop ? 0 : h), end: CGPoint(x: 0, y: fromTop ? cap : h - cap), options: [])
+             }
+             c.restoreGState()
+@@ -485,11 +502,11 @@
          fmt.opaque = false
          let ph = placeholder
          placeholderLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 30), format: fmt).image { ctx in
@@ -83,7 +104,7 @@
              // Messages' glyph is ChatKit's AudioMessageEntryViewButton waveform at 20 pt
              // (fitted to the lossless stills): 5 capsules 1.818 pt wide, 3.636 pt apart,
              // 3.613 / 7.25 / 14.522 pt tall; centre 557.5 pt from the left of a 628 pt window.
-@@ -550,7 +565,7 @@
+@@ -550,7 +567,7 @@
          placeholderLayer.opacity = text.isEmpty && chips.isEmpty ? 1 : 0
          waveLayer.opacity = text.isEmpty && chips.isEmpty ? 1 : 0
          CATransaction.commit()
@@ -92,7 +113,7 @@
          let old = fieldHeight
          fieldHeight = h
          if attachmentsChanged || placed.map({ $0.0 != h || $0.1 != text.isEmpty || $0.2 != strip.height || $0.3 != bounds.size }) ?? true {
-@@ -630,7 +645,7 @@
+@@ -630,7 +647,7 @@
              alpha = p < 0.6 ? 1 : p < 0.65 ? 1 - (p - 0.6) / 0.05 : p < 0.95 ? 0 : (p - 0.95) / 0.05
          }
          let f = fieldRect

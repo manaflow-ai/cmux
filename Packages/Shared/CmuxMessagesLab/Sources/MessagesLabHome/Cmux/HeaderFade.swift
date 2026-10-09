@@ -40,7 +40,7 @@ extension HeaderBackdropView {
 
     /// The top fade's strongest alpha (0 without one).
     var topFadeMaxAlpha: CGFloat {
-        guard let first = (topFade?.colors?.first).map({ $0 as! CGColor }) else { return 0 }
+        guard let first = labCFCast(topFade?.colors?.first, typeID: CGColor.typeID, as: CGColor.self) else { return 0 }
         return first.alpha
     }
 

@@ -260,7 +260,9 @@ final class ComposeAttachmentStrip {
     }
 
     /// The thumbnail shown for an image (tests).
-    func shownImage(_ id: ID) -> CGImage? { imageLayers[id].flatMap { $0.image.contents.map { $0 as! CGImage } } }
+    func shownImage(_ id: ID) -> CGImage? { // cmux: no as! (crash program)
+        imageLayers[id].flatMap { labCFCast($0.image.contents, typeID: CGImage.typeID, as: CGImage.self) }
+    }
 }
 
 private extension CGRect {

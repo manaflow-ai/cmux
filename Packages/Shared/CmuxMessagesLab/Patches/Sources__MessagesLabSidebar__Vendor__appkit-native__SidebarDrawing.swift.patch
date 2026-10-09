@@ -1,6 +1,65 @@
 --- a/Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarDrawing.swift
 +++ b/Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarDrawing.swift
-@@ -309,6 +309,31 @@
+@@ -93,7 +93,7 @@
+ 
+ /// The drawing: pure functions of a summary and a render context (any thread).
+ enum SidebarDraw {
+-    static let p3 = CGColorSpace(name: CGColorSpace.displayP3)!
++    static let p3 = CGColorSpace(name: CGColorSpace.displayP3) ?? CGColorSpaceCreateDeviceRGB() // cmux: no force unwrap
+     /// Where `AvatarSpec.image` paths resolve (the host sets it; default: the app bundle's
+     /// "assets" folder).
+     static var assetDirectory: URL? = Bundle.main.resourceURL?.appendingPathComponent("assets")
+@@ -103,11 +103,12 @@
+         guard !images.isEmpty else { return }
+         DispatchQueue.main.async { DispatchQueue.global(qos: .utility).async { withExtendedLifetime(images) {} } }
+     }
+-    static let nameFont = CTFontCreateUIFontForLanguage(.emphasizedSystem, SidebarMetrics.nameSize, nil)!
+-    static let previewFont = CTFontCreateUIFontForLanguage(.system, SidebarMetrics.previewSize, nil)!
+-    static let timeFont = CTFontCreateUIFontForLanguage(.system, SidebarMetrics.timeSize, nil)!
+-    static let pinNameFont = CTFontCreateUIFontForLanguage(.system, SidebarMetrics.pinNameSize, nil)!
+-    static let bubbleFont = CTFontCreateUIFontForLanguage(.system, 11, nil)!
++    // cmux: sidebarUIFont, no force unwraps (crash program).
++    static let nameFont = sidebarUIFont(.emphasizedSystem, SidebarMetrics.nameSize)
++    static let previewFont = sidebarUIFont(.system, SidebarMetrics.previewSize)
++    static let timeFont = sidebarUIFont(.system, SidebarMetrics.timeSize)
++    static let pinNameFont = sidebarUIFont(.system, SidebarMetrics.pinNameSize)
++    static let bubbleFont = sidebarUIFont(.system, 11)
+ 
+     /// A flipped (top-left origin) bitmap in the context's color space at its scale.
+     static func bitmap(size: CGSize, ctx: SidebarRenderContext, _ draw: (CGContext) -> Void) -> CGImage {
+@@ -169,10 +170,11 @@
+         case let .monogram(m):
+             g.saveGState()
+             g.addEllipse(in: r); g.clip()
+-            let grad = CGGradient(colorsSpace: nil, colors: [p.monogramTop, p.monogramBottom] as CFArray, locations: [0, 1])!
++            // cmux: an optional gradient draws nothing when it fails (SidebarCrashSafe).
++            let grad = CGGradient(colorsSpace: nil, colors: [p.monogramTop, p.monogramBottom] as CFArray, locations: [0, 1])
+             g.drawLinearGradient(grad, start: CGPoint(x: r.midX, y: r.minY), end: CGPoint(x: r.midX, y: r.maxY), options: [])
+             g.restoreGState()
+-            let font = CTFontCreateUIFontForLanguage(.emphasizedSystem, (r.width * 0.42).rounded(), nil)!
++            let font = sidebarUIFont(.emphasizedSystem, (r.width * 0.42).rounded()) // cmux: no force unwrap
+             let white = CGColor(gray: 1, alpha: 1)
+             let l = line(m.uppercased(), font, white)
+             let lw = width(l)
+@@ -229,7 +231,7 @@
+     /// the visible rows' text at the exact width in every frame.
+     static func rowTime(_ c: ConversationSummary, emphasized: Bool, ctx: SidebarRenderContext, time: ConversationTimeFormatter) -> CGImage {
+         let p = ctx.palette
+-        let secondary = emphasized ? p.selectedText.copy(alpha: 0.82)! : p.secondary
++        let secondary = emphasized ? p.selectedText.copy(alpha: 0.82) ?? p.selectedText : p.secondary // cmux: no force unwrap
+         // `.distantPast`: a row without a time (the host's extra search results).
+         let tl = line(c.lastAt == .distantPast ? "" : time.string(c.lastAt, now: ctx.now), timeFont, secondary)
+         let bell = c.muted ? (emphasized ? ctx.bellSelected : ctx.bellSecondary) : nil
+@@ -294,7 +296,7 @@
+     /// The title of the host's extra search section: 11 pt semibold, secondary, at the row
+     /// text's x, baseline 20 pt in a 28 pt band (to verify against Messages' search sections).
+     static func sectionHeader(_ title: String, width: CGFloat, ctx: SidebarRenderContext) -> CGImage {
+-        let font = CTFontCreateUIFontForLanguage(.emphasizedSystem, 11, nil)!
++        let font = sidebarUIFont(.emphasizedSystem, 11) // cmux: no force unwrap
+         let l = truncated(line(title, font, ctx.palette.secondary), width - 2 * SidebarMetrics.selectionInsetX - 10, font, ctx.palette.secondary)
+         return bitmap(size: CGSize(width: max(1, width), height: 28), ctx: ctx) { g in
+             draw(l, x: SidebarMetrics.selectionInsetX + 10, baseline: 20, g)
+@@ -309,6 +311,31 @@
          return CGRect(x: ((m.tileWidth - d) / 2).rounded(), y: m.compact ? SidebarMetrics.pinTopPad / 2 : SidebarMetrics.pinTopPad, width: d, height: d)
      }
  
@@ -32,7 +91,7 @@
      /// A pinned tile: the large avatar, the name under it, the unread dot, and for an unread
      /// conversation the newest message in a bubble over the avatar's top.
      static func tile(_ c: ConversationSummary, emphasized: Bool, ctx: SidebarRenderContext, avatars: SidebarAvatarCache) -> CGImage {
-@@ -328,25 +353,19 @@
+@@ -328,25 +355,19 @@
              }
              // The newest unread message over the avatar's top (the typing bubble, a layer,
              // takes its place while someone types).
@@ -65,3 +124,12 @@
              }
          }
      }
+@@ -434,7 +455,7 @@
+         if let m = map[k] { lock.unlock(); return m }
+         lock.unlock()
+         let nameColor = emphasized ? p.selectedText : p.name
+-        let secondary = emphasized ? p.selectedText.copy(alpha: 0.82)! : p.secondary
++        let secondary = emphasized ? p.selectedText.copy(alpha: 0.82) ?? p.selectedText : p.secondary // cmux: no force unwrap
+         let text = (c.lastReaction.map(SidebarStrings.reaction) ?? c.preview).replacingOccurrences(of: "\n", with: " ")
+         let attr = NSAttributedString(string: text, attributes: [
+             NSAttributedString.Key(kCTFontAttributeName as String): SidebarDraw.previewFont,

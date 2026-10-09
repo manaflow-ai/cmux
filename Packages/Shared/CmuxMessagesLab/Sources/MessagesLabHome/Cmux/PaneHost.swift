@@ -255,8 +255,14 @@ extension TranscriptDocumentView {
 final class ChatController: NSObject, NSTextViewDelegate {
     var window: NSWindow? { host.window }
     let host: HostView
-    private(set) var store: Store!
-    private(set) var demo: MessagesWindowView!
+    /// The projection `install` sets. Read before `install` (nothing does today), an
+    /// empty conversation stands in instead of a trap; once `install` assigned it, the
+    /// lazy initializer never runs.
+    private(set) lazy var store = Store(
+        conversation: Conversation(id: "", title: "", participants: [], messages: []), baseDate: Date()
+    )
+    /// The window view over `store`; `install` sets it (the same stand-in rule as `store`).
+    private(set) lazy var demo = MessagesWindowView(store: store)
     /// cmux: where the user's changes go (the HomeStore adapter).
     weak var intents: ChatIntents?
     /// cmux: one-shot wake-ups on the host's timer (CmuxNext: DemandTimer).
