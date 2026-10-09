@@ -675,6 +675,22 @@ mod tests {
         }
     }
 
+    /// A Chief subagent's tab names the Chief home whose acpmux runs it
+    /// (`chief:<home id>`, 8 lowercase hex), so the app attaches it there.
+    #[test]
+    fn an_agent_session_host_may_be_a_chief_home() {
+        let record = |host: &str| ConversationTabRecord::AgentSession {
+            host: host.into(),
+            session: Some("s1".into()),
+            harness: None,
+            host_name: None,
+        };
+        assert!(record("chief:0a1b2c3d").validate().is_ok());
+        for host in ["chief:", "chief:0A1B2C3D", "chief:0a1b2c3", "chief:0a1b2c3d4", "chief:zzzzzzzz"] {
+            assert!(record(host).validate().is_err(), "{host}");
+        }
+    }
+
     #[test]
     fn agent_session_tabs_downgrade_without_their_record() {
         let agent = json!({"agent_session":{"host":"install:a","session":null,"harness":null}});

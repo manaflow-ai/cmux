@@ -378,6 +378,19 @@ fn rename_by_key(daemon: &Path, key: &str, name: &str) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    /// Live proof subp6: the app showed "This chat isn't available" for every
+    /// subagent: its panes attach to the app's acpmux, the subagents run in the
+    /// Chief home's. The open request names the Chief home as the tab's host.
+    #[test]
+    fn the_open_request_names_the_chief_home_as_the_sessions_host() {
+        let home = std::path::Path::new("/tmp/mux-home");
+        let request = open_request_for(home, "s1", "a1 · x", "k", std::path::Path::new("/tmp"));
+        assert_eq!(
+            request["params"]["args"]["host"],
+            format!("chief:{}", crate::paths::home_id(home))
+        );
+    }
+
     /// Live proof subp3: every done mark failed with "unknown workspace key":
     /// the renames went to the Chief's conversation owner (--daemon-socket),
     /// while the app makes the workspaces in its own daemon.
