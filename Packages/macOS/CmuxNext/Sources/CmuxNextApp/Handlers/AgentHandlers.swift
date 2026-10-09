@@ -23,9 +23,9 @@ enum AgentHandlers {
     }
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        registry.bind("agentPaneZoomIn", run: { _ in try setAgentPaneZoom(by: AgentPaneZoomSetting.step, context: context) })
-        registry.bind("agentPaneZoomOut", run: { _ in try setAgentPaneZoom(by: -AgentPaneZoomSetting.step, context: context) })
-        registry.bind("agentPaneZoomReset", run: { _ in try resetAgentPaneZoom(context) })
+        registry.bind("agentPaneZoomIn", run: { invocation in try setAgentPaneZoom(by: AgentPaneZoomSetting.step, context: context, invocation: invocation) })
+        registry.bind("agentPaneZoomOut", run: { invocation in try setAgentPaneZoom(by: -AgentPaneZoomSetting.step, context: context, invocation: invocation) })
+        registry.bind("agentPaneZoomReset", run: { invocation in try resetAgentPaneZoom(context, invocation: invocation) })
         let forks: [(ActionID, Placement)] = [
             ("palette.forkAgentConversationRight", .right), ("palette.forkAgentConversationLeft", .left),
             ("palette.forkAgentConversationTop", .above), ("palette.forkAgentConversationBottom", .below),
@@ -153,9 +153,9 @@ enum AgentHandlers {
         return view
     }
 
-    private static func setAgentPaneZoom(by delta: Double, context: AppActionContext) throws {
+    private static func setAgentPaneZoom(by delta: Double, context: AppActionContext, invocation: ActionInvocation) throws {
         try AppearanceHandlers.requireUnmanaged(agentPaneZoomPath, context)
-        guard let view = focusedAgentView(context) else { return }
+        guard let view = focusedAgentView(context, invocation) else { return }
         let next = min(max(Double(context.design.agentPaneZoom) + delta,
                            AgentPaneZoomSetting.range.lowerBound), AgentPaneZoomSetting.range.upperBound)
         context.design.agentPaneZoom = CGFloat(next)
@@ -164,9 +164,9 @@ enum AgentHandlers {
         SurfaceZoomIndicator.show(percent: Int((next * 100).rounded()), in: context.services.windows.active?.window)
     }
 
-    private static func resetAgentPaneZoom(_ context: AppActionContext) throws {
+    private static func resetAgentPaneZoom(_ context: AppActionContext, invocation: ActionInvocation) throws {
         try AppearanceHandlers.requireUnmanaged(agentPaneZoomPath, context)
-        guard let view = focusedAgentView(context) else { return }
+        guard let view = focusedAgentView(context, invocation) else { return }
         context.design.agentPaneZoom = CGFloat(AgentPaneZoomSetting.fallback)
         view.zoom = AgentPaneZoomSetting.fallback
         context.writeSetting("reset agent chat zoom", agentPaneZoomPath, nil, reloadOnFailure: true)

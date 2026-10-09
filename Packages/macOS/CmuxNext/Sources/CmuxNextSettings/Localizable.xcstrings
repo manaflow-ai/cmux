@@ -1,6 +1,14 @@
 {
   "sourceLanguage": "en",
   "strings": {
+  "settings.agentPane.zoom": {
+    "extractionState": "manual",
+    "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Agent Chat Zoom" } } }
+  },
+  "settings.agentPane.zoom.help": {
+    "extractionState": "manual",
+    "localizations": { "en": { "stringUnit": { "state": "translated", "value": "The display size for agent chat. Cmd-0 resets it." } } }
+  },
     "settings.sidebar.showProjects": {
       "extractionState": "manual",
       "localizations": {
@@ -71184,13 +71192,7 @@
       }
     }
   },
-  "settings.agentPane.zoom": {
-    "extractionState": "manual",
-    "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Agent Chat Zoom" } } }
-  },
-  "settings.agentPane.zoom.help": {
-    "extractionState": "manual",
-    "localizations": { "en": { "stringUnit": { "state": "translated", "value": "The display size for agent chat. Cmd-0 resets it." } } }
-  },
+
+
   "version": "1.0"
 }
