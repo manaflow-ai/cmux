@@ -1,4 +1,5 @@
 import CNCore
+import CryptoKit
 import Foundation
 
 /// Where the backend lives.
@@ -35,10 +36,10 @@ public struct BackendConfiguration: Sendable, Hashable {
     }
 
     /// The signaling WebSocket URL for `token`.
-    public func signalingURL(token: String) -> URL {
+    public func signalingURL(token: String?) -> URL {
         var c = URLComponents(url: url("/signal"), resolvingAgainstBaseURL: false)!
         c.scheme = c.scheme == "http" ? "ws" : "wss"
-        c.queryItems = [URLQueryItem(name: "token", value: token)]
+        if let token { c.queryItems = [URLQueryItem(name: "token", value: token)] }
         return c.url!
     }
 }
@@ -120,13 +121,22 @@ public actor BackendClient {
     }
 
     /// The URL that starts an OAuth flow for `provider` (`github`, `google`).
-    public nonisolated func oauthStartURL(provider: String, redirect: String) -> URL {
-        configuration.url("/auth/oauth/\(provider)/start", query: [URLQueryItem(name: "redirect", value: redirect)])
+    /// With `pkce`, the S256 `code_challenge` is sent and the backend binds
+    /// the one-time code to it.
+    public nonisolated func oauthStartURL(provider: String, redirect: String, pkce: PKCE? = nil) -> URL {
+        var query = [URLQueryItem(name: "redirect", value: redirect)]
+        if let pkce {
+            query.append(URLQueryItem(name: "code_challenge", value: pkce.challenge))
+            query.append(URLQueryItem(name: "code_challenge_method", value: "S256"))
+        }
+        return configuration.url("/auth/oauth/\(provider)/start", query: query)
     }
 
     @discardableResult
-    public func exchangeOAuth(code: String) async throws -> User {
-        try await adopt(send("POST", "/auth/oauth/exchange", body: ["code": code], auth: false, as: Tokens.self))
+    public func exchangeOAuth(code: String, codeVerifier: String? = nil) async throws -> User {
+        var body = ["code": code]
+        if let codeVerifier { body["codeVerifier"] = codeVerifier }
+        return try await adopt(send("POST", "/auth/oauth/exchange", body: body, auth: false, as: Tokens.self))
     }
 
     /// Primary sign-in: exchanges a Stack Auth access token (the same
@@ -195,9 +205,19 @@ public actor BackendClient {
         try await send("GET", "/ice", auth: true, as: ICEConfiguration.self)
     }
 
-    /// The signaling WebSocket URL with a fresh access token.
+    /// The signaling WebSocket URL with a fresh access token as `?token=`.
+    /// `SignalingClient` moves the token into the `Authorization` header;
+    /// prefer `signalingRequest()`.
     public func signalingURL() async throws -> URL {
         configuration.signalingURL(token: try await validAccessToken())
+    }
+
+    /// The signaling WebSocket upgrade request, authenticated with an
+    /// `Authorization: Bearer` header.
+    public func signalingRequest() async throws -> URLRequest {
+        var request = URLRequest(url: configuration.signalingURL(token: nil))
+        request.setValue("Bearer \(try await validAccessToken())", forHTTPHeaderField: "Authorization")
+        return request
     }
 
     // MARK: Tokens
@@ -287,5 +307,28 @@ public actor BackendClient {
         } catch {
             throw BackendError.invalidResponse("\(path): \(error)")
         }
+    }
+}
+
+/// RFC 7636 proof key: a random verifier and its S256 challenge.
+public struct PKCE: Sendable, Hashable {
+    public let verifier: String
+    public let challenge: String
+
+    public init() {
+        var bytes = [UInt8](repeating: 0, count: 32)
+        var rng = SystemRandomNumberGenerator()
+        for i in bytes.indices { bytes[i] = UInt8.random(in: 0...255, using: &rng) }
+        self.init(verifier: Self.base64URL(Data(bytes)))
+    }
+
+    public init(verifier: String) {
+        self.verifier = verifier
+        self.challenge = Self.base64URL(Data(SHA256.hash(data: Data(verifier.utf8))))
+    }
+
+    static func base64URL(_ data: Data) -> String {
+        data.base64EncodedString().replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
     }
 }

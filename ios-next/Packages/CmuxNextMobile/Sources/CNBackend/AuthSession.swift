@@ -133,7 +133,8 @@ public final class AuthSession {
     /// callback scheme is the bundle identifier.
     public func signInWithOAuth(provider: String, callbackScheme: String = Bundle.main.bundleIdentifier ?? "dev.cmux.next") async throws {
         let redirect = "\(callbackScheme)://oauth/callback"
-        let startURL = backend.oauthStartURL(provider: provider, redirect: redirect)
+        let pkce = PKCE()
+        let startURL = backend.oauthStartURL(provider: provider, redirect: redirect, pkce: pkce)
         try await run {
             let callback = try await self.presentWebAuth(url: startURL, scheme: callbackScheme)
             guard let code = URLComponents(url: callback, resolvingAgainstBaseURL: false)?
@@ -142,7 +143,7 @@ public final class AuthSession {
                     .queryItems?.first(where: { $0.name == "error" })?.value ?? "Sign-in was not completed"
                 throw BackendError.invalidResponse(message)
             }
-            self.state = .signedIn(try await self.backend.exchangeOAuth(code: code))
+            self.state = .signedIn(try await self.backend.exchangeOAuth(code: code, codeVerifier: pkce.verifier))
         }
     }
 

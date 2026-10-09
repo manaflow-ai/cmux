@@ -461,14 +461,15 @@ struct ResolvedPermissionRow: View {
 
     var body: some View {
         let option = item.options.first { $0.id == item.resolved }
-        let kind = option?.kind ?? (item.resolved?.hasPrefix("reject") == true ? .rejectOnce : .allowOnce)
-        let allowed = kind == .allowOnce || kind == .allowAlways
+        let cancelled = item.isCancelled
+        let kind = option?.kind ?? (item.resolved?.hasPrefix("reject") == true ? .rejectOnce : .unknown)
+        let allowed = !cancelled && (kind == .allowOnce || kind == .allowAlways)
         HStack(spacing: 8) {
-            Image(systemName: allowed ? "checkmark.shield" : "xmark.shield")
+            Image(systemName: cancelled ? "minus.circle" : allowed ? "checkmark.shield" : "xmark.shield")
                 .font(.footnote)
                 .foregroundStyle(.cn(\.textTertiary))
                 .frame(width: 20)
-            Text(verdict(kind, option?.name)).font(AgentType.row).foregroundStyle(.cn(\.textSecondary))
+            Text(cancelled ? "Cancelled" : verdict(kind, option?.name)).font(AgentType.row).foregroundStyle(.cn(\.textSecondary))
             Spacer(minLength: 0)
         }
         .frame(minHeight: 28)

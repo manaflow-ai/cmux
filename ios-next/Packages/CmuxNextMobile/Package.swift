@@ -68,7 +68,7 @@ let package = Package(
             ]
         ),
         .testTarget(name: "CNCoreTests", dependencies: ["CNCore"]),
-        .testTarget(name: "CNTransportTests", dependencies: ["CNCore", "CNTransport", "CNMockHost", "CNBackend"]),
+        .testTarget(name: "CNTransportTests", dependencies: ["CNCore", "CNTransport", "CNTransportWebRTC", "CNMockHost", "CNBackend"]),
     ],
     swiftLanguageModes: [.v6]
 )

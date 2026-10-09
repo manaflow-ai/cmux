@@ -123,11 +123,16 @@ final class WebRTCLinkTransport: NSObject, LinkTransport, @unchecked Sendable {
     func open() async throws {
         let incoming = signaling.messages()
         let sessionId = self.sessionId
-        signalTask = Task { [weak self] in
+        let task = Task { [weak self] in
             for await message in incoming where message.sessionId == sessionId {
                 self?.handleSignal(message)
             }
         }
+        let closedAlready = lock.withLock { () -> Bool in
+            if !isClosed { signalTask = task }
+            return isClosed
+        }
+        if closedAlready { task.cancel(); throw TransportError.closed }
 
         let sdp: String = try await withCheckedThrowingContinuation { c in
             peerConnection.offer(for: RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)) { [weak self] description, error in
@@ -257,6 +262,9 @@ final class WebRTCLinkTransport: NSObject, LinkTransport, @unchecked Sendable {
         let waiter = openWaiter
         openWaiter = nil
         let channels = Array(self.channels.values)
+        let signalTask = self.signalTask, graceTask = self.graceTask
+        self.signalTask = nil
+        self.graceTask = nil
         lock.unlock()
 
         webRTCLog.notice("link \(self.sessionId, privacy: .public) closed: \(reason ?? "local close", privacy: .public)")
@@ -338,7 +346,7 @@ extension WebRTCLinkTransport: RTCPeerConnectionDelegate {
             let grace = options.disconnectGrace
             lock.lock()
             graceTask?.cancel()
-            graceTask = Task { [weak self] in
+            graceTask = isClosed ? nil : Task { [weak self] in
                 do { try await ContinuousClock().sleep(for: grace) } catch { return }
                 guard let self, self.peerConnection.iceConnectionState == .disconnected else { return }
                 self.close(reason: "Lost the connection to your Mac.")

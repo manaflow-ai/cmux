@@ -164,6 +164,7 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
                 self.attaching = false
                 guard !Task.isCancelled, self.visible, self.connection.generation == generation else {
                     try? await client.detachTerminal(streamId: result.streamId)
+                    client.closeStream(id: result.streamId)
                     self.sync()
                     return
                 }
@@ -208,7 +209,10 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
         attachedGeneration = 0
         hostGrid = nil
         if let streamId, let client {
-            Task { try? await client.detachTerminal(streamId: streamId) }
+            Task {
+                try? await client.detachTerminal(streamId: streamId)
+                client.closeStream(id: streamId)
+            }
         }
         streamId = nil
     }

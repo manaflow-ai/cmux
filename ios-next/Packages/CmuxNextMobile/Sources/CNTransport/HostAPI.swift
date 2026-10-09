@@ -167,7 +167,9 @@ extension HostClient {
     }
 
     public func detachTerminal(streamId: UInt32) async throws {
-        closeStream(id: streamId)
+        // Close locally after the RPC (frames in flight are dropped by the
+        // tombstone either way), even when the RPC fails.
+        defer { closeStream(id: streamId) }
         try await call(HostMethod.termDetach.rawValue, StreamRef(streamId: streamId))
     }
 
@@ -204,7 +206,9 @@ extension HostClient {
     }
 
     public func detachTab(streamId: UInt32) async throws {
-        closeStream(id: streamId)
+        // Close locally after the RPC (frames in flight are dropped by the
+        // tombstone either way), even when the RPC fails.
+        defer { closeStream(id: streamId) }
         try await call(HostMethod.browserDetach.rawValue, StreamRef(streamId: streamId))
     }
 

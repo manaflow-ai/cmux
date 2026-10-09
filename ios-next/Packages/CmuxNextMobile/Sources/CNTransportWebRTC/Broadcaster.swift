@@ -6,7 +6,7 @@ final class Broadcaster<Element: Sendable>: Sendable {
     private let subscribers = Mutex<[UUID: AsyncStream<Element>.Continuation]>([:])
 
     func subscribe() -> AsyncStream<Element> {
-        let (stream, continuation) = AsyncStream.makeStream(of: Element.self, bufferingPolicy: .bufferingNewest(1024))
+        let (stream, continuation) = AsyncStream.makeStream(of: Element.self)
         let id = UUID()
         continuation.onTermination = { [weak self] _ in self?.subscribers.withLock { _ = $0.removeValue(forKey: id) } }
         subscribers.withLock { $0[id] = continuation }

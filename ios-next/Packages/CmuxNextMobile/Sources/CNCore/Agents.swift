@@ -188,8 +188,14 @@ public struct PermissionTranscriptItem: Codable, Sendable, Hashable {
     public var toolCallId: String
     public var title: String
     public var options: [PermissionOption]
-    /// The chosen option id once answered.
+    /// The chosen option id once answered, or `cancelledResolution` when the
+    /// turn ended before an answer.
     public var resolved: String?
+
+    /// `resolved` value for a permission the turn cancelled.
+    public static let cancelledResolution = "cancelled"
+
+    public var isCancelled: Bool { resolved == Self.cancelledResolution && !options.contains { $0.id == Self.cancelledResolution } }
     public init(id: String, toolCallId: String, title: String, options: [PermissionOption], resolved: String? = nil) {
         self.id = id; self.toolCallId = toolCallId; self.title = title; self.options = options; self.resolved = resolved
     }

@@ -142,7 +142,7 @@ extension MockEngine {
             case .tool(var x) where x.status == .running || x.status == .pending:
                 x.status = .failed; x.output = "Cancelled"; upsert(sessionId, .tool(x))
             case .permission(var x) where x.resolved == nil:
-                x.resolved = "reject_once"; upsert(sessionId, .permission(x))
+                x.resolved = PermissionTranscriptItem.cancelledResolution; upsert(sessionId, .permission(x))
             default: break
             }
         }

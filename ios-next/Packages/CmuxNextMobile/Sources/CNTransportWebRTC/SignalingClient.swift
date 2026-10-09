@@ -19,16 +19,19 @@ public enum SignalingError: Error, Sendable, Hashable, LocalizedError {
 /// open, reconnecting with backoff, and fans incoming frames out to
 /// subscribers. Platform independent.
 public actor SignalingClient {
-    /// Returns the WebSocket URL including `?token=`; called for every
-    /// connect so a fresh access token is used.
+    /// Returns the WebSocket URL; called for every connect so a fresh access
+    /// token is used. A `token` query item is moved into the
+    /// `Authorization: Bearer` header (see `request(for:)`).
     public typealias URLProvider = @Sendable () async throws -> URL
+    /// Returns the full upgrade request, including `Authorization`.
+    public typealias RequestProvider = @Sendable () async throws -> URLRequest
 
     public private(set) var peerId: String?
     public private(set) var isConnected = false
     /// Online state per host id, from `welcome` and `presence`.
     public private(set) var presenceByHost: [String: Bool] = [:]
 
-    private let urlProvider: URLProvider
+    private let requestProvider: RequestProvider
     private let urlSession: URLSession
     private let clock: any Clock<Duration>
     private let backoff: ReconnectBackoff
@@ -41,17 +44,43 @@ public actor SignalingClient {
     private nonisolated let connectionHub = Broadcaster<Bool>()
 
     public init(
+        requestProvider: @escaping RequestProvider,
+        urlSession: URLSession = .shared,
+        backoff: ReconnectBackoff = ReconnectBackoff(initial: .seconds(1), maximum: .seconds(30), maxAttempts: nil),
+        keepAliveInterval: Duration = .seconds(20),
+        clock: any Clock<Duration> = ContinuousClock()
+    ) {
+        self.requestProvider = requestProvider
+        self.urlSession = urlSession
+        self.backoff = backoff
+        self.keepAliveInterval = keepAliveInterval
+        self.clock = clock
+    }
+
+    /// Convenience for a provider that returns a URL carrying `?token=`.
+    public init(
         urlProvider: @escaping URLProvider,
         urlSession: URLSession = .shared,
         backoff: ReconnectBackoff = ReconnectBackoff(initial: .seconds(1), maximum: .seconds(30), maxAttempts: nil),
         keepAliveInterval: Duration = .seconds(20),
         clock: any Clock<Duration> = ContinuousClock()
     ) {
-        self.urlProvider = urlProvider
-        self.urlSession = urlSession
-        self.backoff = backoff
-        self.keepAliveInterval = keepAliveInterval
-        self.clock = clock
+        self.init(requestProvider: { Self.request(for: try await urlProvider()) }, urlSession: urlSession,
+                  backoff: backoff, keepAliveInterval: keepAliveInterval, clock: clock)
+    }
+
+    /// Moves a `token` query item into an `Authorization: Bearer` header so
+    /// the token does not appear in URLs (server and proxy logs).
+    public static func request(for url: URL) -> URLRequest {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let token = components.queryItems?.first(where: { $0.name == "token" })?.value else {
+            return URLRequest(url: url)
+        }
+        components.queryItems = components.queryItems?.filter { $0.name != "token" }
+        if components.queryItems?.isEmpty == true { components.queryItems = nil }
+        var request = URLRequest(url: components.url ?? url)
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        return request
     }
 
     /// Every incoming frame.
@@ -110,8 +139,8 @@ public actor SignalingClient {
         var attempt = 0
         while !Task.isCancelled {
             do {
-                let url = try await urlProvider()
-                let task = urlSession.webSocketTask(with: url)
+                let request = try await requestProvider()
+                let task = urlSession.webSocketTask(with: request)
                 socket = task
                 task.resume()
                 let keepAlive = startKeepAlive(task)

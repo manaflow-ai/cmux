@@ -77,6 +77,7 @@ public final class HostConnection {
     @ObservationIgnored private let clock: any Clock<Duration>
     @ObservationIgnored private let hub = EventHub(persistent: true)
     @ObservationIgnored private var runTask: Task<Void, Never>?
+    @ObservationIgnored private var currentRunId: UUID?
     @ObservationIgnored private var sessionTasks: [Task<Void, Never>] = []
 
     public init(
@@ -101,7 +102,9 @@ public final class HostConnection {
     public func connect(hostId: String) {
         stop()
         self.hostId = hostId
-        runTask = Task { [weak self] in await self?.run(hostId: hostId) }
+        let runId = UUID()
+        currentRunId = runId
+        runTask = Task { [weak self] in await self?.run(hostId: hostId, runId: runId) }
     }
 
     /// Reconnects now (for example from `.failed` or when the app returns to
@@ -117,6 +120,7 @@ public final class HostConnection {
     }
 
     private func stop() {
+        currentRunId = nil
         runTask?.cancel()
         runTask = nil
         client?.close()
@@ -153,33 +157,46 @@ public final class HostConnection {
 
     // MARK: Loop
 
-    private func run(hostId: String) async {
+    /// One run per `connect`. A superseded run (cancelled, or replaced by a
+    /// newer `connect`) never touches shared state after an await.
+    private func run(hostId: String, runId: UUID) async {
+        func isCurrent() -> Bool { !Task.isCancelled && currentRunId == runId }
         var attempt = 0
         var lastError: String?
-        while !Task.isCancelled {
+        while isCurrent() {
             state = attempt == 0 ? .connecting : .reconnecting(attempt: attempt, lastError: lastError)
+            var transport: (any LinkTransport)?
+            var client: HostClient?
             do {
-                let transport = try await connector.connect(hostId: hostId)
-                if Task.isCancelled { transport.close(); return }
-                let client = HostClient(transport: transport, clock: clock)
-                let info = try await client.hello(clientInfo)
-                if Task.isCancelled { client.close(); return }
-                self.client = client
+                let t = try await connector.connect(hostId: hostId)
+                transport = t
+                guard isCurrent() else { t.close(); return }
+                let c = HostClient(transport: t, clock: clock)
+                client = c
+                let info = try await c.hello(clientInfo)
+                guard isCurrent() else { c.close(); return }
+                self.client = c
                 self.hostInfo = info
                 generation += 1
                 attempt = 0
-                var path = await transport.pathInfo()
-                path.rttMs = await measureRTT(client)
+                var path = await t.pathInfo()
+                path.rttMs = await measureRTT(c)
+                guard isCurrent(), self.client === c else { c.close(); return }
                 state = .connected(path)
-                startSession(client: client, transport: transport)
-                let reason = await client.waitUntilClosed()
-                tearDownSession()
+                startSession(client: c, transport: t)
+                let reason = await c.waitUntilClosed()
+                guard isCurrent() else { return }
+                if self.client === c { tearDownSession() }
                 lastError = reason ?? "Connection closed"
                 hostConnectionLog.notice("link to \(hostId, privacy: .public) closed: \(lastError ?? "", privacy: .public)")
             } catch {
+                // A failed hello (or anything after connect) must not leak
+                // the transport or its client.
+                client?.close()
+                transport?.close()
                 lastError = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
             }
-            if Task.isCancelled { return }
+            guard isCurrent() else { return }
             attempt += 1
             if let max = backoff.maxAttempts, attempt > max {
                 state = .failed(lastError ?? "Could not connect")

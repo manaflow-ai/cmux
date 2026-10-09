@@ -193,6 +193,7 @@ final class BrowserModel {
                                                                         scale: vp.scale, mobile: vp.mobile))
             guard token == attachToken else {
                 try? await client.detachTab(streamId: result.streamId)
+                client.closeStream(id: result.streamId)
                 return
             }
             merge(result.tab)
@@ -204,9 +205,11 @@ final class BrowserModel {
             let frames = client.openBrowserStream(id: sid)
             streamTask = Task { [weak self] in
                 for await frame in frames {
-                    guard let decoded = await Self.decode(frame) else { continue }
+                    let decoded = await Self.decode(frame)
                     guard let self, self.streamId == sid else { return }
-                    self.frames[tabId] = decoded
+                    if let decoded { self.frames[tabId] = decoded }
+                    // Ack even an undecodable frame: the host stops sending
+                    // after two unacked frames.
                     try? await client.ackFrame(streamId: sid, seq: frame.seq)
                 }
             }
@@ -221,8 +224,8 @@ final class BrowserModel {
         streamTask?.cancel()
         streamTask = nil
         if let sid = streamId, let client = streamClient {
-            client.closeStream(id: sid)
             try? await client.detachTab(streamId: sid)
+            client.closeStream(id: sid)
         }
         streamId = nil
         streamTabId = nil
