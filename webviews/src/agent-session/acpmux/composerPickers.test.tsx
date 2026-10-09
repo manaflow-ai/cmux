@@ -728,7 +728,7 @@ describe("acpmux composer pickers", () => {
     expect(ring.getAttribute("aria-expanded")).toBe("true");
     expect(pop()!.closest("[role=dialog]")).not.toBeNull();
     expect(pop()!.querySelector(".acpmux-context-percent")!.textContent).toBe("17% used");
-    expect(pop()!.querySelector(".acpmux-context-tokens")!.textContent).toBe("34K of 200K tokens");
+    expect(pop()!.querySelector(".acpmux-context-tokens")!.textContent).toBe("34,000 of 200,000 tokens");
     // A second click closes it; so does Escape.
     await act(async () => ring.click());
     expect(pop()).toBeNull();
@@ -755,6 +755,7 @@ describe("acpmux composer pickers", () => {
     expect(pop()!.querySelector(".acpmux-context-compact")).toBeNull();
   });
 
+  // The round-1 brief requires exact reported counts and an honest setup estimate.
   test("the context details split the agent's setup from the conversation once the chat has it", async () => {
     const pop = () => doc.querySelector(".acpmux-context-pop");
     const rows = () =>
@@ -771,24 +772,29 @@ describe("acpmux composer pickers", () => {
     await render(snapshot({ sessionId: "fresh", turnCount: 1, usage: { used: 25_300, size: 258_400 } }));
     await open();
     expect(rows()).toEqual([
-      ["Agent setup", "25.3K"],
+      ["Agent setup", "25,300"],
       ["Conversation", "0"],
     ]);
     expect(pop()!.querySelector(".acpmux-context-part-detail")!.textContent).toBe(
-      "System prompt, tools and instructions",
+      "Approximate; includes the first message",
     );
     // Later turns add to the conversation; the setup stays what it was.
     await render(snapshot({ sessionId: "fresh", turnCount: 3, usage: { used: 40_000, size: 258_400 } }));
     await open();
     expect(rows()).toEqual([
-      ["Agent setup", "25.3K"],
-      ["Conversation", "14.7K"],
+      ["Agent setup", "25,300"],
+      ["Conversation", "14,700"],
     ]);
     // A chat first seen mid-way (resumed) has no first reading, so no split.
     await render(snapshot({ sessionId: "resumed", turnCount: 6, usage: { used: 90_000, size: 258_400 } }));
     await open();
     expect(pop()!.querySelector(".acpmux-context-part")).toBeNull();
-    expect(pop()!.querySelector(".acpmux-context-tokens")!.textContent).toBe("90K of 258.4K tokens");
+    expect(pop()!.querySelector(".acpmux-context-tokens")!.textContent).toBe("90,000 of 258,400 tokens");
+    await render(snapshot({ usage: { used: 258_400, size: 258_400 } }));
+    await open();
+    expect(pop()!.querySelector(".acpmux-context-recovery")!.textContent).toBe(
+      "Context window is full. Compact before continuing.",
+    );
   });
 });
 

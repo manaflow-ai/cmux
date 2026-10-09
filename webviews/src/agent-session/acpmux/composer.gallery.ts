@@ -65,6 +65,7 @@ export default agentPaneEntry({
   },
   covers: [
     "agent-session/acpmux/Composer.tsx#Composer",
+    "agent-session/acpmux/composer/useAttachmentReads.ts#useAttachmentReads",
     "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers",
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
     "agent-session/acpmux/composer/PromptEditor.tsx",
@@ -73,6 +74,13 @@ export default agentPaneEntry({
     "agent-session/acpmux/EmptyState.tsx",
   ],
   variants: {
+    empty: {
+      note: "A new chat centers the empty composer and keeps the folder choice in its footer.",
+      ready: { newSession: true, cwd: CWD },
+      snapshot: noChat([], {
+        summary: { sessionId: "", cwd: CWD, harness: "claude", model: "claude-opus-5-5", effort: "high" },
+      }),
+    },
     "new-chat": {
       note: "A new chat: empty prompt; the card's footer row holds the folder and computer, under a hairline.",
       ready: { newSession: true, cwd: CWD },
@@ -129,19 +137,20 @@ export default agentPaneEntry({
       snapshot: chat(finished),
     },
     // Leo (dogfood 2026-10-08, 22-composer-image-chip.png): a pasted image draws as a cropped
-    // thumbnail above the prompt, with a small × that shows on hover; a click opens the viewer.
+    // thumbnail above the prompt, with an always-visible ×; a click opens the viewer.
     "image-attached": {
-      note: "A pasted screenshot: a cropped thumbnail above the prompt, its small × shown on hover.",
+      note: "A pasted screenshot: a cropped thumbnail above the prompt, its small × visible without hover.",
       snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
         chat(finished),
       ),
       play: async (ctx) => {
         const view = ctx.document.defaultView!;
+        const field = ctx.find({ selector: ".acpmux-md" });
         const canvas = new view.OffscreenCanvas(320, 200);
         const paint = canvas.getContext("2d")!;
         const gradient = paint.createLinearGradient(0, 0, 320, 200);
-        gradient.addColorStop(0, "#f2b134");
-        gradient.addColorStop(1, "#3a7bd5");
+        gradient.addColorStop(0, view.getComputedStyle(field).getPropertyValue("--agent-muted").trim() || "CanvasText");
+        gradient.addColorStop(1, view.getComputedStyle(field).getPropertyValue("--acpmux-base").trim() || "Canvas");
         paint.fillStyle = gradient;
         paint.fillRect(0, 0, 320, 200);
         paint.fillStyle = "#ffffff";
@@ -150,7 +159,6 @@ export default agentPaneEntry({
         const file = new view.File([await canvas.convertToBlob({ type: "image/png" })], "screenshot.png", {
           type: "image/png",
         });
-        const field = ctx.find({ selector: ".acpmux-md" });
         const paste = new view.Event("paste", { bubbles: true, cancelable: true });
         Object.defineProperty(paste, "clipboardData", { value: { files: [file], types: ["Files"] } });
         field.dispatchEvent(paste);
@@ -236,6 +244,23 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-composer-plus [data-value="attach"]'));
       },
     },
+    "context-recovery": {
+      note: "Play: a full context window calls out recovery and keeps Compact available without moving the composer.",
+      snapshot: chat(finished, {
+        summary: {
+          sessionId: "gallery-full-context",
+          harness: "codex",
+          model: "gpt-5.5",
+          cwd: CWD,
+          turnCount: 2,
+          usage: { used: 258_400, size: 258_400 },
+        },
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: "button.acpmux-context-ring" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-context-recovery"));
+      },
+    },
     "context-breakdown": {
       note: "Play: open the context ring after a first message on Codex; the details split Agent setup (system prompt, tools and instructions) from the conversation.",
       snapshot: chat(finished, {
@@ -266,6 +291,14 @@ export default agentPaneEntry({
         await ctx.click({ selector: "[contenteditable='true']" });
         await ctx.type("/");
         await ctx.waitFor(() => ctx.document.querySelector("[role='listbox'], [role='menu']"));
+      },
+    },
+    "model-menu": {
+      note: "Play: open the model picker; the active model remains readable on the control rail.",
+      snapshot: chat(finished, { harness: "claude", model: "claude-opus-5-5", title: "Model picker" }),
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-model .acpmux-mp"));
       },
     },
     "model-menu-keyboard": {

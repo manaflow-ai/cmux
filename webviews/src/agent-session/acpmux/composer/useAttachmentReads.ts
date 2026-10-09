@@ -1,10 +1,16 @@
 import { useEffect, useRef, useState } from "react";
-import { MAX_ATTACHMENTS, MAX_IMAGE_BYTES, readAttachments, type AttachmentError, type ComposerAttachment } from "../attachments";
+import {
+  MAX_ATTACHMENTS,
+  MAX_IMAGE_BYTES,
+  readAttachments,
+  type AttachmentError,
+  type ComposerAttachment,
+} from "../attachments";
 
-type Pending = { id: string; file: File; preview?: string };
+type Pending = { id: string; file: File; preview?: string; reader?: FileReader };
 
-/** Paste, drop and the file chooser share reservations and cancellation. Blob previews don't
- * wait for base64 encoding; pending entries never reach the transport. */
+/** Paste, drop and the file chooser share reservations and cancellation. Data URL previews use the
+ * pane's existing image policy; pending entries never reach the transport. */
 export function useAttachmentReads(
   held: number,
   allowImages: boolean,
@@ -21,7 +27,7 @@ export function useAttachmentReads(
     const active = reads.current;
     return () => {
       live.current = false;
-      for (const entry of active.values()) if (entry.preview) URL.revokeObjectURL(entry.preview);
+      for (const entry of active.values()) entry.reader?.abort();
       active.clear();
     };
   }, []);
@@ -29,7 +35,7 @@ export function useAttachmentReads(
     const entry = reads.current.get(id);
     if (!entry) return;
     reads.current.delete(id);
-    if (entry.preview) URL.revokeObjectURL(entry.preview);
+    entry.reader?.abort();
     if (live.current) setPending([...reads.current.values()]);
   };
   const add = async (files: File[]) => {
@@ -41,13 +47,32 @@ export function useAttachmentReads(
         latest.current.report({ name: file.name, reason: "tooMany" });
         continue;
       }
-      let preview: string | undefined;
-      if (latest.current.allowImages && file.size <= MAX_IMAGE_BYTES && /^image\/(png|jpeg|gif|webp)$/.test(file.type)) {
-        try { preview = URL.createObjectURL(file); } catch { /* Some embedded hosts have no blob URL support. */ }
-      }
-      const entry = { id: crypto.randomUUID(), file, preview };
+      const entry: Pending = { id: crypto.randomUUID(), file };
       reads.current.set(entry.id, entry);
       batch.push(entry);
+      if (
+        latest.current.allowImages &&
+        file.size <= MAX_IMAGE_BYTES &&
+        /^image\/(png|jpeg|gif|webp)$/.test(file.type)
+      ) {
+        // FileReader produces a CSP-compatible preview independently of the transport read.
+        // Only this small pending rail updates when the preview arrives; no polling.
+        const Reader = globalThis.FileReader ?? globalThis.window?.FileReader;
+        if (Reader) {
+          const reader = new Reader();
+          entry.reader = reader;
+          reader.onload = () => {
+            if (!live.current || !reads.current.has(entry.id) || typeof reader.result !== "string") return;
+            entry.preview = reader.result;
+            setPending([...reads.current.values()]);
+          };
+          try {
+            reader.readAsDataURL(file);
+          } catch {
+            /* The normal read still reports unsupported files. */
+          }
+        }
+      }
     }
     setPending([...reads.current.values()]);
     // Read in selection order, while every preview is already visible.

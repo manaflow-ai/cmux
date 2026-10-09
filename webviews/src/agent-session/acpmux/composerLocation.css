@@ -164,12 +164,14 @@
 .acpmux-composer-box {
   --acpmux-composer-glass: color-mix(in srgb, var(--acpmux-base) 72%, transparent);
   overflow: visible;
-  --acpmux-composer-radius: 18px;
+  --acpmux-composer-radius: 14px;
   border-radius: var(--acpmux-composer-radius);
-  background: color-mix(in srgb, var(--agent-text) 13%, var(--acpmux-composer-glass));
+  background: color-mix(in srgb, var(--agent-text) 7%, var(--acpmux-composer-glass));
+  -webkit-backdrop-filter: var(--surface-blur, blur(18px));
+  backdrop-filter: var(--surface-blur, blur(18px));
 }
 @media (prefers-reduced-transparency: reduce) {
-  .acpmux-composer-box { --acpmux-composer-glass: var(--acpmux-base); }
+  .acpmux-composer-box { --acpmux-composer-glass: var(--acpmux-base); backdrop-filter: none; -webkit-backdrop-filter: none; }
 }
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-access-menu { animation: ui-popup-open var(--ui-popup-open) ease-out; }
@@ -178,7 +180,7 @@
    branch read as one scope line instead of a second floating tray. */
 .acpmux-composer-context {
   position: relative;
-  z-index: 1;
+  z-index: var(--layer-raised);
   display: flex;
   align-items: center;
   justify-content: flex-start;
@@ -190,7 +192,7 @@
   box-sizing: border-box;
   border: 0;
   border-top: 1px solid var(--acpmux-composer-edge);
-  border-radius: 0 0 18px 18px;
+  border-radius: 0 0 var(--acpmux-composer-radius) var(--acpmux-composer-radius);
   background: color-mix(in srgb, var(--agent-text) 3%, transparent);
   box-shadow: none;
 }
@@ -295,12 +297,26 @@
 }
 @media (max-width: 480px) {
   .acpmux-composer-bar .acpmux-access-trigger { max-width: 112px; }
-  .acpmux-composer-bar .acpmux-mode-text { display: none; }
+  .acpmux-composer-bar .acpmux-mode-text { display: inline; }
 }
 /* Start Agent's panel (Composer contextFirst, cx-hkat): the row heads the card, so its hairline
    and rounded corners move to the top. */
 .acpmux-composer-box[data-context-first] > .acpmux-composer-context {
   border-top: 0;
   border-bottom: 1px solid var(--acpmux-composer-edge);
-  border-radius: 18px 18px 0 0;
+  border-radius: var(--acpmux-composer-radius) var(--acpmux-composer-radius) 0 0;
+}
+/* The branch is the flexible trailing control: long names ellipsize inside the 400px dock
+   while the folder and computer labels retain their readable hit targets. */
+.acpmux-composer-context > .acpmux-location-picker:last-child { min-width: 0; max-width: min(42%, 190px); }
+.acpmux-composer-context > .acpmux-location-picker:last-child .acpmux-location-button { max-width: 100%; }
+@media (max-width: 400px) {
+  .acpmux-composer-context > .acpmux-location-leading { max-width: 61%; }
+  .acpmux-composer-context > .acpmux-location-picker:last-child { max-width: 39%; }
+}
+
+:root[data-reduce-transparency] .acpmux-composer-box {
+  --acpmux-composer-glass: var(--acpmux-base);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }

@@ -517,7 +517,7 @@ export function ContextRing({
   const radius = 6.5;
   const circumference = 2 * Math.PI * radius;
   useEffect(() => registerPicker(t("context.title"), () => setOpen(true)), [t]);
-  const tokens = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
+  const tokens = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
   const full = fraction >= 0.8 ? " acpmux-context-full" : "";
   return (
     <span className={`acpmux-picker acpmux-context${full}`}>
@@ -572,12 +572,20 @@ export function ContextRing({
             {t("context.tokens", { used: tokens.format(used), size: tokens.format(size) })}
           </div>
         )}
+        {fraction >= 1 && (
+          <div
+            className="acpmux-context-recovery mt-2.5 rounded-lg bg-hover p-2 text-xs leading-4 text-fg"
+            role="alert"
+          >
+            {t("context.recovery")}
+          </div>
+        )}
         {known && setup !== undefined && setup <= used && (
           <div className="acpmux-context-parts">
             <div className="acpmux-context-part">
               <span className="acpmux-context-part-name">{t("context.setup")}</span>
               <span className="acpmux-context-part-tokens">{tokens.format(setup)}</span>
-              <span className="acpmux-context-part-detail">{t("context.setupDetail")}</span>
+              <span className="acpmux-context-part-detail">{t("context.setupEstimate")}</span>
             </div>
             <div className="acpmux-context-part">
               <span className="acpmux-context-part-name">{t("context.conversation")}</span>

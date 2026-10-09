@@ -83,8 +83,8 @@ describe("composer attachments", () => {
     expect(rule(".acpmux-composer .acpmux-attachment-remove:focus-visible").outline).toContain("var(--agent-text)");
   });
 
-  test("the × shows only while the chip is hovered or holds the focus", () => {
-    expect(rule(".acpmux-composer .acpmux-attachment-remove").opacity).toBe("0");
+  test("the × stays visible at rest, on hover, and with keyboard focus", () => {
+    expect(rule(".acpmux-composer .acpmux-attachment-remove").opacity).toBe("1");
     expect(rule(".acpmux-attachment:hover .acpmux-attachment-remove").opacity).toBe("1");
     expect(rule(".acpmux-attachment:focus-within .acpmux-attachment-remove").opacity).toBe("1");
   });

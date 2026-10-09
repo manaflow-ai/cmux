@@ -2,8 +2,8 @@
    the row sits inside the composer at the text's own inset, the attachments keep a gap between them
    and above the text, and each thumbnail's corners nest in the composer's (inner radius = the
    composer's radius minus the inset). The row is its own band above the prompt, so the caret never
-   draws over a thumbnail. The remove button is a small × inside the thumbnail's corner, shown while
-   the chip is hovered or focused. Theme tokens only. */
+   draws over a thumbnail. The remove button is a small × inside the thumbnail's corner, always visible
+   with an opaque theme fill. Theme tokens only. */
 .acpmux-composer-box {
   --acpmux-attach-inset: 16px;
   --acpmux-attach-gap: 8px;
@@ -14,7 +14,7 @@
      thumbnails under the prompt. */
   flex: none;
   position: relative;
-  z-index: 1;
+  z-index: var(--layer-raised);
   min-width: 0;
   display: flex;
   align-items: center;
@@ -84,10 +84,9 @@
   border-radius: 8px;
   display: grid;
   place-items: center;
-  opacity: 0;
-  transition: opacity 120ms ease-out;
+  opacity: 1;
   /* The composer's own surface, so the badge reads as a cut-out in the thumbnail in every theme. */
-  background: color-mix(in srgb, var(--acpmux-composer-bg) 82%, transparent);
+  background: var(--acpmux-menu-bg);
   box-shadow: 0 0 0 0.5px var(--acpmux-composer-edge);
   color: var(--agent-text);
   cursor: pointer;

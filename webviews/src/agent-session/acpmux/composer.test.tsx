@@ -2,7 +2,8 @@ import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:tes
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxSnapshot } from "./model";
 
-const dom = new JSDOM("<!doctype html><div id=root></div>", {
+const markdownFieldCss = await Bun.file(new URL("./markdownField.css", import.meta.url)).text();
+const dom = new JSDOM(`<!doctype html><style>${markdownFieldCss}</style><div id=root></div>`, {
   pretendToBeVisual: true,
   url: "https://cmux.test/agent-pane",
   virtualConsole: new VirtualConsole(),
@@ -561,28 +562,27 @@ describe("acpmux composer slash menu", () => {
       await render(snapshot());
       const file = png();
       let finish!: (bytes: ArrayBuffer) => void;
-      Object.defineProperty(file, "arrayBuffer", { value: () => new Promise<ArrayBuffer>((resolve) => (finish = resolve)) });
-      const create = URL.createObjectURL;
-      const revoke = URL.revokeObjectURL;
-      const revoked: string[] = [];
-      URL.createObjectURL = () => "blob:pending-image";
-      URL.revokeObjectURL = (url) => revoked.push(url);
+      Object.defineProperty(file, "arrayBuffer", {
+        value: () => new Promise<ArrayBuffer>((resolve) => (finish = resolve)),
+      });
       try {
         await paste([file]);
-        expect(dom.window.document.querySelector(".acpmux-attachment img")?.getAttribute("src")).toBe("blob:pending-image");
+        expect(dom.window.document.querySelector(".acpmux-attachment img")?.getAttribute("src")).toBe(
+          "data:image/png;base64,iVBORw==",
+        );
         await type("Describe this image");
         await key("Enter");
         expect(sent).toEqual([]);
-        await act(async () => dom.window.document.querySelector<HTMLButtonElement>('[aria-label="Remove shot.png"]')!.click());
+        await act(async () =>
+          dom.window.document.querySelector<HTMLButtonElement>('[aria-label="Remove shot.png"]')!.click(),
+        );
         await act(async () => finish(new Uint8Array([0x89, 0x50]).buffer));
         expect(dom.window.document.querySelector(".acpmux-attachment")).toBeNull();
-        expect(revoked).toEqual(["blob:pending-image"]);
         await key("Enter");
         expect(sent).toEqual(["Describe this image"]);
         expect(sentAttachments).toEqual([[]]);
       } finally {
-        URL.createObjectURL = create;
-        URL.revokeObjectURL = revoke;
+        if (finish) await act(async () => finish(new ArrayBuffer(0)));
       }
     });
 
@@ -705,21 +705,66 @@ describe("acpmux composer slash menu", () => {
   });
 });
 
+describe("acpmux composer layout", () => {
+  test("a long draft keeps a capped, scrollable editor surface", async () => {
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    try {
+      await act(async () =>
+        root.render(
+          createElement(Composer, { snapshot: snapshot(), chips: () => null, onSend: () => {}, onStop: () => {} }),
+        ),
+      );
+      await ready();
+      await act(async () =>
+        typeInto(promptField(), Array.from({ length: 24 }, (_, index) => `line ${index}`).join("\n")),
+      );
+      const field = dom.window.document.querySelector<HTMLElement>(".acpmux-md-field")!;
+      expect(field.style.maxHeight || dom.window.getComputedStyle(field).maxHeight).toBe("calc(199px)");
+      expect(dom.window.getComputedStyle(field).overflowY).toBe("auto");
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+});
+
 describe("acpmux composer prompt recall", () => {
   test("ArrowUp and ArrowDown recall sent prompts without replacing an edited draft", async () => {
     const root = createRoot(dom.window.document.getElementById("root")!);
     const sent: string[] = [];
     const prompt = () => promptField();
-    const press = async (name: string) => act(async () => prompt().element.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true })));
+    const press = async (name: string) =>
+      act(async () =>
+        prompt().element.dispatchEvent(
+          new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true }),
+        ),
+      );
     const render = async () => {
-      await act(async () => root.render(createElement(Composer, { snapshot: snapshot(), chips: () => null, onSend: (value: string) => sent.push(value), onStop: () => {} })));
+      await act(async () =>
+        root.render(
+          createElement(Composer, {
+            snapshot: snapshot(),
+            chips: () => null,
+            onSend: (value: string) => {
+              sent.push(value);
+            },
+            onStop: () => {},
+          }),
+        ),
+      );
       await ready();
     };
-    const submit = async () => act(async () => dom.window.document.querySelector("form")!.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })));
+    const submit = async () =>
+      act(async () =>
+        dom.window.document
+          .querySelector("form")!
+          .dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })),
+      );
     try {
       await render();
-      await act(async () => typeInto(prompt(), "first")); await submit();
-      await act(async () => typeInto(prompt(), "second")); await submit();
+      await act(async () => typeInto(prompt(), "first"));
+      await submit();
+      await act(async () => typeInto(prompt(), "second"));
+      await submit();
       await press("ArrowUp");
       expect(prompt().value).toBe("second");
       await press("ArrowUp");
@@ -729,7 +774,9 @@ describe("acpmux composer prompt recall", () => {
       await act(async () => typeInto(prompt(), "edited"));
       await press("ArrowUp");
       expect(prompt().value).toBe("edited");
-    } finally { await act(async () => root.unmount()); }
+    } finally {
+      await act(async () => root.unmount());
+    }
   });
 });
 

@@ -10,13 +10,7 @@ import React, {
 } from "react";
 import { createPortal } from "react-dom";
 import type { AcpmuxSnapshot } from "./model";
-import {
-  dragHasFiles,
-  filesFrom,
-  thumbnail,
-  type AttachmentError,
-  type ComposerAttachment,
-} from "./attachments";
+import { dragHasFiles, filesFrom, thumbnail, type AttachmentError, type ComposerAttachment } from "./attachments";
 import { useAttachmentReads } from "./composer/useAttachmentReads";
 import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
@@ -79,6 +73,7 @@ export const COMPOSER_LABELS = {
   tooMany: "composer.tooMany",
   queue: "composer.queue",
   queued: "composer.queued",
+  queueTooltip: "composer.queueTooltip",
 } as const satisfies Record<string, StringKey>;
 
 function attachmentErrorText(error: AttachmentError, t: Translate): string {
@@ -215,6 +210,10 @@ export function Composer({
   const [caret, setCaret] = useState(0);
   const [active, setActive] = useState(0);
   const [dismissed, setDismissed] = useState<string | undefined>();
+  const [promptHistory, setPromptHistory] = useState<string[]>([]);
+  const recallIndex = useRef<number | null>(null);
+  const recallApplying = useRef(false);
+  const recallValue = useRef("");
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [attachError, setAttachError] = useState<string | undefined>();
   const [dropping, setDropping] = useState(false);
@@ -253,6 +252,10 @@ export function Composer({
     (attachment) => setAttachments((current) => [...current, attachment]),
     (error) => setAttachError(error ? attachmentErrorText(error, t) : undefined),
   );
+  const removeAttachment = useCallback((id: string) => {
+    setAttachments((current) => current.filter((item) => item.id !== id));
+    field.current?.focus();
+  }, []);
   const attach = useRef(attachmentReads.add);
   attach.current = attachmentReads.add;
   useEffect(() => {
@@ -336,6 +339,9 @@ export function Composer({
     const previous = persistedSession.current;
     if (previous && hydratedSession.current === previous) writePersistedDraft(previous, field.current?.value() ?? text);
     persistedSession.current = sessionId;
+    setPromptHistory([]);
+    recallIndex.current = null;
+    recallValue.current = "";
     hydratedSession.current = undefined;
     restoringSession.current = true;
     const restored = readPersistedDraft(sessionId) ?? "";
@@ -389,7 +395,11 @@ export function Composer({
   const planning = plan?.id === currentModeId;
   const planChoice: Choice | undefined =
     plan && onMode
-      ? { id: `plan:${plan.id}`, name: planning ? t("picker.build") : t("picker.plan"), icon: planning ? <BuildIcon /> : <PlanIcon /> }
+      ? {
+          id: `plan:${plan.id}`,
+          name: planning ? t("picker.build") : t("picker.plan"),
+          icon: planning ? <BuildIcon /> : <PlanIcon />,
+        }
       : undefined;
   const query = slashQuery(text, caret);
   const open = query !== undefined && dismissed !== text;
@@ -419,6 +429,23 @@ export function Composer({
     setText(value);
     setCaret(at);
     setDismissed(undefined);
+    if (!recallApplying.current) recallIndex.current = null;
+  };
+  const recall = (index: number | null) => {
+    recallApplying.current = true;
+    recallIndex.current = index;
+    const value = index === null ? "" : (promptHistory[index] ?? "");
+    recallValue.current = value;
+    edit(value, value.length);
+    pendingCaret.current = value.length;
+    recallApplying.current = false;
+    field.current?.focus();
+  };
+  const rememberPrompt = (prompt: string) => {
+    if (!prompt) return;
+    setPromptHistory((history) => (history[0] === prompt ? history : [prompt, ...history].slice(0, 50)));
+    recallIndex.current = null;
+    recallValue.current = "";
   };
   const pick = (command: SlashCommand) => {
     const next = applyCommand(text, caret, command);
@@ -476,6 +503,7 @@ export function Composer({
     if (taken === false) return false;
     const written = field.current?.value() ?? "";
     const clear = (rest = "") => {
+      rememberPrompt(draftText);
       setAttachments((current) => current.filter((attachment) => !sent.includes(attachment)));
       setAttachError(undefined);
       plusDraft.current = undefined;
@@ -596,6 +624,21 @@ export function Composer({
     if (event.isComposing || event.keyCode === 229) return;
     if (interrupt(event)) return;
     const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
+    // Empty prompts (or an untouched recalled prompt) borrow the familiar terminal history path.
+    if (!open && plain && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+      const recalled = recallIndex.current !== null && text === recallValue.current;
+      if (!text.trim() || recalled) {
+        event.preventDefault();
+        if (event.key === "ArrowUp" && promptHistory.length) {
+          const next = recallIndex.current === null ? 0 : Math.min(promptHistory.length - 1, recallIndex.current + 1);
+          recall(next);
+        } else if (event.key === "ArrowDown" && recallIndex.current !== null) {
+          const next = recallIndex.current - 1;
+          recall(next < 0 ? null : next);
+        }
+        return;
+      }
+    }
     // ⌘Return sends whatever is typed, even over an open command menu, then opens the window.
     if (
       onOpenInWindow &&
@@ -691,7 +734,7 @@ export function Composer({
   return (
     <form
       ref={form}
-      className="acpmux-composer"
+      className="acpmux-composer @container"
       data-shell={shell ? "" : undefined}
       onSubmit={(event) => {
         if (!shell) return submit(event);
@@ -768,19 +811,25 @@ export function Composer({
         {(attachments.length > 0 || attachmentReads.pending.length > 0 || attachError || dropping) && (
           <fieldset className="acpmux-attachments" aria-label={t(COMPOSER_LABELS.attachments)}>
             {attachments.map((attachment) => (
-              <AttachmentChip
-                key={attachment.id}
-                attachment={attachment}
-                onRemove={(id) => {
-                  setAttachments((current) => current.filter((item) => item.id !== id));
-                  field.current?.focus();
-                }}
-              />
+              <AttachmentChip key={attachment.id} attachment={attachment} onRemove={removeAttachment} />
             ))}
             {attachmentReads.pending.map((entry) => (
-              <div key={entry.id} className={`acpmux-attachment ${entry.preview ? "acpmux-attachment-image" : "acpmux-attachment-file"}`} title={entry.file.name} aria-busy="true">
+              <div
+                key={entry.id}
+                className={`acpmux-attachment ${entry.preview ? "acpmux-attachment-image" : "acpmux-attachment-file"}`}
+                title={entry.file.name}
+                aria-busy="true"
+              >
                 {entry.preview ? <img src={entry.preview} alt={entry.file.name} /> : <span>{entry.file.name}</span>}
-                <button type="button" className="acpmux-attachment-remove" aria-label={t(COMPOSER_LABELS.removeAttachment, { name: entry.file.name })} onClick={() => { attachmentReads.remove(entry.id); field.current?.focus(); }}>
+                <button
+                  type="button"
+                  className="acpmux-attachment-remove"
+                  aria-label={t(COMPOSER_LABELS.removeAttachment, { name: entry.file.name })}
+                  onClick={() => {
+                    attachmentReads.remove(entry.id);
+                    field.current?.focus();
+                  }}
+                >
                   <span aria-hidden="true">×</span>
                 </button>
               </div>
@@ -841,7 +890,7 @@ export function Composer({
             />
           </div>
         )}
-        <div className="acpmux-composer-bar">
+        <div className="acpmux-composer-bar gap-1.5! [&_.acpmux-chips]:gap-1! [&_.acpmux-model_.acpmux-picker-button]:bg-hover! [&_.acpmux-model-name]:text-[13px]! [&_.acpmux-model-name]:font-medium! [&_.acpmux-effort_.acpmux-picker-button]:text-xs! [&_.acpmux-access_.acpmux-picker-button]:text-xs! [&_.acpmux-effort]:before:hidden! [&_.acpmux-access]:before:hidden! [&_.acpmux-send]:rounded-[10px]! @max-[540px]:items-end! @max-[540px]:py-2! @max-[540px]:[&_.acpmux-chips]:grid! @max-[540px]:[&_.acpmux-chips]:grid-cols-[minmax(0,1fr)_auto]! @max-[540px]:[&_.acpmux-model]:col-start-1! @max-[540px]:[&_.acpmux-model]:row-start-1! @max-[540px]:[&_.acpmux-effort]:col-start-2! @max-[540px]:[&_.acpmux-effort]:row-start-1! @max-[540px]:[&_.acpmux-access]:col-start-1! @max-[540px]:[&_.acpmux-access]:row-start-2! @max-[540px]:[&_.acpmux-context]:col-start-2! @max-[540px]:[&_.acpmux-context]:row-start-2! @max-[540px]:[&_.acpmux-context]:justify-self-end! @max-[540px]:[&_.acpmux-chips-spacer]:hidden! @max-[540px]:[&_.acpmux-access-trigger]:max-w-full!">
           <input
             ref={chooser}
             className="acpmux-attach-input"
@@ -921,8 +970,17 @@ export function Composer({
                 type="submit"
                 disabled={(Boolean(blocked) || attachmentReads.pending.length > 0) && !shell}
                 className={`acpmux-send${(shell ? shellText.trim() : !blocked && !attachmentReads.pending.length && (text.trim() || attachments.length)) ? " acpmux-send-ready" : ""}`}
+                data-intent={!shell && snapshot.isWorking && (text.trim() || attachments.length) ? "queue" : undefined}
                 aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
-                title={shell ? t("composer.shellRun") : blocked?.reason ? t(blocked.reason) : t("composer.sendTooltip")}
+                title={
+                  shell
+                    ? t("composer.shellRun")
+                    : blocked?.reason
+                      ? t(blocked.reason)
+                      : snapshot.isWorking
+                        ? t("composer.queueTooltip")
+                        : t("composer.sendTooltip")
+                }
               >
                 <ArrowUpIcon />
               </button>
@@ -937,7 +995,13 @@ export function Composer({
 
 /// One attachment above the prompt. An image draws a cropped thumbnail and opens in the chat's image
 /// viewer on a click; one the pane cannot draw falls back to its name, never an empty square.
-function AttachmentChip({ attachment, onRemove }: { attachment: ComposerAttachment; onRemove(id: string): void }) {
+const AttachmentChip = React.memo(function AttachmentChip({
+  attachment,
+  onRemove,
+}: {
+  attachment: ComposerAttachment;
+  onRemove(id: string): void;
+}) {
   const t = useT();
   const openImage = useContext(ImageViewerContext);
   const [broken, setBroken] = useState(false);
@@ -992,7 +1056,7 @@ function AttachmentChip({ attachment, onRemove }: { attachment: ComposerAttachme
       {remove}
     </div>
   );
-}
+});
 
 function SlashMenu({
   matches,
