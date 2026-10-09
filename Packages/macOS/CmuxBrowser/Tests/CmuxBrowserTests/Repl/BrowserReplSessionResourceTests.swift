@@ -594,6 +594,55 @@ struct BrowserReplSessionResourceTests {
         #expect(shown == #"[["console","t1",null,"string"],["console","t1","small","undefined"]]"#, "\(shown.prefix(300))")
     }
 
+    /// A page event past the per-event limit is withheld where it arrives:
+    /// it holds only its notice of the queue's budget, never its raw size,
+    /// so oversized events cannot fill the queue and push out the events
+    /// after them. The tab it names is found without parsing the payload,
+    /// wherever `targetId` sits in it.
+    @Test("A page event past the per-event limit holds only its notice of the queue's budget")
+    func oversizedEventsHoldOnlyTheirNotice() async throws {
+        let driver = SlowRedactionDriver()
+        let runtime = resourceRuntime + #"""
+        globalThis.seen = { count: 0, withheld: 0, t1: 0 };
+        globalThis.__cmuxHostOnEvent = (name, payload) => {
+          const p = JSON.parse(payload);
+          globalThis.seen.count += 1;
+          if (typeof p.withheld === "string") globalThis.seen.withheld += 1;
+          if (p.targetId === "t1") globalThis.seen.t1 += 1;
+        };
+        """#
+        let session = BrowserReplSession(
+            id: "events-\(UUID().uuidString)",
+            cwd: browserReplTestWorkingDirectory,
+            bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "events.js", source: runtime)], agentScripts: []),
+            driver: driver
+        )
+        defer {
+            driver.releaseRedaction()
+            session.close()
+        }
+        #expect(await session.evaluate(code: "1;").error == nil)
+
+        // The first event's masking blocks, so every later event stays
+        // queued, holding its share of the queue's budget, until released.
+        driver.armBlockingRedaction()
+        driver.emit("console", #"{"targetId":"t1","type":"log","text":"first"}"#)
+        await driver.waitUntilBlocked()
+        // 100 events of 2 MiB: 200 MiB raw, past the 64 MiB the queue holds.
+        let text = String(repeating: "x", count: 2 << 20)
+        let payload = #"{"type":"log","text":"\#(text)","targetId":"t1"}"#
+        for _ in 0..<100 { driver.emit("console", payload) }
+        driver.releaseRedaction()
+
+        let result = await session.evaluate(code: """
+        await driverOnce("tabs.list");
+        console.log(JSON.stringify(globalThis.seen));
+        """)
+        let texts = result.lines.map(\.text)
+        #expect(!texts.contains { $0.contains("page events were dropped") }, "\(texts.map { $0.prefix(200) })")
+        #expect(texts.last == #"{"count":101,"withheld":100,"t1":101}"#, "\(texts.map { $0.prefix(200) })")
+    }
+
     @Test("A cell that times out cancels the fetches it started")
     func timeoutCancelsTheCellsFetches() async {
         let driver = HeldCookiesDriver()
