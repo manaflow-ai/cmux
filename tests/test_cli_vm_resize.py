@@ -217,6 +217,23 @@ class VMResizeTests(unittest.TestCase):
             self.assertIn("plan pool", result.stderr)
             self.assertEqual([request["method"] for request in server.requests], ["vm.list"])
 
+    def test_waking_statuses_subtract_the_live_pool_claim(self) -> None:
+        limits = {"planId": "pro", "maxVcpus": 8, "maxMemoryMb": 16 * 1024,
+                  "maxDiskMb": 128 * 1024, "poolVcpus": 20,
+                  "poolMemoryMb": 40 * 1024, "usedVcpus": 15,
+                  "usedMemoryMb": 24 * 1024}
+        for status in ("ready", "creating", "starting", "pending", "resuming", "READY"):
+            with self.subTest(status=status), ResizeSocket(
+                result={"cpus": 8, "memory_total_mb": 8 * 1024, "disk_total_mb": 32 * 1024},
+                limits=limits,
+                machines=[{"id": "existing-vm", "status": status,
+                           "resources": {"vcpus": 4, "memoryMb": 8 * 1024},
+                           "resourceReservation": {"vcpus": 4, "memoryMb": 8 * 1024}}],
+            ) as server:
+                result = self.run_cli(server.path, ["vm", "resize", "existing-vm", "--cpu", "8"])
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assert_resize_request(server)
+
 
 if __name__ == "__main__":
     unittest.main()

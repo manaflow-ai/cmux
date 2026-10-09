@@ -49,6 +49,26 @@ struct CloudVMResourcePoolTests {
         #expect(snapshots.map(\.usesResourcePool) == [false, true])
     }
 
+    @Test(arguments: ["running", "provisioning", "ready", "creating", "starting", "pending", "resuming", "READY", " resuming "])
+    func activeStatusesConsumeTheSharedPool(status: String) throws {
+        let catalog = SurfaceCatalogSnapshot(
+            machines: [SurfaceMachineInfo(
+                id: .cloud("catalog-machine"),
+                name: "catalog-machine",
+                status: status,
+                hasDesktop: true,
+                linkState: .connected
+            )],
+            resources: [],
+            projections: []
+        )
+        let catalogSnapshot = MachineSnapshotBuilder.includingCatalogMachines([], catalog: catalog)
+        #expect(catalogSnapshot.first?.usesResourcePool == true)
+
+        let summary = VMSummary(id: "summary-machine", provider: "freestyle", status: status, image: "image", createdAt: 1)
+        #expect(MachineSnapshotBuilder.snapshot(from: summary).usesResourcePool)
+    }
+
     @Test
     func validatorUsesPlanSpecificFallbackCeilings() throws {
         let validator = CloudVMResizePlanValidator()

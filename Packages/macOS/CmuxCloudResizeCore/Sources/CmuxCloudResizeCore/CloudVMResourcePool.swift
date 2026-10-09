@@ -3,10 +3,24 @@ import Foundation
 
 /// The plan's shared Cloud VM resource pool and how much of it active machines
 /// use (`GET /api/vm` `limits.poolVcpus`, `poolMemoryMb`, `usedVcpus`,
-/// `usedMemoryMb`). Every provisioning and running machine draws from one
-/// pool; paused machines do not. The server enforces the pool; this type only
-/// lets the client explain it before a create fails.
+/// `usedMemoryMb`). Every active machine draws from one pool; paused and
+/// stopped machines do not. The server enforces the pool; this type only lets
+/// the client explain it before a create or resize fails.
 public struct CloudVMResourcePool: Equatable, Sendable {
+    /// Whether a wire status represents a machine that currently consumes its
+    /// shared CPU and memory reservation. Provider and catalog payloads use
+    /// both database statuses (`running`, `provisioning`) and lifecycle
+    /// statuses while a machine is waking (`ready`, `creating`, `starting`,
+    /// `pending`, `resuming`).
+    public static func usesResourcePool(forStatus status: String) -> Bool {
+        switch status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "running", "provisioning", "ready", "creating", "starting", "pending", "resuming":
+            return true
+        default:
+            return false
+        }
+    }
+
     /// Creates a pool readout.
     /// - Parameters:
     ///   - poolVcpus: vCPUs the plan shares across its machines.
