@@ -1,7 +1,7 @@
 import Foundation
 
 /// What the sidebar shows, read from this Chief's files.
-struct HomeChiefSnapshot: Sendable {
+nonisolated struct HomeChiefSnapshot: Sendable {
     var harness: String?
     var model: String?
     var effort: String?
