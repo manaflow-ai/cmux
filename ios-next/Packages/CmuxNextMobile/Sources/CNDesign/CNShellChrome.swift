@@ -1,5 +1,6 @@
 #if os(iOS)
 public import SwiftUI
+public import UIKit
 
 /// App-level chrome that the active shell injects into every module root.
 ///
@@ -69,6 +70,54 @@ extension View {
     /// Shows the shell-injected leading toolbar item (the drawer hamburger).
     public func cnShellLeadingBarItem() -> some View {
         modifier(CNShellLeadingBarItemModifier())
+    }
+}
+/// Status bar content style a root asks the shell for, for example the
+/// browser over a light or dark page. Nil follows the app's appearance.
+public enum CNStatusBarStyle: String, Hashable, Sendable {
+    /// Dark clock and icons, for light content under the status bar.
+    case darkContent
+    /// Light clock and icons, for dark content under the status bar.
+    case lightContent
+
+    /// The style for content whose top edge has `color` (relative luminance).
+    public init(over color: UIColor) {
+        var r: CGFloat = 1, g: CGFloat = 1, b: CGFloat = 1, a: CGFloat = 1
+        color.resolvedColor(with: .current).getRed(&r, green: &g, blue: &b, alpha: &a)
+        func lin(_ c: CGFloat) -> CGFloat { c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4) }
+        let luminance = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+        self = luminance > 0.4 ? .darkContent : .lightContent
+    }
+}
+
+/// Preference a root sets with `.cnStatusBarStyle(_:)`; the shell reads it
+/// with `.onCNStatusBarStyleChange` and applies it in its hosting controller.
+/// The first non-nil value in the tree wins.
+struct CNStatusBarStylePreferenceKey: PreferenceKey {
+    static let defaultValue: CNStatusBarStyle? = nil
+    static func reduce(value: inout CNStatusBarStyle?, nextValue: () -> CNStatusBarStyle?) {
+        value = value ?? nextValue()
+    }
+}
+
+extension View {
+    /// Asks the shell for a status bar style while this view is shown
+    /// (nil: follow the appearance).
+    public func cnStatusBarStyle(_ style: CNStatusBarStyle?) -> some View {
+        preference(key: CNStatusBarStylePreferenceKey.self, value: style)
+    }
+
+    /// Shell side: observes the status bar style requested below this view.
+    public func onCNStatusBarStyleChange(_ action: @escaping @MainActor @Sendable (CNStatusBarStyle?) -> Void) -> some View {
+        onPreferenceChange(CNStatusBarStylePreferenceKey.self) { value in
+            MainActor.assumeIsolated { action(value) }
+        }
+    }
+
+    /// Shell side: hides the status bar requests of a root that is kept alive
+    /// but not shown.
+    public func cnStatusBarStyleSuppressed(_ suppressed: Bool) -> some View {
+        transformPreference(CNStatusBarStylePreferenceKey.self) { if suppressed { $0 = nil } }
     }
 }
 #endif

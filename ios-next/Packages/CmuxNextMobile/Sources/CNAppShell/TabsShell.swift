@@ -14,20 +14,20 @@ struct TabsShell: View {
         let roots = ModuleRoots(model: model)
         TabView(selection: $selection) {
             Tab(ShellDestination.home.title, systemImage: ShellDestination.home.symbol, value: .home) {
-                roots.conversations()
+                roots.conversations().cnStatusBarStyleSuppressed(selection != .home)
             }
             Tab(ShellDestination.agents.title, systemImage: ShellDestination.agents.symbol, value: .agents) {
-                roots.agents()
+                roots.agents().cnStatusBarStyleSuppressed(selection != .agents)
             }
             .badge(model.shellData.waitingSessions.count)
             Tab(ShellDestination.terminals.title, systemImage: ShellDestination.terminals.symbol, value: .terminals) {
-                roots.terminals()
+                roots.terminals().cnStatusBarStyleSuppressed(selection != .terminals)
             }
             Tab(ShellDestination.browser.title, systemImage: ShellDestination.browser.symbol, value: .browser) {
-                roots.browser()
+                roots.browser().cnStatusBarStyleSuppressed(selection != .browser)
             }
             Tab(ShellDestination.settings.title, systemImage: ShellDestination.settings.symbol, value: .settings) {
-                roots.settings()
+                roots.settings().cnStatusBarStyleSuppressed(selection != .settings)
             }
         }
         .tabBarMinimizeBehavior(.onScrollDown)

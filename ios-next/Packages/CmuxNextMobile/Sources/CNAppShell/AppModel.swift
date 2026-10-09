@@ -2,6 +2,7 @@
 import CNAuthUI
 import CNBackend
 import CNCore
+import CNDesign
 import CNMockHost
 import CNSettingsUI
 import CNTransport
@@ -37,6 +38,11 @@ public final class AppModel {
     public let connection: HostConnection
     public let signIn: SignInController
     public let shellData: ShellDataModel
+    /// Status bar style requested by the visible root (`.cnStatusBarStyle`);
+    /// nil follows the appearance. Applied by `ShellHostingController`.
+    public var statusBarStyle: CNStatusBarStyle?
+    /// Drawer shell: what the content card asked for, restored on close.
+    @ObservationIgnored var requestedContentStatusBarStyle: CNStatusBarStyle?
 
     @ObservationIgnored let mockHost: MockHost?
     @ObservationIgnored private let signaling: SignalingClient?

@@ -1,13 +1,14 @@
 import CNAppShell
-import SwiftUI
+import UIKit
 
+/// UIKit entry point: the shell's scene delegate owns the window and its root
+/// hosting controller (status bar style, URL contexts, foreground events).
 @main
-struct CmuxNextApp: App {
-    @State private var model = AppModel.live(bundle: .main)
-
-    var body: some Scene {
-        WindowGroup {
-            AppRoot(model: model)
-        }
+final class AppDelegate: UIResponder, UIApplicationDelegate {
+    func application(_ application: UIApplication, configurationForConnecting session: UISceneSession,
+                     options: UIScene.ConnectionOptions) -> UISceneConfiguration {
+        let configuration = UISceneConfiguration(name: "Default", sessionRole: session.role)
+        configuration.delegateClass = CmuxNextSceneDelegate.self
+        return configuration
     }
 }

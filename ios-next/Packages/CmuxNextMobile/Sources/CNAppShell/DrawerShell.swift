@@ -36,6 +36,7 @@ struct DrawerShell: View {
                         .opacity(d == destination ? 1 : 0)
                         .allowsHitTesting(d == destination)
                         .accessibilityHidden(d != destination)
+                        .cnStatusBarStyleSuppressed(d != destination)
                 }
             }
         }
@@ -51,6 +52,15 @@ struct DrawerShell: View {
         .environment(\.cnLeadingBarItem, AnyView(HamburgerButton { drawer.open() }))
         .environment(\.cnShellRoute, route)
         .environment(\.cnDrawerIsOpen, drawer.isOpen)
+        // The content lives in its own hosting controller, so its status
+        // bar request is forwarded through the model (sidebar open: default).
+        .onCNStatusBarStyleChange { [model, drawer] style in
+            model.requestedContentStatusBarStyle = style
+            model.statusBarStyle = drawer.isOpen ? nil : style
+        }
+        .onChange(of: drawer.isOpen) { _, open in
+            model.statusBarStyle = open ? nil : model.requestedContentStatusBarStyle
+        }
     }
 
     private func select(_ target: ShellDestination, _ newRoute: CNShellRoute?) {

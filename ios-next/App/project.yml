@@ -48,6 +48,10 @@ targetTemplates:
         UILaunchScreen: {}
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
+          UISceneConfigurations:
+            UIWindowSceneSessionRoleApplication:
+              - UISceneConfigurationName: Default
+                UISceneDelegateClassName: CmuxNextSceneDelegate
     entitlements:
       path: ${target_name}/App.entitlements
       properties:

@@ -8,7 +8,6 @@ import SwiftUI
 /// DEBUG `CMUX_NEXT_DEV_SCREEN` short-circuits to one root on the mock host.
 public struct AppRoot: View {
     let model: AppModel
-    @Environment(\.scenePhase) private var scenePhase
 
     public init(model: AppModel) { self.model = model }
 
@@ -20,8 +19,11 @@ public struct AppRoot: View {
             .task(id: model.auth.state) { await model.authStateChanged() }
             .onChange(of: model.preferences.forceRelay) { model.forceRelayChanged() }
             .onChange(of: model.hosts.hosts) { model.reconcileSelection() }
-            .onChange(of: scenePhase) { _, phase in if phase == .active { model.becameActive() } }
             .onOpenURL { model.handleOpenURL($0) }
+            .onCNStatusBarStyleChange { [model] style in
+                // The drawer forwards its content's request itself.
+                if model.devScreen != nil || model.shell == .tabs || model.phase != .ready { model.statusBarStyle = style }
+            }
     }
 
     @ViewBuilder

@@ -185,6 +185,7 @@ struct BrowserScreen: View {
                 swipeCards(current: frame, topColor: topColor)
             }
         }
+        .cnStatusBarStyle(showsStartPage ? nil : frame.map { CNStatusBarStyle(over: $0.topColor) })
     }
 
     @ViewBuilder private func swipeCards(current: PageFrame?, topColor: Color) -> some View {

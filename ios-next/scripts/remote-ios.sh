@@ -95,6 +95,9 @@ case "$cmd" in
       udid=\$(cat ~/$R/sim.udid)
       app=~/$R/dd/Build/Products/Debug-iphonesimulator/$product.app
       xcrun simctl terminate \$udid $bundle 2>/dev/null || true
+      # One-time: installs from before the UIKit scene delegate restore a
+      # SwiftUI scene session and launch to a black window.
+      if [ ! -e ~/$R/.uikit-scene-$bundle ]; then xcrun simctl uninstall \$udid $bundle 2>/dev/null || true; touch ~/$R/.uikit-scene-$bundle; fi
       xcrun simctl install \$udid \"\$app\"
       $envstr xcrun simctl launch \$udid $bundle
     "
