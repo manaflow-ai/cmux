@@ -1,3 +1,5 @@
+@testable import CmuxNextApps
+
 /// Static sample scenes the fake supervisor sends for a mount: a few rows
 /// shaped like each sample app's output, so the demo and the store render
 /// without an app host. Previews and installs show the same rows.

@@ -1,4 +1,5 @@
 public import Foundation
+@testable import CmuxNextApps
 
 /// An in-memory app supervisor for tests: the bundled sample manifests as
 /// available apps, the `apps-set` rules of the real one (install, grant,
