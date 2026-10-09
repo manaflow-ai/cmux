@@ -665,7 +665,10 @@ mod tests {
         for locale in ["en", "ja"] {
             let messages = &crate::localization::catalog_for_locale(locale).local_server;
             for text in [messages.end_terminals_unsupported, messages.force_unsupported] {
-                assert!(text.trim_end().ends_with(':'), "{locale}: {text:?} must lead into the command");
+                assert!(
+                    text.trim_end().ends_with(':'),
+                    "{locale}: {text:?} must lead into the command"
+                );
                 let message = refused_with_fix(text, cli, socket);
                 assert_eq!(message.matches(fix.as_str()).count(), 1, "{locale}: {message}");
                 assert!(message.ends_with(&fix), "{locale}: {message}");
