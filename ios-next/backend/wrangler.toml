@@ -1,0 +1,36 @@
+name = "cmux-next-mobile"
+main = "src/index.ts"
+account_id = "f6dc2896a972b2d492ec89b1548b74db"
+compatibility_date = "2026-09-01"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+preview_urls = false
+
+[observability]
+enabled = true
+
+[vars]
+APPLE_AUDIENCES = "dev.cmux.next.drawer,dev.cmux.next.tabs"
+# Custom URL schemes the OAuth flow may redirect back to.
+OAUTH_REDIRECT_SCHEMES = "cmux-next,dev.cmux.next.drawer,dev.cmux.next.tabs"
+# Sender address for login codes. Must be on a domain onboarded for
+# Cloudflare Email Sending. Empty disables email login (503).
+EMAIL_FROM = ""
+
+[[durable_objects.bindings]]
+name = "SIGNAL_ROOM"
+class_name = "SignalRoom"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["SignalRoom"]
+
+# Cloudflare Email Sending. The sender domain is set by EMAIL_FROM.
+[[send_email]]
+name = "EMAIL"
+
+# Per-IP limit on unauthenticated auth and pairing routes.
+[[ratelimits]]
+name = "AUTH_LIMITER"
+namespace_id = "41001"
+simple = { limit = 30, period = 60 }

@@ -1,0 +1,26 @@
+{
+  "name": "cmux-next-mobile-backend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "types": "wrangler types --env-interface CloudflareBindings worker-configuration.d.ts",
+    "migrate": "tsx scripts/migrate.ts"
+  },
+  "dependencies": {
+    "@planetscale/database": "^2.0.0",
+    "hono": "^4.13.13",
+    "sql-escaper": "^1.5.2"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.4.0",
+    "@types/node": "^22.20.5",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "vitest": "~4.1",
+    "wrangler": "^4.149.0"
+  }
+}
