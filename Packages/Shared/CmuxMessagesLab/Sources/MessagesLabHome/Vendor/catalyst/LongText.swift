@@ -535,7 +535,8 @@ final class LongTextLayout: @unchecked Sendable {
                     let from = b == blocks.lowerBound ? max(0, oldFirst - 1) / n : 0
                     for chunk in from..<max(from, (c + n - 1) / n) where line + chunk * n + n > total - 80 {
                         let k = TiledBubble.tileKey(self, block: b, chunk: chunk, outgoing: h.outgoing, scale: h.scale, palette: h.palette)
-                        tiles.append((k, TiledBubble.render(layout, chunk: chunk, outgoing: h.outgoing, width: h.width, scale: h.scale)))
+                        // cmux: a tile that could not be allocated is not prerendered.
+                        if let img = TiledBubble.render(layout, chunk: chunk, outgoing: h.outgoing, width: h.width, scale: h.scale) { tiles.append((k, img)) }
                     }
                     line += c
                 }

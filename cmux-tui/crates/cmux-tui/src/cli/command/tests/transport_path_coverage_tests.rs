@@ -12,7 +12,7 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
 
     assert_eq!(cases.len(), 187);
     let catalog = operation_catalog();
-    assert_eq!(catalog["operations"].as_object().unwrap().len(), 204);
+    assert_eq!(catalog["operations"].as_object().unwrap().len(), 207);
     let mut seen = std::collections::BTreeSet::new();
     let mut covered_fields = BTreeMap::<&str, std::collections::BTreeSet<String>>::new();
     for (args, expected) in &cases {
@@ -125,6 +125,12 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         // CLI's `cmux chief` only reads them.
                         | "conversation.typing"
                         | "conversation.draft"
+                        // `cmux chief engine|stop` and the chat's /model,
+                        // /effort and Ctrl+C send these (cli/chief), outside
+                        // the noun grammar.
+                        | "chief.engine.get"
+                        | "chief.engine.set"
+                        | "chief.stop"
             )
         })
         .map(String::as_str)

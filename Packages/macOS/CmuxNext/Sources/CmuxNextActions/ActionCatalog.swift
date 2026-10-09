@@ -101,6 +101,7 @@ public nonisolated enum ActionCatalog {
         AccountActionCatalog.self,
         RemoteActionCatalog.self,
         SettingsActionCatalog.self,
+        BackdropActionCatalog.self,
         HibernationActionCatalog.self,
         LayoutActionCatalog.self,
         HistoryActionCatalog.self,

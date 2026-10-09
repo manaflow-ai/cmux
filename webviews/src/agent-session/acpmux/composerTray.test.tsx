@@ -140,11 +140,11 @@ test("an open location menu stacks above the composer card", async () => {
   expect(zIndex(positioner)).toBeGreaterThan(Math.max(...card.map(zIndex)));
 });
 
-// cx-yrgh (nxdog72, Lawrence 2026-10-08): the folder menu still covered the top of the card in the
-// app. The row sits at the card's bottom edge, and a menu placed on its control's top side lands
-// on the card above the row. jsdom has no layout, so the test gives the card, the row and the
-// controls the app's boxes (a 1024x768 pane, the card 190px tall at the bottom) and reads where
-// the menu's positioner puts the menu: its bottom must be at or above the card's top edge.
+// Lawrence 2026-10-08 ("popover is not next to the button"): a location menu opens on its control's
+// top side, with its bottom at the control, never across the card's height above it (that was
+// cx-yrgh's anchor). jsdom has no layout, so the test gives the card, the row and the controls the
+// app's boxes (a 1024x768 pane, the card 190px tall at the bottom) and reads where the menu's
+// positioner puts the menu (0px tall here, so its top is its bottom).
 const PANE = { width: 1024, height: 768 };
 const CARD = { left: 390, top: 560, right: 1010, bottom: 750 };
 const ROW = { left: 390, top: 714, right: 1010, bottom: 750 };
@@ -198,7 +198,7 @@ const placedMenuTop = async (positioner: HTMLElement) => {
 };
 
 for (const picker of ["Location", "Computer"]) {
-  test(`the ${picker} menu opens fully above the composer card, not over its top`, async () => {
+  test(`the ${picker} menu opens next to its control, not above the whole card`, async () => {
     await withAppLayout(async () => {
       await render();
       await act(async () => {
@@ -207,8 +207,8 @@ for (const picker of ["Location", "Computer"]) {
       const menu = doc.querySelector(".acpmux-location-menu")!;
       expect(menu).not.toBeNull();
       const top = await placedMenuTop(menu.closest<HTMLElement>(".ui-positioner")!);
-      expect(top).toBeGreaterThan(0);
-      expect(top).toBeLessThanOrEqual(CARD.top);
+      expect(top).toBeGreaterThan(CARD.top);
+      expect(top).toBeLessThanOrEqual(CONTROL.top);
     });
   });
 }

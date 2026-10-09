@@ -14,7 +14,7 @@ extension TerminalHandlers {
             // Keyboard Shortcuts, Passwords) focuses and selects that field.
             // An untargeted run that may change the view (Cmd-F, the palette); a CLI run names its pane.
             if invocation.target == nil, invocation.allowsViewChange, let controller = ctx.services.windows.active,
-               let page = ctx.services.keyRouter?.focusedPage(in: controller),
+               let page = ctx.services.keyRouter.focusedPage(in: controller),
                page.descriptor.ownsSearchField, page.send(command: "focusSearch") { return }
             guard let (pane, content) = ctx.visibleContent(invocation) else { return }
             if case .page = content, let key = pane.stripModel.selectedID?.rawValue,

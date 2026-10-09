@@ -55,10 +55,47 @@
              CATransaction.commit()
              self.spec = nil
          }
-@@ -997,6 +1000,16 @@
+@@ -684,7 +687,7 @@
+             let t0 = CACurrentMediaTime()
+             let img = RowBitmaps.render(spec)
+             RowCell.mainDrawSpent += CACurrentMediaTime() - t0
+-            RowBitmaps.shared.insert([(spec, img)])
++            if let img { RowBitmaps.shared.insert([(spec, img)]) } // cmux: an unallocated bitmap is not cached
+             RowCell.syncRenders += 1
+             Reclaimer.release(bitmap.contents)
+             MediaPlaceholder.clear(bitmap)
+@@ -747,7 +750,9 @@
+         guard let spec else { return }
+         let img: CGImage
+         if let cached = RowBitmaps.shared.image(for: spec) { img = cached } else {
+-            img = RowBitmaps.render(spec)
++            // cmux: a bitmap that could not be allocated is not shown (BitmapFailure logged it).
++            guard let rendered = RowBitmaps.render(spec) else { return }
++            img = rendered
+             RowBitmaps.shared.insert([(spec, img)])
+             RowCell.syncRenders += 1
+         }
+@@ -859,12 +864,12 @@
+             mask.path = PartRenderer.badgePath(center: CGPoint(x: 20, y: 20), side: side, tails: i == 0).cgPath
+         }
+         let key = "\(kind)|\(Fixture.renderScale)|\(Fixture.paletteGeneration)"
+-        let img: CGImage
++        let img: CGImage?
+         if let cached = Self.badgeGlyphs[key] { img = cached } else {
+             img = WideBitmap.make(size: size, scale: Fixture.renderScale, opaque: false) { ctx in
+                 PartRenderer.drawBadgeGlyph(kind, center: CGPoint(x: 20, y: 20), ctx: ctx)
+             }
+-            Self.badgeGlyphs[key] = img
++            Self.badgeGlyphs[key] = img // cmux: an unallocated glyph is not cached (nil)
+         }
+         glyph.contents = img
+         glyph.contentsScale = Fixture.renderScale
+@@ -995,6 +1000,16 @@
+             RowCell.placeFill(badgeFill, windowTop: windowY + badgeTop, width: badgeFill.bounds.width, span: fillSpan, reachBelow: fillReachBelow)
+         }
          CATransaction.commit()
-     }
- 
++    }
++
 +    /// cmux: the outgoing gradient's colours and their locations from one
 +    /// stop list. A palette change that set only the colours left a cell
 +    /// made under the measured palette (8 stops) with 11 themed colours.
@@ -67,8 +104,6 @@
 +            ?? Fixture.gradientStops.map { ($0.0, Fixture.gradientColor($0.1, $0.2).cgColor) }
 +        fillGradient.colors = stops.map(\.1)
 +        fillGradient.locations = stops.map { NSNumber(value: Double($0.0 / (Fixture.gradientHeight * 2))) }
-+    }
-+
+     }
+ 
      /// Window y of the cell's top: the outgoing fill shades with it.
-     var windowY: CGFloat = 0 {
-         didSet {
