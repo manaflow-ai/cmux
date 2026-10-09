@@ -22,6 +22,8 @@ final class SidebarBridge {
     var sectionsObservation: Task<Void, Never>?
     /// The optional Chats section (`sidebar.showChats`, SIDEBAR-NO-RECENTS).
     let chatsMount = SidebarChatsMount()
+    /// The Activity view's feed (`sidebar.activityView`, AV).
+    let activityMount = SidebarActivityMount()
     var cardsObservation: Task<Void, Never>?
     /// True once the sidebar shows real content: saved rows, the first
     /// live rows, or a settled empty or unavailable state, which marks the

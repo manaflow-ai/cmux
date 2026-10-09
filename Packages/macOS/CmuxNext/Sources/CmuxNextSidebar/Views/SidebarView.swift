@@ -31,7 +31,7 @@ public final class SidebarView: NSView {
     private(set) lazy var spacePaging = SidebarSpacePaging(host: self)
     /// Hosts the list's scroll view and fades rows out at its top or bottom
     /// while more are hidden there.
-    private lazy var edgeFade = ScrollEdgeFadeView(scrollView: scrollView)  // built in setup (no IUO)
+    lazy var edgeFade = ScrollEdgeFadeView(scrollView: scrollView)  // built in setup (no IUO)
     /// No rubber band while every row fits.
     private var scrollFit: ScrollFitElasticity?
     let profileBar: ProfileBarView
@@ -156,16 +156,13 @@ public final class SidebarView: NSView {
     /// True while the workspace hover card samples resources.
     public var isSamplingResources: Bool { list.hoverCard.resources.isOpen }
 
-    /// Right-click menu for a target. The App fills this from the action
-    /// registry (menus are ordered action-ID lists per context); nil means
-    /// The profile menu the footer's profile control opens
-    /// (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2); the App builds it from
-    /// registry actions. Nil opens nothing.
+    /// The profile menu the footer's profile control opens (SIDEBAR-FOOTER-AND-SPACE-MENU
+    /// amendment 2); the App builds it from registry actions. Nil opens nothing.
     public var profileMenuProvider: (() -> NSMenu?)?
     /// Shows a profile menu over its anchor (tests record it instead).
     var profileMenuPresenter: @MainActor (NSMenu, NSView?) -> Void = { SidebarView.popUpProfileMenu($0, from: $1) }
 
-    /// no context menu.
+    /// Right-click menu for a target, from the action registry (ordered action-ID lists per context); nil: none.
     public var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)? {
         get { list.contextMenuProvider }
         set {
@@ -267,6 +264,7 @@ public final class SidebarView: NSView {
         // profile control, then the dots), the band below the list, the
         // staged update card (UPDATE-CARD), the cards.
         let listFrame = layoutBands(top: y + spacesHeight, footerHeight: footerHeight + updateHeight + cardsHeight)
+        SidebarActivityView.place(in: self, top: y + spacesHeight, bottom: footerRegion.frame.minY - footerHeight - updateHeight - cardsHeight)
         if !isChromeRevealed { belowFade.alphaValue = belowRegion.restAlpha(hiddenByMode: minimalHiddenBands.bottom) }
         footer.frame = NSRect(x: 0, y: belowFade.frame.minY - footerHeight, width: b.width, height: footerHeight)
         cardSlot.place(above: footer.frame.minY, width: b.width, slotHeight: updateHeight)

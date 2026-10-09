@@ -83,17 +83,20 @@ extension SidebarBridge {
         let refs = WorkspaceLayoutRefs(machines: services.machines)
         sectionsObservation = Task { [weak self] in
             // Also observed: the app registry, the unread count, the built-ins' shortcuts (tooltips), the Chats
-            // setting and the workspaces tiles and top rows name. The selected item comes from the one selection.
-            for await (layout, unread, shortcuts, showChats, workspaces) in Observations({
-                () -> (SidebarLayoutDocument, Int, [ActionID: String], Bool, [LayoutItemRef: SidebarItemInfo]) in
+            // setting, the Activity view setting and the workspaces tiles and top rows name. The selected item comes
+            // from the one selection.
+            for await (layout, unread, shortcuts, showChats, activityView, workspaces) in Observations({
+                () -> (SidebarLayoutDocument, Int, [ActionID: String], Bool, Bool, [LayoutItemRef: SidebarItemInfo]) in
                 _ = apps.apps
                 return (service.document, NotificationCenterService.unreadCount(store), Self.builtInShortcuts(registry),
-                        DesignSettings.shared.sidebarSections.showChats, SidebarWorkspaceItems.workspaceInfos(service.document, refs: refs))
+                        DesignSettings.shared.sidebarSections.showChats, DesignSettings.shared.sidebarSections.activityView,
+                        SidebarWorkspaceItems.workspaceInfos(service.document, refs: refs))
             }) {
                 guard let self else { return }
                 // `model.layout` is written with the rows it projects (SidebarBridge.show).
                 let visibleLayout = layout.chatsLayout(enabled: showChats)
                 self.chatsMount.show(showChats, services: self.services)
+                self.activityMount.show(activityView, in: SidebarActivityView.of(self.container.sidebarView), services: self.services)
                 let infos = Self.itemInfo(for: visibleLayout, registered: { registry.action(for: $0) != nil },
                                           unread: unread,
                                           app: { SidebarAppItemInfo.info($0, registry: apps) }, shortcut: { shortcuts[$0] },
