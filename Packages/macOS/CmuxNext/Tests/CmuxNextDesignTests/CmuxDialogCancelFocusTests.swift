@@ -154,10 +154,12 @@ import Testing
         fixture.center.dismiss(fixture.id)
     }
 
-    /// What AppKit posts when the person leaves cmux and clicks its window to come back.
+    /// What AppKit does when the person leaves cmux and clicks its window to
+    /// come back: the window, not the dialog's panel, is key again.
     static func comeBack(to window: NSWindow) {
         NotificationCenter.default.post(name: NSApplication.didResignActiveNotification, object: NSApp)
         NotificationCenter.default.post(name: NSApplication.didBecomeActiveNotification, object: NSApp)
+        window.makeKey()
         NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window)
     }
 

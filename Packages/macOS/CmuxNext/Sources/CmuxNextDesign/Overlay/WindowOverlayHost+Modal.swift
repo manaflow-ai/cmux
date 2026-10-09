@@ -19,6 +19,7 @@ extension WindowOverlayHost {
                 restoreSelection = nil
             }
             otherWindowTookKey = false
+            modalLeftWindowUsable = false
             keyObserver = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil,
                                                                  queue: .main) { [weak self] note in
                 let window = (note.object as AnyObject?).map(ObjectIdentifier.init)
@@ -36,6 +37,7 @@ extension WindowOverlayHost {
                 }
             }
         }
+        if handle.options.modalRegion != nil { modalLeftWindowUsable = true }
         panel.acceptsKey = true
         // Tab and Shift-Tab cycle through this overlay's controls only.
         panel.autorecalculatesKeyViewLoop = false
@@ -95,8 +97,7 @@ extension WindowOverlayHost {
     /// one the modal took the keyboard from.
     var focusMoved: Bool {
         if otherWindowTookKey { return true }
-        guard handles.contains(where: { $0.options.isModal && $0.options.modalRegion != nil }),
-              let window = restoreWindow ?? window, let saved = restoreResponder else { return false }
+        guard modalLeftWindowUsable, let window = restoreWindow ?? window, let saved = restoreResponder else { return false }
         var current = window.firstResponder
         if let editor = current as? NSTextView, editor.isFieldEditor { current = editor.delegate as? NSResponder }
         return current !== saved
