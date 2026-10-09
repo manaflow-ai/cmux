@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextSettings
 
 /// OSC 7501 notifications (cx-kxa2): the daemon posts them; here the app
 /// finds the record behind one, drops a `done` the user can already see, and
