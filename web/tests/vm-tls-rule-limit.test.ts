@@ -29,16 +29,16 @@ type FakeOptions = {
   /** Rules on other VMs that a vm-scoped list still returns (e.g. a shared VPC). */
   readonly foreign?: TlsRule[];
   readonly deleteMode?: (domain: string) => DeleteMode;
-  /** The nth and later list calls fail. */
-  readonly failListFromCall?: number;
+  /** List calls (1-based) that fail. */
+  readonly failList?: (call: number) => boolean;
   /** Another workload takes every slot this VM frees. */
   readonly slotsTakenOnDelete?: boolean;
 };
 
 /**
  * A Freestyle account whose TLS rule store is shared with `otherRules` rules
- * this VM does not own, and refuses a create once `cap` rules exist. Create is
- * idempotent per VM and domain: an existing rule answers a non-limit 409.
+ * this VM does not own, and refuses a create once `cap` rules exist. Like
+ * Freestyle, it accepts a duplicate rule for a domain that already has one.
  */
 function accountAtCap(
   owned: string[],
@@ -67,15 +67,12 @@ function accountAtCap(
       rules: {
         list: async () => {
           listCalls += 1;
-          if (options.failListFromCall !== undefined && listCalls >= options.failListFromCall) {
+          if (options.failList?.(listCalls)) {
             throw new FreestyleApiError(503, { code: "UNAVAILABLE", message: "list unavailable" });
           }
           return { rules: tls, totalCount: tls.length };
         },
         create: async (rule: { domain: string; source: Record<string, unknown>; destination: Record<string, unknown> }) => {
-          if (tls.some((existing) => existing.source.vmId === rule.source.vmId && existing.domain === rule.domain)) {
-            throw new FreestyleApiError(409, { code: "CONFLICT", message: "conflict: rule already exists" });
-          }
           if (tls.length + otherRules >= cap || options.refuse?.(rule.domain)) {
             log.push(`tls! ${rule.domain}`);
             throw tlsRuleLimit();
@@ -154,12 +151,25 @@ describe("the account-wide Freestyle TLS rule cap", () => {
   const owned = [...CMUX_REQUIRED_DOMAINS, "old-a.example.com", "old-b.example.com"];
   const swapPlan = () => compileNetworkPolicy(parseNetworkPolicy({ mode: "allowlist", domains: ["new.example.com"] }));
   const refuseNew = (domain: string) => domain === "new.example.com";
-  const cases: Array<{ name: string; options: FakeOptions; restored: number; unrestored: string[] }> = [
-    { name: "deletes fulfilled, retry refused", options: { refuse: refuseNew }, restored: 2, unrestored: [] },
-    { name: "a delete removed the rule but rejected", options: { deleteMode: (d) => (d === "old-b.example.com" ? "reject-after-removal" : "ok") }, restored: 2, unrestored: [] },
-    { name: "a delete rejected before removing", options: { deleteMode: (d) => (d === "old-b.example.com" ? "reject-before-removal" : "ok") }, restored: 1, unrestored: [] },
-    { name: "the rollback list fails", options: { refuse: refuseNew, failListFromCall: 3 }, restored: 2, unrestored: [] },
-    { name: "the rollback creates fail at the cap", options: { refuse: refuseNew, slotsTakenOnDelete: true }, restored: 0, unrestored: ["old-a.example.com", "old-b.example.com"] },
+  const rejectAfter = (d: string): DeleteMode => (d === "old-b.example.com" ? "reject-after-removal" : "ok");
+  type Code = FreestyleTlsRuleLimitRestoreError["code"];
+  // List calls: 1 is the first reconcile; with a retry, 2 is the retry; the rest are rollback.
+  const cases: Array<{ name: string; options: FakeOptions; restored: number; unrestored: string[]; code: Code }> = [
+    { name: "deletes fulfilled, retry refused", options: { refuse: refuseNew }, restored: 2, unrestored: [], code: "rollback_complete" },
+    { name: "a delete removed the rule but rejected", options: { deleteMode: rejectAfter }, restored: 2, unrestored: [], code: "rollback_complete" },
+    { name: "a delete rejected before removing", options: { deleteMode: (d) => (d === "old-b.example.com" ? "reject-before-removal" : "ok") }, restored: 1, unrestored: [], code: "rollback_complete" },
+    { name: "the rollback list fails once, then reads", options: { refuse: refuseNew, failList: (call) => call === 3 }, restored: 2, unrestored: [], code: "rollback_complete" },
+    { name: "the rollback list stays unreadable", options: { refuse: refuseNew, failList: (call) => call >= 3 }, restored: 2, unrestored: [], code: "rollback_complete" },
+    {
+      name: "the list stays unreadable and a delete removed but rejected",
+      options: { deleteMode: rejectAfter, failList: (call) => call >= 2 },
+      restored: 1, unrestored: ["old-b.example.com"], code: "rollback_unverified",
+    },
+    {
+      name: "the rollback creates fail at the cap",
+      options: { refuse: refuseNew, slotsTakenOnDelete: true },
+      restored: 0, unrestored: ["old-a.example.com", "old-b.example.com"], code: "rollback_incomplete",
+    },
   ];
   for (const testCase of cases) {
     test(`rollback reconciles to the original rules: ${testCase.name}`, async () => {
@@ -169,8 +179,11 @@ describe("the account-wide Freestyle TLS rule cap", () => {
       expect(err).toBeInstanceOf(FreestyleTlsRuleLimitRestoreError);
       const restore = err as FreestyleTlsRuleLimitRestoreError;
       expect(restore.restored).toBe(testCase.restored);
+      expect(restore.code).toBe(testCase.code);
       expect([...restore.unrestored].sort()).toEqual(testCase.unrestored);
       const domains = fake.tls.map((rule) => rule.domain).sort();
+      // Freestyle accepts duplicates, so a rollback must never create one.
+      expect(new Set(domains).size).toBe(domains.length);
       if (testCase.unrestored.length === 0) {
         expect(domains).toEqual([...owned].sort());
       } else {
