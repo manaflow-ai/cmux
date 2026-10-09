@@ -23,7 +23,7 @@ Local checkout: `/Users/leoli/Projects/cmux-app-screenshots`.
 This is the visual archive. Its `gallery/media/` captures and `references/` folders contain historical
 cmux, Codex, Claude, ChatGPT, T3, and Zeron references. Use them to name a concrete mismatch and to
 build a before/after capture. They do not define current behavior, spacing tokens, or accessibility.
-The repository's current `main` tip is `a5a418d` (the checkout may contain local archival changes;
+The repository's current `main` tip is `939ab21` (the checkout may contain local archival changes;
 inspect its worktree before using a file as evidence).
 
 ### `manaflow-ai/cmux-gallery`
@@ -43,7 +43,7 @@ reference images in `cmux-app-screenshots` and link them from the entry or its r
 ### `manaflow-ai/messageslab`
 
 Remote source: <https://github.com/manaflow-ai/messageslab> (current remote tip observed as
-`fad7fd4`). There is no local checkout under `/Users/leoli/Projects` at this time.
+`3a84159`). There is no local checkout under `/Users/leoli/Projects` at this time.
 
 Treat this as a message/transcript interaction reference and API/design source. Copy no markup or
 state model into cmux without mapping it to the cmux pane bridge and gallery fixture contract first.
