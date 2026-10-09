@@ -230,7 +230,9 @@ final class BrowserTabService {
         let daemon = daemonForPane(pane)
         let offTheRecord = incognito ?? isIncognitoPane(pane)
         let profile = offTheRecord ? nil : resolveProfile(pane, explicit)
-        let shown = notice ?? (daemon.isLocal ? nil : RemoteStrings.browserRunsOnThisMac(machineName(daemon)))
+        // A machine browser record runs there: no "runs on this Mac" notice.
+        let runsHere = !daemon.isLocal && !MachineBrowserRecord.matches(URL(string: url))
+        let shown = notice ?? (runsHere ? RemoteStrings.browserRunsOnThisMac(machineName(daemon)) : nil)
         return try await open(choice, in: pane.handle, on: daemon, url: url, offTheRecord: offTheRecord, profile: profile,
                               notice: shown, activate: activate, after: after)
     }

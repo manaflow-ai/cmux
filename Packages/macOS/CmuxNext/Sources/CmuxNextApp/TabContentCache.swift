@@ -175,6 +175,7 @@ final class TabContentCache {
     func browser(for key: String, url: URL?, profile: BrowserProfileID? = nil) -> BrowserEntry {
         if let entry = browsers[key] { return entry }
         let profile = profile ?? browserProfile?(key) ?? .default
+        if let page = machinePage(key: key, url: url, profile: profile) { return install(page, for: key) }
         let tab = webKit.makeWebKitTab(id: BrowserTabID(rawValue: key), profile: profile, initialURL: pageRequests.proxiedTabs.isProxied(key) ? nil : url)
         return install(tab, for: key)
     }
@@ -200,7 +201,7 @@ final class TabContentCache {
         if let adopted = pageRequests.takeAdoption(for: tab.surface) {
             return tracked(install(adopted, for: key), tab)
         }
-        let url = recordURL(tab)
+        let url = machineRecordURL(tab) ?? recordURL(tab)
         if let page = appPage(for: tab, url: url) { return page }
         if defersRestoredPages, !startedDeferred.contains(key), !browserTabs.wasOpenedHere(tab) {
             return deferred(tab, url: url)

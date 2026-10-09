@@ -55,9 +55,16 @@ struct PaneBrowserTabOpener {
         if child == nil, then == nil, let url, services.viewers.openMarkdownHandoff(url, in: controller, focus: !background) {
             return true
         }
-        let requested = requested ?? (child == nil && inherited == nil ? url.flatMap(FilePageOpener.tabEngine(for:)) : nil)
-        let browserTabs = services.cache.browserTabs
         let daemon = controller.daemon
+        // A new tab in another machine's workspace runs on that machine
+        // (cx-2cob, decided 2026-10-09): its record names the machine; the
+        // page says when it is not ready and offers Open Locally Instead.
+        let placement = child == nil && inherited == nil
+            ? BrowserPlacement.resolve(isLocal: daemon.isLocal, machine: daemon.machineID) : .local
+        let url = placement.address(for: url)
+        let onMachine = MachineBrowserRecord.matches(url)
+        let requested = onMachine ? nil : requested ?? (child == nil && inherited == nil ? url.flatMap(FilePageOpener.tabEngine(for:)) : nil)
+        let browserTabs = services.cache.browserTabs
         let route = Self.machineRoute(isLocal: daemon.isLocal, connected: daemon.connection != nil,
                                       servesTabs: browserTabs.isAvailable(in: controller.pane))
         // Another machine that is not connected says so (cx-2cob).
@@ -110,7 +117,7 @@ struct PaneBrowserTabOpener {
         child?.close()  // Session-local tabs are WebKit pages made on demand.
         let local = LocalBrowserTab.make(url: url)
         // Another machine's workspace: the tab is this Mac's; its page says so.
-        if !controller.daemon.isLocal {
+        if !controller.daemon.isLocal, !onMachine {
             browserTabs.setNotice(notice ?? RemoteStrings.browserRunsOnThisMac(browserTabs.machineName(controller.daemon)), forKey: local.id)
         }
         controller.state?.localBrowserTabs[controller.paneKey, default: []].append(local)

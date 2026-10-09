@@ -112,7 +112,7 @@ extension TabContentCache {
 
     static func isAppPage(_ url: URL?) -> Bool {
         HistoryPageAddress.matches(url) || BookmarkPageAddress.matches(url) || AgentActivityPageAddress.matches(url)
-            || RemoteViewTabRecord.matches(url) || isRemoteBrowserPage(url)
+            || RemoteViewTabRecord.matches(url) || isRemoteBrowserPage(url) || MachineBrowserRecord.matches(url)
     }
 
     /// A development remote tab record (`cmux://remote-browser`).
@@ -129,6 +129,10 @@ extension TabContentCache {
         let key = tab.id
         let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
         let profile = browserProfile?(key) ?? .default
+        // A machine's own record (cx-2cob), before the loopback dev record of the same host.
+        if let record = url.flatMap(MachineBrowserRecord.init(url:)) {
+            return makeMachinePage(record, key: key, engine: engine, profile: profile)
+        }
         #if DEBUG
         if let url, RemoteBrowserTabRecord.matches(url) {
             return RemoteBrowserPages.makePage(url: url, key: key, profile: profile, services: services)
@@ -172,7 +176,7 @@ extension TabContentCache {
 
     /// The history page navigated to a web address: the tab becomes a real
     /// page of its record's engine (WebKit when Chromium cannot start).
-    private func leaveAppPage(_ key: String, to url: URL) {
+    func leaveAppPage(_ key: String, to url: URL) {
         let profile = browserProfile?(key) ?? .default
         let config = BrowserTabConfiguration(id: BrowserTabID(rawValue: key), profile: profile, initialURL: url)
         guard let tab = tabModel(key), tab.browserEngine == BrowserEngineTag.cef.rawValue, browserTabs.cefUnavailable() == nil else {
