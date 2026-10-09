@@ -254,8 +254,12 @@ fn spawn_starts_one_tagged_session_per_task_with_the_view_then_the_task() {
     }
     // The first message: the view (it holds the earlier turn), then the task.
     let first = &agents.prompts[1];
-    assert!(first[0]["text"].as_str().unwrap().starts_with("<chat>"));
-    assert!(first[0]["text"].as_str().unwrap().contains("hello"));
+    let view: String = first[..first.len() - 1]
+        .iter()
+        .map(|b| b["text"].as_str().unwrap())
+        .collect();
+    assert!(view.starts_with("<chat>\n"), "{view}");
+    assert!(view.contains("hello"), "{view}");
     assert_eq!(
         first.last().unwrap()["text"],
         "Your task:\n\nlist the files in ~/"

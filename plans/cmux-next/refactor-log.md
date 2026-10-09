@@ -11,6 +11,8 @@ Append-only. One line per landing: date, SHA, lane, what moved where, old -> new
 - 2026-10-09 2d9638bc9d2a refactor-mux-rs: cmux-tui-core mux.rs inline tests -> mux/tests.rs + 30 files in mux/tests/; mux.rs 32824 -> 18991; Testbox fmt, clippy, cmux-tui-core lib 2657 passed, Windows check, about 6 min.
 - 2026-10-09 (this commit) refactor-mux-rs: mux.rs SignaledMutex -> mux/signaled_mutex.rs, deadline fanout pool -> mux/deadline_fanout.rs (leaf modules, no Mux dependency); mux.rs 18991 -> 18619; Testbox fmt, clippy, lib 2657 passed, Windows check, about 6 min.
 
+- 2026-10-09 cdde5b4d3a34 refactor-swift-ts: MobileCoreRPCSession.swift -> MobileCoreRPCSession+{TearDown,Connect,ReadWrite,PendingRequests,CancelledWrites,ControlStreamRepair,TransportClose}.swift (phase 1); 1741 -> 430; cmux-ci CmuxMobileRPCTests 221/223 (2 named reds, bead filed), about 6 min.
+- 2026-10-09 3a3629c3d9b6 refactor-swift-ts: MobilePairedMacStore.swift -> MobilePairedMacStore+{Migrations,Upsert,RouteAuthority}.swift (phase 1); 1616 -> 362; cmux-ci CmuxMobilePairedMacTests 45/45, about 5 min.
 
 ## Phase 2 designs
 

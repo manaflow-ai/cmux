@@ -745,21 +745,21 @@ fn with_system_prompt_support_the_system_text_is_the_slot_presets_prompt_and_one
 
 #[test]
 fn the_marker_sits_on_the_last_whole_four_line_block() {
-    // 9 lines: two whole blocks, the marker on the second.
+    // 9 lines: the header, two whole blocks, the marker on the second.
     let r = CompactRequest {
         context: chat_of(9),
         ..request(0)
     };
     let p = cached_prompt(&r, true);
-    assert_eq!(markers(&p.blocks), vec![1]);
-    assert_eq!(texts(&p.blocks).len(), 4);
-    // Fewer than 4 lines: no whole block, no marker.
+    assert_eq!(markers(&p.blocks), vec![2]);
+    assert_eq!(texts(&p.blocks).len(), 5);
+    // Fewer than 4 lines: the header block takes the marker.
     let p = cached_prompt(&request(0), true);
     assert_eq!(p.system, "SYS");
-    assert!(markers(&p.blocks).is_empty());
+    assert_eq!(markers(&p.blocks), vec![0]);
     assert_eq!(
         texts(&p.blocks),
-        vec!["<chat>\nuser: hi\n</chat>", "STEP 0"]
+        vec!["<chat>\n", "user: hi\n</chat>", "STEP 0"]
     );
     // Without the marker the blocks are the same text.
     let r = CompactRequest {
@@ -1735,7 +1735,8 @@ fn a_compactor_slots_settings_file_is_private() {
 /// The API takes at most 4 marks per request, and Claude Code marks its two
 /// system blocks plus the last two messages of every request after a
 /// session's first (a size-loop follow-up): a node that carries our mark
-/// runs Claude Code without its own; a node too short for one keeps them.
+/// (every node: a small context marks its header block) runs Claude Code
+/// without its own.
 #[test]
 fn a_marked_node_runs_claude_code_without_its_own_cache_marks() {
     let dir = tempfile::tempdir().unwrap();
@@ -1754,10 +1755,10 @@ fn a_marked_node_runs_claude_code_without_its_own_cache_marks() {
     run_node(&compactor, &marked).unwrap();
     assert_eq!(markers(&agents.inner.lock().unwrap().prompts[0]).len(), 1);
     assert_eq!(settings(0)["env"]["DISABLE_PROMPT_CACHING"], "1");
+    // A small context still carries our mark (on its header block).
     run_node(&compactor, &request(1)).unwrap();
-    assert!(markers(&agents.inner.lock().unwrap().prompts[1]).is_empty());
-    let s = settings(1);
-    assert!(s["env"].get("DISABLE_PROMPT_CACHING").is_none(), "{s}");
+    assert_eq!(markers(&agents.inner.lock().unwrap().prompts[1]), vec![0]);
+    assert_eq!(settings(1)["env"]["DISABLE_PROMPT_CACHING"], "1");
 }
 
 /// hq-6d dogfood (fb211f1670ad): a node's line was stored only after its
