@@ -517,6 +517,59 @@ test("the first prompt starts the chat in the inline project's folder", async ()
   ]);
 });
 
+/// cx-nn3e P0b (nxdog81): the first prompt of a new chat in an unanswered folder was dropped. The
+/// pane starts the chat (`chat.new`) before it sends the prompt; acpmux refused that start with
+/// trust.pending, so the prompt never reached the trust question's re-send and the composer
+/// emptied. Now the question shows, the prompt stays, and Trust sends it exactly once.
+test("a new chat refused for trust keeps the prompt, asks, and Trust sends it once", async () => {
+  const fresh = snapshot(undefined);
+  fresh.sessions = [{ sessionId: "older", cwd: "/src/app", displayTitle: "App", updatedAt: 1 }];
+  await mount(undefined, fresh, true);
+  let trusted = false;
+  let readable = false;
+  host.cmuxAcpmuxActions!["chat.new"] = async (params) => {
+    calls.push(["chat.new", params]);
+    if (!trusted) {
+      readable = true;
+      throw Object.assign(new Error("trust.pending: answer first (/src/app)"), {
+        reason: "trust.pending",
+        cwd: "/src/app",
+      });
+    }
+  };
+  // Before the refusal the pane cannot read the folder's trust (it is never asked about then).
+  host.cmuxAcpmuxActions!["acp.trust.get"] = async ({ cwd }) =>
+    readable ? { cwd, level: trusted ? "trusted" : "unknown" } : null;
+  host.cmuxAcpmuxActions!["acp.trust.set"] = async ({ cwd, level }) => {
+    calls.push(["acp.trust.set", { cwd, level }]);
+    trusted = level === "trusted";
+    return { cwd, level };
+  };
+  host.cmuxAcpmuxActions!["chat.send"] = async (params) => {
+    calls.push(["chat.send", params]);
+    (params as { accepted?: () => void }).accepted?.();
+  };
+  await act(async () => (container().querySelector('[aria-label="Folder"]') as HTMLButtonElement).click());
+  const project = dom.window.document.querySelector(".acpmux-location-menu [role=menuitemradio]") as HTMLElement;
+  await act(async () => project.click());
+  await settled();
+  await type("hello");
+  await key("Enter");
+  await settled();
+  expect(methods()).not.toContain("chat.send");
+  expect(prompt().handle.plainText()).toBe("hello");
+  const trust = [...container().querySelectorAll<HTMLButtonElement>(".acpmux-trust-ask-action")].find(
+    (button) => button.textContent === "Trust",
+  );
+  expect(trust).toBeDefined();
+  await act(async () => trust!.click());
+  await settled();
+  await settled();
+  const sends = calls.filter(([method]) => method === "chat.send");
+  expect(sends.length).toBe(1);
+  expect(sends[0]![1].text).toBe("hello");
+});
+
 /// A started local chat in /src/app, with another known folder (/src/other) on this Mac.
 const startedChat = (working = false): AcpmuxSnapshot => {
   const chat = snapshot("s1", [{ id: "u1", kind: "user", text: "hi", at: 1, version: 1 }]);

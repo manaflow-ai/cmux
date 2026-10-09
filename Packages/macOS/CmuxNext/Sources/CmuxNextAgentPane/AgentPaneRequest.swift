@@ -66,10 +66,15 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// host answers whether it is used at once, asked about first (the home folder) or refused
     /// (`/`, above the home folder). `confirm` is the user's answer to the question, on its click.
     case useFolder(String, confirm: Bool)
+    /// Choose Folder… for a chat whose folder is missing (`chat.folder.choose`, cx-nn3e.1).
+    case chooseChatFolder
     /// Returns bounded recent project paths for the new-tab picker.
     case listProjects(String?)
     /// The empty-chat action opens the existing onboarding project/history import flow.
     case importAndSync
+    /// `chats.open {key}`: a device chat card (`harness:sessionId`) the New Tab page shows,
+    /// opened through the app's shared Open Chat path.
+    case openChat(String)
     /// The new-tab omnibar invoked a host-owned action id.
     case appAction(String)
     /// The chat header's tools and "..." menu: run app action `id` (one of

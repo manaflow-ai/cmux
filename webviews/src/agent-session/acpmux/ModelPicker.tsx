@@ -163,10 +163,10 @@ const railTab =
 /// A model row: one line, the theme's text. The fill is separate (`rowFill`): two background
 /// utilities on one element resolve by Tailwind's output order, not by the class list.
 const modelRow =
-  "flex h-8 w-full cursor-pointer items-center gap-2 rounded-lg border-0 px-2.5 text-left font-[inherit] text-[14px] text-fg disabled:cursor-default disabled:opacity-50";
+  "flex h-8 w-full cursor-pointer items-center gap-2 rounded-lg border-0 px-2.5 text-left font-[inherit] text-control text-fg disabled:cursor-default disabled:opacity-50";
 /// The active row (pointer or arrows) has the hover wash; any other row gets it on hover.
 const rowFill = (active: boolean) => (active ? "bg-hover" : "bg-transparent hover:bg-hover");
-const emptyNote = "px-2.5 py-2 text-[13px] text-muted";
+const emptyNote = "px-2.5 py-2 text-body text-muted";
 
 function StarGlyph({ filled, size }: { filled: boolean; size: number }) {
   return (
@@ -195,6 +195,7 @@ export function ModelPicker(props: ModelPickerProps) {
     onHarness,
     onHarnessHint,
     onHarnessEnable,
+    onAddAgent,
     onCombo,
     fastMode,
     catalogRefresh,
@@ -205,6 +206,7 @@ export function ModelPicker(props: ModelPickerProps) {
   const harnessText = t("picker.harness");
   const noMatchesText = t("picker.noMatches");
   const starredText = t("picker.starred");
+  const addAgentText = t("picker.addAgent");
   const fastText = t("picker.fastOn");
   const unavailableText = t("picker.unavailable");
   const modelRowId = (id: string) => `${menuId}-model-${encodeURIComponent(id)}`;
@@ -510,7 +512,7 @@ export function ModelPicker(props: ModelPickerProps) {
         <PickerDialog
           ref={menu}
           id={menuId}
-          className="acpmux-mp z-[3] flex h-[min(380px,60vh)] w-[min(310px,calc(100vw-24px))] overflow-hidden rounded-xl bg-menu text-[14px] leading-[18px] text-fg shadow-menu"
+          className="acpmux-mp z-[3] flex h-[min(380px,60vh)] w-[min(310px,calc(100vw-24px))] overflow-hidden rounded-xl bg-menu text-control text-fg shadow-menu"
           // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the popover is positioned by the shared anchor helper.
           aria-label={modelText}
           style={menuStyle}
@@ -580,6 +582,23 @@ export function ModelPicker(props: ModelPickerProps) {
                 <span className="sr-only">{entry.name}</span>
               </PickerOption>,
             ])}
+            {onAddAgent && (
+              // Add agent… (BRING-YOUR-OWN-HARNESS): Settings > Agents > Add. Not a tab: a click runs it.
+              <button
+                type="button"
+                className={`acpmux-mp-add-agent mt-auto ${railTab}`}
+                aria-label={addAgentText}
+                title={addAgentText}
+                onClick={() => {
+                  close();
+                  onAddAgent();
+                }}
+              >
+                <span aria-hidden="true" className="text-heading leading-none">
+                  +
+                </span>
+              </button>
+            )}
           </PickerOptionList>
           <div className="flex min-w-0 flex-1 flex-col">
             <div className="acpmux-mp-search flex h-10 flex-none items-center gap-2 border-b-[0.5px] border-edge pr-1.5 pl-3 text-muted focus-within:text-fg">
@@ -671,13 +690,13 @@ export function ModelPicker(props: ModelPickerProps) {
                       )}
                       <span className="acpmux-menu-label min-w-0 flex-1 truncate">{model.name}</span>
                       {searching && (parsed.effort || parsed.fast) && (
-                        <span className="acpmux-mp-combo flex-none text-[12px] text-dim">
+                        <span className="acpmux-mp-combo flex-none text-detail text-dim">
                           {[modelEffort(model, parsed.effort), parsed.fast ? fastText : undefined]
                             .filter(Boolean)
                             .join(" · ")}
                         </span>
                       )}
-                      {model.unavailable && <span className="flex-none text-[12px] text-dim">{unavailableText}</span>}
+                      {model.unavailable && <span className="flex-none text-detail text-dim">{unavailableText}</span>}
                     </PickerOption>
                     <span className="pointer-events-none absolute right-1.5 flex items-center">
                       <button
@@ -707,7 +726,7 @@ export function ModelPicker(props: ModelPickerProps) {
                   onClick={() => setOlderOpen((value) => !value)}
                 >
                   <span className="acpmux-menu-label min-w-0 flex-1 truncate">{t("picker.olderModels")}</span>
-                  <span className="flex-none text-[12px] text-dim">{olderCount}</span>
+                  <span className="flex-none text-detail text-dim">{olderCount}</span>
                   <span className={`flex-none ${olderOpen ? "rotate-180" : ""}`} aria-hidden="true">
                     <ChevronIcon />
                   </span>
@@ -725,7 +744,7 @@ export function ModelPicker(props: ModelPickerProps) {
                   }
                 >
                   <span>{fastMode.name}</span>
-                  <span className="text-[12px] text-dim">
+                  <span className="text-detail text-dim">
                     {fastMode.currentValue === fastMode.onValue ? fastMode.onLabel : fastMode.offLabel}
                   </span>
                 </button>

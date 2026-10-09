@@ -8,7 +8,7 @@ import {
   resolvedModel,
 } from "./defaultChoice";
 import type { AcpmuxSnapshot } from "./model";
-import { EffortPicker } from "./EffortPicker";
+import { EffortPicker, type SpeedSection } from "./EffortPicker";
 import { type StringKey, useT } from "./i18n";
 import { ModelPicker } from "./ModelPicker";
 import type { CatalogRefreshState, ModelCombo } from "./modelPickerLayout";
@@ -98,6 +98,8 @@ type Props = {
   onHarnessHint?(harness: string | undefined): void;
   /// Enables the chat folder's profile `id` (see ModelPickerProps.onHarnessEnable).
   onHarnessEnable?(folder: string, id: string): void;
+  /// The model picker's + (see ModelPickerProps.onAddAgent).
+  onAddAgent?(): void;
   /// The model picker's room for side submenus (tests pass a fixed one; see ModelPicker).
   measurePickerRoom?(menu: HTMLElement): number;
   /// The Plan/Build toggle lives in the composer's + menu in the default pane.
@@ -124,6 +126,7 @@ export function ComposerPickers({
   onHarness,
   onHarnessHint,
   onHarnessEnable,
+  onAddAgent,
   settleMs = RECENT_SETTLE_MS,
   settleTimer = browserSettleTimer,
   measurePickerRoom,
@@ -168,10 +171,12 @@ export function ComposerPickers({
   const effort = summary?.configOptions?.find(
     (option) => option.category === "thought_level" || option.id === "effort" || option.id === "reasoning_effort",
   );
-  const efforts: Choice[] = (effort?.options ?? []).map((option) => {
-    const choice = { id: option.value, name: option.name || option.value };
-    return isDefaultChoice(choice) ? { ...choice, name: t("picker.default") } : choice;
-  });
+  // The running model's catalog row (live list_models / model/list when known): which levels it
+  // supports and which one is its own default.
+  const catalogModel = pickerCatalog?.harnesses
+    .find((entry) => entry.acpmuxHarness === summary?.harness || entry.id === summary?.harness)
+    ?.models.find((entry) => entry.id === summary?.model);
+  const efforts: Choice[] = reasoningChoices(effort?.options ?? [], catalogModel, t);
   const fastOption = snapshot.summary?.configOptions?.find(
     (option) => option.id === "fast-mode" || /fast[ _-]?mode/i.test(option.name ?? ""),
   );
@@ -180,9 +185,9 @@ export function ComposerPickers({
   const fastOff =
     fastOption?.options.find((option) => /^(off|false|disabled)$/i.test(option.value)) ?? fastOption?.options[0];
   const fastMode =
-    fastOption?.name && fastOn && fastOff && fastOn.value !== fastOff.value
+    fastOption && fastOn && fastOff && fastOn.value !== fastOff.value
       ? {
-          name: fastOption.name,
+          name: fastOption.name ?? t("picker.fastModeSection"),
           currentValue: fastOption.currentValue,
           onValue: fastOn.value,
           offValue: fastOff.value,
@@ -338,6 +343,7 @@ export function ComposerPickers({
           onCombo={combo}
           onHarnessHint={onHarnessHint}
           onHarnessEnable={onHarnessEnable}
+          onAddAgent={onAddAgent}
           fastMode={fastMode}
           catalogRefresh={catalogRefresh}
           harnessNotes={
@@ -364,7 +370,16 @@ export function ComposerPickers({
         <EffortPicker
           label={t(PICKER_LABELS.effort)}
           efforts={efforts}
-          current={effort.currentValue}
+          current={
+            effort.currentValue === "default" && catalogModel?.defaultEffort
+              ? catalogModel.defaultEffort
+              : effort.currentValue
+          }
+          speed={
+            fastMode && fastOn && fastOff
+              ? speedSection(/codex/i.test(summary?.harness ?? ""), fastMode, fastOn, t)
+              : undefined
+          }
           chevron={<ChevronIcon />}
           onPick={(value) => {
             pending.current = undefined;
@@ -921,3 +936,74 @@ export const SlashIcon = () => (
     <path d="M10.5 2.5 5.5 13.5" />
   </Icon>
 );
+
+/// Level names the pane writes itself, whatever the agent calls them ("Xhigh" reads Extra High).
+const LEVEL_KEYS: Record<string, StringKey> = {
+  low: "effort.level.low",
+  medium: "effort.level.medium",
+  high: "effort.level.high",
+  xhigh: "effort.level.xhigh",
+  max: "effort.level.max",
+  ultra: "effort.level.ultra",
+  ultracode: "effort.level.ultracode",
+  ultrathink: "effort.level.ultrathink",
+};
+/// The plain levels a catalog row can list (`PickerModel.efforts`).
+const PLAIN_LEVELS = new Set(["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]);
+
+/// The Reasoning section's rows: the agent's levels, named by the pane, narrowed to what the
+/// running model supports when its catalog row says (Ultracode needs Extra High; Ultrathink needs
+/// any level), with the model's own level badged Default in place of a bare "Default" row.
+export function reasoningChoices(
+  options: { value: string; name?: string; description?: string }[],
+  model: { efforts?: readonly string[]; defaultEffort?: string } | undefined,
+  t: (key: StringKey) => string,
+): Choice[] {
+  const levels = model?.efforts && model.efforts.length > 0 ? new Set<string>(model.efforts) : undefined;
+  const offered = options.filter((option) => {
+    if (option.value === "default") return !model?.defaultEffort;
+    if (!levels) return true;
+    if (option.value === "ultracode") return levels.has("xhigh");
+    if (option.value === "ultrathink") return true;
+    return !PLAIN_LEVELS.has(option.value) || levels.has(option.value);
+  });
+  return offered.map((option) => {
+    const key = LEVEL_KEYS[option.value];
+    const base: Choice = { id: option.value, name: key ? t(key) : option.name || option.value };
+    if (isDefaultChoice(base)) return { ...base, name: t("picker.default") };
+    if (option.value === "ultracode") base.description = t("effort.ultracodeDetail");
+    if (model?.defaultEffort === option.value) base.hint = t("picker.default");
+    return base;
+  });
+}
+
+/// The menu's speed section: Codex calls fast mode a Service Tier (Standard, the default, or
+/// Fast with Codex's own description); Claude Code's is Fast Mode, On or Off.
+function speedSection(
+  codex: boolean,
+  fast: { currentValue?: string; onValue: string; offValue: string; onPick(value: string): void },
+  on: { description?: string },
+  t: (key: StringKey) => string,
+): SpeedSection {
+  return codex
+    ? {
+        title: t("picker.serviceTier"),
+        choices: [
+          { id: fast.offValue, name: t("picker.tierStandard"), hint: t("picker.default") },
+          { id: fast.onValue, name: t("picker.tierFast"), description: on.description },
+        ],
+        current: fast.currentValue,
+        on: fast.onValue,
+        onPick: fast.onPick,
+      }
+    : {
+        title: t("picker.fastModeSection"),
+        choices: [
+          { id: fast.onValue, name: t("picker.on") },
+          { id: fast.offValue, name: t("picker.off") },
+        ],
+        current: fast.currentValue,
+        on: fast.onValue,
+        onPick: fast.onPick,
+      };
+}

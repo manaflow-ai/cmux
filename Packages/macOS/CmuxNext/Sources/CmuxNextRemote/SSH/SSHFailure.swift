@@ -41,6 +41,23 @@ public enum SSHFailure: Error, Hashable, Sendable {
         return .remoteFailed(lines.last ?? "ssh exited \(status)")
     }
 
+    /// The most lines a link's remote failure keeps.
+    static let linkCauseLines = 8
+
+    /// A failed link (`cmux-tui remote connect`): ssh's own failures as
+    /// `classify` names them; otherwise the last distinct stderr lines, so
+    /// the machine's cmux-tui error that ssh relayed (a daemon that cannot
+    /// open its state) stays next to the client's last line (cx-zdh8).
+    public static func classifyLink(stderr: String) -> SSHFailure? {
+        guard let failure = classify(status: 255, stderr: stderr) else { return nil }
+        guard case .remoteFailed = failure else { return failure }
+        var seen = Set<String>()
+        let lines = stderr.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
+        guard !lines.isEmpty else { return failure }
+        return .remoteFailed(lines.suffix(linkCauseLines).joined(separator: "\n"))
+    }
+
     static let hostKeyNeedles = ["Host key verification failed", "REMOTE HOST IDENTIFICATION HAS CHANGED", "host key is known for",
                                  "No matching host key type", "Host key for", "has changed and you have requested strict checking"]
     static let authNeedles = ["Permission denied", "Too many authentication failures", "Authentication failed",

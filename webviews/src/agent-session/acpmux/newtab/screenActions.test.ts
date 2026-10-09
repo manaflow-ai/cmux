@@ -66,3 +66,36 @@ test("a local file uses the file opener and a URL uses the browser", () => {
     ["tab.open", { kind: "browser", text: "https://example.com" }],
   ]);
 });
+
+// cx-e2aa: the project picked at the top of the page wins over the folder the tab inherited.
+test("a prompt asks in the project picked on the page", async () => {
+  const calls: unknown[] = [];
+  const actions = newTabScreenActions({
+    callNative: async (method, params) => {
+      calls.push([method, params]);
+    },
+    cwd: "/src/old",
+    leave() {},
+    selectSession() {},
+    showAllChats() {},
+    runShell() {},
+  });
+  actions.onAsk("codex", "hello", "/src/picked");
+  await Promise.resolve();
+  expect(calls).toContainEqual(["chat.new", { harness: "codex", cwd: "/src/picked" }]);
+});
+
+test("a device chat card leaves the new tab and opens through the host's shared Open Chat path", () => {
+  const calls: unknown[] = [];
+  const actions = newTabScreenActions({
+    callNative: async (method, params) => {
+      calls.push([method, params]);
+    },
+    leave: () => calls.push(["leave"]),
+    selectSession() {},
+    showAllChats() {},
+    runShell() {},
+  });
+  actions.onOpenChat?.("codex:01999a2b");
+  expect(calls).toEqual([["leave"], ["chats.open", { key: "codex:01999a2b" }]]);
+});

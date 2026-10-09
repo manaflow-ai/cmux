@@ -100,4 +100,21 @@ crate only when a crate extracted below core needs them (for example the
 terminal-host runtime), with LockStats and JournalContention moved with
 them. Crate boundary agreed through the chief with the mux.rs lane first.
 
+## Order that shrinks cmux-tui-core's own compile (chief, 2026-10-09)
+
+Priority is by lines removed from cmux-tui-core, biggest first, among
+domains that can leave without a design step: platform family 5.7k (step 2),
+terminal-host protocol family about 4.9k with the surface consts and
+server/protocol_key.rs, terminal_host_runtime 15.8k (after now_ms and
+NotificationLevel reach a leaf module), browser 12.3k (after a host seam),
+then the seam-gated domains (surface, workspace_registry, apps). Leaves under
+1k lines go along with a larger step, never alone. fs_ops (2.8k, ready on
+local branch refactor-crate-split-step2) fills a gap only.
+
 ## Landings
+
+- 2026-10-09 90f75c91fc9c (code 98fdbdfc9fe7) step 1: cmux-tui-core/src/cloud_conversations/ (8 files) -> crates/cmux-tui-cloud-conversations; cmux-tui-core 295,439 -> 292,376 lines; Testbox gate 8 min; post-land cmux-tui.yml focused run 37892029995 green. Build (32 vCPU, warm, edit in moved code): `cargo test -p <domain> --no-run` 12.2 s -> 0.2 s; `cargo build -p cmux-tui` 14.1 -> 13.6 s (no real change).
+- 2026-10-09 75d9ecbb99bf (code f8e3500ec0df) step 2: cmux-tui-core platform, host_exe, process_identity, process_resources, unix_process_scope, windows_processes -> crates/cmux-tui-platform (5,712 lines); cmux-tui-core 292,376 -> 288,158 lines; godfile rows renamed, crash baseline transferred (core unwrap 1643->1626, expect 287->286; platform 17/1; totals unchanged); unix_process_scope test seams behind feature test-support (core dev-dependency only); Testbox gate 9 min; post-land run 37911896855. Build: `cargo build -p cmux-tui` after a core edit about 14.8 s, unchanged.
+- 2026-10-09 f8940112fe7b (code 58d36e4504c2) cx-ko2e A1: terminal_host_runtime mod unix snapshot/resize/kitty codecs, hex helpers, PayloadDecoder, put_* (521 lines) -> terminal_host_runtime/shared/codec.rs; pty_size, kitty_graphics_limits_within -> shared/host_state.rs; terminal_host_runtime.rs 9976 -> 9436; Testbox gate 8 min.
+- 2026-10-09 41686fae4f6d (code e237adb3a54d) cx-ko2e A2: HostLaunch codec, default-colors codec, clear-history ack, host_launch_failure -> shared/codec.rs; 9436 -> 9155; gate 7.5 min.
+- 2026-10-09 ddc4e576947b (code d7b2b36ea79d) cx-ko2e A3: host consts, input_request_is_supported, persist_and_claim_host_exit_after_drain, ViewerSizes, mutate_viewer_sizes -> shared/host_state.rs; 9155 -> 9059; gate 7.5 min. Rest of table A waits for table B seams (HostStream first).

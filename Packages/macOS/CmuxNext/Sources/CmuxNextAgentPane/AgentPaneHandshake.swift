@@ -24,7 +24,7 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// The coded fields: everything but ``connection``, which never reaches the page.
     private enum CodingKeys: String, CodingKey {
         case protocolVersion, transport, sessionId, newSession, newTab, cwd, draft, prompt, harness, adopt, surface,
-             linkScheme, sessionMustExist, revealTurn, chooseFolder, startKind, machineName, githubRepository
+             linkScheme, sessionMustExist, revealTurn, chooseFolder, startKind, folderNeeded, machineName, githubRepository
     }
 
     public var protocolVersion: Int
@@ -77,6 +77,13 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// the store's answer (`workspace.agent_start.get`, cx-9aps). The page shows it; pages that
     /// predate it ignore it.
     public var startKind: String?
+    /// A chat that opened without its folder (cx-nn3e.1): the page explains it above the composer
+    /// and offers Choose Folder (`chat.folder.choose`). Pages that predate it ignore it.
+    public var folderNeeded: FolderNeeded?
+
+    public nonisolated struct FolderNeeded: Codable, Sendable, Equatable {
+        public var reason: String
+    }
     /// This Mac's name (System Settings > General > Sharing), for the composer's location row.
     /// Pages that predate it ignore it.
     public var machineName: String?

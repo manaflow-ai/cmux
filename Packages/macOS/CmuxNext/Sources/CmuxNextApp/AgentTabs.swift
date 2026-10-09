@@ -53,15 +53,9 @@ final class AgentTabStore {
         -> (outcome: AgentSessionBindOutcome, sequence: UInt64?) = { _, _, _, _ in (.taken, nil) }
     /// Whether `daemon` is connected now: a disconnected owner refuses changes, nothing queues.
     var reachable: @MainActor (DaemonService) -> Bool = { $0.connection != nil }
-    /// Saves `path` as the agent folder of `workspace` (tab `key`'s), on the tab's daemon.
-    var persistAgentFolder: @MainActor (_ key: String, _ workspace: ResourceID, _ path: String) async -> AgentPaneFolderChoice = { _, _, _ in
-        .unavailable(AgentPaneFolderChoice.notSavedMessage)
-    }
-    /// The store's answer for where tab `key`'s new chat starts (`workspace.agent_start.get`,
-    /// cx-9aps); nil from a daemon without it.
-    var askAgentStart: @MainActor (_ key: String, _ workspace: ResourceID, _ cwd: String?) async -> AgentPaneStartFolder? = { _, _, _ in nil }
-    /// Whether tab `key`'s daemon serves `workspace-agent-folder-v1`.
-    var servesAgentFolder: @MainActor (_ key: String) -> Bool = { _ in false }
+    /// Tab `key`'s daemon: where its workspace's agent folder is saved and where the store answers
+    /// where its new chats start (cx-9aps). Nil while the tab is not found.
+    var daemonForTab: @MainActor (_ key: String) -> DaemonService? = { _ in nil }
     /// Tabs closed while the store was still creating them: closed when it answers.
     var pendingCloses: [String: @MainActor (String) -> Void] = [:]
     /// This Mac's name for other Macs that show its tabs ("This chat runs on <name>"): at most
@@ -135,6 +129,8 @@ final class AgentTabStore {
     private var shortcutObservation: Task<Void, Never>?
     /// `labs.previewFeatures` and `agentPane.editedFiles.*`, pushed to every page like the shortcuts.
     private let pageSettings = AgentPanePageSettings()
+    /// The device chats every page's New Tab cards show (``AgentPageChats``).
+    let pageChats = AgentPageChats()
     weak var actionRegistry: ActionRegistry?
     var checkpointFocusTab: String?
     /// This build's URL scheme, handed to every page for the links it copies.
@@ -329,6 +325,7 @@ final class AgentTabStore {
             guard let self, let handler = newTabPages[resolve(provisional)]?.handler ?? blankChatHandler?(resolve(provisional)) else { return [] }
             return await handler.listProjects(query)
         }
+        model.onOpenChat = { [weak self] key in self?.pageChats.open?(key) }
         model.onImportAndSync = { [weak self] in
             guard let self else { return }
             if let page = newTabPages[resolve(provisional)] { page.handler.importAndSync() }
@@ -351,7 +348,8 @@ final class AgentTabStore {
         DebugTimings.markLaunch("agent_pane.view_created")
         view.customization = customization.current
         view.shortcuts = shortcuts
-        pageSettings.apply(to: view)
+        pageSettings.apply(to: NewTabOmnibar.installed(on: view))
+        view.deviceChats = pageChats.chats
         customization.start()
         return view
     }

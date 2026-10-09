@@ -141,7 +141,7 @@ import Testing
         let model = AgentPaneModel(host: MockAgentPaneHost(), seed: AgentPaneSeedSource(AgentPaneSeed(cwd: home)),
                                    transport: rig.transport)
         var proposed: [String?] = []
-        model.resolveStartFolder = { cwd in
+        model.startFolders.resolve = { cwd in
             proposed.append(cwd)
             return AgentPaneStartFolder(kind: .agentHome, cwd: agentHome, agentHome: agentHome, skipped: (home, .home))
         }
@@ -163,7 +163,7 @@ import Testing
         let model = AgentPaneModel(host: MockAgentPaneHost(), transport: rig.transport)
         var folders = [project]
         model.workspaceRoots = { folders }
-        model.resolveStartFolder = { _ in AgentPaneStartFolder(kind: .workspace, cwd: project, agentHome: nil) }
+        model.startFolders.resolve = { _ in AgentPaneStartFolder(kind: .workspace, cwd: project, agentHome: nil) }
         let handshake = try #require(Self.value(await model.respond(to: .ready)))
         #expect(handshake["cwd"] as? String == project)
         #expect(handshake["startKind"] as? String == "workspace")
@@ -184,7 +184,7 @@ import Testing
         let home = rig.folder("home"), other = rig.folder("other")
         rig.transport.homeFolder = home
         let model = AgentPaneModel(host: MockAgentPaneHost(), transport: rig.transport)
-        model.resolveStartFolder = { cwd in AgentPaneStartFolder(kind: .agentHome, cwd: nil, agentHome: nil, skipped: (cwd ?? "", .home)) }
+        model.startFolders.resolve = { cwd in AgentPaneStartFolder(kind: .agentHome, cwd: nil, agentHome: nil, skipped: (cwd ?? "", .home)) }
         rig.transport.gestures.record()
         let reply = await model.respond(to: Self.useFolder(other, confirm: true))
         #expect(reply["ok"] as? Bool == false)
@@ -199,7 +199,7 @@ import Testing
         let home = rig.folder("home"), project = rig.folder("project")
         rig.transport.homeFolder = home
         let model = AgentPaneModel(host: MockAgentPaneHost(), transport: rig.transport)
-        model.resolveStartFolder = { cwd in
+        model.startFolders.resolve = { cwd in
             if cwd == home { return AgentPaneStartFolder(kind: .agentHome, cwd: nil, agentHome: nil, skipped: (home, .home)) }
             if cwd == "/" { return AgentPaneStartFolder(kind: .agentHome, cwd: nil, agentHome: nil, skipped: ("/", .aboveHome)) }
             return AgentPaneStartFolder(kind: .seed, cwd: cwd, agentHome: nil)

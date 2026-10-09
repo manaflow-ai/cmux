@@ -1,7 +1,6 @@
 #[cfg(unix)]
 use std::collections::VecDeque;
 use std::fs;
-#[cfg(unix)]
 use std::io::{BufRead, BufReader, Read, Write};
 #[cfg(unix)]
 use std::net::Shutdown;

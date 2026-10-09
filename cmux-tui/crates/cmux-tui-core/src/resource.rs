@@ -9,6 +9,8 @@ use scope::canonical_resource_scope;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+mod selector_tokens;
+pub use selector_tokens::is_reserved_selector_token;
 mod error;
 pub use error::*;
 
@@ -874,93 +876,6 @@ impl Selector {
     }
 }
 
-/// A noun-first CLI token: a resource may keep the name; callers select it with `name:`.
-pub fn is_reserved_selector_token(value: &str) -> bool {
-    matches!(
-        value,
-        "machine"
-            | "session"
-            | "client"
-            | "window"
-            | "pairing"
-            | "request"
-            | "frontend"
-            | "projection"
-            | "workspace"
-            | "screen"
-            | "pane"
-            | "tab"
-            | "terminal"
-            | "browser"
-            | "split"
-            | "notification"
-            | "agent"
-            | "sidebar"
-            | "view"
-            | "plugin"
-            | "provider"
-            | "scope"
-            | "action"
-            | "notice"
-            | "list"
-            | "get"
-            | "show"
-            | "create"
-            | "open"
-            | "rename"
-            | "delete"
-            | "restore"
-            | "purge"
-            | "connect"
-            | "snapshot"
-            | "events"
-            | "ping"
-            | "shutdown"
-            | "update"
-            | "metadata"
-            | "detach"
-            | "set"
-            | "clear"
-            | "resolve"
-            | "put"
-            | "move"
-            | "focus"
-            | "close"
-            | "run"
-            | "apply"
-            | "export"
-            | "undo"
-            | "neighbor"
-            | "swap"
-            | "zoom"
-            | "resize"
-            | "send"
-            | "keys"
-            | "read"
-            | "history"
-            | "state"
-            | "direction"
-            | "process"
-            | "renderer"
-            | "grant"
-            | "cell"
-            | "pixels"
-            | "copy"
-            | "attach"
-            | "navigate"
-            | "back"
-            | "forward"
-            | "reload"
-            | "activate"
-            | "install"
-            | "use"
-            | "builtin"
-            | "disable"
-            | "remove"
-            | "report"
-            | "notify"
-    )
-}
 
 fn is_registered_public_id(value: &str) -> bool {
     let Some((prefix, payload)) = value.rsplit_once('_') else {

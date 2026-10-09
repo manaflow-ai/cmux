@@ -94,7 +94,8 @@ public struct MobileSyncPairingPayload: Equatable, Sendable, Codable {
         port = try container.decode(Int.self, forKey: .port)
         expiresAt = try container.decode(Date.self, forKey: .expiresAt)
         transport = try container.decode(MobileSyncTransportKind.self, forKey: .transport)
-        let now = Self.validationDateUserInfoKey.flatMap { decoder.userInfo[$0] } as? Date ?? Date()
+        let userInfo: [CodingUserInfoKey: Any] = decoder.userInfo
+        let now = Self.validationDateUserInfoKey.flatMap { userInfo[$0] } as? Date ?? Date()
         try validate(now: now)
     }
 
@@ -143,7 +144,7 @@ public struct MobileSyncPairingPayload: Equatable, Sendable, Codable {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         if let key = validationDateUserInfoKey {
-            decoder.userInfo[key] = now
+            decoder.userInfo.updateValue(now, forKey: key)
         }
         let payload = try decoder.decode(MobileSyncPairingPayload.self, from: data)
         return payload

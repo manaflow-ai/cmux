@@ -6,13 +6,13 @@ import Foundation
 /// page and the GPUI client render it from the export and copy nothing
 /// (layer-ownership.md L5). A row's key, section and CLI stay as they are;
 /// only where the page draws it is decided here. Every row the page shows has
-/// exactly one card (`SettingsPageLayoutTests`).
+/// exactly one card.
 public nonisolated struct SettingsPageLayout: Sendable {
     /// A part of a category that is not a schema row (host lists, the theme
     /// studio, file actions). Raw values are the export's card ids.
     public nonisolated enum Card: String, Sendable, Hashable, CaseIterable {
         case themeStudio, terminalInfo, ghosttyDiagnostics, computerUse, harnesses, spaces, browserProfiles
-        case machines, accounts, advancedInfo, advancedActions, backdrops
+        case machines, accounts, agentHarnesses, advancedInfo, advancedActions, backdrops
     }
 
     /// A group card as the layout states it: the rows of a schema group
@@ -123,7 +123,9 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 GroupSpec(group: "settings.group.agentChat", keys: ["app.warnBeforeClosingAgentSession"]),
                 group("settings.group.computerUse"),
             ],
-            trail: [.harnesses, .computerUse]),
+            // Harnesses lists every harness; Your Agents (BRING-YOUR-OWN-HARNESS) adds, checks and
+            // removes the ones you added.
+            trail: [.harnesses, .agentHarnesses, .computerUse]),
         // A core cmux feature: banners, sounds, the attention ring and the
         // feed for agents, terminal programs and `cmux notify`.
         CategorySpec(

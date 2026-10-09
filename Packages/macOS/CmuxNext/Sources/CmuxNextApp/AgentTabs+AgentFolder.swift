@@ -17,9 +17,9 @@ extension AgentTabStore {
             guard let self else { return nil }
             return agentHome(of: resolve(provisional))
         }
-        model.resolveStartFolder = { [weak self] proposed in
+        model.startFolders.resolve = { [weak self] proposed in
             guard let self, let workspace = workspace(holding: resolve(provisional)), let resource = workspace.resourceID else { return nil }
-            return await askAgentStart(resolve(provisional), resource, proposed)
+            return await daemonForTab(resolve(provisional))?.agentStart(proposed, workspace: resource)
         }
         model.onChooseFolder = { [weak self] in
             guard let self else { return .cancelled }
@@ -63,29 +63,16 @@ extension AgentTabStore {
     /// workspace's agent folder (`workspace.agent_folder.set`, which only this verified app may
     /// send). An older background service is told before the sheet opens.
     func chooseAgentFolder(for key: String) async -> AgentPaneFolderChoice {
-        guard servesAgentFolder(key) else { return .unavailable(AgentPaneFolderChoice.restartServiceMessage) }
+        guard let daemon = daemonForTab(key), daemon.supports(DaemonCapabilities.shared.workspaceAgentFolder) else {
+            return .unavailable(AgentPaneFolderChoice.restartServiceMessage)
+        }
         guard let view = views[key], let url = await view.pickFolder() else { return .cancelled }
         let picked = url.path
         let folder = await Task.detached { AgentHome.canonicalFolder(picked) }.value
         // The home folder (or above it) would open the whole home folder to the page: refused.
         guard let folder, !AgentHome.isHomeOrAbove(folder), let workspace = workspace(holding: key),
               let resource = workspace.resourceID else { return .unavailable(AgentPaneFolderChoice.notSavedMessage) }
-        return await persistAgentFolder(key, resource, folder)
-    }
-
-    /// The store's answer on `daemon` (`workspace.agent_start.get`); nil from a daemon without
-    /// `workspace-agent-start-v1` or when the read fails, so the pane keeps its own rules
-    /// (compatibility only, cx-6bf9).
-    static func agentStart(_ cwd: String?, workspace: ResourceID, on daemon: DaemonService) async -> AgentPaneStartFolder? {
-        guard daemon.supports(DaemonCapabilities.shared.workspaceAgentStart), let connection = daemon.connection else { return nil }
-        do {
-            let answer = try await connection.state.agentStart(workspace, cwd: cwd)
-            return AgentPaneStartFolder(kind: answer.kind, cwd: answer.cwd, agentHome: answer.agentHome,
-                                        skipped: answer.skipped.map { ($0.cwd, $0.reason) })
-        } catch {
-            daemon.logger.error("workspace.agent_start.get: \(String(describing: error), privacy: .public)")
-            return nil
-        }
+        return await Self.saveAgentFolder(folder, workspace: resource, on: daemon)
     }
 
     /// Saves `path` as `workspace`'s agent folder on `daemon`. A daemon without

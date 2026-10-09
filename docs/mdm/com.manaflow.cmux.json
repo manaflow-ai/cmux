@@ -762,6 +762,11 @@
       "title" : "DisabledFeatures",
       "type" : "array"
     },
+    "DisableTelemetry" : {
+      "description" : "Turn off anonymous telemetry, crash reports included, whatever the user chose (also honored in the legacy com.cmuxterm.app domain).",
+      "title" : "DisableTelemetry",
+      "type" : "boolean"
+    },
     "EnrollmentToken" : {
       "description" : "Team enrollment token from the cmux dashboard. Signed-in users in a verified domain of the team join it; the token alone never grants membership.",
       "title" : "EnrollmentToken",
