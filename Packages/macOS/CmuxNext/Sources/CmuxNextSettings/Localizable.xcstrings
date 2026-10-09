@@ -3,11 +3,265 @@
   "strings": {
   "settings.agentPane.zoom": {
     "extractionState": "manual",
-    "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Agent Chat Zoom" } } }
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Agent Chat Zoom"
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Agent Chat Zoom"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Agent Chat Zoom"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Agent Chat Zoom"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Agent Chat Zoom"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Agent Chat Zoom"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Agent Chat Zoom"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Agent Chat Zoom"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Agent Chat Zoom"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Agent Chat Zoom"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Agent Chat Zoom"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Agent Chat Zoom"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Agent Chat Zoom"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Agent Chat Zoom"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Agent Chat Zoom"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Agent Chat Zoom"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Agent Chat Zoom"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Agent Chat Zoom"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Agent Chat Zoom"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Agent Chat Zoom"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Agent Chat Zoom"
+        }
+      }
+    }
   },
   "settings.agentPane.zoom.help": {
     "extractionState": "manual",
-    "localizations": { "en": { "stringUnit": { "state": "translated", "value": "The display size for agent chat. Cmd-0 resets it." } } }
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "The display size for agent chat. Cmd-0 resets it."
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "The display size for agent chat. Cmd-0 resets it."
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "The display size for agent chat. Cmd-0 resets it."
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "The display size for agent chat. Cmd-0 resets it."
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "The display size for agent chat. Cmd-0 resets it."
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "The display size for agent chat. Cmd-0 resets it."
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "The display size for agent chat. Cmd-0 resets it."
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "The display size for agent chat. Cmd-0 resets it."
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "The display size for agent chat. Cmd-0 resets it."
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "The display size for agent chat. Cmd-0 resets it."
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "The display size for agent chat. Cmd-0 resets it."
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "The display size for agent chat. Cmd-0 resets it."
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "The display size for agent chat. Cmd-0 resets it."
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "The display size for agent chat. Cmd-0 resets it."
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "The display size for agent chat. Cmd-0 resets it."
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "The display size for agent chat. Cmd-0 resets it."
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "The display size for agent chat. Cmd-0 resets it."
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "The display size for agent chat. Cmd-0 resets it."
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "The display size for agent chat. Cmd-0 resets it."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "The display size for agent chat. Cmd-0 resets it."
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "The display size for agent chat. Cmd-0 resets it."
+        }
+      }
+    }
   },
   "settings.sidebar.showProjects": {
       "extractionState": "manual",
