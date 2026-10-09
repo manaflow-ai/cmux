@@ -681,4 +681,3 @@ describe("harness switch: a deferred pick from the New Tab page", () => {
     expect(port.calls).not.toContain("discard codex-3");
   });
 });
-
