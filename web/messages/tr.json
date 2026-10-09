@@ -30,6 +30,11 @@
       "message": "Bu makine bir Cloud güncellemesinden önce oluşturuldu ve bağlanılamıyor.",
       "action": "Yeni bir makine oluşturun, dosyalarınızı cmux vm pull ve cmux vm push ile aktarın, ardından bunu silin."
     },
+    "networkRuleCapacity": {
+      "title": "Ağ kuralları kapasitede",
+      "message": "Ağ politikanız kaydedildi ancak uygulanmadı: cmux Cloud ağ kuralı kapasitesine ulaştı.",
+      "action": "cmux ekibi bilgilendirildi. Uygulamak için politikayı daha sonra yeniden kaydedin. O zamana kadar bu makinenin ağ erişimi kaydedilen politikayla eşleşmeyebilir."
+    },
     "unsupported": {
       "title": "Cloud VM işlemi kullanılamıyor",
       "reason": "Bu makine türü bu işlemi sağlamıyor.",

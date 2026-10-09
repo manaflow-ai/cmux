@@ -128,15 +128,54 @@ export type NetworkReconcileResult = {
 };
 
 /**
+ * Freestyle's 409 when the account already holds its maximum number of TLS
+ * rules. The cap is account-wide, shared by every machine and every other
+ * workload on the account, and shares the generic CONFLICT code, so only the
+ * message identifies it.
+ */
+export function isFreestyleTlsRuleLimit(err: unknown): boolean {
+  return err instanceof FreestyleApiError && err.status === 409 && /TLS rule limit/i.test(err.message);
+}
+
+/**
  * Converge a running VM's egress rules on `plan`. Grants are created before
  * surplus rules are deleted, so a change never leaves a window where the
  * machine is more closed than either the old or the new policy intends.
+ *
+ * The one exception is the account-wide TLS rule cap: when a grant is refused
+ * because the account is full and this change also retires steering rules,
+ * those retirements go first and the reconcile runs again. The machine is
+ * briefly limited to the domains both policies allow, which never exceeds the
+ * user's intent, and a swap at the cap converges instead of failing.
  */
 export async function reconcileFreestyleEgress(
   fs: Freestyle,
   vmId: string,
   plan: NetworkRulePlan,
   env: NodeJS.ProcessEnv = process.env,
+): Promise<NetworkReconcileResult> {
+  try {
+    return await reconcileOnce(fs, vmId, plan, env, { freeTlsAtLimit: true });
+  } catch (err) {
+    if (!(err instanceof TlsLimitWithSurplus)) throw err;
+    const retried = await reconcileOnce(fs, vmId, plan, env, { freeTlsAtLimit: false });
+    return { ...retried, tlsDeleted: retried.tlsDeleted + err.deleted };
+  }
+}
+
+/** Internal signal: the cap refused a grant after this reconcile freed `deleted` surplus TLS rules. */
+class TlsLimitWithSurplus extends Error {
+  constructor(readonly deleted: number) {
+    super("TLS rule limit reached; surplus rules freed");
+  }
+}
+
+async function reconcileOnce(
+  fs: Freestyle,
+  vmId: string,
+  plan: NetworkRulePlan,
+  env: NodeJS.ProcessEnv,
+  options: { readonly freeTlsAtLimit: boolean },
 ): Promise<NetworkReconcileResult> {
   const [firewall, tls] = await Promise.all([
     fs.firewall.rules.list({ vmId, limit: 1000 }),
@@ -159,15 +198,21 @@ export async function reconcileFreestyleEgress(
   // Each rule call is a ~0.5 s round trip; serial calls made a policy change
   // take 5-11 s. All grants go out together, then all removals, so the
   // create-before-delete guarantee holds for the batch as a whole.
-  await inBatches([
-    ...firewallToCreate.map((destination) => () => fs.firewall.rules.create({
-      action: "allow",
-      source: { vmId },
-      destination: { ...destination },
-      description: EGRESS_RULE_DESCRIPTION,
-    })),
-    ...tlsToCreate.map((domain) => () => fs.tls.rules.create({ action: "allow", domain, source: { vmId }, destination: { public: true } })),
-  ]);
+  try {
+    await inBatches([
+      ...firewallToCreate.map((destination) => () => fs.firewall.rules.create({
+        action: "allow",
+        source: { vmId },
+        destination: { ...destination },
+        description: EGRESS_RULE_DESCRIPTION,
+      })),
+      ...tlsToCreate.map((domain) => () => fs.tls.rules.create({ action: "allow", domain, source: { vmId }, destination: { public: true } })),
+    ]);
+  } catch (err) {
+    if (!options.freeTlsAtLimit || tlsToDelete.length === 0 || !isFreestyleTlsRuleLimit(err)) throw err;
+    await inBatches(tlsToDelete.map((rule) => () => deleteIgnoringMissing(() => fs.tls.rules.delete(rule.id))));
+    throw new TlsLimitWithSurplus(tlsToDelete.length);
+  }
   await inBatches([
     ...firewallToDelete.map((rule) => () => deleteIgnoringMissing(() => fs.firewall.rules.delete(rule.id))),
     ...tlsToDelete.map((rule) => () => deleteIgnoringMissing(() => fs.tls.rules.delete(rule.id))),

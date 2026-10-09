@@ -30,6 +30,11 @@
       "message": "Denne maskine blev oprettet før en Cloud-opdatering og kan ikke tilknyttes.",
       "action": "Opret en ny maskine, kopiér dine filer over med cmux vm pull og cmux vm push, og slet så denne."
     },
+    "networkRuleCapacity": {
+      "title": "Netværksregler har nået kapaciteten",
+      "message": "Din netværkspolitik er gemt, men blev ikke anvendt: cmux Cloud har nået sin kapacitet for netværksregler.",
+      "action": "cmux-teamet er blevet underrettet. Gem politikken igen senere for at anvende den. Indtil da svarer maskinens netværksadgang muligvis ikke til den gemte politik."
+    },
     "unsupported": {
       "title": "Cloud VM-handling er ikke tilgængelig",
       "reason": "Denne maskintype tilbyder ikke denne handling.",

@@ -11,7 +11,7 @@ import {
 
 import { randomBytes } from "node:crypto";
 import type { NetworkRulePlan } from "../networkPolicy";
-import { inlineEgressFirewallRules, inlineEgressTlsRules, reconcileFreestyleEgress } from "./freestyleNetworkPolicy";
+import { inlineEgressFirewallRules, inlineEgressTlsRules, isFreestyleTlsRuleLimit, reconcileFreestyleEgress } from "./freestyleNetworkPolicy";
 import { isIP } from "node:net";
 import { Effect } from "effect";
 import { FreestyleResourceStatsReader } from "./freestyleResourceStatsReader";
@@ -22,6 +22,7 @@ import {
   ProviderError,
   ProviderMachineRecreateRequiredError,
   ProviderNetworkFullError,
+  ProviderTlsRuleLimitError,
   type AttachTransport,
   type CmuxRemoteApprovalResult,
   type CmuxRemoteApprovalOptions,
@@ -1163,6 +1164,10 @@ export class FreestyleProvider implements VMProvider {
             "cmux.vm.network.tls_deleted": result.tlsDeleted,
           });
         } catch (err) {
+          if (isFreestyleTlsRuleLimit(err)) {
+            span.setAttribute("cmux.vm.network.tls_rule_limit", true);
+            throw new ProviderTlsRuleLimitError("freestyle", `applyNetworkPolicy(${vmId}): account TLS rule limit reached`, err);
+          }
           throw new ProviderError("freestyle", `applyNetworkPolicy(${vmId})`, err);
         }
       },

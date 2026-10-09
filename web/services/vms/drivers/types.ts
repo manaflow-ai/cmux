@@ -697,6 +697,18 @@ export class ProviderNetworkFullError extends ProviderError {
   }
 }
 
+/**
+ * The provider account holds its maximum number of TLS rules. The cap is
+ * account-wide, so the user cannot free it and an immediate retry cannot
+ * succeed; routes answer with a capacity refusal and operators are alerted.
+ */
+export class ProviderTlsRuleLimitError extends ProviderError {
+  constructor(provider: ProviderId, message: string, cause?: unknown) {
+    super(provider, message, cause);
+    this.name = "ProviderTlsRuleLimitError";
+  }
+}
+
 /** An unpublished runtime artifact; diagnostics stay server-side while routes localize the failure. */
 export class ProviderArtifactUnavailableError extends ProviderError {
   constructor(provider: ProviderId, diagnostic: { readonly manifestUrl: string; readonly target: string }) {
