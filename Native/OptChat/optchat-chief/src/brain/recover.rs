@@ -4,15 +4,18 @@
 //! after the appends was lost. Each logged item's bookkeeping is finished
 //! (cursor for a human message, `Reported` for a child's report), so nothing
 //! is logged twice; items that never reached the log are caught up again.
+//! A cut turn whose human messages reached the log runs again as a resume
+//! turn on `RESUMED` (E23, the reference client's Server.ts `resume`), so
+//! each message is answered once.
 
 use optchat_host::OptChat;
 
-use super::{reply_entry, reply_key};
-use crate::state::{ChildStatus, HostState, Item};
+use crate::state::{ChildStatus, HostState, Item, Resume};
 use crate::turn::Orphan;
 
-/// The notice a human gets when the turn that took their message stopped.
-const INTERRUPTED: &str = "(interrupted: the Chief stopped during this turn. Your message is in its memory; send it again for an answer.)";
+/// The note a resume turn runs on (the reference client's words). It is
+/// logged as `user`; the cut turn's messages are in the log before it.
+pub(super) const RESUMED: &str = "The server restarted, cutting the turn; nothing was lost: go on.";
 
 /// Finishes the pending turn's bookkeeping in `state` and clears it.
 /// Returns the names of acpmux turn sessions to remove whose id was never
@@ -35,17 +38,17 @@ pub(super) fn recover(chat: &OptChat, state: &mut HostState, acpmux: bool) -> Ve
         batches.push((batch.at, batch.items.clone(), batch.done));
     }
     let mut human = false;
-    let mut opening_logged = false;
-    for (k, (at, items, done)) in batches.iter().enumerate() {
+    let mut remote = false;
+    for (at, items, done) in &batches {
         let logged = if *done {
             items.len()
         } else {
             (messages.saturating_sub(*at) as usize).min(items.len())
         };
-        if k == 0 {
-            opening_logged = logged > 0;
-        }
         for item in &items[..logged] {
+            // A logged resume note is a cut turn's too: it resumes again.
+            human |= item.resume;
+            remote |= item.remote;
             // A logged image keeps its description pending until the note is
             // written (the save after the describe may have been lost).
             for image in &item.images {
@@ -76,20 +79,18 @@ pub(super) fn recover(chat: &OptChat, state: &mut HostState, acpmux: bool) -> Ve
             }
         }
     }
-    let key = if !turn.key.is_empty() {
-        Some(turn.key.clone())
-    } else if opening_logged {
-        turn.first_id.map(|first| reply_key(chat, first))
-    } else {
-        None
-    };
-    // Messages in the log stay there, unanswered (section 7); a human whose
-    // message it was hears why, once. Messages that never reached the log
-    // are caught up again from the cursor and answered normally.
-    if human && let (Some(conversation), Some(key)) = (turn.conversation.clone(), key) {
-        state
-            .outbox
-            .push(reply_entry(conversation, &key, INTERRUPTED));
+    // Messages in the log stay there and are not logged again (section 7);
+    // the turn runs again on the resume note and answers them once.
+    if human && let Some(conversation) = turn.conversation.as_deref() {
+        let side =
+            (state.conversation.as_deref() != Some(conversation)).then(|| conversation.to_owned());
+        match state.resumes.iter_mut().find(|r| r.conversation == side) {
+            Some(r) => r.remote |= remote,
+            None => state.resumes.push(Resume {
+                conversation: side,
+                remote,
+            }),
+        }
     }
     if !acpmux {
         return Vec::new();

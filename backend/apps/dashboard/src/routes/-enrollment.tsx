@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { useLoad } from "../lib/hooks"
-import { mutate, read } from "../lib/server"
+import { useTeamApi } from "../lib/team-api"
 import { newKey } from "../lib/session"
 
 interface Token {
@@ -27,11 +27,12 @@ const b64u = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(
  * the server. Admins only (the list read refuses members).
  */
 export function EnrollmentTokens() {
+  const { read, mutate, team } = useTeamApi()
   const [label, setLabel] = useState("")
   const [domains, setDomains] = useState("")
   const [fresh, setFresh] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const loaded = useLoad<{ tokens: Array<Token>; devices: Array<Device> } | null>("enrollment", async () => {
+  const loaded = useLoad<{ tokens: Array<Token>; devices: Array<Device> } | null>(`enrollment:${team ?? "personal"}`, async () => {
     const r = await read({ data: { op: "team.enrollment_token.list", params: {} } })
     return r.status === 200 ? (r.body.value as unknown as { tokens: Array<Token>; devices: Array<Device> }) : null
   })
