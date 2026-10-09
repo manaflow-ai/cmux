@@ -80,7 +80,7 @@ export async function runVmAlertChecks(options: {
   const createFailures = await countCreateFailures(db, createFailureSince);
   const stuckProvisioning = await listStuckProvisioningVms(db, stuckProvisioningBefore);
   const expiredLeases = await listExpiredUnrevokedLeases(db, now);
-  const tlsRuleCapacity = await checkTlsRuleCapacity(options.readTlsRuleUsage ?? readFreestyleTlsRuleUsage, env, alertStateStore, now);
+  const tlsRuleCapacity = await checkTlsRuleCapacity(options.readTlsRuleUsage, env, alertStateStore, now);
 
   const triggeredAlerts: AlertInput[] = [];
   if (createFailures.count >= createFailureThreshold) {
@@ -123,7 +123,7 @@ export async function runVmAlertChecks(options: {
     });
   }
 
-  if (tlsRuleCapacity.alert) triggeredAlerts.push(tlsRuleCapacity.alert);
+  triggeredAlerts.push(...tlsRuleCapacity.alerts);
 
   const triggeredKeys = new Set(triggeredAlerts.map((alert) => alert.key));
   for (const key of [
@@ -177,22 +177,22 @@ export async function runVmAlertChecks(options: {
  * capacity alert and re-page on the next run. A healthy read clears it.
  */
 async function checkTlsRuleCapacity(
-  read: (env: Record<string, string | undefined>) => Promise<TlsRuleUsage | null>,
+  read: ((env: Record<string, string | undefined>) => Promise<TlsRuleUsage | null>) | undefined,
   env: Record<string, string | undefined>,
   store: VmAlertStateStore,
   now: Date,
-): Promise<{ readonly alert: AlertInput | null; readonly summary: VmAlertSummary["tlsRuleCapacity"] }> {
+): Promise<{ readonly alerts: AlertInput[]; readonly summary: VmAlertSummary["tlsRuleCapacity"] }> {
   let usage: TlsRuleUsage | null;
   try {
-    usage = await read(env);
+    usage = await (read ?? readFreestyleTlsRuleUsage)(env);
   } catch (error) {
     reportError(error, { subsystem: "cloud_vm_alerts", code: "tls_rule_usage_unreadable" });
     usage = null;
   }
-  if (!usage) return { alert: null, summary: null };
+  if (!usage) return { alerts: [], summary: null };
   const alert = tlsRuleCapacityAlert(usage);
   if (!alert) await clearAlertState(store, TLS_RULE_CAPACITY_ALERT_KEY, now);
-  return { alert, summary: { triggered: alert !== null, count: usage.count, limit: usage.limit } };
+  return { alerts: alert ? [alert] : [], summary: { triggered: alert !== null, count: usage.count, limit: usage.limit } };
 }
 
 /**
