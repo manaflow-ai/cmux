@@ -268,19 +268,22 @@ export default agentPaneEntry({
       play: async (ctx) => {
         const picker = ".acpmux-model .acpmux-picker-button";
         await ctx.click({ selector: picker });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-model .acpmux-menu"));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-model .acpmux-mp"));
         await ctx.press("ArrowDown");
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-model .acpmux-mp-active"));
       },
     },
     "model-menu-starred": {
-      note: "Play: open the model picker and star Sonnet; it moves to a Starred section on top, and every model stays listed.",
+      note: "Play: open the model picker, star Sonnet, then open the rail's Starred tab: it lists the starred models of every harness.",
       snapshot: chat(finished, { harness: "claude", model: "claude-opus-5-5", title: "Starred models" }),
       play: async (ctx) => {
         await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-model .acpmux-menu"));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-model .acpmux-mp"));
         await ctx.click({ selector: '.acpmux-mp-favorite[aria-label$="Sonnet 5.5"]' });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mp-models .acpmux-mp-section"));
+        await ctx.click({ selector: '.acpmux-mp [title="Starred"]' });
+        await ctx.waitFor(() =>
+          ctx.document.querySelector('.acpmux-mp-models [aria-label="Starred"], .acpmux-mp-models .acpmux-mp-row'),
+        );
       },
     },
     "model-switching": {

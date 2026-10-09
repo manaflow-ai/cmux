@@ -664,7 +664,7 @@ fn the_compactor_has_its_own_isolated_configuration() {
         Family::Claude,
         Some("claude-sonnet-5-5"),
     );
-    assert_eq!(spec.effort.as_deref(), Some("high"));
+    assert_eq!(spec.effort.as_deref(), Some("medium"));
     assert_eq!(slot_preset(&spec.preset, 0), preset.name);
     assert!(spec.transcript_dirs.contains(&paths.compactor_config));
     assert!(
@@ -1277,18 +1277,20 @@ fn the_probe_fails_when_a_codex_session_offers_skills() {
     assert!(error.message.contains("$imagegen"), "{error:?}");
 }
 
-/// hq-6d gap 3b: a Claude compactor runs Claude Haiku 5.5 at high effort,
-/// as the reference client does (Haiku overshoots the size limit more often;
-/// the ruler and the "Too long" retry handle it). acpmux maps `effort` onto
-/// Claude Code's `--effort` and codex's `reasoning_effort` (codex keeps
-/// medium: it is not Haiku); a harness of another family keeps its own.
+/// hq-6d (measured 2026-10-09, 33 node inputs on a subscription, Claude
+/// Code 2.1.287): Haiku 5.5 at medium effort costs 20% less per node and
+/// takes 36% less time (p50 4.2 s vs 6.6 s) than at high, with lines of
+/// the same quality; at low, 3 of 12 lines carried leaked reasoning and 2
+/// stayed over the size limit. acpmux maps `effort` onto Claude Code's
+/// `--effort` and codex's `reasoning_effort`; a harness of another family
+/// keeps its own. `OPTCHAT_COMPACTOR_EFFORT` picks another.
 #[test]
-fn a_claude_compactor_runs_haiku_at_high_effort() {
+fn a_claude_compactor_runs_haiku_at_medium_effort() {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("home");
     let paths = Paths::new(&home);
     for (harness, family, effort) in [
-        ("claude-sr", Family::Claude, Some("high")),
+        ("claude-sr", Family::Claude, Some("medium")),
         ("codex", Family::Codex, Some("medium")),
         ("opencode", Family::Other, None),
     ] {
@@ -1296,7 +1298,7 @@ fn a_claude_compactor_runs_haiku_at_high_effort() {
         assert_eq!(spec.effort.as_deref(), effort, "{harness}");
     }
     assert_eq!(Config::default().model, "claude-haiku-5-5");
-    assert_eq!(Config::default().effort.as_deref(), Some("high"));
+    assert_eq!(Config::default().effort.as_deref(), Some("medium"));
 }
 
 /// What Claude Code answers when the account cannot use the model.
@@ -1614,13 +1616,16 @@ fn a_refused_marker_comes_back_after_ten_nodes() {
     );
 }
 
-/// Claude Code without the model in its own table answers a failed call
-/// with "[claude-code:unrecognized_model]" (2.1.287 on claude-haiku-5-5):
-/// the compactor falls back to the turn model then too.
+/// Claude Code's "[claude-code:unrecognized_model]" is a warning (2.1.287
+/// prints it and runs claude-haiku-5-5): it never switches the compactor
+/// to the turn model; only a real refusal or API error does.
 #[test]
-fn an_unrecognized_model_counts_as_unavailable() {
-    assert!(optchat_chief::compactor::is_model_unavailable(
+fn the_unrecognized_model_warning_keeps_the_model() {
+    assert!(!optchat_chief::compactor::is_model_unavailable(
         r#"[claude-code:unrecognized_model] {"model":"claude-haiku-5-5","query_source":"sdk"}"#
+    ));
+    assert!(optchat_chief::compactor::is_model_unavailable(
+        "There's an issue with the selected model (claude-haiku-5-5). It may not exist or you may not have access to it."
     ));
     assert!(!optchat_chief::compactor::is_model_unavailable(
         "API Error: 529 overloaded"
@@ -1690,17 +1695,18 @@ fn a_compactor_slot_carries_the_users_settings_env() {
     assert_eq!(settings["env"]["ANTHROPIC_BASE_URL"], "http://router:31415");
 }
 
-/// Claude Code 2.1.287 does not know `claude-haiku-5-5`
-/// ("[claude-code:unrecognized_model]") but takes the `haiku` alias, which
-/// it maps to its current Haiku. A Claude Code compactor asks for the
-/// alias; the Messages API route keeps the full id; another harness keeps
-/// its own default.
+/// A Claude Code compactor asks for the full id `claude-haiku-5-5`: Claude
+/// Code 2.1.287 only warns that it does not list it
+/// ("[claude-code:unrecognized_model]") and runs it, while its `haiku`
+/// alias is Haiku 4.5 (measured on a subscription: 52 s and no prompt
+/// caching for one node, against 1.3 s at effort low). Another harness
+/// keeps its own default.
 #[test]
 fn the_compactor_model_resolves_per_harness() {
     use optchat_chief::compactor::compactor_model_for;
     assert_eq!(
         compactor_model_for(Family::Claude).as_deref(),
-        Some("haiku")
+        Some("claude-haiku-5-5")
     );
     assert_eq!(compactor_model_for(Family::Codex), None);
     assert_eq!(compactor_model_for(Family::Other), None);
@@ -1752,4 +1758,33 @@ fn a_marked_node_runs_claude_code_without_its_own_cache_marks() {
     assert!(markers(&agents.inner.lock().unwrap().prompts[1]).is_empty());
     let s = settings(1);
     assert!(s["env"].get("DISABLE_PROMPT_CACHING").is_none(), "{s}");
+}
+
+/// hq-6d dogfood (fb211f1670ad): a node's line was stored only after its
+/// slot's warm session had started (about 2.3 s of Claude Code start), so
+/// every node, and the turn waiting for it, took that much longer. The warm
+/// session now starts after the node returns.
+#[test]
+fn a_node_returns_before_its_slots_warm_session_starts() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: pasted a deploy log")));
+    agents.inner.lock().unwrap().system_prompts = true;
+    agents.inner.lock().unwrap().slow_session = Some(("warm".into(), Duration::from_secs(3)));
+    let compactor = compactor(&agents, dir.path()).with_warm(2).shared();
+    let started = std::time::Instant::now();
+    assert_eq!(
+        run_node(&*compactor, &request(1)).unwrap(),
+        "user: pasted a deploy log"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "the node waited for its slot's warm session: {:?}",
+        started.elapsed()
+    );
+    // The warm session still starts, after the node.
+    let deadline = std::time::Instant::now() + WAIT;
+    while agents.inner.lock().unwrap().specs.len() < 2 {
+        assert!(std::time::Instant::now() < deadline, "no warm session");
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }

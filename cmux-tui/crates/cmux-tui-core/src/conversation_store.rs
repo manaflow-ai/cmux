@@ -755,6 +755,11 @@ pub(crate) struct ConversationHost {
     pub(crate) publish: Mutex<()>,
     /// The participant each connection bound with an agent token (memory only).
     pub(crate) bindings: Mutex<std::collections::BTreeMap<u64, String>>,
+    /// Who is typing in each conversation now (memory only): typing is never
+    /// stored, but a snapshot says who types so a client that missed a
+    /// typing item can recover the state.
+    pub(crate) typing:
+        Mutex<std::collections::BTreeMap<String, std::collections::BTreeSet<String>>>,
     /// Remote-relay peers, pairing records and revocation limits.
     pub(crate) remote: crate::remote_relay_state::RemoteRelayState,
 }
