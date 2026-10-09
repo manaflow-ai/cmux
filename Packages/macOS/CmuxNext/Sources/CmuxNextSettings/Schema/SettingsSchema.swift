@@ -140,6 +140,7 @@ public nonisolated enum SettingsSchema {
                 keywords: ["global", "hotkey", "hot key", "summon", "show", "hide", "windows", "system-wide"]
             ),
             TabSettingsSchema.newTabKind(group: tabs),
+            TabSettingsSchema.newTabTemplate(group: tabs),
             TabSettingsSchema.plusButton(group: tabs),
         ] + TabBarSettingsSchema.descriptors(group: tabs) + [
             TabSettingsSchema.newTerminalOpensWorkspace(group: tabs),

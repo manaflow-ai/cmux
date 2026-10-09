@@ -2026,6 +2026,20 @@
       "title" : "New Tab Opens",
       "type" : "string"
     },
+    "tabs.newTabTemplate" : {
+      "default" : "default",
+      "description" : "The layout of the New Tab page. Terminal skips the page and opens a terminal. The dots at the bottom of the page also change it.",
+      "enum" : [
+        "default",
+        "composer",
+        "threads",
+        "console",
+        "classic",
+        "terminal"
+      ],
+      "title" : "New Tab Template",
+      "type" : "string"
+    },
     "tabs.plusButton" : {
       "default" : "hover",
       "description" : "On Hover shows each tab bar's + only while the pointer is over that tab bar.",
