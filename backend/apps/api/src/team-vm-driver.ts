@@ -18,7 +18,7 @@ export interface TeamVmDriver {
   /** Deletes the VM with this provider id; a VM already gone counts as deleted. Callers pass ledger ids only. */
   deleteVm(id: string): Promise<void>
   /**
-   * Retires the VM with this provider id: spends its lifetime run budget, then pauses it (memory
+   * Retires the VM with this provider id: syncs a running guest's disk (best effort, bounded), spends its lifetime run budget, then pauses it (memory
    * and disk kept; a VM already paused counts as paused). The provider resumes a paused VM on any
    * inbound traffic (public IPv6, VPC peers, tunnels, its SSH proxy; measured cx-009a); a spent
    * budget makes it refuse every later start, those wakes and exec included, while the files stay
@@ -81,6 +81,8 @@ const IDLE_TIMEOUT_SECONDS = 600
 const REQUEST_TIMEOUT_MS = 20_000
 /** A create can take much longer than a wake (the web driver allows minutes); a lost answer is recovered by slug. */
 const CREATE_TIMEOUT_MS = 120_000
+/** The guest `sync` before a retire: long enough to flush a busy disk, short enough that the fence follows promptly. */
+const RETIRE_SYNC_MS = 15_000
 /** A retired VM's lifetime run budget: below the time it has already run, so the provider refuses every start. */
 const RETIRED_RUN_BUDGET_SECONDS = 1
 const nonEmpty = (v: unknown): v is string => typeof v === "string" && v.length > 0
@@ -178,6 +180,15 @@ export class FreestyleDriver implements TeamVmDriver {
   }
 
   async retireVm(id: string) {
+    // The file API reads a paused VM's disk image, not the guest page cache (measured cx-lyvg: a
+    // file written seconds before the pause read back as 0 bytes). So a running VM syncs first,
+    // as root, bounded; a failure never holds the fence back. A paused VM is never woken for it.
+    const seen = await this.call("GET", `/v5/vms/${encodeURIComponent(id)}`)
+    if (seen.status === 404) throw new DriverError("team_vm.vm_missing", "retire VM: 404", true)
+    if (seen.status === 200 && seen.json.state === "running") {
+      const synced = await this.call("POST", `/v5/vms/${encodeURIComponent(id)}/exec-await`, { command: "sync", timeoutMs: RETIRE_SYNC_MS, linuxUser: "root" }, RETIRE_SYNC_MS + 5_000)
+      if (synced.status !== 200 || synced.json.statusCode !== 0) console.warn(JSON.stringify({ msg: "team vm retire sync failed", vm: id, status: synced.status }))
+    }
     // First the budget (1 s is always spent: the VM has run at least that long), so no packet that
     // arrives between the pause and a later call can run it again. On a running VM the budget alone
     // pauses it within about a second; the pause below then confirms the state.

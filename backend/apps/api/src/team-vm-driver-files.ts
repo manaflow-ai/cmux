@@ -64,7 +64,8 @@ export class FreestyleFiles implements TeamVmFiles {
     const b = await this.json(res, "fs stat")
     const kind: FsKind = b.isSymlink === true ? "symlink" : b.isDirectory === true ? "directory" : b.isFile === true ? "file" : "other"
     const mode = typeof b.permissions === "string" && /^[0-7]{1,6}$/.test(b.permissions) ? parseInt(b.permissions, 8) & 0o7777 : kind === "directory" ? 0o755 : 0o644
-    const at = typeof b.modified === "string" ? Date.parse(b.modified) : NaN
+    // Epoch seconds as a string while running, "" on a paused VM's disk (measured cx-lyvg).
+    const at = typeof b.modified === "string" ? (/^\d{1,12}$/.test(b.modified) ? Number(b.modified) * 1000 : Date.parse(b.modified)) : NaN
     const size = typeof b.size === "number" && Number.isSafeInteger(b.size) && b.size >= 0 ? b.size : 0
     return { kind, size, mode, mtime: Number.isFinite(at) ? Math.floor(at / 1000) : 0, owner: typeof b.owner === "string" ? b.owner : "", group: typeof b.group === "string" ? b.group : "" }
   }

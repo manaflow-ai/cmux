@@ -93,7 +93,8 @@ export const planExport = async (driver: TeamVmDriver, vm: string, limits: Expor
           }
           bytes += st.size
           if (bytes > limits.maxBytes) return fail("team_vm.export_too_large", `the team files are larger than ${limits.maxBytes} bytes`)
-          entries.push({ path: `${ARCHIVE_ROOT}/${path}`, kind: "file", size: st.size, mode: st.mode, mtime: st.mtime, uname: st.owner, gname: st.group })
+          // A paused VM's disk answers no modification time (measured cx-lyvg): the export time stands in.
+          entries.push({ path: `${ARCHIVE_ROOT}/${path}`, kind: "file", size: st.size, mode: st.mode, mtime: st.mtime || Math.floor(now() / 1000), uname: st.owner, gname: st.group })
         }
       }
     }
