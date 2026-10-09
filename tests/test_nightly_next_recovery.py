@@ -149,6 +149,79 @@ class FinderTests(unittest.TestCase):
         self.assertEqual(json.loads(result.stdout), [])
 
 
+def manifest_fixture(directory: Path, **overrides) -> Path:
+    dmg = directory / "cmux-nightly-next-macos-arm64.dmg"
+    dmg.write_bytes(b"signed dmg")
+    import hashlib
+    value = {
+        "schema": 1,
+        "source_run_id": "498",
+        "should_publish": True,
+        "channel": "nightly",
+        "track": "nightly-next",
+        "variant": "arm64",
+        "release_tag": "nightly-next",
+        "build": "49801",
+        "build_sha": "c" * 40,
+        "tip_sha": "d" * 40,
+        "behind": "1",
+        "behind_hours": "2",
+        "dmg_path": dmg.name,
+        "app_path": "cmux-nightly-notarization-recovery-app/cmux NEXT.app",
+        "state_path": f"{dmg.name}.notarization.state",
+        "immutable_path": "/Users/runner/work/cmux/cmux/cmux-nightly-next-macos-arm64-49801.dmg",
+        "dmg_sha256": hashlib.sha256(b"signed dmg").hexdigest(),
+        "submission_id": "fixture-id",
+    }
+    value.update(overrides)
+    path = directory / "cmux-nightly-notarization-recovery.json"
+    path.write_text(json.dumps(value))
+    return path
+
+
+def check_manifest(directory: Path, **overrides):
+    path = manifest_fixture(directory, **overrides)
+    return subprocess.run(
+        [sys.executable, str(FINDER), "check-manifest", str(path), "--run-id", "498",
+         "--channel", "nightly", "--release-tag", "nightly-next", "--dmg-dir", str(directory)],
+        capture_output=True, text=True,
+    )
+
+
+class CheckManifestTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.temp.name)
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_prints_sourceable_values(self):
+        result = check_manifest(self.dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        values = subprocess.run(
+            ["bash", "-c", result.stdout + '\nprintf "%s|" "$BUILD" "$BUILD_SHA" "$APP_NAME" "$IMMUTABLE_NAME" "$SUBMISSION_ID"'],
+            capture_output=True, text=True, check=True,
+        ).stdout
+        self.assertEqual(
+            values,
+            f"49801|{'c' * 40}|cmux-nightly-notarization-recovery-app/cmux NEXT.app|cmux-nightly-next-macos-arm64-49801.dmg|fixture-id|",
+        )
+
+    def test_refuses_what_it_cannot_publish(self):
+        cases = {
+            "an older manifest without the build commit": {"build_sha": None},
+            "another run's manifest": {"source_run_id": "497"},
+            "main's track": {"track": "nightly", "release_tag": "nightly"},
+            "a different DMG": {"dmg_sha256": "0" * 64},
+            "an escaping path": {"app_path": "../../etc"},
+            "a shell-unsafe submission id": {"submission_id": "x; rm -rf /"},
+        }
+        for case, overrides in cases.items():
+            with self.subTest(case):
+                self.assertNotEqual(check_manifest(self.dir, **overrides).returncode, 0)
+
+
 def workflow() -> dict:
     return yaml.safe_load(WORKFLOW.read_text())
 
@@ -178,7 +251,6 @@ OWN = dict(
     OWN_TIP_SHA="b" * 40,
     OWN_BEHIND="0",
     OWN_BEHIND_HOURS="0",
-    OWN_NOTES_HEAD="b" * 40,
     RECOVERED="",
     RECOVERED_RUN_ID="",
     RECOVERED_BUILD="",
@@ -186,7 +258,6 @@ OWN = dict(
     RECOVERED_TIP_SHA="",
     RECOVERED_BEHIND="",
     RECOVERED_BEHIND_HOURS="",
-    RECOVERED_HEAD_SHA="",
 )
 RECOVERED = dict(
     RECOVERED="true",
@@ -196,7 +267,6 @@ RECOVERED = dict(
     RECOVERED_TIP_SHA="d" * 40,
     RECOVERED_BEHIND="1",
     RECOVERED_BEHIND_HOURS="2",
-    RECOVERED_HEAD_SHA="d" * 40,
 )
 
 
@@ -235,6 +305,7 @@ class WorkflowTests(unittest.TestCase):
             occurrences = [line for line in text.splitlines() if stale in line and "OWN_" not in line]
             self.assertEqual(occurrences, [], stale)
         self.assertNotIn("NIGHTLY_BUILD", job["env"])
+        self.assertIn("NOTES_HEAD: ${{ steps.source.outputs.build_sha }}", text)
         self.assertEqual(job["outputs"]["source"], "${{ steps.source.outputs.source }}")
 
     def test_publish_runs_for_an_accepted_own_or_recovered_build(self):
@@ -262,7 +333,6 @@ class WorkflowTests(unittest.TestCase):
             self.assertEqual(selected["tip_sha"], "d" * 40)
             self.assertEqual(selected["behind"], "1")
             self.assertEqual(selected["behind_hours"], "2")
-            self.assertEqual(selected["notes_head"], "d" * 40)
             self.assertEqual(selected["variant_pattern"], "cmux-nightly-recovered-variant-*")
 
     def test_select_refuses_with_nothing_accepted(self):
