@@ -601,6 +601,30 @@ describe("acpmux composer pickers", () => {
     expect(unrestricted("default")).toBe(false);
   });
 
+  test("picking a mode updates the lock label at once and keeps the full-access warning in the menu", async () => {
+    const choices = {
+      currentModeId: "ask",
+      availableModes: [
+        { id: "ask", name: "Ask for approval", description: "Always ask" },
+        { id: "full-access", name: "Full access" },
+      ],
+    };
+    await render(snapshot({ modes: choices }));
+    const mode = button("Mode")!;
+    await act(async () => mode.click());
+    const full = [...doc.querySelectorAll<HTMLElement>("[role=menuitemradio]")].find((row) =>
+      row.textContent?.includes("Full access"),
+    )!;
+    expect(full.querySelector(".acpmux-menu-description")?.textContent).toBe(
+      "Can edit and run commands without asking",
+    );
+    await act(async () => full.click());
+    expect(calls).toEqual(["mode full-access"]);
+    expect(mode.textContent).toContain("Full access");
+    expect(mode.closest(".acpmux-mode")?.classList.contains("acpmux-unrestricted")).toBe(true);
+    expect(doc.querySelector("[role=menu]")).toBeNull();
+  });
+
   test("Plan is a toggle apart from the permission chip, and leaving it restores the permission mode", async () => {
     const withPlan = {
       ...modes,

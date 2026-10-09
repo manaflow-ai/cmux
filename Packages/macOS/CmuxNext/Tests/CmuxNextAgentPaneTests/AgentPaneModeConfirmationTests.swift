@@ -147,6 +147,18 @@ import Testing
         #expect(!daemonSaw(rig, "bypassPermissions"))
     }
 
+    /// The lock menu's Fast mode choice is a direct setting pick, so it must not open a permission sheet.
+    @Test func fastModeSwitchGoesOutWithoutASheet() async throws {
+        let rig = Rig()
+        try await rig.start()
+        defer { rig.server.stop() }
+        let sheets = Sheets(on: rig.transport, reply: false)
+        #expect(await rig.send("session/set_config_option", Self.fastParams,
+                               ticket: await rig.ticket(Self.fastIntent)) == nil)
+        #expect(sheets.asked.isEmpty)
+        #expect(await rig.server.wait { $0.last?.frames.contains { $0.contains("\"fast\"") } == true })
+    }
+
     /// A config option that is not free (paired devices, cx-44j.2) keeps its sheet; Cancel refuses.
     @Test func cancelRefusesAnOptionThatIsNotFree() async throws {
         let rig = Rig()
