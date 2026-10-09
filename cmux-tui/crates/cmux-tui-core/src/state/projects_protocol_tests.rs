@@ -102,8 +102,8 @@ fn projects_observe_list_edit_remove_and_events() {
         2
     );
 
-    // The source still reports it, so a missing folder stays present.
-    send(&mux, "project.sync", json!({}), Some("p-9")).unwrap();
+    // The app found it gone, but the source still reports it: it stays present.
+    send(&mux, "project.sync", json!({"gone": [app]}), Some("p-9")).unwrap();
     let hidden = read(&mux, "project.list", json!({"include_hidden": true}));
     let app_state = hidden["projects"]
         .as_array()

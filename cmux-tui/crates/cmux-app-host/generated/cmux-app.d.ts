@@ -222,7 +222,7 @@ declare namespace Cmux {
   type ProjectObservation = { path: string; last_used_ms: string }
   type ProjectOverlay = { rename?: string; pinned?: boolean; hidden?: boolean; order?: number }
   type ProjectSnapshot = { path: string; name: string; last_used_ms: string; sources: Record<string, Cmux.ProjectSourceSeen>; overlay: Cmux.ProjectOverlay; state: "present" | "missing" }
-  type ProjectSourceSeen = { first_seen_ms: string; last_seen_ms: string; last_used_ms: string }
+  type ProjectSourceSeen = { first_seen_ms: string; last_used_ms: string }
   type PublicJwk = { kty: "EC"; crv: "P-256"; x: string; y: string }
   type PushTarget = { token: Cmux.PushToken; topic: string; environment: "development" | "production"; install: string; device_name: string; registered_at: number }
   type PushToken = string
@@ -1011,7 +1011,7 @@ interface CmuxGlobal {
     /** `project.remove` (mutation, scope `project:write`) */
     remove: CmuxOp<{ machine?: string; session?: string; path: string }, Cmux.MutationResult<Cmux.ProjectChange>>
     /** `project.sync` (mutation, scope `project:write`) */
-    sync: CmuxOp<{ machine?: string; session?: string }, Cmux.MutationResult<Cmux.ProjectChange>>
+    sync: CmuxOp<{ machine?: string; session?: string; existing?: Array<string>; gone?: Array<string> }, Cmux.MutationResult<Cmux.ProjectChange>>
     /** `project.update` (mutation, scope `project:write`) */
     update: CmuxOp<{ machine?: string; session?: string; path: string; rename?: string | null; pinned?: boolean; hidden?: boolean; order?: number | null }, Cmux.MutationResult<Cmux.ProjectChange>>
   }

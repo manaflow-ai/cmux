@@ -580,7 +580,13 @@ pub(crate) fn dispatch(
         }
         Op::ProjectSync => {
             ensure_session(mux, selectors)?;
-            let commit = mux.state_project_sync(&mutation(&request)?).map_err(state_error)?;
+            let commit = mux
+                .state_project_sync(
+                    &mutation(&request)?,
+                    &strings(fields, "existing"),
+                    &strings(fields, "gone"),
+                )
+                .map_err(state_error)?;
             state_result(mux, commit)
         }
         // workspace-kind-v1: the one home workspace, created by the store.

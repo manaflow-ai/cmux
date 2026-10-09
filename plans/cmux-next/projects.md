@@ -21,7 +21,7 @@ The cmux-tui-core store owns one project table (one writer). A project:
 | --- | --- |
 | `path` | canonical key: absolute, `realpath`-resolved, no trailing slash, case as on disk |
 | `name` | display name; defaults to the last path component |
-| `sources[]` | `{source, first_seen_ms, last_seen_ms, last_used_ms}` per source that reported the path |
+| `sources[]` | `{source, first_seen_ms, last_used_ms}` per source that reported the path (no "last seen": it would rewrite every row on every resync) |
 | `overlay` | the user's edits: `rename?`, `pinned`, `hidden`, `order?` |
 | `state` | `present` or `missing` (gone from every source and from disk) |
 
@@ -47,7 +47,7 @@ Single watcher rule: acpmux already watches the chat roots. The store does not s
 
 - At daemon start: one full scan of every enabled source.
 - File watches: the editor adapters' source files (FSEvents/inotify through `notify`, debounced like `chats/watch.rs`: 300 ms quiet, 2 s max burst); acpmux pushes chat changes as they happen.
-- On app activation: the app sends `project.sync` (a new intent from `didBecomeActive`), which rescans only the sources whose files changed since the last scan (mtime + size check), so a project made in the ChatGPT app while cmux was in the background shows on the next switch to cmux.
+- On app activation: the app rescans only the sources whose files changed since the last scan (mtime + size check), so a project made in the ChatGPT app while cmux was in the background shows on the next switch to cmux, and sends `project.sync {existing, gone}`: the disk facts it checked with its own privacy rules (PrivacyFolder; a protected folder is never stat'ed unasked). The store reads no disk for observed paths: a read inside a privacy-protected folder raises a macOS prompt attributed to cmux, and a stale network mount would stall the store's locks.
 - No polling interval anywhere.
 
 ## 5. Merge rules (the reducer, invariant-tested)
@@ -58,13 +58,15 @@ Single watcher rule: acpmux already watches the chat roots. The store does not s
 4. A path that no source reports any more and that is gone from disk: `state = missing` (shown dimmed, removable). Never deleted automatically.
 5. A `user` source is never dropped by a resync.
 6. Disabling a source removes that source entry from every project; a project left with no source and no overlay is removed, one with an overlay (pinned, renamed) stays.
-7. Refused paths are never projects: `/`, the home folder itself, temp dirs, agent homes (cmux agent-home and each harness's own config dir), and anything the protected-folder rule refuses to look into is kept only if a source reported it, never walked (`acpmux/src/protected_folders.rs`, one copy).
+7. Paths are normalized lexically (absolute, no trailing slash, no `.`/`..`, the `/System/Volumes/Data` firmlink removed) and compared case-insensitively. Refused paths are never projects: `/`, the home folder itself, temp dirs, agent homes (cmux agent-home and each harness's own config dir), and anything the protected-folder rule refuses to look into is kept only if a source reported it, never walked (`acpmux/src/protected_folders.rs`, one copy).
+
+8. At most 1000 projects: past it, the least recently used imports with no user edit and no `user` source are dropped first.
 
 ## 6. Ops (spec `resource-operations-v2.json`, capability `project-list-v1`)
 
 - `project.list {query?, include_hidden?, limit?}` -> projects (section 2 shape).
-- `project.observe {source, entries: [{path, last_used_ms}]}` (acpmux and the store's own adapters; idempotent by `(source, path, last_used_ms)`).
-- `project.sync {}` (app activation).
+- `project.observe {source, entries: [{path, last_used_ms}], complete?}` (acpmux and the editor adapters; at most 10000 entries, a `complete` source sends everything in one batch; a re-observe with the same times changes nothing).
+- `project.sync {existing?, gone?}` (app activation; the app's disk facts, at most 10000 paths).
 - `project.add {path}` (source `user`), `project.update {path, rename?, pinned?, hidden?, order?}`, `project.remove {path}` (drops `user`, sets `hidden` for a path a source still reports, so it does not come back).
 - `project.sources.get` / settings: per-source on/off lives in `settings.projects.sources` (schema, generated), read by the store.
 - Typed rejects: `invalid_path`, `refused_path`, `unknown_project`.

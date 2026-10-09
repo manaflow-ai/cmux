@@ -31,10 +31,7 @@ fn projects_rule1_a_new_path_from_a_source_is_added_with_its_times() {
     let project = projects.get("/Users/me/src/app").unwrap();
     assert_eq!(project.name(), "app");
     assert_eq!(project.state, ProjectState::Present);
-    assert_eq!(
-        project.sources["claude-code"],
-        SourceSeen { first_seen_ms: 100, last_seen_ms: 100, last_used_ms: 50 }
-    );
+    assert_eq!(project.sources["claude-code"], SourceSeen { first_seen_ms: 100, last_used_ms: 50 });
 }
 
 #[test]
@@ -58,10 +55,7 @@ fn projects_rule2_a_known_path_updates_only_its_source_never_the_users_edits() {
     assert_eq!(project.name(), "My App");
     assert!(project.overlay.pinned);
     assert_eq!(project.overlay.order, Some(3));
-    assert_eq!(
-        project.sources["codex"],
-        SourceSeen { first_seen_ms: 100, last_seen_ms: 200, last_used_ms: 70 }
-    );
+    assert_eq!(project.sources["codex"], SourceSeen { first_seen_ms: 100, last_used_ms: 70 });
     assert_eq!(project.last_used_ms(), 90);
 }
 
@@ -92,15 +86,17 @@ fn projects_rule4_gone_from_every_source_and_from_disk_is_missing_never_deleted(
         .unwrap();
     // The source no longer lists either path.
     projects.observe("codex", &[], true, 200, &refusals()).unwrap();
-    let changed = projects.reconcile(|path| path == "/Users/me/src/here");
+    let gone = vec!["/Users/me/src/gone".to_string()];
+    let here = vec!["/Users/me/src/here".to_string()];
+    let changed = projects.apply_disk(&here, &gone);
     assert_eq!(changed, vec!["/Users/me/src/gone"]);
     assert_eq!(projects.get("/Users/me/src/gone").unwrap().state, ProjectState::Missing);
     assert_eq!(projects.get("/Users/me/src/here").unwrap().state, ProjectState::Present);
     // Back on disk (a checkout restored): present again.
-    assert_eq!(projects.reconcile(|_| true), vec!["/Users/me/src/gone"]);
+    assert_eq!(projects.apply_disk(&gone, &[]), vec!["/Users/me/src/gone"]);
     // A project a source still reports is present even when its folder is gone.
     projects.observe("codex", &[seen("/Users/me/src/gone", 20)], false, 300, &refusals()).unwrap();
-    assert!(projects.reconcile(|_| false).iter().all(|path| path != "/Users/me/src/gone"));
+    assert!(projects.apply_disk(&[], &gone).is_empty());
 }
 
 #[test]
@@ -108,7 +104,6 @@ fn projects_rule5_a_user_added_project_survives_every_resync_and_is_unhidden() {
     let mut projects = Projects::default();
     projects.add("/Users/me/notes", 100, &refusals()).unwrap();
     projects.observe("codex", &[], true, 200, &refusals()).unwrap();
-    projects.reconcile(|_| true);
     assert!(projects.get("/Users/me/notes").unwrap().sources.contains_key(USER_SOURCE));
     projects.observe("codex", &[seen("/Users/me/src/a", 1)], false, 300, &refusals()).unwrap();
     projects

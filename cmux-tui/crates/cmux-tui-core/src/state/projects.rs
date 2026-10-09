@@ -4,8 +4,11 @@
 //! workspaces) report paths; the user's edits (rename, pin, hide, order) are an
 //! overlay no resync ever touches.
 //!
-//! This module is the pure reducer: no IO. Callers canonicalize paths
-//! (`realpath`) before they reach it and pass the disk check to `reconcile`.
+//! This module is the pure reducer: no IO. The store never resolves or stats
+//! an observed path (a read inside a privacy-protected folder raises a macOS
+//! prompt attributed to cmux): paths are normalized lexically here, `project.add`
+//! resolves the folder the user picked, and the app reports disk facts
+//! (`apply_disk`) with its own privacy rules.
 
 use std::collections::BTreeMap;
 
@@ -17,12 +20,18 @@ pub(crate) const USER_SOURCE: &str = "user";
 const MAX_PATH_BYTES: usize = 4096;
 /// The longest source id and display name accepted.
 const MAX_NAME_BYTES: usize = 256;
+/// The most projects kept. Past it, the least recently used imports with no
+/// user edit and no `user` source go first (a chat index can name one folder
+/// per worktree or agent run).
+pub(crate) const MAX_PROJECTS: usize = 1000;
+/// macOS's data volume firmlink: `/System/Volumes/Data/Users/me` is `/Users/me`.
+const DATA_VOLUME: &str = "/System/Volumes/Data";
 
-/// When one source last reported a project.
+/// When one source first reported a project, and when it was last used there.
+/// (No "last seen" time: it would change on every resync and rewrite every row.)
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct SourceSeen {
     pub first_seen_ms: i64,
-    pub last_seen_ms: i64,
     pub last_used_ms: i64,
 }
 
@@ -36,7 +45,7 @@ pub(crate) struct Overlay {
     #[serde(default)]
     pub hidden: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub order: Option<i64>,
+    pub order: Option<i32>,
 }
 
 impl Overlay {
@@ -85,18 +94,28 @@ pub(crate) struct Observation {
     pub last_used_ms: i64,
 }
 
-/// A user edit (`project.update`); an absent field is left as it is.
+/// A user edit (`project.update`); an absent field is left as it is, JSON
+/// null clears a rename or an order (`Some(None)`).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct OverlayEdit {
-    /// `Some(None)` clears a rename.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "present", skip_serializing_if = "Option::is_none")]
     pub rename: Option<Option<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pinned: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hidden: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub order: Option<Option<i64>>,
+    #[serde(default, deserialize_with = "present", skip_serializing_if = "Option::is_none")]
+    pub order: Option<Option<i32>>,
+}
+
+/// A field that is present (`Some`), null included (`Some(None)`); serde's
+/// `default` gives `None` only when the field is absent.
+fn present<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
 }
 
 /// Why the store refuses a request.
@@ -130,7 +149,10 @@ pub(crate) struct Refusals {
 }
 
 impl Refusals {
-    fn check(&self, path: &str) -> Result<(), ProjectReject> {
+    /// `path` in its stored form (absolute, no trailing slash, no `.` or `..`,
+    /// the data volume firmlink removed), or why it is not a project. Lexical:
+    /// nothing is read from disk.
+    pub(crate) fn normalize(&self, path: &str) -> Result<String, ProjectReject> {
         if path.is_empty() || path.len() > MAX_PATH_BYTES || path.contains('\0') {
             return Err(ProjectReject::InvalidPath(
                 "path must be 1 to 4096 bytes without NUL".into(),
@@ -144,20 +166,32 @@ impl Refusals {
         if path.split('/').any(|part| part == "." || part == "..") {
             return Err(ProjectReject::InvalidPath("path must be canonical (no . or ..)".into()));
         }
-        let home = self.home.trim_end_matches('/');
-        let refused = path == "/"
-            || path == home
+        let path = match path.strip_prefix(DATA_VOLUME) {
+            Some(rest) if rest.is_empty() || rest.starts_with('/') => {
+                if rest.is_empty() {
+                    "/"
+                } else {
+                    rest
+                }
+            }
+            _ => path,
+        };
+        // The Mac's disk ignores case: compare folded.
+        let folded = path.to_lowercase();
+        let home = self.home.trim_end_matches('/').to_lowercase();
+        let refused = folded == "/"
+            || folded == home
             || (!home.is_empty()
-                && home.starts_with(path)
-                && home.as_bytes().get(path.len()) == Some(&b'/'))
+                && home.starts_with(&folded)
+                && home.as_bytes().get(folded.len()) == Some(&b'/'))
             || ["/tmp", "/private/tmp", "/var/folders", "/private/var/folders"]
                 .iter()
-                .any(|root| is_within(path, root))
-            || self.roots.iter().any(|root| is_within(path, root));
+                .any(|root| is_within(&folded, root))
+            || self.roots.iter().any(|root| is_within(&folded, &root.to_lowercase()));
         if refused {
             return Err(ProjectReject::RefusedPath(format!("{path} is never a project")));
         }
-        Ok(())
+        Ok(path.to_string())
     }
 }
 
@@ -245,28 +279,24 @@ impl Projects {
         let mut changed = Vec::new();
         let mut reported = std::collections::BTreeSet::new();
         for entry in entries {
-            if refusals.check(&entry.path).is_err() {
-                continue;
-            }
-            reported.insert(entry.path.clone());
-            let project = self.by_path.entry(entry.path.clone()).or_insert_with(|| Project {
-                path: entry.path.clone(),
+            let Ok(path) = refusals.normalize(&entry.path) else { continue };
+            reported.insert(path.clone());
+            let project = self.by_path.entry(path.clone()).or_insert_with(|| Project {
+                path: path.clone(),
                 sources: BTreeMap::new(),
                 overlay: Overlay::default(),
                 state: ProjectState::Present,
             });
             let before = project.clone();
-            let seen = project.sources.entry(source.to_string()).or_insert(SourceSeen {
-                first_seen_ms: now_ms,
-                last_seen_ms: now_ms,
-                last_used_ms: entry.last_used_ms,
-            });
-            seen.last_seen_ms = now_ms;
+            let seen = project
+                .sources
+                .entry(source.to_string())
+                .or_insert(SourceSeen { first_seen_ms: now_ms, last_used_ms: entry.last_used_ms });
             seen.last_used_ms = seen.last_used_ms.max(entry.last_used_ms);
             // A source reporting it again: it exists again.
             project.state = ProjectState::Present;
             if *project != before {
-                changed.push(entry.path.clone());
+                changed.push(path);
             }
         }
         if complete {
@@ -276,39 +306,66 @@ impl Projects {
                 }
             }
         }
+        changed.extend(self.evict_past_cap());
         changed.sort();
         changed.dedup();
         Ok(changed)
     }
 
-    /// The user adds a folder (source `user`, rule 5). Unhides it.
+    /// Drops the least recently used imports with no user edit and no `user`
+    /// source until at most `MAX_PROJECTS` remain. Returns the paths dropped.
+    fn evict_past_cap(&mut self) -> Vec<String> {
+        let excess = self.by_path.len().saturating_sub(MAX_PROJECTS);
+        if excess == 0 {
+            return Vec::new();
+        }
+        let mut candidates: Vec<(i64, String)> = self
+            .by_path
+            .values()
+            .filter(|project| {
+                project.overlay.is_empty() && !project.sources.contains_key(USER_SOURCE)
+            })
+            .map(|project| (project.last_used_ms(), project.path.clone()))
+            .collect();
+        candidates.sort();
+        let dropped: Vec<String> =
+            candidates.into_iter().take(excess).map(|(_, path)| path).collect();
+        for path in &dropped {
+            self.by_path.remove(path);
+        }
+        dropped
+    }
+
+    /// The user adds a folder (source `user`, rule 5). Unhides it. Returns the
+    /// paths that changed (the project, and any import the cap dropped).
     pub(crate) fn add(
         &mut self,
         path: &str,
         now_ms: i64,
         refusals: &Refusals,
-    ) -> Result<(), ProjectReject> {
-        refusals.check(path)?;
-        let project = self.by_path.entry(path.to_string()).or_insert_with(|| Project {
-            path: path.to_string(),
+    ) -> Result<Vec<String>, ProjectReject> {
+        let path = refusals.normalize(path)?;
+        let project = self.by_path.entry(path.clone()).or_insert_with(|| Project {
+            path: path.clone(),
             sources: BTreeMap::new(),
             overlay: Overlay::default(),
             state: ProjectState::Present,
         });
-        let seen = project.sources.entry(USER_SOURCE.to_string()).or_insert(SourceSeen {
-            first_seen_ms: now_ms,
-            last_seen_ms: now_ms,
-            last_used_ms: now_ms,
-        });
-        seen.last_seen_ms = now_ms;
+        let before = project.clone();
+        let seen = project
+            .sources
+            .entry(USER_SOURCE.to_string())
+            .or_insert(SourceSeen { first_seen_ms: now_ms, last_used_ms: now_ms });
         seen.last_used_ms = seen.last_used_ms.max(now_ms);
         project.overlay.hidden = false;
         project.state = ProjectState::Present;
-        Ok(())
+        let mut changed = if *project != before { vec![path] } else { Vec::new() };
+        changed.extend(self.evict_past_cap());
+        Ok(changed)
     }
 
-    /// The user's edit of a project's overlay.
-    pub(crate) fn update(&mut self, path: &str, edit: &OverlayEdit) -> Result<(), ProjectReject> {
+    /// The user's edit of a project's overlay. Returns whether it changed.
+    pub(crate) fn update(&mut self, path: &str, edit: &OverlayEdit) -> Result<bool, ProjectReject> {
         if let Some(Some(name)) = &edit.rename
             && (name.trim().is_empty() || name.len() > MAX_NAME_BYTES || name.contains('\0'))
         {
@@ -318,6 +375,7 @@ impl Projects {
             .by_path
             .get_mut(path)
             .ok_or_else(|| ProjectReject::UnknownProject(path.to_string()))?;
+        let before = project.overlay.clone();
         if let Some(rename) = &edit.rename {
             project.overlay.rename = rename.clone();
         }
@@ -330,7 +388,7 @@ impl Projects {
         if let Some(order) = edit.order {
             project.overlay.order = order;
         }
-        Ok(())
+        Ok(project.overlay != before)
     }
 
     /// The user removes a project. One a source still reports is hidden, so
@@ -366,19 +424,22 @@ impl Projects {
         changed
     }
 
-    /// Rule 4: a project no source reports and that is gone from disk is
-    /// missing; one on disk again is present. `exists` is the disk check.
-    pub(crate) fn reconcile(&mut self, exists: impl Fn(&str) -> bool) -> Vec<String> {
+    /// Rule 4, with the disk facts the app checked (`project.sync`): a project
+    /// in `gone` that no source other than the user reports is missing; one in
+    /// `existing` is present. Returns the paths that changed.
+    pub(crate) fn apply_disk(&mut self, existing: &[String], gone: &[String]) -> Vec<String> {
         let mut changed = Vec::new();
-        for project in self.by_path.values_mut() {
-            let state = if !project.sources.is_empty() || exists(&project.path) {
-                ProjectState::Present
-            } else {
-                ProjectState::Missing
-            };
-            if project.state != state {
-                project.state = state;
-                changed.push(project.path.clone());
+        for (paths, state) in [(gone, ProjectState::Missing), (existing, ProjectState::Present)] {
+            for path in paths {
+                let Some(project) = self.by_path.get_mut(path) else { continue };
+                let reported = project.sources.keys().any(|source| source != USER_SOURCE);
+                if state == ProjectState::Missing && reported {
+                    continue;
+                }
+                if project.state != state {
+                    project.state = state;
+                    changed.push(path.clone());
+                }
             }
         }
         changed

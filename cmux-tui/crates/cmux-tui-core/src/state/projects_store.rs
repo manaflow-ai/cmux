@@ -36,10 +36,10 @@ pub(crate) fn load(connection: &Connection) -> anyhow::Result<Projects> {
         match serde_json::from_str::<Project>(&json) {
             Ok(project) if project.path == path => projects.push(project),
             Ok(_) => {
-                eprintln!("cmux-tui: project row {path:?} names another path; skipped");
+                eprintln!("cmux-tui: a project row names another path; skipped");
             }
             Err(error) => {
-                eprintln!("cmux-tui: project row {path:?} does not parse ({error}); skipped");
+                eprintln!("cmux-tui: a project row does not parse ({error}); skipped");
             }
         }
     }
@@ -79,7 +79,6 @@ pub(crate) fn project_value(project: &Project) -> Value {
         .map(|(source, seen)| {
             let value = json!({
                 "first_seen_ms": seen.first_seen_ms.to_string(),
-                "last_seen_ms": seen.last_seen_ms.to_string(),
                 "last_used_ms": seen.last_used_ms.to_string(),
             });
             (source.clone(), value)
@@ -125,7 +124,9 @@ pub(crate) fn list_value(
 /// project lives in (cmux's agent-home, each harness's own config folder).
 pub(crate) fn refusals() -> Refusals {
     let home = std::env::var("HOME").unwrap_or_default();
-    let home = canonical_or_given(&home);
+    // The home folder itself is not privacy-protected; resolving it reads nothing inside.
+    let home = std::fs::canonicalize(&home)
+        .map_or(home, |resolved| resolved.to_string_lossy().into_owned());
     let roots = [
         "Library/Application Support/cmux/agent-home",
         ".claude",
@@ -139,14 +140,4 @@ pub(crate) fn refusals() -> Refusals {
     .map(|relative| format!("{}/{relative}", home.trim_end_matches('/')))
     .collect();
     Refusals { home, roots }
-}
-
-/// `path` with symlinks resolved when it exists (realpath), else as given
-/// with any trailing slash removed: a source may name a folder that is gone.
-pub(crate) fn canonical_or_given(path: &str) -> String {
-    match std::fs::canonicalize(path) {
-        Ok(resolved) => resolved.to_string_lossy().into_owned(),
-        Err(_) if path.len() > 1 => path.trim_end_matches('/').to_string(),
-        Err(_) => path.to_string(),
-    }
 }

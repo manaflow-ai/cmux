@@ -8218,14 +8218,6 @@
           },
           "description": "When the source first reported the project (Unix ms)."
         },
-        "last_seen_ms": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "decimal"
-          },
-          "description": "When the source last reported it (Unix ms)."
-        },
         "last_used_ms": {
           "required": true,
           "type": {
@@ -14832,7 +14824,7 @@
                 "name": "ProjectObservation"
               }
             },
-            "description": "The paths the source reports, at most 2000."
+            "description": "The paths the source reports, at most 10000; a source with complete sends everything it knows in one batch."
           },
           "complete": {
             "required": false,
@@ -14932,10 +14924,33 @@
           "machine": "required",
           "session": "required"
         },
-        "fields": {},
+        "fields": {
+          "existing": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "Project paths the app found on disk (present again if missing)."
+          },
+          "gone": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "Project paths the app found gone; missing unless a source other than the user still reports them."
+          }
+        },
         "extra": false,
         "constraints": [
-          "Marks a project no source reports and that is gone from disk missing, and a missing one back on disk present. Sent at daemon start and on app activation; never on a timer."
+          "Applies the disk facts the app checked with its privacy rules (the store reads no disk): a gone project that no source but the user reports is missing, an existing one present. Sent on app activation; never on a timer. At most 10000 paths."
         ]
       },
       "result": {

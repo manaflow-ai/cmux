@@ -14,8 +14,9 @@ use crate::state::projects::{Observation, OverlayEdit, ProjectReject, Projects};
 use crate::state::projects_store::{self as store, RESOURCE};
 use crate::state::store::{StateChanges, StateCommit, state_delete, state_upsert};
 
-/// The most paths one `project.observe` batch may carry.
-pub(crate) const MAX_OBSERVATIONS: usize = 2_000;
+/// The most paths one `project.observe` batch may carry: a source with
+/// `complete` sends everything it knows in one batch.
+pub(crate) const MAX_OBSERVATIONS: usize = 10_000;
 
 fn now_ms() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_millis() as i64)
@@ -94,7 +95,8 @@ impl Mux {
     }
 
     /// `project.observe`: `source` reports paths (acpmux's chat index, an
-    /// editor adapter). Paths are canonicalized here; refused ones are skipped.
+    /// editor adapter). Paths are normalized lexically, never read from disk;
+    /// refused ones are skipped.
     pub(crate) fn state_project_observe(
         &self,
         mutation: &WorkspaceMutation,
@@ -107,27 +109,23 @@ impl Mux {
             parsed.len() <= MAX_OBSERVATIONS,
             "bad request: at most {MAX_OBSERVATIONS} entries per batch"
         );
-        let canonical: Vec<Observation> = parsed
-            .into_iter()
-            .map(|entry| Observation {
-                path: store::canonical_or_given(&entry.path),
-                last_used_ms: entry.last_used_ms,
-            })
-            .collect();
         let fingerprint = json!({"operation": "project.observe", "source": source, "entries": entries, "complete": complete});
         let refusals = store::refusals();
         let now = now_ms();
         self.commit_projects(mutation, "project.observe", &fingerprint, |projects| {
-            projects.observe(source, &canonical, complete, now, &refusals).map_err(rejected)
+            projects.observe(source, &parsed, complete, now, &refusals).map_err(rejected)
         })
     }
 
-    /// `project.add`: the user adds a folder (source `user`). It must exist.
+    /// `project.add`: the user adds a folder they picked (source `user`). It
+    /// must be absolute and exist; its symlinks are resolved (the user chose
+    /// this folder, so reading it is the user's act).
     pub(crate) fn state_project_add(
         &self,
         mutation: &WorkspaceMutation,
         path: &str,
     ) -> anyhow::Result<StateCommit> {
+        anyhow::ensure!(path.starts_with('/'), "bad request: invalid_path: {path} is not absolute");
         let canonical = std::fs::canonicalize(path).map_err(|_| {
             anyhow::anyhow!("bad request: invalid_path: {path} is not an existing folder")
         })?;
@@ -137,8 +135,7 @@ impl Mux {
         let refusals = store::refusals();
         let now = now_ms();
         self.commit_projects(mutation, "project.add", &fingerprint, |projects| {
-            projects.add(&canonical, now, &refusals).map_err(rejected)?;
-            Ok(vec![canonical.clone()])
+            projects.add(&canonical, now, &refusals).map_err(rejected)
         })
     }
 
@@ -153,8 +150,8 @@ impl Mux {
             .map_err(|error| anyhow::anyhow!("bad request: {error}"))?;
         let fingerprint = json!({"operation": "project.update", "path": path, "edit": edit});
         self.commit_projects(mutation, "project.update", &fingerprint, |projects| {
-            projects.update(path, &parsed).map_err(rejected)?;
-            Ok(vec![path.to_string()])
+            let changed = projects.update(path, &parsed).map_err(rejected)?;
+            Ok(if changed { vec![path.to_string()] } else { Vec::new() })
         })
     }
 
@@ -171,15 +168,21 @@ impl Mux {
         })
     }
 
-    /// `project.sync` (daemon start, app activation): marks projects missing
-    /// or present again from the disk (rule 4).
+    /// `project.sync` (app activation): the disk facts the app checked with its
+    /// privacy rules (rule 4); the store reads no disk itself.
     pub(crate) fn state_project_sync(
         &self,
         mutation: &WorkspaceMutation,
+        existing: &[String],
+        gone: &[String],
     ) -> anyhow::Result<StateCommit> {
-        let fingerprint = json!({"operation": "project.sync", "mutation": mutation.id});
+        anyhow::ensure!(
+            existing.len() + gone.len() <= MAX_OBSERVATIONS,
+            "bad request: at most {MAX_OBSERVATIONS} paths per sync"
+        );
+        let fingerprint = json!({"operation": "project.sync", "existing": existing, "gone": gone});
         self.commit_projects(mutation, "project.sync", &fingerprint, |projects| {
-            Ok(projects.reconcile(|path| std::path::Path::new(path).is_dir()))
+            Ok(projects.apply_disk(existing, gone))
         })
     }
 }
