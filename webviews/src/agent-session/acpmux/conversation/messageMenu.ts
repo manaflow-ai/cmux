@@ -16,15 +16,26 @@ export type MessageMenuTarget = { text: string; markdown?: string; forkSeq?: num
 export const canFork = (snapshot: AcpmuxSnapshot) =>
   Boolean(snapshot.canFork) && snapshot.connection !== "disconnected" && !snapshot.connection.startsWith("connecting");
 
+/// The one turn a fork can go through: the latest completed turn's summary event. acpmux forks a
+/// chat at its end (`acp.session.fork` refuses an earlier turn), so no earlier turn offers it.
+export function latestForkSeq(rows: readonly { kind: string; seq?: number }[]): number | undefined {
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index]!;
+    if (row.kind === "turnSummary" && row.seq !== undefined) return row.seq;
+  }
+  return undefined;
+}
+
 /// The message a transcript row shows (`data-row-id`; a copy folded into "Worked for" ends in
 /// `:fold`), or undefined for a row that is not a prompt or a reply.
 export function messageMenuTarget(snapshot: AcpmuxSnapshot, rowId: string): MessageMenuTarget | undefined {
   const id = rowId.endsWith(":fold") ? rowId.slice(0, -":fold".length) : rowId;
   const row = snapshot.rows.find((candidate) => candidate.id === id);
   if (!row?.text || (row.kind !== "user" && row.kind !== "assistant")) return undefined;
-  const forkSeq = canFork(snapshot)
+  const turnSeq = canFork(snapshot)
     ? turnRows(snapshot.rows, id).find((candidate) => candidate.kind === "turnSummary")?.seq
     : undefined;
+  const forkSeq = turnSeq !== undefined && turnSeq === latestForkSeq(snapshot.rows) ? turnSeq : undefined;
   const base = row.kind === "user" ? { text: row.text } : { text: plainText(row.text), markdown: row.text };
   return forkSeq === undefined ? base : { ...base, forkSeq };
 }
