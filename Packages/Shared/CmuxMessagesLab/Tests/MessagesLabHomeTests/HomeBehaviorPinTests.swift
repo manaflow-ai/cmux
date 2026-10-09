@@ -11,13 +11,13 @@ import Testing
     private func pane(_ items: [TranscriptItem]) -> ChatController {
         let (p, c) = Fixture2.projection()
         p.apply(items: items, summary: Fixture2.summary(lastSeq: Seq(items.count)), typing: [], hasOlder: false)
-        c.host.layoutSubtreeIfNeeded(); c.demo.layoutIfNeeded(); c.demo.collection.layoutIfNeeded()
+        c.host.layoutSubtreeIfNeeded(); c.demo!.layoutIfNeeded(); c.demo!.collection.layoutIfNeeded()
         return c
     }
 
     /// The text each part row shows, in transcript order.
     private func shown(_ c: ChatController) -> [String] {
-        c.demo.model.rows.compactMap {
+        c.demo!.model.rows.compactMap {
             guard case let .part(row) = $0.spec.kind else { return nil }
             return row.markdown?.plain ?? row.text?.text
         }
@@ -58,7 +58,7 @@ import Testing
 
     @Test func aDragAcrossTwoMessagesCopiesBothTexts() throws {
         let c = pane([Fixture2.item(1, Fixture2.them, "First reply here"), Fixture2.item(2, Fixture2.me, "Second one mine")])
-        let a = try #require(c.demo.lastTextRow(mine: false)), b = try #require(c.demo.lastTextRow(mine: true))
+        let a = try #require(c.demo!.lastTextRow(mine: false)), b = try #require(c.demo!.lastTextRow(mine: true))
         let from = CGPoint(x: a.body.minX + Fixture.bubblePadX + 1, y: a.body.minY + Fixture.bubblePadY + Fixture.lineHeight / 2)
         let to = CGPoint(x: b.body.maxX - Fixture.bubblePadX - 1, y: b.body.minY + Fixture.bubblePadY + Fixture.lineHeight / 2)
         c.mouseDown(at: from, event(.leftMouseDown))
@@ -70,7 +70,7 @@ import Testing
 
     @Test func aDoubleClickSelectsTheWord() throws {
         let c = pane([Fixture2.item(1, Fixture2.them, "alpha bravo charlie")])
-        let a = try #require(c.demo.lastTextRow(mine: false))
+        let a = try #require(c.demo!.lastTextRow(mine: false))
         let tl = try #require(a.row.text)
         let x = CTLineGetOffsetForStringIndex(CTLineCreateWithAttributedString(tl.attributed(color: .white, linkColor: .white)), 8, nil)
         c.doubleClicked(CGPoint(x: a.body.minX + Fixture.bubblePadX + x, y: a.body.minY + Fixture.bubblePadY + Fixture.lineHeight / 2))

@@ -21,14 +21,15 @@ public final class SidebarContainerView: NSView {
     public let sidebarView: SidebarView
     public let model: SidebarModel
     /// The width constraint this view drives. Do not add another.
-    public private(set) var widthConstraint: NSLayoutConstraint!
+    /// Built in init (lazy because it anchors self; no IUO).
+    public private(set) lazy var widthConstraint: NSLayoutConstraint = widthAnchor.constraint(equalToConstant: model.displayWidth)
 
     /// Clips the sliding panel to the container's (animating) width.
     private let clip = NSView()
     /// Holds the sidebar at `model.width`, pinned to the clip's edge that
     /// faces the content (`side`).
     private let panel = NSView()
-    private var panelWidth: NSLayoutConstraint!
+    private lazy var panelWidth: NSLayoutConstraint = panel.widthAnchor.constraint(equalToConstant: model.width)
     let handle: SidebarResizeHandle
     private var observation: Task<Void, Never>?
     /// Width the constraint is at or animating to. The animator reports
@@ -64,8 +65,6 @@ public final class SidebarContainerView: NSView {
         clip.addSubview(panel)
         addSubview(clip)
         addSubview(handle)
-        widthConstraint = widthAnchor.constraint(equalToConstant: model.displayWidth)
-        panelWidth = panel.widthAnchor.constraint(equalToConstant: model.width)
         NSLayoutConstraint.activate([
             widthConstraint,
             panelWidth,
@@ -130,12 +129,6 @@ public final class SidebarContainerView: NSView {
     public func beginRename(workspace id: WorkspaceID) {
         revealForEditing()
         sidebarView.beginRename(workspace: id)
-    }
-
-    /// The group whose name is being edited, if any (cx-rcby).
-    public var editingGroup: GroupID? {
-        if case let .group(id)? = sidebarView.list.inlineRename.session?.key { return id }
-        return nil
     }
 
     /// Starts inline rename of a group, showing the sidebar first when it

@@ -103,7 +103,8 @@ fn answer(
                 })
                 .map_err(owner)?;
             let messages = if tail == 0 { Vec::new() } else { messages };
-            Ok(json!({"conversation": summary, "messages": messages}))
+            let typing = mux.conversation_typing(conversation);
+            Ok(json!({"conversation": summary, "messages": messages, "typing": typing}))
         }
         Operation::ConversationHistory => {
             let before = u64::from(u32_field(fields, "before_seq", 1));
@@ -209,8 +210,15 @@ fn draft(
     let seq = fields["seq"].as_u64().unwrap_or(0);
     let fresh = fields["fresh"].as_bool().unwrap_or(false);
     let text = fields["text"].as_str().unwrap_or_default();
-    let admitted =
-        mux.admit_conversation_draft(conversation, turn, seq, fresh, text.len(), Instant::now());
+    let draft = crate::conversation_drafts::DraftAdmission {
+        conversation,
+        participant: principal,
+        turn,
+        seq,
+        fresh,
+        text_bytes: text.len(),
+    };
+    let admitted = mux.admit_conversation_draft(draft, Instant::now());
     let published = match admitted {
         Ok(published) => published,
         Err(refusal) => return Err(refused(operation, refusal.reason(), refusal.reason())),
@@ -298,6 +306,9 @@ pub(super) struct EventsStart {
     canceled: Arc<AtomicBool>,
     _worker_permit: ResourceWorkerPermit,
     conversation: String,
+    /// The principal that opened the stream; the stream ends when the
+    /// connection's principal changes or loses the conversation.
+    principal: String,
     events: crate::MuxEventReceiver,
     initial: Option<Value>,
     rev: u64,

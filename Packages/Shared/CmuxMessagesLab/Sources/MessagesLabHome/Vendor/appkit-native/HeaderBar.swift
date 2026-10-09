@@ -26,7 +26,9 @@ final class HeaderBar: NSObject, NSToolbarDelegate {
             avatarHolder?.shift = contentLeading / 2
         }
     }
-    private var pillCenter: NSLayoutConstraint!
+    // cmux: built on first use in init, never an IUO (crash program).
+    private let pillHolder = PassThroughView()
+    private lazy var pillCenter: NSLayoutConstraint = pill.centerXAnchor.constraint(equalTo: pillHolder.centerXAnchor)
     /// The accessory spans the window, or (macOS 26 with a sidebar item) only the detail
     /// pane: the pill moves from the accessory's center to the transcript's.
     func centerPill() {
@@ -64,8 +66,7 @@ final class HeaderBar: NSObject, NSToolbarDelegate {
         pill.font = .systemFont(ofSize: 13, weight: .bold)
         pill.target = self
         pill.action = #selector(contactClicked)
-        let holder = PassThroughView()
-        pillCenter = pill.centerXAnchor.constraint(equalTo: holder.centerXAnchor)
+        let holder = pillHolder
         holder.translatesAutoresizingMaskIntoConstraints = false
         pill.translatesAutoresizingMaskIntoConstraints = false
         holder.addSubview(pill)

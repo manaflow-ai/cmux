@@ -1614,13 +1614,16 @@ fn a_refused_marker_comes_back_after_ten_nodes() {
     );
 }
 
-/// Claude Code without the model in its own table answers a failed call
-/// with "[claude-code:unrecognized_model]" (2.1.287 on claude-haiku-5-5):
-/// the compactor falls back to the turn model then too.
+/// Claude Code's "[claude-code:unrecognized_model]" is a warning (2.1.287
+/// prints it and runs claude-haiku-5-5): it never switches the compactor
+/// to the turn model; only a real refusal or API error does.
 #[test]
-fn an_unrecognized_model_counts_as_unavailable() {
-    assert!(optchat_chief::compactor::is_model_unavailable(
+fn the_unrecognized_model_warning_keeps_the_model() {
+    assert!(!optchat_chief::compactor::is_model_unavailable(
         r#"[claude-code:unrecognized_model] {"model":"claude-haiku-5-5","query_source":"sdk"}"#
+    ));
+    assert!(optchat_chief::compactor::is_model_unavailable(
+        "There's an issue with the selected model (claude-haiku-5-5). It may not exist or you may not have access to it."
     ));
     assert!(!optchat_chief::compactor::is_model_unavailable(
         "API Error: 529 overloaded"
@@ -1646,6 +1649,24 @@ fn an_older_acpmux_keeps_the_args_it_knows() {
         ]
     );
     assert_eq!(without_isolation_args(&[json!("--tools"), json!("")]), None);
+    // A turn's built-in list goes too (its denied tools still apply).
+    let turn: Vec<Value> = optchat_chief::host::turn_isolation_args()
+        .into_iter()
+        .map(Value::String)
+        .collect();
+    assert_eq!(without_isolation_args(&turn), Some(Vec::new()));
+    // An acpmux that knows the setting source but not a --tools list loses
+    // only the list: the turn keeps its setting-source isolation.
+    use optchat_chief::acpmux::without_tools_list;
+    assert_eq!(
+        without_tools_list(&turn),
+        Some(vec![
+            json!("--setting-sources"),
+            json!("project"),
+            json!("--disable-slash-commands")
+        ])
+    );
+    assert_eq!(without_tools_list(&args), None, "--tools \"\" stays");
 }
 
 /// A compactor slot loads no user setting source, so its project settings
@@ -1670,4 +1691,98 @@ fn a_compactor_slot_carries_the_users_settings_env() {
     )
     .unwrap();
     assert_eq!(settings["env"]["ANTHROPIC_BASE_URL"], "http://router:31415");
+}
+
+/// A Claude Code compactor asks for the full id `claude-haiku-5-5`: Claude
+/// Code 2.1.287 only warns that it does not list it
+/// ("[claude-code:unrecognized_model]") and runs it, while its `haiku`
+/// alias is Haiku 4.5 (measured on a subscription: 52 s and no prompt
+/// caching for one node, against 1.3 s at effort low). Another harness
+/// keeps its own default.
+#[test]
+fn the_compactor_model_resolves_per_harness() {
+    use optchat_chief::compactor::compactor_model_for;
+    assert_eq!(
+        compactor_model_for(Family::Claude).as_deref(),
+        Some("claude-haiku-5-5")
+    );
+    assert_eq!(compactor_model_for(Family::Codex), None);
+    assert_eq!(compactor_model_for(Family::Other), None);
+    assert_eq!(Config::default().model, "claude-haiku-5-5");
+}
+
+/// The slot settings may hold the user's settings env (an API token among
+/// it): the file is the user's alone (0600).
+#[test]
+fn a_compactor_slots_settings_file_is_private() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: pasted a deploy log")));
+    let spec = CompactorSpec {
+        user_env: [("ANTHROPIC_AUTH_TOKEN".to_owned(), "t".to_owned())].into(),
+        ..spec(dir.path())
+    };
+    let compactor = AcpmuxCompactor::new(agents.clone(), spec, Slots::new(COMPACTOR_SESSIONS));
+    run_node(&compactor, &request(1)).unwrap();
+    let work = std::fs::canonicalize(dir.path().join("work")).unwrap();
+    let file = work.join("slot-0").join(".claude").join("settings.json");
+    let mode = std::fs::metadata(&file).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600, "{mode:o}");
+}
+
+/// The API takes at most 4 marks per request, and Claude Code marks its two
+/// system blocks plus the last two messages of every request after a
+/// session's first (a size-loop follow-up): a node that carries our mark
+/// runs Claude Code without its own; a node too short for one keeps them.
+#[test]
+fn a_marked_node_runs_claude_code_without_its_own_cache_marks() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: a line")));
+    agents.inner.lock().unwrap().system_prompts = true;
+    let compactor = compactor(&agents, dir.path());
+    let settings = |k: usize| -> Value {
+        let cwd = agents.inner.lock().unwrap().specs[k].cwd.clone();
+        serde_json::from_slice(&std::fs::read(cwd.join(".claude").join("settings.json")).unwrap())
+            .unwrap()
+    };
+    let marked = CompactRequest {
+        context: chat_of(150),
+        ..request(0)
+    };
+    run_node(&compactor, &marked).unwrap();
+    assert_eq!(markers(&agents.inner.lock().unwrap().prompts[0]).len(), 1);
+    assert_eq!(settings(0)["env"]["DISABLE_PROMPT_CACHING"], "1");
+    run_node(&compactor, &request(1)).unwrap();
+    assert!(markers(&agents.inner.lock().unwrap().prompts[1]).is_empty());
+    let s = settings(1);
+    assert!(s["env"].get("DISABLE_PROMPT_CACHING").is_none(), "{s}");
+}
+
+/// hq-6d dogfood (fb211f1670ad): a node's line was stored only after its
+/// slot's warm session had started (about 2.3 s of Claude Code start), so
+/// every node, and the turn waiting for it, took that much longer. The warm
+/// session now starts after the node returns.
+#[test]
+fn a_node_returns_before_its_slots_warm_session_starts() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: pasted a deploy log")));
+    agents.inner.lock().unwrap().system_prompts = true;
+    agents.inner.lock().unwrap().slow_session = Some(("warm".into(), Duration::from_secs(3)));
+    let compactor = compactor(&agents, dir.path()).with_warm(2).shared();
+    let started = std::time::Instant::now();
+    assert_eq!(
+        run_node(&*compactor, &request(1)).unwrap(),
+        "user: pasted a deploy log"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "the node waited for its slot's warm session: {:?}",
+        started.elapsed()
+    );
+    // The warm session still starts, after the node.
+    let deadline = std::time::Instant::now() + WAIT;
+    while agents.inner.lock().unwrap().specs.len() < 2 {
+        assert!(std::time::Instant::now() < deadline, "no warm session");
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }

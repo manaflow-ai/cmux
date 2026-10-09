@@ -32,7 +32,7 @@ final class HistoryService {
     /// Launch: page history becomes durable in `supportDirectory`.
     func start(supportDirectory: URL) {
         self.supportDirectory = supportDirectory
-        let cache = services.cache!
+        let cache = services.cache
         attach(cache.history, profile: .default)
         for (profile, entry) in cache.profileHistories { attach(entry.history, profile: profile) }
         cache.onProfileHistoryCreated = { [weak self] profile, history in self?.attach(history, profile: profile) }
@@ -99,7 +99,7 @@ final class HistoryService {
             for (profile, log) in profileLogs {
                 for visit in await log.visits(matching: query.text, since: since, limit: limit) {
                     all.append(HistoryEntry(id: "page:\(profile):\(visit.id)", kind: .page, time: visit.time,
-                                            title: visit.title?.isEmpty == false ? visit.title! : visit.url, detail: visit.url,
+                                            title: visit.title.flatMap { $0.isEmpty ? nil : $0 } ?? visit.url, detail: visit.url,
                                             payload: .page(url: visit.url, profile: profile)))
                 }
             }

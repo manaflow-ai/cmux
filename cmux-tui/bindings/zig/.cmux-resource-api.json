@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "156fcfca5d45885191ca944e4368a1763a980c85c84b1e85f135472018bb4e1f",
+  "catalog_sha256": "ce8c70cddb931283b720842e39a4d74ad39155e186a2811613af9484dbfd7baf",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -51,6 +51,15 @@
     },
     "browser.viewer.resize": {
       "class": "connection_control"
+    },
+    "chief.engine.get": {
+      "class": "read"
+    },
+    "chief.engine.set": {
+      "class": "mutation"
+    },
+    "chief.stop": {
+      "class": "mutation"
     },
     "client.cell_pixels.set": {
       "class": "connection_control"

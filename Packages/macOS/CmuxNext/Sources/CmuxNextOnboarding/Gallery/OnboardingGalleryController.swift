@@ -15,7 +15,9 @@ public final class OnboardingGalleryController: NSWindowController, NSWindowDele
     private let previewAppearance: (Bool?) -> Void
     let sidebarView = GallerySidebar()
     let stageView = GalleryStage()
-    var barView: GalleryBottomBar!
+    /// Built in init where `onNote` is set (no IUO; lazy because its targets are self).
+    lazy var barView = GalleryBottomBar(target: self, pick: #selector(pickPressed), compare: #selector(comparePressed),
+                                        copy: #selector(copyPressed), run: #selector(runPressed))
     private(set) var isComparing = false
     private var runningFlow = false {
         didSet { (window as? GalleryWindow)?.flowRunning = runningFlow }
@@ -36,8 +38,6 @@ public final class OnboardingGalleryController: NSWindowController, NSWindowDele
         window.identifier = NSUserInterfaceItemIdentifier("cmux.onboarding.gallery")
         super.init(window: window)
         window.delegate = self
-        barView = GalleryBottomBar(target: self, pick: #selector(pickPressed), compare: #selector(comparePressed),
-                               copy: #selector(copyPressed), run: #selector(runPressed))
         barView.onNote = { [weak self] text in self?.setNote(text) }
         sidebarView.onSelect = { [weak self] step in self?.go(step: step, index: 0) }
         window.install(kind: .onboardingGallery, content: makeContent(), scope: .app)

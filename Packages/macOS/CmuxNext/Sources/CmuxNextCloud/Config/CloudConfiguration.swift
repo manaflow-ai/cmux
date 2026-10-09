@@ -57,9 +57,15 @@ public struct CloudConfiguration: Sendable, Equatable {
             .appendingPathComponent(bundleID ?? "cmux", isDirectory: true)
     }
 
-    public var callbackURL: URL { URL(string: "\(callbackScheme)://auth-callback")! }
+    /// `<scheme>://auth-callback`. `resolve` accepts only a scheme that forms this URL;
+    /// /dev/null stands in for a hand-built configuration with one that does not.
+    public var callbackURL: URL { URL(string: "\(callbackScheme)://auth-callback") ?? Self.inertURL }
 
-    static let productionOrigin = URL(string: "https://cmux.com")!
+    /// Stands in where a literal URL failed to parse (tests parse every literal).
+    static let inertURL = URL(fileURLWithPath: "/dev/null")
+    static let productionOrigin = URL(string: "https://cmux.com") ?? inertURL
+    static let stackOrigin = URL(string: "https://api.stack-auth.com") ?? inertURL
+    static let localDevelopmentOrigin = URL(string: "http://localhost:3777") ?? inertURL
     static let developmentProjectID = "454ecd03-1db2-4050-845e-4ce5b0cd9895"
     static let developmentClientKey = "pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g"
     static let productionProjectID = "9790718f-14cd-4f7e-824d-eaf527a82b82"
@@ -79,9 +85,10 @@ public struct CloudConfiguration: Sendable, Equatable {
         }
         let production = !isDebugBuild || value("CMUX_AUTH_ENVIRONMENT")?.lowercased() == "production"
         let tag = value("CMUX_TAG").flatMap(sanitizedSchemeTag)
-        let scheme = value("CMUX_AUTH_CALLBACK_SCHEME")
+        // A scheme that cannot form `<scheme>://auth-callback` is ignored (it trapped at sign-in).
+        let scheme = value("CMUX_AUTH_CALLBACK_SCHEME").flatMap { URL(string: "\($0)://auth-callback") == nil ? nil : $0 }
             ?? (isDebugBuild ? (tag.map { "cmux-dev-\($0)" } ?? "cmux-dev") : defaultScheme(bundleID))
-        let stackBase = value("CMUX_STACK_BASE_URL").flatMap(URL.init(string:)) ?? URL(string: "https://api.stack-auth.com")!
+        let stackBase = value("CMUX_STACK_BASE_URL").flatMap(URL.init(string:)) ?? stackOrigin
         if production {
             return CloudConfiguration(
                 backend: .production, apiBaseURL: productionOrigin, authWebOrigin: productionOrigin,
@@ -92,7 +99,8 @@ public struct CloudConfiguration: Sendable, Equatable {
         let api = value("CMUX_VM_API_BASE_URL").flatMap(URL.init(string:))
             ?? value("CMUX_API_BASE_URL").flatMap(URL.init(string:))
             ?? devBackend
-            ?? URL(string: "http://localhost:\(value("CMUX_PORT") ?? "3777")")!
+            ?? URL(string: "http://localhost:\(value("CMUX_PORT") ?? "3777")")
+            ?? localDevelopmentOrigin
         let web = value("CMUX_AUTH_WWW_ORIGIN").flatMap(URL.init(string:)) ?? devBackend ?? api
         let backend: Backend = isLoopback(api) && devBackend == nil ? .localOnly(api) : .development(api)
         return CloudConfiguration(
@@ -104,6 +112,16 @@ public struct CloudConfiguration: Sendable, Equatable {
     }
 
     /// This process's configuration.
+    /// The API Worker (`/v1/read`, `/v1/ops`, `/v1/auth/*`): production
+    /// auth uses cloud-api.cmux.dev, everything else the staging Worker. The
+    /// `CMUX_NEXT_FEED_API_URL` override is honored in debug builds only, so
+    /// a release build never sends a credential to another origin.
+    public func ownerAPIBaseURL(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
+        if isDebugBuild, let raw = environment["CMUX_NEXT_FEED_API_URL"], let url = URL(string: raw) { return url }
+        // crash-allow: both operands are constant, valid https URL literals, so the parse cannot fail
+        return URL(string: isProductionAuth ? "https://cloud-api.cmux.dev" : "https://cloud-api-staging.cmux.dev")!
+    }
+
     public static func current(bundle: Bundle = .main, isDebugBuild: Bool) -> CloudConfiguration {
         let bundled = bundle.object(forInfoDictionaryKey: "LSEnvironment") as? [String: String] ?? [:]
         return resolve(bundleID: bundle.bundleIdentifier, bundled: bundled,
@@ -143,12 +161,14 @@ public struct CloudConfiguration: Sendable, Equatable {
     /// Hosted sign-in entry: `handler/native-sign-in` wraps Stack sign-in and
     /// returns to `<scheme>://auth-callback` through `handler/after-sign-in`.
     public func signInURL(callbackState: String?) -> URL {
-        var callback = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false)!
-        if let callbackState { callback.queryItems = [URLQueryItem(name: "cmux_auth_state", value: callbackState)] }
-        var after = URLComponents(url: authWebOrigin.appendingPathComponent("handler/after-sign-in"), resolvingAgainstBaseURL: false)!
-        after.queryItems = [URLQueryItem(name: "native_app_return_to", value: callback.url!.absoluteString)]
-        var entry = URLComponents(url: authWebOrigin.appendingPathComponent("handler/native-sign-in"), resolvingAgainstBaseURL: false)!
-        entry.queryItems = [URLQueryItem(name: "after_auth_return_to", value: after.url!.absoluteString)]
-        return entry.url!
+        // URLComponents of a parsed URL always forms a URL again; without one, the bare entry page.
+        let entryPage = authWebOrigin.appendingPathComponent("handler/native-sign-in")
+        var callback = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false)
+        if let callbackState { callback?.queryItems = [URLQueryItem(name: "cmux_auth_state", value: callbackState)] }
+        var after = URLComponents(url: authWebOrigin.appendingPathComponent("handler/after-sign-in"), resolvingAgainstBaseURL: false)
+        after?.queryItems = callback?.url.map { [URLQueryItem(name: "native_app_return_to", value: $0.absoluteString)] }
+        var entry = URLComponents(url: entryPage, resolvingAgainstBaseURL: false)
+        entry?.queryItems = after?.url.map { [URLQueryItem(name: "after_auth_return_to", value: $0.absoluteString)] }
+        return entry?.url ?? entryPage
     }
 }

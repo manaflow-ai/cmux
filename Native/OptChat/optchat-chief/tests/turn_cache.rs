@@ -462,3 +462,93 @@ fn a_refused_marker_comes_back_after_ten_turns() {
         "turn 11 tries the mark again"
     );
 }
+
+/// The last turn's mark survives a host restart (it is saved with the
+/// turn's messages): the first turn after the restart still marks within
+/// the API's lookback of it, after a long tool run.
+#[test]
+fn the_last_turns_mark_survives_a_restart() {
+    let mut h = claude_harness(None);
+    fill(&h.chat, 0, 1_200);
+    h.connect();
+    h.say("user_local", "one");
+    h.settle();
+    let before = h.agents.inner.lock().unwrap().prompts[0].clone();
+    let Harness {
+        dir,
+        chat,
+        owner,
+        brain,
+        ..
+    } = h;
+    drop(brain);
+    chat.shutdown();
+    drop(chat);
+    let mut h = Harness::in_dir(dir, default_script(), owner);
+    h.agents.inner.lock().unwrap().system_prompts = true;
+    fill(&h.chat, 1_200, 160);
+    h.connect();
+    h.say("user_local", "two");
+    h.settle();
+    let inner = h.agents.inner.lock().unwrap();
+    let after = inner.prompts.last().unwrap();
+    let (ma, mb) = (markers(&before)[0], markers(after)[0]);
+    assert_eq!(texts(&before)[..=ma], texts(after)[..=ma]);
+    assert!(
+        mb >= ma && mb - ma <= 20,
+        "marks {ma} then {mb} across the restart"
+    );
+}
+
+/// Claude Code's own cache marks per request, measured on 2.1.287 through
+/// a capture proxy on both the subscription login and the subrouter
+/// (2026-10-08): its two system blocks, then the last message on a
+/// session's first request, and the last TWO messages on every later
+/// request (a tool step, a follow-up prompt, a steered message). None with
+/// DISABLE_PROMPT_CACHING=1 in the session's settings env.
+fn claude_code_marks(settings: &Value, later: bool) -> usize {
+    if settings["env"]["DISABLE_PROMPT_CACHING"] == "1" {
+        0
+    } else if later {
+        4
+    } else {
+        3
+    }
+}
+
+/// The API takes at most 4 marks per request. A turn that carries our view
+/// mark runs Claude Code without its own (its mark stays in the history of
+/// every later request of the session); a turn too short to carry ours
+/// keeps Claude Code's.
+#[test]
+fn every_turn_request_shape_stays_within_four_cache_marks() {
+    use optchat_chief::prompt::CacheTtl;
+    for (lines, marked) in [(0, false), (1_200, true)] {
+        let mut h = claude_harness(None);
+        fill(&h.chat, 0, lines);
+        h.connect();
+        h.say("user_local", "one");
+        h.settle();
+        let ours = {
+            let inner = h.agents.inner.lock().unwrap();
+            markers(&inner.prompts[0]).len()
+        };
+        assert_eq!(ours, usize::from(marked), "view of {lines} lines");
+        let settings = session_settings(&h, "settings.json");
+        for later in [false, true] {
+            let total = ours + claude_code_marks(&settings, later);
+            assert!(
+                total <= 4,
+                "view of {lines} lines, {} request: {total} marks",
+                if later { "a later" } else { "the first" }
+            );
+        }
+    }
+    // A session without our mark keeps Claude Code's own cache marks.
+    let dir = tempfile::tempdir().unwrap();
+    optchat_chief::session_dir::set_session_cache(dir.path(), CacheTtl::OneHour, true).unwrap();
+    optchat_chief::session_dir::set_session_cache(dir.path(), CacheTtl::OneHour, false).unwrap();
+    let path = dir.path().join(".claude").join("settings.json");
+    let s: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    assert!(s["env"].get("DISABLE_PROMPT_CACHING").is_none(), "{s}");
+}
