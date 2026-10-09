@@ -7,6 +7,7 @@ pub(crate) mod clipboard_read;
 pub(crate) mod codec;
 pub(crate) mod control_responses;
 pub(crate) mod exited_drain;
+pub(crate) mod host_crash;
 pub(crate) mod host_parser;
 pub(crate) mod host_serve;
 pub(crate) mod host_shared;

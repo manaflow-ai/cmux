@@ -31,6 +31,7 @@ use super::records::{
 use super::renderer_grant::ControlRequestUnanswered;
 
 mod connect;
+pub(crate) mod launch;
 mod terminate;
 // Only the Unix host calls these until the Windows host lands.
 #[cfg_attr(not(unix), allow(unused_imports))]

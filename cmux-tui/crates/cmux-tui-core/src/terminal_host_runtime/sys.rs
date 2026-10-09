@@ -98,6 +98,23 @@ mod windows_stubs {
         Err(unsupported().into())
     }
 
+    /// A host process started ahead of its terminal. None exist on Windows
+    /// until `sys/windows.rs`.
+    pub(crate) enum StandbyTerminalHost {}
+
+    /// Launching a terminal host fails until `sys/windows.rs`.
+    pub(crate) fn launch_terminal_host_from(
+        _options: &crate::surface::SurfaceOptions,
+        _root: &Path,
+        _default_colors: crate::surface::DefaultColors,
+        _cell_pixels: (u16, u16),
+        _kitty_graphics_limits: ghostty_vt::KittyGraphicsLimits,
+        _terminal_id: crate::terminal_host::TerminalId,
+        _standby: Option<StandbyTerminalHost>,
+    ) -> anyhow::Result<super::super::shared::attachment::HostAttachment> {
+        Err(unsupported().into())
+    }
+
     /// An adopted session id. Windows v1 adopts no session.
     pub(crate) enum SessionId {}
 
