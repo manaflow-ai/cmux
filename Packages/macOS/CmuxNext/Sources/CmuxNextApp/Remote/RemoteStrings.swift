@@ -167,6 +167,20 @@ enum RemoteStrings {
                               table: "Remote", bundle: .module), error)
     }
 
+    /// The one-time notice of a browser tab opened in another machine's
+    /// workspace: the page renders and runs on this Mac (cx-2cob slice 1a).
+    static func browserRunsOnThisMac(_ machine: String) -> String {
+        String(format: String(localized: "remote.browser.runsOnThisMac",
+                              defaultValue: "This tab runs on this Mac, not on %@.", table: "Remote", bundle: .module), machine)
+    }
+
+    /// The refusal of a new browser tab in a workspace of a machine that is not connected.
+    static func browserMachineNotConnected(_ machine: String) -> String {
+        String(format: String(localized: "remote.browser.notConnected",
+                              defaultValue: "%@ is not connected. Reconnect it to open a browser tab in its workspace.",
+                              table: "Remote", bundle: .module), machine)
+    }
+
     /// The refusal of Copy SSH Error for a machine without a failure.
     static func noSSHError(_ machine: String) -> String {
         String(format: String(localized: "remote.copyError.none", defaultValue: "%@ has no SSH error to copy.", table: "Remote", bundle: .module), machine)

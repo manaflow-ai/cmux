@@ -43,7 +43,7 @@ import Testing
         defer { server.stop(); service.shutdownConnection() }
         let scope = DaemonCommandScope()
         let surface = try await DaemonCommandScope.$current.withValue(scope) {
-            try await tabs.create(PaneID(rawValue: 3), "https://example.com/", .webkit, nil, true, nil)
+            try await tabs.create(service, PaneID(rawValue: 3), "https://example.com/", .webkit, nil, true, nil)
         }
         #expect(surface == SurfaceID(rawValue: 10))
         #expect(scope.created == [DaemonCreatedObject(.tab, SurfaceID(rawValue: 10).description)])
@@ -59,7 +59,7 @@ import Testing
         let scope = DaemonCommandScope()
         await #expect(throws: (any Error).self) {
             try await DaemonCommandScope.$current.withValue(scope) {
-                _ = try await tabs.create(PaneID(rawValue: 3), "https://example.com/", .webkit, nil, true, nil)
+                _ = try await tabs.create(service, PaneID(rawValue: 3), "https://example.com/", .webkit, nil, true, nil)
             }
         }
         #expect(scope.failures.count == 1)

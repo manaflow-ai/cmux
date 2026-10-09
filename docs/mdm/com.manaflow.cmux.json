@@ -1043,9 +1043,10 @@
       "type" : "string"
     },
     "layout.stripScrollbar" : {
-      "default" : "auto",
+      "default" : "system",
       "description" : "A thin bar under the columns that shows and moves the visible range.",
       "enum" : [
+        "system",
         "auto",
         "always",
         "off"

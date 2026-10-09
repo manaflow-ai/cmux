@@ -40,7 +40,7 @@ import { actor, receiptsDir, readReceipts, runIdOf, strandedBranches, summaryLin
 import { compatNow } from "./compat.ts"
 import { describePlan, rehearsalReceipt, rehearseOnCopy, type RehearsalContext } from "./rehearsal.ts"
 import { adopt, applyPending, connectUrl, gate, planOf, planProblems, requirementsOf, schemaProblems, setHashOf, withLock, type Plan, type Sql } from "./runner.ts"
-import { REPO_ROOT, targetOf, TREE_NAMES, TREES, treeOf, type Target, type Tree } from "./trees.ts"
+import { ownerPgRoleOf, REPO_ROOT, targetOf, TREE_NAMES, TREES, treeOf, type Target, type Tree } from "./trees.ts"
 
 export interface Deps {
   readonly provider: BranchProvider
@@ -221,7 +221,7 @@ export const main = async (argv: ReadonlyArray<string>, initialDeps: Deps = defa
     let files = readMigrations(deps.root, tree)
     const urlVar = value("--url-env")
     const allowContract = values(rest, "--allow-contract")
-    const ownerPgRole = deps.ownerPgRole === undefined ? (tree.ownerPgRole ?? null) : deps.ownerPgRole
+    const ownerPgRole = deps.ownerPgRole === undefined ? (ownerPgRoleOf(tree, target) ?? null) : deps.ownerPgRole
     const ownerUrl = urlVar ? (() => { try { return urlFrom(deps, tree, target, urlVar) } catch { return undefined } })() : undefined
     const rehearsalOf = (wanted: Plan, setHash: string, adoptThrough?: string): RehearsalContext => ({
       ...(ownerUrl ? { ownerUrl } : {}),

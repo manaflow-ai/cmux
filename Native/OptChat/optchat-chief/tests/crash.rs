@@ -127,10 +127,11 @@ fn a_crash_while_a_message_is_logged_logs_it_once_and_answers_it() {
                 assert_eq!(sends.len(), 1, "{point}: {sends:?}");
                 assert_eq!(sends[0].1, "answer 0", "{point}");
             }
-            // Logged with its pending turn, the turn never ran: told once.
+            // Logged with its pending turn, the turn never ran: resumed
+            // and answered once (E23).
             ("brain:after-turn-log", true) => {
                 assert_eq!(sends.len(), 1, "{point}: {sends:?}");
-                assert!(sends[0].1.starts_with("(interrupted"), "{sends:?}");
+                assert_eq!(sends[0].1, "answer 0", "{point}: {sends:?}");
             }
             // The turn finished before the restart: nothing to do again.
             _ => assert!(sends.is_empty(), "{point}: {sends:?}"),
@@ -179,7 +180,17 @@ fn a_crash_while_a_turn_is_folded_logs_each_step_once() {
         let log = h.log();
         assert_eq!(count(&log, "user", "hello"), 1, "{point}: {log:?}");
         // A session that never got its prompt did nothing; one that did has
-        // each step in the log exactly once.
+        // each step in the log exactly once. Then the cut turn resumes once
+        // (E23) and its own turn logs the same script's steps once more.
+        assert_eq!(
+            count(
+                &log,
+                "user",
+                "The server restarted, cutting the turn; nothing was lost: go on."
+            ),
+            1,
+            "{point}: {log:?}"
+        );
         for (kind, text) in [
             ("talk", "Checking."),
             ("tool", "Bash {\"command\":\"ls\"}"),
@@ -188,7 +199,7 @@ fn a_crash_while_a_turn_is_folded_logs_each_step_once() {
         ] {
             assert_eq!(
                 count(&log, kind, text),
-                usize::from(folded),
+                usize::from(folded) + 1,
                 "{point}: {kind} {text}: {log:?}"
             );
         }
@@ -268,8 +279,7 @@ fn a_pending_turn_and_its_items_survive_a_restart_in_the_database() {
     assert_eq!(count(&h.log(), "user", "first"), 1);
     assert!(h.brain.state().turn.is_none());
     let sends = h.owner.lock().unwrap().sends();
-    assert!(
-        sends.iter().any(|(_, t)| t.starts_with("(interrupted")),
-        "{sends:?}"
-    );
+    // The cut turn is resumed and answers once (E23).
+    assert_eq!(sends.len(), 1, "{sends:?}");
+    assert!(!sends[0].1.starts_with("(interrupted"), "{sends:?}");
 }
