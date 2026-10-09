@@ -144,7 +144,8 @@ impl WorkspaceRegistry {
             .as_ref()
             .map(|source| validate_personal_json("source", source, true))
             .transpose()?;
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         if let Some(existing) = read_browser_profile(&tx, &id)? {
             return Ok((existing, false));
         }
@@ -183,7 +184,8 @@ impl WorkspaceRegistry {
             update.color.as_ref().and_then(Option::as_deref),
             update.icon.as_ref().and_then(Option::as_deref),
         )?;
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         let before = read_browser_profile(&tx, id)?
             .ok_or_else(|| anyhow::anyhow!("unknown browser profile {id}"))?;
         if let Some(name) = &update.name {
@@ -226,7 +228,8 @@ impl WorkspaceRegistry {
         index: usize,
     ) -> anyhow::Result<(PersonalBrowserProfile, bool)> {
         validate_browser_profile_ref(id)?;
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         let mut ids = order(&tx)?;
         let old = ids
             .iter()
@@ -260,7 +263,8 @@ impl WorkspaceRegistry {
             id != DEFAULT_PROFILE_ID,
             "bad request: the default browser profile cannot be deleted"
         );
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         anyhow::ensure!(read_browser_profile(&tx, id)?.is_some(), "unknown browser profile {id}");
         let cleared_workspaces = {
             let mut statement = tx.prepare(

@@ -147,7 +147,7 @@ impl Mux {
             }
             return Ok((replay, None));
         }
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.lock_state_pinned(&registry).unwrap();
         let (surface, terminal_id) = match target {
             AgentReportTarget::Surface(surface) => {
                 let runtime = state

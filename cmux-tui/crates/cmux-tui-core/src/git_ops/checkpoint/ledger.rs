@@ -52,6 +52,7 @@ fn committed(mux: &Mux, key: &str, operation: &str) -> Result<Option<Committed>,
     let registry = mux.workspace_registry.lock().unwrap_or_else(|poison| poison.into_inner());
     let row = registry
         .connection
+        .get()
         .query_row(
             "SELECT operation, fingerprint, result_json FROM resource_mutations
              WHERE idempotency_key = ?1",
