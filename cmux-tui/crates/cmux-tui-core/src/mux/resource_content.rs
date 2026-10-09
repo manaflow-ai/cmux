@@ -24,6 +24,8 @@ use split_ids::ensure_split_public_ids;
 mod full_projection;
 mod live_screen;
 mod published_screens;
+#[cfg(test)]
+mod scoped_projection_tests;
 mod split_ids;
 
 impl Mux {
