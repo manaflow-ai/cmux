@@ -272,4 +272,24 @@ printf 'func f(\n    a: Int,\n    base: [String: String] = [:]\n) -> String? {\n
 out="$(ratchet)" || fail "a dictionary parameter on a continuation line counted: $out"
 reset
 
+# 18. Review findings: a member of another value uses the module rule (an array
+#     member elsewhere still counts), a `.init(` call label is not a declaration,
+#     and a radix: inside a nested call does not exempt the outer conversion.
+cat > "$shared/Sources/MessagesLabHome/F.swift" <<'SWIFT'
+var pending: [String: Int] = [:]
+let a = transport.pending[i]
+let b = Box.init(
+    rows: [k: v]
+)
+let c = rows[j]
+let d = UInt8(String(v, radix: 2).count)
+SWIFT
+printf 'struct T { var pending: [Int] = [] }\n' > "$shared/Sources/MessagesLabHome/G.swift"
+g add -A
+if out="$(ratchet)"; then fail "a qualified array member, an init label or a nested radix passed: $out"; fi
+[[ "$out" == *"swift MessagesLabHome: index_subscript 0 -> 2"* ]] || fail "transport.pending[i] or rows[j] was exempt: $out"
+[[ "$out" == *"swift MessagesLabHome: int_conversion 0 -> 1"* ]] || fail "the nested radix exempted UInt8(...): $out"
+g reset -q
+reset
+
 echo "crash-ratchet-v2.test.sh: ok"

@@ -15,7 +15,7 @@ final class ThreadStackSampler: @unchecked Sendable {
     // The target reads it (``copy(count:)``) only after a sample was
     // published for its current stall, and the next sample waits for that
     // stall to end, so the two never overlap.
-    private var buffer: UnsafeMutableBufferPointer<UInt>
+    private let buffer: UnsafeMutablePointer<UInt>
 
     init(thread: thread_act_t, maxFrames: Int = 64) {
         self.thread = thread
@@ -44,9 +44,17 @@ final class ThreadStackSampler: @unchecked Sendable {
         return copy(count: count)
     }
 
+    /// Writes one frame when `index` is inside the buffer. Pointer arithmetic
+    /// and `pointee` are transparent, so the suspended section makes no runtime
+    /// call and no allocation (a generic accessor could, at -Onone).
+    private func store(_ address: UInt, at index: Int) {
+        guard index >= 0, index < maxFrames else { return }
+        (buffer + index).pointee = address
+    }
+
     /// The first `count` addresses of the last sample.
     func copy(count: Int) -> [UInt] {
-        Array(buffer.prefix(max(count, 0)))
+        Array(UnsafeBufferPointer(start: buffer, count: min(max(count, 0), maxFrames)))
     }
 
     /// Caller has suspended the thread. No allocation in here.
@@ -79,10 +87,10 @@ final class ThreadStackSampler: @unchecked Sendable {
         fp = UInt(clamping: state.__rbp)
         #endif
         var frames = 0
-        buffer.modify(checked: frames) { $0 = Self.strip(pc) }
+        store(Self.strip(pc), at: frames)
         frames += 1
         if lr != 0, frames < maxFrames {
-            buffer.modify(checked: frames) { $0 = Self.strip(lr) }
+            store(Self.strip(lr), at: frames)
             frames += 1
         }
         var pair: (UInt, UInt) = (0, 0)
@@ -95,7 +103,7 @@ final class ThreadStackSampler: @unchecked Sendable {
             guard read == KERN_SUCCESS else { break }
             let (next, returnAddress) = pair
             guard returnAddress != 0 else { break }
-            buffer.modify(checked: frames) { $0 = Self.strip(returnAddress) }
+            store(Self.strip(returnAddress), at: frames)
             frames += 1
             // Frames grow toward higher addresses; anything else is a loop or garbage.
             guard next > fp else { break }
