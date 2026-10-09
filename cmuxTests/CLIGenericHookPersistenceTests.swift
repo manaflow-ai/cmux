@@ -3233,7 +3233,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             input: #"{"sessionId":"\#(resumedSessionID)","cwd":"\#(root.path)","hookEventName":"SessionStart"}"#
         )
         _ = runGrokHook(
-            "user-prompt-submit",
+            "prompt-submit",
             input: #"{"sessionId":"\#(resumedSessionID)","cwd":"\#(root.path)","hookEventName":"UserPromptSubmit","prompt":"first turn"}"#
         )
         _ = runGrokHook(
@@ -3241,7 +3241,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             input: #"{"sessionId":"\#(resumedSessionID)","cwd":"\#(root.path)","hookEventName":"Stop"}"#
         )
         _ = runGrokHook(
-            "user-prompt-submit",
+            "prompt-submit",
             input: #"{"sessionId":"\#(resumedSessionID)","cwd":"\#(root.path)","hookEventName":"UserPromptSubmit","prompt":"second turn"}"#
         )
         let resumedReminder = runGrokHook(
