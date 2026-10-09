@@ -15,6 +15,7 @@ import { CheckIcon, ChevronIcon, PICKER_LABELS, SearchIcon } from "./ComposerPic
 import { Icon } from "./icons/Icon";
 import { currentLanguage, useT } from "./i18n";
 import type { ModelPickerProps } from "./modelPickerLayout";
+import { effortWords, fitsQuery, modelEffort, parseQuery } from "./modelQuery";
 import { registerPicker } from "./pickerOpeners";
 import { useUiAnchor } from "../../ui/anchor";
 import { useEscapeCloses } from "../../ui/escapeDismiss";
@@ -31,7 +32,7 @@ type HarnessChoice = {
   id: string;
   ids: string[];
   name: string;
-  models: { id: string; name?: string; unavailable?: string }[];
+  models: { id: string; name?: string; unavailable?: string; efforts?: string[]; fast?: boolean }[];
   unavailable?: string;
   acpmuxHarness?: string;
   pickable: boolean;
@@ -45,6 +46,8 @@ type ModelChoice = {
   id: string;
   name: string;
   unavailable?: string;
+  efforts?: string[];
+  fast?: boolean;
   version: number[];
   order: number;
 };
@@ -75,6 +78,8 @@ function choicesFor(entry: HarnessChoice | undefined): ModelChoice[] {
         id: model.id,
         name: isDefaultChoice(model) ? "Default" : model.name || model.id,
         unavailable: model.unavailable,
+        efforts: model.efforts,
+        fast: model.fast,
         version: versionOf(model),
         order,
       },
@@ -148,16 +153,6 @@ const STARRED = "\u0000starred";
 const blockedProfile = (entry: HarnessChoice | undefined) =>
   entry?.folder?.state === "needs-trust" || entry?.folder?.state === "error";
 
-function matches(model: ModelChoice, query: string): boolean {
-  const text = `${model.name} ${model.id}`.toLowerCase();
-  return query
-    .trim()
-    .toLowerCase()
-    .split(/\s+/)
-    .filter(Boolean)
-    .every((word) => text.includes(word));
-}
-
 /// A rail tab: one icon in a rounded square, filled while its models show.
 const railTab =
   "grid size-9 flex-none cursor-pointer place-items-center rounded-lg border-0 bg-transparent p-0 text-muted hover:bg-hover hover:text-fg aria-selected:bg-hover aria-selected:text-fg disabled:cursor-default disabled:opacity-50 aria-disabled:opacity-50";
@@ -196,6 +191,7 @@ export function ModelPicker(props: ModelPickerProps) {
     onHarness,
     onHarnessHint,
     onHarnessEnable,
+    onCombo,
     fastMode,
     catalogRefresh,
   } = props;
@@ -205,6 +201,7 @@ export function ModelPicker(props: ModelPickerProps) {
   const harnessText = t("picker.harness");
   const noMatchesText = t("picker.noMatches");
   const starredText = t("picker.starred");
+  const fastText = t("picker.fastOn");
   const unavailableText = t("picker.unavailable");
   const modelRowId = (id: string) => `${menuId}-model-${encodeURIComponent(id)}`;
   const [open, setOpen] = useState(false);
@@ -233,16 +230,23 @@ export function ModelPicker(props: ModelPickerProps) {
   const selected = starredView
     ? undefined
     : (harnesses.find((entry) => entry.ids.includes(selectedHarness ?? "")) ?? current);
+  // A typed query searches every harness; without one, the rail's tab picks the list.
+  const vocabulary = useMemo(() => effortWords(harnesses.flatMap((entry) => entry.models)), [harnesses]);
+  const parsed = useMemo(() => parseQuery(query, vocabulary), [query, vocabulary]);
+  const searching = query.trim() !== "";
   const owners = useMemo(() => {
     const owner = new Map<ModelChoice, HarnessChoice>();
-    if (starredView) {
+    if (searching) {
+      for (const entry of harnesses)
+        if (entry.pickable && !blockedProfile(entry))
+          for (const model of choicesFor(entry)) if (fitsQuery(model, entry.name, parsed)) owner.set(model, entry);
+    } else if (starredView) {
       for (const entry of harnesses)
         for (const model of choicesFor(entry)) if (favorites.has(model.id)) owner.set(model, entry);
     } else if (selected) for (const model of choicesFor(selected)) owner.set(model, selected);
     return owner;
-  }, [favorites, harnesses, selected, starredView]);
-  const models = useMemo(() => [...owners.keys()], [owners]);
-  const visible = useMemo(() => (query ? models.filter((model) => matches(model, query)) : models), [models, query]);
+  }, [favorites, harnesses, parsed, searching, selected, starredView]);
+  const visible = useMemo(() => [...owners.keys()], [owners]);
   const refreshStatus = localRefreshStatus ?? catalogRefresh?.status ?? "idle";
   const refreshDate = catalogRefresh?.date;
   const formattedRefreshDate = refreshDate
@@ -290,13 +294,13 @@ export function ModelPicker(props: ModelPickerProps) {
     setActive(
       Math.max(
         0,
-        models.findIndex((model) => model.id === props.model),
+        choicesFor(current).findIndex((model) => model.id === props.model),
       ),
     );
     setOpen(true);
     if (open) search.current?.focus();
     else trigger.current?.focus();
-  }, [current?.id, harness, harnesses, models, open, props.model]);
+  }, [current, harness, harnesses, open, props.model]);
   const showRef = useRef(show);
   showRef.current = show;
   const toggle = open ? (_next: boolean) => close() : setOpen;
@@ -322,7 +326,8 @@ export function ModelPicker(props: ModelPickerProps) {
   useEffect(() => registerPicker(modelText, () => showRef.current()), [modelText]);
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
-      if (event.metaKey && event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "m") {
+      // Cmd-Ctrl-M opens the picker (Lawrence 2026-10-08); typing then searches every harness.
+      if (event.metaKey && event.ctrlKey && !event.altKey && event.key.toLowerCase() === "m") {
         event.preventDefault();
         showRef.current();
       }
@@ -340,6 +345,15 @@ export function ModelPicker(props: ModelPickerProps) {
   const selectModel = (model: ModelChoice) => {
     const owner = owners.get(model);
     if (model.unavailable || !owner?.pickable) return;
+    // A typed effort or fast mode, or a model of another harness, lands as one combo.
+    const effort = searching ? modelEffort(model, parsed.effort) : undefined;
+    const fast = searching ? parsed.fast : undefined;
+    const harnessId = owner.acpmuxHarness ?? owner.id;
+    if (onCombo && (effort || fast || !owner.ids.includes(harness ?? ""))) {
+      onCombo({ harness: harnessId, model: model.id, effort, fast });
+      close();
+      return;
+    }
     if (!owner.ids.includes(harness ?? "")) {
       if (owner.acpmuxHarness) onHarness?.(owner.acpmuxHarness);
       close();
@@ -374,7 +388,9 @@ export function ModelPicker(props: ModelPickerProps) {
     });
   };
   /// Shows a rail tab's models (hover or click); the typed query stays.
-  const showTab = (id: string | undefined, index: number) => {
+  const showTab = (id: string | undefined, index: number, clear = false) => {
+    if (clear && query) setQuery("");
+    else if (searching) return;
     if (id === undefined || id === selectedHarness) return;
     setSelectedHarness(id);
     if (index >= 0) setActiveHarness(index);
@@ -489,7 +505,7 @@ export function ModelPicker(props: ModelPickerProps) {
               selected={starredView}
               active={starredView}
               onPointerEnter={() => showTab(STARRED, -1)}
-              onClick={() => showTab(STARRED, -1)}
+              onClick={() => showTab(STARRED, -1, true)}
             >
               <StarGlyph filled={false} size={17} />
             </PickerOption>
@@ -532,7 +548,7 @@ export function ModelPicker(props: ModelPickerProps) {
                 }}
                 onClick={() => {
                   if (enableProfile(entry)) return;
-                  showTab(entry.id, index);
+                  showTab(entry.id, index, true);
                 }}
                 active={index === activeHarness}
               >
@@ -582,7 +598,7 @@ export function ModelPicker(props: ModelPickerProps) {
             <PickerOptionList
               id={`${menuId}-models`}
               className="acpmux-mp-models min-h-0 flex-1 overflow-y-auto p-1.5"
-              aria-label={starredView ? starredText : (selected?.name ?? modelText)}
+              aria-label={searching ? searchText : starredView ? starredText : (selected?.name ?? modelText)}
             >
               {selectedOther && blockedProfile(selected) ? (
                 <div className={emptyNote}>
@@ -626,8 +642,17 @@ export function ModelPicker(props: ModelPickerProps) {
                       onClick={() => selectModel(model)}
                       active={index === active}
                     >
-                      {starredView && <AgentMark agent={owners.get(model)?.mark ?? owners.get(model)?.id} size={14} />}
+                      {(starredView || searching) && (
+                        <AgentMark agent={owners.get(model)?.mark ?? owners.get(model)?.id} size={14} />
+                      )}
                       <span className="acpmux-menu-label min-w-0 flex-1 truncate">{model.name}</span>
+                      {searching && (parsed.effort || parsed.fast) && (
+                        <span className="acpmux-mp-combo flex-none text-[12px] text-dim">
+                          {[modelEffort(model, parsed.effort), parsed.fast ? fastText : undefined]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </span>
+                      )}
                       {model.unavailable && <span className="flex-none text-[12px] text-dim">{unavailableText}</span>}
                     </PickerOption>
                     <span className="pointer-events-none absolute right-1.5 flex items-center">
