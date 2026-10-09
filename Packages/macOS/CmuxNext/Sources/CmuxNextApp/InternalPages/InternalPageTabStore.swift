@@ -24,6 +24,8 @@ final class InternalPageTabStore {
     /// tabs of a pane closed out of sight close once the tree drops it.
     @ObservationIgnored private var paneStores: [String: DaemonStore] = [:]
     @ObservationIgnored private var watches: [ObjectIdentifier: Task<Void, Never>] = [:]
+    /// Go Back (true) or Go Forward (false) from a page view's mouse buttons and swipes.
+    @ObservationIgnored var navigate: ((Bool) -> Void)?
     /// Sends `new-conversation-tab` for a page tab (`page-tabs-v1`) in a pane:
     /// the created tab and the event sequence its reply follows. Sends it on
     /// the pane's daemon; tests hold it.
@@ -117,6 +119,7 @@ final class InternalPageTabStore {
         guard tabsByPane.values.contains(where: { $0.contains(key) }), let page = LocalPageTab.page(of: key),
               let provider = providers[page] else { return nil }
         let view = InternalPageView(key: key, page: page, content: provider.makeView(for: key, in: windows[key]))
+        view.navigate = navigate
         views[key] = view
         return view
     }
@@ -147,6 +150,7 @@ final class InternalPageTabStore {
         // A pane lists it: the tree has it.
         seenLive.insert(tab.id)
         let view = InternalPageView(key: key, page: page, content: provider.makeView(for: key, in: windows[key]))
+        view.navigate = navigate
         views[key] = view
         return view
     }

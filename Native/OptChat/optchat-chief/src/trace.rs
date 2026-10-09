@@ -197,6 +197,8 @@ pub fn requests(trace: &Trace, scope: &Value, requests: &[crate::fold::Request])
         f.insert("n".into(), json!(n + 1));
         f.insert("model".into(), json!(r.model));
         f.insert("usage".into(), usage(&r.usage));
+        f.insert("headers_ms".into(), json!(r.headers_ms));
+        f.insert("ttft_ms".into(), json!(r.ttft_ms));
         trace.emit("request", Value::Object(f));
     }
 }

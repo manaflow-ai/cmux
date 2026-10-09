@@ -88,9 +88,13 @@ extension PaneController {
     /// other callers (config commands, account logins) keep the pane's.
     /// `typingAhead` names a new tab page whose `!` type-ahead the shell
     /// gets after `typing`, drained until nothing new arrived (NewTabTypeAhead).
-    /// `then` runs once the new tab is selected. `daemonResolvesCwd`: the daemon picks the cwd (NEW-TERMINAL-INHERITS-CWD).
+    /// `then` runs once the new tab is selected. `daemonResolvesCwd` (a
+    /// terminal opened from the docked agent chat) sends only an explicit
+    /// `cwd` and lets the daemon's resolver pick the rest
+    /// (NEW-TERMINAL-INHERITS-CWD).
     func newTerminalTab(cwd: String? = nil, typing text: String? = nil, typingAhead page: String? = nil, keep: Bool? = nil,
-                        fromSelectedTab: Bool = false, daemonResolvesCwd: Bool = false, then: (@MainActor (SurfaceID) -> Void)? = nil) {
+                        fromSelectedTab: Bool = false, daemonResolvesCwd: Bool = false,
+                        then: (@MainActor (SurfaceID) -> Void)? = nil) {
         let handle = pane.handle
         // From an agent tab, the agent's cwd (#16620), asked when the tab is made.
         let agent = cwd == nil && fromSelectedTab && !daemonResolvesCwd ? selectedAgentView : nil

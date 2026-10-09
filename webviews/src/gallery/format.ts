@@ -205,6 +205,8 @@ export type ChangelogPageVariant = VariantBase & {
 /** The icon picker page on an in-page cmuxPage host serving a picker session. */
 export type IconPickerPageVariant = VariantBase & {
   session: PickerSession;
+  /** Saved picker prefs (Frequently Used, skin tone, symbol rendering) the host loads. */
+  prefs?: unknown;
   assetState?: "loading" | "error";
   query?: string;
   active?: number;

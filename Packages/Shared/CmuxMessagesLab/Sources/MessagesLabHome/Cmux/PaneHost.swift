@@ -582,13 +582,9 @@ final class ChatController: NSObject, NSTextViewDelegate {
         if let id = demo.compose.chip(at: p) { dispatch(.removeDraftAttachment(id)); return }
         guard p.y > Fixture.headerHeight, !demo.compose.fieldRect.insetBy(dx: 0, dy: -2).contains(p) else { return }
         if let hit = demo.hit(p) {
-            let local = CGPoint(x: p.x - hit.body.minX - Fixture.bubblePadX, y: p.y - hit.body.minY - Fixture.bubblePadY)
-            if let tl = hit.row.text, let url = tl.link(at: local).flatMap(URL.init(string:)) { NSWorkspace.shared.open(url); return }
+            // cmux: a link (re-checked at click time, MarkdownLinkPolicy) opens in PaneLinks.
+            if openLink(hit, at: p) { return }
             switch hit.row.part {
-            case let .link(url, _, _, _, _):
-                // cmux: the tap is the one time a received card may fetch its preview (HomeLinkPreviews).
-                intents?.linkTapped(hit.row.ref, url: url)
-                if let u = URL(string: url) { NSWorkspace.shared.open(u) }
             // cmux: the bytes come from HomeStore (Host.swift opened a fixture asset).
             // cmux: a video plays or pauses in its bubble (opening it in an
             // app is in the context menu); other attachments open.

@@ -51,6 +51,10 @@ final class LocationTrailService {
 
     init(services: AppServices) {
         self.services = services
+        // Page views' mouse buttons and swipes run Go Back / Go Forward (history.md 4.2b).
+        services.pages.navigate = { [weak services] back in
+            _ = services?.registry.perform(back ? "focusHistoryBack" : "focusHistoryForward", invocation: ActionInvocation(origin: .user))
+        }
         let store = services.daemon.store
         observation = Task { [weak self] in
             for await connected in Observations({ if case .connected = store.connectionState { true } else { false } }) where connected {
@@ -93,13 +97,19 @@ final class LocationTrailService {
         // workspace it left. Not a place the user went; recording it cut off
         // the forward entries of a Back or Forward between workspaces.
         if let shown = controller.state.workspaceID, state.topology.workspace != shown { return }
-        guard let location = location(of: state, in: controller) else { return }
-        if let jump = jumpNotedAt, now().timeIntervalSince(jump) < Self.jumpWindow, location.key != trail.current?.location.key {
-            jumpNotedAt = nil
-            if trail.recordJump(location, at: now()) { changed() }
+        guard let location = location(of: state, in: controller) else {
+            // The shown page may have changed (another tab): the arrows re-read it.
+            pageHistoryDidChange()
             return
         }
-        if trail.record(location, at: now(), scope: stepScope) { changed() }
+        let recorded: Bool
+        if let jump = jumpNotedAt, now().timeIntervalSince(jump) < Self.jumpWindow, location.key != trail.current?.location.key {
+            jumpNotedAt = nil
+            recorded = trail.recordJump(location, at: now())
+        } else {
+            recorded = trail.record(location, at: now(), scope: stepScope)
+        }
+        if recorded { changed() } else { pageHistoryDidChange() }
     }
 
     /// When the user last picked a jump (``noteJump()``).
@@ -169,8 +179,13 @@ final class LocationTrailService {
     /// Moves the trail within the scope and focuses the entry. False when there is nowhere to go.
     /// With the `surface` scope the focused surface walks its own list (a browser page's back and
     /// forward); a surface without one does nothing.
+    /// The shown page's own history comes first (history.md 4.2b): Back and
+    /// Forward walk it, and the trail only past its ends.
     @discardableResult
     func navigate(_ direction: Direction) -> Bool {
+        if direction != .last, ActionRunScope.viewChangeAllowed(), let page = pageHistory() {
+            if direction == .back ? page.goBack() : page.goForward() { return true }
+        }
         let scope = scope
         if scope == .surface {
             switch direction {
@@ -189,8 +204,10 @@ final class LocationTrailService {
         return true
     }
 
-    /// Whether Back or Forward has somewhere to go now (the titlebar buttons' enabled state).
-    func canNavigate(_ direction: LocationTrailDirection) -> Bool {
+    /// Whether Back or Forward has somewhere to go now in `controller` (else the active window):
+    /// the titlebar buttons' enabled state.
+    func canNavigate(_ direction: LocationTrailDirection, in controller: WindowController? = nil) -> Bool {
+        if let page = pageHistory(in: controller), direction == .back ? page.canGoBack : page.canGoForward { return true }
         let scope = scope
         guard scope != .surface else { return true }
         return direction == .back ? trail.canGoBack(scope: scope, isAvailable: isAvailable)
@@ -212,6 +229,26 @@ final class LocationTrailService {
         changed()
         if !focus(entry.location) { trail.cancelPending() }
         return true
+    }
+
+    // MARK: Page history (history.md 4.2b)
+
+    /// The page history of what `controller` (else the active window) shows: its top page, else
+    /// the internal page tab (app-only or store) its focused pane shows.
+    func pageHistory(in controller: WindowController? = nil) -> (any PageHistory)? {
+        guard let controller = controller ?? services.windows.active else { return nil }
+        if let route = controller.shownTopPage {
+            guard case .page(let id) = route, let key = controller.topPages.key(for: route) else { return nil }
+            return TopPages.provider(id, services: services)?.history(for: key)
+        }
+        guard case .page(let view)? = controller.focusedPane?.currentContent else { return nil }
+        return TopPages.provider(view.page, services: services)?.history(for: view.key)
+    }
+
+    /// A page moved through its history, or the shown page changed: the titlebar arrows re-read
+    /// ``canNavigate(_:in:)``. The trail itself did not change.
+    func pageHistoryDidChange() {
+        for handler in observers.values { handler() }
     }
 
     /// Focuses a trail entry chosen from a list (history page, palette):

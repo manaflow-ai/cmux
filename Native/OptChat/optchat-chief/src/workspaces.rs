@@ -34,6 +34,11 @@ pub trait Workspaces: Send + Sync {
     fn open(&self, key: &str, session: &str, name: &str, cwd: &Path) -> Result<String, String>;
     /// Renames the workspace `key`.
     fn rename(&self, key: &str, name: &str) -> Result<(), String>;
+    /// Closes the workspace `key` (`OPTCHAT_SUBAGENT_ON_FINISH=close`): it
+    /// goes to the closed history; the agent session stays.
+    fn close(&self, _key: &str) -> Result<(), String> {
+        Err("closing is not supported here".into())
+    }
     /// Where its workspaces live, for the Chief to tell the user (for
     /// example "the cmux app on this Mac").
     fn place(&self) -> String;
@@ -171,6 +176,10 @@ impl Workspaces for AppWorkspaces {
         }
     }
 
+    fn close(&self, key: &str) -> Result<(), String> {
+        close_by_key(&self.daemon, key)
+    }
+
     fn rename(&self, key: &str, name: &str) -> Result<(), String> {
         rename_by_key(&self.daemon, key, name)
     }
@@ -280,6 +289,10 @@ impl Workspaces for DaemonWorkspaces {
         result.map(|()| key)
     }
 
+    fn close(&self, key: &str) -> Result<(), String> {
+        close_by_key(&self.daemon, key)
+    }
+
     fn rename(&self, key: &str, name: &str) -> Result<(), String> {
         rename_by_key(&self.daemon, key, name)
     }
@@ -313,6 +326,28 @@ pub fn still_running(error: &str) -> bool {
 const MUTATION_ORIGIN: &str = "optchat-chief";
 
 /// `rename-workspace` by key on the session daemon at `daemon`.
+/// Closes workspace `key` and ends its terminal (the subagent's shell); the
+/// agent session is acpmux's and stays.
+fn close_by_key(daemon: &Path, key: &str) -> Result<(), String> {
+    use cmux::raw::{Client, ClientConfig, CloseWorkspaceRequest, Optional};
+    let mut client = Client::connect(ClientConfig::from_socket_path(daemon))
+        .map_err(|e| format!("the session daemon: {e}"))?;
+    let result = client
+        .close_workspace(CloseWorkspaceRequest {
+            end_terminals: Some(true),
+            expected_generation: Optional::Missing,
+            expected_revision: Optional::Missing,
+            key: Optional::Value(key.to_owned()),
+            mutation_id: Optional::Value(format!("optchat-subagent-close-{key}")),
+            origin: Optional::Value(MUTATION_ORIGIN.to_owned()),
+            workspace: Optional::Missing,
+        })
+        .map(|_| ())
+        .map_err(|e| format!("close-workspace: {e}"));
+    client.close();
+    result
+}
+
 fn rename_by_key(daemon: &Path, key: &str, name: &str) -> Result<(), String> {
     use cmux::raw::{Client, ClientConfig, Optional, RenameWorkspaceRequest};
     let mut client = Client::connect(ClientConfig::from_socket_path(daemon))

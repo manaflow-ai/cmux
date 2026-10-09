@@ -23,6 +23,16 @@ nonisolated extension OmnibarStep {
         return nil
     }
 
+    /// Where Enter goes when the typed text has a top-level-domain typo
+    /// (`HostTypoFixup`): only for the default row of text the user typed
+    /// (no paste, no inline completion, no arrowed or history row).
+    var typoFixedDestination: (url: URL, typedHost: String)? {
+        guard state.phase == .editing, state.keyword == nil, !state.editHasPaste,
+              state.edit.inlineCompletion.isEmpty else { return nil }
+        if let row = chosenRow, state.popup.selected != 0 || ![.navigate, .search].contains(row.kind) { return nil }
+        return resolver.typoFixedURL(for: state.edit.userText)
+    }
+
     /// Phase B rows of the current query join the card by the merge rule:
     /// the keyboard selection, the hover and every row at or above them stay.
     mutating func moreSuggestionsArrived(_ rows: [BrowserSuggestion], generation: UInt64, capacity: Int) {

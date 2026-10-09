@@ -58,6 +58,7 @@ public final class TerminalHostView: NSView {
         ])
         // A config reload can change window-padding-x.
         configObserver = NotificationCenter.default.addObserver(forName: GhosttyRuntime.configDidChange, object: nil, queue: .main) { [weak self] _ in
+            // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
             MainActor.assumeIsolated { self?.needsLayout = true }
         }
     }

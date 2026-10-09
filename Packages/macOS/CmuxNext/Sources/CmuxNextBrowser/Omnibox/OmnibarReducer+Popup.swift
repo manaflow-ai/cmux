@@ -63,6 +63,11 @@ nonisolated extension OmnibarStep {
         if state.keyword != nil { return commitKeyword(keywordCommitText, disposition) }
         if let row = chosenRow, row.kind == .switchToTab, let key = row.tabKey { return switchToTab(row, key: key, disposition) }
         if let row = chosenRow, row.kind == .answer { return effects.append(.copyAnswer(row.content ?? row.title)) }
+        if let fixed = typoFixedDestination {
+            effects.append(.hostTypoFixed(typedHost: fixed.typedHost))
+            effects.append(.typedNavigation(fixed.url))
+            return commit(fixed.url, disposition)
+        }
         guard let destination = commitDestination else {
             effects.append(.beep)
             return
@@ -97,6 +102,7 @@ nonisolated extension OmnibarStep {
         leaveKeyword(restoreText: false)
         let wasEditing = state.phase == .editing
         if wasEditing { pushUndo() }
+        state.editHasPaste = false
         state.phase = .focused
         state.elided = state.canElide
         state.edit = .init(selection: Self.all(state.fieldText))

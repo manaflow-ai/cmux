@@ -87,6 +87,21 @@ pub struct HostState {
     /// chief's wake queue woke, by conversation id.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub side: BTreeMap<String, SideFloor>,
+    /// The compactor's failure notice now in the conversation (cx-1hpt):
+    /// a host start whose probe fails again posts none, and a good probe
+    /// retracts it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compactor_notice: Option<PostedNotice>,
+}
+
+/// A notice the host posted and may take back.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PostedNotice {
+    /// Its idempotency key and client_msg_id.
+    pub key: String,
+    /// Its message id, once the owner confirmed it (what a retract names).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message_id: Option<String>,
 }
 
 /// A side conversation's floor is dropped after this many days without a
@@ -125,11 +140,11 @@ impl SideFloor {
     }
 }
 
-/// One `spawn(tasks)` call (section 9): its subagents report together.
+/// One `spawn(tasks)` call (section 9): each subagent reports as it finishes.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SpawnRecord {
     pub subs: Vec<SubRecord>,
-    /// The combined report is in the log; later reports come one by one.
+    /// A report of this spawn is in the log.
     #[serde(default)]
     pub delivered: bool,
     /// When the spawn was made (ms since the epoch).
@@ -146,6 +161,8 @@ pub enum SubStatus {
     /// Its session is being created.
     #[default]
     Starting,
+    /// It waits for a free slot (`subagents::MAX_LIVE` run at once).
+    Queued,
     /// A turn runs, or one ended and was not read yet.
     Running,
     /// It ended a turn; `report` holds its last reply, not logged yet.
@@ -169,6 +186,9 @@ pub struct SubRecord {
     /// The report waiting for the log.
     #[serde(default)]
     pub report: Option<String>,
+    /// The waiting report is of a run the user stopped: it starts no turn.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stopped: bool,
     /// The session's event seq at its last read turn end.
     #[serde(default)]
     pub floor: u64,
@@ -285,6 +305,10 @@ pub struct SpawnRef {
     pub spawn: String,
     /// (subagent id, its floor once this report is logged).
     pub subs: Vec<(String, u64)>,
+    /// The user stopped the subagent: its report is logged with the next
+    /// turn and starts none (the reference client's stopped report).
+    #[serde(default)]
+    pub quiet: bool,
 }
 
 impl HostState {
@@ -298,6 +322,7 @@ impl HostState {
                 {
                     sub.status = SubStatus::Reported;
                     sub.report = None;
+                    sub.stopped = false;
                     sub.floor = *floor;
                 }
             }

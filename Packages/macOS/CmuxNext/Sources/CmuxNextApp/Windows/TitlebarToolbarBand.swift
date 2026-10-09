@@ -4,16 +4,39 @@ import CmuxNextHistory
 import Observation
 
 /// The toolbar band in the window's top row, right of the traffic lights
-/// (R68/R69, spec titlebar-area.md): the sidebar toggle first, at a fixed
-/// frame that never moves with the sidebar (it lives in the window root,
-/// not in the sidebar that animates), then the band's other items. A
-/// strip under it starts its tabs after it (`TitlebarAccessoryHosting`).
+/// (R68/R69, spec titlebar-area.md): the sidebar toggle first (it lives in
+/// the window root, not in the sidebar that animates), then Back and
+/// Forward. A strip under it starts its tabs after it
+/// (`TitlebarAccessoryHosting`). With the sidebar hidden the band has 0
+/// width and is clear, so only the traffic lights show (cx-uxdr, Lawrence
+/// 2026-10-08); `presence` follows the sidebar's on-screen width, frame by
+/// frame (`WindowRootView.layout`).
 final class TitlebarToolbarBand: NSView {
-    let sidebarToggle = TitlebarBandButton(symbol: TitlebarToolbarBand.collapseSymbol)
-    /// The toggle's glyph while the sidebar shows: collapse it to the left.
-    static let collapseSymbol = "rectangle.lefthalf.inset.filled.arrow.left"
-    /// The toggle's glyph while the sidebar is hidden: the sidebar.
-    static let expandSymbol = "sidebar.left"
+    let sidebarToggle = TitlebarBandButton(symbol: SidebarToggleIcon.currentCollapseSymbol)
+    /// The toggle's glyph while the sidebar shows (the default icon).
+    static var collapseSymbol: String { SidebarToggleIcon.currentCollapseSymbol }
+    /// The toggle's glyph while the sidebar is hidden (the default icon).
+    static var expandSymbol: String { SidebarToggleIcon.currentExpandSymbol }
+    /// How much of the band shows: 1 with the sidebar shown, 0 with it
+    /// hidden, in between while the sidebar's width animates. The items
+    /// close up toward the band's origin and fade with it. Fully collapsed,
+    /// the band is hidden: its 0-width buttons leave the key view loop and
+    /// the accessibility tree, and come back as soon as it grows.
+    var presence: CGFloat = 1 {
+        didSet {
+            guard presence != oldValue else { return }
+            alphaValue = presence
+            isHidden = presence == 0
+            needsLayout = true
+        }
+    }
+    /// Where the icon choice is read (tests pass their own store).
+    var iconStore: TunableStore = .shared {
+        didSet { followIcon() }
+    }
+    /// The sidebar state the toggle's glyph shows.
+    private(set) var showsSidebarHidden = false
+    private var iconObservation: Task<Void, Never>?
     /// Back and Forward through the location trail (R69).
     let backButton = TitlebarBandButton(symbol: "chevron.left")
     let forwardButton = TitlebarBandButton(symbol: "chevron.right")
@@ -37,6 +60,20 @@ final class TitlebarToolbarBand: NSView {
         backButton.menuProvider = { [weak self] in self?.historyMenu?(.back) }
         forwardButton.menuProvider = { [weak self] in self?.historyMenu?(.forward) }
         [sidebarToggle, backButton, forwardButton].forEach(addSubview)
+        followIcon()
+    }
+
+    /// Applies the Debug Settings / Debug menu icon choice live.
+    private func followIcon() {
+        iconObservation?.cancel()
+        let store = iconStore
+        // task-owner: the band (cancelled in deinit and on a store change); event-driven (Observation)
+        iconObservation = Task { [weak self] in
+            for await _ in Observations({ SidebarToggleIcon.tunable.value(in: store) }) {
+                guard let self else { return }
+                showSidebarState(hidden: showsSidebarHidden)
+            }
+        }
     }
 
     @objc func goBack() { onHistory?(.back) }
@@ -69,23 +106,28 @@ final class TitlebarToolbarBand: NSView {
     /// retargets from what is on screen.
     @objc func toggle() { onToggleSidebar?() }
 
-    /// The toggle's glyph follows the sidebar: collapse-left while it
+    /// The toggle's glyph follows the sidebar and the chosen icon
+    /// (`SidebarToggleIcon`): with the default, collapse-left while it
     /// shows, the sidebar glyph while it is hidden (Leo, T3 Code ref).
     func showSidebarState(hidden: Bool) {
-        sidebarToggle.symbol = hidden ? Self.expandSymbol : Self.collapseSymbol
+        showsSidebarHidden = hidden
+        sidebarToggle.symbol = SidebarToggleIcon.tunable.value(in: iconStore).symbol(sidebarHidden: hidden)
     }
 
-    /// The band's width for its items: the toggle first (its frame is the
-    /// band's origin and never moves), then Back and Forward.
+    /// The band's full width for its items: the toggle first, then Back
+    /// and Forward.
     static var width: CGFloat { TitlebarBandButton.side * 3 + Metrics.space1 * 2 }
 
+    /// Each item is `presence` of its width, and the gaps close with it, so
+    /// the band reaches 0 width with no jump.
     override func layout() {
         super.layout()
         let side = TitlebarBandButton.side
+        let width = side * presence
         var x: CGFloat = 0
         for button in [sidebarToggle, backButton, forwardButton] {
-            button.frame = NSRect(x: x, y: (bounds.height - side) / 2, width: side, height: side)
-            x += side + Metrics.space1
+            button.frame = NSRect(x: x, y: (bounds.height - side) / 2, width: width, height: side)
+            x += (side + Metrics.space1) * presence
         }
     }
 
@@ -111,13 +153,15 @@ final class TitlebarToolbarBand: NSView {
 
     isolated deinit {
         descriptionObservation?.cancel()
+        iconObservation?.cancel()
     }
 }
 
 /// An icon button of the toolbar band: the chrome's hover and pressed look.
 final class TitlebarBandButton: NSButton {
     static var side: CGFloat { Metrics.sidebarRowHeight - Metrics.space1 }
-    /// The SF Symbol it draws.
+    /// The SF Symbol it draws, or a custom glyph name
+    /// (`SidebarToggleIcon.image(named:pointSize:)`).
     var symbol: String {
         didSet { if symbol != oldValue { renderedIconSize = 0; renderSymbol() } }
     }
@@ -132,6 +176,8 @@ final class TitlebarBandButton: NSButton {
         isBordered = false
         bezelStyle = .regularSquare
         imagePosition = .imageOnly
+        // A collapsing band narrows its items: the glyph scales down with them.
+        imageScaling = .scaleProportionallyDown
         renderSymbol()
         contentTintColor = performWithTheme { Palette.textSecondary }
         // Hover follows the pointer and the button's frame (cx-3wu5): a band
@@ -160,7 +206,8 @@ final class TitlebarBandButton: NSButton {
         let size = Metrics.smallIconSize
         guard size != renderedIconSize else { return }
         renderedIconSize = size
-        image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+        image = SidebarToggleIcon.image(named: symbol, pointSize: size)
+            ?? NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: size, weight: .regular))
     }
 

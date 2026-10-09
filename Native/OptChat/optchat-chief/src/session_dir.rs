@@ -84,8 +84,9 @@ pub fn mcp_json_for(setup: &SessionSetup, paths: &Paths, subagent: bool) -> Valu
 }
 
 /// The project settings: the MCP servers above enabled, the tools' env with
-/// the launcher directory first on PATH, and Claude Code's subagents denied.
-pub fn settings_json(setup: &SessionSetup, paths: &Paths) -> Value {
+/// the launcher directory first on PATH, and `deny` (Claude Code's
+/// subagents always) denied, which takes those tools out of the list.
+pub fn settings_json(setup: &SessionSetup, paths: &Paths, deny: &[&str]) -> Value {
     let mut names = vec!["optchat"];
     if setup.cmux_mcp.is_some() {
         names.push("cmux");
@@ -112,7 +113,7 @@ pub fn settings_json(setup: &SessionSetup, paths: &Paths) -> Value {
         "enableAllProjectMcpServers": true,
         "enabledMcpjsonServers": names,
         "env": env,
-        "permissions": {"deny": TURN_DENIED_TOOLS},
+        "permissions": {"deny": deny},
         // Also here, not only in the isolated configuration: claude-sr
         // resets CLAUDE_CONFIG_DIR to ~/.claude (live check 2026-10-04), so
         // project settings are the ones a turn is sure to read.
@@ -122,16 +123,52 @@ pub fn settings_json(setup: &SessionSetup, paths: &Paths) -> Value {
     })
 }
 
-/// Tools a turn session never offers: Claude Code's own subagents (above),
+/// Tools no Chief session offers: Claude Code's own subagents (above),
 /// and the tools that wait for a human (a question, plan mode), which
 /// acpmux keeps for a human under every policy and nobody answers in a
-/// turn, so one call would hang the turn until its limit.
-pub const TURN_DENIED_TOOLS: [&str; 5] = [
+/// turn, so one call would hang the turn until its limit. Subagents keep
+/// every other tool: they do the work.
+pub const SUBAGENT_DENIED_TOOLS: [&str; 5] = [
     "Task",
     "Agent",
     "AskUserQuestion",
     "EnterPlanMode",
     "ExitPlanMode",
+];
+
+/// A turn session's denied tools (parity item 5): the above, and every
+/// other built-in tool of Claude Code 2.1.287 the Chief does not work with,
+/// so the turn's prefix stays small (measured 2026-10-08: 20.7k to 12.1k
+/// tokens bare). A turn keeps Bash, Read, Edit, Write, WebFetch, WebSearch,
+/// and ToolSearch (it loads the MCP tools on demand); work beyond those goes
+/// to subagents. A tool a later Claude Code adds is offered until it is
+/// listed here.
+pub const TURN_DENIED_TOOLS: [&str; 25] = [
+    "Task",
+    "Agent",
+    "AskUserQuestion",
+    "EnterPlanMode",
+    "ExitPlanMode",
+    "CronCreate",
+    "CronDelete",
+    "CronList",
+    "DesignSync",
+    "EnterWorktree",
+    "ExitWorktree",
+    "ListAgents",
+    "Monitor",
+    "NotebookEdit",
+    "PushNotification",
+    "ReportFindings",
+    "ScheduleWakeup",
+    "SendMessage",
+    "Skill",
+    "TaskCreate",
+    "TaskGet",
+    "TaskList",
+    "TaskStop",
+    "TaskUpdate",
+    "Workflow",
 ];
 
 /// Days Claude Code keeps a turn session's transcript in the isolated
@@ -199,7 +236,7 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
         &paths.session.join(".mcp.json"),
         pretty(&mcp_json(setup, paths))?.as_bytes(),
     )?;
-    let settings = pretty(&settings_json(setup, paths))?;
+    let settings = pretty(&settings_json(setup, paths, &TURN_DENIED_TOOLS))?;
     write_if_changed(
         &paths.session.join(".claude").join("settings.json"),
         settings.as_bytes(),
@@ -242,7 +279,7 @@ pub fn write_subagent(paths: &Paths, setup: &SessionSetup, text: &str) -> io::Re
     )?;
     let mut sub = setup.clone();
     sub.env.insert(SUBAGENT_ENV.to_owned(), "1".to_owned());
-    let settings = pretty(&settings_json(&sub, paths))?;
+    let settings = pretty(&settings_json(&sub, paths, &SUBAGENT_DENIED_TOOLS))?;
     write_if_changed(
         &dir.join(".claude").join("settings.json"),
         settings.as_bytes(),
@@ -278,6 +315,45 @@ pub fn set_claude_md(session: &Path, text: Option<&str>) -> io::Result<()> {
         }
         None => remove_if_present(&path),
     }
+}
+
+/// Sets `promptCacheTtl` in the session directory's Claude Code project
+/// settings (settings.json and settings.local.json; the other keys stay):
+/// Claude Code's own cache marks then take the TTL of ours, since the API
+/// refuses a 1h mark after a 5m one. Claude Code reads it at session start.
+pub fn set_prompt_cache_ttl(session: &Path, ttl: crate::prompt::CacheTtl) -> io::Result<()> {
+    let dir = session.join(".claude");
+    std::fs::create_dir_all(&dir)?;
+    for name in ["settings.json", "settings.local.json"] {
+        let path = dir.join(name);
+        let mut value: Value = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .filter(Value::is_object)
+            .unwrap_or_else(|| json!({}));
+        value["promptCacheTtl"] = json!(ttl.as_str());
+        // At 5 minutes also FORCE_PROMPT_CACHING_5M, which wins over every
+        // other source of Claude Code's TTL (a subscription login marks 1h).
+        if !value["env"].is_object() {
+            value["env"] = json!({});
+        }
+        match ttl {
+            crate::prompt::CacheTtl::FiveMinutes => {
+                value["env"]["FORCE_PROMPT_CACHING_5M"] = json!("1");
+            }
+            crate::prompt::CacheTtl::OneHour => {
+                if let Some(env) = value["env"].as_object_mut() {
+                    env.remove("FORCE_PROMPT_CACHING_5M");
+                }
+            }
+        }
+        let text = format!(
+            "{}\n",
+            serde_json::to_string_pretty(&value).map_err(io::Error::other)?
+        );
+        write_if_changed(&path, text.as_bytes())?;
+    }
+    Ok(())
 }
 
 fn remove_if_present(path: &Path) -> io::Result<()> {
@@ -357,16 +433,7 @@ mod tests {
         .unwrap();
         // Audit round 3, M3: acpmux keeps questions and plan approval for a
         // human under every policy, and nobody answers them in a turn.
-        assert_eq!(
-            settings["permissions"]["deny"],
-            json!([
-                "Task",
-                "Agent",
-                "AskUserQuestion",
-                "EnterPlanMode",
-                "ExitPlanMode"
-            ])
-        );
+        assert_eq!(settings["permissions"]["deny"], json!(TURN_DENIED_TOOLS));
         // Audit round 3, M6: turn transcripts are kept a short while only.
         let user: Value = serde_json::from_slice(
             &std::fs::read(paths.claude_config.join("settings.json")).unwrap(),

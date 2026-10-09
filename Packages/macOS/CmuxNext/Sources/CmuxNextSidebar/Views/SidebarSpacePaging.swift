@@ -132,7 +132,10 @@ import QuartzCore
     /// reset a view-backed layer's model transform during a layout pass, so
     /// a finished slide would otherwise show the page back at 0 for the
     /// frames before its completion removes it (the old rows drawn over the
-    /// new list).
+    /// new list). A move without a spring holds its value the same way
+    /// (cx-gq1k): AppKit's geometry pass for a page just inserted at a
+    /// swipe's first event reset its transform, so the next space's rows drew
+    /// at 0 over the live list until the next event. At 0 nothing is held.
     private func translate(_ view: NSView, _ x: CGFloat, animated spring: MotionSpring?, from: CGFloat? = nil) {
         guard let layer = view.layer else { return }
         let keyPath = "transform.translation.x"
@@ -140,7 +143,10 @@ import QuartzCore
         let start = from ?? shown
         layer.removeAnimation(forKey: Self.slideKey)
         Motion.transaction(nil) { layer.setValue(x, forKeyPath: keyPath) }
-        guard let spring, Motion.animatesMovement, start != x else { return }
+        guard let spring, Motion.animatesMovement, start != x else {
+            if x != 0 { layer.add(Self.hold(keyPath, at: x), forKey: Self.slideKey) }
+            return
+        }
         let parameters = Motion.spring(spring)
         let animation = CASpringAnimation(keyPath: keyPath)
         animation.mass = 1
@@ -152,6 +158,17 @@ import QuartzCore
         animation.fillMode = .forwards
         animation.isRemovedOnCompletion = false
         layer.add(animation, forKey: Self.slideKey)
+    }
+
+    /// A constant animation that keeps `keyPath` at `value` on screen until
+    /// it is replaced or removed, whatever AppKit writes to the model.
+    private static func hold(_ keyPath: String, at value: CGFloat) -> CABasicAnimation {
+        let animation = CABasicAnimation(keyPath: keyPath)
+        animation.fromValue = value
+        animation.toValue = value
+        animation.fillMode = .forwards
+        animation.isRemovedOnCompletion = false
+        return animation
     }
 
     // MARK: Switch by dot, key or a new space

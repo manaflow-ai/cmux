@@ -38,6 +38,22 @@ private final class RecordingSource: ResourceSampleSource {
         #expect(!controller.resources.isScheduled)
     }
 
+    /// A tab with no numbers to report (an agent chat, the New Tab page)
+    /// shows no resource line instead of "Resource usage unavailable".
+    @Test func aTabWithoutResourceNumbersShowsNoResourceLine() {
+        let body = TabHoverCardView()
+        body.configure(.tab(TabItem(id: TabID("t1"), title: "Agent")))
+        body.setResources(ResourceReport(tabs: [TabResourceReport(
+            id: "t1", title: "Agent", kind: .other, usage: .zero, processCount: 0, sharedWithTabs: 0, available: false
+        )]))
+        #expect(body.resources.isHidden)
+
+        body.setResources(ResourceReport(tabs: [TabResourceReport(
+            id: "t1", title: "Agent", kind: .terminal, usage: .zero, processCount: 1, sharedWithTabs: 0, available: true
+        )]))
+        #expect(!body.resources.isHidden)
+    }
+
     @Test func groupChipsDoNotSample() {
         let source = RecordingSource()
         let controller = TabHoverCardController()

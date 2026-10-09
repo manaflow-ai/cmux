@@ -10,6 +10,13 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 category: .agents, symbol: "bubble.left.and.text.bubble.right",
                 surfaces: [.palette, .keyboard, .menu, .contextMenu], targets: [.pane], cliName: "agent new-chat", mainMenu: .file
             ),
+            ActionDescriptor(
+                id: "agentPane.toggleInspector",
+                title: String(localized: "action.agentPane.toggleInspector", defaultValue: "Show ACP Inspector", bundle: .module),
+                keywords: ["agent", "acp", "acpmux", "inspector", "log", "debug"], category: .agents, symbol: "list.bullet.rectangle",
+                surfaces: [.palette], targets: [.pane], cliName: "agent toggle-acp-inspector",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .guiOnly)
+            ),
             {
                 var quick = ActionDescriptor(
                     id: "palette.quickAgentChat",
