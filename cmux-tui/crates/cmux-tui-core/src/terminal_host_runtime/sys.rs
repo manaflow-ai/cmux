@@ -73,6 +73,19 @@ mod windows_stubs {
     /// false`), so no value of this type exists there.
     pub(crate) enum PtyCustody {}
 
+    /// The host's process-lifetime liveness lease. Acquiring one fails
+    /// until `sys/windows.rs`, so no value exists yet.
+    pub(crate) struct HostLivenessLease {
+        pub(crate) file: File,
+        pub(crate) path: PathBuf,
+    }
+
+    impl HostLivenessLease {
+        pub(crate) fn acquire(_path: PathBuf) -> anyhow::Result<Self> {
+            Err(unsupported().into())
+        }
+    }
+
     /// An adopted session id. Windows v1 adopts no session.
     pub(crate) enum SessionId {}
 

@@ -469,6 +469,7 @@ mod unix {
     use ghostty_vt::Terminal;
 
     use super::shared::codec::*;
+    use super::shared::host_serve::*;
     use super::shared::host_shared::HostShared;
     use super::shared::host_state::*;
     use super::shared::records::*;
@@ -584,8 +585,8 @@ mod unix {
     mod standby;
     use super::shared::attachment::*;
     pub(crate) use super::shared::clipboard_read::ClipboardReadSignal;
+    use super::shared::clipboard_read::OwnerIntent;
     use super::shared::clipboard_read::{ClipboardReads, SystemClock};
-    use super::shared::clipboard_read::{OwnerIntent, owner_rights_allowed};
     pub(crate) use super::shared::control_responses::{
         ControlResponses, DeferredCellPixelResolution,
     };
@@ -754,87 +755,6 @@ mod unix {
     pub mod unadoptable;
     pub(crate) use unadoptable::process_definitely_absent;
 
-    struct LaunchOwnerConnection {
-        host: Arc<HostShared>,
-        claimed: bool,
-    }
-
-    impl LaunchOwnerConnection {
-        fn claim(host: Arc<HostShared>, granted_rights: CapabilityRights) -> Self {
-            let claimed = granted_rights.contains(CapabilityRights::ADMIN)
-                && host
-                    .launch_owner_claimed
-                    .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-                    .is_ok();
-            Self { host, claimed }
-        }
-
-        fn stream_ready(&self) {
-            if !self.claimed {
-                return;
-            }
-            self.host.mark_launch_owner_stream_ready();
-        }
-    }
-
-    impl Drop for LaunchOwnerConnection {
-        fn drop(&mut self) {
-            if !self.claimed {
-                return;
-            }
-            // A failed initial stream must release the same launch barrier as
-            // a successful one. The launching daemon reports the handshake
-            // failure, while the independently hosted process can still
-            // publish or clean up its terminal exit.
-            self.host.mark_launch_owner_stream_ready();
-        }
-    }
-
-    struct ActiveClientStream {
-        host: Arc<HostShared>,
-    }
-
-    impl ActiveClientStream {
-        fn register(host: Arc<HostShared>) -> Self {
-            host.active_client_streams.fetch_add(1, Ordering::AcqRel);
-            Self { host }
-        }
-    }
-
-    impl Drop for ActiveClientStream {
-        fn drop(&mut self) {
-            let previous = self.host.active_client_streams.fetch_sub(1, Ordering::AcqRel);
-            debug_assert!(previous > 0, "active terminal-host stream underflow");
-            if previous == 1 {
-                self.host.accept_waker.wake();
-            }
-        }
-    }
-
-    struct ClientSetupRollback {
-        host: Arc<HostShared>,
-        client: u64,
-        armed: bool,
-    }
-
-    impl ClientSetupRollback {
-        fn new(host: Arc<HostShared>, client: u64) -> Self {
-            Self { host, client, armed: true }
-        }
-
-        fn disarm(&mut self) {
-            self.armed = false;
-        }
-    }
-
-    impl Drop for ClientSetupRollback {
-        fn drop(&mut self) {
-            if self.armed {
-                self.host.remove_client(self.client);
-            }
-        }
-    }
-
     /// The ProcessTree seam, Unix side (cx-ko2e table C): signal the PTY's
     /// process groups.
     impl HostShared {
@@ -875,75 +795,6 @@ mod unix {
                 // SAFETY: validated positive process-group ids owned by this
                 // PTY session; signal is a platform constant from this module.
                 let _ = unsafe { libc::killpg(group, signal) };
-            }
-        }
-    }
-
-    struct HostServiceGuard {
-        shared: Arc<HostShared>,
-        endpoint: PathBuf,
-        record_path: PathBuf,
-        record: TerminalHostRecord,
-        lease: Option<HostLivenessLease>,
-        published: bool,
-    }
-
-    struct UnpublishedHostGuard {
-        shared: Arc<HostShared>,
-        endpoint: PathBuf,
-        armed: bool,
-    }
-
-    impl Drop for UnpublishedHostGuard {
-        fn drop(&mut self) {
-            if self.armed {
-                // An adopted session is not this host's to end: its owner keeps it.
-                if self.shared.adopted_session.is_none() {
-                    self.shared.terminate_and_wait();
-                }
-                let _ = fs::remove_file(&self.endpoint);
-            }
-        }
-    }
-
-    impl Drop for HostServiceGuard {
-        fn drop(&mut self) {
-            // All normal and early-error paths confirm the PTY child exited
-            // before removing its discoverability record. If this host is
-            // SIGKILLed, Drop cannot run; the locked nonce file remains on
-            // disk but unlocks automatically, giving the next mux positive
-            // stale-record proof.
-            self.shared.terminate_and_wait();
-            if !self.shared.child_exited() {
-                return;
-            }
-            let owns_record = !self.published
-                || fs::read(&self.record_path)
-                    .ok()
-                    .and_then(|bytes| serde_json::from_slice::<TerminalHostRecord>(&bytes).ok())
-                    .is_some_and(|current| {
-                        current.terminal_id == self.record.terminal_id
-                            && current.incarnation == self.record.incarnation
-                            && current.host_start_nonce == self.record.host_start_nonce
-                    });
-            let released_lease_path = if owns_record {
-                self.lease.take().map(|lease| {
-                    let _ = lease.file.sync_all();
-                    let path = lease.path.clone();
-                    // Unlock the process-incarnation proof before removing its
-                    // discovery record. Observers can never see an absent
-                    // record whose captured liveness proof still says Live.
-                    drop(lease);
-                    path
-                })
-            } else {
-                None
-            };
-            let removed_record =
-                !self.published || (owns_record && fs::remove_file(&self.record_path).is_ok());
-            let _ = fs::remove_file(&self.endpoint);
-            if removed_record && let Some(path) = released_lease_path {
-                let _ = fs::remove_file(path);
             }
         }
     }
@@ -1691,55 +1542,6 @@ mod unix {
         }
         host.remove_client(client);
         Ok(())
-    }
-
-    fn authenticate_client(host: &HostShared, hello: &ClientHello) -> anyhow::Result<HostHello> {
-        if hello.terminal_id != host.terminal_id {
-            anyhow::bail!("terminal-host capability denied");
-        }
-        if constant_time_equal(hello.token.as_bytes(), host.owner_token.as_bytes()) {
-            if hello.role != ClientRole::Admin
-                || !owner_rights_allowed(hello.requested_rights)
-                || hello.min_version > PROTOCOL_VERSION
-                || hello.max_version < PROTOCOL_VERSION
-            {
-                anyhow::bail!("terminal-host owner capability denied");
-            }
-            return Ok(HostHello {
-                selected_version: PROTOCOL_VERSION,
-                granted_rights: hello.requested_rights,
-                terminal_id: host.terminal_id,
-                incarnation: host.incarnation,
-            });
-        }
-        Ok(host.capabilities.accept(
-            hello,
-            PROTOCOL_VERSION..=PROTOCOL_VERSION,
-            host.incarnation,
-        )?)
-    }
-
-    fn mint_renderer_capability(
-        host: &HostShared,
-        payload: &[u8],
-    ) -> anyhow::Result<CapabilityToken> {
-        if payload.len() != 8 {
-            anyhow::bail!("bad renderer capability request");
-        }
-        let rights = CapabilityRights::from_bits(u32::from_le_bytes(
-            payload[0..4].try_into().expect("fixed rights slice"),
-        ))
-        .ok_or_else(|| anyhow::anyhow!("unknown renderer capability rights"))?;
-        if !rights.contains(CapabilityRights::READ) || !CapabilityRights::RENDERER.contains(rights)
-        {
-            anyhow::bail!("renderer capability rights are out of range");
-        }
-        let ttl_ms = u32::from_le_bytes(payload[4..8].try_into().expect("fixed TTL slice"));
-        let ttl = Duration::from_millis(u64::from(ttl_ms));
-        if ttl.is_zero() || ttl > MAX_RENDERER_CAPABILITY_TTL {
-            anyhow::bail!("renderer capability TTL is out of range");
-        }
-        Ok(host.capabilities.mint(host.terminal_id, rights, ttl)?)
     }
 
     #[cfg(test)]
