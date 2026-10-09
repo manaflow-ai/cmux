@@ -12,18 +12,16 @@ Agent launcher (cx-hkat) reuses the same picker and rules.
    (its choices and its current value), ACP `models.availableModels`, and acpmux's
    `_acpmux/models` list. Nothing else may hide one of them. A user `hidden` override in cmux.json
    `agentPane.models` is the only exception.
-2. **Claude Code reports its own list.** `claude -p --input-format stream-json` answers the
-   `initialize` control request with `models`: `value`, `displayName`, `description`,
-   `resolvedModel`. Claude Code 2.1.295 reports `default`, `opus`, `claude-fable-5-1[1m]`,
-   `sonnet`, `haiku`, resolving to Opus 5.5, Fable 5.1, Sonnet 5.5 and Haiku 5.5. acpmux's
-   `claude_stdio` turns that list into the session's model option, named by the release the alias
-   runs now ("Opus 5.5", "Fable 5.1 · 1M context"). Its baked list is aliases only (`default`,
-   `fable`, `opus`, `sonnet`, `haiku`, their `[1m]` forms, `opusplan`) and stands in only until
-   Claude Code answers.
+2. **Claude Code reports its own list.** acpmux's live model probe (`live_models/claude.rs`,
+   hq-21, ef266b891d81) runs the harness's own `claude` in stream-json mode and reads
+   `list_models`, else the `initialize` reply's `models` (`value`, `displayName`, `description`,
+   `resolvedModel`). Claude Code 2.1.295 reports `default`, `opus`, `claude-fable-5-1[1m]`,
+   `sonnet`, `haiku`, resolving to Opus 5.5, Fable 5.1, Sonnet 5.5 and Haiku 5.5. That list is the
+   one source; `_acpmux/models` serves it, the static `claude_stdio` list stands in only before
+   the first probe answers.
 3. **Only the harness says what an alias runs.** An alias's target depends on the installed
-   harness: Claude Code 2.1.287's `haiku` is Haiku 4.5, 2.1.295's is Haiku 5.5. acpmux passes the
-   concrete id from the initialize reply (`resolvedModel`) and names the choice by Claude Code's
-   own words. The picker never infers an alias's target from the catalog. When the harness names
+   harness: Claude Code 2.1.287's `haiku` is Haiku 4.5, 2.1.295's is Haiku 5.5. acpmux's live list keeps the
+   concrete id from the reply (`resolvedModel`) and names the choice by Claude Code's own words. The picker never infers an alias's target from the catalog. When the harness names
    an alias as a catalog release ("opus" named "Opus 5.5"), the alias takes that release's row,
    with its catalog metadata, so a pick follows the harness's newest model; any other alias stays
    its own row under the harness's name. The catalog's `aliases` field (`familyAliases` in
