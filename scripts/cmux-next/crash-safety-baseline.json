@@ -49,7 +49,7 @@
    "MessagesLabHome": 20
   },
   "index_subscript": {
-   "CMUXMobileCore": 81,
+   "CMUXMobileCore": 15,
    "CmuxHomeRender": 61,
    "CmuxIrohTransport": 59,
    "CmuxIrxTransport": 30,
@@ -61,7 +61,7 @@
    "MessagesLabSidebar": 57
   },
   "int_conversion": {
-   "CMUXMobileCore": 111,
+   "CMUXMobileCore": 18,
    "CmuxHomeRender": 9,
    "CmuxIrohTransport": 72,
    "CmuxIrxTransport": 43,
