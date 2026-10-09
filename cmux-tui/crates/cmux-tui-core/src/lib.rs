@@ -45,6 +45,7 @@ mod model;
 mod mux;
 mod pairing;
 mod program_status;
+mod program_status_notify;
 pub mod provider_management;
 #[cfg(unix)]
 mod pty_write;
