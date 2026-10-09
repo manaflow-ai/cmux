@@ -38,6 +38,8 @@ use kitty_reservation::{kitty_image_limits_exceed, kitty_image_limits_within};
 pub(crate) mod layout_invariants;
 mod layout_ratio_error;
 mod layout_undo_commit;
+mod notification_level;
+pub use notification_level::NotificationLevel;
 mod personal;
 mod presentation;
 mod provider_authority;
@@ -64,6 +66,8 @@ pub(crate) mod tab_drag;
 pub(crate) mod tab_groups;
 pub(crate) mod tab_strip;
 mod tab_workspace_name;
+mod time;
+pub(crate) use time::now_ms;
 
 pub(crate) use crate::state::{PersonalChange, ScreenChange, WorkspaceStatusChange};
 pub(crate) use tab_strip::StripRequest;
@@ -124,7 +128,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 use topology_result::persist_public_topology_result;
 
 use anyhow::Context;
@@ -697,23 +701,6 @@ pub(crate) fn validate_client_id(client_id: &str) -> anyhow::Result<()> {
         anyhow::bail!("bad request: invalid client_id");
     }
     Ok(())
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NotificationLevel {
-    Info,
-    Warning,
-    Error,
-}
-
-impl NotificationLevel {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            NotificationLevel::Info => "info",
-            NotificationLevel::Warning => "warning",
-            NotificationLevel::Error => "error",
-        }
-    }
 }
 
 /// Who posted a notification (`notification-source-v1`). Frontends apply
@@ -17398,13 +17385,6 @@ fn unique_surface_runtimes(state: &State) -> Vec<Arc<Surface>> {
         })
         .cloned()
         .collect()
-}
-
-pub(crate) fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_millis() as u64)
-        .unwrap_or(0)
 }
 
 fn sidebar_retry_delay(failures: u32) -> Duration {
