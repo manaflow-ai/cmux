@@ -285,6 +285,10 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugSidebarRows.report(services: services))
             },
+            .mainActor("debug.sidebar_wheel") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugSidebarWheel.post(call.params, services: services))
+            },
             .mainActor("debug.sidebar_rename") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugKey.beginSidebarRename(call.params, services: services))
