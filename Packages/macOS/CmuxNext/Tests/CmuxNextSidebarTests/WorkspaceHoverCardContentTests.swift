@@ -21,7 +21,8 @@ import Testing
         let content = WorkspaceHoverCardContent.make(workspace, machine: nil, now: now)
         #expect(content.title == "Play Starsector campaign")
         #expect(content.icon == workspace.kind.iconName)
-        #expect(content.age == "4w")
+        // "4w" in English; the units follow the person's locale.
+        #expect(content.age?.contains("4") == true)
         #expect(content.facts == [
             .init(icon: .folder, text: "projects folder"),
             .init(icon: .gitBranch, text: "main"),
@@ -37,6 +38,11 @@ import Testing
         // The home folder reads as a name, never "~".
         #expect(!content.facts.contains { $0.text == "~" })
         #expect(content.age == nil, "no activity, no age")
+    }
+
+    @Test func anEmptyFolderIsNoRow() {
+        let workspace = SidebarWorkspace(id: WorkspaceID("w"), title: "w", directory: "")
+        #expect(WorkspaceHoverCardContent.make(workspace, machine: nil, now: now).facts.isEmpty)
     }
 
     @Test func resourcesShowOnlyWhenNotable() {
