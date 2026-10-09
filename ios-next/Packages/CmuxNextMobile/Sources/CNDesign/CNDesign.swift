@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 public import SwiftUI
 public import UIKit
 
@@ -108,3 +109,4 @@ extension ShapeStyle where Self == Color {
         Color(uiColor: CNTheme.shared.palette[keyPath: key])
     }
 }
+#endif
