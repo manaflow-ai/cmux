@@ -157,9 +157,8 @@ const createCMUXFeed = async (ctx, options = {}) => {
     if (disposed || !(await ownsSessionForEvent(sessionId, ownerSessionId))) return;
     if (options.tui) {
       await ctx.client.permission.reply({
-        sessionID: sessionId,
         requestID: requestId,
-        decision: reply,
+        reply,
         ...(message ? { message } : {}),
       });
       return;
@@ -1005,5 +1004,5 @@ export default {
   // V2 uses the package's ./tui export; never subscribe in the shared service.
   server() { return {}; },
   // Compatibility alias for older V2 snapshots that called setup().
-  setup() { return {}; },
+  setup() { return () => {}; },
 };
