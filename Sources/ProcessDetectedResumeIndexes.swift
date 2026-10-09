@@ -37,6 +37,7 @@ struct ProcessDetectedResumeIndexes: Sendable {
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default,
         ttyDeviceBindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:],
+        processSnapshotService: ProcessSnapshotService<CmuxTopProcessCapture, CmuxTopProcessFields>? = nil,
         deadline: Duration = .seconds(5),
         onWorkerCreated: @escaping @MainActor @Sendable (
             Task<ProcessDetectedResumeIndexes, Never>
@@ -60,7 +61,8 @@ struct ProcessDetectedResumeIndexes: Sendable {
             let result = await loadFreshOnWorker(
                 homeDirectory: homeDirectory,
                 fileManager: fileManager,
-                ttyDeviceBindings: ttyDeviceBindings
+                ttyDeviceBindings: ttyDeviceBindings,
+                processSnapshotService: processSnapshotService
             )
             workerFinishedContinuation.yield(())
             return result
