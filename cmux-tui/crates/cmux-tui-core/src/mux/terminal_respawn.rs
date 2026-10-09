@@ -263,10 +263,7 @@ impl Mux {
         }
         // The tabs stay; only the dead runtime leaves them, so they read as
         // respawning, not dead, until the new runtime takes its place.
-        let old_runtime = state.terminal_catalog.remove(&public_id);
-        if let Some(runtime_id) = old_runtime.as_ref().and_then(|old| old.terminal_runtime_id()) {
-            state.terminal_catalog_by_runtime.remove(&runtime_id);
-        }
+        let old_runtime = state.remove_catalog_terminal(&public_id);
         for placement in &placements {
             state.surfaces.remove(placement);
         }

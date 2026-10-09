@@ -3,6 +3,7 @@ import { AgentMark, FOCUS_LOCATION_EVENT, type NewTabHost } from "../NewTabPage"
 import type { AcpmuxSnapshot } from "../model";
 import { EMPTY_OMNIBAR, type OmnibarContext } from "../omnibar";
 import { ChatCards } from "./ChatCards";
+import { useDeviceChats } from "./deviceChats";
 import { recentChatCards, screenRows, shellEntry, type ScreenRow } from "./screenModel";
 import { type NewTabTranslate, useNt } from "./strings";
 import { screenSections, type ScreenTemplate } from "./templates";
@@ -17,6 +18,8 @@ export type NewTabScreenActions = {
   onShell(command: string): void;
   onJump(target: "tab" | "workspace", id: string): void;
   onOpenSession(sessionId: string): void;
+  /// A device chat card (acpmux chat index, the sidebar's All chats): the host's Open Chat path.
+  onOpenChat?(key: string): void;
   onShowAll(): void;
   onRunAction?(id: string): void;
   onInputReady?(token: string): void;
@@ -87,7 +90,13 @@ export function NewTabScreen(props: Props) {
     [touched, shell, text, agents, enrichedOmnibar, lastAgent, home],
   );
   const t = useT();
-  const cards = useMemo(() => recentChatCards(snapshot.sessions, now, t), [snapshot.sessions, now, t]);
+  const device = useDeviceChats();
+  const cards = useMemo(() => recentChatCards(snapshot.sessions, now, t, device), [snapshot.sessions, now, t, device]);
+  const openCard = (id: string) => {
+    const key = cards.find((card) => card.sessionId === id)?.chatKey;
+    if (key && props.onOpenChat) return props.onOpenChat(key);
+    props.onOpenSession(id);
+  };
   useEffect(() => setSelected(0), [rows]);
   const list = useRef<HTMLDivElement>(null);
   // The box scrolls past its cap; the selected row stays in view. Only the box scrolls (not the
@@ -261,7 +270,7 @@ export function NewTabScreen(props: Props) {
         </div>
       )}
       {sections.chats !== "none" && (
-        <ChatCards cards={cards} variant={sections.chats} onOpen={props.onOpenSession} onShowAll={props.onShowAll} />
+        <ChatCards cards={cards} variant={sections.chats} onOpen={openCard} onShowAll={props.onShowAll} />
       )}
       {sections.tools && props.onAddHarness && (
         <button type="button" className="nt-add-harness" onClick={() => props.onAddHarness?.()}>

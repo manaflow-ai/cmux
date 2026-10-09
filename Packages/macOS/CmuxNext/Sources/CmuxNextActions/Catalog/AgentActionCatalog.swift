@@ -45,7 +45,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             }(),
             ActionDescriptor(
                 id: "palette.addHarness",
-                title: String(localized: "action.palette.addHarness", defaultValue: "Add Harness…", bundle: .module),
+                title: String(localized: "action.palette.addHarness", defaultValue: "Integrate a Harness with an Agent…", bundle: .module),
                 keywords: ["agent", "harness", "integrate", "acp", "acpmux", "custom", "bring your own"],
                 category: .agents, symbol: "puzzlepiece.extension", surfaces: [.palette, .menu], mainMenu: .file,
                 // Opens a chat that walks the user through `cmux harness guide`. Agents and
@@ -203,6 +203,15 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.home.toggleChiefSettings", defaultValue: "Toggle Chief Settings", bundle: .module),
                 keywords: ["chief", "home", "engine", "model", "harness", "settings"], category: .agents,
                 symbol: "sidebar.right", surfaces: [.palette],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
+            // Stops the Home Chief's running turn (chief.stop); the compose bar's
+            // stop button, Esc and Cmd-. in its field run this one action.
+            ActionDescriptor(
+                id: "home.stopChief",
+                title: String(localized: "action.home.stopChief", defaultValue: "Stop the Chief", bundle: .module),
+                keywords: ["chief", "home", "stop", "cancel", "interrupt", "turn"], category: .agents,
+                symbol: "stop.circle", surfaces: [.palette],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
             // The local Chief's memory inspector (optchat-inspector.md): what the

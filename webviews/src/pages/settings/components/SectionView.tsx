@@ -3,6 +3,7 @@ import { categoryById, type CategoryCard } from "../categories";
 import { sections } from "../schema";
 import { text } from "../strings";
 import { AccountsSection } from "./AccountsSection";
+import { AgentHarnesses } from "./AgentHarnesses";
 import { ComputerUseCard } from "./ComputerUseCard";
 import { GhosttyDiagnostics } from "./GhosttyDiagnostics";
 import { GroupList } from "./GroupList";
@@ -15,7 +16,8 @@ import { APP_THEME_KEY, THEME_KEY, ThemeStudio } from "./ThemeStudio";
 
 const machinesTitle = () => text(sections.find((section) => section.id === "machines")?.title);
 
-const CARDS: Record<CategoryCard, () => ReactNode> = {
+/** Each card; `focus` is the route's focused key (a card may open a panel it names). */
+const CARDS: Record<CategoryCard, (focus: string | null) => ReactNode> = {
   themeStudio: () => <ThemeStudio />,
   terminalInfo: () => <TerminalInfo />,
   ghosttyDiagnostics: () => <GhosttyDiagnostics />,
@@ -25,6 +27,7 @@ const CARDS: Record<CategoryCard, () => ReactNode> = {
   browserProfiles: () => <BrowserProfiles />,
   machines: () => <MachinesSection title={machinesTitle()} />,
   accounts: () => <AccountsSection />,
+  agentHarnesses: (focus) => <AgentHarnesses focus={focus} />,
   advancedInfo: () => <AdvancedInfo />,
   advancedActions: () => <PlaceholderSection section="advanced" />,
   backdrops: () => <Backdrops />,
@@ -41,11 +44,11 @@ export function SectionView({ section, focus }: { section: string; focus: string
     <div className="section" data-section={category.id}>
       <h1 className="section-title">{text(category.title)}</h1>
       {category.lead.map((card) => (
-        <CardSlot key={card} card={card} />
+        <CardSlot key={card} card={card} focus={focus} />
       ))}
       {groups.length > 0 && <GroupList groups={groups} focus={focus} />}
       {category.trail.map((card) => (
-        <CardSlot key={card} card={card} />
+        <CardSlot key={card} card={card} focus={focus} />
       ))}
       {category.actions.map((id) => (
         <SectionActions key={id} section={id} />
@@ -54,6 +57,6 @@ export function SectionView({ section, focus }: { section: string; focus: string
   );
 }
 
-function CardSlot({ card }: { card: CategoryCard }) {
-  return CARDS[card]();
+function CardSlot({ card, focus }: { card: CategoryCard; focus: string | null }) {
+  return CARDS[card](focus);
 }

@@ -28,11 +28,7 @@ public struct V2ControlDependencies: Sendable {
         stackAccessToken: @escaping @Sendable (Bool) async throws -> String,
         sign: @escaping @Sendable (Data) async throws -> Data,
         now: @escaping @Sendable () -> Date = { Date() },
-        sleep: @escaping @Sendable (TimeInterval) async throws -> Void = { seconds in
-            // Duration.seconds traps for NaN and past Int64 seconds; a delay past
-            // 2^31 s (68 years) is clamped there. NaN sleeps 0.
-            try await Task.sleep(for: .seconds(seconds.isNaN ? 0 : min(max(0, seconds), 2_147_483_648)))
-        },
+        sleep: (@Sendable (TimeInterval) async throws -> Void)? = nil,
         jitter: @escaping @Sendable () -> Double = { Double.random(in: 0...1) },
         journal: IrxJournal? = nil
     ) {
@@ -41,7 +37,12 @@ public struct V2ControlDependencies: Sendable {
         self.stackAccessToken = stackAccessToken
         self.sign = sign
         self.now = now
-        self.sleep = sleep
+        // Not a closure-literal default: see IrxPeerEngine.init (cx-bsue).
+        self.sleep = sleep ?? { seconds in
+            // Duration.seconds traps for NaN and past Int64 seconds; a delay past
+            // 2^31 s (68 years) is clamped there. NaN sleeps 0.
+            try await Task.sleep(for: .seconds(seconds.isNaN ? 0 : min(max(0, seconds), 2_147_483_648)))
+        }
         self.jitter = jitter
         self.journal = journal
     }
