@@ -46,7 +46,7 @@ public final class CmxCredentialedHTTPSession: @unchecked Sendable {
         var data = Data()
         if response.expectedContentLength > 0 {
             data.reserveCapacity(
-                min(Int(response.expectedContentLength), maximumResponseByteCount)
+                min(Int(clamping: response.expectedContentLength), maximumResponseByteCount)
             )
         }
         for try await byte in bytes {

@@ -74,7 +74,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     private var generation = 0
     private var scale: CGFloat { document.window?.backingScaleFactor ?? 2 }
     private let cache = SidebarBitmapCache()
-    private let avatars = SidebarAvatarCache()
+    let avatars = SidebarAvatarCache() // cmux: internal, the pin drag draws its tile
     private let textCache = SidebarTextCache()
     private let timeFormatter = ConversationTimeFormatter(yesterday: SidebarStrings.yesterday)
     private var bellSecondary: CGImage?, bellSelected: CGImage?
@@ -82,7 +82,10 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     private var pending: Set<SidebarBitmapKey> = []
     private var rowLayers: [Int: SidebarRowLayer] = [:]
     private var pool: [SidebarRowLayer] = []
-    private var tileLayers: [SidebarRowLayer] = []
+    // cmux: readable by the pin drag (Cmux/SidebarPinDragging.swift).
+    private(set) var tileLayers: [SidebarRowLayer] = []
+    // cmux: the pin drag in progress (Cmux/SidebarPinDrag.swift).
+    let pinDragState = SidebarPinDragState()
     private let hoverLayer = CALayer()
     private let menuRing = CALayer()
     private var hovered: Hit?
@@ -238,6 +241,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         layoutDocument()
         tile(force: true)
         updateAccessibility()
+        pinDragDidReload() // cmux: a drag follows the new data; a drop lands
     }
 
     // MARK: Geometry
@@ -342,7 +346,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
 
     @objc private func clipMoved() { tile(force: false) }
 
-    private var renderContext: SidebarRenderContext {
+    var renderContext: SidebarRenderContext { // cmux: internal, the pin drag draws its tile
         SidebarRenderContext(metrics: metrics, palette: palette, scale: scale,
                              space: document.window?.screen?.colorSpace?.cgColorSpace ?? SidebarDraw.p3, generation: generation,
                              bellSecondary: bellSecondary, bellSelected: bellSelected, now: Date())
@@ -1184,6 +1188,7 @@ final class SidebarDocumentView: NSView {
         window?.makeFirstResponder(self)
         guard let c = controller, let h = c.hit(point(event)) else { return }
         c.highlight(c.snapshot.items[c.item(h)].id, reveal: false)
+        c.trackPinDrag(from: event, in: self) // cmux: press and drag a tile or row (Cmux/SidebarPinDragging.swift)
     }
     override func menu(for event: NSEvent) -> NSMenu? { controller?.menu(at: point(event)) }
     override func keyDown(with event: NSEvent) {
@@ -1193,6 +1198,7 @@ final class SidebarDocumentView: NSView {
         default: interpretKeyEvents([event])
         }
     }
+    override func cancelOperation(_ sender: Any?) { controller?.cancelPinDrag() } // cmux: Escape reaching the list ends a pin drag
     override func moveDown(_ sender: Any?) { controller?.moveSelection(1) }
     override func moveUp(_ sender: Any?) { controller?.moveSelection(-1) }
     /// Typing a letter in the list starts a search (as a source list's type-select would).

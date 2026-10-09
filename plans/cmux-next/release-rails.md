@@ -179,7 +179,13 @@ type or the schema. The owner check also refuses CREATEDB, CREATE on another sch
 grants outside cmux_vm. A production step exports the files from git at the verified commit,
 re-checks HEAD right before it writes, and refuses NODE_OPTIONS, BUN_OPTIONS, BUN_CONFIG_*,
 NODE_PATH, LD_PRELOAD, DYLD_INSERT_LIBRARIES and a bunfig.toml preload. migrations.lock.json
-also pins libpg-query's package.json.
+also pins libpg-query's package.json, and one digest over every file of the runtime packages
+(the pg and libpg-query closures); `lint.ts` prints `pins ok: ...` when both match. Library-path
+variables (LD_LIBRARY_PATH, LD_AUDIT, DYLD_LIBRARY_PATH, DYLD_FRAMEWORK_PATH), a preload in
+~/.bunfig.toml or $XDG_CONFIG_HOME/.bunfig.toml, and a --preload/--require flag are refused too;
+the clean-tree check runs again right before every production write, and production adopt
+checks the same. A production step that ever runs in CI runs under `env -i` with an explicit
+PATH and only the variables it needs.
 
 ## First live run of the deploy rails
 

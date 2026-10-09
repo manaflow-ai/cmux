@@ -161,4 +161,33 @@ printf 'let a = rows[i]\nlet c = UInt8(value)\n' > "$app/Sources/M/A.swift"
 out="$(ratchet)" || fail "safe forms or code outside the index modules counted: $out"
 reset
 
+# 10. Forms that cannot trap (chief, 2026-10-09): UInt8(ascii:), a pure integer
+#     literal, a checked accessor, a dictionary subscript (a name the module declares
+#     only as a dictionary, in any file, or a `default:` argument). A name declared as
+#     an array anywhere in the module still counts, and so does a literal expression.
+cat > "$shared/Sources/MessagesLabHome/F.swift" <<'SWIFT'
+var counts: [String: Int] = [:]
+var byID = [UUID: [Row]]()
+let a = UInt8(ascii: ".")
+let b = UInt8(0) + UInt32(0xff) + Int64(1_000)
+let c = rows[checked: i]
+counts[key] = 1
+let d = tally[key, default: 0]
+SWIFT
+printf 'func f(params: [String: Any]) { byID[id] = nil; counts[k] += 1; _ = params[key] }\n' > "$shared/Sources/MessagesLabHome/G.swift"
+g add -A
+out="$(ratchet)" || fail "a non-trapping form counted: $out"
+cat > "$shared/Sources/MessagesLabHome/F.swift" <<'SWIFT'
+var counts: [String: Int] = [:]
+let e = UInt8(1 + x)
+SWIFT
+printf 'var counts: [Int] = []\nfunc f() { counts[k] += 1 }\nlet lines = text.split(separator: " ")\nvar tally = [String: Int]()\nlet t = tally[k] + lines[i]\nlet u = reduce(into: [:]) { into[k] = 1 }\n' > "$shared/Sources/MessagesLabHome/G.swift"
+g add -A
+if out="$(ratchet)"; then fail "an array subscript or a literal expression passed: $out"; fi
+# counts (also an array), lines (inferred) and into (a call label) count; tally does not.
+[[ "$out" == *"swift MessagesLabHome: index_subscript 0 -> 3"* ]] || fail "a name declared as an array, inferred, or a call label was exempt: $out"
+[[ "$out" == *"swift MessagesLabHome: int_conversion 0 -> 1"* ]] || fail "UInt8(1 + x) was exempt: $out"
+g reset -q
+reset
+
 echo "crash-ratchet-v2.test.sh: ok"
