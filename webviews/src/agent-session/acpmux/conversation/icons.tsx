@@ -257,15 +257,15 @@ export const WrapLines = (p: CvIconProps) => (
 
 /*
  * Turn action glyphs (copy, fork, anchor), drawn in one 84×24 strip measured from the
- * fixture captures. Each button shows its third of the strip through the viewBox,
- * so the glyphs keep their measured sub-pixel positions.
+ * fixture captures. Compact buttons use a 15-unit window around each glyph so the
+ * mark keeps the same visual weight as the other 14px footer icons.
  */
 function TurnStrip({ slot, size = 14 }: { slot: 0 | 1 | 2; size?: number }) {
   return (
     <svg
       width={size}
       height={size}
-      viewBox={`${slot * 28} -2 28 28`}
+      viewBox={`${slot * 28 + 5} 2.5 15 15`}
       fill="none"
       stroke="currentColor"
       strokeWidth={1.25}
