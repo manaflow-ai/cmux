@@ -1517,7 +1517,11 @@ jobs:
     # Apple's first wait overlaps useful work; finish it before the final DMG.
     # Sparkle delta generation runs after the full publication in a separate
     # best-effort lane, so it cannot delay the first update users can install.
-    timeout-minutes: 80
+    # Apple may leave the independently submitted Computer Use helper in its
+    # queue for close to an hour before the final DMG can be created. Keep the
+    # runner lease bounded, but leave enough room for the helper wait and the
+    # signed DMG validation that follows it.
+    timeout-minutes: 120
     # One universal Xcode build feeds every variant: the thin variants are cut
     # from it with lipo, so each user downloads only their architecture.
     strategy:
@@ -2036,7 +2040,7 @@ jobs:
         # Computer Use helper propagation can still take about 20 minutes;
         # this budget covers that work and DMG validation, not Apple's outer
         # notarization queue, which is asynchronous now.
-        timeout-minutes: 50
+        timeout-minutes: 90
         env:
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
