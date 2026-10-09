@@ -237,19 +237,42 @@ receipt written elsewhere counts); `compat.ts check --change ...` runs the same 
 ```bash
 R=scripts/cmux-next/release
 bun $R/compat.ts check --change migrations:cmux-vm --target production    # or image:<VAR>:<sh-id>
-bun $R/cmux-old.ts replay --change dry-run                                 # the replay alone, any time
+bun $R/cmux-old.ts replay --change dry-run                                 # the signed-in replay alone, any time
+bun $R/cmux-old.ts revisions                                               # staging vs production web commit
 bun $R/cmux-old.ts generate --tag <new stable tag>                         # after every stable release; commit the spec
 ```
 
 The client half replays the requests the latest stable release's shipped Swift builds
-(`cmux-old/<tag>.json`: 70 for v0.65.0, tag commit 499779c6c2c0; GET status classes and JSON
-keys recorded from cmux.com without credentials) against https://cmux-staging.vercel.app. A GET
-must answer its recorded class (a JSON 2xx with at least its keys); any other method must not
-answer 404, 405 or 5xx. `cmux-old/staging-gaps.json` lists reviewed staging-only differences
-(today: POST /api/billing/recover answers 503 on staging). A production step refuses when the
-latest stable release is newer than the newest spec. The app is never started for this.
-Follow-up (bead filed by the lead): a real-binary smoke of the latest release on an isolated
-cloud Mac VM, and authenticated replays with a signed-in agent profile.
+(`cmux-old/<tag>.json`, generated from the tag alone, no network, byte-for-byte reproducible:
+81 requests for v0.65.0, tag commit 499779c6c2c0). For each "/api/" literal the generator finds
+the method (call argument, the helper or function that sets `httpMethod`, a ternary, a URL helper's
+callers), the path template, the header names the client sets, the JSON body keys and, for reads,
+the shape the client's decoder needs: parsed from the `Decodable` struct (CodingKeys, optionals,
+nested types, raw enums, custom `init(from:)`), or for a hand-written dictionary decoder from a
+reviewed entry in `cmux-old/<tag>.review.json` with its source line. A literal that resolves to
+nothing must be skipped there with a reason (cache tables, telemetry labels); a stale entry fails.
+
+The replay signs in as the AGENT test profile only (`CMUX_UITEST_STACK_EMAIL`/`_PASSWORD`, from
+the environment or `~/.secrets/cmuxterm-dev.env`, `--credentials -` reads stdin; values never
+printed; it refuses an email equal to `CMUX_DOGFOOD_STACK_EMAIL`), exactly as the tag does:
+Stack password sign-in with the development project id and publishable key read from the tag's
+`AuthConfig.swift` (the project cmux-staging serves; the replay checks that first). Reads (21 for
+v0.65.0: every GET plus POST /api/client-config) go out with the client's headers (bearer, refresh
+token, the selected team) and must answer 2xx with their shape; a path parameter the agent account
+has no value for (no machine, no publication) is sent as `cmuxnp-dev-absent` and must answer a JSON
+4xx. Public reads (whats-new, mobile-mac-compat, client-config) go out without credentials, as the
+client sends them. Every other request (60, all state-changing) is shape-only: probed without
+credentials, it must not answer 404, 405 or 5xx; nothing on the agent account changes. The session
+is signed out afterwards. `cmux-old/staging-gaps.json` lists reviewed staging-only differences
+(today: POST /api/billing/recover answers 503 on staging). The app is never started for this.
+
+Web revisions: the gate reads the commit serving cmux-staging.vercel.app and cmux.com
+(`vercel api /v13/deployments/<host>`, read-only, the operator's Vercel login) and records both in
+the receipt with the relation (same, newer, older, diverged, unknown). A production step refuses
+when the replay was not signed in, when it failed, when the latest stable release is newer than
+the newest spec, or when staging is not production's commit or a descendant of it. A change that
+cmux-old reaches (inventory hit) passes only with all of that green. Follow-up: a real-binary
+smoke of the latest release on an isolated cloud Mac VM.
 
 Static: the inventory (`git grep` at the latest release tag for the hosts and names the
 change reaches; a hit is reported as cmux-old-affecting), the migration lint, and the API

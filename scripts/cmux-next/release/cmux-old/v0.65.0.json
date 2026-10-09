@@ -1,132 +1,329 @@
 {
-  "schema": 1,
+  "schema": 2,
   "tag": "v0.65.0",
   "sha": "499779c6c2c080588bdec36a20bbb27c45920c30",
-  "origin": "https://cmux.com",
-  "generated_at": "2026-10-09T03:05:21.547Z",
+  "generated_from": "git show v0.65.0 (shipped Swift: CLI Sources Packages :!**/*Tests* :!**/Tests/** :!**/*.md) + cmux-old/v0.65.0.review.json",
+  "auth": {
+    "api": "https://api.stack-auth.com",
+    "signInPath": "/api/v1/auth/password/sign-in",
+    "projectId": "454ecd03-1db2-4050-845e-4ce5b0cd9895",
+    "publishableClientKey": "pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g",
+    "sources": [
+      "Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AuthConfig.swift",
+      "Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Client/StackAuthClient.swift",
+      "vendor/stack-auth-swift-sdk-prerelease/Sources/StackAuth/StackClientApp.swift",
+      "vendor/stack-auth-swift-sdk-prerelease/Sources/StackAuth/APIClient.swift"
+    ]
+  },
   "requests": [
     {
       "method": "DELETE",
       "path": "/api/account",
+      "params": [],
       "headers": [
         "Authorization",
         "X-Stack-Refresh-Token"
       ],
       "sources": [
         "Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AccountDeletionClient.swift:25"
-      ]
+      ],
+      "via": "deleteAccount() sets httpMethod",
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
     },
     {
-      "method": "GET",
+      "method": "POST",
       "path": "/api/analytics/events",
-      "headers": [],
+      "params": [],
+      "headers": [
+        "Authorization",
+        "Content-Type",
+        "X-Stack-Refresh-Token"
+      ],
       "sources": [
         "Packages/iOS/CmuxMobileAnalytics/Sources/CmuxMobileAnalytics/HTTPAnalyticsUploader.swift:49",
         "Packages/iOS/CmuxMobileAnalytics/Sources/CmuxMobileAnalytics/HTTPAnalyticsUploader.swift:65"
       ],
-      "expect": "405"
+      "via": "post(...) sets httpMethod",
+      "body": {
+        "keys": [
+          "batch"
+        ]
+      },
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
     },
     {
-      "method": "GET",
+      "method": "POST",
       "path": "/api/auth/email-verification",
-      "headers": [],
+      "params": [],
+      "headers": [
+        "Content-Type"
+      ],
       "sources": [
         "Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/EmailVerificationRecoveryClient.swift:29"
       ],
-      "expect": "405"
+      "via": "request(...) sets httpMethod",
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
     },
     {
-      "method": "GET",
+      "method": "POST",
       "path": "/api/billing/apple/account-token",
-      "headers": [],
+      "params": [],
+      "headers": [
+        "Accept",
+        "Authorization",
+        "Content-Type",
+        "X-Stack-Refresh-Token",
+        "x-cmux-bundle-id",
+        "x-cmux-storekit-environment"
+      ],
       "sources": [
         "Packages/iOS/CmuxMobileBilling/Sources/CmuxMobileBilling/HTTPBillingAPI.swift:57"
       ],
-      "expect": "405"
+      "via": "makeRequest(...) sets httpMethod",
+      "body": {
+        "encodes": "Data(\"{}\".utf8)"
+      },
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
     },
     {
-      "method": "GET",
+      "method": "POST",
       "path": "/api/billing/apple/transactions",
-      "headers": [],
+      "params": [],
+      "headers": [
+        "Accept",
+        "Authorization",
+        "Content-Type",
+        "X-Stack-Refresh-Token",
+        "x-cmux-bundle-id",
+        "x-cmux-storekit-environment"
+      ],
       "sources": [
         "Packages/iOS/CmuxMobileBilling/Sources/CmuxMobileBilling/HTTPBillingAPI.swift:63"
       ],
-      "expect": "405"
+      "via": "makeRequest(...) sets httpMethod",
+      "body": {
+        "encodes": "body"
+      },
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
     },
     {
-      "method": "GET",
+      "method": "POST",
       "path": "/api/billing/checkout",
-      "headers": [],
+      "params": [],
+      "headers": [
+        "Authorization",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token"
+      ],
       "sources": [
         "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1536"
       ],
-      "expect": "307"
+      "via": "argument of request(...)",
+      "body": {
+        "keys": [
+          "plan"
+        ]
+      },
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
     },
     {
       "method": "POST",
       "path": "/api/billing/recover",
+      "params": [],
       "headers": [
         "Content-Type"
       ],
       "sources": [
         "Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/EmailVerificationRecoveryClient.swift:37"
-      ]
+      ],
+      "via": "request(...) sets httpMethod",
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
     },
     {
       "method": "POST",
       "path": "/api/client-config",
+      "params": [],
       "headers": [
         "Accept",
         "Content-Type"
       ],
       "sources": [
         "Packages/Shared/CmuxClientConfig/Sources/CmuxClientConfig/HTTPClientConfigLoader.swift:34"
-      ]
+      ],
+      "via": "load() sets httpMethod",
+      "body": {
+        "encodes": "request"
+      },
+      "mode": "read",
+      "anonymous": true,
+      "reason": "returns feature-flag config for a distinct id; stores nothing (HTTPClientConfigLoader.swift:34, web/app/api/client-config/route.ts on main); replayed without credentials like the client",
+      "replayBody": {
+        "distinctId": "cmuxnp-dev-compat-replay",
+        "context": {}
+      },
+      "response": {
+        "featureFlags": "object",
+        "featureFlagPayloads": "object",
+        "errorsWhileComputingFlags": "boolean",
+        "requestId?": "string"
+      },
+      "responseFrom": "Decodable ClientConfig (Packages/Shared/CmuxClientConfig/Sources/CmuxClientConfig/HTTPClientConfigLoader.swift:34)"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/coderouter/claude-upstream",
+      "params": [],
+      "headers": [
+        "Authorization",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token",
+        "content-type"
+      ],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Accounts/CoderouterClient.swift:148"
+      ],
+      "via": "argument of request(...)",
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
     },
     {
       "method": "GET",
       "path": "/api/coderouter/claude-upstream",
-      "headers": [],
+      "params": [],
+      "headers": [
+        "Authorization",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token",
+        "content-type"
+      ],
       "sources": [
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Accounts/CoderouterClient.swift:109",
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Accounts/CoderouterClient.swift:148",
         "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Accounts/CoderouterClient.swift:98"
       ],
-      "expect": "auth"
+      "via": "argument of request(...)",
+      "mode": "read",
+      "response": "object",
+      "responseFrom": "review of the decoder at Packages/macOS/CmuxCloud/Sources/CmuxCloud/Accounts/CoderouterClient.swift:100 (bridgedJSONObject: any JSON object)"
     },
     {
-      "method": "GET",
-      "path": "/api/coderouter/claude-upstream/cmuxold-smoke",
-      "headers": [],
+      "method": "POST",
+      "path": "/api/coderouter/claude-upstream",
+      "params": [],
+      "headers": [
+        "Authorization",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token",
+        "content-type"
+      ],
       "sources": [
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Accounts/CoderouterClient.swift:125",
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Accounts/CoderouterClient.swift:109"
+      ],
+      "via": "argument of request(...)",
+      "body": {
+        "encodes": "input.jsonBody(label: label)"
+      },
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/coderouter/claude-upstream/{escaped}",
+      "params": [
+        "escaped"
+      ],
+      "headers": [
+        "Authorization",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token",
+        "content-type"
+      ],
+      "sources": [
         "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Accounts/CoderouterClient.swift:137"
       ],
-      "expect": "405"
+      "via": "argument of request(...)",
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/coderouter/claude-upstream/{escaped}",
+      "params": [
+        "escaped"
+      ],
+      "headers": [
+        "Authorization",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token",
+        "content-type"
+      ],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Accounts/CoderouterClient.swift:125"
+      ],
+      "via": "argument of request(...)",
+      "body": {
+        "keys": [
+          "label?",
+          "state?"
+        ]
+      },
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
     },
     {
       "method": "GET",
       "path": "/api/coderouter/vm-usage/team",
+      "params": [],
       "headers": [],
       "sources": [
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:18",
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:24",
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:36",
         "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:3067"
       ],
-      "expect": "auth"
+      "via": "review: the read key feeds self.request(\"GET\", path: key.path) at VMClient.swift:3071",
+      "mode": "read",
+      "response": {
+        "teamId": "string",
+        "kind": "string",
+        "machines?": [
+          {
+            "vmId": "string",
+            "totals": "object"
+          }
+        ]
+      },
+      "responseFrom": "review of the decoder at Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:3090 (decodeTeamUsage)"
     },
     {
       "method": "DELETE",
       "path": "/api/device-tokens",
-      "headers": [],
+      "params": [],
+      "headers": [
+        "Authorization",
+        "Content-Type",
+        "X-Cmux-App-Namespace",
+        "X-Stack-Refresh-Token"
+      ],
       "sources": [
         "Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Push/PushRegistrationService.swift:874"
-      ]
+      ],
+      "via": "argument of makeRequest(...)",
+      "body": {
+        "keys": [
+          "deviceToken",
+          "bundleId"
+        ]
+      },
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
     },
     {
       "method": "GET",
       "path": "/api/device-tokens",
+      "params": [],
       "headers": [
         "Authorization",
         "X-Stack-Refresh-Token"
@@ -134,474 +331,1337 @@
       "sources": [
         "Sources/Cloud/PhonePushClient.swift:471"
       ],
-      "expect": "auth"
+      "via": "refreshPushRecipients() sets httpMethod",
+      "mode": "read",
+      "response": {
+        "recipients": [
+          {
+            "installationID": "string",
+            "keyID": "string",
+            "publicKey": "string",
+            "bundleID": "string"
+          }
+        ]
+      },
+      "responseFrom": "Decodable PhonePushRecipientResponse (Sources/Cloud/PhonePushClient.swift:471)"
     },
     {
       "method": "POST",
       "path": "/api/device-tokens",
-      "headers": [],
+      "params": [],
+      "headers": [
+        "Authorization",
+        "Content-Type",
+        "X-Cmux-App-Namespace",
+        "X-Stack-Refresh-Token"
+      ],
       "sources": [
         "Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Push/PushRegistrationService.swift:657"
-      ]
+      ],
+      "via": "argument of makeRequest(...)",
+      "body": {
+        "keys": [
+          "deviceToken",
+          "bundleId",
+          "environment",
+          "platform"
+        ]
+      },
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/devices",
+      "params": [],
+      "headers": [
+        "Authorization",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token",
+        "content-type"
+      ],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Network/RemotesClient.swift:220"
+      ],
+      "via": "argument of request(...)",
+      "body": {
+        "keys": [
+          "deviceId"
+        ]
+      },
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
     },
     {
       "method": "GET",
       "path": "/api/devices",
+      "params": [],
+      "headers": [
+        "Authorization",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token",
+        "content-type"
+      ],
+      "sources": [
+        "Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/DeviceRegistryService.swift:745",
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Network/RemotesClient.swift:57",
+        "Sources/Devices/DeviceRegistryDirectoryClient.swift:69"
+      ],
+      "via": "argument of request(...); list() sets httpMethod; makeListRequest() sets httpMethod",
+      "mode": "read",
+      "response": {
+        "devices": [
+          {
+            "deviceId": "string",
+            "platform?": "string",
+            "displayName?": "string",
+            "lastSeenAt?": "string",
+            "instances?": [
+              {
+                "tag?": "string",
+                "routes?": [
+                  "any"
+                ],
+                "lastSeenAt?": "string"
+              }
+            ]
+          }
+        ]
+      },
+      "responseFrom": "Decodable ListResponse (review: Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/DeviceRegistryService.swift:661 (strictest of the three /api/devices decoders; RemotesClient.swift:60 and DeviceRegistryDirectoryClient.swift:91 need only a devices array)); FailableRoute decodes itself without keyed fields (any value)"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/devices",
+      "params": [],
+      "headers": [
+        "Authorization",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token",
+        "content-type"
+      ],
+      "sources": [
+        "Sources/Cloud/DeviceRegistryClient.swift:280"
+      ],
+      "via": "publish() sets httpMethod",
+      "body": {
+        "keys": [
+          "deviceId",
+          "tag",
+          "platform?",
+          "discoveryLease?",
+          "routes?",
+          "displayName?"
+        ]
+      },
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/devices",
+      "params": [],
+      "headers": [
+        "Authorization",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token",
+        "content-type"
+      ],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Network/RemotesClient.swift:146",
+        "Sources/Cloud/DeviceRegistryClient.swift:280"
+      ],
+      "via": "argument of request(...); publish() sets httpMethod",
+      "body": {
+        "keys": [
+          "deviceId",
+          "platform",
+          "displayName",
+          "manual",
+          "tag",
+          "routes",
+          "instanceLabels?"
+        ]
+      },
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/feedback",
+      "params": [],
+      "headers": [],
+      "sources": [
+        "Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileFeedbackEmailClient.swift:29"
+      ],
+      "via": "review: init stores the URL; submit() sends it with httpMethod = \"POST\" (multipart form data)",
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/mobile-mac-compat",
+      "params": [],
+      "headers": [],
+      "sources": [
+        "Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/MobileMacCompatCenter.swift:24"
+      ],
+      "via": "review: requestPath builds the URL that MobileMacCompatCenter.refresh() passes to mobileRemoteJSONLoader (Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/MobileRemoteJSONLoader.swift:10): a URLRequest without httpMethod (GET)",
+      "mode": "read",
+      "anonymous": true,
+      "response": {
+        "entries": [
+          {
+            "minIOSVersion": "string",
+            "maxIOSVersion?": "string",
+            "buildKinds?": "object",
+            "stableMinVersion?": "string",
+            "nightly?": {
+              "minBaseVersion": "string",
+              "minBuild": "string"
+            }
+          }
+        ]
+      },
+      "responseFrom": "Decodable MobileMacCompatRemoteList (review: Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileMacCompatPolicy.swift:182)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/notifications/push/e2e",
+      "params": [],
+      "headers": [
+        "Content-Type"
+      ],
+      "sources": [
+        "Sources/Cloud/PhonePushClient.swift:1089"
+      ],
+      "via": "performRequest() sets httpMethod (via pushURL())",
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/observability/mobile-network",
+      "params": [],
+      "headers": [
+        "Authorization",
+        "Content-Type",
+        "X-Stack-Refresh-Token"
+      ],
+      "sources": [
+        "Packages/iOS/CmuxMobileAnalytics/Sources/CmuxMobileAnalytics/HTTPMobileNetworkOutcomeUploader.swift:74"
+      ],
+      "via": "post() sets httpMethod",
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/subrouter/accounts",
+      "params": [],
+      "headers": [
+        "Authorization",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token",
+        "content-type"
+      ],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Accounts/AIAccountsClient.swift:48"
+      ],
+      "via": "argument of request(...)",
+      "mode": "read",
+      "response": {
+        "accounts": [
+          "object"
+        ]
+      },
+      "responseFrom": "review of the decoder at Packages/macOS/CmuxCloud/Sources/CmuxCloud/Accounts/AIAccountsClient.swift:51"
+    },
+    {
+      "method": "POST",
+      "path": "/api/subrouter/accounts",
+      "params": [],
+      "headers": [
+        "Authorization",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token",
+        "content-type"
+      ],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Accounts/AIAccountsClient.swift:69"
+      ],
+      "via": "argument of request(...)",
+      "body": {
+        "encodes": "payload.jsonBody"
+      },
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/subrouter/accounts/{escaped}",
+      "params": [
+        "escaped"
+      ],
+      "headers": [
+        "Authorization",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token",
+        "content-type"
+      ],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Accounts/AIAccountsClient.swift:80"
+      ],
+      "via": "argument of request(...)",
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/teams/{team}",
+      "params": [
+        "team"
+      ],
+      "headers": [
+        "Accept",
+        "Authorization",
+        "X-Stack-Refresh-Token",
+        "content-type"
+      ],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Network/TeamsClient.swift:43"
+      ],
+      "via": "argument of request(...)",
+      "fill": {
+        "team": "team"
+      },
+      "mode": "read",
+      "response": {
+        "team": {
+          "id": "string",
+          "displayName": "string",
+          "profileImageUrl?": "string"
+        },
+        "viewer": {
+          "userId": "string",
+          "role": "string",
+          "permissions": {
+            "updateTeam": "boolean",
+            "deleteTeam": "boolean",
+            "inviteMembers": "boolean",
+            "readMembers": "boolean",
+            "removeMembers": "boolean",
+            "manageApiKeys": "boolean",
+            "manageBilling": "boolean"
+          }
+        },
+        "members": [
+          {
+            "userId": "string",
+            "displayName?": "string",
+            "email?": "string",
+            "profileImageUrl?": "string",
+            "role": "string",
+            "isViewer": "boolean"
+          }
+        ],
+        "invitations": [
+          {
+            "id": "string",
+            "email?": "string",
+            "role": "string",
+            "expiresAt": "string"
+          }
+        ],
+        "links": [
+          {
+            "id": "string",
+            "role": "string",
+            "createdAt": "string",
+            "createdByUserId": "string",
+            "expiresAt?": "string",
+            "maxUses?": "integer",
+            "useCount": "integer"
+          }
+        ],
+        "billing": {
+          "planId?": "string",
+          "seats?": "integer",
+          "memberLimit?": "integer",
+          "memberCount": "integer",
+          "hasActiveSubscription": "boolean"
+        }
+      },
+      "responseFrom": "Decodable CloudTeamDetail (Packages/macOS/CmuxCloud/Sources/CmuxCloud/Network/TeamsClient.swift:43)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/teams/{team}/invitations",
+      "params": [
+        "team"
+      ],
+      "headers": [
+        "Accept",
+        "Authorization",
+        "X-Stack-Refresh-Token",
+        "content-type"
+      ],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Network/TeamsClient.swift:83"
+      ],
+      "via": "argument of request(...)",
+      "body": {
+        "keys": [
+          "emails",
+          "role"
+        ]
+      },
+      "fill": {
+        "team": "team"
+      },
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/teams/{team}/invitations/{invitation}",
+      "params": [
+        "team",
+        "invitation"
+      ],
+      "headers": [
+        "Accept",
+        "Authorization",
+        "X-Stack-Refresh-Token",
+        "content-type"
+      ],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Network/TeamsClient.swift:120"
+      ],
+      "via": "argument of request(...)",
+      "fill": {
+        "team": "team"
+      },
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/teams/{team}/links",
+      "params": [
+        "team"
+      ],
+      "headers": [
+        "Accept",
+        "Authorization",
+        "X-Stack-Refresh-Token",
+        "content-type"
+      ],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Network/TeamsClient.swift:110"
+      ],
+      "via": "argument of request(...)",
+      "body": {
+        "keys": [
+          "expiresInDays",
+          "maxUses"
+        ]
+      },
+      "fill": {
+        "team": "team"
+      },
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/teams/{team}/links/{link}",
+      "params": [
+        "team",
+        "link"
+      ],
+      "headers": [
+        "Accept",
+        "Authorization",
+        "X-Stack-Refresh-Token",
+        "content-type"
+      ],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Network/TeamsClient.swift:127"
+      ],
+      "via": "argument of request(...)",
+      "fill": {
+        "team": "team"
+      },
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/teams/{team}/members/{user}",
+      "params": [
+        "team",
+        "user"
+      ],
+      "headers": [
+        "Accept",
+        "Authorization",
+        "X-Stack-Refresh-Token",
+        "content-type"
+      ],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Network/TeamsClient.swift:135"
+      ],
+      "via": "argument of request(...)",
+      "fill": {
+        "team": "team"
+      },
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/teams/{team}/members/{user}",
+      "params": [
+        "team",
+        "user"
+      ],
+      "headers": [
+        "Accept",
+        "Authorization",
+        "X-Stack-Refresh-Token",
+        "content-type"
+      ],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Network/TeamsClient.swift:144"
+      ],
+      "via": "argument of request(...)",
+      "body": {
+        "keys": [
+          "role"
+        ]
+      },
+      "fill": {
+        "team": "team"
+      },
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/teams/invitations",
+      "params": [],
+      "headers": [
+        "Accept",
+        "Authorization",
+        "X-Stack-Refresh-Token",
+        "content-type"
+      ],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Network/TeamsClient.swift:50"
+      ],
+      "via": "argument of request(...)",
+      "mode": "read",
+      "response": {
+        "invitations": [
+          {
+            "id": "string",
+            "teamId": "string",
+            "teamName": "string",
+            "email": "string",
+            "role": "string",
+            "invitedBy?": "string",
+            "expiresAt": "string"
+          }
+        ]
+      },
+      "responseFrom": "Decodable Envelope (Packages/macOS/CmuxCloud/Sources/CmuxCloud/Network/TeamsClient.swift:50)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/teams/invitations/{invitation}/accept",
+      "params": [
+        "invitation"
+      ],
+      "headers": [
+        "Accept",
+        "Authorization",
+        "X-Stack-Refresh-Token",
+        "content-type"
+      ],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Network/TeamsClient.swift:59"
+      ],
+      "via": "argument of request(...)",
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/teams/invitations/{invitation}/decline",
+      "params": [
+        "invitation"
+      ],
+      "headers": [
+        "Accept",
+        "Authorization",
+        "X-Stack-Refresh-Token",
+        "content-type"
+      ],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Network/TeamsClient.swift:66"
+      ],
+      "via": "argument of request(...)",
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/vm",
+      "params": [],
+      "headers": [
+        "Accept",
+        "Authorization",
+        "Content-Type",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token"
+      ],
+      "sources": [
+        "Packages/iOS/CmuxMobileCloud/Sources/CmuxMobileCloud/CloudAPIRequestBuilder.swift:36",
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient+CloudActivation.swift:14"
+      ],
+      "via": "argument of request(...)",
+      "mode": "read",
+      "response": {
+        "vms": [
+          {
+            "id": "string",
+            "provider": "string",
+            "image": "string"
+          }
+        ]
+      },
+      "responseFrom": "review of the decoder at Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient+CloudActivation.swift:20 (limits is read only when present)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/vm",
+      "params": [],
+      "headers": [
+        "Accept",
+        "Authorization",
+        "Content-Type",
+        "Idempotency-Key",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token"
+      ],
+      "sources": [
+        "Packages/iOS/CmuxMobileCloud/Sources/CmuxMobileCloud/CloudAPIRequestBuilder.swift:58",
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1567"
+      ],
+      "via": "argument of request(...)",
+      "body": {
+        "keys": [
+          "kind",
+          "provider?",
+          "image?",
+          "persistentHome?",
+          "perMachineHome?",
+          "memoryMb?"
+        ]
+      },
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/vm/{encodedID}",
+      "params": [
+        "encodedID"
+      ],
       "headers": [
         "Authorization",
         "X-Cmux-Team-Id",
         "X-Stack-Refresh-Token"
       ],
       "sources": [
-        "Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/DeviceRegistryService.swift:745",
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Network/RemotesClient.swift:146",
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Network/RemotesClient.swift:220",
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Network/RemotesClient.swift:57",
-        "Sources/Cloud/DeviceRegistryClient.swift:280",
-        "Sources/Devices/DeviceRegistryDirectoryClient.swift:69"
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1671"
       ],
-      "expect": "auth"
+      "via": "argument of request(...)",
+      "fill": {
+        "encodedID": "vm"
+      },
+      "mode": "read",
+      "response": {
+        "id": "string",
+        "provider": "string",
+        "image": "string"
+      },
+      "responseFrom": "review of the decoder at Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1674 (status)"
     },
     {
-      "method": "GET",
-      "path": "/api/feedback",
-      "headers": [],
-      "sources": [
-        "Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileFeedbackEmailClient.swift:29"
+      "method": "PATCH",
+      "path": "/api/vm/{encodedID}",
+      "params": [
+        "encodedID"
       ],
-      "expect": "405"
-    },
-    {
-      "method": "GET",
-      "path": "/api/mobile-mac-compat",
-      "headers": [],
-      "sources": [
-        "Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/MobileMacCompatCenter.swift:24"
-      ],
-      "expect": "2xx",
-      "keys": [
-        "downloads",
-        "entries"
-      ]
-    },
-    {
-      "method": "GET",
-      "path": "/api/notifications/push/e2e",
-      "headers": [],
-      "sources": [
-        "Sources/Cloud/PhonePushClient.swift:1089"
-      ],
-      "expect": "405"
-    },
-    {
-      "method": "GET",
-      "path": "/api/observability/mobile-network",
-      "headers": [],
-      "sources": [
-        "Packages/iOS/CmuxMobileAnalytics/Sources/CmuxMobileAnalytics/HTTPMobileNetworkOutcomeUploader.swift:74"
-      ],
-      "expect": "405"
-    },
-    {
-      "method": "GET",
-      "path": "/api/subrouter/accounts",
-      "headers": [],
-      "sources": [
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Accounts/AIAccountsClient.swift:48",
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Accounts/AIAccountsClient.swift:69"
-      ],
-      "expect": "auth"
-    },
-    {
-      "method": "GET",
-      "path": "/api/subrouter/accounts/cmuxold-smoke",
-      "headers": [],
-      "sources": [
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Accounts/AIAccountsClient.swift:80"
-      ],
-      "expect": "405"
-    },
-    {
-      "method": "GET",
-      "path": "/api/teams/cmuxold-smoke",
-      "headers": [],
-      "sources": [
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Network/TeamsClient.swift:43"
-      ],
-      "expect": "auth"
-    },
-    {
-      "method": "GET",
-      "path": "/api/teams/cmuxold-smoke/invitations",
-      "headers": [],
-      "sources": [
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Network/TeamsClient.swift:83"
-      ],
-      "expect": "405"
-    },
-    {
-      "method": "GET",
-      "path": "/api/teams/cmuxold-smoke/invitations/cmuxold-smoke",
-      "headers": [],
-      "sources": [
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Network/TeamsClient.swift:120"
-      ],
-      "expect": "405"
-    },
-    {
-      "method": "GET",
-      "path": "/api/teams/cmuxold-smoke/links",
-      "headers": [],
-      "sources": [
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Network/TeamsClient.swift:110"
-      ],
-      "expect": "405"
-    },
-    {
-      "method": "GET",
-      "path": "/api/teams/cmuxold-smoke/links/cmuxold-smoke",
-      "headers": [],
-      "sources": [
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Network/TeamsClient.swift:127"
-      ],
-      "expect": "405"
-    },
-    {
-      "method": "GET",
-      "path": "/api/teams/cmuxold-smoke/members/cmuxold-smoke",
-      "headers": [],
-      "sources": [
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Network/TeamsClient.swift:135",
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Network/TeamsClient.swift:144"
-      ],
-      "expect": "405"
-    },
-    {
-      "method": "GET",
-      "path": "/api/teams/invitations",
-      "headers": [],
-      "sources": [
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Network/TeamsClient.swift:50"
-      ],
-      "expect": "auth"
-    },
-    {
-      "method": "GET",
-      "path": "/api/teams/invitations/cmuxold-smoke/accept",
-      "headers": [],
-      "sources": [
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Network/TeamsClient.swift:59"
-      ],
-      "expect": "405"
-    },
-    {
-      "method": "GET",
-      "path": "/api/teams/invitations/cmuxold-smoke/decline",
-      "headers": [],
-      "sources": [
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Network/TeamsClient.swift:66"
-      ],
-      "expect": "405"
-    },
-    {
-      "method": "GET",
-      "path": "/api/theme",
-      "headers": [],
-      "sources": [
-        "Sources/AgentChatThemeSync.swift:181"
-      ],
-      "expect": "404"
-    },
-    {
-      "method": "GET",
-      "path": "/api/v1",
-      "headers": [],
-      "sources": [
-        "Packages/Shared/CmuxAPIClient/Sources/CmuxAPIClient/CmuxAPIClient.swift:11"
-      ],
-      "expect": "404"
-    },
-    {
-      "method": "GET",
-      "path": "/api/vm",
       "headers": [
-        "Idempotency-Key",
-        "Server-Timing"
+        "Authorization",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token"
       ],
       "sources": [
-        "Packages/iOS/CmuxMobileCloud/Sources/CmuxMobileCloud/CloudAPIRequestBuilder.swift:36",
-        "Packages/iOS/CmuxMobileCloud/Sources/CmuxMobileCloud/CloudAPIRequestBuilder.swift:58",
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:13",
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:17",
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:23",
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:32",
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient+CloudActivation.swift:14",
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1567",
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:2408",
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:2469",
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClientTelemetry.swift:235"
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1709"
       ],
-      "expect": "auth"
+      "via": "argument of request(...)",
+      "body": {
+        "keys": [
+          "displayName"
+        ]
+      },
+      "fill": {
+        "encodedID": "vm"
+      },
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
     },
     {
-      "method": "GET",
-      "path": "/api/vm/{id}",
-      "headers": [],
-      "sources": [
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClientTelemetry.swift:235"
+      "method": "PUT",
+      "path": "/api/vm/{encodedID}/agent-updates",
+      "params": [
+        "encodedID"
       ],
-      "expect": "auth"
-    },
-    {
-      "method": "GET",
-      "path": "/api/vm/{id}/sessions",
-      "headers": [],
-      "sources": [
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClientTelemetry.swift:235"
+      "headers": [
+        "Authorization",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token"
       ],
-      "expect": "auth"
-    },
-    {
-      "method": "GET",
-      "path": "/api/vm/{id}/stats",
-      "headers": [],
-      "sources": [
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClientTelemetry.swift:235"
-      ],
-      "expect": "auth"
-    },
-    {
-      "method": "GET",
-      "path": "/api/vm/base/open",
-      "headers": [],
-      "sources": [
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:13",
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1622"
-      ],
-      "expect": "405"
-    },
-    {
-      "method": "GET",
-      "path": "/api/vm/base/reset",
-      "headers": [],
-      "sources": [
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:13",
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1628"
-      ],
-      "expect": "405"
-    },
-    {
-      "method": "GET",
-      "path": "/api/vm/cmuxold-smoke",
-      "headers": [],
-      "sources": [
-        "Packages/iOS/CmuxMobileCloud/Sources/CmuxMobileCloud/CloudAPIRequestBuilder.swift:83",
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:21",
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1671",
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1709",
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1722"
-      ],
-      "expect": "auth"
-    },
-    {
-      "method": "GET",
-      "path": "/api/vm/cmuxold-smoke/agent-updates",
-      "headers": [],
       "sources": [
         "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient+AgentUpdates.swift:12"
       ],
-      "expect": "405"
+      "via": "argument of request(...)",
+      "body": {
+        "encodes": "Self.agentUpdatesRequestBody(setting)"
+      },
+      "fill": {
+        "encodedID": "vm"
+      },
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/vm/{encodedID}/exec",
+      "params": [
+        "encodedID"
+      ],
+      "headers": [
+        "Authorization",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token"
+      ],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient+Exec.swift:21"
+      ],
+      "via": "argument of request(...)",
+      "body": {
+        "keys": [
+          "command",
+          "timeoutMs"
+        ]
+      },
+      "fill": {
+        "encodedID": "vm"
+      },
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/vm/{encodedID}/fork",
+      "params": [
+        "encodedID"
+      ],
+      "headers": [
+        "Authorization",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token"
+      ],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1872"
+      ],
+      "via": "argument of request(...)",
+      "body": {
+        "keys": [
+          "name?"
+        ]
+      },
+      "fill": {
+        "encodedID": "vm"
+      },
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
     },
     {
       "method": "GET",
-      "path": "/api/vm/cmuxold-smoke/attach-endpoint",
-      "headers": [],
+      "path": "/api/vm/{encodedID}/network",
+      "params": [
+        "encodedID"
+      ],
+      "headers": [
+        "Authorization",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token"
+      ],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient+NetworkPolicy.swift:18"
+      ],
+      "via": "argument of request(...)",
+      "fill": {
+        "encodedID": "vm"
+      },
+      "mode": "read",
+      "response": {
+        "policy?": {
+          "version?": "integer",
+          "mode": "string",
+          "ranges?": [
+            {
+              "cidr": "string",
+              "port?": "integer",
+              "protocol?": "string",
+              "note?": "string"
+            }
+          ],
+          "domains?": [
+            "string"
+          ],
+          "presets?": [
+            "string"
+          ],
+          "allowDns?": "boolean"
+        },
+        "presets?": [
+          {
+            "id": "string",
+            "label": "string",
+            "domains": [
+              "string"
+            ]
+          }
+        ],
+        "requiredDomains?": [
+          "string"
+        ],
+        "applied?": {
+          "state": "any",
+          "error?": "string",
+          "appliedAt?": "string"
+        },
+        "agentUpdateDomains?": [
+          "string"
+        ]
+      },
+      "responseFrom": "Decodable CloudNetworkPolicyStatus (Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient+NetworkPolicy.swift:18); enum State has no raw type (decoded as any)"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/vm/{encodedID}/network",
+      "params": [
+        "encodedID"
+      ],
+      "headers": [
+        "Authorization",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token"
+      ],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient+NetworkPolicy.swift:29"
+      ],
+      "via": "argument of request(...)",
+      "body": {
+        "encodes": "policy.foundationObject"
+      },
+      "fill": {
+        "encodedID": "vm"
+      },
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/vm/{encodedID}/open-port",
+      "params": [
+        "encodedID"
+      ],
+      "headers": [
+        "Authorization",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token"
+      ],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:2276"
+      ],
+      "via": "argument of request(...)",
+      "body": {
+        "keys": [
+          "port"
+        ]
+      },
+      "fill": {
+        "encodedID": "vm"
+      },
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/vm/{encodedID}/reflection",
+      "params": [
+        "encodedID"
+      ],
+      "headers": [
+        "Authorization",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token"
+      ],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1776"
+      ],
+      "via": "argument of request(...)",
+      "fill": {
+        "encodedID": "vm"
+      },
+      "mode": "read",
+      "response": "object",
+      "responseFrom": "review of the decoder at Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1789 (decodeJSONObject; a JSON 404 not_found is a result too)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/vm/{encodedID}/resize",
+      "params": [
+        "encodedID"
+      ],
+      "headers": [
+        "Authorization",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token"
+      ],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient+ResourceStats.swift:38"
+      ],
+      "via": "argument of request(...)",
+      "body": {
+        "keys": [
+          "cpu?",
+          "memoryMb?",
+          "storageMb?"
+        ]
+      },
+      "fill": {
+        "encodedID": "vm"
+      },
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/vm/{encodedID}/scp-endpoint",
+      "params": [
+        "encodedID"
+      ],
+      "headers": [
+        "Authorization",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token"
+      ],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1948"
+      ],
+      "via": "argument of request(...)",
+      "body": {
+        "keys": [
+          "publicKey"
+        ]
+      },
+      "fill": {
+        "encodedID": "vm"
+      },
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/vm/{encodedID}/sessions",
+      "params": [
+        "encodedID"
+      ],
+      "headers": [
+        "Authorization",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token"
+      ],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:2170"
+      ],
+      "via": "argument of request(...)",
+      "fill": {
+        "encodedID": "vm"
+      },
+      "mode": "read",
+      "response": {
+        "sessions?": [
+          {
+            "id": "string",
+            "vmId": "string",
+            "sessionId": "string",
+            "kind": "string",
+            "status": "string",
+            "createdAt": "string",
+            "updatedAt": "string"
+          }
+        ]
+      },
+      "responseFrom": "review of the decoder at Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:2173 and :2864 (decodeCloudSession)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/vm/{encodedID}/sessions",
+      "params": [
+        "encodedID"
+      ],
+      "headers": [
+        "Authorization",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token"
+      ],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:2199"
+      ],
+      "via": "argument of request(...)",
+      "body": {
+        "keys": [
+          "sessionId?",
+          "attachmentId?",
+          "title?"
+        ]
+      },
+      "fill": {
+        "encodedID": "vm"
+      },
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/vm/{encodedID}/snapshot",
+      "params": [
+        "encodedID"
+      ],
+      "headers": [
+        "Authorization",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token"
+      ],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1844"
+      ],
+      "via": "argument of request(...)",
+      "body": {
+        "keys": [
+          "name?"
+        ]
+      },
+      "fill": {
+        "encodedID": "vm"
+      },
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/vm/{encodedID}/snapshots",
+      "params": [
+        "encodedID"
+      ],
+      "headers": [
+        "Authorization",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token"
+      ],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1799"
+      ],
+      "via": "argument of request(...)",
+      "fill": {
+        "encodedID": "vm"
+      },
+      "mode": "read",
+      "response": {
+        "snapshots": [
+          {
+            "id": "string"
+          }
+        ]
+      },
+      "responseFrom": "review of the decoder at Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1802"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/vm/{encodedID}/snapshots/{encodedSnapshotID}",
+      "params": [
+        "encodedID",
+        "encodedSnapshotID"
+      ],
+      "headers": [
+        "Authorization",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token"
+      ],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1825"
+      ],
+      "via": "argument of request(...)",
+      "fill": {
+        "encodedID": "vm"
+      },
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/vm/{encodedID}/ssh-endpoint",
+      "params": [
+        "encodedID"
+      ],
+      "headers": [
+        "Authorization",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token"
+      ],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1938"
+      ],
+      "via": "argument of request(...)",
+      "body": {
+        "keys": []
+      },
+      "fill": {
+        "encodedID": "vm"
+      },
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/vm/{encodedID}/stats",
+      "params": [
+        "encodedID"
+      ],
+      "headers": [
+        "Authorization",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token"
+      ],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient+ResourceStats.swift:11"
+      ],
+      "via": "argument of request(...)",
+      "fill": {
+        "encodedID": "vm"
+      },
+      "mode": "read",
+      "response": "object",
+      "responseFrom": "review of the decoder at Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient+ResourceStats.swift:13 (VMStats(json:) reads every field optionally)"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/vm/{id}",
+      "params": [
+        "id"
+      ],
+      "headers": [
+        "Accept",
+        "Authorization",
+        "Content-Type",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token"
+      ],
+      "sources": [
+        "Packages/iOS/CmuxMobileCloud/Sources/CmuxMobileCloud/CloudAPIRequestBuilder.swift:83",
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1722"
+      ],
+      "via": "argument of request(...)",
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/vm/{id}/pause",
+      "params": [
+        "id"
+      ],
+      "headers": [
+        "Accept",
+        "Authorization",
+        "Content-Type",
+        "X-Stack-Refresh-Token"
+      ],
+      "sources": [
+        "Packages/iOS/CmuxMobileCloud/Sources/CmuxMobileCloud/CloudAPIRequestBuilder.swift:69"
+      ],
+      "via": "argument of request(...)",
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/vm/{id}/resume",
+      "params": [
+        "id"
+      ],
+      "headers": [
+        "Accept",
+        "Authorization",
+        "Content-Type",
+        "X-Stack-Refresh-Token"
+      ],
+      "sources": [
+        "Packages/iOS/CmuxMobileCloud/Sources/CmuxMobileCloud/CloudAPIRequestBuilder.swift:75"
+      ],
+      "via": "argument of request(...)",
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/vm/{machineID}/attach-endpoint",
+      "params": [
+        "machineID"
+      ],
+      "headers": [
+        "Accept",
+        "Authorization",
+        "Content-Type",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token"
+      ],
       "sources": [
         "Packages/iOS/CmuxMobileCloud/Sources/CmuxMobileCloud/CloudAPIRequestBuilder.swift:144",
         "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1984",
         "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:2034"
       ],
-      "expect": "405"
+      "via": "argument of request(...)",
+      "body": {
+        "keys": [
+          "transport",
+          "deviceFingerprint",
+          "clientCapabilities?"
+        ]
+      },
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
     },
     {
-      "method": "GET",
-      "path": "/api/vm/cmuxold-smoke/cmux-remote/approve",
-      "headers": [],
+      "method": "POST",
+      "path": "/api/vm/{machineID}/cmux-remote/approve",
+      "params": [
+        "machineID"
+      ],
+      "headers": [
+        "Accept",
+        "Authorization",
+        "Content-Type",
+        "X-Stack-Refresh-Token"
+      ],
       "sources": [
         "Packages/iOS/CmuxMobileCloud/Sources/CmuxMobileCloud/CloudAPIRequestBuilder.swift:162"
       ],
-      "expect": "405"
+      "via": "argument of request(...)",
+      "body": {
+        "keys": [
+          "invitationId"
+        ]
+      },
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
     },
     {
-      "method": "GET",
-      "path": "/api/vm/cmuxold-smoke/cmuxold-smoke",
+      "method": "POST",
+      "path": "/api/vm/base/open",
+      "params": [],
       "headers": [],
       "sources": [
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1751"
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1622"
       ],
-      "expect": "404"
+      "via": "baseRequest(...) sends POST",
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
     },
     {
-      "method": "GET",
-      "path": "/api/vm/cmuxold-smoke/exec",
+      "method": "POST",
+      "path": "/api/vm/base/reset",
+      "params": [],
       "headers": [],
       "sources": [
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient+Exec.swift:21"
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1628"
       ],
-      "expect": "405"
-    },
-    {
-      "method": "GET",
-      "path": "/api/vm/cmuxold-smoke/fork",
-      "headers": [],
-      "sources": [
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1872"
-      ],
-      "expect": "405"
-    },
-    {
-      "method": "GET",
-      "path": "/api/vm/cmuxold-smoke/network",
-      "headers": [],
-      "sources": [
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient+NetworkPolicy.swift:18",
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient+NetworkPolicy.swift:29"
-      ],
-      "expect": "auth"
-    },
-    {
-      "method": "GET",
-      "path": "/api/vm/cmuxold-smoke/open-port",
-      "headers": [],
-      "sources": [
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:2276"
-      ],
-      "expect": "405"
-    },
-    {
-      "method": "GET",
-      "path": "/api/vm/cmuxold-smoke/pause",
-      "headers": [
-        "Idempotency-Key"
-      ],
-      "sources": [
-        "Packages/iOS/CmuxMobileCloud/Sources/CmuxMobileCloud/CloudAPIRequestBuilder.swift:69"
-      ],
-      "expect": "405"
-    },
-    {
-      "method": "GET",
-      "path": "/api/vm/cmuxold-smoke/reflection",
-      "headers": [],
-      "sources": [
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1776"
-      ],
-      "expect": "auth"
-    },
-    {
-      "method": "GET",
-      "path": "/api/vm/cmuxold-smoke/resize",
-      "headers": [],
-      "sources": [
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient+ResourceStats.swift:38"
-      ],
-      "expect": "405"
-    },
-    {
-      "method": "GET",
-      "path": "/api/vm/cmuxold-smoke/resume",
-      "headers": [],
-      "sources": [
-        "Packages/iOS/CmuxMobileCloud/Sources/CmuxMobileCloud/CloudAPIRequestBuilder.swift:75"
-      ],
-      "expect": "405"
-    },
-    {
-      "method": "GET",
-      "path": "/api/vm/cmuxold-smoke/scp-endpoint",
-      "headers": [],
-      "sources": [
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1948"
-      ],
-      "expect": "405"
-    },
-    {
-      "method": "GET",
-      "path": "/api/vm/cmuxold-smoke/sessions",
-      "headers": [],
-      "sources": [
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:2170",
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:2199"
-      ],
-      "expect": "auth"
-    },
-    {
-      "method": "GET",
-      "path": "/api/vm/cmuxold-smoke/snapshot",
-      "headers": [],
-      "sources": [
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1844"
-      ],
-      "expect": "405"
-    },
-    {
-      "method": "GET",
-      "path": "/api/vm/cmuxold-smoke/snapshots",
-      "headers": [],
-      "sources": [
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1799"
-      ],
-      "expect": "auth"
-    },
-    {
-      "method": "GET",
-      "path": "/api/vm/cmuxold-smoke/snapshots/cmuxold-smoke",
-      "headers": [],
-      "sources": [
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1825"
-      ],
-      "expect": "405"
-    },
-    {
-      "method": "GET",
-      "path": "/api/vm/cmuxold-smoke/ssh-endpoint",
-      "headers": [],
-      "sources": [
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1938"
-      ],
-      "expect": "404"
-    },
-    {
-      "method": "GET",
-      "path": "/api/vm/cmuxold-smoke/stats",
-      "headers": [],
-      "sources": [
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:46",
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient+ResourceStats.swift:11"
-      ],
-      "expect": "auth"
+      "via": "baseRequest(...) sends POST",
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
     },
     {
       "method": "GET",
       "path": "/api/vm/domains",
-      "headers": [],
+      "params": [],
+      "headers": [
+        "Authorization",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token"
+      ],
       "sources": [
         "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1199"
       ],
-      "expect": "auth"
+      "via": "argument of request(...)",
+      "mode": "read",
+      "response": {
+        "domains": [
+          {
+            "id": "string",
+            "hostname": "string",
+            "publications?": [
+              {
+                "id": "string",
+                "hostname": "string"
+              }
+            ]
+          }
+        ]
+      },
+      "responseFrom": "review of the decoder at Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1201 and :1430 (decodePublicationDomain)"
     },
     {
-      "method": "GET",
-      "path": "/api/vm/domains/cmuxold-smoke/verify",
-      "headers": [],
+      "method": "POST",
+      "path": "/api/vm/domains/{encodedName}/verify",
+      "params": [
+        "encodedName"
+      ],
+      "headers": [
+        "Authorization",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token"
+      ],
       "sources": [
         "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1218"
       ],
-      "expect": "405"
+      "via": "argument of request(...)",
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
     },
     {
       "method": "POST",
       "path": "/api/vm/leases/revoke",
+      "params": [],
       "headers": [
         "Authorization",
         "X-Stack-Refresh-Token",
@@ -609,101 +1669,412 @@
       ],
       "sources": [
         "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:2306"
-      ]
+      ],
+      "via": "revokeEndpointLeases() sets httpMethod",
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
     },
     {
       "method": "GET",
       "path": "/api/vm/network-presets",
-      "headers": [],
+      "params": [],
+      "headers": [
+        "Authorization",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token"
+      ],
       "sources": [
         "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient+NetworkPolicy.swift:8"
       ],
-      "expect": "auth"
+      "via": "argument of request(...)",
+      "mode": "read",
+      "response": {
+        "presets?": [
+          {
+            "id": "string",
+            "label": "string",
+            "domains": [
+              "string"
+            ]
+          }
+        ],
+        "requiredDomains?": [
+          "string"
+        ],
+        "defaultPolicy?": {
+          "version?": "integer",
+          "mode": "string",
+          "ranges?": [
+            {
+              "cidr": "string",
+              "port?": "integer",
+              "protocol?": "string",
+              "note?": "string"
+            }
+          ],
+          "domains?": [
+            "string"
+          ],
+          "presets?": [
+            "string"
+          ],
+          "allowDns?": "boolean"
+        },
+        "agentUpdateDomains?": [
+          "string"
+        ]
+      },
+      "responseFrom": "Decodable CloudNetworkPresetCatalog (Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient+NetworkPolicy.swift:8)"
     },
     {
       "method": "GET",
       "path": "/api/vm/publications",
-      "headers": [],
+      "params": [],
+      "headers": [
+        "Authorization",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token"
+      ],
       "sources": [
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1183",
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1183"
+      ],
+      "via": "argument of request(...)",
+      "mode": "read",
+      "response": {
+        "publications|items": [
+          {
+            "id": "string",
+            "hostname|domain": "string",
+            "vmId|vm_id": "string",
+            "port": "number",
+            "accessMode|access_mode": "string"
+          }
+        ]
+      },
+      "responseFrom": "review of the decoder at Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1185 and :1322 (decodePublication)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/vm/publications",
+      "params": [],
+      "headers": [
+        "Authorization",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token"
+      ],
+      "sources": [
         "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1253"
       ],
-      "expect": "auth"
+      "via": "argument of request(...)",
+      "body": {
+        "keys": [
+          "vmId",
+          "port",
+          "confirmPublic",
+          "accessMode?",
+          "organizationSlug?",
+          "hostname?",
+          "teamId?"
+        ]
+      },
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
     },
     {
-      "method": "GET",
-      "path": "/api/vm/publications/cmuxold-smoke",
-      "headers": [],
+      "method": "DELETE",
+      "path": "/api/vm/publications/{encodedID}",
+      "params": [
+        "encodedID"
+      ],
+      "headers": [
+        "Authorization",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token"
+      ],
       "sources": [
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1289",
         "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1312"
       ],
-      "expect": "405"
+      "via": "argument of request(...)",
+      "fill": {
+        "encodedID": "vm"
+      },
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
     },
     {
-      "method": "GET",
-      "path": "/api/vm/publications/cmuxold-smoke/grants",
-      "headers": [],
+      "method": "PATCH",
+      "path": "/api/vm/publications/{encodedID}",
+      "params": [
+        "encodedID"
+      ],
+      "headers": [
+        "Authorization",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token"
+      ],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1289"
+      ],
+      "via": "argument of request(...)",
+      "body": {
+        "keys": [
+          "accessMode",
+          "confirmPublic",
+          "teamId"
+        ]
+      },
+      "fill": {
+        "encodedID": "vm"
+      },
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/vm/publications/{encodedID}/grants",
+      "params": [
+        "encodedID"
+      ],
+      "headers": [
+        "Authorization",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token"
+      ],
       "sources": [
         "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1303"
       ],
-      "expect": "auth"
+      "via": "review: publicationGrants(method:) receives GET, POST or DELETE from VMClientSocketCommands.swift:198",
+      "body": {
+        "encodes": "method == \"GET\" ? nil : body"
+      },
+      "fill": {
+        "encodedID": "vm"
+      },
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
     },
     {
       "method": "GET",
-      "path": "/api/vm/publications/cmuxold-smoke/verify",
-      "headers": [],
+      "path": "/api/vm/publications/{encodedID}/grants",
+      "params": [
+        "encodedID"
+      ],
+      "headers": [
+        "Authorization",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token"
+      ],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1303"
+      ],
+      "via": "review: publicationGrants(method:) receives GET, POST or DELETE from VMClientSocketCommands.swift:198",
+      "fill": {
+        "encodedID": "publication"
+      },
+      "mode": "read",
+      "response": "object",
+      "responseFrom": "review of the decoder at Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1303 (raw data; the socket layer reads it as a JSON object)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/vm/publications/{encodedID}/grants",
+      "params": [
+        "encodedID"
+      ],
+      "headers": [
+        "Authorization",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token"
+      ],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1303"
+      ],
+      "via": "review: publicationGrants(method:) receives GET, POST or DELETE from VMClientSocketCommands.swift:198",
+      "body": {
+        "encodes": "method == \"GET\" ? nil : body"
+      },
+      "fill": {
+        "encodedID": "vm"
+      },
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/vm/publications/{encodedID}/verify",
+      "params": [
+        "encodedID"
+      ],
+      "headers": [
+        "Authorization",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token"
+      ],
       "sources": [
         "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1266"
       ],
-      "expect": "405"
+      "via": "argument of request(...)",
+      "fill": {
+        "encodedID": "vm"
+      },
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
     },
     {
-      "method": "GET",
+      "method": "POST",
       "path": "/api/vm/restore",
-      "headers": [],
+      "params": [],
+      "headers": [
+        "Authorization",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token"
+      ],
       "sources": [
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:13",
         "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1912"
       ],
-      "expect": "405"
+      "via": "argument of request(...)",
+      "body": {
+        "keys": [
+          "snapshotId",
+          "provider?"
+        ]
+      },
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
     },
     {
       "method": "DELETE",
       "path": "/api/vm/tunnel",
+      "params": [],
       "headers": [
+        "Accept",
         "Authorization",
+        "Content-Type",
         "X-Stack-Refresh-Token"
       ],
       "sources": [
+        "Packages/iOS/CmuxMobileCloud/Sources/CmuxMobileCloud/CloudAPIRequestBuilder.swift:118",
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:2114",
         "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:2337"
-      ]
+      ],
+      "via": "argument of request(...); review: CloudAccessRevocationRequest feeds request(\"DELETE\", path: revocation.path) at VMClient.swift:2088; revokeCloudAccess() sets httpMethod",
+      "body": {
+        "keys": [
+          "deviceFingerprint",
+          "tunnelPurpose"
+        ]
+      },
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
     },
     {
-      "method": "GET",
+      "method": "POST",
       "path": "/api/vm/tunnel",
-      "headers": [],
+      "params": [],
+      "headers": [
+        "Accept",
+        "Authorization",
+        "Content-Type",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token"
+      ],
       "sources": [
         "Packages/iOS/CmuxMobileCloud/Sources/CmuxMobileCloud/CloudAPIRequestBuilder.swift:106",
-        "Packages/iOS/CmuxMobileCloud/Sources/CmuxMobileCloud/CloudAPIRequestBuilder.swift:118",
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient+CloudActivation.swift:133",
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:2114",
-        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClientTelemetry.swift:235"
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient+CloudActivation.swift:133"
       ],
-      "expect": "auth"
+      "via": "argument of request(...)",
+      "body": {
+        "keys": [
+          "clientPublicKey",
+          "deviceId",
+          "deviceFingerprint",
+          "tunnelPurpose",
+          "deviceName?"
+        ]
+      },
+      "mode": "shape-only",
+      "reason": "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)"
     },
     {
       "method": "GET",
       "path": "/api/whats-new",
+      "params": [],
       "headers": [],
       "sources": [
         "Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/MobileWhatsNewCenter.swift:33"
       ],
-      "expect": "2xx",
-      "keys": [
-        "announcements",
-        "visibleEntryIds"
-      ]
+      "via": "review: requestPath builds the URL that MobileWhatsNewCenter.refresh() passes to mobileRemoteJSONLoader (Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/MobileRemoteJSONLoader.swift:10): a URLRequest without httpMethod (GET)",
+      "mode": "read",
+      "anonymous": true,
+      "response": {
+        "visibleEntryIds": [
+          "string"
+        ],
+        "entryChannels?": "object"
+      },
+      "responseFrom": "Decodable MobileWhatsNewRemoteList (review: Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/MobileWhatsNewCenter.swift:113)"
+    }
+  ],
+  "skipped": [
+    {
+      "source": "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:13",
+      "reason": "path set of the read-cache invalidation table (no request)"
+    },
+    {
+      "source": "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:17",
+      "reason": "read-cache invalidation path (no request)"
+    },
+    {
+      "source": "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:18",
+      "reason": "read-cache invalidation path (no request)"
+    },
+    {
+      "source": "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:21",
+      "reason": "read-cache invalidation path (no request)"
+    },
+    {
+      "source": "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:23",
+      "reason": "read-cache invalidation path (no request)"
+    },
+    {
+      "source": "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:24",
+      "reason": "read-cache invalidation path (no request)"
+    },
+    {
+      "source": "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:32",
+      "reason": "read-cache invalidation path (no request)"
+    },
+    {
+      "source": "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:36",
+      "reason": "read-cache invalidation path (no request)"
+    },
+    {
+      "source": "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:46",
+      "reason": "read-cache invalidation path (no request)"
+    },
+    {
+      "source": "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1751",
+      "reason": "lifecycleTransition(action:) sends only pause or resume (VMClient.swift:1735, 1743): the same requests as POST /api/vm/{id}/pause and /resume from CloudAPIRequestBuilder.swift:69, 75"
+    },
+    {
+      "source": "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:2408",
+      "reason": "comparison in the retry policy (no request)"
+    },
+    {
+      "source": "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:2469",
+      "reason": "comparison in the operation classifier (no request)"
+    },
+    {
+      "source": "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClientTelemetry.swift:235",
+      "reason": "telemetry route label switch (no request)"
+    },
+    {
+      "source": "Packages/Shared/CmuxAPIClient/Sources/CmuxAPIClient/CmuxAPIClient.swift:11",
+      "reason": "base path of the generated OpenAPI client CmuxAPIClient; no shipped code constructs CmuxAPIClient at v0.65.0"
+    },
+    {
+      "source": "Sources/AgentChatThemeSync.swift:181",
+      "reason": "POST to the local agent-chat sidecar origin (agentChat.url), not the cmux web origin"
     }
   ]
 }
