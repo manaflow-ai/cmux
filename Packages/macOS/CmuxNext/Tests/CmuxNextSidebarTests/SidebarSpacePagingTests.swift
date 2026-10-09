@@ -181,5 +181,10 @@ import Testing
         let (view, window) = Self.sidebar()
         defer { window.close() }
         #expect(view.scrollView.rowsFit, "one row fits")
+        let many = (0..<80).map { SidebarNode.workspace(SidebarWorkspace(id: WorkspaceID("ws-\($0)"), title: "ws-\($0)")) }
+        view.model.sections = [SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "Local", kind: .local)), nodes: many)]
+        view.list.reload(animated: false)
+        view.layoutSubtreeIfNeeded()
+        #expect(!view.scrollView.rowsFit, "80 rows overflow: a vertical wheel scrolls the list")
     }
 }
