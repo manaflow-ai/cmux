@@ -905,6 +905,18 @@
       "scope": "notification:read",
       "class": "read"
     },
+    "palette_usage.get": {
+      "scope": "palette_usage:read",
+      "class": "read"
+    },
+    "palette_usage.import": {
+      "scope": "palette_usage:write",
+      "class": "mutation"
+    },
+    "palette_usage.record": {
+      "scope": "palette_usage:write",
+      "class": "mutation"
+    },
     "pane.create": {
       "scope": "workspace:write",
       "class": "mutation"

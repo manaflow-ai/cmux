@@ -16,8 +16,11 @@ use super::{HostStream, LeaseProbe, PrivateOpen};
 pub(crate) use super::super::unix::PtyCustody;
 pub(crate) use super::super::unix::process_definitely_absent as process_definitely_gone;
 pub(crate) use super::super::unix::remove_released as remove_released_pty_lock;
-pub(crate) use super::super::unix::{barrier_sync, barrier_sync_dir};
+mod barrier_sync;
+mod lease;
 pub(crate) use crate::terminal_loss_log::remove_signals as remove_terminal_loss_signals;
+pub(crate) use barrier_sync::{barrier_sync, barrier_sync_dir};
+pub(crate) use lease::*;
 
 /// The owner of a file: its uid.
 pub(crate) type FileOwner = u32;

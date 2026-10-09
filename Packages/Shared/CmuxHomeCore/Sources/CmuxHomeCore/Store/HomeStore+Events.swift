@@ -59,7 +59,9 @@ extension HomeStore {
         }
     }
 
-    /// Resends run one at a time, in log order, so the owner sees them in order.
+    /// Resends run one at a time, in log order, so the owner sees them in
+    /// order. A send also waits for every earlier send of its conversation
+    /// (a send with attachments made while offline uploads first).
     func enqueueResends(_ intents: [HomeIntent]) {
         pendingResends.append(contentsOf: intents)
         guard resendTask == nil, !pendingResends.isEmpty else { return }
@@ -68,6 +70,10 @@ extension HomeStore {
                 let next = self.pendingResends.removeFirst()
                 // Cancelled or dropped since it was queued.
                 guard self.log.entries.contains(where: { $0.intent.key == next.key }) else { continue }
+                if case .sendMessage(let conversation, _) = next.op {
+                    await self.waitForTurn(next.key, in: conversation)
+                    guard self.log.entries.contains(where: { $0.intent.key == next.key }), !self.stopped else { continue }
+                }
                 do {
                     _ = try await self.submit(next)
                 } catch let rejection as HomeRejection {
