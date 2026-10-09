@@ -13648,7 +13648,7 @@ mod tests {
         assert!(lock["hold_us"]["count"].as_u64().unwrap() >= 1, "{lock}");
         assert!(lock["holder"].is_null(), "{lock}");
         let site = lock["top_sites"][0]["site"].as_str().unwrap();
-        assert!(site.contains("mux.rs:"), "{site}");
+        assert!(site.contains("mux.rs:") || site.contains("/mux/"), "{site}");
         assert_eq!(stats["connections"]["limit"].as_u64(), Some(MAX_SERVER_CONNECTIONS as u64));
         assert!(stats["journal_writer"].is_object() || stats["journal_writer"].is_null());
 
