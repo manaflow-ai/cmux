@@ -291,6 +291,8 @@ pub struct TeamVmView {
     pub updated_at: i64,
     pub taint: Option<TeamVmTaint>,
     pub retired: Vec<TeamVmRetired>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub no_owner: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

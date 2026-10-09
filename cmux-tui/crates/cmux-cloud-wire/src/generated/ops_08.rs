@@ -11,6 +11,8 @@ pub struct TeamMembersListResult {
     pub member_count: WireNumber,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seat_count: Option<WireNumber>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub no_owner: Option<bool>,
     pub next_cursor: Option<String>,
     pub revision: String,
 }

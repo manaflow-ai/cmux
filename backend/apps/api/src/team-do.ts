@@ -484,6 +484,7 @@ export class TeamDO extends OwnerDO<TeamState> {
     return state?.team?.id === entity && state.team.deleted_at === undefined ? (roleOf(state, this.rows, user) ?? null) : null
   }
 
+  async noOwner(entity: string): Promise<boolean> { return this.isBound(entity) && this.bind(entity).currentState.no_owner === true } // RPC from TeamVmDO's team_vm.status (review P2-3)
   /** RPC from the Stack webhook route (stack-webhook.ts): one delivery reconciled with Stack, one at a time per team. */
   async stackWebhook(entity: string, event: StackEvent): Promise<StackSyncReply> {
     this.bind(entity)

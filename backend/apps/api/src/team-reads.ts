@@ -14,6 +14,9 @@ const DIRECTORY_PAGE = 200
 /** The grant each read needs (team-roles.ts); team_vm.accounts also admits the team VM's install (checked in its case). */
 const READ_GRANTS: Readonly<Record<string, TeamGrant>> = {
   "team.directory": "team.resources",
+  // The policy a member's devices follow (review P3-5): no default grant for guests or billing.
+  "team.policy.get": "team.resources",
+  "team.device.policy": "team.resources",
   "team.members.list": "team.resources",
   "team.hosts.list": "team.resources",
   "team.policy.history": "team.manage",
@@ -29,7 +32,7 @@ export const teamRead = (state: TeamState, op: string, params: unknown, principa
   const member = memberOf(state, rows, principal.user)
   if (!member) return { ok: false, code: "auth.forbidden", message: "not a member of this team" }
   const p = (params ?? {}) as { version?: unknown; limit?: unknown }
-  // Grants, never role names (team-roles.ts): reads that need none are the policy a member's devices follow and the public CA.
+  // Grants, never role names (team-roles.ts): only the public CA (team_vm.ssh_ca) needs none.
   const needs = READ_GRANTS[op]
   if (needs && !roleHas(member.role, needs)) return { ok: false, code: "auth.forbidden", message: `the ${member.role} role may not read ${op}` }
   switch (op) {
@@ -53,7 +56,7 @@ export const teamRead = (state: TeamState, op: string, params: unknown, principa
         after = next
       }
       const last = out.at(-1)?.user
-      return { ok: true, value: { team: state.team?.id, members: out, member_count: state.member_count ?? out.length, seat_count: seatsOf(state), next_cursor: out.length < limit && next === null ? null : (last ?? next) }, revision: "" }
+      return { ok: true, value: { team: state.team?.id, members: out, member_count: state.member_count ?? out.length, seat_count: seatsOf(state), no_owner: state.no_owner === true, next_cursor: out.length < limit && next === null ? null : (last ?? next) }, revision: "" }
     }
     case "team.hosts.list": {
       const q = params as { cursor?: unknown; limit?: unknown } | null

@@ -317,7 +317,7 @@ declare namespace Cmux {
   type TeamVmRetired = { vm: string; epoch: number; state: "pausing" | "paused"; at: number; by: string; tainted_by: Array<string> }
   type TeamVmStatus = "none" | "provisioning" | "starting" | "running" | "paused" | "failed"
   type TeamVmTaint = { epoch: number; at: number; users: Array<string>; accepted_by: string | null; accepted_at: number | null }
-  type TeamVmView = { team: Cmux.TeamId; status: Cmux.TeamVmStatus; vm: string | null; epoch: number; leases: Array<{ lease: Cmux.TeamVmLeaseId; holder: string; reason: string; expires_at: number }>; last_error: Cmux.TeamVmError | null; updated_at: number; taint: Cmux.TeamVmTaint | null; retired: Array<Cmux.TeamVmRetired> }
+  type TeamVmView = { team: Cmux.TeamId; status: Cmux.TeamVmStatus; vm: string | null; epoch: number; leases: Array<{ lease: Cmux.TeamVmLeaseId; holder: string; reason: string; expires_at: number }>; last_error: Cmux.TeamVmError | null; updated_at: number; taint: Cmux.TeamVmTaint | null; retired: Array<Cmux.TeamVmRetired>; no_owner?: boolean }
   type TerminalAttachItem = unknown
   type TerminalAttachPatch = { kind: "patch"; terminal_id: string /* terminal_… */; render: Cmux.RenderPatch }
   type TerminalAttachScroll = { kind: "scroll"; terminal_id: string /* terminal_… */; scroll: Cmux.RenderScroll }
@@ -1302,7 +1302,7 @@ interface CmuxGlobal {
     }
     members: {
       /** `team.members.list` (read, scope `team:read`): Page a team's members by user id (keyset: pass next_cursor as cursor), optionally one role. */
-      list: CmuxOp<{ team?: Cmux.TeamId; cursor?: string; limit?: number; role?: Cmux.TeamRole }, { team: Cmux.TeamId; members: Array<Cmux.TeamMember>; member_count: unknown; seat_count?: unknown; next_cursor: string | null; revision: string }>
+      list: CmuxOp<{ team?: Cmux.TeamId; cursor?: string; limit?: number; role?: Cmux.TeamRole }, { team: Cmux.TeamId; members: Array<Cmux.TeamMember>; member_count: unknown; seat_count?: unknown; no_owner?: boolean; next_cursor: string | null; revision: string }>
     }
     policy: {
       /** `team.policy.get` (read, scope `team:read`): Read the team policy (current or a retained past version). Every member may read it; clients apply its device-scoped keys. */

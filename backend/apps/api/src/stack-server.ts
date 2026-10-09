@@ -76,7 +76,14 @@ export const stackServer = (env: Env, http: (r: Request) => Promise<Response> = 
       const q = `team_id=${encodeURIComponent(teamId)}${userId ? `&user_id=${encodeURIComponent(userId)}` : ""}&recursive=true${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`
       const r = await lookup<{ items?: Array<{ id?: unknown; user_id?: unknown }>; pagination?: { next_cursor?: unknown } | null }>(`/team-permissions?${q}`, "team permissions", ["TEAM_NOT_FOUND"])
       if (isGone(r)) return "team_gone"
-      for (const p of r.items ?? []) if (typeof p.id === "string" && typeof p.user_id === "string") out.set(normal(p.user_id), [...(out.get(normal(p.user_id)) ?? []), p.id])
+      // A role is decided from this list, so an answer we cannot read fails (the delivery retries) instead of
+      // giving member (review P3-3): no items array, an item without its ids, or an item for another user.
+      if (!Array.isArray(r.items)) throw new Error("stack GET team permissions: no items")
+      for (const p of r.items) {
+        if (typeof p.id !== "string" || typeof p.user_id !== "string") throw new Error("stack GET team permissions: malformed item")
+        if (userId && normal(p.user_id) !== normal(userId)) throw new Error("stack GET team permissions: item for another user")
+        out.set(normal(p.user_id), [...(out.get(normal(p.user_id)) ?? []), p.id])
+      }
       const next = r.pagination?.next_cursor
       if (typeof next !== "string" || !next) return out
       cursor = next

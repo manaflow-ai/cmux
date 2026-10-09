@@ -6158,6 +6158,13 @@
               "name": "TeamVmRetired"
             }
           }
+        },
+        "no_owner": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
         }
       }
     },
@@ -48692,6 +48699,9 @@
                 "items": {
                   "$ref": "#/$defs/TeamVmRetired"
                 }
+              },
+              "no_owner": {
+                "type": "boolean"
               }
             },
             "required": [
@@ -51375,6 +51385,13 @@
               ]
             }
           },
+          "no_owner": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
           "next_cursor": {
             "required": true,
             "type": {
@@ -51502,6 +51519,9 @@
                 ]
               }
             ]
+          },
+          "no_owner": {
+            "type": "boolean"
           },
           "next_cursor": {
             "anyOf": [

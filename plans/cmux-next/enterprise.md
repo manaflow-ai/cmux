@@ -181,7 +181,7 @@ Built in TeamDO (`backend/apps/api/src/domains/team-roles.ts`). Ops check grants
 | Role | Grants (default bundle) | Seat | Stack source (team permissions, `recursive=true`; first match wins) |
 | --- | --- | --- | --- |
 | owner | all: team.resources, team.manage, members.remove, members.remove_admin, audit.read, audit.read_billing, billing.manage, team.owner | yes | `$delete_team` or custom `cmux:owner` (Stack's default `team_admin`, which its team creator gets, contains `$delete_team`) |
-| admin | all but team.owner and members.remove_admin | yes | `$remove_members` or custom `cmux:admin` |
+| admin | all but team.owner and members.remove_admin | yes | custom `cmux:admin` only (review P3-2: Stack's `$remove_members` alone gives member) |
 | billing | audit.read_billing, billing.manage | yes | custom `cmux:billing` |
 | guest | none | no | custom `cmux:guest` |
 | member | team.resources | yes | anything else (Stack's default `team_member`) |
@@ -193,9 +193,13 @@ Built in TeamDO (`backend/apps/api/src/domains/team-roles.ts`). Ops check grants
 - `team.audit.list` (new): owners and admins read every record; billing reads only `category: billing` records (any record that changes the seat count, and future billing ops). Records are kept as TeamDO rows from this change on; older ones are only in `audit_events`.
 - Seats: `seat_count` counts every role but guest (decision (a) frees guests only, so billing takes a seat).
 
+- `team.members.remove` decides with Stack's live permissions as well as TeamDO's rows (one live read before the Stack DELETE, review P2-1), and the commit re-checks the person's grant (P3-1). A permission answer that cannot be read fails the delivery (503, retried), never "member" (P3-3).
+- Guests and billing read neither the current policy nor the device policy (P3-5), and open no wire scope but `user` in a shared team (P2-2).
+- Last owner (lead decision, review P2-3): Stack stays the source, so a Stack demotion of the last owner applies. TeamDO records `team.no_owner` (audited, error log), and `team.members.list` and `team_vm.status` return `no_owner: true` until Stack promotes an owner, so the dashboard can say "this team has no owner; a Stack team admin must promote one".
+- SSO (lead decision, review P3-4): owners stay exempt unless `sso.enforceForOwners`; the exemption is the break-glass path out of an SSO lockout, and an owner holds Stack `$delete_team` anyway.
+
 Open points for the chief:
-- Stack's own `$remove_members` lets any Stack team admin remove anyone in Stack, an admin or the creator included; cmux follows Stack, so rule (c) binds only removals made through cmux. Closing it needs Stack's `team_admin` without `$remove_members` (project config) or a cmux-only membership source.
-- A Stack demotion of the last owner leaves the cmux team with no owner (Stack is the source; no invariant is enforced for Stack teams).
+- Stack's own `$remove_members` lets its holder remove anyone in Stack, an admin or the creator included; cmux follows Stack, so rule (c) binds only removals made through cmux. Closing it needs Stack's `team_admin` without `$remove_members` (project config) or a cmux-only membership source.
 - `billing` takes a seat; reply if billing should be free like guests.
 - PlanetScale Postgres `memberships_role_check` allows only owner/admin/member: `backend/db/migrations/0007_membership_roles.sql` (contract, relaxing) must be applied before billing/guest rows project; until then those `membership.upsert` rows dead-letter (replayable). No Stack project has the `cmux:` permissions yet, so no such row exists today.
 - SSO JIT and SCIM do not exist yet; when they land, `team.member.provision` takes the same roles (default member, enterprise item 4).

@@ -2,7 +2,7 @@ import type { OwnerFrame, Principal, RowReader } from "@cmux/ownership"
 import { TeamMembersRemove } from "@cmux/protocol"
 import { decodeParams } from "./domains/common.ts"
 import { memberOf } from "./domains/team-members.ts"
-import { removeGrantFor, roleHas } from "./domains/team-roles.ts"
+import { removeGrantFor, roleHas, stackRole } from "./domains/team-roles.ts"
 import type { TeamState } from "./domains/team.ts"
 import { userIdFor } from "./domains/user.ts"
 import type { DomainReply } from "./team-domain-external.ts"
@@ -49,14 +49,21 @@ export const memberAdminExternal = async (deps: MemberAdminDeps, p: Principal, f
   try {
     const listed = await deps.stack.listTeamMembers(stackTeam)
     if (listed === "team_gone") return fail("selector.not_found", "Stack no longer has this team")
-    // cmux user ids are derived from Stack's (userIdFor); the Stack id is found by Stack's own list.
-    const inStack = listed.find((m) => userIdFor(deps.stackProjectId, UUID.test(m.user_id) ? m.user_id.toLowerCase() : m.user_id) === user)
+    // cmux user ids are derived from Stack's (userIdFor); the Stack ids are found by Stack's own list.
+    const entry = (u: string) => listed.find((m) => userIdFor(deps.stackProjectId, UUID.test(m.user_id) ? m.user_id.toLowerCase() : m.user_id) === u)
+    const inStack = entry(user)
+    // Review P2-1: TeamDO's roles may lag Stack (a late or dead-lettered webhook). The roles Stack gives
+    // now, from this same live read, must allow the removal too, before anything is deleted in Stack.
+    const liveActor = entry(p.user)
+    if (!liveActor) return fail("auth.forbidden", "Stack no longer lists you in this team")
+    const liveNeed = inStack ? removeGrantFor(stackRole(inStack.permissions)) : need
+    if (liveNeed === null || !roleHas(stackRole(liveActor.permissions), liveNeed)) return fail("auth.forbidden", "Stack's current roles do not allow this removal")
     if (inStack && (await deps.stack.removeTeamMember(stackTeam, inStack.user_id)) === "team_gone") return fail("selector.not_found", "Stack no longer has this team")
   } catch (e) {
     console.error(JSON.stringify({ msg: "stack member removal failed", team: deps.team, error: String(e).slice(0, 200) }))
     return fail("owner.unreachable", "Stack did not answer; try again", true)
   }
-  // Without from_stack: should the member have become an owner meanwhile, the reducer refuses (Stack's next sync then settles them).
+  // Without from_stack, with `by`: the reducer checks the person's grant and the member's role again in the commit (review P3-1).
   const res = deps.submitSystem("team.member.remove", { user, by: p.user }, `members-remove:${p.identity}|${frame.idempotency_key}`)
   const rej = res.frames.find((f) => f.t === "reject")
   if (rej && rej.t === "reject") return fail(rej.code, rej.message)

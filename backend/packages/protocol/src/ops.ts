@@ -168,8 +168,8 @@ export const TeamMembersList = def({
   target: "team",
   principals: ["session", "install"],
   params: Schema.Struct({ team: Schema.optionalKey(TeamId), ...PageParams, role: Schema.optionalKey(TeamRole) }),
-  /** seat_count: members that use a paid seat (every role but guest, spec H12). */
-  result: Schema.Struct({ team: TeamId, members: Schema.Array(TeamMember), member_count: Schema.Number, seat_count: Schema.optionalKey(Schema.Number), next_cursor: Schema.NullOr(Schema.String), revision: Schema.String }),
+  /** seat_count: members that use a paid seat (every role but guest, spec H12). no_owner: Stack left the team without an owner; a Stack team admin must promote one. */
+  result: Schema.Struct({ team: TeamId, members: Schema.Array(TeamMember), member_count: Schema.Number, seat_count: Schema.optionalKey(Schema.Number), no_owner: Schema.optionalKey(Schema.Boolean), next_cursor: Schema.NullOr(Schema.String), revision: Schema.String }),
   errors: ["auth.unauthenticated", "auth.forbidden"],
   docs: "Page a team's members by user id (keyset: pass next_cursor as cursor), optionally one role.",
   cli: { path: "team members", visible: true },

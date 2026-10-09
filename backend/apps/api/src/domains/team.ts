@@ -11,8 +11,8 @@ import { reduceIntegrationLock, reduceIntegrationSeed, reduceIntegrationSynced, 
 import { reducePolicyRollback, reducePolicyUpdate } from "./team-policy.ts"
 import { reduceRunsSynced, type RunSyncState } from "./team-run-sync.ts"
 import { reduceAccountAllocated, reduceCaInstalled, reduceCertsRevoked, type TeamSshState } from "./team-ssh.ts"
-import { reduceMemberProvision, reduceStackMirror, seatsOf, teamDeleted } from "./team-stack.ts"
-import { roleHas, usesSeat } from "./team-roles.ts"
+import { reduceMemberProvision, reduceNoOwner, reduceStackMirror, seatsOf, teamDeleted } from "./team-stack.ts"
+import { removeGrantFor, roleHas, usesSeat } from "./team-roles.ts"
 import { withAuditRows } from "./team-audit-rows.ts"
 import { reduceServerEnrolled, reduceServerInstallRevoked, reduceServerRevoke, type ServerRevocation } from "./team-servers.ts"
 
@@ -23,6 +23,8 @@ export interface TeamState extends EnrollmentState, AuditState, IntegrationSyncS
   readonly member_count?: number
   /** Members that use a paid seat: all but guests (team-roles.ts usesSeat; seatsOf reads a head without it). */
   readonly seat_count?: number
+  /** Stack left this team without an owner (team.no_owner, review P2-3): shown by team.members.list and team_vm.status. */
+  readonly no_owner?: boolean
   readonly host_count?: number
   /** Installs of removed servers whose UserDO revocation is not confirmed yet (TeamDO retries; server.md 6.5). */
   readonly server_revocations?: Readonly<Record<string, ServerRevocation>>
@@ -106,6 +108,12 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
         if (typeof user !== "string" || !user) return reject("validation.invalid", "user required")
         const member = memberOf(state, ctx.rows, user)
         if (!member) return { ok: true, state, value: { user, removed: false }, changed: false }
+        // A person's removal (team.members.remove) is checked again here, in the commit (review P3-1): the
+        // Stack call before it awaited, and the person's or the member's role may have changed meanwhile.
+        if (by !== undefined) {
+          const need = removeGrantFor(member.role)
+          if (typeof by !== "string" || need === null || !roleHas(memberOf(state, ctx.rows, by)?.role, need)) return reject("auth.forbidden", `${String(by)} may not remove a ${member.role}`)
+        }
         // An owner is demoted first, so no team is ever left without one (a personal team's owner never
         // leaves). On a Stack team, Stack's removal demotes and removes in this one commit (cx-3bi.43 P2-1),
         // and a team Stack deleted removes everyone.
@@ -127,6 +135,8 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
       }
       case "team.stack_mirror":
         return reduceStackMirror(state, params, ctx)
+      case "team.no_owner":
+        return reduceNoOwner(state, params, ctx)
       case "team.member.provision":
         return reduceMemberProvision(state, params, ctx)
       case "team.member.cleaned": {

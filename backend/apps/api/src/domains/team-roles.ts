@@ -48,14 +48,16 @@ export const removeGrantFor = (target: string): TeamGrant | null => (target === 
 
 /**
  * Stack team permissions to a cmux role (cx-3bi.4), read with `recursive=true` so contained
- * permissions count. Stack's own `$` permissions decide owner and admin, so Stack's defaults work
- * unchanged: its team creator gets `team_admin`, which contains `$delete_team`. The `cmux:`
- * permissions are custom team permissions a project may define to give the other roles.
+ * permissions count. Stack's `$delete_team` makes an owner, so Stack's defaults work unchanged:
+ * its team creator gets `team_admin`, which contains `$delete_team`. Admin comes only from the
+ * custom `cmux:admin` (review P3-2): Stack's `$remove_members` alone gives member here, though its
+ * holder can still remove members in Stack itself. The `cmux:` permissions are custom team
+ * permissions a project defines to give the other roles.
  * The first match wins: owner, admin, billing, guest, then member.
  */
 export const STACK_ROLE_PERMISSIONS: ReadonlyArray<readonly [Role, ReadonlyArray<string>]> = [
   ["owner", ["$delete_team", "cmux:owner"]],
-  ["admin", ["$remove_members", "cmux:admin"]],
+  ["admin", ["cmux:admin"]],
   ["billing", ["cmux:billing"]],
   ["guest", ["cmux:guest"]]
 ]

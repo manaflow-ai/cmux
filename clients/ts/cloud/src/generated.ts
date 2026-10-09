@@ -1058,6 +1058,7 @@ export type TeamVmView = {
   readonly updated_at: number
   readonly taint: TeamVmTaint | null
   readonly retired: ReadonlyArray<TeamVmRetired>
+  readonly no_owner?: boolean
 }
 
 /** RFC 3339 UTC with milliseconds. */
@@ -2962,6 +2963,7 @@ export interface CloudOps {
       readonly members: ReadonlyArray<TeamMember>
       readonly member_count: number | "Infinity" | "-Infinity" | "NaN"
       readonly seat_count?: number | "Infinity" | "-Infinity" | "NaN"
+      readonly no_owner?: boolean
       readonly next_cursor: string | null
       readonly revision: string
     }

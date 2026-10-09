@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto"
 import type { OwnerFrame, RowReader } from "@cmux/ownership"
-import { listMembers, memberOf, type RowsWithScan } from "./domains/team-members.ts"
+import { firstOwner, listMembers, memberOf, type RowsWithScan } from "./domains/team-members.ts"
 import { stackRole } from "./domains/team-roles.ts"
 import type { TeamState } from "./domains/team.ts"
 import { userIdFor } from "./domains/user.ts"
@@ -168,7 +168,10 @@ export class StackTeamSync {
     const commit = (op: string, params: Record<string, unknown>) => {
       const res = deps.submitSystem(op, params, `stack-webhook:${ev.svix_id}:${op}:${hash(params)}`)
       const rej = res.frames.find((f) => f.t === "reject")
-      return rej && rej.t === "reject" ? `reject:${rej.code}` : undefined
+      if (rej && rej.t === "reject") return `reject:${rej.code}`
+      const v = (res.frames.find((f) => f.t === "result") as { value?: { role?: string; previous_role?: string; demoted_owner?: boolean } } | undefined)?.value
+      if (v && (v.role === "owner" || v.previous_role === "owner" || v.demoted_owner)) this.checkOwner(deps, ev.svix_id)
+      return undefined
     }
     const team = await stack.getTeam(ev.stack_team)
     // Stack still lists a team that a team.deleted named: change nothing now and ask again later, keeping the delete.
@@ -190,6 +193,20 @@ export class StackTeamSync {
     if (member === null) return commit("team.member.remove", { user, from_stack: true }) ?? "member_absent"
     // The role is read from Stack's permissions on every delivery: a change in Stack changes it here (cx-3bi.4).
     return commit("team.member.provision", { user, role: stackRole(member.permissions), source: "stack", display_name: displayName(member.display_name, "Member") }) ?? "member_present"
+  }
+
+  /**
+   * Review P2-3: after a change that touched an owner, records whether the team still has one. Stack is the
+   * source, so a demotion of the last owner applies; the team shows no_owner (audited, logged) until Stack
+   * promotes someone. Runs only when an owner's row changed, so a large team is not scanned per delivery.
+   */
+  private checkOwner(deps: StackSyncDeps, key: string) {
+    const state = deps.state()
+    if (state.team?.kind !== "stack" || state.team.deleted_at !== undefined) return
+    const none = firstOwner(state, deps.rows()) === undefined
+    if (none === (state.no_owner === true)) return
+    if (none) console.error(JSON.stringify({ msg: "stack team has no owner; a Stack team admin must promote one", team: deps.team }))
+    deps.submitSystem("team.no_owner", { no_owner: none }, `no-owner:${key}:${none}`)
   }
 
   /** Adds every member Stack lists and removes every member it no longer lists; a reject or a missing team is the outcome, else undefined. */
