@@ -12,10 +12,17 @@ A process ends only in five ways:
 | Way | Mechanism | 2026-10 cmux examples |
 | --- | --- | --- |
 | a. A runtime-checked invariant fails | Swift traps: `x!`, IUO, `as!`, `try!`, `unowned` to a freed object, an index out of range, overflow, `precondition`/`fatalError`, `MainActor.assumeIsolated` off main, exclusivity, continuation misuse | KeyViewProxy `unowned` |
-| b. An Objective-C exception escapes Cocoa | NSRangeException, unrecognized selector, unknown KVC key; Swift cannot catch them | TextLayout NSRangeException (stale UTF-16 offsets on a background render), PointerHover `mouseEnteredWith:` |
+| b. An Objective-C exception escapes Cocoa | NSRangeException, unrecognized selector, unknown KVC key, a nil from a factory annotated nonnull (it lies under concurrency: `NSFont.monospacedSystemFont` returned nil about 1 in 1000 calls when threads made and dropped the last instance, macOS 27.0.1) passed to an API that throws on nil; Swift cannot catch them | TextLayout NSRangeException (stale UTF-16 offsets on a background render), PointerHover `mouseEnteredWith:` |
 | c. Memory unsafety | C/C++/Zig/Rust FFI, unsafe pointers, a C callback into a freed object | none filed this month |
 | d. An embedded engine asserts | CEF CHECK/DCHECK, a Rust panic across FFI with abort | CEF WebAuthn DCHECK (section 1) |
 | e. Something outside kills it | jetsam/OOM, hang watchdog, launch constraints, our own scripts | Launch Constraint kills, terminal hosts ended by a reaper LaunchAgent |
+
+Rule for b (cx-qpqs): AppKit and Core Text objects that background renderers
+use (fonts first) come from process-wide caches that hold them for the life of
+the process (`HomeFonts`), and a value from a nonnull-annotated factory that
+flows into an API that throws on nil is checked as an optional first. Lint:
+ratchet class `render_font` (fonts made in place in MessagesLabHome,
+MessagesLabSidebar, CmuxHomeRender, outside a `static let`).
 
 The common root of a and b: an invariant that the type system does not hold
 is checked at run time, at a boundary with an untyped or dynamic system

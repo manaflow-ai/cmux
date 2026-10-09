@@ -12,19 +12,24 @@
          let ts = CTTypesetterCreateWithAttributedString(attr)
          let len = (text as NSString).length
          var lines: [Line] = []
-@@ -56,6 +59,11 @@
-             if !traits.isEmpty, let d = Fixture.bodyFont.fontDescriptor.withSymbolicTraits(traits) {
-                 a.addAttribute(.font, value: UIFont(descriptor: d, size: Fixture.bodyFont.pointSize), range: range)
+@@ -53,8 +56,14 @@
+                 }
              }
+             if r.mention != nil { traits.insert(.traitBold) }
+-            if !traits.isEmpty, let d = Fixture.bodyFont.fontDescriptor.withSymbolicTraits(traits) {
+-                a.addAttribute(.font, value: UIFont(descriptor: d, size: Fixture.bodyFont.pointSize), range: range)
++            // cmux: the bold/italic face held for the process (HomeFonts, cx-qpqs); no font attribute when there is none.
++            if !traits.isEmpty, let f = HomeFonts.font(Fixture.bodyFont, adding: traits) {
++                a.addAttribute(.font, value: f, range: range)
++            }
 +            // cmux: inline code and code blocks (HomeMarkdown) in the monospaced system font, one point smaller like Messages' body.
 +            // One font for the process (HomeFonts.code): one made per run on RowBitmaps' threads came back nil.
 +            if r.style?.contains("code") == true {
 +                a.addAttribute(.font, value: HomeFonts.code, range: range)
-+            }
+             }
              if r.link != nil {
                  a.addAttributes([.foregroundColor: linkColor, .underlineStyle: NSUnderlineStyle.single.rawValue], range: range)
-             }
-@@ -113,7 +121,13 @@
+@@ -113,7 +122,13 @@
      /// references/real-messages/recordings/stills/widths; line breaks bound it per width to
      /// [226,232), [260,273), [287.5,294), [304.5,319.5), >= 338; 0.654 is inside all five). The old rule, proportional to
      /// the width (0.5707 W), wrapped later than Messages below 600 pt.
@@ -39,7 +44,7 @@
      var maxLinkWidth: CGFloat { min(Fixture.maxLinkWidth, maxTextWidth + 2 * Fixture.bubblePadX) }
      var mediaWidth: CGFloat { min(Fixture.mediaWidth, maxTextWidth + 2 * Fixture.bubblePadX) }
  }
-@@ -683,7 +697,8 @@
+@@ -683,7 +698,8 @@
                                          gap: 1, height: 14))
                  }
                  if case .failed = m.status {
@@ -49,18 +54,18 @@
                                          gap: 1, height: 14))
                  }
                  if !threadMode, let n = replyCount[m.id], n >= 2, m.replyTo == nil {
-@@ -695,6 +710,10 @@
-                 }
+@@ -696,6 +712,10 @@
              }
              prev = m
-+        }
+         }
 +        // cmux: the host's notice, centered like the date row, under the newest message.
 +        if !threadMode, span.upperBound == messages.count, s.atNewest, let notice = s.ui.notice {
 +            rows.append(RowSpec(key: "notice", kind: .separator(bold: "", rest: notice), gap: 0, height: 35.5))
-         }
++        }
          if !threadMode, span.upperBound == messages.count, s.atNewest, s.ui.typing.contains(where: { $0 != me }) {
              rows.append(RowSpec(key: "typing", kind: .typing, gap: 0, height: 35))
-@@ -747,7 +766,7 @@
+         }
+@@ -747,7 +767,7 @@
  enum Format {
      private static let timeFormatter: DateFormatter = {
          let f = DateFormatter()
@@ -69,7 +74,7 @@
          f.timeZone = Instant.zone
          f.dateFormat = "h:mm\u{202F}a"
          return f
-@@ -766,7 +785,7 @@
+@@ -766,7 +786,7 @@
      private static let calendar: Calendar = { var c = Calendar(identifier: .gregorian); c.timeZone = Instant.zone; return c }()
      private static func formatter(_ f: String) -> DateFormatter {
          let d = DateFormatter()
@@ -78,7 +83,7 @@
          d.timeZone = Instant.zone
          d.dateFormat = f
          return d
-@@ -785,56 +804,58 @@
+@@ -785,56 +805,58 @@
      static func duration(_ s: Double) -> String { String(format: "%d:%02d", Int(s) / 60, Int(s) % 60) }
  }
  
