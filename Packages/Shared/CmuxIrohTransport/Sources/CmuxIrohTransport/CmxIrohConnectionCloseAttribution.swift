@@ -93,7 +93,7 @@ public struct CmxIrohConnectionCloseAttribution: Sendable, Equatable {
         if cause.hasPrefix(displayPeerClose) {
             let payload = cause.dropFirst(displayPeerClose.count)
             if let range = payload.range(of: "(code ", options: .backwards) {
-                return firstInteger(in: payload[range.upperBound...])
+                return firstInteger(in: payload.suffix(from: range.upperBound))
             }
             return firstInteger(in: payload)
         }
@@ -110,7 +110,7 @@ public struct CmxIrohConnectionCloseAttribution: Sendable, Equatable {
             ) else {
                 continue
             }
-            if let value = firstInteger(in: cause[range.upperBound...]) {
+            if let value = firstInteger(in: cause.suffix(from: range.upperBound)) {
                 return value
             }
         }
