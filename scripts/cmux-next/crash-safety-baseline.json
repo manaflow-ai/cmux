@@ -49,10 +49,7 @@
    "MessagesLabHome": 20
   },
   "force_unwrap": {
-   "CmuxNextSettings": 6,
-   "CmuxNextSidebar": 3,
-   "MessagesLabHome": 4,
-   "MessagesLabSidebar": 2
+   "CmuxNextSettings": 6
   },
   "index_subscript": {
    "CMUXMobileCore": 124,
@@ -63,7 +60,7 @@
    "CmuxNextDaemon": 116,
    "CmuxNextMobile": 13,
    "CmuxTerminalSizing": 5,
-   "MessagesLabHome": 828,
+   "MessagesLabHome": 829,
    "MessagesLabSidebar": 71
   },
   "int_conversion": {
@@ -76,9 +73,6 @@
    "CmuxNextMobile": 5,
    "MessagesLabHome": 84,
    "MessagesLabSidebar": 18
-  },
-  "iuo": {
-   "CmuxNextSidebar": 5
   },
   "render_font": {
    "CmuxHomeRender": 4,

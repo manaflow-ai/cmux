@@ -67,7 +67,7 @@ import Testing
         let scale = Fixture.renderScale
         Fixture.renderScale = 1
         defer { Fixture.renderScale = scale }
-        let image = RowBitmaps.render(spec)
+        let image = try #require(RowBitmaps.render(spec))
         let span = RowDraw.drawSpan(spec)
         let body = RowDraw.bodyRect(spec).offsetBy(dx: -span.lowerBound, dy: 0)
         let w = image.width, h = image.height

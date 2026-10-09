@@ -5,7 +5,8 @@
   "swift.assume_isolated",
   "swift.fatal_error",
   "swift.objc_selector",
-  "swift.precondition"
+  "swift.precondition",
+  "swift.iuo"
  ],
  "allow": [
   {
