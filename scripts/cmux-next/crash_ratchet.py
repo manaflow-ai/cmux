@@ -122,6 +122,18 @@ PARAMETER_TYPE = re.compile(r"[(,]\s*(?:\w+\s+)?(\w+)\s*:\s*(?:inout\s+)?(\[.*|(
 FUNC_OR_INIT = re.compile(r"\b(?:func\s+\w+|init\??)\s*(?:<[^>]*>)?\s*\(")
 
 
+BOUND_BEFORE = re.compile(r"(?:\b(?:if|guard|while)\s+|,\s*)(?:let|var)\s+\w+(?:\s*:\s*[^=,]+)?\s*=\s*$")
+BOUND_AFTER = re.compile(r"^\s*(?:,|\{|else\b|$)")
+
+
+def is_bound_value(code, start, end):
+    """True when CODE[start:end] is the whole value of an optional binding
+    (`if let x = map[k] {`, `guard let n = Int(s), ...`): the binding unwraps it, so
+    it cannot trap. A subscript or conversion elsewhere on a binding line still counts
+    (`guard let c = CGContext(width: Int(w * scale), ...)` traps on NaN)."""
+    return bool(BOUND_BEFORE.search(code[:start]) and BOUND_AFTER.match(code[end:]))
+
+
 def int_conversion_hits(code):
     """Integer conversions in CODE that can trap. `Int(someString)` returns an optional:
     a conversion followed by `?`/`??` or inside an optional binding is not counted."""
@@ -138,7 +150,7 @@ def int_conversion_hits(code):
                     end = pos + 1
                     break
         after = code[end:].lstrip() if end else ""
-        if after.startswith("?") or (binding and binding.start() < match.start()):
+        if after.startswith("?") or (binding and end and is_bound_value(code, match.start(), end)):
             continue
         hits += 1
     return hits
@@ -202,10 +214,23 @@ def index_hits(code, dictionaries=frozenset()):
         after = code[match.end():].lstrip()
         if after.startswith("?"):
             continue
-        if binding and binding.start() < match.start():
+        if binding and is_bound_value(code, match.start(), match.end()):
+            continue
+        if checked_slot(code, match):
             continue
         hits += 1
     return hits
+
+
+CHECKED_SLOT = re.compile(r"\blet\s+(\w+)\s*=\s*([\w.]+)\.checkedIndex\(")
+
+
+def checked_slot(code, match):
+    """`if let slot = rows.checkedIndex(i) { rows[slot] = v }`: the index came from the
+    same collection's checked accessor on this line, so it is in range."""
+    base = match.group(0)[:match.group(0).index("[")]
+    inner = match.group(1).strip()
+    return any(m.group(1) == inner and m.group(2) == base for m in CHECKED_SLOT.finditer(code[:match.start()]))
 ADD_OBSERVER = re.compile(r"\baddObserver\(")
 SELECTOR_OBSERVER = re.compile(r"addObserver\(\s*[^,()]+?,\s*selector\s*:")
 OBJC_ATTR = re.compile(r"@objc(?![\w(])")
