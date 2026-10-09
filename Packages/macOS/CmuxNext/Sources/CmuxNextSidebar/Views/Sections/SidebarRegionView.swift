@@ -37,6 +37,13 @@ final class SidebarRegionView: NSView {
     /// The view of an app section (`SectionContent.app`), from the sidebar's provider.
     var appView: ((LayoutSection) -> NSView?)?
     private(set) var appViews: [LayoutSectionID: NSView] = [:]
+    /// The band's alpha at rest while minimal mode hides it: faded, unless it
+    /// holds All chats, whose rows stay and whose header alone fades with the
+    /// hover (cx-xub5; only the footer row then hides).
+    func restAlpha(hiddenByMode: Bool) -> CGFloat {
+        hiddenByMode && !appViews.values.contains(where: { $0 is SidebarHoverRevealing }) ? 0 : 1
+    }
+
     /// The sidebar's hover reveal, passed to app views whose chrome fades with
     /// it (`SidebarHoverRevealing`: the All chats header).
     var chromeRevealed = false {

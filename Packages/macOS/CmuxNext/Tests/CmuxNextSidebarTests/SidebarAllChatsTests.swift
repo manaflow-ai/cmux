@@ -111,7 +111,7 @@ import Testing
         plain.setChromeRevealed(false)
         plain.layoutSubtreeIfNeeded()
         plain.layout()
-        #expect(plain.belowBandAlpha(hiddenByMode: true) == 0)
+        #expect(plain.belowRegion.restAlpha(hiddenByMode: true) == 0)
     }
 
     @Test func hoveringTheSidebarRevealsTheHeaderAndTheBandAddsNoTitleRow() throws {

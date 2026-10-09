@@ -8,10 +8,9 @@ extension SidebarView {
     /// Fades the titlebar buttons in or out. Keyboard and VoiceOver users
     /// reach the same actions through the palette and the registry menus.
     /// Minimal mode's bands hide with the buttons; they stay in the view and
-    /// accessibility tree (a fade, not isHidden), so VoiceOver still reaches
-    /// their items. The footer's update pill is not in a band, so it stays
-    /// visible: it is the only update notice. The top band's hairline fades
-    /// with its band (Lawrence 2026-10-05).
+    /// accessibility tree (a fade), so VoiceOver still reaches their items. The
+    /// footer's update pill stays visible (the only update notice). The top
+    /// band's hairline fades with its band (Lawrence 2026-10-05).
     func setChromeRevealed(_ revealed: Bool) {
         let changed = revealed != isChromeRevealed
         isChromeRevealed = revealed
@@ -31,25 +30,10 @@ extension SidebarView {
                 profileBar.animator().alphaValue = spacesAlpha(revealed: revealed)
             }
             aboveFade.animator().alphaValue = above
-            belowFade.animator().alphaValue = belowBandAlpha(hiddenByMode: below == 0)
+            belowFade.animator().alphaValue = belowRegion.restAlpha(hiddenByMode: below == 0)
             footerRegion.animator().alphaValue = below
         }
         fadeLine(aboveLine, to: above)
-    }
-
-    /// The band below the list while minimal mode hides the bottom: faded,
-    /// unless it holds All chats, whose rows stay and whose header alone
-    /// fades with the hover (cx-xub5; only the footer row then hides).
-    func belowBandAlpha(hiddenByMode: Bool) -> CGFloat {
-        hiddenByMode && !belowRegion.appViews.values.contains(where: { $0 is SidebarHoverRevealing }) ? 0 : 1
-    }
-
-    /// After the bands change (All chats mounted or removed) the band below
-    /// takes its alpha for the current hover state at once.
-    func syncBelowBandAlpha() {
-        guard !isChromeRevealed else { return }
-        let alpha = belowBandAlpha(hiddenByMode: minimalHiddenBands.bottom)
-        if belowFade.alphaValue != alpha { belowFade.alphaValue = alpha }
     }
 
     /// The spaces strip's opacity: shown while the sidebar is hovered, or
