@@ -73,7 +73,16 @@ final class AppBrowserHost {
         leaseObservation = provider.observeLeases { [cursorLeases] targetID, lease in
             cursorLeases.leaseChanged(target: targetID, session: lease?.session, wireState: lease?.state)
         }
-        inputObservation = provider.observeInputs { [inputBridge] event in
+        inputObservation = provider.observeInputs { [inputBridge, weak services] event in
+            // An agent's click, key or typing is a user gesture for the tab's
+            // automatic downloads, as a person's is.
+            if let target = Self.gestureTarget(of: event) {
+                switch services?.cache.existingBrowser(target)?.tab {
+                case let page as CEFTab: page.automaticDownloads.userGesture()
+                case let page as WebKitTab: page.automaticDownloads.userGesture()
+                default: break
+                }
+            }
             guard let data = try? JSONSerialization.data(withJSONObject: event.foundationValue) else { return }
             inputBridge.receive(data)
         }
@@ -183,6 +192,18 @@ final class AppProviderCredentials: ProviderCredentialsSource {
 }
 
 extension AppBrowserHost {
+    /// `automation.input` kinds that are a user gesture on their tab (each
+    /// starts with a mouse down or a key press).
+    static let gestureKinds: Set<String> = ["click", "double_click", "right_click", "drag", "key", "type"]
+
+    /// The tab an agent's input event is a user gesture on, nil for a move,
+    /// a scroll or an event without a tab.
+    static func gestureTarget(of event: DriverJSON) -> String? {
+        guard case .object(let fields) = event, case .string(let kind)? = fields["kind"], gestureKinds.contains(kind),
+              case .string(let target)? = fields["target_id"] else { return nil }
+        return target
+    }
+
     /// Reports a download of tab `tab` to the host: its start now, its end
     /// once (the saved file, or why it ended).
     static func report(_ item: BrowserDownload, tab: String, to provider: BrowserHostProvider?) {
