@@ -481,7 +481,7 @@ const agentPaneActions: LatencyAction[] = [
     async prepare(page) {
       await page.waitForSelector(".acpmux-model .acpmux-picker-button");
       await page.keyboard.press("Escape");
-      return `document.querySelector(".acpmux-model .acpmux-menu") !== null`;
+      return `document.querySelector(".acpmux-model .acpmux-mp") !== null`;
     },
     async input(page) {
       await page.click(".acpmux-model .acpmux-picker-button");

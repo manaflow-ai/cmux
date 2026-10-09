@@ -210,9 +210,11 @@ private nonisolated final class PendingInput: @unchecked Sendable {
 
     func flush(to fd: Int32, source: any DispatchSourceWrite) {
         while !cancelled, offset < data.count {
-            let written = data.withUnsafeBytes { raw in
+            let written = data.withUnsafeBytes { raw -> Int in
+                // offset < data.count, so the buffer has a base address; without one, drop the data.
+                guard let base = raw.baseAddress else { return 0 }
                 // concurrency-allow: nonblocking PTY descriptor, on the private write queue.
-                Darwin.write(fd, raw.baseAddress! + offset, raw.count - offset)
+                return Darwin.write(fd, base + offset, raw.count - offset)
             }
             if written > 0 {
                 offset += written
