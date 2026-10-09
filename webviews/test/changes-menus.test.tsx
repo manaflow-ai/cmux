@@ -85,6 +85,24 @@ describe("Changes file menu", () => {
       Reflect.deleteProperty(navigator, "clipboard");
     }
   });
+  test("a clipboard fallback restores the menu trigger", async () => {
+    const originalExecCommand = document.execCommand;
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: () => Promise.reject(new Error("clipboard unavailable")) },
+    });
+    document.execCommand = () => true;
+    try {
+      const root = await render(<FileFixture />);
+      const trigger = root.querySelector<HTMLButtonElement>("button")!;
+      await click(trigger);
+      await click(items()[0]!);
+      expect(document.activeElement === trigger).toBe(true);
+    } finally {
+      document.execCommand = originalExecCommand;
+      Reflect.deleteProperty(navigator, "clipboard");
+    }
+  });
   test("Escape closes only the menu and restores the file trigger", async () => {
     let escaped = 0;
     const root = await render(
