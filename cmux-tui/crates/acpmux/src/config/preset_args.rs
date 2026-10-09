@@ -5,8 +5,11 @@
 //! globs and `$(…)` stay literal and an empty string is a real empty
 //! argument). They are an allowlist: on a Claude stdio command line only
 //! `--tools ""` (no tools), `--strict-mcp-config` (no MCP servers, as no
-//! `--mcp-config` may be given) and `--no-session-persistence`; on any other
-//! harness none. Every other word is refused, `=` forms and short aliases
+//! `--mcp-config` may be given), `--no-session-persistence`,
+//! `--setting-sources project` (no user or local settings: no user MCP
+//! servers, hooks or plugins; the project's own settings, its denied tools
+//! included, stay) and `--disable-slash-commands` (no skills or slash
+//! commands); on any other harness none. Every other word is refused, `=` forms and short aliases
 //! included, so a preset can only take capabilities away, never widen the
 //! permission policy or reach outside the session.
 //!
@@ -65,7 +68,13 @@ impl Preset {
 }
 
 /// The Claude Code flags a preset may pass.
-const CLAUDE_ALLOWED: [&str; 3] = ["--tools", "--strict-mcp-config", "--no-session-persistence"];
+const CLAUDE_ALLOWED: [&str; 5] = [
+    "--tools",
+    "--strict-mcp-config",
+    "--no-session-persistence",
+    "--setting-sources",
+    "--disable-slash-commands",
+];
 
 /// The system prompt file's name in a preset's directory.
 pub const SYSTEM_PROMPT_FILE: &str = "system.md";
@@ -105,10 +114,19 @@ pub fn check_preset_args(kind: HarnessKind, args: &[String]) -> Result<(), Strin
                     );
                 }
             },
-            "--strict-mcp-config" | "--no-session-persistence" => {}
+            "--setting-sources" => match words.next().map(String::as_str) {
+                Some("project") => {}
+                _ => {
+                    return Err(
+                        "args: --setting-sources takes only \"project\" (no user or local settings)"
+                            .to_owned(),
+                    );
+                }
+            },
+            "--strict-mcp-config" | "--no-session-persistence" | "--disable-slash-commands" => {}
             other => {
                 return Err(format!(
-                    "args: {other:?} is not allowed; a preset may pass only {} (\"--tools\" with an empty value); set systemPrompt for a system prompt file",
+                    "args: {other:?} is not allowed; a preset may pass only {} (\"--tools\" with an empty value, \"--setting-sources\" with \"project\"); set systemPrompt for a system prompt file",
                     CLAUDE_ALLOWED.join(", ")
                 ));
             }
@@ -199,6 +217,21 @@ mod tests {
         )
     }
 
+    /// The Chief's turns and compactor load no user settings, MCP servers,
+    /// skills or slash commands (`--setting-sources project` keeps only the
+    /// session directory's own settings, its denied tools included), while
+    /// the user's login still signs them in (credentials are not a setting
+    /// source). An empty source list stays refused: it would drop the
+    /// project's denied tools too.
+    #[test]
+    fn setting_sources_project_and_disable_slash_commands_pass() {
+        assert_eq!(claude(&["--setting-sources", "project", "--disable-slash-commands"]), Ok(()));
+        assert_eq!(
+            claude(&["--tools", "", "--strict-mcp-config", "--setting-sources", "project"]),
+            Ok(())
+        );
+    }
+
     #[test]
     fn the_allowlisted_words_pass() {
         assert_eq!(claude(&[]), Ok(()));
@@ -224,6 +257,12 @@ mod tests {
 
     refused! {
         refuses_an_unknown_flag: ["--verbose"];
+        refuses_user_setting_source: ["--setting-sources", "user"];
+        refuses_local_setting_source: ["--setting-sources", "local"];
+        refuses_a_setting_source_list_with_user: ["--setting-sources", "project,user"];
+        refuses_setting_sources_without_a_value: ["--setting-sources"];
+        refuses_setting_sources_equals_project: ["--setting-sources=project"];
+        refuses_disable_slash_commands_equals: ["--disable-slash-commands=true"];
         refuses_a_bare_word: ["hello"];
         refuses_tools_with_a_value: ["--tools", "Bash"];
         refuses_tools_without_a_value: ["--tools"];

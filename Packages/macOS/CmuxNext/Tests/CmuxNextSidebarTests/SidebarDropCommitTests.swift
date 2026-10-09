@@ -146,4 +146,28 @@ import Testing
         full.layoutSubtreeIfNeeded()
         #expect(full.showsChevron, "a machine with workspaces still folds")
     }
+
+    /// Coordinator decision 2026-10-08 (cx-odqn): pins go after the built-in
+    /// rows. Home and App Store stay at the top of their section; a row
+    /// dropped on either one takes the first index after them.
+    @Test func aPinDroppedOnHomeGoesAfterTheBuiltInRows() throws {
+        let rowsSection = LayoutSection(id: LayoutSectionID("sec_top_rows"), region: .top, look: .builtIn, items: [
+            LayoutItem(id: LayoutItemID("home"), ref: SidebarLayoutDocument.homeRef),
+            LayoutItem(id: LayoutItemID("store"), ref: .app("cmux/app-store")),
+            SidebarPinDropTests.tile("w1"),
+        ])
+        let region = SidebarRegionView(region: .top)
+        region.update(SidebarRegionView.Content(sections: [rowsSection], infos: [:], collapsed: [], look: .quiet,
+                                                metrics: SidebarPinDropTests.metrics, drawsLines: true), width: 240)
+        func frame(_ id: String) throws -> CGRect { try tileFrame(id, in: region) }
+        func drop(_ point: CGPoint) -> Int? {
+            SidebarRegionDrop.target(at: point, layout: region.layoutResult, sections: [rowsSection],
+                                     gap: SidebarPinDropTests.metrics.sectionGap)?.index
+        }
+        let home = try frame("home"), store = try frame("store"), w1 = try frame("w1")
+        #expect(drop(CGPoint(x: home.midX, y: home.maxY - 2)) == 2, "the bottom half of Home: after App Store")
+        #expect(drop(CGPoint(x: home.midX, y: home.minY + 2)) == 2, "the top half of Home: after App Store")
+        #expect(drop(CGPoint(x: store.midX, y: store.midY + 2)) == 2)
+        #expect(drop(CGPoint(x: w1.midX, y: w1.maxY - 2)) == 3, "past a pin: after it")
+    }
 }
