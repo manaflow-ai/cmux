@@ -1683,3 +1683,7 @@ reason = "Runs in .github/workflows/cloud-task-local-tests.yml on the pinned mac
 [[test]]
 path = "tests/test_ci_signing_secrets_need_release_environment.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_testbox_source_mtimes.py"
+lane = "linux-guard"

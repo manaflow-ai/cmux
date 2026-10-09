@@ -210,6 +210,36 @@ jobs:
       - name: Set up repository-pinned cmux-tui Rust
         uses: ./.github/actions/setup-cmux-tui-rust
 
+      # Warm Cargo target dir. Every box clones the latest committed snapshot
+      # of this one key (last write wins), so a box starts incremental instead
+      # of compiling the workspace cold. The disk is committed by the post
+      # step only when no step failed or was cancelled, and `blacksmith
+      # testbox stop` destroys the VM before post steps run. So a commit
+      # happens only when the keepalive ends cleanly: on idle, or on the
+      # release marker that scripts/blacksmith-testbox-release.sh writes. The
+      # keepalive prunes the dir to a size bound first.
+      #
+      # Trust: the snapshot holds build output of whatever candidate code ran
+      # on an earlier box. Only this Testbox job mounts the key; no CI,
+      # release, or nightly workflow may (tests/test_ci_testbox_broker_guard.py
+      # enforces that), so nothing that ships reads it.
+      - name: Mount warm cmux-tui target dir
+        uses: useblacksmith/stickydisk@3f6be1451e3cad893b778bc93495c80452a5da26 # v1.7.2
+        with:
+          key: cmux-tui-target-v1
+          path: cmux-tui/target
+
+      # Cargo judges workspace crates and build scripts by mtime, and this
+      # checkout made every source new. Give each file that is byte-identical
+      # to the one the snapshot was built from its recorded mtime back;
+      # changed files stay new, so Cargo rebuilds exactly what changed.
+      - name: Restore source mtimes recorded with the warm target dir
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -I scripts/blacksmith-testbox-source-mtimes.py restore \
+            "$GITHUB_WORKSPACE" cmux-tui/target/.cmux-testbox-source-mtimes.tsv
+
       - name: Fetch Cargo dependencies without compiling
         working-directory: cmux-tui
         shell: bash
