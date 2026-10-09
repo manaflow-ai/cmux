@@ -45,17 +45,52 @@ fn fade_tokens_match_the_spec() {
     // MotionTunables.swift:38-39.
     assert_eq!(p.fade(MotionFade::Highlight), 1.2);
     assert_eq!(p.fade(MotionFade::Launch), 0.24);
-    // Transitions stay short; only the highlight's fade-out is long.
-    for t in MotionFade::ALL.into_iter().filter(|t| *t != MotionFade::Highlight) {
+    // Transitions stay short; only the highlight's fade-out and the pin
+    // drag's settle (MessagesLab's own 0.25 s) are longer.
+    for t in MotionFade::ALL
+        .into_iter()
+        .filter(|t| ![MotionFade::Highlight, MotionFade::PinSettle].contains(t))
+    {
         assert!(p.fade(t) <= 0.24, "{t:?}");
     }
     // `launch` stays under 400 ms at normal speed (MotionTunables.swift:39).
     assert!(MotionPolicy::new(MotionSpeed::Normal, false).fade(MotionFade::Launch) < 0.4);
 }
 
+/// The Home list pin drag's values are MessagesLab's
+/// (SidebarPinDragging.swift: `spring` stiffness 320, damping 30, mass 1;
+/// lift 0.15 s, settle 0.25 s, shrink 0.22 s).
+#[test]
+fn pin_drag_tokens_are_messages_labs() {
+    let p = MotionSpring::PinDrag.base();
+    assert!((p.stiffness() - 320.).abs() < 1e-6, "stiffness {}", p.stiffness());
+    assert!((p.damping() - 30.).abs() < 1e-6, "damping {}", p.damping());
+    let fast = MotionPolicy::default();
+    assert_eq!(fast.fade(MotionFade::PinLift), 0.15);
+    assert_eq!(fast.fade(MotionFade::PinSettle), 0.25);
+    assert_eq!(fast.fade(MotionFade::PinShrink), 0.22);
+    // Underdamped (0.84): it overshoots a little, then settles.
+    let mut s = Spring::position(0., MotionSpring::PinDrag);
+    s.set_target(200.);
+    let (mut peak, mut frames) = (0f32, 0);
+    while s.step(1. / 120., &fast) {
+        peak = peak.max(s.value());
+        frames += 1;
+        assert!(frames < 240, "never settled");
+    }
+    assert_eq!(s.value(), 200.);
+    assert!(peak - 200. > 1. && peak - 200. < 2.5, "overshoot {}", peak - 200.);
+    println!(
+        "pinDrag: visible end {} ms, rest {} ms",
+        ms(p.visible_end_at(120.)),
+        ms(p.rest_time(200., 120.))
+    );
+}
+
 #[test]
 fn spring_settles_without_visible_overshoot() {
-    for token in MotionSpring::ALL {
+    // PinDrag is MessagesLab's own spring (damping 0.84): its own test.
+    for token in MotionSpring::ALL.into_iter().filter(|t| *t != MotionSpring::PinDrag) {
         let mut s = Spring::new(0., token);
         s.set_target(200.);
         let policy = MotionPolicy::default();
