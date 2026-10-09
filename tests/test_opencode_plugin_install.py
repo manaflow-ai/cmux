@@ -192,8 +192,8 @@ const duplicateMod = await import(pluginCopyPath);
 if (typeof mod.CMUXSessionRestore !== "function") {
   throw new Error("missing CMUXSessionRestore export");
 }
-if (!mod.default || typeof mod.default.setup !== "function") {
-  throw new Error("missing V2 default setup export");
+if (!mod.default || typeof mod.default.server !== "function") {
+  throw new Error("missing V2 default server export");
 }
 const idleContext = {
   directory: "/tmp/opencode-project",

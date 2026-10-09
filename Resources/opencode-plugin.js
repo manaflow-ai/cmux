@@ -1003,5 +1003,7 @@ export const CMUXFeed = createCMUXFeed;
 export default {
   id: "cmux.server",
   // V2 uses the package's ./tui export; never subscribe in the shared service.
-  setup() { return () => {}; },
+  server() { return {}; },
+  // Compatibility alias for older V2 snapshots that called setup().
+  setup() { return {}; },
 };

@@ -230,5 +230,7 @@ export async function createCMUXTUIBridge(ctx, options = {}) {
 
 export default {
   id: "cmux.tui",
+  async tui(ctx) { return createCMUXTUIBridge(ctx); },
+  // Compatibility alias for older V2 snapshots that called setup().
   async setup(ctx) { return createCMUXTUIBridge(ctx); },
 };
