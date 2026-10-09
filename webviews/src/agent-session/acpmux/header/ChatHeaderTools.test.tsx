@@ -117,8 +117,9 @@ test("Changes shows the last turn's counts and toggles the changes view", async 
   const changes = container.querySelector<HTMLButtonElement>(".acpmux-header-changes")!;
   expect(changes.disabled).toBe(false);
   expect(changes.getAttribute("aria-pressed")).toBe("true");
-  expect(changes.textContent).not.toContain("+85");
-  expect(changes.textContent).not.toContain("-14");
+  // Round 1 brief: counts must be visible, including beside the icon at narrow widths.
+  expect(changes.textContent).toContain("+85");
+  expect(changes.textContent).toContain("-14");
   expect(changes.getAttribute("aria-label")).toBe("Changes: +85 -14");
   expect(changes.title).toBe("Changes");
   await act(async () => changes.click());
@@ -218,5 +219,58 @@ test("Continue in opens its own popup outside the parent menu, on the same surfa
   expect(sub).toBeDefined();
   expect(parent.contains(sub!)).toBe(false);
   expect(sub!.closest(".ui-positioner")).not.toBe(parent.closest(".ui-positioner"));
+  await unmount();
+});
+
+const press = (target: Element, key: string) =>
+  act(async () => {
+    const nativeDefault = target.dispatchEvent(
+      new dom.window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }),
+    );
+    // jsdom doesn't synthesize a button's native Enter click.
+    if (key === "Enter" && nativeDefault && target instanceof dom.window.HTMLButtonElement) target.click();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+
+test("keyboard arrows navigate rows; Escape closes one level and restores focus", async () => {
+  const { container, unmount } = await render({}, []);
+  const trigger = container.querySelector<HTMLButtonElement>('[aria-label="Chat actions"]')!;
+  await act(async () => trigger.focus());
+  await press(trigger, "Enter");
+  expect(trigger.getAttribute("aria-expanded")).toBe("true");
+  await press(doc.activeElement!, "ArrowDown");
+  expect(doc.activeElement?.textContent).toBe("Continue in");
+  const parentItem = doc.activeElement!;
+  await press(parentItem, "ArrowDown");
+  expect(doc.activeElement?.textContent).toBe("Close");
+  expect(doc.activeElement?.getAttribute("aria-disabled")).toBe("true");
+  await press(doc.activeElement!, "ArrowUp");
+  expect(doc.activeElement).toBe(parentItem);
+  await press(parentItem, "ArrowRight");
+  expect(doc.querySelectorAll('[role="menu"]')).toHaveLength(2);
+  expect(parentItem.getAttribute("aria-expanded")).toBe("true");
+  expect(doc.activeElement?.textContent).toBe("Codex");
+  await press(doc.activeElement!, "Escape");
+  expect(doc.querySelectorAll('[role="menu"]')).toHaveLength(1);
+  expect(doc.activeElement).toBe(parentItem);
+  expect(parentItem.getAttribute("aria-expanded")).toBe("false");
+  await press(doc.activeElement!, "Escape");
+  expect(doc.querySelector('[role="menu"]')).toBeNull();
+  expect(doc.activeElement).toBe(trigger);
+  await unmount();
+});
+
+test("keyboard selection runs the submenu action and returns to Chat actions", async () => {
+  const ran: string[] = [];
+  const { container, unmount } = await render({}, ran);
+  const trigger = container.querySelector<HTMLButtonElement>('[aria-label="Chat actions"]')!;
+  await act(async () => trigger.focus());
+  await press(trigger, "Enter");
+  await press(doc.activeElement!, "ArrowDown");
+  await press(doc.activeElement!, "ArrowRight");
+  await press(doc.activeElement!, "Enter");
+  expect(ran).toEqual(["continue:codex"]);
+  expect(doc.querySelector('[role="menu"]')).toBeNull();
+  expect(doc.activeElement).toBe(trigger);
   await unmount();
 });

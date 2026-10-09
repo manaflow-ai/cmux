@@ -185,6 +185,17 @@ test("automation opens the summary by its label", async () => {
   expect(openPicker("Chat summary")).toBe(false);
 });
 
+test("completion is visible on the summary button and clears when a new turn begins", async () => {
+  const completed = [...rows, { id: "done", version: 1, at: 3, kind: "turnSummary", status: "completed" }];
+  const { button, draw, unmount } = await render([], completed);
+  expect(button.title).toContain("Completed");
+  expect(button.querySelector('[data-icon="status.complete"]')).not.toBeNull();
+  await draw([...completed, { id: "next", version: 1, at: 4, kind: "user", text: "Next" }]);
+  expect(button.title).toBe("Chat summary");
+  expect(button.querySelector('[data-icon="status.complete"]')).toBeNull();
+  await unmount();
+});
+
 // POLISH (Leo 2026-10-08): focus returns where it was when a dialog closes. The gallery opens from
 // the summary popover, which is gone by then, so its close returns focus to the summary button.
 test("closing the gallery returns focus to the summary button", async () => {
