@@ -86,6 +86,7 @@ describe("T3 model picker", () => {
           onMode: () => {},
           onEffort: (config: string, value: string) => calls.push(`config ${config} ${value}`),
           onHarness: (harness: string) => calls.push(`harness ${harness}`),
+          onAddAgent: () => calls.push("add agent"),
         }),
       ),
     );
@@ -375,6 +376,17 @@ describe("T3 model picker", () => {
       ),
     );
     expect(menu()).not.toBeNull();
+  });
+
+  // Lawrence 2026-10-08: "ensure people are able to add their own ACP stuff, via UI".
+  test("the rail's + runs Add agent… and closes the menu", async () => {
+    await render();
+    await act(async () => modelButton().click());
+    const add = menu()!.querySelector<HTMLButtonElement>(".acpmux-mp-add-agent")!;
+    expect(add.getAttribute("aria-label")).toBe("Add agent…");
+    await act(async () => add.click());
+    expect(calls).toEqual(["add agent"]);
+    expect(menu()).toBeNull();
   });
 
   // Leo (dogfood 2026-10-08, A1): after picking Claude Code the chip drew the Codex mark beside
