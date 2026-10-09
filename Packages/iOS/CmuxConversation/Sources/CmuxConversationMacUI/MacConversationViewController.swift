@@ -494,10 +494,13 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
                 guard oldIDs[row.id] == nil, case let .message(model) = row, !model.isOutgoing, !queueArrivalEffect(model) else { return nil }
                 return model.rowID
             }
-            // The message that replaces a typing indicator takes its place at
-            // full opacity, so the hand-off never passes through an empty frame.
-            let handoff = typingLeft && !typingNow ? arrivals.last : nil
-            for id in arrivals where id != handoff { arrivingRowIDs.insert(id) }
+            // The message that replaces a typing indicator cross-fades with it
+            // in place, as ChatKit's transcript layout does (both are alpha 0
+            // at their ends of the update; only plugin items skip the fade).
+            if typingLeft, !typingNow, !arrivals.isEmpty, let oldTypingIndex {
+                fadeOutTypingRow(at: oldTypingIndex)
+            }
+            for id in arrivals { arrivingRowIDs.insert(id) }
         }
         let slot = MacConversationRowBuilder.typingSlot(in: newRows)
         let lastIsNew = slot > 0 && oldIDs[newRows[slot - 1].id] == nil
@@ -1026,6 +1029,34 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
                 typingShouldGrow = false
                 view.grow()
             }
+        }
+    }
+
+    /// The typing row leaving for the message that replaces it: a snapshot
+    /// fades out where the row stood (0.3 s, `scrollInNewMessageAnimationDuration`)
+    /// while the message fades in. The typer's avatar is left out of the
+    /// snapshot so the sender never shows twice.
+    private func fadeOutTypingRow(at index: Int) {
+        guard let typingView = tableView.view(atColumn: 0, row: index, makeIfNecessary: false) as? MacTypingRowView,
+              typingView.bounds.width > 0, typingView.bounds.height > 0,
+              let rep = typingView.bitmapImageRepForCachingDisplay(in: typingView.bounds) else { return }
+        let avatarWasHidden = typingView.avatar.isHidden
+        typingView.avatar.isHidden = true
+        typingView.cacheDisplay(in: typingView.bounds, to: rep)
+        typingView.avatar.isHidden = avatarWasHidden
+        let image = NSImage(size: typingView.bounds.size)
+        image.addRepresentation(rep)
+        let ghost = NSImageView(frame: typingView.convert(typingView.bounds, to: tableView))
+        ghost.image = image
+        ghost.imageScaling = .scaleNone
+        ghost.wantsLayer = true
+        tableView.addSubview(ghost)
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.3
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            ghost.animator().alphaValue = 0
+        } completionHandler: {
+            MainActor.assumeIsolated { ghost.removeFromSuperview() }
         }
     }
 
