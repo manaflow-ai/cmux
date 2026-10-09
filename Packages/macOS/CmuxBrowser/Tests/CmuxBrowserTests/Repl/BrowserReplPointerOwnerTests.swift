@@ -21,7 +21,10 @@ struct BrowserReplPointerOwnerTests {
         await #expect(throws: BrowserReplPointerOwner.Held(owner: "holder", timeout: .milliseconds(50))) {
             try await pointer.waitForPointer(sessionID: "other", clock: clock)
         }
-        #expect(clock.now - started < .seconds(5))
+        // The wait ends at its 50 ms deadline rather than never; the bound
+        // only rules out a hang, since a loaded CI runner can keep this
+        // main-actor test from resuming for seconds (7.5 s seen on macOS 26).
+        #expect(clock.now - started < .seconds(25))
         #expect(pointer.owner == "holder")
     }
 
