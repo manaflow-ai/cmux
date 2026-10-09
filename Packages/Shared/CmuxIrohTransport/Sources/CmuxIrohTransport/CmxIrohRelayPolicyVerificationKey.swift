@@ -23,11 +23,11 @@ public struct CmxIrohRelayPolicyVerificationKey: Equatable, Sendable {
         }
         self.keyID = keyID
         self.rawPublicKeyBase64 = rawPublicKeyBase64
+        self.rawPublicKey = key
     }
 
-    var rawPublicKey: Data {
-        Data(base64Encoded: rawPublicKeyBase64)!
-    }
+    /// The decoded 32-byte key (decoded once in `init`, so reading it cannot fail).
+    let rawPublicKey: Data
 
     static func isSafeKeyID(_ value: String) -> Bool {
         guard (1 ... 64).contains(value.utf8.count) else { return false }
