@@ -53,10 +53,15 @@ async fn claude_lists_its_models_with_efforts_and_fast_mode() {
 #[tokio::test]
 async fn an_older_claude_code_without_list_models_answers_from_initialize() {
     let cwd = scratch("claude-old");
-    let models =
-        probe(Cli::Claude, &fake("fake_live_claude.py"), &env(&[("FAKE_LIST", "refuse")]), &cwd, DEADLINE)
-            .await
-            .unwrap_or_else(|e| panic!("{e:#}"));
+    let models = probe(
+        Cli::Claude,
+        &fake("fake_live_claude.py"),
+        &env(&[("FAKE_LIST", "refuse")]),
+        &cwd,
+        DEADLINE,
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{e:#}"));
     assert_eq!(ids(&models), ["opus"]);
 }
 
@@ -82,10 +87,15 @@ async fn codex_lists_every_page_without_hidden_models_and_the_default_first() {
 #[tokio::test]
 async fn a_signed_out_codex_reports_why() {
     let cwd = scratch("codex-unauth");
-    let err =
-        probe(Cli::Codex, &fake("fake_codex_app_server.py"), &env(&[("FAKE_CODEX", "unauth")]), &cwd, DEADLINE)
-            .await
-            .expect_err("a signed-out Codex has no list");
+    let err = probe(
+        Cli::Codex,
+        &fake("fake_codex_app_server.py"),
+        &env(&[("FAKE_CODEX", "unauth")]),
+        &cwd,
+        DEADLINE,
+    )
+    .await
+    .expect_err("a signed-out Codex has no list");
     assert!(format!("{err:#}").contains("Not logged in"), "{err:#}");
 }
 

@@ -22,11 +22,17 @@
 //! Portions adapted from MonoCode, Copyright (c) 2026 Nick, MIT License
 //! (see THIRD_PARTY_LICENSES.md).
 
-use anyhow::{Result, anyhow};
+pub mod claude;
+pub mod codex;
+
+use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
+use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 
 /// One probe's deadline, start to list. The CLIs answer in well under a second
 /// once they run; this bounds a hung or interactive one.
@@ -64,13 +70,86 @@ pub enum Cli {
 /// `app-server`), `env` is the harness's own. Errors carry the CLI's message
 /// (a Codex that is not signed in says so).
 pub async fn probe(
-    _cli: Cli,
-    _argv: &[String],
-    _env: &BTreeMap<String, String>,
-    _cwd: &Path,
-    _timeout: Duration,
+    cli: Cli,
+    argv: &[String],
+    env: &BTreeMap<String, String>,
+    cwd: &Path,
+    timeout: Duration,
 ) -> Result<Vec<LiveModel>> {
-    Err(anyhow!("live model lists are not built yet"))
+    let mut child = Probe::spawn(cli, argv, env, cwd)?;
+    let listed = tokio::time::timeout(timeout, async {
+        match cli {
+            Cli::Claude => claude::list(&mut child).await,
+            Cli::Codex => codex::list(&mut child).await,
+        }
+    })
+    .await;
+    child.kill().await;
+    listed.map_err(|_| anyhow!("the model list did not arrive within {} s", timeout.as_secs()))?
+}
+
+/// A probe child: line-oriented JSON on stdin and stdout, stderr dropped.
+pub(crate) struct Probe {
+    child: Child,
+    stdin: ChildStdin,
+    lines: Lines<BufReader<ChildStdout>>,
+}
+
+impl Probe {
+    fn spawn(
+        cli: Cli,
+        argv: &[String],
+        env: &BTreeMap<String, String>,
+        cwd: &Path,
+    ) -> Result<Self> {
+        let (program, rest) = argv.split_first().ok_or_else(|| anyhow!("no program to run"))?;
+        let mut cmd = Command::new(program);
+        crate::login_env::apply_tokio(&mut cmd);
+        crate::config::scrub_nested_claude_env_tokio(&mut cmd);
+        cmd.args(rest)
+            .args(match cli {
+                Cli::Claude => claude::args(),
+                Cli::Codex => codex::args(),
+            })
+            .envs(env)
+            .current_dir(cwd)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .kill_on_drop(true);
+        let mut child = cmd.spawn().with_context(|| format!("cannot start {program}"))?;
+        let stdin = child.stdin.take().ok_or_else(|| anyhow!("{program} has no stdin"))?;
+        let stdout = child.stdout.take().ok_or_else(|| anyhow!("{program} has no stdout"))?;
+        Ok(Self { child, stdin, lines: BufReader::new(stdout).lines() })
+    }
+
+    /// Writes one JSON line.
+    pub(crate) async fn send(&mut self, message: &Value) -> Result<()> {
+        let mut line = serde_json::to_vec(message)?;
+        line.push(b'\n');
+        self.stdin.write_all(&line).await?;
+        self.stdin.flush().await?;
+        Ok(())
+    }
+
+    /// The next JSON object the child writes; other lines are skipped.
+    pub(crate) async fn next(&mut self) -> Result<Value> {
+        loop {
+            let line = self.lines.next_line().await?.ok_or_else(|| anyhow!("the CLI exited"))?;
+            if let Ok(v @ Value::Object(_)) = serde_json::from_str::<Value>(&line) {
+                return Ok(v);
+            }
+        }
+    }
+
+    async fn kill(mut self) {
+        let _ = self.child.kill().await;
+    }
+}
+
+/// A string field, when present and not empty.
+pub(crate) fn text<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
+    v.get(key).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty())
 }
 
 /// The program's identity for the cache: its real path, size and
@@ -152,12 +231,51 @@ impl Cache {
     }
 
     /// Keeps `models` for `harness` (write to a temporary file, then rename).
-    pub fn store(&self, harness: &str, key: &CacheKey, models: &[LiveModel]) -> std::io::Result<()> {
+    pub fn store(
+        &self,
+        harness: &str,
+        key: &CacheKey,
+        models: &[LiveModel],
+    ) -> std::io::Result<()> {
         std::fs::create_dir_all(&self.dir)?;
         let path = self.path(harness);
         let tmp = path.with_extension("json.tmp");
         let body = serde_json::to_vec(&CacheFile { key: key.clone(), models })?;
         std::fs::write(&tmp, body)?;
         std::fs::rename(&tmp, &path)
+    }
+}
+
+/// The live fields of `live` over the `_acpmux/models` entries with the same
+/// id or alias: efforts, default effort and fast mode come from the CLI, which knows
+/// the version it runs. The CLI's default model moves first (after Claude
+/// Code's own "default" choice).
+pub fn overlay(models: &mut [Value], live: &[LiveModel]) {
+    for entry in models.iter_mut() {
+        // By id, or by an alias the curated entry lists (`opus` for `claude-opus-5-5`).
+        let names = |m: &LiveModel| {
+            entry["id"] == m.id.as_str()
+                || entry["aliases"].as_array().is_some_and(|a| a.iter().any(|x| x == m.id.as_str()))
+        };
+        let Some(model) = live.iter().find(|m| names(m)) else {
+            continue;
+        };
+        if !model.efforts.is_empty() {
+            entry["efforts"] = json!(model.efforts);
+        }
+        if let Some(effort) = &model.default_effort {
+            entry["defaultEffort"] = json!(effort);
+        }
+        if let Some(fast) = model.fast {
+            entry["fast"] = json!(fast);
+        }
+    }
+    if let Some(default) = live.iter().find(|m| m.is_default)
+        && let Some(at) = models.iter().position(|m| m["id"] == default.id.as_str())
+    {
+        let first = usize::from(models.first().is_some_and(|m| m["id"] == "default"));
+        if at > first {
+            models[first..=at].rotate_right(1);
+        }
     }
 }
