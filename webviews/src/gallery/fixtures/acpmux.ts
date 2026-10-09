@@ -9,24 +9,52 @@ import { minutesAgo } from "../clock";
 export const SESSION_ID = "gallery-session";
 export const CWD = "/Users/you/src/atlas-web";
 
+// acpmux's installed harnesses on a well-stocked Mac (its built-in ids, then registry agents), so the
+// model picker's rail shows every provider. Efforts and fast mode as the agents report them.
+const CLAUDE_EFFORTS = ["low", "medium", "high", "max"];
+const GPT_EFFORTS = ["minimal", "low", "medium", "high", "xhigh"];
+const harness = (id: string, name: string, models: [string, string][]) => ({
+  id,
+  name,
+  models: models.map(([modelId, modelName]) => ({ id: modelId, name: modelName })),
+});
 export const CATALOG: AcpmuxSnapshot["catalog"] = [
   {
     id: "claude",
     name: "Claude Code",
     models: [
-      { id: "claude-opus-5-5", name: "Opus 5.5" },
-      { id: "claude-sonnet-5-5", name: "Sonnet 5.5" },
-      { id: "claude-haiku-4-5", name: "Haiku 4.5" },
+      { id: "claude-opus-5-5", name: "Opus 5.5", efforts: CLAUDE_EFFORTS, fast: true },
+      { id: "claude-sonnet-5-5", name: "Sonnet 5.5", efforts: CLAUDE_EFFORTS, fast: false },
+      { id: "claude-haiku-4-5", name: "Haiku 4.5", efforts: [], fast: false },
     ],
   },
   {
     id: "codex",
     name: "Codex",
     models: [
-      { id: "gpt-6-astra", name: "GPT-6-Astra" },
-      { id: "gpt-5.6-sol", name: "GPT-5.6-Sol" },
+      { id: "gpt-6-astra", name: "GPT-6-Astra", efforts: GPT_EFFORTS, fast: true },
+      { id: "gpt-6-luna", name: "GPT-6-Luna", efforts: GPT_EFFORTS, fast: true },
+      { id: "gpt-5.6-sol", name: "GPT-5.6-Sol", efforts: GPT_EFFORTS, fast: false },
     ],
   },
+  harness("gemini", "Gemini CLI", [
+    ["gemini-3-pro", "Gemini 3 Pro"],
+    ["gemini-3-flash", "Gemini 3 Flash"],
+  ]),
+  harness("cursor", "Cursor", [
+    ["auto", "Auto"],
+    ["composer-1", "Composer 1"],
+  ]),
+  harness("opencode", "OpenCode", [["big-pickle", "Big Pickle"]]),
+  harness("grok", "Grok", [["grok-5", "Grok 5"]]),
+  harness("deepseek", "DeepSeek", [["deepseek-v4", "DeepSeek V4"]]),
+  harness("pi", "Pi", [["pi-default", "Pi"]]),
+  harness("amp", "Amp", [["amp-smart", "Smart"]]),
+  harness("factory", "Droid", [["droid-default", "Droid"]]),
+  harness("copilot", "GitHub Copilot", [["copilot-auto", "Auto"]]),
+  harness("qwen", "Qwen Code", [["qwen3-coder", "Qwen3 Coder"]]),
+  harness("kimi", "Kimi", [["kimi-k3", "Kimi K3"]]),
+  harness("goose", "Goose", [["goose-default", "Goose"]]),
 ];
 
 let counter = 0;

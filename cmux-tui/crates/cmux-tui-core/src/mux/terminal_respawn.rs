@@ -23,7 +23,7 @@
 //! command line is typed on the new prompt without a newline.
 
 #[cfg(unix)]
-mod launch;
+pub(super) mod launch;
 #[cfg(unix)]
 mod prefill;
 
@@ -85,6 +85,11 @@ pub(crate) struct TerminalRespawns {
     /// never persisted, so a later daemon only names the program. Entries go
     /// when their terminal is closed; [`ARGV_LIMIT`] bounds the rest.
     argv: Mutex<ArgvMemory>,
+    /// VT replay a new terminal's host applies before its shell's first
+    /// byte, by the reserved terminal id of a creation that has not launched
+    /// yet (Reopen Closed of an archived terminal, ARCHIVE-1). The launch
+    /// takes it; the creator removes it when the creation fails.
+    seeds: Mutex<HashMap<String, Vec<u8>>>,
 }
 
 /// At most this many command argvs are kept; the oldest goes first.
@@ -128,7 +133,18 @@ impl TerminalRespawns {
                 .map(Duration::from_millis),
             guard: Mutex::default(),
             argv: Mutex::default(),
+            seeds: Mutex::default(),
         }
+    }
+
+    /// Give the launch of reserved terminal `terminal_id` the seed `seed`.
+    pub(crate) fn stash_seed(&self, terminal_id: &str, seed: Vec<u8>) {
+        self.seeds.lock().unwrap_or_else(PoisonError::into_inner).insert(terminal_id.into(), seed);
+    }
+
+    /// The seed of reserved terminal `terminal_id`, once.
+    pub(crate) fn take_seed(&self, terminal_id: &str) -> Option<Vec<u8>> {
+        self.seeds.lock().unwrap_or_else(PoisonError::into_inner).remove(terminal_id)
     }
 
     /// Remember the argv of command terminal `terminal_id`.

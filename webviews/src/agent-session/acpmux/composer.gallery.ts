@@ -5,11 +5,37 @@
 import { agentPaneEntry } from "../../gallery/format";
 import { assistant, chat, CWD, noChat, session, summary, user } from "../../gallery/fixtures/acpmux";
 
+// A chat started without a project lives in cmux's agent home, one UUID folder per chat.
+const AGENT_HOME = "/Users/you/Library/Application Support/cmux/agent-home/6b16a112-289d-4467-9675-8e6feee99481";
+
 const finished = [
   user("Add retries with backoff to the fetch helper", 10),
   assistant("Done: GETs retry, POSTs only with a policy.", 9),
   summary(9, { status: "completed" }),
 ];
+
+const composerControls = {
+  configOptions: [
+    {
+      id: "thought_level",
+      name: "Speed",
+      category: "thought_level",
+      currentValue: "medium-fast",
+      options: [
+        { value: "slow", name: "Slow" },
+        { value: "medium-fast", name: "Medium Fast" },
+        { value: "fast", name: "Fast" },
+      ],
+    },
+  ],
+  modes: {
+    currentModeId: "bypassPermissions",
+    availableModes: [
+      { id: "ask", name: "Ask before edits", description: "Review changes before they run" },
+      { id: "bypassPermissions", name: "Full access", description: "Run actions without approval" },
+    ],
+  },
+};
 
 export default agentPaneEntry({
   id: "agent-pane.composer",
@@ -54,9 +80,83 @@ export default agentPaneEntry({
         summary: { sessionId: "", cwd: CWD, harness: "claude", model: "claude-opus-5-5", effort: "high" },
       }),
     },
+    "agent-home": {
+      note: "A new chat with no project (cmux's agent home): the hero asks what to build, the folder reads Choose folder.",
+      ready: { newSession: true, cwd: AGENT_HOME, chooseFolder: true },
+      // A new chat's session starts at once (the prewarmed process), so the snapshot and its
+      // summary name the same session, as the app's do; the folder control is then the new chat's
+      // folder menu (Choose folder…), not the path field.
+      snapshot: noChat([], {
+        sessionId: "prewarmed",
+        summary: {
+          sessionId: "prewarmed",
+          cwd: AGENT_HOME,
+          harness: "claude",
+          model: "claude-opus-5-5",
+          effort: "high",
+        },
+      }),
+    },
+    "agent-home-path": {
+      note: "Play: a chat the folder field serves (no folder list from the host): the field reads as a menu row, never a native text box.",
+      ready: { cwd: AGENT_HOME, chooseFolder: true },
+      snapshot: noChat([], {
+        summary: { sessionId: "", cwd: AGENT_HOME, harness: "claude", model: "claude-opus-5-5", effort: "high" },
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: '[aria-label="Folder"]' });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-search"));
+      },
+    },
+    "agent-home-folders": {
+      note: "Play: open the folder menu; it lists real projects, never the agent home's UUID folders.",
+      ready: { newSession: true, cwd: AGENT_HOME, chooseFolder: true },
+      snapshot: noChat(
+        [
+          session({ sessionId: "home-chat", title: "A chat with no project", cwd: AGENT_HOME }),
+          session({ sessionId: "atlas", title: "Retry the fetch helper" }),
+          session({ sessionId: "cmux", title: "Fix the sidebar", cwd: "/Users/you/src/cmux" }),
+        ],
+        { summary: { sessionId: "", cwd: AGENT_HOME, harness: "claude", model: "claude-opus-5-5", effort: "high" } },
+      ),
+      play: async (ctx) => {
+        await ctx.click({ selector: '[aria-label="Folder"]' });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-menu"));
+      },
+    },
     idle: {
       note: "After a turn: Send, the mode and model chips.",
       snapshot: chat(finished),
+    },
+    // Leo (dogfood 2026-10-08, 22-composer-image-chip.png): a pasted image draws as a cropped
+    // thumbnail above the prompt, with a small × that shows on hover; a click opens the viewer.
+    "image-attached": {
+      note: "A pasted screenshot: a cropped thumbnail above the prompt, its small × shown on hover.",
+      snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
+        chat(finished),
+      ),
+      play: async (ctx) => {
+        const view = ctx.document.defaultView!;
+        const canvas = new view.OffscreenCanvas(320, 200);
+        const paint = canvas.getContext("2d")!;
+        const gradient = paint.createLinearGradient(0, 0, 320, 200);
+        gradient.addColorStop(0, "#f2b134");
+        gradient.addColorStop(1, "#3a7bd5");
+        paint.fillStyle = gradient;
+        paint.fillRect(0, 0, 320, 200);
+        paint.fillStyle = "#ffffff";
+        paint.fillRect(40, 60, 240, 16);
+        paint.fillRect(40, 92, 180, 16);
+        const file = new view.File([await canvas.convertToBlob({ type: "image/png" })], "screenshot.png", {
+          type: "image/png",
+        });
+        const field = ctx.find({ selector: ".acpmux-md" });
+        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+        Object.defineProperty(paste, "clipboardData", { value: { files: [file], types: ["Files"] } });
+        field.dispatchEvent(paste);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img[src^='data:image/png']"));
+        await ctx.hover({ selector: ".acpmux-attachment-image" });
+      },
     },
     draft: {
       note: "A draft the tab inherited (markdown, two lines).",
@@ -81,7 +181,7 @@ export default agentPaneEntry({
           (_, index) => `Line ${index + 1}: keep the retry rules and the tests in sync with the docs.`,
         ).join("\n"),
       },
-      snapshot: chat(finished),
+      snapshot: chat(finished, { summary: { ...chat(finished).summary!, ...composerControls } }),
     },
     "long-draft-dark": {
       note: "The capped long draft in the dark theme proof matrix.",
@@ -91,7 +191,7 @@ export default agentPaneEntry({
           (_, index) => `Line ${index + 1}: keep the retry rules and the tests in sync with the docs.`,
         ).join("\n"),
       },
-      snapshot: chat(finished),
+      snapshot: chat(finished, { summary: { ...chat(finished).summary!, ...composerControls } }),
     },
     working: {
       note: "A turn running: Send becomes Stop.",
@@ -126,6 +226,23 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-menu, [role='dialog']"));
       },
     },
+    "context-breakdown": {
+      note: "Play: open the context ring after a first message on Codex; the details split Agent setup (system prompt, tools and instructions) from the conversation.",
+      snapshot: chat(finished, {
+        summary: {
+          sessionId: "gallery-context",
+          harness: "codex",
+          model: "gpt-5.5",
+          cwd: CWD,
+          turnCount: 1,
+          usage: { used: 25_300, size: 258_400 },
+        },
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: "button.acpmux-context-ring" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-context-part"));
+      },
+    },
     "slash-menu": {
       note: "Play: type / in the prompt; the agent's command menu opens.",
       snapshot: chat(finished, {
@@ -140,6 +257,43 @@ export default agentPaneEntry({
         await ctx.type("/");
         await ctx.waitFor(() => ctx.document.querySelector("[role='listbox'], [role='menu']"));
       },
+    },
+    "model-menu-keyboard": {
+      note: "Play: open the model picker and move its highlight with the keyboard.",
+      snapshot: chat(finished, {
+        harness: "claude",
+        model: "claude-opus-5-5",
+        title: "Model picker interaction",
+      }),
+      play: async (ctx) => {
+        const picker = ".acpmux-model .acpmux-picker-button";
+        await ctx.click({ selector: picker });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-model .acpmux-mp"));
+        await ctx.press("ArrowDown");
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-model .acpmux-mp-active"));
+      },
+    },
+    "model-menu-starred": {
+      note: "Play: open the model picker, star Sonnet, then open the rail's Starred tab: it lists the starred models of every harness.",
+      snapshot: chat(finished, { harness: "claude", model: "claude-opus-5-5", title: "Starred models" }),
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-model .acpmux-mp"));
+        await ctx.click({ selector: '.acpmux-mp-favorite[aria-label$="Sonnet 5.5"]' });
+        await ctx.click({ selector: '.acpmux-mp [title="Starred"]' });
+        await ctx.waitFor(() =>
+          ctx.document.querySelector('.acpmux-mp-models [aria-label="Starred"], .acpmux-mp-models .acpmux-mp-row'),
+        );
+      },
+    },
+    "model-switching": {
+      note: "A switch from Claude Code to Codex is starting: the chip draws the Codex mark with its name, never one harness's mark beside another's name.",
+      snapshot: chat(finished, {
+        harness: "claude",
+        model: "claude-opus-5-5",
+        title: "Switching harness",
+        switching: { harness: "codex", name: "Codex", phase: "starting" },
+      }),
     },
     "access-menu": {
       note: "The footer keeps permission mode behind a quiet lock; the menu explains each choice and checks the active one.",

@@ -29,6 +29,7 @@ mkdir -p "$src/cmux-tui" "$src/scripts/cmux-next" "$src/scripts/ci"
 cp "$ROOT/scripts/cmux-next/pin-cmux-tui.sh" "$ROOT/scripts/cmux-next/cmux-tui-tree-inputs.txt" "$src/scripts/cmux-next/"
 cp "$ROOT/scripts/ci/cmux_tui_tree_key.py" "$ROOT/scripts/ci/publish-cmux-tui-tree.py" "$src/scripts/ci/"
 echo reducer > "$src/scripts/cmux-next/build-layout-reducer-ffi.sh"
+"$ROOT/scripts/cmux-next/tests/lib/tree-inputs-fixture.sh" "$src"
 echo one > "$src/cmux-tui/a"
 cdn="$TMP/cdn"
 # The trusted uploader, write-once into the CDN directory.

@@ -100,6 +100,32 @@ import Testing
         #expect(editor.selectedRange() == range(2, 8))
     }
 
+    /// A density change restyles the field in place. It used to write the
+    /// text again, which put the caret at the end of the URL and dropped the
+    /// input method's marked text; OmnibarViewTests changes the density while
+    /// the other omnibar suites run (#17601, #17626). This runs the bar's
+    /// density appliers directly, so it never changes the app-wide density
+    /// under the suites running beside it.
+    @Test func aDensityChangeKeepsTheSelectionAndMarkedText() async throws {
+        let h = Harness()
+        await h.focus()
+        let editor = try #require(h.editor)
+        let selected = editor.selectedRange()
+        #expect(selected.length > 0, "focus selects the URL")
+
+        h.bar.density.reapply()
+        await h.settle()
+        #expect(editor.selectedRange() == selected)
+
+        editor.setMarkedText("gi", selectedRange: range(2, 0), replacementRange: range(NSNotFound, 0))
+        await h.settle()
+        h.bar.density.reapply()
+        await h.settle()
+        #expect(editor.hasMarkedText())
+        #expect(editor.string == "gi")
+        #expect(editor.selectedRange() == range(2, 0))
+    }
+
     @Test func undoAndRedoGoThroughTheStateMachine() async throws {
         let h = Harness()
         await h.focus()

@@ -21,7 +21,8 @@ import Testing
     }
 
     @Test(arguments: [(["sidebar", "side"], ["left", "right"], "left"),
-                      (["sidebar", "spacesPosition"], ["top", "bottom"], "bottom")])
+                      (["sidebar", "spacesPosition"], ["top", "bottom"], "bottom"),
+                      (["sidebar", "spacesVisibility"], ["hover", "always"], "hover")])
     func isASchemaChoiceForSettingsAndThePalette(_ path: [String], _ values: [String], _ fallback: String) throws {
         let descriptor = try #require(SettingsSchema.descriptor(for: path))
         guard case .choice(let choices) = descriptor.kind else {
@@ -39,5 +40,18 @@ import Testing
         let snapshot = try parse(#"{"sidebar": {"side": "right", "spacesPosition": "top"}}"#)
         SettingsApplier.applyPlacement(snapshot, to: design)
         #expect(design.sidebarSide == .right && design.spacesPosition == .top)
+    }
+
+    /// cx-5k3r: `sidebar.spacesVisibility` is "hover" unless set; a bad
+    /// value falls back with a diagnostic; the applier copies it.
+    @Test func spacesVisibilityParsesAndApplies() throws {
+        #expect(try parse("{}").spacesVisibility == .hover)
+        let always = try parse(#"{"sidebar": {"spacesVisibility": "always"}}"#)
+        #expect(always.spacesVisibility == .always)
+        let bad = try parse(#"{"sidebar": {"spacesVisibility": "sometimes"}}"#)
+        #expect(bad.spacesVisibility == .hover && bad.diagnostics.map(\.path) == ["sidebar.spacesVisibility"])
+        let design = DesignSettings()
+        SettingsApplier.applyPlacement(always, to: design)
+        #expect(design.spacesVisibility == .always)
     }
 }

@@ -75,7 +75,7 @@ fn record_pixel_cache_miss() {}
 pub(crate) struct KittyInFlightTracker {
     scan: KittyStreamScan,
     prefix: Vec<u8>,
-    loading: bool,
+    pub(crate) loading: bool,
     overflowed: bool,
     max_bytes: usize,
 }
@@ -1089,17 +1089,17 @@ fn png_header_within_limits(encoded: &[u8]) -> bool {
     let Some(kind) = encoded.get(12..16) else {
         return false;
     };
-    let Some(width) = encoded.get(16..20) else {
+    let Some(width) = encoded.get(16..20).and_then(|bytes| <[u8; 4]>::try_from(bytes).ok()) else {
         return false;
     };
-    let Some(height) = encoded.get(20..24) else {
+    let Some(height) = encoded.get(20..24).and_then(|bytes| <[u8; 4]>::try_from(bytes).ok()) else {
         return false;
     };
     if signature != PNG_SIGNATURE || length != 13_u32.to_be_bytes() || kind != b"IHDR" {
         return false;
     }
-    let width = u32::from_be_bytes(width.try_into().unwrap());
-    let height = u32::from_be_bytes(height.try_into().unwrap());
+    let width = u32::from_be_bytes(width);
+    let height = u32::from_be_bytes(height);
     width > 0
         && height > 0
         && usize::try_from(width)

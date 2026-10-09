@@ -115,7 +115,7 @@ import QuartzCore
 
     private func place(offset: CGFloat, animated spring: MotionSpring?, completion: (() -> Void)? = nil) {
         CATransaction.begin()
-        CATransaction.setCompletionBlock { MainActor.assumeIsolated { completion?() } }
+        CATransaction.setCompletionBlock { MainActor.assumeIsolated { completion?() } } // main-proof: CATransaction.h: the completion block is called on the main thread
         translate(page, -offset * width, animated: spring)
         if let neighbor, let current = pager?.index ?? profiles.firstIndex(where: { $0 == host.model.activeProfileID }) {
             let side: CGFloat = neighbor.index > current ? 1 : -1
@@ -124,13 +124,51 @@ import QuartzCore
         CATransaction.commit()
     }
 
-    private func translate(_ view: NSView, _ x: CGFloat, animated spring: MotionSpring?) {
+    private static let slideKey = "spacePaging.translation"
+
+    /// Moves a page to `x`, with `spring` from its current on-screen offset
+    /// (or `from`). The spring holds its end value until the page moves
+    /// again or goes away (cx-5k3r, "spaces animation is jank"): AppKit may
+    /// reset a view-backed layer's model transform during a layout pass, so
+    /// a finished slide would otherwise show the page back at 0 for the
+    /// frames before its completion removes it (the old rows drawn over the
+    /// new list). A move without a spring holds its value the same way
+    /// (cx-gq1k): AppKit's geometry pass for a page just inserted at a
+    /// swipe's first event reset its transform, so the next space's rows drew
+    /// at 0 over the live list until the next event. At 0 nothing is held.
+    private func translate(_ view: NSView, _ x: CGFloat, animated spring: MotionSpring?, from: CGFloat? = nil) {
         guard let layer = view.layer else { return }
-        if let spring {
-            Motion.set(layer, "transform.translation.x", to: x, spring: spring)
-        } else {
-            Motion.transaction(nil) { layer.setValue(x, forKeyPath: "transform.translation.x") }
+        let keyPath = "transform.translation.x"
+        let shown = ((layer.presentation() ?? layer).value(forKeyPath: keyPath) as? NSNumber).map { CGFloat($0.doubleValue) } ?? 0
+        let start = from ?? shown
+        layer.removeAnimation(forKey: Self.slideKey)
+        Motion.transaction(nil) { layer.setValue(x, forKeyPath: keyPath) }
+        guard let spring, Motion.animatesMovement, start != x else {
+            if x != 0 { layer.add(Self.hold(keyPath, at: x), forKey: Self.slideKey) }
+            return
         }
+        let parameters = Motion.spring(spring)
+        let animation = CASpringAnimation(keyPath: keyPath)
+        animation.mass = 1
+        animation.stiffness = parameters.stiffness
+        animation.damping = parameters.damping
+        animation.duration = parameters.settlingTime(within: 0.002)
+        animation.fromValue = start
+        animation.toValue = x
+        animation.fillMode = .forwards
+        animation.isRemovedOnCompletion = false
+        layer.add(animation, forKey: Self.slideKey)
+    }
+
+    /// A constant animation that keeps `keyPath` at `value` on screen until
+    /// it is replaced or removed, whatever AppKit writes to the model.
+    private static func hold(_ keyPath: String, at value: CGFloat) -> CABasicAnimation {
+        let animation = CABasicAnimation(keyPath: keyPath)
+        animation.fromValue = value
+        animation.toValue = value
+        animation.fillMode = .forwards
+        animation.isRemovedOnCompletion = false
+        return animation
     }
 
     // MARK: Switch by dot, key or a new space
@@ -168,11 +206,11 @@ import QuartzCore
         host.clipsToBounds = true
         page.wantsLayer = true
         CATransaction.begin()
-        CATransaction.setCompletionBlock { MainActor.assumeIsolated { [weak self] in self?.finishSlide() } }
-        if Motion.animatesMovement, let layer = snapshot.layer {
+        CATransaction.setCompletionBlock { MainActor.assumeIsolated { [weak self] in self?.finishSlide() } } // main-proof: CATransaction.h: the completion block is called on the main thread
+        if Motion.animatesMovement {
             let d = CGFloat(direction) * width
-            Motion.set(layer, "transform.translation.x", to: -d, spring: .screen, from: 0)
-            if let pageLayer = page.layer { Motion.set(pageLayer, "transform.translation.x", to: 0, spring: .screen, from: d) }
+            translate(snapshot, -d, animated: .screen, from: 0)
+            translate(page, 0, animated: .screen, from: d)
         } else if let layer = snapshot.layer {
             Motion.set(layer, "opacity", to: Float(0), fade: .crossfade, from: Float(1))
         }

@@ -3,9 +3,10 @@ import Testing
 @testable import CmuxNextAgentPane
 
 /// ad349 round 4. R1: a frame that redeems a gesture ticket carries no `_meta` key other than
-/// `cmuxGesture`. R2: a set_mode or a "mode" set_config_option to a value that the daemon's table
-/// does not list as asking also needs the host's native sheet (one at a time, only after the
-/// gesture rule passed; Cancel refuses). Without the daemon's answer, every mode needs the sheet.
+/// `cmuxGesture`. R2: a mode (set_mode, or a "mode" set_config_option) needs only the user's
+/// gesture (Lawrence 2026-10-07: no sheet for full access); a config option the daemon's table
+/// does not list as free also needs the host's native sheet (one at a time, only after the
+/// gesture rule passed; Cancel refuses).
 @MainActor
 @Suite(.serialized) struct AgentPaneModeConfirmationTests {
     typealias Rig = AgentPaneGestureTicketTests.Rig
@@ -91,78 +92,70 @@ import Testing
 
     // MARK: R2
 
-    @Test func aTicketForANonAskingModeWithoutTheSheetIsRefused() async throws {
-        let rig = Rig()
-        try await rig.start()
-        defer { rig.server.stop() }
-        // The pane has no sheet to show (no window): the host refuses.
-        rig.model.onConfirmMode = nil
-        let ticket = await rig.ticket(Self.setMode("bypassPermissions"))
-        #expect(await rig.send("session/set_mode", ["sessionId": "s", "modeId": "bypassPermissions"], ticket: ticket) == .modeNotConfirmed)
-        #expect(!daemonSaw(rig, "bypassPermissions"))
-    }
+    static let fastIntent: [String: Any] = ["method": "session/set_config_option", "params": ["configId": "fast", "value": true]]
+    static let fastParams: [String: Any] = ["sessionId": "s", "configId": "fast", "value": true]
 
-    @Test func aConfirmedSheetLetsTheModePass() async throws {
+    /// Lawrence (2026-10-07, "Remove dialogues."): a mode the user picked goes out at once, even
+    /// one that does not ask before it acts (full access). The pick's gesture is the consent.
+    @Test func aPickedModeThatDoesNotAskGoesOutWithoutASheet() async throws {
         let rig = Rig()
         try await rig.start()
         defer { rig.server.stop() }
-        let sheets = Sheets(on: rig.transport, reply: true)
+        let sheets = Sheets(on: rig.transport, reply: false)
         #expect(await rig.send("session/set_mode", ["sessionId": "s", "modeId": "bypassPermissions"],
                                ticket: await rig.ticket(Self.setMode("bypassPermissions"))) == nil)
-        #expect(sheets.asked == ["bypassPermissions"])
-        #expect(await rig.server.wait { $0.last?.frames.contains { $0.contains("bypassPermissions") } == true })
-    }
-
-    @Test func cancelRefusesTheMode() async throws {
-        let rig = Rig()
-        try await rig.start()
-        defer { rig.server.stop() }
-        let sheets = Sheets(on: rig.transport, reply: false)
-        #expect(await rig.send("session/set_mode", ["sessionId": "s", "modeId": "acceptEdits"],
-                               ticket: await rig.ticket(Self.setMode("acceptEdits"))) == .modeNotConfirmed)
         #expect(await rig.send("session/set_config_option", ["sessionId": "s", "configId": "mode", "value": "dontAsk"],
-                               ticket: await rig.ticket(Self.configMode("dontAsk"))) == .modeNotConfirmed)
-        #expect(sheets.asked == ["acceptEdits", "dontAsk"])
-        #expect(!daemonSaw(rig, "acceptEdits"))
-        #expect(!daemonSaw(rig, "dontAsk"))
-    }
-
-    @Test func anAskingModeNeedsNoSheet() async throws {
-        let rig = Rig()
-        try await rig.start()
-        defer { rig.server.stop() }
-        let sheets = Sheets(on: rig.transport, reply: false)
-        #expect(await rig.send("session/set_mode", ["sessionId": "s", "modeId": "plan"], ticket: await rig.ticket(Self.setMode("plan"))) == nil)
-        #expect(await rig.send("session/set_config_option", ["sessionId": "s", "configId": "mode", "value": "default"],
-                               ticket: await rig.ticket(Self.configMode("default"))) == nil)
-        // An effort or model pick is not a mode: it keeps the ticket rule alone.
-        #expect(await rig.send("session/set_config_option", ["sessionId": "s", "configId": "effort", "value": "high"],
-                               ticket: await rig.ticket(["method": "session/set_config_option", "params": ["configId": "effort", "value": "high"]])) == nil)
+                               ticket: await rig.ticket(Self.configMode("dontAsk"))) == nil)
         #expect(sheets.asked.isEmpty)
+        #expect(await rig.server.wait { $0.last?.frames.contains { $0.contains("bypassPermissions") } == true })
+        #expect(await rig.server.wait { $0.last?.frames.contains { $0.contains("dontAsk") } == true })
     }
 
-    @Test func theSheetComesOnlyAfterTheGestureRule() async throws {
+    /// Without a window to show a sheet in, a mode still goes out: no sheet is asked for.
+    @Test func aModeNeedsNoWindow() async throws {
         let rig = Rig()
         try await rig.start()
         defer { rig.server.stop() }
-        let sheets = Sheets(on: rig.transport, reply: true)
-        // No ticket and no live gesture: refused before any sheet.
-        #expect(await rig.send("session/set_mode", ["sessionId": "s", "modeId": "bypassPermissions"], ticket: nil) == .gestureRequired)
-        // A ticket for another pick.
+        rig.model.onConfirmMode = nil
         #expect(await rig.send("session/set_mode", ["sessionId": "s", "modeId": "bypassPermissions"],
-                               ticket: await rig.ticket(Self.setMode("plan"))) == .gestureRequired)
-        #expect(sheets.asked.isEmpty)
+                               ticket: await rig.ticket(Self.setMode("bypassPermissions"))) == nil)
     }
 
-    @Test func withoutTheDaemonsTableEveryModeNeedsTheSheet() async throws {
+    /// Without the daemon's table a mode is not known to ask; it still needs no sheet.
+    @Test func withoutTheDaemonsTableAModeNeedsNoSheet() async throws {
         let rig = Rig()
         try await rig.start()
         defer { rig.server.stop() }
         rig.transport.webModes = { _, _, _ in nil }
         let sheets = Sheets(on: rig.transport, reply: false)
-        #expect(await rig.send("session/set_mode", ["sessionId": "s", "modeId": "plan"], ticket: await rig.ticket(Self.setMode("plan")))
-            == .modeNotConfirmed)
-        #expect(sheets.asked == ["plan"])
+        #expect(await rig.send("session/set_mode", ["sessionId": "s", "modeId": "plan"], ticket: await rig.ticket(Self.setMode("plan"))) == nil)
+        #expect(sheets.asked.isEmpty)
+    }
+
+    /// The gesture rule still holds: page script alone cannot change the mode.
+    @Test func aModeStillNeedsTheUsersGesture() async throws {
+        let rig = Rig()
+        try await rig.start()
+        defer { rig.server.stop() }
+        let sheets = Sheets(on: rig.transport, reply: true)
+        // No ticket and no live gesture.
+        #expect(await rig.send("session/set_mode", ["sessionId": "s", "modeId": "bypassPermissions"], ticket: nil) == .gestureRequired)
+        // A ticket for another pick.
+        #expect(await rig.send("session/set_mode", ["sessionId": "s", "modeId": "bypassPermissions"],
+                               ticket: await rig.ticket(Self.setMode("plan"))) == .gestureRequired)
+        #expect(sheets.asked.isEmpty)
+        #expect(!daemonSaw(rig, "bypassPermissions"))
+    }
+
+    /// A config option that is not free (paired devices, cx-44j.2) keeps its sheet; Cancel refuses.
+    @Test func cancelRefusesAnOptionThatIsNotFree() async throws {
+        let rig = Rig()
+        try await rig.start()
+        defer { rig.server.stop() }
+        let sheets = Sheets(on: rig.transport, reply: false)
+        #expect(await rig.send("session/set_config_option", Self.fastParams, ticket: await rig.ticket(Self.fastIntent)) == .modeNotConfirmed)
+        #expect(sheets.asked == ["fast = true"])
+        #expect(!daemonSaw(rig, "\"fast\""))
     }
 
     @Test func everyPaneSharesTheAppWideGate() {
@@ -173,7 +166,7 @@ import Testing
     }
 
     /// Two panes (two transports, as in two windows) on one gate: while pane A's sheet is open, pane
-    /// B's mode frame is refused and opens no sheet; after A's answer, B can ask.
+    /// B's option frame is refused and opens no sheet; after A's answer, B can ask.
     @Test func aSecondPaneCannotOpenASecondSheet() async throws {
         let gate = AgentPaneConfirmationGate()
         let a = Rig()
@@ -185,20 +178,18 @@ import Testing
         b.transport.confirmationGate = gate
         let sheetsA = Sheets(on: a.transport, reply: nil)
         let sheetsB = Sheets(on: b.transport, reply: true)
-        let ticketA = await a.ticket(Self.setMode("bypassPermissions"))
-        let first = Task { await a.send("session/set_mode", ["sessionId": "s", "modeId": "bypassPermissions"], ticket: ticketA) }
+        let ticketA = await a.ticket(Self.fastIntent)
+        let first = Task { await a.send("session/set_config_option", Self.fastParams, ticket: ticketA) }
         #expect(await eventually { sheetsA.asked.count == 1 })
         #expect(gate.isOpen)
-        #expect(await b.send("session/set_mode", ["sessionId": "s", "modeId": "acceptEdits"],
-                             ticket: await b.ticket(Self.setMode("acceptEdits"))) == .modeNotConfirmed)
+        #expect(await b.send("session/set_config_option", Self.fastParams, ticket: await b.ticket(Self.fastIntent)) == .modeNotConfirmed)
         #expect(sheetsB.asked.isEmpty, "no second sheet")
-        #expect(!daemonSaw(b, "acceptEdits"))
+        #expect(!daemonSaw(b, "\"fast\""))
         sheetsA.answer(true)
         #expect(await first.value == nil)
         #expect(!gate.isOpen)
-        #expect(await b.send("session/set_mode", ["sessionId": "s", "modeId": "acceptEdits"],
-                             ticket: await b.ticket(Self.setMode("acceptEdits"))) == nil)
-        #expect(sheetsB.asked == ["acceptEdits"])
+        #expect(await b.send("session/set_config_option", Self.fastParams, ticket: await b.ticket(Self.fastIntent)) == nil)
+        #expect(sheetsB.asked == ["fast = true"])
     }
 
     @Test func oneSheetAtATime() async throws {
@@ -206,15 +197,20 @@ import Testing
         try await rig.start()
         defer { rig.server.stop() }
         let sheets = Sheets(on: rig.transport, reply: nil)
-        let modeTicket = await rig.ticket(Self.setMode("bypassPermissions"))
-        let configTicket = await rig.ticket(Self.configMode("acceptEdits"))
-        let first = Task { await rig.send("session/set_mode", ["sessionId": "s", "modeId": "bypassPermissions"], ticket: modeTicket) }
-        let second = Task {
-            await rig.send("session/set_config_option", ["sessionId": "s", "configId": "mode", "value": "acceptEdits"], ticket: configTicket)
-        }
+        // Two options that are not free, in different slots (a second ticket for the same slot would
+        // replace the first). The pane's frames go in order, so the second asks once the first is answered.
+        let sandbox: [String: Any] = ["method": "session/set_config_option", "params": ["configId": "sandbox", "value": "off"]]
+        let firstTicket = await rig.ticket(Self.fastIntent)
+        let secondTicket = await rig.ticket(sandbox)
+        let first = Task { await rig.send("session/set_config_option", Self.fastParams, ticket: firstTicket) }
         #expect(await eventually { sheets.asked.count == 1 })
+        let second = Task {
+            await rig.send("session/set_config_option", ["sessionId": "s", "configId": "sandbox", "value": "off"], ticket: secondTicket)
+        }
+        #expect(sheets.asked == ["fast = true"])
         sheets.answer(true)
         #expect(await eventually { sheets.asked.count == 2 })
+        #expect(sheets.asked.last == "sandbox = off")
         sheets.answer(false)
         #expect(await first.value == nil)
         #expect(await second.value == .modeNotConfirmed)

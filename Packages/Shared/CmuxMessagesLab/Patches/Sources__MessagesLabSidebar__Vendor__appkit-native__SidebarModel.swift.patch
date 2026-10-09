@@ -1,0 +1,32 @@
+--- a/Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarModel.swift
++++ b/Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarModel.swift
+@@ -301,13 +301,16 @@
+     /// taken only as a CGColor resolved in `appearance` (no component of an NSColor is read, so
+     /// catalog, pattern and gray colors are safe).
+     static func resolve(_ appearance: NSAppearance, unreadColor: NSColor? = nil, selectionColor: NSColor? = nil) -> SidebarPalette {
+-        var p: SidebarPalette!
+-        appearance.performAsCurrentDrawingAppearance {
++        // cmux: no IUO (crash program). The block runs synchronously, so `palette` is set;
++        // without it the palette resolves in the current appearance.
++        var palette: SidebarPalette?
++        func build() -> SidebarPalette {
+             let dark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+             func p3(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat, _ a: CGFloat = 1) -> CGColor {
+-                CGColor(colorSpace: SidebarDraw.p3, components: [r / 255, g / 255, b / 255, a])!
++                CGColor(colorSpace: SidebarDraw.p3, components: [r / 255, g / 255, b / 255, a])
++                    ?? CGColor(red: r / 255, green: g / 255, blue: b / 255, alpha: a) // cmux: no force unwrap
+             }
+-            p = SidebarPalette(
++            return SidebarPalette(
+                 dark: dark,
+                 name: NSColor.labelColor.cgColor,
+                 secondary: NSColor.secondaryLabelColor.cgColor,
+@@ -328,6 +331,7 @@
+                 bubbleText: dark ? p3(255, 255, 255) : p3(0, 0, 0),
+                 typingDot: dark ? p3(150, 150, 154) : p3(142, 142, 147))
+         }
+-        return p
++        appearance.performAsCurrentDrawingAppearance { palette = build() }
++        return palette ?? build()
+     }
+ }

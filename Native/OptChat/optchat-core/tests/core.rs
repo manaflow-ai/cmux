@@ -299,9 +299,8 @@ fn size_loop_retries_with_the_cut_and_keeps_the_shortest() {
     let long = "é".repeat(300); // 600 bytes
     match size_check(std::slice::from_ref(&long)) {
         SizeCheck::Retry(msg) => {
-            assert!(msg.starts_with(
-                "Too long: your line is 600 bytes, over the 512-byte limit. Write\n"
-            ));
+            assert!(msg
+                .starts_with("Too long: your line is 600 bytes, over the 512-byte limit. Write\n"));
             assert!(msg.ends_with("| ← LIMIT"));
             assert_eq!(cut_at_bytes(&long, 512).len(), 512);
         }
@@ -331,7 +330,10 @@ fn compactor_prompt_is_selectable_and_defaults_to_taelins() {
     assert!(taelin.starts_with(
         "You are Chief, an AI agent that works for one user in a single chat that never\nends."
     ));
-    assert!(taelin.contains("\n# Compactions\n"), "one prompt for turns and compactions");
+    assert!(
+        taelin.contains("\n# Compactions\n"),
+        "one prompt for turns and compactions"
+    );
     assert!(!taelin.contains("{agent}"), "every placeholder is filled");
     assert_eq!(
         taelin,
@@ -480,7 +482,9 @@ fn a_huge_message_is_cut_for_its_summary_call_only_and_the_line_says_so() {
     memory.append();
     let whole = compact_request(&memory, &store, NodeId::new(0, 0), String::new()).unwrap();
     assert_eq!(whole.cut, None);
-    assert!(whole.step.ends_with(&format!("{}\n</input>", "w".repeat(STEP_MESSAGE))));
+    assert!(whole
+        .step
+        .ends_with(&format!("{}\n</input>", "w".repeat(STEP_MESSAGE))));
     assert_eq!(finish_line(&whole, "tool: x"), "tool: x");
 }
 
@@ -734,4 +738,24 @@ fn a_compactor_call_with_a_missing_line_is_refused() {
     store.nodes.borrow_mut().remove(&gone);
     let leaf = compact_request(&memory, &store, NodeId::new(0, 4), String::new());
     assert_eq!(leaf.err(), Some(MissingNode(gone)));
+}
+
+/// Compactor width (hq-6d gap 3c): a burst of long messages (an import, a
+/// tool-heavy turn) starts 64 model calls at once, as the reference client
+/// does (64 jobs, 64 leaves ahead), not 8.
+#[test]
+fn a_burst_of_long_messages_starts_64_compactions_at_once() {
+    let store = Mem::default();
+    let mut memory = Memory::new(VIEW);
+    for k in 0..100 {
+        store.push(Kind::Echo, format!("message {k} {}", "x".repeat(700)));
+        memory.append();
+    }
+    let models = memory
+        .pump(&store)
+        .iter()
+        .filter(|w| matches!(w, Work::Model { .. }))
+        .count();
+    assert_eq!(models, 64);
+    assert_eq!(memory.busy().count(), 64);
 }

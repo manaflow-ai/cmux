@@ -4,6 +4,21 @@
 //! descriptor-pinned working directories. Non-Unix platforms use
 //! portable-pty's native backend.
 
+// The crash ratchet keeps this crate at zero production panics
+// (plans/cmux-next/crash-elimination.md section 6).
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::todo,
+        clippy::unimplemented,
+        clippy::exit
+    )
+)]
+
 use std::collections::BTreeMap;
 use std::fmt;
 #[cfg(unix)]
@@ -19,6 +34,12 @@ pub use portable_pty::{Child, ChildKiller, ExitStatus, MasterPty, PtySize};
 
 #[cfg(unix)]
 mod macos;
+#[cfg(unix)]
+mod open_files;
+#[cfg(unix)]
+pub use open_files::{
+    OPEN_FILE_LIMIT_CEILING, OpenFileLimit, raise_open_file_limit, restore_open_file_limit_in_child,
+};
 
 /// Stable classification for failures at the PTY allocation boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

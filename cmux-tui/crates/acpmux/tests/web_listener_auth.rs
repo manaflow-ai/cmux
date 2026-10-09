@@ -160,3 +160,38 @@ async fn a_dev_origin_is_accepted_only_when_the_daemon_was_given_it() {
     let host = format!("127.0.0.1:{plain}");
     assert_eq!(status(plain, upgrade(&query, &host, Some("http://127.0.0.1:4176"))).await, 403);
 }
+
+#[tokio::test]
+async fn a_wide_bind_keeps_the_host_rule() {
+    // A non-loopback `websocket.listen` widens the bind, never the Host
+    // rule: a DNS-rebound name is refused. Names clients use come from
+    // `websocket.allowedHosts`; address literals pass (a rebound page always
+    // sends the domain name it loaded from).
+    let mut config = Config::default();
+    config.store.mode = StoreMode::Memory;
+    config.websocket = Some(acpmux::config::WebSocketConfig {
+        listen: "0.0.0.0:0".into(),
+        token: Some(TOKEN.into()),
+        allowed_origins: Vec::new(),
+        allowed_hosts: vec!["mini.tail1234.ts.net".into()],
+        token_rotated: 0,
+    });
+    let store = acpmux::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub: Arc<Hub> = Hub::new(config, store);
+    let bound = bind_ws("0.0.0.0:0").await.unwrap();
+    let port = bound.local_addr().unwrap().port();
+    tokio::spawn(serve_ws(hub, bound, TOKEN.into()));
+    let query = format!("?token={TOKEN}");
+    for host in [format!("evil.example:{port}"), "other.tail1234.ts.net".to_owned()] {
+        assert_eq!(status(port, upgrade(&query, &host, None)).await, 403, "{host}");
+        assert_eq!(status(port, page(&query, &host, None)).await, 403, "page {host}");
+    }
+    for host in [
+        format!("mini.tail1234.ts.net:{port}"),
+        format!("127.0.0.1:{port}"),
+        format!("10.0.0.5:{port}"),
+        format!("[fd7a:115c:a1e0::1]:{port}"),
+    ] {
+        assert_eq!(status(port, upgrade(&query, &host, None)).await, 101, "{host}");
+    }
+}

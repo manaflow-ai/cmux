@@ -121,7 +121,7 @@ export const mintLinkToken = async (
   if (p.kind !== "install" || !p.install || p.agent !== undefined) return { ok: false, code: "auth.forbidden", message: "link tokens are minted only for an install's cmux link" }
   if (!LINK_INSTALL_KINDS.includes(p.install_kind ?? ""))
     return { ok: false, code: "cloud.link.install_refused", message: "only the cli, mac app and ios installs mint link tokens", details: { install_kind: p.install_kind ?? null, allowed: [...LINK_INSTALL_KINDS] } }
-  // execute, or the narrow cloud-link class the iPhone install gets (it covers this op only).
+  // execute, or the narrow cloud-link class of the iPhone and Mac installs (this op and a restricted team_vm.ssh_cert only).
   if (!p.grant_classes?.includes("execute") && !p.grant_classes?.includes("cloud-link")) return { ok: false, code: "auth.forbidden", message: "grant does not cover execute or cloud-link" }
   const d = decodeParams<{ host: string; services: ReadonlyArray<string> }>(CloudMachineLinkToken, args.params)
   if (!d.ok) return d

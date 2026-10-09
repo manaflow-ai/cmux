@@ -13,6 +13,8 @@ export type ModelPickerProps = {
   model?: string;
   /// The chip's text: the current model's name, or its id when the catalog doesn't list it.
   label: string;
+  /// A harness switch in flight: the chip draws this harness's mark and name until it starts.
+  switching?: { harness: string; name: string };
   /// The chip's secondary text after the model: the chosen effort, when it is not the default.
   detail?: string;
   /// The name of the model the agent's default resolves to, when known: the "Default" row draws
@@ -37,6 +39,9 @@ export type ModelPickerProps = {
   catalogRefresh?: CatalogRefreshState;
   /// Starts a new chat in another harness; without it, other harnesses are not offered.
   onHarness?(harness: string): void;
+  /// One pick of a model with the effort and fast mode a typed query named ("gpt medium fast"),
+  /// in this harness or another (which starts a new chat there, then applies the rest).
+  onCombo?(combo: ModelCombo): void;
   /// The pointer or keyboard rests on a harness row (undefined: the menu closed), for acpmux's
   /// prewarm hint (harnessSwitch.ts).
   onHarnessHint?(harness: string | undefined): void;
@@ -49,6 +54,8 @@ export type ModelPickerProps = {
   /// number in place of real layout.
   measureRoom?(menu: HTMLElement): number;
 };
+
+export type ModelCombo = { harness: string; model: string; effort?: string; fast?: boolean };
 
 export type CatalogRefreshState = {
   status?: "idle" | "fetching" | "updated" | "error";

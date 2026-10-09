@@ -126,6 +126,12 @@ final class BrowserPageRequests: BrowserTabDelegate {
             }
         case .rerouteStore(let url):
             services.cache.reroute(key, to: url)
+        case .openLocalFile(let url):
+            // A page's navigation is not the user choosing the file: it shows
+            // read only outside the roots the user chose.
+            if let reason = services.viewers.openFile(url, in: services.paneController(for: pane), userChose: false) {
+                services.cache.existingBrowser(key)?.chrome.showNotice(reason)
+            }
         case .openPopup(let child, let request):
             openPopup(child, request: request, openerKey: key, pane: pane)
         case .unhandledKey(let pageKey):
@@ -192,7 +198,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
             child?.close()
             return
         }
-        let browserTabs = services.cache.browserTabs!
+        let browserTabs = services.cache.browserTabs
         let daemon = services.machines.daemon(forTab: tab)
         guard browserTabs.isAvailable(), daemon === services.activeDaemon, !browserTabs.isIncognitoTab(key) else {
             if let child { return browserTab(page, didRequest: .adoptTab(child, .foregroundTab)) }
@@ -232,7 +238,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
             return
         }
         // The opener's pane is not on screen (its page is kept alive).
-        let browserTabs = services.cache.browserTabs!
+        let browserTabs = services.cache.browserTabs
         guard browserTabs.isAvailable() else { child?.close(); return }
         let choice = Self.choice(adopting: child, inherited: engine, browserTabs: browserTabs)
         let handle = pane.handle, address = url?.absoluteString ?? "about:blank", openers = openers

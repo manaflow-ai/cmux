@@ -231,6 +231,37 @@ Where a new terminal or browser opens when you create it (New Terminal, Cmd-T, t
 
 The CLI and MCP always open a tab, so scripts get a predictable result; a command that names a pane opens in that pane. Change these in **Settings > General > Columns** or with `cmux settings set layout.newPanePlacement split`.
 
+## `workspaces.newPlacement`
+
+Where a new workspace goes in the sidebar when you do not pick a place: Cmd-N, New Workspace in the palette or menu, the sidebar's +, `cmux workspace new`, Home, and a tab moved to a new workspace.
+
+```json
+{
+  "workspaces": { "newPlacement": "top" }
+}
+```
+
+- `"top"` (default): first in the workspace list, above every group. Pinned workspaces stay above it in the Pinned section, and it goes below the Home row when the list shows one.
+- `"afterCurrent"`: right after the workspace the window shows, inside that workspace's group when it has one. When that workspace is pinned, is Home, or is on another machine, the new one goes to the top.
+- `"bottom"`: after the last workspace that is not in a group.
+
+A place you pick always wins: a tab dropped on a gap in the sidebar, New Workspace Above, Below, at Top or at Bottom, and New Workspace in This Group. A reopened workspace (Reopen Closed Workspace) comes back where it was. The position is written to the sidebar order cmux keeps for you, so it survives a relaunch and shows the same in every window. Change it in **Settings > General > Sidebar** or with `cmux settings set workspaces.newPlacement afterCurrent`.
+
+## `sidebar.groupByComputer`
+
+Whether the sidebar groups workspaces by computer.
+
+```json
+{
+  "sidebar": { "groupByComputer": false }
+}
+```
+
+- `false` (default): one list of workspaces with no computer headers. A workspace on another computer (a Cloud machine, an SSH host) shows that computer's name first on its second line. The Pinned section and your workspace groups stay.
+- `true`: a section per computer, each under a header you can collapse.
+
+Change it in **Settings > General > Sidebar** or with `cmux settings set sidebar.groupByComputer true`.
+
 ## `sidebar.numbering`, `sidebar.cmd9`, `sidebar.stepping`, `sidebar.steppingWraps`
 
 How ⌘1…⌘9 and ⌘⌃] / ⌘⌃[ walk the sidebar. Both walk one list: every visible top-section item (Home, the App Store, any item you add on top), then the workspace rows in the order the sidebar shows them. Rows inside an expanded group count one by one; a collapsed group is one stop, and going to it shows its first workspace. The Settings and account row at the bottom is not part of the walk.

@@ -78,7 +78,7 @@ impl Mux {
             let mut registry =
                 self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
             let commit = registry.close_terminal(
-                &WorkspaceMutation::local("cmux-tui"),
+                &WorkspaceMutation::daemon_local("cmux-tui"),
                 None,
                 None,
                 terminal_id,

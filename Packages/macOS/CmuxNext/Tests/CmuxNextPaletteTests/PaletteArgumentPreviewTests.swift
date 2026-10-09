@@ -4,7 +4,7 @@ import Testing
 
 /// Enumeration argument pages preview the highlighted option live
 /// (theme pickers) and revert when left without choosing.
-@MainActor @Suite struct PaletteArgumentPreviewTests {
+@MainActor @Suite(.paletteRanker) struct PaletteArgumentPreviewTests {
     final class Recorder {
         var values: [String?] = []
         var runs: [ActionInvocation] = []

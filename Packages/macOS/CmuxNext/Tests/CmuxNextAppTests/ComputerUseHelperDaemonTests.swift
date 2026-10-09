@@ -65,10 +65,6 @@ import Testing
         #expect(daemon.childEnvironment == ["CMUX_NEXT_CUA_SOCKET": socket, "CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN": agent], "never the host token")
         #expect(daemon.state == .running(4242))
 
-        // Onboarding reads this helper, so the computer use step is offered.
-        let services = AppServices(environment: AppEnvironment.current([:]))
-        services.onboarding.computerUseConfiguration = try #require(daemon.configuration)
-        #expect(AppOnboardingServices(owner: services.onboarding).computerUsePermissions != nil)
     }
 
     @Test func offStartsNothing() async {

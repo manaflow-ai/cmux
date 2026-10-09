@@ -44,6 +44,9 @@ describe("grouped tool rows", () => {
     expect(html).toContain("Coordinator");
     // Two lines show until the card opens; a two-line message needs no Show more.
     expect(html).toMatch(/<div id="[^"]+" class="cv-message__body is-clamped">Landed #17079\nNext: items 4\+5<\/div>/);
+    const controls = /<button[^>]*aria-controls="([^"]+)"/.exec(html)?.[1];
+    const body = /<div id="([^"]+)" class="cv-message__body/.exec(html)?.[1];
+    expect(controls).toBe(body);
     expect(html).not.toContain("Show more");
     const long = `tell-coordinator "${"word ".repeat(40)}"`;
     expect(

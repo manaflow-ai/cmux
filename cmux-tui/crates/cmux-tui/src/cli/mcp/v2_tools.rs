@@ -38,7 +38,27 @@ const CONNECTION_REASON: &str =
 /// Read and mutation operations the curated `cmux` CLI does not offer
 /// (`cmux-tui`-only scopes), with the reason. The parity test checks that
 /// `cmux` refuses each one too.
+/// MCP clients act as the local user (an agent in a pane, the Chief's own
+/// turns): conversation reads and writes would let them read the person's
+/// chats and write as the person. Home, `cmux chief` and the person's own
+/// scripts (`cmux-tui conversation`) use the operations instead.
+const CONVERSATION_REASON: &str = "A conversation belongs to the person: MCP clients act as the local user, so conversations stay with Home, cmux chief and cmux-tui conversation.";
+
+/// The Chief's engine and turn are the owner's (the daemon refuses an
+/// agent-bound connection); an MCP client is an agent acting as the user.
+const CHIEF_REASON: &str = "The Chief's engine and turn are the owner's: cmux chief, Home and the owner's scripts control them, never an agent.";
+
 pub(super) const EXCLUDED: &[(&str, &str)] = &[
+    ("conversation.list", CONVERSATION_REASON),
+    ("conversation.get", CONVERSATION_REASON),
+    ("conversation.history", CONVERSATION_REASON),
+    ("conversation.search", CONVERSATION_REASON),
+    ("conversation.send", CONVERSATION_REASON),
+    ("conversation.typing", CONVERSATION_REASON),
+    ("conversation.draft", CONVERSATION_REASON),
+    ("chief.engine.get", CHIEF_REASON),
+    ("chief.engine.set", CHIEF_REASON),
+    ("chief.stop", CHIEF_REASON),
     ("machine.list", MACHINE_REASON),
     ("machine.get", MACHINE_REASON),
     ("session.list", MACHINE_REASON),

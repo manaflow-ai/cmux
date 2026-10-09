@@ -112,7 +112,7 @@ pub(super) fn configured() -> bool {
 }
 
 /// The taken value; a library user that never took it reads the environment.
-fn tools_socket() -> Option<PathBuf> {
+pub(super) fn tools_socket() -> Option<PathBuf> {
     match TAKEN.get() {
         Some(taken) => taken.clone(),
         None => std::env::var_os(TOOLS_SOCKET_ENV).filter(|v| !v.is_empty()).map(PathBuf::from),
@@ -131,7 +131,7 @@ fn require_owner(mux: &Mux, client: u64) -> anyhow::Result<()> {
 /// The socket, checked: a Unix socket (not a symlink) owned by this
 /// daemon's user.
 #[cfg(unix)]
-fn checked(path: &Path) -> anyhow::Result<std::os::unix::net::UnixStream> {
+pub(super) fn checked(path: &Path) -> anyhow::Result<std::os::unix::net::UnixStream> {
     use std::os::unix::fs::{FileTypeExt, MetadataExt};
     let meta = std::fs::symlink_metadata(path)
         .map_err(|e| anyhow::anyhow!("the Chief tools socket is missing: {e}"))?;

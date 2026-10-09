@@ -6,6 +6,7 @@
 
 mod adoption;
 mod catalog_reload;
+mod cursor_ext;
 mod fork;
 mod handoff;
 mod harness_view;
@@ -53,6 +54,7 @@ pub mod rules;
 mod transfer;
 mod turns;
 mod warm;
+mod xai;
 pub(crate) use turns::merge_mux_meta;
 mod views;
 mod web_control;
@@ -154,6 +156,11 @@ pub struct PromptOptions {
     /// Whether this prompt came from a gated app/Web path and must be checked
     /// again when a queued turn is dispatched.
     pub trust_gate: bool,
+    /// A steer that must not become a queued prompt
+    /// (`_meta.acpmux.steerOnly`): refused (`steer.unavailable`) when the
+    /// session cannot steer now (no running turn, or an agent that does not
+    /// steer).
+    pub steer_only: bool,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.

@@ -7,7 +7,7 @@ import Testing
 /// The cmux picker driven through the palette model and its key map, on a
 /// temporary folder (R89): enter, up, filter, choose, the list keys,
 /// hidden files, jumps, and the drill keys only on a tree page.
-@MainActor @Suite struct PickerNavigationTests {
+@MainActor @Suite(.paletteRanker) struct PickerNavigationTests {
     final class Answer {
         var urls: [URL]?? = .none
     }

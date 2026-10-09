@@ -33,7 +33,7 @@ struct TabCloseGuardTests {
     /// One dialog: Return closes, Escape cancels, and "Don't ask again"
     /// turns off the toggle that asked.
     @Test func theQuestionHasDontAskAgainForItsToggle() {
-        let prompt = DestructiveConfirmation.Prompt(title: "Close “zsh”?", body: ConfirmationStrings.closeTabBody("vim"),
+        let prompt = DestructiveConfirmation.Prompt(title: "Close “zsh”?", body: ConfirmationStrings.stillRunning("vim"),
                                                     button: ConfirmationStrings.close, suppresses: CmuxConfigSnapshot.warnBeforeClosingTabPath)
         let spec = DestructiveConfirmation.spec(prompt)
         #expect(spec.fields == [.check(id: DestructiveConfirmation.suppressID, title: QuitStrings.dontAskAgain, on: false)])
@@ -44,8 +44,8 @@ struct TabCloseGuardTests {
     }
 
     @Test func agentAndProgramBodiesNameWhatStops() {
-        #expect(ConfirmationStrings.agentStillWorking("Claude") == "Claude is still working. Closing the tab stops it.")
-        #expect(ConfirmationStrings.closeTabBody("vim, npm") == "Still running: vim, npm. Closing ends these processes.")
+        #expect(ConfirmationStrings.agentStillWorking("Claude") == "Claude is still working.")
+        #expect(ConfirmationStrings.stillRunning("vim, npm") == "Still running: vim, npm.")
         #expect(ConfirmationStrings.closeTabsTitle(3) == "Close 3 tabs?")
     }
 }

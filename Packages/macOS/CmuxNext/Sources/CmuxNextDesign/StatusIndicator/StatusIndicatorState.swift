@@ -17,8 +17,9 @@ public nonisolated enum StatusIndicatorState: Hashable, Sendable {
     /// (WORKING-AND-LOADING-INDICATORS). `progress` in 0...1 when the
     /// program reports one.
     case working(progress: Double?)
-    /// Waiting for the user (an agent asks for approval).
-    case waiting
+    /// Waiting for the user (an agent asks for approval). `kind` says what
+    /// for when the reporter names it (OSC 7501 `kind`); nil is plain blocked.
+    case waiting(kind: StatusBlockedKind?)
     case error
     /// A finished run, shown until its owner clears it (`status run` badge).
     case success
@@ -27,6 +28,14 @@ public nonisolated enum StatusIndicatorState: Hashable, Sendable {
     public static let busy = StatusIndicatorState.busy(progress: nil)
     /// An agent working with no known progress, the common case.
     public static let working = StatusIndicatorState.working(progress: nil)
+    /// Waiting for the user with no known reason, the common case.
+    public static let waiting = StatusIndicatorState.waiting(kind: nil)
+
+    /// What a waiting state waits for; nil for every other state.
+    public var blockedKind: StatusBlockedKind? {
+        if case .waiting(let kind) = self { return kind }
+        return nil
+    }
 
     public var isVisible: Bool { self != .idle }
 

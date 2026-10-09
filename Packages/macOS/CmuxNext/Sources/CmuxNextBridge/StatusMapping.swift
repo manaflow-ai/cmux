@@ -24,7 +24,7 @@ public struct StatusMapping {
     /// The reports one tab contributes.
     public func reports(_ tab: TabModel) -> [StatusReport] {
         var reports: [StatusReport] = []
-        if let agent = tab.agent, let state = state(agent.state) {
+        if let agent = tab.agent, let state = state(agent.state), !yieldsToProgram(agent, tab.programStatus) {
             reports.append(StatusReport(id: "agent:\(tab.id)", source: .agent, state: state,
                                         label: agent.agent, updatedAtMs: agent.updatedAtMs))
         }
@@ -38,6 +38,20 @@ public struct StatusMapping {
         return reports
     }
 
+    /// Roster sources that infer state from the screen (the agent plugin,
+    /// legacy `detected`), unlike a hook or an OSC 7501 report the program
+    /// sends itself.
+    static let detectorSources: Set<String> = ["plugin", "detected"]
+
+    /// A detector's roster report gives way to an OSC 7501 record of the
+    /// same terminal reported at the same time or later: an explicit report
+    /// is never hidden by a guess. A record without a report time (an older
+    /// host) counts as fresher.
+    func yieldsToProgram(_ agent: AgentStatus, _ records: [ProgramStatusRecord]) -> Bool {
+        guard let source = agent.source, Self.detectorSources.contains(source) else { return false }
+        return records.contains { ($0.updatedAtMs ?? .max) >= agent.updatedAtMs }
+    }
+
     /// The acpmux turn state of an agent chat tab, nil for every other tab.
     public func turn(_ tab: TabModel) -> AgentTurnState? {
         tab.agentSession.flatMap(turns.state(for:))
@@ -49,14 +63,29 @@ public struct StatusMapping {
         turn(tab) == .needsInput || ProgramStatusRecord.strongest(tab.programStatus)?.state == .blocked
     }
 
+    /// What the tab's strongest blocked OSC 7501 record waits for
+    /// (permission, question, auth), for the tab's needs-input badge; nil
+    /// when nothing blocks or the program named no kind.
+    public func blockedKind(_ tab: TabModel) -> StatusBlockedKind? {
+        guard let record = ProgramStatusRecord.strongest(tab.programStatus), record.state == .blocked else { return nil }
+        return record.kind.flatMap { StatusBlockedKind(rawValue: $0.rawValue) }
+    }
+
     /// An unseen OSC 7501 outcome for the tab's badge: `error` is a failure,
     /// `done` a success, until the user looks at the terminal. Nil while a
     /// stronger record (blocked, working) is live or nothing is unseen.
+    /// An agent chat's failed turn, or one that completed unwatched, is the
+    /// same outcome (acpmux owns both facts).
     public func outcome(_ tab: TabModel) -> TabStatus? {
         switch ProgramStatusRecord.strongest(seen.visible(tab))?.state {
-        case .error?: .failure
-        case .done?: .success
-        default: nil
+        case .error?: return .failure
+        case .done?: return .success
+        default: break
+        }
+        switch turn(tab) {
+        case .failed?: return .failure
+        case .done?: return .success
+        default: return nil
         }
     }
 
@@ -106,7 +135,7 @@ public struct StatusMapping {
     func state(_ record: ProgramStatusRecord) -> StatusIndicatorState? {
         switch record.state {
         case .working: .working(progress: record.progress.map { Double($0) / 100 })
-        case .blocked: .waiting
+        case .blocked: .waiting(kind: record.kind.flatMap { StatusBlockedKind(rawValue: $0.rawValue) })
         case .error: .error
         case .done: .success
         case .idle: nil
@@ -119,6 +148,7 @@ public struct StatusMapping {
         case .working: .working
         case .needsInput: .waiting
         case .failed: .error
+        case .done: .success
         }
     }
 }

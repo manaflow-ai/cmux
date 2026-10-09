@@ -140,6 +140,6 @@ import Testing
         #expect(extensions.map(\.name) == ["Dark Reader", "uBlock Origin"])
         #expect(extensions[1].version == "1.60.0")
         #expect(extensions[0].enabled == false)
-        #expect(extensions[1].webStoreURL.absoluteString == "https://chromewebstore.google.com/detail/\(ublock)")
+        #expect(extensions[1].webStoreURL?.absoluteString == "https://chromewebstore.google.com/detail/\(ublock)")
     }
 }

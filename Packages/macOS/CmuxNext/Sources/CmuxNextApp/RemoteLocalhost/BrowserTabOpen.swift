@@ -99,7 +99,7 @@ extension BrowserTabOpen {
     /// adopts it. Throws a typed refusal; never opens the URL any other way.
     @MainActor
     static func open(_ request: Request, services: AppServices) async throws(Refusal) {
-        guard let browserTabs = services.cache.browserTabs, browserTabs.cefUnavailable() == nil else { throw .cefUnavailable }
+        guard case let browserTabs = services.cache.browserTabs, browserTabs.cefUnavailable() == nil else { throw .cefUnavailable }
         guard let pane = services.windows.active?.focusedPane else { throw .noWindow }
         let page: any BrowserTab
         do {

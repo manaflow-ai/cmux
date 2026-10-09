@@ -48,6 +48,7 @@ mod resource_effect_commit;
 pub(crate) mod resource_store;
 pub(crate) mod screen_store;
 pub(crate) mod session_journal;
+pub(crate) mod terminal_archive_store;
 mod terminal_exit_store;
 mod terminal_keep_store;
 mod terminal_resource_close_store;
@@ -714,6 +715,8 @@ pub struct WorkspaceRegistry {
     resource_effect_pepper: ResourceEffectPepper,
     /// The topology state the resource journal states (see `public_fold`).
     public_fold: Option<public_fold::PublicTopologyFold>,
+    /// Projection and commit spans for `server-stats`; the mux keeps a clone.
+    resource_projection_stats: std::sync::Arc<crate::diagnostics::ResourceProjectionStats>,
     #[cfg(test)]
     resource_patch_failures_remaining: Cell<u64>,
     #[cfg(test)]
@@ -2667,11 +2670,6 @@ impl WorkspaceRegistry {
         // the column ships without a version bump so older builds keep opening
         // this registry (they omit the column on writes and the durable
         // default applies).
-        {
-            let tx = connection.unchecked_transaction()?;
-            mutation_ledger::migrate_resource_mutations_add_actor(&tx)?;
-            tx.commit()?;
-        }
         if !terminal_hosts_has_on_exit_column(&connection)? {
             let tx = connection.unchecked_transaction()?;
             migrate_terminal_hosts_add_on_exit(&tx)?;
@@ -2725,6 +2723,7 @@ impl WorkspaceRegistry {
             create_session_journal_schema(&tx)?;
             create_resource_effect_schema(&tx)?;
             create_journal_extensions_schema(&tx)?;
+            mutation_ledger::migrate_add_actor_columns(&tx)?;
             recover_resource_effects(&tx)?;
             // cx-1a6: no terminal env value rests in the exactly-once receipts.
             scrubbed = receipt_env::scrub_stored_receipts(&tx, &resource_effect_pepper)?;
@@ -2771,6 +2770,7 @@ impl WorkspaceRegistry {
             session_id,
             resource_effect_pepper,
             public_fold: None,
+            resource_projection_stats: std::sync::Arc::default(),
             #[cfg(test)]
             resource_patch_failures_remaining: Cell::new(0),
             #[cfg(test)]
@@ -2920,6 +2920,12 @@ impl WorkspaceRegistry {
 
     pub fn machine_id(&self) -> &MachinePublicId {
         &self.machine_id
+    }
+
+    pub(crate) fn resource_projection_stats(
+        &self,
+    ) -> &std::sync::Arc<crate::diagnostics::ResourceProjectionStats> {
+        &self.resource_projection_stats
     }
 
     /// The current terminal registry revision alone. Lookups that only need to
@@ -3087,12 +3093,9 @@ impl WorkspaceRegistry {
             "UPDATE meta SET value = ?1 WHERE key = 'terminal_revision'",
             [revision.to_string()],
         )?;
-        tx.execute(
-            "INSERT INTO terminal_mutations(
-               origin, mutation_id, fingerprint, result_json, committed_revision
-             ) VALUES(?1, ?2, ?3, ?4, ?5)",
-            params![mutation.origin, mutation.id, fingerprint, result_json, sqlite_revision],
-        )?;
+        let ledger = mutation_ledger::KeyedLedger::Terminal;
+        let row = (fingerprint.as_str(), result_json.as_str(), sqlite_revision);
+        mutation_ledger::insert_keyed_mutation(&tx, ledger, mutation, row.0, row.1, row.2)?;
         tx.execute(
             "INSERT INTO terminal_events(
                revision, kind, terminal_id, workspace_key, origin, mutation_id, result_json
@@ -3724,13 +3727,14 @@ impl WorkspaceRegistry {
             projection: projection.clone(),
         };
         tx.execute(
-            "INSERT INTO projection_mutations(origin, mutation_id, fingerprint, result_json)
-             VALUES(?1, ?2, ?3, ?4)",
+            "INSERT INTO projection_mutations(origin, mutation_id, fingerprint, result_json, actor)
+             VALUES(?1, ?2, ?3, ?4, ?5)",
             params![
                 mutation.origin,
                 mutation.id,
                 fingerprint,
-                canonical_json(&serde_json::to_value(&stored)?)?
+                canonical_json(&serde_json::to_value(&stored)?)?,
+                mutation.actor.wire(),
             ],
         )?;
         tx.commit()?;
@@ -4436,18 +4440,16 @@ fn close_terminal_in_transaction(
             "already_closed": true,
         });
         let result_json = canonical_json(&result)?;
-        transaction.execute(
-            "INSERT INTO terminal_mutations(
-               origin, mutation_id, fingerprint, result_json, committed_revision
-             ) VALUES(?1, ?2, ?3, ?4, ?5)",
-            params![
-                mutation.origin,
-                mutation.id,
-                fingerprint,
-                result_json,
-                i64::try_from(current_revision)
-                    .context("terminal revision exceeds SQLite integer range")?,
-            ],
+        let revision = i64::try_from(current_revision)
+            .context("terminal revision exceeds SQLite integer range")?;
+        let ledger = mutation_ledger::KeyedLedger::Terminal;
+        mutation_ledger::insert_keyed_mutation(
+            transaction,
+            ledger,
+            mutation,
+            fingerprint,
+            &result_json,
+            revision,
         )?;
         return Ok(TerminalRegistryCommit { revision: current_revision, result, replayed: false });
     }
@@ -4474,12 +4476,9 @@ fn close_terminal_in_transaction(
         "UPDATE meta SET value = ?1 WHERE key = 'terminal_revision'",
         [revision.to_string()],
     )?;
-    transaction.execute(
-        "INSERT INTO terminal_mutations(
-           origin, mutation_id, fingerprint, result_json, committed_revision
-         ) VALUES(?1, ?2, ?3, ?4, ?5)",
-        params![mutation.origin, mutation.id, fingerprint, result_json, sqlite_revision],
-    )?;
+    let ledger = mutation_ledger::KeyedLedger::Terminal;
+    let row = (fingerprint, result_json.as_str(), sqlite_revision);
+    mutation_ledger::insert_keyed_mutation(transaction, ledger, mutation, row.0, row.1, row.2)?;
     transaction.execute(
         "INSERT INTO terminal_events(
            revision, kind, terminal_id, workspace_key, origin, mutation_id, result_json
@@ -4713,12 +4712,9 @@ fn commit_workspace_registry_in_transaction(
     }
     transaction
         .execute("UPDATE meta SET value = ?1 WHERE key = 'revision'", [revision.to_string()])?;
-    transaction.execute(
-        "INSERT INTO mutations(
-           origin, mutation_id, fingerprint, result_json, committed_revision
-         ) VALUES(?1, ?2, ?3, ?4, ?5)",
-        params![mutation.origin, mutation.id, fingerprint, result_json, sqlite_revision],
-    )?;
+    let ledger = mutation_ledger::KeyedLedger::Workspace;
+    let row = (fingerprint, result_json, sqlite_revision);
+    mutation_ledger::insert_keyed_mutation(transaction, ledger, mutation, row.0, row.1, row.2)?;
     transaction.execute(
         "INSERT INTO workspace_events(
            revision, kind, workspace_key, origin, mutation_id, result_json

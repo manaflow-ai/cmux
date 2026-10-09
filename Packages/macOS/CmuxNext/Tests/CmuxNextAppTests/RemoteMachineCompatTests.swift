@@ -101,7 +101,10 @@ import Testing
         let header = SidebarBridge.machine(for: service, name: "vm", kind: .cloud)
         #expect(header.status != .connecting, "an incompatible machine must not look like it is still connecting")
         #expect(header.status == .updateRequired)
-        #expect(header.detail?.contains("view-attachment-detach-v1") == true)
+        // Capability ids stay in machine-readable diagnostics; the sidebar gives
+        // the human update instruction without exposing an internal protocol key.
+        #expect(header.detail?.localizedCaseInsensitiveContains("update") == true)
+        #expect(header.detail?.contains("view-attachment-detach-v1") == false)
         #expect(service.compatibility?.level == .incompatible)
 
         // The machine is updated in place: same link socket, newer daemon.
@@ -122,5 +125,18 @@ import Testing
         #expect(service.compatibility?.missingOptional == DaemonCapabilities.shared.optional.filter { !homeOnly.contains($0) })
         #expect(SidebarBridge.machine(for: service, name: "vm", kind: .cloud).status == .updateAvailable)
         #expect(SidebarBridge.machine(for: service, name: "vm", kind: .local).status == .connected)
+    }
+
+    /// A remote machine's daemon (SSH, server) keeps its route, so a second connection to that
+    /// daemon (an agent chat on that machine, `agent-session-attach-v1`) dials the same socket.
+    @Test func aRemoteDaemonKeepsItsRouteForSecondConnections() async throws {
+        let service = DaemonService(machineID: "server-test")
+        #expect(service.remoteEndpoint == nil)
+        service.start(remote: { "/tmp/cmux-remote-route-test.sock" })
+        defer { service.shutdownConnection() }
+        // Two statements: `try await #require(x)()` crashes the Xcode 27 type checker.
+        let route = try #require(service.remoteEndpoint)
+        let endpoint = try await route()
+        #expect(endpoint.socketPath == "/tmp/cmux-remote-route-test.sock")
     }
 }

@@ -6,7 +6,55 @@
 #
 # `gitlink ghostty` counts only for the v1 key (cmux_tui_tree_key.py
 # V1_ONLY_INPUTS); the v2 key leaves the classic submodule out.
+#
+# MACOS-CROSS-COMPILE-ON-LINUX: scripts/ci/cmux-tui-darwin-builder (mac or
+# linux) selects where the macOS targets build, and the Linux build reads the
+# cross scripts and framework stubs below. The two builders give byte-different
+# binaries, so both the switch and the Linux recipe are key inputs: a switch
+# back to mac never reuses a Linux-built tree, nor the reverse.
 tree cmux-tui
 gitlink ghostty
 gitlink ghostty-next
 blob scripts/cmux-next/build-layout-reducer-ffi.sh
+blob scripts/ci/cmux-tui-darwin-builder
+blob scripts/ci/macos-cross.sh
+blob scripts/ci/macos_stubs.py
+blob scripts/ci/macho_weaken.py
+tree scripts/ci/macos-stubs
+# Files cmux-tui crates compile in with include_str!/include_bytes! (cx-t3e5,
+# 2026-10-08). scripts/ci/check_cmux_tui_tree_inputs.py fails when a crate
+# embeds a file this list does not cover and prints the line to add; add the
+# same path to cmux-tui-artifacts.yml's pull_request_target paths. A blob a
+# revision lacks is left out of its key.
+blob Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-cases.json
+blob backend/packages/home-core/conformance/conversation-cases.json
+blob backend/packages/home-core/conformance/conversation-import-cases.json
+blob backend/packages/home-core/conformance/conversation-search-cases.json
+blob mux/packages/brain/conformance/chief-cases.json
+blob plans/cmux-next/action-surfaces.json
+blob schemas/agent-url-policy/vectors.json
+blob schemas/automation-input/vectors.json
+blob schemas/automation-lease/vectors.json
+blob schemas/ghostty-shell-features/vectors.json
+blob schemas/link-token/keyset-vectors.json
+blob schemas/remote-tab/client.json
+blob schemas/remote-tab/cookie-sync.json
+blob schemas/remote-tab/input-mapping.json
+blob schemas/remote-tab/menu-token.json
+blob schemas/remote-tab/messages.json
+blob schemas/remote-tab/scroll-writer.json
+blob schemas/remote-tab/session.json
+blob schemas/terminal-sizing/fixtures.json
+blob scripts/cmux-next/cmux-tui.pin
+blob skills/cmux-browser/SKILL.md
+blob skills/cmux-browser/references/authentication.md
+blob skills/cmux-browser/references/commands.md
+blob skills/cmux-browser/references/proxy-support.md
+blob skills/cmux-browser/references/session-management.md
+blob skills/cmux-browser/references/snapshot-refs.md
+blob skills/cmux-browser/references/surface-discovery.md
+blob skills/cmux-browser/references/video-recording.md
+blob skills/cmux-browser/templates/authenticated-session.sh
+blob skills/cmux-browser/templates/capture-workflow.sh
+blob skills/cmux-browser/templates/form-automation.sh
+blob skills/cmux-cua/SKILL.md

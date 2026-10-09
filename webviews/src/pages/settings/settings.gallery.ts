@@ -43,6 +43,10 @@ const click = (selector: string): PageFixtureStep => ({ selector, action: "click
 const input = (selector: string, value: string): PageFixtureStep => ({ selector, action: "input", value });
 const wait = (selector: string): PageFixtureStep => ({ selector, action: "wait" });
 const row = (key: string) => `[data-row-key="${key}"]`;
+const focusComputerUse: PageFixtureStep = {
+  selector: '[data-card="computer-use"] [data-action="palette.computerUse.accessibility"]',
+  action: "focus",
+};
 const customValues: Record<string, unknown> = Object.fromEntries(
   schema.rows.map((setting) => {
     let value: unknown = setting.default;
@@ -276,6 +280,29 @@ Object.assign(variants, {
       ],
     },
   }),
+  // Agents > Computer Use Setup (ComputerUseCard): off (grants unknown), every grant given, none.
+  // Focusing the card's first button scrolls it into view.
+  "computer-use-off": variant("agents", {
+    host: { ...host, computer_use: { phase: "off", accessibility: null, screen_recording: null, helper: null } },
+    steps: [wait('[data-card="computer-use"]'), focusComputerUse],
+    note: "Computer Use off: both grants Unknown, the card says to turn it on.",
+  }),
+  "computer-use-granted": variant("agents", {
+    host: {
+      ...host,
+      computer_use: { phase: "ready", accessibility: true, screen_recording: true, helper: "cmux Computer Use" },
+    },
+    steps: [wait('[data-card="computer-use"] [data-granted="true"]'), focusComputerUse],
+    note: "Computer Use ready: Accessibility and Screen Recording both allowed.",
+  }),
+  "computer-use-not-granted": variant("agents", {
+    host: {
+      ...host,
+      computer_use: { phase: "ready", accessibility: false, screen_recording: false, helper: "cmux Computer Use" },
+    },
+    steps: [wait('[data-card="computer-use"] [data-granted="false"]'), focusComputerUse],
+    note: "Computer Use ready but neither grant given: both rows say Not Allowed.",
+  }),
   "accounts-empty": variant("accounts", { accounts: accounts({}, { groups: [], signIn: "Sign in to cmux" }) }),
   "accounts-refreshing": variant("accounts", {
     accounts: accounts(
@@ -397,6 +424,7 @@ export default settingsPageEntry({
   covers: [
     "page:cmux.settings",
     "pages/settings/components/AccountsSection.tsx",
+    "pages/settings/components/ComputerUseCard.tsx",
     "pages/settings/components/ActionRow.tsx",
     "pages/settings/components/GhosttyDiagnostics.tsx",
     "pages/settings/components/GroupList.tsx",
