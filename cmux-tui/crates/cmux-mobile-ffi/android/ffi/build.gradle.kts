@@ -26,6 +26,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    // cargo-ndk already strips the .so files; AGP packs them as they are.
     sourceSets["main"].java.srcDir(requiredPath("uniffiKotlinDir"))
     sourceSets["main"].jniLibs.srcDir(requiredPath("jniLibsDir"))
 }
