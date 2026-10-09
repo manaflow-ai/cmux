@@ -126,6 +126,14 @@ struct BrowserReplKeyResendTests {
 
     /// Runs `body` with `-[NSApplication sendEvent:]` dropping WebKit's
     /// resend of an automated key, as the app's own `sendEvent` does.
+    ///
+    /// A test that expects an editing command to run needs it: the drop is
+    /// how the app learns a key was unhandled (`noteResent`). Without it the
+    /// outcome falls back to whether `NSApp.currentEvent` is still the key
+    /// when WebKit's callback runs, and the real `sendEvent` (key-equivalent
+    /// and Services matching) and other suites running on the main actor in
+    /// the same process can change that process-wide state first, so the
+    /// command was skipped on loaded or differently set up machines (CI).
     static func withAppDroppingResends(_ body: () async throws -> Void) async throws {
         _ = NSApplication.shared
         let selector = #selector(NSApplication.sendEvent(_:))
@@ -150,13 +158,15 @@ struct BrowserReplKeyResendTests {
     @Test(.enabled(if: BrowserReplKeyResendTests.webKitReportsKeyOutcome, Comment(rawValue: BrowserReplKeyResendTests.needsKeyOutcome)))
     func cmuxBrowserPressRunsAnEditingShortcutNoPageHandled() async throws {
         let webView = try await load("<input id=i value=abc><script>\(Self.countKeys)</script>")
-        try await press(["Meta", "a"], in: webView)
-        try await settle(webView, keys: 2)
-        #expect(webView.commands == ["selectAll:"])
-        // Without Command, a is just a key.
-        try await press(["a"], in: webView)
-        try await settle(webView, keys: 3)
-        #expect(webView.commands == ["selectAll:"])
+        try await Self.withAppDroppingResends {
+            try await press(["Meta", "a"], in: webView)
+            try await settle(webView, keys: 2)
+            #expect(webView.commands == ["selectAll:"])
+            // Without Command, a is just a key.
+            try await press(["a"], in: webView)
+            try await settle(webView, keys: 3)
+            #expect(webView.commands == ["selectAll:"])
+        }
     }
 
     /// Playwright picks a shortcut's command by the key's code and the
@@ -164,13 +174,8 @@ struct BrowserReplKeyResendTests {
     /// does not add Shift: `Meta+A` is Select All with `shiftKey` false, as
     /// `Meta+a` is. Only a Shift in the combo makes it `Shift+Meta+A`.
     ///
-    /// The key keeps its characters `A`, which AppKit's key-equivalent
-    /// matching reads as Command-Shift-A. So the test drops WebKit's resend
-    /// of the unhandled key as the app's `sendEvent` does: passed on to the
-    /// real `-[NSApplication sendEvent:]`, it would be matched against the
-    /// host's Services (Terminal's "Search man Page Index in Terminal" is
-    /// Command-Shift-A), which can take it, so the outcome would depend on
-    /// the machine running the test.
+    /// Like every test here that expects a command to run, it drops
+    /// WebKit's resend as the app's `sendEvent` does (`withAppDroppingResends`).
     @Test(.enabled(if: BrowserReplKeyResendTests.webKitReportsKeyOutcome, Comment(rawValue: BrowserReplKeyResendTests.needsKeyOutcome)))
     func anUppercaseLetterWithMetaRunsTheLowercaseShortcut() async throws {
         let webView = try await load("""
