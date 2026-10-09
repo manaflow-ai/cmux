@@ -9,6 +9,7 @@
  * guard compares that list with the tip's capability list, read from the cmux-tui source of the
  * checkout (`advertised_capabilities` and `identify_capabilities` in
  * cmux-tui-core/src/server/capabilities.rs), so it needs no VM and no binary. It fails when:
+ *   (The workflow reports by issue only; this script exits 1 so the report is explicit.)
  *   1. an image lacks a capability the tip always serves (at once: the push that adds a capability
  *      is when the image starts to fall behind);
  *   2. an image's capability set differs from the tip's and its cmux-tui commit is more than

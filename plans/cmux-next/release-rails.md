@@ -94,6 +94,13 @@ deploy's own credentials and refuses when a migration file of the commit is not 
 missing table, column or privilege. While the tracking table is absent or unreadable by
 the deploy role it warns and the schema check alone decides.
 
+**Development vars** (`worker-release.ts vars --base-config`, backend.yml deploy-development): the
+serving version's vars must equal wrangler.jsonc env.development.vars at the push's BEFORE commit
+(an all-zero BEFORE uses the parent of the feat-cmux-next head). A difference is drift (a var set
+out of band): refused, names only. When they match, the repo is the source: a var the pushed
+commits change (an image promotion, CLOUD_ALLOWED_TEAMS) deploys, and the step logs each change by
+name and plain value.
+
 **Post-deploy** (`worker-release.ts`): before the deploy it records the version serving
 100% (refuses during a gradual deployment); after it smokes `release-smoke.json` (routes
 without `sources` always, the others when a matching file changed). On red it runs
@@ -227,7 +234,8 @@ serves, when the set differs and the image's cmux-tui is more than 7 days older 
 commit, when an image has no recorded list, or when wrangler.jsonc boots an image the channel
 does not point at. On feat-cmux-next pushes that touch `cmux-tui/crates/`, the channels or
 wrangler.jsonc it keeps one `cloud-image-stale` issue up to date and closes it when the images
-match again. The daily schedule in the workflow is dormant until feat-cmux-next reaches main
+match again. The workflow job stays green (a warning only): staleness is not a code red and never
+blocks a landing. The daily schedule in the workflow is dormant until feat-cmux-next reaches main
 (GitHub schedules run only from the default branch). Fix: rebake from a published tip cmux-tui,
 smoke (`--expect-capabilities <bake json>` checks the fresh clone's handshake), record, promote.
 `web/scripts/cmux-vm-image/capabilities-probe.ts` reads an existing image's handshake on one clone.

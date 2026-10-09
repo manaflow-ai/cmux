@@ -1,6 +1,6 @@
 name: cloud image staleness
 
-# Fails when a Cloud VM image that a channel points at (images/cmux-vm/channels/*.json: the
+# Reports (one issue, never a red check) when a Cloud VM image that a channel points at (images/cmux-vm/channels/*.json: the
 # personal Cloud image and the team VM image) lacks a daemon capability the tip's cmux-tui
 # serves, or differs from the tip and is more than 7 days older (bead cx-4l51,
 # scripts/cmux-next/release/image-staleness.ts, plans/cmux-next/release-rails.md "Image
@@ -90,8 +90,8 @@ jobs:
             }
             if (open.data.length > 0) await github.rest.issues.update({ owner, repo, issue_number: open.data[0].number, body });
             else await github.rest.issues.create({ owner, repo, title: 'cmux-next Cloud VM image is behind the feat-cmux-next tip', labels: [label], body });
-      - name: Fail when an image is stale
+      # Issue only (lead decision 2026-10-09): image staleness is not a code red, so the job stays
+      # green and never blocks a landing; the cloud-image-stale issue is the signal.
+      - name: Warn when an image is stale
         if: steps.staleness.outcome != 'success'
-        run: |
-          echo "::error title=Cloud image stale::A channel image lacks tip daemon capabilities or has no capability record; see the report above."
-          exit 1
+        run: echo "::warning title=Cloud image stale::A channel image lacks tip daemon capabilities or has no capability record; see the report above and the cloud-image-stale issue."
