@@ -2,6 +2,8 @@
 //!
 //! - `_acpmux/chats {query?, harness?, folder?, account?, limit?, cursor?}`:
 //!   one page, newest first: `{ready, chats, nextCursor}`.
+//! - `_acpmux/settled {query?, harness?, folder?, account?, limit?, cursor?}`:
+//!   the same read-only history page, explicitly marked `settled: true`.
 //! - `_acpmux/chats_watch {enabled?, ...filter}`: the same page, then
 //!   `_acpmux/chat_changed {kind: upsert|removed, key, chat?}` for every
 //!   change on this connection (unfiltered; `_acpmux/chats_lagged` asks the
@@ -55,6 +57,10 @@ pub(super) async fn route(
         "_acpmux/chats" => {
             let query = ChatQuery::from_params(&params).map_err(RpcError::invalid_params)?;
             page(service, query).await
+        }
+        "_acpmux/settled" => {
+            let query = ChatQuery::from_params(&params).map_err(RpcError::invalid_params)?;
+            settled_page(service, query).await
         }
         "_acpmux/chats_watch" => {
             let on = params.get("enabled").and_then(Value::as_bool).unwrap_or(true);
@@ -163,6 +169,18 @@ async fn page(service: Option<Arc<ChatService>>, query: ChatQuery) -> Result<Val
         Ok(json!({"ready": true, "enabled": enabled, "chats": chats, "nextCursor": next}))
     })
     .await
+}
+
+/// The settled view is an explicit contract for clients that show device-wide
+/// history. It intentionally reuses the same index and filters as `_acpmux/chats`;
+/// the distinction is the UI disposition, not a second transcript store.
+async fn settled_page(
+    service: Option<Arc<ChatService>>,
+    query: ChatQuery,
+) -> Result<Value, RpcError> {
+    let mut page = page(service, query).await?;
+    page["settled"] = Value::Bool(true);
+    Ok(page)
 }
 
 /// The index lock may be held by a scan: never wait for it on the executor.

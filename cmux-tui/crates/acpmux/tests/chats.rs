@@ -357,6 +357,7 @@ async fn websocket_origins_never_get_chats() {
         let mut c = Client::new(&hub, origin);
         for m in [
             "_acpmux/chats",
+            "_acpmux/settled",
             "_acpmux/chats_watch",
             "_acpmux/chat_roots",
             "_acpmux/chat_roots_record",
