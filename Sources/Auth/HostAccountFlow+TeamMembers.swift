@@ -111,8 +111,12 @@ extension HostAccountFlow {
             return String(localized: "teamMembers.error.invalidEmail", defaultValue: "Enter at least one email address.")
         case TeamsClientError.invalidLinkOptions:
             return String(localized: "teamMembers.error.invalidLinkOptions", defaultValue: "Link expiry must be 1, 7 or 30 days and max uses at least 1.")
-        case TeamsClientError.backendUnreachable, TeamsClientError.sessionRefreshFailed:
+        case TeamsClientError.backendUnreachable:
             return String(localized: "teamMembers.error.offline", defaultValue: "cmux Cloud is unreachable. Check your connection and try again.")
+        case TeamsClientError.sessionRefreshFailed:
+            // The token read failed before any request left the Mac: a sign-in
+            // or sign-out still owned the session, or the token refresh failed.
+            return String(localized: "teamMembers.error.sessionRefresh", defaultValue: "Could not confirm your cmux sign-in. Try again in a moment.")
         case let TeamsClientError.api(code, _, message):
             return Self.teamAPIMessage(code: code, fallback: message)
         default:

@@ -137,4 +137,35 @@ struct CmuxTopProcessSnapshotCaptureCoordinatorTests {
         #expect(reader.state.withLock { $0.counts.scope } == 200)
     }
 
+    @MainActor
+    @Test("A slow fresh quit census returns at its deadline")
+    func freshQuitCensusReturnsAtDeadline() async {
+        let reader = SyntheticProcessSnapshotReader(count: 100)
+        let sampler = CmuxTopProcessSampler(reader: reader)
+        let began = AsyncStream<Void>.makeStream()
+        let release = AsyncStream<Void>.makeStream()
+        let service = ProcessSnapshotService<CmuxTopProcessCapture, CmuxTopProcessFields>(
+            capture: {
+                began.continuation.yield(())
+                var iterator = release.stream.makeAsyncIterator()
+                _ = await iterator.next()
+                return try sampler.capture()
+            },
+            enrich: { try sampler.enrich($0, fields: $1) }
+        )
+
+        let loadTask = Task {
+            await ProcessDetectedResumeIndexes.loadFreshWithDeadline(
+                processSnapshotService: service,
+                deadline: .milliseconds(1),
+                sleepUntilDeadline: { _ in true }
+            )
+        }
+        var iterator = began.stream.makeAsyncIterator()
+        _ = await iterator.next()
+
+        #expect(await loadTask.value == nil)
+        release.continuation.finish()
+    }
+
 }
