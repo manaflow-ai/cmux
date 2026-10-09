@@ -118,6 +118,28 @@ describe("turn footer", () => {
     await unmount();
   });
 
+  test("an authentication failure has plain copy and a Sign in again action", async () => {
+    let reauthenticated = 0;
+    const { container, unmount } = await render(
+      createElement(TurnFooter, {
+        row: {
+          ...summary,
+          status: "failed",
+          error: "Not logged in · Please run /login",
+        },
+      }),
+      { reauthenticate: () => (reauthenticated += 1) },
+    );
+    expect(container.querySelector(".cv-turn-note")?.textContent).toBe(
+      "Your sign-in expired. Sign in again to continue.",
+    );
+    const action = container.querySelector<HTMLButtonElement>(".cv-turn-auth-action")!;
+    expect(action.textContent).toBe("Sign in again");
+    await act(async () => action.click());
+    expect(reauthenticated).toBe(1);
+    await unmount();
+  });
+
   test("no Retry on an earlier turn, or while acpmux is unreachable", async () => {
     const earlier = await render(createElement(TurnFooter, { row: summary }), { retry: () => {} });
     expect(earlier.container.querySelector('button[aria-label="Retry"]')).toBeNull();
@@ -125,6 +147,33 @@ describe("turn footer", () => {
     const offline = await render(createElement(TurnFooter, { row: { ...summary, prompt: "fix it" } }), {});
     expect(offline.container.querySelector('button[aria-label="Retry"]')).toBeNull();
     await offline.unmount();
+  });
+
+  test("groups compact actions, uses small glyphs, and forks from the latest turn", async () => {
+    const forked: number[] = [];
+    const { container, unmount } = await render(
+      createElement(TurnFooter, { row: { ...summary, seq: 7, prompt: "fix it" } }),
+      { fork: (throughSeq) => forked.push(throughSeq), forkSeq: 7, retry: () => {} },
+    );
+    const group = container.querySelector<HTMLElement>(".cv-turn-action-group");
+    expect(group).not.toBeNull();
+    expect([...group!.querySelectorAll("button")].map((button) => button.getAttribute("aria-label"))).toEqual([
+      "Copy",
+      "Retry",
+      "Fork from here",
+    ]);
+    expect(group!.querySelectorAll(".cv-iconbtn--compact")).toHaveLength(3);
+    expect(
+      [...group!.querySelectorAll("svg")].map((svg) => [svg.getAttribute("width"), svg.getAttribute("height")]),
+    ).toEqual([
+      ["14", "14"],
+      ["14", "14"],
+      ["14", "14"],
+    ]);
+    expect(group!.nextElementSibling?.tagName).toBe("TIME");
+    await act(async () => group!.querySelector<HTMLButtonElement>('button[aria-label="Fork from here"]')!.click());
+    expect(forked).toEqual([7]);
+    await unmount();
   });
 });
 

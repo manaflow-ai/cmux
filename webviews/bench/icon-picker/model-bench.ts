@@ -84,7 +84,7 @@ function loadCatalog(): SymbolCatalog {
 const emoji = decodeEmojiTable(raw as RawEmojiTable);
 const catalog = loadCatalog();
 const store = new PickerStore({ emoji, titles: (id) => id });
-store.setColumns(9);
+store.setWidth(576);
 
 const result: Record<string, unknown> = {
   symbols: catalog.names.length,
@@ -92,8 +92,8 @@ const result: Record<string, unknown> = {
 };
 // The first session's catalog: build search items, categories and the multicolor set.
 result.configureMs = +time(() => store.configure(catalog, 170)).toFixed(3);
-// Open on the Symbols tab: the full category layout (every cell, laid out once).
-result.symbolTabMs = +time(() => store.setTab("symbol")).toFixed(3);
+// Open on the SF Symbols category: the full category layout (every cell, laid out once).
+result.symbolTabMs = +time(() => store.setCategory("sfSymbols")).toFixed(3);
 const layout = store.getSnapshot().layout;
 result.symbolCells = layout.items.length;
 result.symbolHeightPx = layout.height;
@@ -121,17 +121,19 @@ for (let top = 0; top < scrolled.height; top += 30) {
 }
 result.scrollStepModel = stats(steps);
 
-// Category jumps (jump bar) and keyboard moves.
+// Section jumps (Alt-Down) and keyboard moves.
 const jumps: number[] = [];
-for (const target of store.getSnapshot().jumps) jumps.push(time(() => store.jump(target.id)));
+for (const target of store.getSnapshot().layout.sections) jumps.push(time(() => store.jump(target.id)));
 result.jump = stats(jumps);
 const moves: number[] = [];
 for (let i = 0; i < 2000; i++) moves.push(time(() => moveActive(scrolled, i, i % 2 ? "down" : "right")));
 result.move = stats(moves);
 
-// Emoji tab for comparison (the page builds the emoji search text after its first frame).
+// All Categories (emoji and symbols in one grid; the page builds the emoji search text after its
+// first frame), and its keystrokes, which search both tables.
 warmSearch(emoji);
-store.reset("emoji");
+result.allCategoriesMs = +time(() => store.reset("emoji")).toFixed(3);
+result.allCells = store.getSnapshot().layout.items.length;
 const emojiKeys: number[] = [];
 for (const query of ["thumbs up", "cat", "いいね"]) {
   store.reset("emoji");

@@ -43,6 +43,10 @@ const click = (selector: string): PageFixtureStep => ({ selector, action: "click
 const input = (selector: string, value: string): PageFixtureStep => ({ selector, action: "input", value });
 const wait = (selector: string): PageFixtureStep => ({ selector, action: "wait" });
 const row = (key: string) => `[data-row-key="${key}"]`;
+const focusComputerUse: PageFixtureStep = {
+  selector: '[data-card="computer-use"] [data-action="palette.computerUse.accessibility"]',
+  action: "focus",
+};
 const customValues: Record<string, unknown> = Object.fromEntries(
   schema.rows.map((setting) => {
     let value: unknown = setting.default;
@@ -105,6 +109,26 @@ const longProfiles = longRows.map((r, i) => ({
   source: "Imported sample browser profile",
 }));
 Object.assign(variants, {
+  "agents-harnesses-registry": variant("agents", {
+    note: "Harnesses: found on PATH, a profile file, an installed ACP Registry agent, a terminal-only harness, and acpmux's problem text.",
+    harnesses: {
+      loading: false,
+      problem: null,
+      harnesses: [
+        { id: "claude", name: null, kind: "claude-stdio", source: "path", problem: null },
+        { id: "codex", name: null, kind: "acp", source: "path", problem: null },
+        { id: "cursor", name: null, kind: "acp", source: "path", problem: null },
+        { id: "github-copilot-cli", name: "GitHub Copilot", kind: "acp", source: "user-file", problem: null },
+        { id: "goose", name: null, kind: "acp", source: "registry", problem: null },
+        { id: "grok", name: null, kind: "acp", source: "path", problem: "Authentication required" },
+        { id: "aider", name: "Aider", kind: "terminal", source: "user-file", problem: null },
+      ],
+    },
+  }),
+  "agents-harnesses-unreachable": variant("agents", {
+    note: "Harnesses when the acpmux daemon did not answer.",
+    harnesses: { loading: false, problem: "unreachable", harnesses: [] },
+  }),
   backdrops: variant("experimental", {
     options: { values: { "appearance.experimentalControls": true, "appearance.background": "starryNight" } },
     host: {
@@ -276,6 +300,58 @@ Object.assign(variants, {
       ],
     },
   }),
+  // Agents > Computer Use Setup (ComputerUseCard): off (grants unknown), every grant given, none.
+  // Focusing the card's first button scrolls it into view.
+  "computer-use-off": variant("agents", {
+    host: { ...host, computer_use: { phase: "off", accessibility: null, screen_recording: null, helper: null } },
+    steps: [wait('[data-card="computer-use"]'), focusComputerUse],
+    note: "Computer Use off: both grants Unknown, the card says to turn it on.",
+  }),
+  "computer-use-granted": variant("agents", {
+    host: {
+      ...host,
+      computer_use: { phase: "ready", accessibility: true, screen_recording: true, helper: "cmux Computer Use" },
+    },
+    steps: [wait('[data-card="computer-use"] [data-granted="true"]'), focusComputerUse],
+    note: "Computer Use ready: Accessibility and Screen Recording both allowed.",
+  }),
+  "computer-use-not-granted": variant("agents", {
+    host: {
+      ...host,
+      computer_use: { phase: "ready", accessibility: false, screen_recording: false, helper: "cmux Computer Use" },
+    },
+    steps: [wait('[data-card="computer-use"] [data-granted="false"]'), focusComputerUse],
+    note: "Computer Use ready but neither grant given: both rows say Not Allowed.",
+  }),
+  // Settings > Agents > Agent Harnesses (BRING-YOUR-OWN-HARNESS).
+  "agents-harnesses": variant("agents", {
+    steps: [wait("[data-agent-harness]")],
+    note: "Every harness acpmux knows: kind, source, a probe problem; Check and Remove on user profiles.",
+  }),
+  "agents-add-custom": variant("agents", {
+    focus: "agents.add",
+    steps: [wait("[data-agents-custom]")],
+    note: "Add ACP Agent… (palette, the model picker's +): the custom command form.",
+  }),
+  "agents-add-registry": variant("agents", {
+    focus: "agents.registry",
+    steps: [wait("[data-registry-agent]")],
+    note: "Add Agent from ACP Registry…: one click per agent; Added when it is a harness, disabled when it cannot start here.",
+  }),
+  "agents-doctor": variant("agents", {
+    steps: [click('[data-agent-harness="acme-agent"] button'), wait("[data-agent-doctor]")],
+    note: "Check: the doctor's steps inline, a failed step with its fix, later steps skipped.",
+  }),
+  "agents-removed": variant("agents", {
+    steps: [click('[data-agent-harness="acme-agent"] button:last-of-type'), wait("output")],
+    note: "Remove moves the profile aside: Removed with Undo.",
+  }),
+  "agents-cli": variant("agents", {
+    agents: { manages: false },
+    steps: [wait("[data-agents-cli]")],
+    note: "An acpmux without the operations: the CLI commands, no Add, Check or Remove.",
+  }),
+  "agents-empty": variant("agents", { agents: { harnesses: [] }, note: "No harness: the empty line." }),
   "accounts-empty": variant("accounts", { accounts: accounts({}, { groups: [], signIn: "Sign in to cmux" }) }),
   "accounts-refreshing": variant("accounts", {
     accounts: accounts(
@@ -397,6 +473,8 @@ export default settingsPageEntry({
   covers: [
     "page:cmux.settings",
     "pages/settings/components/AccountsSection.tsx",
+    "pages/settings/components/ComputerUseCard.tsx",
+    "pages/settings/components/HarnessesCard.tsx",
     "pages/settings/components/ActionRow.tsx",
     "pages/settings/components/GhosttyDiagnostics.tsx",
     "pages/settings/components/GroupList.tsx",

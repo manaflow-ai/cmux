@@ -97,11 +97,11 @@ final class AppControl {
             // Window membership and the window invariants (no window
             // without a workspace).
             .mainActor("debug.windows") { [weak services] _ in
-                guard let services, let windows = services.windows else { return .value(.null) }
+                guard let services, case let windows = services.windows else { return .value(.null) }
                 guard case .object(var report) = WindowInvariants.report(windows) else { return .value(.null) }
                 // Every workspace the app closed or kept after it lost its
                 // last pane, with the cause (EmptyWorkspaceRepair).
-                report["emptied_workspaces"] = .array((services.emptyWorkspaces?.decisions ?? []).map {
+                report["emptied_workspaces"] = .array(services.emptyWorkspaces.decisions.map {
                     .object(["key": .string($0.key.rawValue), "cause": .string(String(describing: $0.cause))])
                 })
                 return .value(.object(report))
@@ -237,6 +237,11 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugPaletteCapture.capture(call.params, services: services))
             },
+            // `debug.palette.entries {scope?, path}`: writes the scope's ranker input (the
+            // palette-ranking eval fixture, plans/cmux-next/palette-ranking.md) to `path`.
+            .async("debug.palette.entries") { [weak services] call in
+                try await DebugPaletteEntries.write(call.params, services: services)
+            },
             .mainActor("debug.mouse") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugOmnibar.mouse(call.params, services: services))
@@ -309,6 +314,10 @@ final class AppControl {
             .mainActor("debug.menu") { [weak services] call in
                 .value(DebugExtensions.menu(call.params, presenter: services?.contextMenus))
             },
+            // The cookie import card on browser pages (cx-367y).
+            .mainActor("debug.cookie_prompt") { [weak services] call in
+                .value(services.map { DebugCookiePrompt.run(call.params, services: $0) } ?? .null)
+            },
             .mainActor("debug.onboarding") { [weak services] call in
                 .value(services.map { DebugOnboarding.run(call.params, services: $0) } ?? .null)
             },
@@ -353,6 +362,14 @@ final class AppControl {
                 if let enabled = call.params["enabled"] { mode.override = enabled.boolValue }
                 return .value(["enabled": .bool(mode.isEnabled), "override": mode.override.map { .bool($0) } ?? .null,
                                "system": .bool(ProcessInfo.processInfo.isLowPowerModeEnabled)])
+            },
+            // Reduce Transparency as overlays follow it (toasts, menus): `enabled: bool`
+            // overrides macOS for this app only, `enabled: null` follows macOS again.
+            .mainActor("debug.reduce_transparency") { call in
+                let mode = ReduceTransparency.shared
+                if let enabled = call.params["enabled"] { mode.override = enabled.boolValue }
+                return .value(["enabled": .bool(mode.isEnabled), "override": mode.override.map { .bool($0) } ?? .null,
+                               "system": .bool(NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency)])
             },
             .mainActor("debug.stall") { call in
                 let milliseconds = min(max(call.params["ms"]?.intValue ?? 100, 1), 1_000)

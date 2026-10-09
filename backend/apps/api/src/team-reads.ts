@@ -2,7 +2,7 @@ import type { Principal } from "@cmux/ownership"
 import type { TeamState } from "./domains/team.ts"
 import { complianceFor, devicePolicyFor, publicToken } from "./domains/team-enrollment.ts"
 import { POLICY_HISTORY_LIMIT, policyAt } from "./domains/team-policy.ts"
-import { sshCaView } from "./domains/team-ssh.ts"
+import { accountsView, sshCaView } from "./domains/team-ssh.ts"
 import type { ReadResult } from "./owner-do.ts"
 import { listHosts, listMembers, memberOf, type Member, type RowsWithScan } from "./domains/team-members.ts"
 
@@ -81,7 +81,30 @@ export const teamRead = (state: TeamState, op: string, params: unknown, principa
     case "team_vm.ssh_ca":
       // Public material only: CA public keys and the revocation list, for the team VM's sshd.
       return { ok: true, value: sshCaView(state.team?.id ?? "", state, Date.now()), revision: String(state.ssh_krl?.version ?? 0) }
+    case "team_vm.accounts": {
+      // The VM's reconciler (its own install) and the team's owners and admins; nobody else (deny by default).
+      const teamVm = principal.kind === "install" && principal.install_kind === "team-vm"
+      const admin = principal.kind === "session" && (member.role === "owner" || member.role === "admin")
+      if (!teamVm && !admin) return { ok: false, code: "auth.forbidden", message: "only the team VM and the team's owners and admins may read its Linux accounts" }
+      return { ok: true, value: accountsView(state.team?.id ?? "", state, (user) => memberOf(state, rows, user) !== undefined), revision: String(state.vm_next_uid ?? 0) }
+    }
     default:
       return { ok: false, code: "validation.invalid", message: `unknown read ${op}` }
   }
   }
+
+/**
+ * cx-n3fb: the team VM's own install reads `team_vm.accounts` only while it is the install TeamVmDO
+ * bound for the current epoch (`current`); an older epoch's install, another install or a team
+ * without a VM record is refused. An unreachable TeamVmDO fails closed. Null: the read may answer.
+ */
+export const teamVmAccountsFence = async (current: () => Promise<string | null>, principal: Principal, op: string): Promise<ReadResult | null> => {
+  if (op !== "team_vm.accounts" || principal.kind !== "install" || principal.install_kind !== "team-vm") return null
+  let install: string | null
+  try {
+    install = await current()
+  } catch {
+    return { ok: false, code: "owner.unreachable", message: "the team VM record did not answer; try again" }
+  }
+  return install !== null && install === principal.install ? null : { ok: false, code: "team_vm.stale_epoch", message: "this install is not the team VM's install for the current epoch" }
+}

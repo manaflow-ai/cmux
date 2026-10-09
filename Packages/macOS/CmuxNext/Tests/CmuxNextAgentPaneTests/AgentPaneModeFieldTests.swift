@@ -127,17 +127,17 @@ import Testing
         let rig = Rig()
         try await rig.start()
         defer { rig.server.stop() }
-        let fast: [String: Any] = ["method": "session/set_config_option", "params": ["configId": "fast", "value": true]]
+        let sandbox: [String: Any] = ["method": "session/set_config_option", "params": ["configId": "sandbox", "value": "off"]]
         // No sheet to show: refused.
         rig.model.onConfirmMode = nil
-        #expect(await rig.send("session/set_config_option", ["sessionId": "s", "configId": "fast", "value": true],
-                               ticket: await rig.ticket(fast)) == .modeNotConfirmed)
-        #expect(!daemonSaw(rig, "\"fast\""))
+        #expect(await rig.send("session/set_config_option", ["sessionId": "s", "configId": "sandbox", "value": "off"],
+                               ticket: await rig.ticket(sandbox)) == .modeNotConfirmed)
+        #expect(!daemonSaw(rig, "\"sandbox\""))
         // Confirmed: passes, and the sheet names the option and its value.
         let sheets = Sheets(on: rig.transport, reply: true)
-        #expect(await rig.send("session/set_config_option", ["sessionId": "s", "configId": "fast", "value": true],
-                               ticket: await rig.ticket(fast)) == nil)
-        #expect(sheets.requests == [.option(id: "fast", value: "true")])
+        #expect(await rig.send("session/set_config_option", ["sessionId": "s", "configId": "sandbox", "value": "off"],
+                               ticket: await rig.ticket(sandbox)) == nil)
+        #expect(sheets.requests == [.option(id: "sandbox", value: "off")])
         // A free option needs no sheet.
         let effort: [String: Any] = ["method": "session/set_config_option", "params": ["configId": "effort", "value": "high"]]
         #expect(await rig.send("session/set_config_option", ["sessionId": "s", "configId": "effort", "value": "high"],
@@ -157,14 +157,9 @@ import Testing
         #expect(sheets.asked == ["effort = high"])
     }
 
-    /// A non-mode option shows the option text; a mode keeps the mode text.
+    /// A named option shows the setting name and a readable value instead of wire identifiers.
     @Test func aNonModeOptionShowsTheOptionText() {
         let option = AgentPaneView.confirmationSpec(.option(id: "fast", value: "true"))
-        let mode = AgentPaneView.confirmationSpec(.mode("bypassPermissions"))
-        #expect(option.lines == [String(format: AgentPaneView.confirmOptionMessage, "fast", "true")])
-        #expect(mode.lines == [String(format: AgentPaneView.confirmModeMessage, "bypassPermissions")])
-        #expect(option.lines != mode.lines)
-        #expect(option.lines.first?.contains("fast") == true && option.lines.first?.contains("true") == true)
-        #expect(option.lines.first?.contains("bypassPermissions") == false)
+        #expect(option.lines == ["Change Fast mode to On? Paired devices could then run actions without asking."])
     }
 }

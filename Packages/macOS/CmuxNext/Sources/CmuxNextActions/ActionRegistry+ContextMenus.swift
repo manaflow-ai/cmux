@@ -54,12 +54,12 @@ extension ActionRegistry {
             case .separator:
                 if let last = items.last, !last.isSeparatorItem { items.append(.separator()) }
             case .action(let id):
+                let invocation = ActionInvocation(target: target, arguments: arguments)
                 guard let descriptor = descriptor(for: id), ActionFeature.turnedOff(descriptor, in: disabledFeatures) == nil, Self.isAvailable(descriptor, in: context),
-                      let item = makeMenuItem(for: id)
-                else { continue }
+                      !ActionTargetVisibility.isHidden(id, invocation: invocation, in: self), let item = makeMenuItem(for: id) else { continue }
                 item.representedObject = ActionMenuPayload(id: descriptor.id, target: target, arguments: arguments)
                 // Built per click: the item names the target's change (Pin or Unpin) and says why it is disabled.
-                ActionTargetTitles.decorate(item, id: descriptor.id, invocation: ActionInvocation(target: target, arguments: arguments), in: self)
+                ActionTargetTitles.decorate(item, id: descriptor.id, invocation: invocation, in: self)
                 // A menu-only short title (the palette keeps the action's title).
                 if let label = labels[id] { item.title = label }
                 items.append(item)

@@ -16,6 +16,7 @@ pub mod cookie_backups;
 pub mod driver;
 pub mod egress_proxy;
 pub mod egress_scope;
+pub mod egress_services;
 pub mod engines;
 pub mod fs_sandbox;
 pub mod gate;
@@ -23,6 +24,8 @@ pub mod gate;
 pub mod headless_activity;
 #[cfg(unix)]
 pub mod headless_configure;
+#[cfg(unix)]
+pub mod headless_linger;
 #[cfg(unix)]
 pub mod headless_routes;
 #[cfg(unix)]

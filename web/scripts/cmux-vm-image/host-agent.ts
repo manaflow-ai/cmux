@@ -51,6 +51,10 @@ export function hostUnit(envLines: readonly string[], storePath: string): string
     // restart of this unit (which takes the session host with it) keeps every terminal for
     // re-adoption by the next session host.
     "Environment=CMUX_TUI_HOST_SCOPES=systemd",
+    // The browser host the session host supervises refuses metadata, link-local and
+    // private ranges to every caller (cmux-browser-host egress_scope.rs); the image
+    // marker also turns it on, this keeps it on without the marker.
+    "Environment=CMUX_BROWSER_HOST_EGRESS=isolated",
     `Environment=PATH=${storePath}`,
     ...envLines,
     `ExecStart=${HOST_RUN}`,

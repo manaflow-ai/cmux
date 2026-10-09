@@ -96,6 +96,19 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+# Crash program phase 3 (plans/cmux-next/crash-elimination.md section 7):
+# CMUX_SWIFT_SANITIZE=address|thread|undefined builds and tests under that
+# sanitizer, in its own scratch folder so it never mixes with a normal build.
+case "${CMUX_SWIFT_SANITIZE:-}" in
+  ""|address|thread|undefined) ;;
+  *) echo "package-test-lane.sh: CMUX_SWIFT_SANITIZE must be address, thread or undefined (got '$CMUX_SWIFT_SANITIZE')" >&2; exit 2 ;;
+esac
+
+# A sanitizer runtime adds a C personality routine, and the Rust static libraries the app
+# links bring their own: ld's compact unwind encodes at most three ("Too many personality
+# routines", CmuxNext under thread, 2026-10-09). The test binary keeps DWARF unwind instead.
+sanitize_link_flags=(-Xlinker -no_compact_unwind)
+
 lane_script="${BASH_SOURCE[0]}"
 work="${RUNNER_TEMP:-}"
 if [ -z "$work" ]; then
@@ -288,6 +301,10 @@ package_args() {
     return 1
   fi
   swift_test_args=(--package-path "$pkgdir")
+  if [ -n "${CMUX_SWIFT_SANITIZE:-}" ]; then
+    swift_test_args+=(--sanitize="$CMUX_SWIFT_SANITIZE" --scratch-path "$pkgdir/.build-sanitize-$CMUX_SWIFT_SANITIZE"
+      "${sanitize_link_flags[@]}")
+  fi
 }
 
 # One package's build. It exits non-zero when the package is not found or its
@@ -521,6 +538,12 @@ run_suite() {
   # release suite build turns that one SIL pass off.
   if [ "${CMUX_SWIFT_SUITE_CONFIGURATION:-debug}" = release ]; then
     configuration+=(-Xswiftc -enable-testing -Xswiftc -DDEBUG -Xswiftc -Xllvm -Xswiftc -sil-disable-pass=copy-propagation)
+  fi
+  # CMUX_SWIFT_SANITIZE (crash program phase 3): the suites build and run under the sanitizer in
+  # its own scratch folder; the group line names it, so a sanitizer step's log shows it ran.
+  if [ -n "${CMUX_SWIFT_SANITIZE:-}" ]; then
+    configuration+=(--sanitize="$CMUX_SWIFT_SANITIZE" --scratch-path "$suite_package/.build-sanitize-$CMUX_SWIFT_SANITIZE"
+      "${sanitize_link_flags[@]}")
   fi
   if [ "$suite_package" = Packages/macOS/CmuxNext ]; then
     ensure_web_bundles

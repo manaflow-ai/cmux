@@ -88,6 +88,39 @@ run cut 139
 [[ "$status" == 139 ]] || fail "a crashed run exited $status, not 139" "$out"
 grep '^::error' <<<"$out" | grep -q 'crashesHere()' || fail "a crashed run does not name crashesHere()" "$out"
 
+# The test helper dies on a signal (signal 5 is a Swift runtime trap): the run
+# fails, one ::error names the signal and the crashed thread's frames from the
+# crash report written during the run, and that report is copied out for
+# upload. A report from before the run is neither read nor copied.
+reports="$TMP/DiagnosticReports"; crashes="$TMP/crashes"
+mkdir -p "$reports"
+printf '%s\n' '{"app_name":"swiftpm-testing-helper","bug_type":"309","name":"swiftpm-testing-helper"}' \
+  '{"exception":{"type":"EXC_BREAKPOINT","signal":"SIGTRAP"},"faultingThread":2,"usedImages":[{"name":"libswift_Concurrency.dylib"},{"name":"CmuxNextPackageTests"}],"threads":[{"frames":[{"imageIndex":1,"symbol":"idleThread"}]},{"frames":[]},{"triggered":true,"frames":[{"imageIndex":0,"symbol":"swift_task_checkIsolatedSwift"},{"imageIndex":1,"symbol":"KeyWindowObserver.windowWillClose(_:)"},{"imageIndex":1,"symbol":"closure #1 in BrowserPopupPanelThreadTests.anOpenerCloseNoticePostedOffMainClosesItsPopupsOnMain()"}]}]}' \
+  > "$reports/swiftpm-testing-helper-2026-10-09-021500.ips"
+printf '%s\n' '{"app_name":"swiftpm-testing-helper"}' '{"threads":[{"triggered":true,"frames":[{"imageIndex":0,"symbol":"anOldCrash"}]}],"usedImages":[{"name":"x"}]}' \
+  > "$reports/swiftpm-testing-helper-old.ips"
+touch -t 202001010000 "$reports/swiftpm-testing-helper-old.ips"
+cat > "$TMP/trap.out" <<'OUT'
+◇ Test anOpenerCloseNoticePostedOffMainClosesItsPopupsOnMain() started.
+◇ Test aPasses() started.
+✔ Test aPasses() passed after 0.001 seconds.
+error: Process '/Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/libexec/swift/pm/swiftpm-testing-helper --test-bundle-path /x/CmuxNextPackageTests.xctest/Contents/MacOS/CmuxNextPackageTests --testing-library swift-testing' exited with unexpected signal code 5
+OUT
+export CMUX_NEXT_CRASH_REPORTS_DIR="$reports" CMUX_NEXT_CRASH_OUT="$crashes"
+CMUX_NEXT_CRASH_WAIT_SECONDS=0 run trap 1
+unset CMUX_NEXT_CRASH_REPORTS_DIR CMUX_NEXT_CRASH_OUT
+[[ "$status" != 0 ]] || fail "a run whose test helper died on a signal exited 0" "$out"
+crash=$(grep '^::error title=cmux-next swift test crash' <<<"$out" || true)
+[[ -n "$crash" ]] || fail "no crash ::error line" "$out"
+grep -q 'signal 5' <<<"$crash" || fail "the crash error does not name signal 5" "$crash"
+grep -q 'BrowserPopupPanelThreadTests.anOpenerCloseNoticePostedOffMainClosesItsPopupsOnMain' <<<"$crash" \
+  || fail "the crash error does not name the crashed thread's test frame" "$crash"
+grep -q 'KeyWindowObserver.windowWillClose' <<<"$crash" || fail "the crash error does not list the trapping frame" "$crash"
+if grep -q 'idleThread\|anOldCrash' <<<"$crash"; then fail "the crash error read another thread or an old report" "$crash"; fi
+[[ -f "$crashes/swiftpm-testing-helper-2026-10-09-021500.ips" ]] || fail "the crash report was not copied out" "$(ls -la "$crashes" 2>&1)"
+[[ ! -e "$crashes/swiftpm-testing-helper-old.ips" ]] || fail "a report from before the run was copied" "$(ls "$crashes")"
+grep -q 'BrowserPopupPanelThreadTests' <<<"$summary" || fail "the step summary does not show the crashed thread" "$summary"
+
 # A run with no Swift Testing output at all (XCTest only, or no test matched
 # the filter) needs no summary line.
 printf 'Test Suite %s passed\n\t Executed 2 tests, with 0 failures\n' "'All tests'" > "$TMP/xctest.out"

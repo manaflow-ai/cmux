@@ -184,14 +184,57 @@ describe("acpmux composer pickers", () => {
     expect(doc.querySelector(".acpmux-model-effort")).toBeNull();
   });
 
-  test("the chip shows no effort for the agent's default level", async () => {
+  // Leo (dogfood 2026-10-08, A2): reasoning only where the model has levels to choose.
+  test("no reasoning control when the model offers only the agent's default", async () => {
     await render(
       snapshot({
         configOptions: [{ ...effort, currentValue: "default", options: [{ value: "default", name: "Default" }] }],
       }),
     );
     expect(button("Model")!.textContent).toContain("6 Astra");
+    expect(button("Effort")).toBeNull();
+  });
+
+  // Leo (dogfood 2026-10-08, A2): a small menu of the model's levels replaces the slider.
+  test("reasoning is a small menu of the model's levels, the current one checked", async () => {
+    await render({ ...snapshot({ configOptions: [effort] }), catalog: [] });
+    await act(async () => button("Effort")!.click());
+    expect(doc.querySelector(".acpmux-effort-range")).toBeNull();
+    const items = [...doc.querySelectorAll<HTMLElement>("[role=menu] [role=menuitemradio]")];
+    expect(items.map((item) => item.querySelector(".acpmux-menu-label")?.textContent)).toEqual(["Medium", "High"]);
+    expect(items[1]!.getAttribute("aria-checked")).toBe("true");
+    await act(async () => items[0]!.click());
+    expect(calls).toEqual(["effort reasoning_effort medium"]);
+    expect(doc.querySelector("[role=menu]")).toBeNull();
+  });
+
+  // Leo (dogfood 2026-10-08, A2): Claude's popover read "Default / Default" over the slider.
+  test("the agent's default level reads once, with no title over the levels", async () => {
+    await render({
+      ...snapshot({
+        configOptions: [
+          {
+            ...effort,
+            currentValue: "default",
+            options: [
+              { value: "default", name: "Default" },
+              { value: "low", name: "Low" },
+              { value: "high", name: "High" },
+            ],
+          },
+        ],
+      }),
+      catalog: [],
+    });
     expect(button("Effort")!.textContent).toContain("Reasoning");
+    await act(async () => button("Effort")!.click());
+    const menu = doc.querySelector<HTMLElement>("[role=menu]")!;
+    expect(
+      [...menu.querySelectorAll("[role=menuitemradio]")].map(
+        (item) => item.querySelector(".acpmux-menu-label")?.textContent,
+      ),
+    ).toEqual(["Default", "Low", "High"]);
+    expect(menu.textContent!.match(/Default/g)).toHaveLength(1);
   });
 
   test("the permission chip stays in the bar when Plan lives in the + menu", async () => {
@@ -271,7 +314,8 @@ describe("acpmux composer pickers", () => {
     expect(menu.textContent).toContain("Unrestricted");
   });
 
-  test("model rows keep a fixed order across openings and put the newest model nearest the anchor", async () => {
+  // cx-jqkx: newest first; older versions fold under "Older models" so a release is never below the fold.
+  test("model rows keep a fixed order across openings with the newest model first", async () => {
     const catalog = [
       {
         id: "codex",
@@ -291,8 +335,8 @@ describe("acpmux composer pickers", () => {
     await act(async () => model.click());
     const labels = () => [...doc.querySelectorAll(".acpmux-mp-row .acpmux-menu-label")].map((row) => row.textContent);
     const first = labels();
-    expect(first.at(-1)).toBe("6.1 Sol");
-    expect(first).toEqual(["6 Astra", "6 Luna", "6 Mini", "6 Nano", "6.1 Sol"]);
+    // Each name is its own line here (no catalog family), so every model is a newest one.
+    expect(first).toEqual(["6 Astra", "6.1 Sol", "6 Luna", "6 Mini", "6 Nano"]);
     await act(async () => model.click());
     await render(long({ model: "sol", configOptions: [effort] }));
     await act(async () => button("Model")!.click());
@@ -536,30 +580,13 @@ describe("acpmux composer pickers", () => {
     expect(doc.querySelector("[role=listbox]")).toBeNull();
   });
 
-  // The Mode and Model menus keep the focus on their chip while open and close when it leaves, so
-  // their own Escape handlers always get the key; the Effort popover moves it to its slider.
-  test("Escape closes the Effort popover wherever the focus is in the page", async () => {
-    // Without a model list the effort keeps a chip and popover of its own.
+  test("Escape closes the Effort menu without picking", async () => {
     await render({ ...snapshot({ configOptions: [effort] }), catalog: [] });
     await act(async () => button("Effort")!.click());
-    expect(doc.querySelector(".acpmux-effort-pop")).not.toBeNull();
-    // Focus left the slider (a click on the popover's title, or on the page around it).
-    await act(async () => (doc.activeElement as HTMLElement | null)?.blur());
-    expect(doc.activeElement).toBe(doc.body);
-    await key(doc.body, "Escape");
-    expect(doc.querySelector(".acpmux-effort-pop")).toBeNull();
-    expect(doc.activeElement).toBe(button("Effort"));
-    expect(calls).toEqual([]);
-  });
-
-  test("a click outside closes the Effort popover without picking", async () => {
-    await render({ ...snapshot({ configOptions: [effort] }), catalog: [] });
-    await act(async () => button("Effort")!.click());
-    expect(doc.querySelector(".acpmux-effort-pop")).not.toBeNull();
-    await act(async () => {
-      doc.body.dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true }));
-    });
-    expect(doc.querySelector(".acpmux-effort-pop")).toBeNull();
+    const menu = doc.querySelector<HTMLElement>("[role=menu]")!;
+    expect(menu).not.toBeNull();
+    await key(doc.activeElement ?? menu, "Escape");
+    expect(doc.querySelector("[role=menu]")).toBeNull();
     expect(calls).toEqual([]);
   });
 
@@ -588,7 +615,7 @@ describe("acpmux composer pickers", () => {
 
   test("the mode chip shows the current mode, with descriptions in its menu and the warning color for full access", async () => {
     await render(snapshot({ modes }));
-    expect(button("Mode")!.textContent).not.toContain("Ask for approval");
+    expect(button("Mode")!.textContent).toContain("Ask for approval");
     expect(doc.querySelector(".acpmux-mode.acpmux-unrestricted")).toBeNull();
     await act(async () => button("Mode")!.click());
     expect([...doc.querySelectorAll(".acpmux-menu-description")].map((node) => node.textContent)).toEqual([
@@ -599,6 +626,30 @@ describe("acpmux composer pickers", () => {
     await render(snapshot({ modes: { ...modes, currentModeId: "bypassPermissions" } }));
     expect(doc.querySelector(".acpmux-mode.acpmux-unrestricted")).not.toBeNull();
     expect(unrestricted("default")).toBe(false);
+  });
+
+  test("picking a mode updates the lock label at once and keeps the full-access warning in the menu", async () => {
+    const choices = {
+      currentModeId: "ask",
+      availableModes: [
+        { id: "ask", name: "Ask for approval", description: "Always ask" },
+        { id: "full-access", name: "Full access" },
+      ],
+    };
+    await render(snapshot({ modes: choices }));
+    const mode = button("Mode")!;
+    await act(async () => mode.click());
+    const full = [...doc.querySelectorAll<HTMLElement>("[role=menuitemradio]")].find((row) =>
+      row.textContent?.includes("Full access"),
+    )!;
+    expect(full.querySelector(".acpmux-menu-description")?.textContent).toBe(
+      "Can edit and run commands without asking",
+    );
+    await act(async () => full.click());
+    expect(calls).toEqual(["mode full-access"]);
+    expect(mode.textContent).toContain("Full access");
+    expect(mode.closest(".acpmux-mode")?.classList.contains("acpmux-unrestricted")).toBe(true);
+    expect(doc.querySelector("[role=menu]")).toBeNull();
   });
 
   test("Plan is a toggle apart from the permission chip, and leaving it restores the permission mode", async () => {
@@ -649,6 +700,19 @@ describe("acpmux composer pickers", () => {
     expect(doc.querySelector(".acpmux-context-ring")).toBeNull();
   });
 
+  // Dogfood 2026-10-08 ("this button does not work yet"): before the first usage update the
+  // ring opened "0% used" over an empty bar. It keeps its place (no shift when usage arrives) but
+  // is disabled until there is something to show.
+  test("before its first usage the context ring holds its place but opens nothing", async () => {
+    await render(snapshot());
+    const ring = () => doc.querySelector<HTMLButtonElement>("button.acpmux-context-ring")!;
+    expect(ring().disabled).toBe(true);
+    await act(async () => ring().click());
+    expect(doc.querySelector(".acpmux-context-pop")).toBeNull();
+    await render(snapshot({ usage: { used: 34000, size: 200000 } }));
+    expect(ring().disabled).toBe(false);
+  });
+
   test("a click on the context ring opens the usage details and Compact", async () => {
     let compacted = 0;
     const withCompact = (summary: Parameters<typeof snapshot>[0], isWorking = false) => ({
@@ -685,12 +749,46 @@ describe("acpmux composer pickers", () => {
     await act(async () => pop()!.querySelector<HTMLButtonElement>(".acpmux-context-compact")!.click());
     expect(compacted).toBe(1);
     expect(pop()).toBeNull();
-    // Without the agent's compact command there is no Compact; before any usage there are no token counts.
-    await render(snapshot({}), { onCompact });
+    // Without the agent's compact command there is no Compact.
+    await render(snapshot({ usage: { used: 34000, size: 200000 } }), { onCompact });
     await act(async () => doc.querySelector<HTMLButtonElement>("button.acpmux-context-ring")!.click());
     expect(pop()!.querySelector(".acpmux-context-compact")).toBeNull();
-    expect(pop()!.querySelector(".acpmux-context-percent")!.textContent).toBe("0% used");
-    expect(pop()!.querySelector(".acpmux-context-tokens")).toBeNull();
+  });
+
+  test("the context details split the agent's setup from the conversation once the chat has it", async () => {
+    const pop = () => doc.querySelector(".acpmux-context-pop");
+    const rows = () =>
+      [...pop()!.querySelectorAll(".acpmux-context-part")].map((row) => [
+        row.querySelector(".acpmux-context-part-name")!.textContent,
+        row.querySelector(".acpmux-context-part-tokens")!.textContent,
+      ]);
+    const open = async () => {
+      const ring = doc.querySelector<HTMLButtonElement>("button.acpmux-context-ring")!;
+      if (ring.getAttribute("aria-expanded") !== "true") await act(async () => ring.click());
+    };
+    // The first reading of a new chat is the system prompt, the tools and the instructions,
+    // plus the first message: 25.3K of 258.4K after "a" on Codex.
+    await render(snapshot({ sessionId: "fresh", turnCount: 1, usage: { used: 25_300, size: 258_400 } }));
+    await open();
+    expect(rows()).toEqual([
+      ["Agent setup", "25.3K"],
+      ["Conversation", "0"],
+    ]);
+    expect(pop()!.querySelector(".acpmux-context-part-detail")!.textContent).toBe(
+      "System prompt, tools and instructions",
+    );
+    // Later turns add to the conversation; the setup stays what it was.
+    await render(snapshot({ sessionId: "fresh", turnCount: 3, usage: { used: 40_000, size: 258_400 } }));
+    await open();
+    expect(rows()).toEqual([
+      ["Agent setup", "25.3K"],
+      ["Conversation", "14.7K"],
+    ]);
+    // A chat first seen mid-way (resumed) has no first reading, so no split.
+    await render(snapshot({ sessionId: "resumed", turnCount: 6, usage: { used: 90_000, size: 258_400 } }));
+    await open();
+    expect(pop()!.querySelector(".acpmux-context-part")).toBeNull();
+    expect(pop()!.querySelector(".acpmux-context-tokens")!.textContent).toBe("90K of 258.4K tokens");
   });
 });
 
@@ -869,7 +967,7 @@ describe("acpmux composer queue", () => {
     }
   });
 
-  test("with a session's place shown, the queue sits on the context tray and the tray on the box", async () => {
+  test("with a session's place shown, the queue sits on the card and the place is the card's footer row", async () => {
     const root = createRoot(doc.getElementById("root")!);
     try {
       await act(async () =>
@@ -885,8 +983,11 @@ describe("acpmux composer queue", () => {
           }),
         ),
       );
+      const box = doc.querySelector(".acpmux-composer-box")!;
+      expect(box.lastElementChild!.classList.contains("acpmux-composer-context")).toBe(true);
+      expect(box.previousElementSibling!.classList.contains("acpmux-composer-queue")).toBe(true);
       const tray = doc.querySelector(".acpmux-composer-context")!;
-      expect(tray.previousElementSibling!.classList.contains("acpmux-composer-box")).toBe(true);
+      expect(tray.parentElement?.classList.contains("acpmux-composer-box")).toBe(true);
     } finally {
       await act(async () => root.unmount());
     }

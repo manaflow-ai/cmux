@@ -353,27 +353,27 @@
   "programs": [
     {
       "name": "cmux-tui",
-      "version": "3c15962b154c9ade130c53d1bdbf9e57d1d7dc3b",
-      "url": "https://files.cmux.com/cmux-tui/3c15962b154c9ade130c53d1bdbf9e57d1d7dc3b/cmux-tui-x86_64-unknown-linux-musl",
-      "sha256": "9d53ecfc80b519eda692d6925eaf19ebbad029d051823331fa3f971f5e4545fb",
-      "size": 75292160,
+      "version": "8c3b646e7e4b0cd49ef0e636b69e3624cfb0bdaf",
+      "url": "https://files.cmux.com/cmux-tui/8c3b646e7e4b0cd49ef0e636b69e3624cfb0bdaf/cmux-tui-x86_64-unknown-linux-musl",
+      "sha256": "b3e7af754906960970425d03df10d2b436b758258afc13899dc9a290d2262dd8",
+      "size": 75469616,
       "format": "raw",
       "fileName": "cmux-tui",
       "bin": { "cmux": "cmux-tui", "cmux-tui": "cmux-tui" },
       "versionArgs": ["--version"],
-      "source": "https://files.cmux.com/cmux-tui/3c15962b154c9ade130c53d1bdbf9e57d1d7dc3b/manifest.json (cmux-tui-artifacts run 37722498343, branch cmux-tui-pin-3c15962b154c; contains 65477c3b1ce4, the cmux host Cloud agent role, and 3c15962b154c, host key comment root@<hostname>, bead cx-3bi.29; contains a97f64d1e118 systemd host scopes, cx-4eho, and 9778585eda79, cx-h8n)"
+      "source": "https://files.cmux.com/cmux-tui/8c3b646e7e4b0cd49ef0e636b69e3624cfb0bdaf/manifest.json (cmux-tui-artifacts run 37857104843, branch cmux-tui-pin-8c3b646e7e4b; contains dba6445a8753 the team VM account reconciler and cmux team restricted-shell, and d3fa8796dee7)"
     },
     {
       "name": "cmux-tui-hook",
-      "version": "3c15962b154c9ade130c53d1bdbf9e57d1d7dc3b",
-      "url": "https://files.cmux.com/cmux-tui/3c15962b154c9ade130c53d1bdbf9e57d1d7dc3b/cmux-tui-hook-x86_64-unknown-linux-musl",
-      "sha256": "d91751d9458da3e190ae35e4e05583c3d4b4a9046f013ad3e8075e4245c0a188",
-      "size": 3622776,
+      "version": "8c3b646e7e4b0cd49ef0e636b69e3624cfb0bdaf",
+      "url": "https://files.cmux.com/cmux-tui/8c3b646e7e4b0cd49ef0e636b69e3624cfb0bdaf/cmux-tui-hook-x86_64-unknown-linux-musl",
+      "sha256": "6c0e5e74dd7194fdb3136deec5e967042e83e9ced1d2aea2a30d38c8f131f387",
+      "size": 3616584,
       "format": "raw",
       "fileName": "cmux-tui-hook",
       "bin": { "cmux-tui-hook": "cmux-tui-hook" },
       "versionArgs": [],
-      "source": "https://files.cmux.com/cmux-tui/3c15962b154c9ade130c53d1bdbf9e57d1d7dc3b/manifest.json (cmux-tui-artifacts run 37722498343, branch cmux-tui-pin-3c15962b154c; contains 65477c3b1ce4, the cmux host Cloud agent role, and 3c15962b154c, host key comment root@<hostname>, bead cx-3bi.29; contains a97f64d1e118 systemd host scopes, cx-4eho, and 9778585eda79, cx-h8n)"
+      "source": "https://files.cmux.com/cmux-tui/8c3b646e7e4b0cd49ef0e636b69e3624cfb0bdaf/manifest.json (cmux-tui-artifacts run 37857104843, branch cmux-tui-pin-8c3b646e7e4b; contains dba6445a8753 the team VM account reconciler and cmux team restricted-shell, and d3fa8796dee7)"
     },
     {
       "name": "coderouter",

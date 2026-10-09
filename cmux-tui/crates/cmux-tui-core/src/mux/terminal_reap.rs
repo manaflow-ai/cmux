@@ -217,16 +217,25 @@ impl Mux {
         if self.control_clients.attach_observation(&[runtime_view]).0 {
             return Ok(ReapOutcome::Attached);
         }
+        // ARCHIVE-1: capture the screen and the running program before the
+        // close stops it; store them only if the close commits (a terminal
+        // placed or kept again in between keeps running, unarchived).
+        let archives = public_id
+            .as_ref()
+            .and_then(|public_id| self.terminal_resource_surface(public_id))
+            .map(|runtime| self.capture_terminal_archives(&[runtime]))
+            .unwrap_or_default();
         match self.close_terminal_guarded(
             terminal_id,
             None,
             None,
             None,
-            &WorkspaceMutation::local(TERMINAL_REAP_MUTATION_ORIGIN),
+            &WorkspaceMutation::daemon_local(TERMINAL_REAP_MUTATION_ORIGIN),
             TerminalCloseGuard::UnplacedAndNotKept,
         ) {
             Ok(result) => {
                 if !result.already_closed {
+                    self.store_terminal_archives(archives);
                     self.emit(MuxEvent::TerminalReaped {
                         terminal_id: terminal_id.to_string(),
                         terminal: public_id.map(|public_id| public_id.as_str().to_string()),
@@ -329,6 +338,9 @@ impl Mux {
     }
 
     fn end_terminals(&self, keep_layout: bool) -> anyhow::Result<Vec<String>> {
+        // Reconnects of terminals that are about to end must not schedule a
+        // session checkpoint (nx-scale S4); see mux/journal_retention.rs.
+        let _teardown = self.begin_terminal_teardown();
         let terminals = self.workspace_registry.lock().unwrap().terminal_snapshot()?.terminals;
         // The workspace store records every kept tab before any terminal
         // ends, so no exit can remove one (invariant 3 of
@@ -336,30 +348,51 @@ impl Mux {
         let kept = if keep_layout { self.record_kept_tabs(&terminals)? } else { HashSet::new() };
         let mut ended = Vec::new();
         let mut failures = Vec::new();
+        let mut to_close = Vec::new();
         for terminal in terminals {
             if terminal.lifecycle == TerminalLifecycle::Tombstoned {
                 continue;
             }
-            let outcome = if kept.contains(&terminal.terminal_id) {
-                self.end_terminal_keeping_tabs(&terminal)
-            } else {
-                self.close_terminal_with_mutation(
-                    &terminal.terminal_id,
-                    None,
-                    None,
-                    None,
-                    &WorkspaceMutation::local(END_TERMINALS_MUTATION_ORIGIN),
-                )
-                .map(|_| ())
-            };
-            match outcome {
+            if !kept.contains(&terminal.terminal_id) {
+                to_close.push(terminal.terminal_id);
+                continue;
+            }
+            match self.end_terminal_keeping_tabs(&terminal) {
                 Ok(()) => ended.push(terminal.terminal_id),
                 Err(error) => failures.push(format!("{}: {error}", terminal.terminal_id)),
             }
         }
+        // One projection and one commit for every terminal with a runtime
+        // (O(N), nx-scale 1b); the per-terminal close takes the rest.
+        let mutation = WorkspaceMutation::daemon_local(END_TERMINALS_MUTATION_ORIGIN);
+        let one_by_one = match self.end_terminals_in_one_commit(&to_close, &mutation) {
+            Ok(batch) => {
+                ended.extend(batch.ended);
+                batch.remaining
+            }
+            Err(error) => {
+                eprintln!("cmux-tui: batched end_terminals failed; ending one by one: {error:#}");
+                to_close
+            }
+        };
+        for terminal_id in one_by_one {
+            match self.close_terminal_with_mutation(
+                &terminal_id,
+                None,
+                None,
+                None,
+                &WorkspaceMutation::daemon_local(END_TERMINALS_MUTATION_ORIGIN),
+            ) {
+                Ok(_) => ended.push(terminal_id),
+                Err(error) => failures.push(format!("{terminal_id}: {error}")),
+            }
+        }
         // Every host was asked to exit in parallel; wait for them so the
         // caller can rely on no host outliving this call.
-        let drained = self.wait_for_terminal_host_closes(Instant::now() + TERMINAL_HOST_CLOSE_WAIT);
+        let drained = self.wait_for_terminal_host_closes(
+            TERMINAL_HOST_CLOSE_WAIT,
+            Instant::now() + END_TERMINALS_CLOSE_CEILING,
+        );
         if !failures.is_empty() && !kept.is_empty() {
             // The handoff is cancelled and the daemon keeps serving: a
             // terminal that did not end must not keep a keep-layout record,
@@ -506,6 +539,10 @@ impl Mux {
         registry.any_kept_tab(&tab_ids)
     }
 }
+
+/// Longest `end_all_terminals` waits for a progressing host-close pool
+/// before it kills the survivors; the CLI allows the whole call 120 s.
+const END_TERMINALS_CLOSE_CEILING: Duration = Duration::from_secs(60);
 
 /// How long `end_all_terminals` waits for hosts that outlived their close
 /// deadline to die after `SIGKILL`.
@@ -780,7 +817,7 @@ mod tests {
             None,
             None,
             None,
-            &WorkspaceMutation::local("test-cleanup"),
+            &WorkspaceMutation::daemon_local("test-cleanup"),
         )
         .unwrap();
         mux.close_surface(scratch.id).unwrap();
@@ -863,7 +900,7 @@ mod tests {
             usize::MAX,
             None,
             None,
-            &WorkspaceMutation::local("test-terminal-reap-projection"),
+            &WorkspaceMutation::daemon_local("test-terminal-reap-projection"),
         )
         .unwrap();
         assert!(mux.reap_unplaced_terminals(&mut schedule, start + grace).is_empty());
@@ -878,7 +915,7 @@ mod tests {
             None,
             None,
             None,
-            &WorkspaceMutation::local("test-cleanup"),
+            &WorkspaceMutation::daemon_local("test-cleanup"),
         )
         .unwrap();
         mux.close_surface(scratch.id).unwrap();

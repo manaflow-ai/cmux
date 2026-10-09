@@ -299,9 +299,8 @@ fn size_loop_retries_with_the_cut_and_keeps_the_shortest() {
     let long = "é".repeat(300); // 600 bytes
     match size_check(std::slice::from_ref(&long)) {
         SizeCheck::Retry(msg) => {
-            assert!(msg.starts_with(
-                "Too long: your line is 600 bytes, over the 512-byte limit. Write\n"
-            ));
+            assert!(msg
+                .starts_with("Too long: your last line for this <input> was 600 bytes,\nover the 512-byte limit."));
             assert!(msg.ends_with("| ← LIMIT"));
             assert_eq!(cut_at_bytes(&long, 512).len(), 512);
         }
@@ -331,7 +330,10 @@ fn compactor_prompt_is_selectable_and_defaults_to_taelins() {
     assert!(taelin.starts_with(
         "You are Chief, an AI agent that works for one user in a single chat that never\nends."
     ));
-    assert!(taelin.contains("\n# Compactions\n"), "one prompt for turns and compactions");
+    assert!(
+        taelin.contains("\n# Compactions\n"),
+        "one prompt for turns and compactions"
+    );
     assert!(!taelin.contains("{agent}"), "every placeholder is filled");
     assert_eq!(
         taelin,
@@ -480,7 +482,9 @@ fn a_huge_message_is_cut_for_its_summary_call_only_and_the_line_says_so() {
     memory.append();
     let whole = compact_request(&memory, &store, NodeId::new(0, 0), String::new()).unwrap();
     assert_eq!(whole.cut, None);
-    assert!(whole.step.ends_with(&format!("{}\n</input>", "w".repeat(STEP_MESSAGE))));
+    assert!(whole
+        .step
+        .ends_with(&format!("{}\n</input>", "w".repeat(STEP_MESSAGE))));
     assert_eq!(finish_line(&whole, "tool: x"), "tool: x");
 }
 
@@ -492,7 +496,7 @@ fn the_size_loop_measures_a_cut_line_against_its_reduced_room() {
     let reply = "x".repeat(480);
     match size_check_in(std::slice::from_ref(&reply), room) {
         SizeCheck::Retry(text) => assert!(
-            text.starts_with("Too long: your line is 480 bytes, over the 450-byte limit."),
+            text.starts_with("Too long: your last line for this <input> was 480 bytes,\nover the 450-byte limit."),
             "{text}"
         ),
         other => panic!("{other:?}"),
@@ -734,4 +738,59 @@ fn a_compactor_call_with_a_missing_line_is_refused() {
     store.nodes.borrow_mut().remove(&gone);
     let leaf = compact_request(&memory, &store, NodeId::new(0, 4), String::new());
     assert_eq!(leaf.err(), Some(MissingNode(gone)));
+}
+
+/// Compactor width (hq-6d gap 3c): a burst of long messages (an import, a
+/// tool-heavy turn) starts 64 model calls at once, as the reference client
+/// does (64 jobs, 64 leaves ahead), not 8.
+#[test]
+fn a_burst_of_long_messages_starts_64_compactions_at_once() {
+    let store = Mem::default();
+    let mut memory = Memory::new(VIEW);
+    for k in 0..100 {
+        store.push(Kind::Echo, format!("message {k} {}", "x".repeat(700)));
+        memory.append();
+    }
+    let models = memory
+        .pump(&store)
+        .iter()
+        .filter(|w| matches!(w, Work::Model { .. }))
+        .count();
+    assert_eq!(models, 64);
+    assert_eq!(memory.busy().count(), 64);
+}
+
+/// hq-6d (measured 2026-10-09, 33 node inputs, Haiku 5.5 medium, two runs):
+/// a task that asks for about 400 bytes, well inside the 512-byte limit,
+/// and retries as fresh calls held 94-97% of nodes to at most one retry
+/// (75-88% before) at 20% less cost. The task says so, and the retry
+/// note names the last line (the reference client's wording).
+#[test]
+fn the_task_aims_well_inside_the_limit_and_the_note_names_the_last_line() {
+    let mut memory = Memory::new(VIEW);
+    let store = Mem::default();
+    for _ in 0..2 {
+        store.push(Kind::Echo, "z".repeat(5_000));
+        memory.append();
+    }
+    let leaf = compact_request(&memory, &store, NodeId::new(0, 1), String::new()).unwrap();
+    assert!(
+        leaf.step.contains("aim for about 400 bytes"),
+        "{}",
+        leaf.step
+    );
+    drain(&mut memory, &store);
+    store.push(Kind::Echo, "z".repeat(5_000));
+    memory.append();
+    store.push(Kind::Echo, "z".repeat(5_000));
+    memory.append();
+    drain(&mut memory, &store);
+    let tries = vec!["x".repeat(600)];
+    match size_check_in(&tries, NODE) {
+        SizeCheck::Retry(note) => assert!(
+            note.starts_with("Too long: your last line for this <input> was 600 bytes"),
+            "{note}"
+        ),
+        other => panic!("{other:?}"),
+    }
 }

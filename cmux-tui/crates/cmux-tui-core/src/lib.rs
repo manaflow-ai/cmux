@@ -14,7 +14,9 @@ pub mod backoff;
 mod browser;
 pub mod browser_host;
 mod browser_provider;
-pub mod cloud_conversations;
+/// The cloud conversations proxy; its own crate, re-exported at the old path.
+pub use cmux_tui_cloud_conversations as cloud_conversations;
+mod conversation_drafts;
 mod conversation_search;
 mod conversation_store;
 pub mod daemon_env;
@@ -58,6 +60,7 @@ mod resource_router;
 mod resource_screen;
 mod resource_selector;
 mod resource_tab;
+mod scripts;
 mod session_shutdown;
 mod shell_history;
 mod shell_integration;
@@ -72,29 +75,41 @@ mod surface;
 mod terminal_backend;
 mod terminal_end;
 #[cfg(unix)]
+mod terminal_loss_cause;
+#[cfg(unix)]
 mod terminal_loss_log;
 mod terminal_metadata;
 pub mod terminal_respawn_text;
-#[cfg(windows)]
-mod windows_processes;
 mod workspace_registry;
 
+#[cfg(unix)]
+use cmux_tui_platform::host_exe;
 pub mod layout;
-pub mod platform;
-pub mod process_resources;
+/// OS primitives; the cmux-tui-platform crate, re-exported at the old paths.
+pub use cmux_tui_platform::platform;
+#[cfg(unix)]
+use cmux_tui_platform::process_identity;
+pub use cmux_tui_platform::process_resources;
 pub mod server;
+pub mod session_state_import;
 pub mod terminal_host;
 pub mod terminal_host_protocol;
 pub mod terminal_host_runtime;
 #[cfg(unix)]
-pub mod unix_process_scope;
+pub use cmux_tui_platform::unix_process_scope;
+pub mod user_settings;
 
 pub use agent_hooks::{
     AGENT_HOOK_MANIFEST_VERSION, AGENT_HOOK_PRODUCER_ID, agent_hook_journal_ingress,
     stamp_agent_hook_observed_now,
 };
 pub use browser::{BrowserFailure, TRANSPORT_SAFE_CAPTURE_MEGAPIXELS, normalize_url};
+/// The owner raises its open-file soft limit at start; terminal hosts and
+/// PTY children get the original back (`cmux_pty::open_files`).
+#[cfg(unix)]
+pub use cmux_pty::{OPEN_FILE_LIMIT_CEILING, OpenFileLimit, raise_open_file_limit};
 pub use event_bus::{MuxEventBroadcaster, MuxEventReceiver};
+pub(crate) use journal_ingress::contention::JournalContention;
 pub use journal_ingress::{FrontendFocusTarget, FrontendJournalEvent};
 pub use journal_plugin::{JournalPluginOptions, JournalPluginRuntime};
 pub use layout::{
@@ -147,10 +162,10 @@ pub use surface::{
 };
 pub use surface::{apply_terminal_color_overrides, default_child_term};
 pub use workspace_registry::{
-    FrontendProjection, JournalAppendCommit, JournalAuthority, JournalCheckpoint, JournalClass,
-    JournalContentRef, JournalEventSchema, JournalHookDeliveryPolicy, JournalHookExec,
-    JournalHookFilter, JournalHookManifest, JournalHookRegex, JournalHookRetry, JournalIngress,
-    JournalProducer, JournalProducerManifest, JournalReplayPolicy, JournalSegment,
+    Actor, FrontendProjection, JournalAppendCommit, JournalAuthority, JournalCheckpoint,
+    JournalClass, JournalContentRef, JournalEventSchema, JournalHookDeliveryPolicy,
+    JournalHookExec, JournalHookFilter, JournalHookManifest, JournalHookRegex, JournalHookRetry,
+    JournalIngress, JournalProducer, JournalProducerManifest, JournalReplayPolicy, JournalSegment,
     JournalSensitivity, JournalSubject, PersistentSessionStateReset,
     PersistentSessionStateResetPreview, PersistentSessionStateResetter, ProjectionCommit,
     RegistryCommit, RegistryEvent, RegistrySnapshot, RegistryWorkspace, SessionJournalPage,
@@ -158,7 +173,6 @@ pub use workspace_registry::{
 };
 
 pub use cmux_remote_protocol::{REMOTE_CLIENT_MESSAGE_MAX_BYTES, REMOTE_SESSION_MESSAGE_MAX_BYTES};
-pub use cmux_tui_cdp::BrowserMode;
 pub use ghostty_vt::{CursorShape, Rgb};
 
 pub type SurfaceId = u64;

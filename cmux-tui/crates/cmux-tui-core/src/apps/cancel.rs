@@ -171,6 +171,7 @@ impl Supervisor {
         }
         let Some((app, wire)) = call.wire.clone() else { return outs };
         let Some(server) = inner.servers.get_mut(&app) else { return outs };
+        server.user_ops.remove(&wire);
         let Some(pending) = server.pending.remove(&wire) else { return outs };
         let queued = server.queued.len();
         server.queued.retain(|(id, _)| *id != wire);

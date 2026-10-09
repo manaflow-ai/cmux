@@ -246,6 +246,7 @@ pub(crate) fn spawn(
             {
                 return Err(io::Error::last_os_error());
             }
+            crate::open_files::restore_open_file_limit_in_child()?;
             mark_inherited_descriptors_close_on_exec(&descriptor_cleanup)?;
             Ok(())
         });

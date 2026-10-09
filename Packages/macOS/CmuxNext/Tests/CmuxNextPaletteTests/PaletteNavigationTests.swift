@@ -4,7 +4,7 @@ import CmuxNextPalette
 import Testing
 
 /// The palette's navigation state machine, driven by key commands.
-@Suite struct PaletteNavigationTests {
+@Suite(.paletteRanker) struct PaletteNavigationTests {
     final class Log {
         var events: [String] = []
     }

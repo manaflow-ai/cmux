@@ -46,6 +46,7 @@
 //!     }
 //!   },
 //!   "agents": {
+//!     "screen_detection": true,
 //!     "plugin": {
 //!       "id": "example_agent_screen_detection",
 //!       "command": ["/path/to/agent-plugin"],
@@ -69,13 +70,7 @@
 //!     }
 //!   },
 //!   "browser": {
-//!     "chrome_binary": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-//!     "mode": "headful",
 //!     "cdp_url": "http://127.0.0.1:9222",
-//!     "discover": false,
-//!     "discover_ports": [9222],
-//!     "user_data_dir": "/Users/me/Library/Application Support/cmux-tui/chrome-profile",
-//!     "ephemeral": false,
 //!     "max_capture_megapixels": 2.0,
 //!     "capture_scale": null
 //!   },
@@ -149,9 +144,9 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::cli::BIN;
+use cmux_tui_core::SidebarPluginOptions;
 use cmux_tui_core::TRANSPORT_SAFE_CAPTURE_MEGAPIXELS;
 use cmux_tui_core::platform;
-use cmux_tui_core::{BrowserMode, SidebarPluginOptions};
 use cmux_tui_core::{CursorShape, DefaultColors, Rgb};
 use cmux_tui_core::{DEFAULT_SCROLLBACK_LIMIT_BYTES, SurfaceOptions};
 
@@ -191,7 +186,7 @@ struct RawConfig {
     #[serde(default)]
     sidebar: RawSidebar,
     #[serde(default)]
-    agents: RawAgents,
+    agents: crate::agent_plugin_config::RawAgents,
     #[serde(default)]
     machine_sidebar: RawMachineSidebar,
     #[serde(default)]
@@ -638,22 +633,6 @@ struct RawSidebarPlugin {
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct RawAgents {
-    /// Optional background process that reports generic agent journal events.
-    plugin: Option<RawAgentPlugin>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawAgentPlugin {
-    id: Option<String>,
-    command: Option<Vec<String>>,
-    cwd: Option<String>,
-    revision: Option<String>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
 struct RawMachineSidebar {
     enabled: Option<bool>,
     width: Option<u16>,
@@ -765,31 +744,23 @@ impl<'de> Deserialize<'de> for RawMachine {
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawBrowser {
-    chrome_binary: Option<String>,
-    mode: Option<ConfigBrowserMode>,
     cdp_url: Option<String>,
-    discover: Option<bool>,
-    discover_ports: Option<Vec<u16>>,
-    user_data_dir: Option<String>,
-    ephemeral: Option<bool>,
     max_capture_megapixels: Option<f64>,
     capture_scale: Option<f64>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-enum ConfigBrowserMode {
-    Headful,
-    Headless,
-}
-
-impl From<ConfigBrowserMode> for BrowserMode {
-    fn from(mode: ConfigBrowserMode) -> Self {
-        match mode {
-            ConfigBrowserMode::Headful => BrowserMode::Headful,
-            ConfigBrowserMode::Headless => BrowserMode::Headless,
-        }
-    }
+    // Compatibility keys of the removed Chrome launcher (cx-2u5k, cx-kyn5):
+    // older files keep loading whatever these hold; they select nothing.
+    #[serde(rename = "chrome_binary")]
+    _chrome_binary: Option<serde::de::IgnoredAny>,
+    #[serde(rename = "mode")]
+    _mode: Option<serde::de::IgnoredAny>,
+    #[serde(rename = "discover")]
+    _discover: Option<serde::de::IgnoredAny>,
+    #[serde(rename = "discover_ports")]
+    _discover_ports: Option<serde::de::IgnoredAny>,
+    #[serde(rename = "user_data_dir")]
+    _user_data_dir: Option<serde::de::IgnoredAny>,
+    #[serde(rename = "ephemeral")]
+    _ephemeral: Option<serde::de::IgnoredAny>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -1572,13 +1543,7 @@ fn resolve_sidebar_view_specs(
 
 #[derive(Debug, Clone)]
 pub struct Browser {
-    pub chrome_binary: Option<String>,
-    pub mode: BrowserMode,
     pub cdp_url: Option<String>,
-    pub discover: bool,
-    pub discover_ports: Vec<u16>,
-    pub user_data_dir: Option<String>,
-    pub ephemeral: bool,
     pub max_capture_megapixels: f64,
     pub capture_scale: Option<f64>,
 }
@@ -1586,13 +1551,7 @@ pub struct Browser {
 impl Default for Browser {
     fn default() -> Self {
         Browser {
-            chrome_binary: None,
-            mode: BrowserMode::Headful,
             cdp_url: None,
-            discover: false,
-            discover_ports: vec![9222],
-            user_data_dir: None,
-            ephemeral: false,
             max_capture_megapixels: TRANSPORT_SAFE_CAPTURE_MEGAPIXELS,
             capture_scale: None,
         }
@@ -3512,39 +3471,9 @@ pub fn load() -> Config {
             });
         }
     }
-    if let Some(plugin) = raw.agents.plugin {
-        if let Some(id) = plugin.id {
-            // Do not filter later argv entries. An empty value can be meaningful
-            // to a plugin, while an empty executable must still disable config.
-            let command = plugin.command.unwrap_or_default();
-            if command.first().is_none_or(|arg| arg.trim().is_empty()) {
-                crate::client_log::stderr_log!(
-                    "config",
-                    "{BIN}: ignoring agents.plugin with empty command"
-                );
-            } else {
-                let options = cmux_tui_core::JournalPluginOptions {
-                    id,
-                    command,
-                    cwd: plugin.cwd.filter(|cwd| !cwd.trim().is_empty()),
-                    revision: plugin.revision.filter(|revision| !revision.trim().is_empty()),
-                };
-                if let Err(error) = options.validate() {
-                    crate::client_log::stderr_log!(
-                        "config",
-                        "{BIN}: ignoring invalid agents.plugin: {error}"
-                    );
-                } else {
-                    config.agents.plugin = Some(options);
-                }
-            }
-        } else {
-            crate::client_log::stderr_log!(
-                "config",
-                "{BIN}: ignoring agents.plugin without an explicit id"
-            );
-        }
-    }
+    // An explicit agents.plugin wins; otherwise the bundled screen detector
+    // beside this daemon runs unless agents.screen_detection is false.
+    config.agents.plugin = crate::agent_plugin_config::agent_plugin_for_this_daemon(raw.agents);
     if let Some(enabled) = raw.machine_sidebar.enabled {
         config.machine_sidebar.enabled = enabled;
     }
@@ -3859,21 +3788,7 @@ pub fn load() -> Config {
         };
         config.machines.push(MachineConfig { id, name, subtitle: machine.subtitle, target });
     }
-    config.browser.chrome_binary = raw.browser.chrome_binary.filter(|s| !s.trim().is_empty());
-    if let Some(mode) = raw.browser.mode {
-        config.browser.mode = mode.into();
-    }
     config.browser.cdp_url = raw.browser.cdp_url.filter(|s| !s.trim().is_empty());
-    if let Some(discover) = raw.browser.discover {
-        config.browser.discover = discover;
-    }
-    if let Some(ports) = raw.browser.discover_ports {
-        config.browser.discover_ports = ports;
-    }
-    config.browser.user_data_dir = raw.browser.user_data_dir.filter(|s| !s.trim().is_empty());
-    if let Some(ephemeral) = raw.browser.ephemeral {
-        config.browser.ephemeral = ephemeral;
-    }
     if let Some(megapixels) = raw.browser.max_capture_megapixels {
         if megapixels.is_finite()
             && megapixels > 0.0
@@ -4068,13 +3983,7 @@ fn normalize_ssh_machine_port(id: &str, port: Option<u16>) -> Option<u16> {
 }
 
 pub fn apply_browser_to_surface_options(config: &Config, options: &mut SurfaceOptions) {
-    options.chrome_binary = config.browser.chrome_binary.clone();
-    options.browser_mode = config.browser.mode;
     options.cdp_url = config.browser.cdp_url.clone();
-    options.browser_discover = config.browser.discover;
-    options.browser_discover_ports = config.browser.discover_ports.clone();
-    options.browser_user_data_dir = config.browser.user_data_dir.clone();
-    options.browser_ephemeral = config.browser.ephemeral;
     options.browser_max_capture_megapixels = config.browser.max_capture_megapixels;
     options.browser_capture_scale = config.browser.capture_scale;
 }
@@ -4109,8 +4018,18 @@ fn agent_in_title(tabs: &Tabs, title: &str) -> Option<String> {
 }
 
 fn load_raw_config() -> RawConfig {
+    // A config that exists but cannot be read leaves the user's agents choice
+    // unknown, so the bundled screen detector stays off (agent_plugin_config).
+    let unreadable = || RawConfig {
+        agents: crate::agent_plugin_config::RawAgents::invalid(),
+        ..RawConfig::default()
+    };
     let Some(path) = platform::config_path() else { return RawConfig::default() };
-    let Ok(text) = read_config_text(&path) else { return RawConfig::default() };
+    let text = match read_config_text(&path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return RawConfig::default(),
+        Err(_) => return unreadable(),
+    };
     let value: Value = match serde_json::from_str(&text) {
         Ok(value) => value,
         Err(e) => {
@@ -4120,7 +4039,7 @@ fn load_raw_config() -> RawConfig {
                 config_diagnostic(&e),
                 path.display(),
             );
-            return RawConfig::default();
+            return unreadable();
         }
     };
     let Some(object) = value.as_object() else {
@@ -4129,7 +4048,7 @@ fn load_raw_config() -> RawConfig {
             "{BIN}: ignoring invalid config {}: root must be an object",
             path.display()
         );
-        return RawConfig::default();
+        return unreadable();
     };
     const KNOWN: &[&str] = &[
         "theme",
@@ -4154,21 +4073,25 @@ fn load_raw_config() -> RawConfig {
             "{BIN}: ignoring invalid config {}: unknown top-level field `{unknown}`",
             path.display()
         );
-        return RawConfig::default();
+        return unreadable();
     }
     let mut raw = RawConfig::default();
+    // An invalid section keeps its defaults, or `$invalid` when given.
     macro_rules! section {
-        ($field:ident, $name:literal) => {
+        ($field:ident, $name:literal $(, $invalid:expr)?) => {
             if let Some(value) = object.get($name) {
                 match serde_json::from_value(value.clone()) {
                     Ok(parsed) => raw.$field = parsed,
-                    Err(error) => crate::client_log::stderr_log!(
-                        "config",
-                        "{BIN}: ignoring invalid `{}` section in {}: {}",
-                        $name,
-                        path.display(),
-                        error
-                    ),
+                    Err(error) => {
+                        crate::client_log::stderr_log!(
+                            "config",
+                            "{BIN}: ignoring invalid `{}` section in {}: {}",
+                            $name,
+                            path.display(),
+                            error
+                        );
+                        $(raw.$field = $invalid;)?
+                    }
                 }
             }
         };
@@ -4176,7 +4099,8 @@ fn load_raw_config() -> RawConfig {
     section!(theme, "theme");
     section!(tabs, "tabs");
     section!(sidebar, "sidebar");
-    section!(agents, "agents");
+    // An unreadable agents section must not turn the bundled detector on.
+    section!(agents, "agents", crate::agent_plugin_config::RawAgents::invalid());
     section!(machine_sidebar, "machine_sidebar");
     section!(machine_provider, "machine_provider");
     section!(machines, "machines");
@@ -6041,11 +5965,11 @@ fn overlay_ghostty_defaults(defaults: &mut DefaultColors, overrides: DefaultColo
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     #[cfg(unix)]
     use crate::test_exec::write_executable;
     use ratatui::buffer::CellWidth;
     use std::cell::{Cell, RefCell};
+    use {super::*, crate::local_actor::TuiMuxOps};
 
     #[test]
     fn config_diagnostics_do_not_echo_parser_details() {
@@ -8260,6 +8184,41 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn unreadable_agents_settings_keep_the_bundled_detector_off() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old = (std::env::var_os("CMUX_TUI_CONFIG"), std::env::var_os("CMUX_MUX_CONFIG"));
+        let directory = TestDirectory::new("agents-invalid");
+        let (bin, path) = (directory.path.join("bin"), directory.path.join("mux.json"));
+        std::fs::create_dir(&bin).unwrap();
+        write_executable(bin.join("cmux-agent-screen-detection"), "#!/bin/sh\n");
+        let mut plugin_ids = Vec::new();
+        for text in [
+            "{}",
+            r#"{"agents":{"plugin":{"id":"mine","command":"/opt/mine"}}}"#,
+            r#"{"agents":{"plugin":{"id":"mine","command":["/opt/mine"],"bogus":1}}}"#,
+            r#"{"agents":{"screen_detection":"false"}}"#,
+            r#"{"agents":{"screen_detection":false"#,
+            "[]",
+            r#"{"not_a_section":{}}"#,
+        ] {
+            std::fs::write(&path, text).unwrap();
+            // SAFETY: environment mutation is serialized by CONFIG_ENV_LOCK.
+            unsafe {
+                std::env::remove_var("CMUX_TUI_CONFIG");
+                std::env::set_var("CMUX_MUX_CONFIG", &path);
+            }
+            let config = crate::agent_plugin_config::with_test_daemon_dir(&bin, load);
+            plugin_ids.push(config.agents.plugin.map(|plugin| plugin.id));
+        }
+        restore_env_var("CMUX_TUI_CONFIG", old.0);
+        restore_env_var("CMUX_MUX_CONFIG", old.1);
+        let mut expected = vec![None; 7];
+        expected[0] = Some("cmux_screen_detection".to_string());
+        assert_eq!(plugin_ids, expected, "only a readable config may enable the bundled detector");
+    }
+
     #[test]
     fn zero_static_ssh_port_falls_back_to_the_ssh_default() {
         assert_eq!(normalize_ssh_machine_port("mini", Some(0)), None);
@@ -8706,20 +8665,36 @@ mod tests {
         );
     }
 
+    /// The launcher keys (cx-kyn5) select nothing any more: an old file with
+    /// any value in them still loads, and the live browser keys beside them
+    /// stay in effect instead of the whole section being discarded.
     #[test]
-    fn browser_mode_defaults_headful_parses_headless_and_rejects_invalid_values() {
-        let raw: RawConfig = serde_json::from_str(r##"{}"##).unwrap();
-        assert!(raw.browser.mode.is_none());
-        assert_eq!(Browser::default().mode, BrowserMode::Headful);
-
-        let raw: RawConfig =
-            serde_json::from_str(r##"{"browser": {"mode": "headless"}}"##).unwrap();
-        assert_eq!(raw.browser.mode.map(BrowserMode::from), Some(BrowserMode::Headless));
-
-        let err = serde_json::from_str::<RawConfig>(r##"{"browser": {"mode": "stealth"}}"##)
-            .unwrap_err()
-            .to_string();
-        assert!(err.contains("unknown variant `stealth`"), "{err}");
+    fn compatibility_browser_keys_are_ignored_whatever_their_value() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir = TestDirectory::new("browser-compat-keys");
+        let path = dir.path.join("cmux-tui.json");
+        std::fs::write(
+            &path,
+            r##"{"browser":{"mode":"stealth","chrome_binary":7,"discover":"yes","discover_ports":[1],"user_data_dir":"/x","ephemeral":true,"max_capture_megapixels":1.0,"capture_scale":0.5}}"##,
+        )
+        .unwrap();
+        let old = std::env::var_os("CMUX_TUI_CONFIG");
+        unsafe { std::env::set_var("CMUX_TUI_CONFIG", &path) };
+        let config = load();
+        restore_env_var("CMUX_TUI_CONFIG", old);
+        assert_eq!(config.browser.max_capture_megapixels, 1.0);
+        assert_eq!(config.browser.capture_scale, Some(0.5));
+        // A key the browser section never had is still rejected (the section
+        // falls back to its defaults).
+        std::fs::write(&path, r##"{"browser":{"typo":1,"max_capture_megapixels":1.0}}"##).unwrap();
+        let old = std::env::var_os("CMUX_TUI_CONFIG");
+        unsafe { std::env::set_var("CMUX_TUI_CONFIG", &path) };
+        let config = load();
+        restore_env_var("CMUX_TUI_CONFIG", old);
+        assert_eq!(
+            config.browser.max_capture_megapixels,
+            Browser::default().max_capture_megapixels
+        );
     }
 
     #[test]
@@ -8727,14 +8702,20 @@ mod tests {
         let _guard = CONFIG_ENV_LOCK.lock().unwrap();
         let dir = TestDirectory::new("section-recovery");
         let path = dir.path.join("cmux-tui.json");
-        std::fs::write(&path, r##"{"theme":{"sidebar_rail":42},"browser":{"mode":"stealth"}}"##)
-            .unwrap();
+        std::fs::write(
+            &path,
+            r##"{"theme":{"sidebar_rail":42},"browser":{"max_capture_megapixels":"big"}}"##,
+        )
+        .unwrap();
         let old = std::env::var_os("CMUX_TUI_CONFIG");
         unsafe { std::env::set_var("CMUX_TUI_CONFIG", &path) };
         let config = load();
         restore_env_var("CMUX_TUI_CONFIG", old);
         assert_eq!(config.theme.sidebar_rail, Color::Indexed(42));
-        assert_eq!(config.browser.mode, BrowserMode::Headful);
+        assert_eq!(
+            config.browser.max_capture_megapixels,
+            Browser::default().max_capture_megapixels
+        );
     }
 
     #[test]

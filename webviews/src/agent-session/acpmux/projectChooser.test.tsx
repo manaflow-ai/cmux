@@ -48,6 +48,7 @@ afterAll(() => {
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { ComposerContext } = await import("./ComposerContext");
+const { webKitPress } = await import("./popoverTriggerTesting");
 
 const sessions: AcpmuxSnapshot["sessions"] = [
   { sessionId: "local", cwd: "/Users/me/code/cmux", host: "This Mac", hostKind: "local" },
@@ -239,6 +240,23 @@ test("with no folder the button reads Choose folder in the same face, and its me
   expect(menuItems()).toEqual(["Choose folder…"]);
 });
 
+test("an agent-home chat never shows its UUID folder: the button reads Choose folder and the menu leaves it out", async () => {
+  const home = "/Users/me/Library/Application Support/cmux/agent-home/6b16a112-289d-4467-9675-8e6feee99481";
+  const chats = [{ sessionId: "old", cwd: `${home}/`, hostKind: "local" as const }];
+  await render({ cwd: home }, false, [], chats);
+  const button = folderButton();
+  expect(button.textContent).toBe("Choose folder");
+  await act(async () => button.click());
+  expect(folderRows()).toEqual([]);
+  expect(menuItems()).toEqual(["Choose folder…"]);
+  // Once the chat started there is no folder to name or pick: only the computer shows.
+  await render({ cwd: home, turnCount: 1 }, true, undefined, chats);
+  expect([...doc.querySelectorAll(".acpmux-location-readonly")].map((label) => label.textContent)).toEqual([
+    "This Mac",
+  ]);
+  expect(doc.querySelector(".acpmux-composer-context")?.textContent).not.toContain("6b16a112");
+});
+
 test("a long folder name is cut with an ellipsis on one line, and the tooltip keeps the full path", async () => {
   const cwd = "/Users/me/code/a-really-long-project-folder-name-that-overflows-the-row";
   await render({ cwd }, false, [{ cwd, label: "a-really-long-project-folder-name-that-overflows-the-row" }]);
@@ -350,4 +368,62 @@ test("a started chat's computer stays a label, with no connect rows", async () =
     ),
   );
   expect(doc.querySelector('[aria-label="Computer"]')).toBeNull();
+});
+
+// Dogfood 2026-10-08 (09): a started chat's folder picker offered only its own folder, so
+// choosing went nowhere. It lists the project folders and ends with Choose folder…, and a choice
+// moves the chat.
+test("a started chat's folder picker lists the folders and Choose folder…, and a choice moves the chat", async () => {
+  const moved: string[] = [];
+  await act(async () =>
+    root.render(
+      createElement(ComposerContext, {
+        summary: { sessionId: "s", cwd: "/Users/me/code/cmux", host: "This Mac", hostKind: "local", turnCount: 1 },
+        sessions,
+        started: true,
+        projectChoices: freshFolders,
+        onMove: (cwd: string) => moved.push(cwd),
+        onBrowseFolder: async () => "/Users/me/Downloads",
+      }),
+    ),
+  );
+  const options = () =>
+    [...doc.querySelectorAll<HTMLElement>('.acpmux-location-menu [role="option"]')].map(
+      (row) => row.querySelector(".acpmux-menu-label")?.textContent,
+    );
+  const choose = () => doc.querySelector<HTMLButtonElement>(".acpmux-location-menu .acpmux-location-choose");
+  await act(async () => folderButton().click());
+  expect(options()).toEqual(["cmux", "relay"]);
+  expect(choose()?.textContent).toBe("Choose folder…");
+  await act(async () => doc.querySelectorAll<HTMLElement>('.acpmux-location-menu [role="option"]')[1]!.click());
+  expect(moved).toEqual(["/Users/me/Projects/relay"]);
+  await act(async () => folderButton().click());
+  await act(async () => choose()!.click());
+  expect(moved).toEqual(["/Users/me/Projects/relay", "/Users/me/Downloads"]);
+  expect(doc.querySelector(".acpmux-location-menu")).toBeNull();
+});
+
+// Cursor review (#18715): WebKit's press on Choose folder… blurs the folder field first (it never
+// focuses a clicked button), and the field's blur closed the picker before the click arrived.
+test("Choose folder… pressed as WebKit delivers the press still opens the folder dialog", async () => {
+  const moved: string[] = [];
+  await act(async () =>
+    root.render(
+      createElement(ComposerContext, {
+        summary: { sessionId: "s", cwd: "/Users/me/code/cmux", host: "This Mac", hostKind: "local", turnCount: 1 },
+        sessions,
+        started: true,
+        projectChoices: freshFolders,
+        onMove: (cwd: string) => moved.push(cwd),
+        onBrowseFolder: async () => "/Users/me/Downloads",
+      }),
+    ),
+  );
+  await act(async () => folderButton().click());
+  const choose = doc.querySelector<HTMLButtonElement>(".acpmux-location-menu .acpmux-location-choose")!;
+  // The folder field has the keyboard while the picker is open.
+  await act(async () => doc.querySelector<HTMLInputElement>(".acpmux-location-menu input")!.focus());
+  await webKitPress(dom.window as never, act as never, choose);
+  await act(async () => {});
+  expect(moved).toEqual(["/Users/me/Downloads"]);
 });

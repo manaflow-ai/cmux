@@ -310,6 +310,9 @@ impl ClipboardReads {
             return false;
         }
         let Some(owner) = state.owners.last() else { return false };
+        // The sixty seconds start before the owner can see the read, so the
+        // deadline never trails the request it bounds.
+        let deadline = self.shared.clock.now() + CLIPBOARD_READ_TIMEOUT;
         let frame =
             Frame::new(MessageKind::ClipboardReadRequest, encode_clipboard_read_request(request));
         let client = owner.client;
@@ -321,7 +324,6 @@ impl ClipboardReads {
         } {
             return false;
         }
-        let deadline = self.shared.clock.now() + CLIPBOARD_READ_TIMEOUT;
         state.open = Some(OpenClipboardRead { token: request.token, client, deadline });
         self.shared.changed.notify_all();
         true

@@ -20,11 +20,20 @@ pub(super) fn split_tab(
     respawn: Option<SplitRespawnRequest>,
     transaction: Option<String>,
 ) -> anyhow::Result<crate::TabDragOutcome> {
+    let actor = origin_gate::connection_actor(mux, client);
     match respawn {
-        None => mux.move_tab_to_split(surface, pane, edge, ratio, transaction),
+        None => mux.move_tab_to_split_as(&actor, surface, pane, edge, ratio, transaction),
         Some(respawn) => {
             let respawn = respawn.into_respawn(frontend_shell(mux, client))?;
-            mux.move_tab_to_split_respawning(surface, pane, edge, ratio, respawn, transaction)
+            mux.move_tab_to_split_respawning_as(
+                &actor,
+                surface,
+                pane,
+                edge,
+                ratio,
+                respawn,
+                transaction,
+            )
         }
     }
 }

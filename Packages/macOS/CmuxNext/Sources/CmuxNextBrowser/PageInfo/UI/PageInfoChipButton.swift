@@ -32,7 +32,7 @@ final class PageInfoChipButton: NSView {
         addSubview(text)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
-        density.update { [unowned self] in apply() }
+        density.update { [weak self] in self?.apply() }
         density.start()
     }
 

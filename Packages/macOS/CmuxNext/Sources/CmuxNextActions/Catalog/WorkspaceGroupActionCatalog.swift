@@ -74,6 +74,13 @@ nonisolated enum WorkspaceGroupActionCatalog: ActionCatalogGroup {
                 targets: [.workspaceGroup], cliName: "workspace-group clear-icon"
             ),
             ActionDescriptor(
+                id: "workspaceGroup.copyID",
+                title: String(localized: "action.workspaceGroup.copyID", defaultValue: "Copy Workspace Group ID", bundle: .module),
+                keywords: ["group", "identifier", "id"], category: .workspace, symbol: "doc.on.doc", surfaces: [.palette, .contextMenu],
+                targets: [.workspaceGroup],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.clipboard), contextMenus: [ActionSurfaceCatalog.p(.workspaceGroup, .inspect, 401, folder: .copy)])
+            ),
+            ActionDescriptor(
                 id: "workspaceGroup.collapse",
                 title: String(localized: "action.workspaceGroup.collapse", defaultValue: "Collapse Workspace Group", bundle: .module),
                 keywords: ["group"], category: .workspace, symbol: "chevron.right", surfaces: [.palette],

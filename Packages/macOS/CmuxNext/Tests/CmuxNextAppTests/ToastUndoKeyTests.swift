@@ -22,7 +22,7 @@ struct ToastUndoKeyTests {
     }
 
     @Test func commandZRunsTheNewestUndoToast() {
-        let router = KeyOwnershipMatrixTests.services().keyRouter!
+        let router = KeyOwnershipMatrixTests.services().keyRouter
         let toasts = CmuxToastCenter(clock: ManualClock(), host: CmuxToastHeadlessHost())
         router.undoToasts = toasts
         let window = Self.window()
@@ -38,7 +38,7 @@ struct ToastUndoKeyTests {
     }
 
     @Test func withoutAnUndoToastCommandZIsNotTaken() {
-        let router = KeyOwnershipMatrixTests.services().keyRouter!
+        let router = KeyOwnershipMatrixTests.services().keyRouter
         let toasts = CmuxToastCenter(clock: ManualClock(), host: CmuxToastHeadlessHost())
         router.undoToasts = toasts
         let window = Self.window()

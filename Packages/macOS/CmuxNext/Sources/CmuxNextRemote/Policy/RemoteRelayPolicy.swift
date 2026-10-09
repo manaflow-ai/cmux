@@ -80,14 +80,14 @@ public struct RemoteRelayPolicy: Sendable {
         for key in params.keys.sorted() where Self.commandParams.contains(key) {
             return .deny(.commandParam(key))
         }
-        for key in params.keys.sorted() {
+        for (key, value) in params.sorted(by: { $0.key < $1.key }) {
             guard let kind = Self.idKind(key) else { continue }
             let owners: Set<String> = switch kind {
             case .workspace: owned.workspaces
             case .surface: owned.surfaces
             case .tab: owned.tabs
             }
-            for id in Self.strings(params[key]!) where !owners.contains(id) {
+            for id in Self.strings(value) where !owners.contains(id) {
                 return .deny(.unownedTarget(key, id))
             }
         }

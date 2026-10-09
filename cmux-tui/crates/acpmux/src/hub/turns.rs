@@ -174,6 +174,12 @@ impl Hub {
         let text = prompt_text(&blocks);
         let running = session.turn();
         let steer_now = steer && session.steering.load(Ordering::SeqCst) && running.is_some();
+        if steer && opts.steer_only && !steer_now {
+            return Err(RpcError::invalid_params(
+                "steer.unavailable: the session has no running turn that its agent can steer",
+            )
+            .with_data(json!({"reason": "steer.unavailable"})));
+        }
         if steer_now {
             self.check_steer(session, control)?;
             // A running turn has a live agent.
@@ -192,9 +198,24 @@ impl Hub {
             accept(
                 json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false, "steer": true}),
             );
+            // The turn may end between this check and the agent: without
+            // steerOnly the message then becomes the next prompt, as before.
+            let fallback = (!opts.steer_only).then(|| blocks.clone());
             let mut params = json!({"sessionId": agent_sid, "prompt": blocks});
             params["_meta"] = json!({"steer": true});
-            let mut r = child.request(method::SESSION_PROMPT, params).await?;
+            let mut r = match child.request(method::SESSION_PROMPT, params).await {
+                Err(e) if e.message.starts_with(crate::claude_stdio::STEER_NO_TURN) => {
+                    let Some(blocks) = fallback else { return Err(e) };
+                    let opts = PromptOptions {
+                        prompt_id: Some(prompt_id),
+                        control,
+                        trust_gate,
+                        ..PromptOptions::default()
+                    };
+                    return Box::pin(self.run_prompt(session, blocks, client, false, opts)).await;
+                }
+                r => r?,
+            };
             merge_mux_meta(
                 &mut r,
                 json!({"promptId": prompt_id, "turnId": turn_id, "steer": true}),
@@ -379,6 +400,17 @@ impl Hub {
                     // refusal (folder trust, mode, D13) is the turn's error.
                     (Ok(_), Some(e)) => result = Err(e),
                     (Ok(child2), None) => {
+                        // A fallback that could not resume (another store)
+                        // starts fresh: it gets the restored transcript first.
+                        let mut blocks = blocks;
+                        if session.rehydrate.swap(false, Ordering::SeqCst)
+                            && let Some(transcript) = self.transcript(session, 24_000)
+                        {
+                            blocks.insert(
+                                0,
+                                json!({"type": "text", "text": format!("<restored_transcript note=\"acpmux restored this conversation on a new agent session; tool state was not restored\">\n{transcript}\n</restored_transcript>\n")}),
+                            );
+                        }
                         if let Some(sid2) = session.meta().agent_session_id {
                             result = child2
                                 .request(
@@ -415,6 +447,13 @@ impl Hub {
         turn_seq: u64,
     ) -> Result<Value, RpcError> {
         *session.turn.lock().unwrap() = None;
+        // A turn Claude answered is in its store: a respawn resumes it.
+        if result.is_ok() {
+            let was_unstored = std::mem::take(&mut session.meta.lock().unwrap().claude_unstored);
+            if was_unstored {
+                self.save_meta(session);
+            }
+        }
         // Quit Everything already recorded this turn as cancelled.
         if self.settled_by_shutdown.lock().unwrap().contains(turn_id) {
             return result;

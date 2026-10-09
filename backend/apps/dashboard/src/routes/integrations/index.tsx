@@ -3,6 +3,7 @@ import { useState } from "react"
 import { useLoad } from "../../lib/hooks"
 import { mutate, read } from "../../lib/server"
 import { newKey, setSignedIn, useSignedIn } from "../../lib/session"
+import { IntegrationApprovals } from "./-approvals"
 
 export const Route = createFileRoute("/integrations/")({ component: Integrations })
 
@@ -75,6 +76,7 @@ function Integrations() {
       <p className="muted">Provider tokens stay on the server, encrypted. Agents and automations use them only through cmux operations.</p>
       {list.error ? <p className="error">{list.error}</p> : null}
       {error ? <p className="error">{error}</p> : null}
+      {signedIn ? <IntegrationApprovals /> : null}
       <div className="card" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         {(list.data?.providers ?? []).map((p) => (
           <button key={p.provider} disabled={!p.configured} title={p.configured ? undefined : "Not configured on this deployment"} onClick={() => void connect(p.provider)}>

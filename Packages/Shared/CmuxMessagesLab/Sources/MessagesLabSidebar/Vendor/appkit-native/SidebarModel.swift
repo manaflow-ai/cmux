@@ -119,7 +119,12 @@ extension SidebarDelegate {
 /// copies that file into its resources and points `bundle` at them (a Swift package:
 /// `Bundle.module`). Default: the bundle that contains the sidebar code, not `Bundle.main`.
 enum SidebarLocalization {
-    static var bundle: Bundle = Bundle(for: SidebarController.self)
+    /// The one MessagesLab bundle (MessagesLabLocalization.bundle): setting it here sets it for
+    /// every MessagesLab string (transcript, markdown, menus), not only the sidebar.
+    static var bundle: Bundle {
+        get { MessagesLabLocalization.bundle }
+        set { MessagesLabLocalization.bundle = newValue }
+    }
     /// The catalog's table name (its file name without the extension).
     static var table = "SidebarLocalizable"
     /// The string for `key` in the user's preferred language; `english` if the key is missing.
@@ -248,7 +253,7 @@ struct SidebarMetrics: Equatable {
     /// 3 at normal widths, 2 when 3 do not fit, 1 in the compact list.
     var columns: Int {
         if compact { return 1 }
-        return max(1, min(Self.pinColumns, Int((width - 2 * Self.pinInsetX) / Self.minTileWidth)))
+        return max(1, min(Self.pinColumns, CrashGuard.int((width - 2 * Self.pinInsetX) / Self.minTileWidth))) // cmux: no trap on NaN
     }
     var tileWidth: CGFloat { ((width - 2 * Self.pinInsetX) / CGFloat(columns)).rounded(.down) }
     /// Grows with the tile in the 3-column grid, from 52 pt at its narrowest to 76 pt; with fewer
@@ -288,7 +293,6 @@ struct SidebarPalette: Equatable {
     var accent: CGColor
     var selectionActive: CGColor
     var selectionInactive: CGColor
-    var hover: CGColor
     var selectedText: CGColor
     var monogramTop: CGColor
     var monogramBottom: CGColor
@@ -301,13 +305,16 @@ struct SidebarPalette: Equatable {
     /// taken only as a CGColor resolved in `appearance` (no component of an NSColor is read, so
     /// catalog, pattern and gray colors are safe).
     static func resolve(_ appearance: NSAppearance, unreadColor: NSColor? = nil, selectionColor: NSColor? = nil) -> SidebarPalette {
-        var p: SidebarPalette!
-        appearance.performAsCurrentDrawingAppearance {
+        // cmux: no IUO (crash program). The block runs synchronously, so `palette` is set;
+        // without it the palette resolves in the current appearance.
+        var palette: SidebarPalette?
+        func build() -> SidebarPalette {
             let dark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
             func p3(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat, _ a: CGFloat = 1) -> CGColor {
-                CGColor(colorSpace: SidebarDraw.p3, components: [r / 255, g / 255, b / 255, a])!
+                CGColor(colorSpace: SidebarDraw.p3, components: [r / 255, g / 255, b / 255, a])
+                    ?? CGColor(red: r / 255, green: g / 255, blue: b / 255, alpha: a) // cmux: no force unwrap
             }
-            p = SidebarPalette(
+            return SidebarPalette(
                 dark: dark,
                 name: NSColor.labelColor.cgColor,
                 secondary: NSColor.secondaryLabelColor.cgColor,
@@ -316,7 +323,6 @@ struct SidebarPalette: Equatable {
                 accent: (selectionColor ?? NSColor.controlAccentColor).cgColor,
                 selectionActive: (selectionColor ?? NSColor.selectedContentBackgroundColor).cgColor,
                 selectionInactive: NSColor.unemphasizedSelectedContentBackgroundColor.cgColor,
-                hover: NSColor.labelColor.withAlphaComponent(dark ? 0.07 : 0.05).cgColor,
                 selectedText: NSColor.alternateSelectedControlTextColor.cgColor,
                 // Contacts' monogram disc (grey gradient, white initials): to verify.
                 monogramTop: dark ? p3(132, 136, 145) : p3(166, 171, 184),
@@ -328,6 +334,7 @@ struct SidebarPalette: Equatable {
                 bubbleText: dark ? p3(255, 255, 255) : p3(0, 0, 0),
                 typingDot: dark ? p3(150, 150, 154) : p3(142, 142, 147))
         }
-        return p
+        appearance.performAsCurrentDrawingAppearance { palette = build() }
+        return palette ?? build()
     }
 }

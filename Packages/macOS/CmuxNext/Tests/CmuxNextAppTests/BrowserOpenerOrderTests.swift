@@ -265,4 +265,18 @@ struct BrowserOpenerOrderTests {
         #expect(openers.slot(after: opener, in: order) == ids[1], "child 5 closed, child 4 sits left of the opener")
         #expect(openers.slot(after: opener, in: [opener, ids[1], ids[0]]) == ids[0], "position, not creation order")
     }
+
+    /// Every placed child reports its opener once (the browser host's
+    /// `tab.created`, so an agent sees its page's popup), foreground or not;
+    /// a tab the opener reopened as itself is no child.
+    @Test func aPlacedChildReportsItsOpener() async throws {
+        let openers = BrowserTabOpeners()
+        var placed: [(SurfaceID, SurfaceID)] = []
+        openers.onChildPlaced = { child, opener in placed.append((child, opener)) }
+        _ = try await openers.place(opener: SurfaceID(rawValue: 1), foreground: false, order: { [SurfaceID(rawValue: 1)] }) { _ in SurfaceID(rawValue: 2) }
+        _ = try await openers.place(opener: SurfaceID(rawValue: 1), foreground: true, order: { [SurfaceID(rawValue: 1)] }) { _ in SurfaceID(rawValue: 3) }
+        _ = try await openers.place(opener: SurfaceID(rawValue: 1), foreground: true, order: { [SurfaceID(rawValue: 1)] }) { _ in SurfaceID(rawValue: 1) }
+        #expect(placed.map(\.0) == [SurfaceID(rawValue: 2), SurfaceID(rawValue: 3)])
+        #expect(placed.allSatisfy { $0.1 == SurfaceID(rawValue: 1) })
+    }
 }

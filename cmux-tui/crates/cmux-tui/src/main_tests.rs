@@ -16,7 +16,7 @@ fn loopback_forward_denies_every_daemon_listener_port() {
 
 use std::time::Duration;
 
-use super::*;
+use {super::*, crate::local_actor::TuiMuxOps};
 
 fn args(values: &[&str]) -> Args {
     parse_args_result(values.iter().map(|value| value.to_string())).unwrap()

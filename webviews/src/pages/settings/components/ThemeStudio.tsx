@@ -4,6 +4,7 @@
 // active window inline on the setting (no space/workspace/terminal tabs). The theme value stays
 // `appearance.theme`; overrides and the app theme are the host's theme levels.
 import { useCallback, useId, useState, useSyncExternalStore } from "react";
+import { ContextMenu } from "../../../ui/ContextMenu";
 import { contrastReport, deriveAppTheme } from "../../../theme/appTheme";
 import type { GhosttyTheme } from "../../../theme/ghosttyTheme";
 import { useSettingsState, useStore } from "../context";
@@ -14,7 +15,7 @@ import { managedOf, managedText, valueOf } from "../store";
 import { t, text } from "../strings";
 import { formatThemeSpec, parseThemeSpec, themeFor, type ThemeSpec } from "../themeSpec";
 import { ScopeOverrides } from "./ScopeOverrides";
-import { SettingRow } from "./SettingRow";
+import { SettingRow, useRowMenu } from "./SettingRow";
 import { ThemePalette, ThemePreview } from "./ThemePreview";
 import { ThemePicker } from "./ThemePicker";
 
@@ -63,6 +64,9 @@ export function ThemeStudio() {
   const appValue = valueOf(state, APP_THEME_KEY);
   const appSpec = typeof appValue === "string" && appValue !== FOLLOW_TERMINAL ? parseThemeSpec(appValue) : null;
   const appManaged = managedOf(state, APP_THEME_KEY);
+  // Right-click on a row's title: the same menu as every other setting row (cx-64hi).
+  const themeMenu = useRowMenu(THEME_KEY);
+  const appMenu = useRowMenu(APP_THEME_KEY);
 
   const lookup = (name: string | null): GhosttyTheme | undefined => (name ? colors?.get(name) : undefined);
   const terminal =
@@ -143,12 +147,12 @@ export function ThemeStudio() {
             <>
               <div className="row" data-theme-row="match">
                 <div className="row-main">
-                  <div className="row-label">
+                  <ContextMenu className="row-label" items={themeMenu}>
                     <div className="row-title" id={ids.match}>
                       {t("settingsPage.theme.matchSystem")}
                     </div>
                     <div className="row-help">{t("settingsPage.theme.matchSystemHelp")}</div>
-                  </div>
+                  </ContextMenu>
                   <div className="row-control">
                     <Switch
                       checked={paired}
@@ -172,11 +176,11 @@ export function ThemeStudio() {
                 (["light", "dark"] as const).map((side) => (
                   <div className="row" key={side} data-theme-row={side}>
                     <div className="row-main">
-                      <div className="row-label">
+                      <ContextMenu className="row-label" items={themeMenu}>
                         <div className="row-title" id={ids[side]}>
                           {side === "light" ? t("settingsPage.theme.light") : t("settingsPage.theme.dark")}
                         </div>
-                      </div>
+                      </ContextMenu>
                       <div className="row-control">{picker(ids[side], current(side), pickSide(side))}</div>
                     </div>
                   </div>
@@ -184,12 +188,12 @@ export function ThemeStudio() {
               ) : (
                 <div className="row" data-theme-row="single">
                   <div className="row-main">
-                    <div className="row-label">
+                    <ContextMenu className="row-label" items={themeMenu}>
                       <div className="row-title" id={ids.theme}>
                         {text(row.title)}
                       </div>
                       <div className="row-help">{t("settingsPage.theme.terminalHelp", names.length)}</div>
-                    </div>
+                    </ContextMenu>
                     <div className="row-control">
                       {picker(ids.theme, spec?.kind === "single" ? spec.name : null, (name) =>
                         write(name ? { kind: "single", name } : null),
@@ -215,7 +219,7 @@ export function ThemeStudio() {
           <div className="rows">
             <div className="row" data-theme-row="app">
               <div className="row-main">
-                <div className="row-label">
+                <ContextMenu className="row-label" items={appMenu}>
                   <div className="row-title" id={ids.app}>
                     {text(row.title)}
                   </div>
@@ -226,7 +230,7 @@ export function ThemeStudio() {
                       {managedText(appManaged)}
                     </div>
                   )}
-                </div>
+                </ContextMenu>
                 <div className="row-control">
                   <ThemePicker
                     value={appSpec ? formatThemeSpec(appSpec) : null}

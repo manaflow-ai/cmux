@@ -21,8 +21,12 @@ public final class WebKitDriver: DriverCallHandler {
     var sessions: [BrowserTabID: TabSession] = [:]
     lazy var dialogs = DialogBroker { [weak self] name, payload in self?.emit(name, payload) }
 
-    public init(provider: any AutomationTabProvider, agentBundle: String? = nil) {
+    /// The clock of the driver's bounded waits.
+    let clock: any Clock<Duration>
+
+    public init(provider: any AutomationTabProvider, agentBundle: String? = nil, clock: any Clock<Duration> = ContinuousClock()) {
         self.provider = provider
+        self.clock = clock
         self.agentBundle = agentBundle
         (events, emitter) = AsyncStream.makeStream(of: DriverEvent.self, bufferingPolicy: .bufferingOldest(8192))
     }
@@ -33,10 +37,11 @@ public final class WebKitDriver: DriverCallHandler {
 
     public func call(method: String, params json: DriverJSON) async throws(DriverError) -> DriverJSON {
         let params = try DriverParams(method: method, json: json)
+        await keepRendering(params)
         switch method {
         case "tabs.list": return try tabsList(params)
         case "tabs.open": return try await tabsOpen(params)
-        case "tabs.close": return try tabsClose(params)
+        case "tabs.close": return try await tabsClose(params)
         case "tabs.activate", "tab.bringToFront": return try tabsActivate(params)
         case "tab.info": return try tabInfo(params)
         case "tab.navigate": return try await tabNavigate(params)
@@ -56,6 +61,17 @@ public final class WebKitDriver: DriverCallHandler {
         case "cookies.clear": return try await cookiesClear(params)
         default: throw DriverError(.unsupported, "Unsupported driver method \(method)")
         }
+    }
+
+    /// A call on a tab no pane shows: the App moves it into its render
+    /// window first, and the call waits until WebKit applied the window,
+    /// visibility and focus state, or input would reach an unfocused page.
+    private func keepRendering(_ params: DriverParams) async {
+        guard params.method != "tabs.close", let raw = try? params.optionalString("targetId"),
+              let provider, let tab = provider.automationTabs(all: true).first(where: { $0.tab.id.rawValue == raw })?.tab,
+              tab.webView.window == nil else { return }
+        guard await provider.keepRendering(tab) else { return }
+        await WebKitPrivateCalls.afterActivityStateUpdate(tab.webView, clock: clock)
     }
 
     func emit(_ name: String, _ payload: [String: DriverJSON]) {

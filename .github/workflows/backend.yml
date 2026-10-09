@@ -5,7 +5,8 @@
 # only reads the PR's SQL files). Rule: merging deploys, so every migration is on staging
 # and production before its PR merges (skills/cmux-backend-migrations).
 #
-#   Push to feat-cmux-next: deploy staging. Push to main, or dispatch target=production
+#   Push to feat-cmux-next: deploy development (code only: no secrets sent, refused when its
+#   vars would change) and staging. Push to main, or dispatch target=production
 #   from main: deploy production. Every deploy refuses when its database lacks a migration
 #   or has one the tree lacks.
 
@@ -17,6 +18,10 @@ on:
     paths:
       - backend/**
       - clients/ts/**
+      # The Worker's G8 gate imports the shared per-tool policy (integrations/approval-gate.ts).
+      - libs/integrations-core/**
+      # The Stack webhook signature check (stack-webhook.ts) shared with the cmux VM Worker.
+      - libs/svix-webhook/**
       - .github/workflows/backend.yml
       - .github/workflows/backend-migrations.yml
   push:
@@ -24,6 +29,10 @@ on:
     paths:
       - backend/**
       - clients/ts/**
+      # The Worker's G8 gate imports the shared per-tool policy (integrations/approval-gate.ts).
+      - libs/integrations-core/**
+      # The Stack webhook signature check (stack-webhook.ts) shared with the cmux VM Worker.
+      - libs/svix-webhook/**
       - .github/workflows/backend.yml
       - .github/workflows/backend-migrations.yml
   workflow_dispatch:
@@ -90,6 +99,9 @@ jobs:
       - name: Migration lint (parsed SQL) and lint tests
         working-directory: backend/db
         run: bun migrate.ts --lint && bun test test
+      - name: Release rails migration lint (expand-only, numbering, hash lock)
+        working-directory: scripts/cmux-next/release
+        run: bun install --frozen-lockfile && bun lint.ts --tree backend
       - name: Migrations apply from zero (scratch Postgres)
         working-directory: backend/db
         env:
@@ -119,6 +131,9 @@ jobs:
         run: bun run test
       - name: API Worker tests (workerd)
         working-directory: backend/apps/api
+        run: bun run test
+      - name: Dashboard tests (approvals, search params)
+        working-directory: backend/apps/dashboard
         run: bun run test
       - name: Dashboard build
         working-directory: backend/apps/dashboard
@@ -246,6 +261,8 @@ jobs:
           fi
           (cd backend && bun install --frozen-lockfile >/dev/null)
           (cd backend/db && bun migrate.ts --lint) || errors=1
+          # Release rails: the hash lock and the previous head's files and lock entries (plans/cmux-next/release-rails.md).
+          (cd scripts/cmux-next/release && bun install --frozen-lockfile >/dev/null && bun lint.ts --tree backend --base "${BEFORE:-origin/feat-cmux-next}") || errors=1
           exit "$errors"
 
   deploy-staging:
@@ -283,12 +300,29 @@ jobs:
             exit 1
           fi
           echo "$out"
-      - name: Deploy API Worker
+      # deploy-worker.sh records the serving version, deploys, smokes apps/api/release-smoke.json and
+      # runs `wrangler rollback` on red (plans/cmux-next/release-rails.md).
+      - name: Deploy API Worker (records the rollback target)
+        id: deploy-api
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CMUX_NEXT_PG_MIGRATOR_URL: ${{ secrets.CMUX_NEXT_PG_MIGRATOR_URL }}
           JWT_PRIVATE_JWK: ${{ secrets.JWT_PRIVATE_JWK }}
+          CMUX_RELEASE_CHANGED_SINCE: ${{ github.event.before }}
+          CMUX_RELEASE_VERIFY_STEP: "1"
         run: bash scripts/deploy-worker.sh staging
+      # Separate step so it also runs when the deploy step failed, was cancelled or timed out.
+      - name: Smoke the API Worker; roll back on red
+        if: ${{ always() && steps.deploy-api.outcome != 'skipped' }}
+        working-directory: backend/apps/api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: 0c1675e0def6de1ab3a50a4e17dc5656
+          BEFORE: ${{ github.event.before }}
+        run: >-
+          bun ../../../scripts/cmux-next/release/worker-release.ts verify --worker cmux-api-staging --url https://cloud-api-staging.cmux.dev
+          --routes release-smoke.json --previous-file "$RUNNER_TEMP/cmux-api-previous-version"
+          --changed-since "$BEFORE" --source-dir . --wrangler ./node_modules/.bin/wrangler
       - name: Deploy dashboard (console-staging.cmux.dev)
         working-directory: backend/apps/dashboard
         env:
@@ -297,6 +331,73 @@ jobs:
         run: NITRO_PRESET=vercel bun run build && bunx vercel@58.8.0 deploy --prebuilt --prod --scope manaflow --token "$VERCEL_TOKEN"
       - name: Smoke
         run: curl -fsS https://cloud-api-staging.cmux.dev/v1/health && curl -fsS -o /dev/null https://console-staging.cmux.dev/
+
+  # Development (cmux-api-development) follows feat-cmux-next. It ships code only: the job sends no
+  # secrets (the Worker keeps its own), and before deploying it compares wrangler.jsonc
+  # env.development.vars with the serving version's vars and refuses on any difference, because
+  # those vars (the VM image names among them) belong to their lanes. Same rails as staging:
+  # schema gate, recorded rollback target, smoke, automatic rollback on red.
+  deploy-development:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    environment: cmux-next-development
+    concurrency:
+      group: cmux-next-deploy-development
+      cancel-in-progress: false
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+      - run: bun install --frozen-lockfile
+      - name: Development schema matches this commit
+        working-directory: backend/db
+        env:
+          CMUX_NEXT_PG_MIGRATOR_URL: ${{ secrets.CMUX_NEXT_PG_MIGRATOR_URL }}
+          SHA: ${{ github.sha }}
+        run: |
+          if ! out=$(bun migrate.ts --env development --verify 2>&1); then
+            echo "$out"
+            msg="Development deploy refused for ${SHA:0:11}: $(echo "$out" | tail -1)."
+            echo "::error title=Development deploy refused::$msg"
+            { echo "### Development deploy refused"; echo; echo "$msg"; } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "$out"
+      - name: Worker vars unchanged (code-only deploy)
+        working-directory: backend/apps/api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: 0c1675e0def6de1ab3a50a4e17dc5656
+        run: >-
+          bun ../../../scripts/cmux-next/release/worker-release.ts vars --worker cmux-api-development
+          --config wrangler.jsonc --env development --wrangler ./node_modules/.bin/wrangler
+      - name: Deploy API Worker (no secrets; records the rollback target)
+        id: deploy-api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CMUX_DEPLOY_NO_SECRETS: "1"
+          CMUX_RELEASE_CHANGED_SINCE: ${{ github.event.before }}
+          CMUX_RELEASE_VERIFY_STEP: "1"
+        run: bash scripts/deploy-worker.sh development
+      # Separate step so it also runs when the deploy step failed, was cancelled or timed out.
+      - name: Smoke the API Worker; roll back on red
+        if: ${{ always() && steps.deploy-api.outcome != 'skipped' }}
+        working-directory: backend/apps/api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: 0c1675e0def6de1ab3a50a4e17dc5656
+          BEFORE: ${{ github.event.before }}
+        run: >-
+          bun ../../../scripts/cmux-next/release/worker-release.ts verify --worker cmux-api-development --url https://cmux-api-development.debussy.workers.dev
+          --routes release-smoke.json --previous-file "$RUNNER_TEMP/cmux-api-previous-version"
+          --changed-since "$BEFORE" --source-dir . --wrangler ./node_modules/.bin/wrangler
 
   deploy-production:
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.target == 'production'))
@@ -317,13 +418,28 @@ jobs:
         with:
           node-version: "24"
       - run: bun install --frozen-lockfile
-      - name: Deploy API Worker (refuses if production lacks a migration)
+      - name: Deploy API Worker (refuses if production lacks a migration; records the rollback target)
+        id: deploy-api
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CMUX_NEXT_PG_MIGRATOR_URL: ${{ secrets.CMUX_NEXT_PG_MIGRATOR_URL }}
           JWT_PRIVATE_JWK: ${{ secrets.JWT_PRIVATE_JWK }}
           CMUX_NEXT_DEPLOY_PRODUCTION: "1"
+          CMUX_RELEASE_CHANGED_SINCE: ${{ github.event.before }}
+          CMUX_RELEASE_VERIFY_STEP: "1"
         run: bash scripts/deploy-worker.sh production
+      # Separate step so it also runs when the deploy step failed, was cancelled or timed out.
+      - name: Smoke the API Worker; roll back on red
+        if: ${{ always() && steps.deploy-api.outcome != 'skipped' }}
+        working-directory: backend/apps/api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: 0c1675e0def6de1ab3a50a4e17dc5656
+          BEFORE: ${{ github.event.before }}
+        run: >-
+          bun ../../../scripts/cmux-next/release/worker-release.ts verify --worker cmux-api --url https://cloud-api.cmux.dev
+          --routes release-smoke.json --previous-file "$RUNNER_TEMP/cmux-api-previous-version"
+          --changed-since "$BEFORE" --source-dir . --wrangler ./node_modules/.bin/wrangler
       - name: Deploy dashboard (console.cmux.dev)
         working-directory: backend/apps/dashboard
         env:

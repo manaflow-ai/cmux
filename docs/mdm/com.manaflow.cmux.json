@@ -42,7 +42,7 @@
       "type" : "string"
     },
     "agentPane.links.outsideRoots" : {
-      "default" : "confirm",
+      "default" : "open",
       "description" : "What a file link in a reply does when the file is outside the chat's folders. Keys and .env files never open.",
       "enum" : [
         "confirm",
@@ -118,6 +118,12 @@
       "title" : "When Quitting",
       "type" : "string"
     },
+    "app.startAgentGlobalHotKey" : {
+      "default" : false,
+      "description" : "Start Agent (⌃⌥⌘Space) works while another app is in front. Change its key in Keyboard Shortcuts.",
+      "title" : "Start Agent from Any App",
+      "type" : "boolean"
+    },
     "app.uiScale" : {
       "default" : 1,
       "description" : "app.uiScale",
@@ -128,13 +134,13 @@
     },
     "app.warnBeforeClosingAgentSession" : {
       "default" : true,
-      "description" : "Ask before closing a terminal tab whose agent is still working.",
+      "description" : "app.warnBeforeClosingAgentSession",
       "title" : "Warn Before Closing a Working Agent",
       "type" : "boolean"
     },
     "app.warnBeforeClosingTab" : {
       "default" : true,
-      "description" : "Ask before closing a tab or workspace whose terminal is running a program. Idle tabs always close at once.",
+      "description" : "app.warnBeforeClosingTab",
       "title" : "Warn Before Closing a Running Program",
       "type" : "boolean"
     },
@@ -1420,6 +1426,14 @@
       "title" : "Show Shortcuts When Holding a Modifier",
       "type" : "boolean"
     },
+    "sidebar.allChatsRows" : {
+      "default" : 8,
+      "description" : "How many chats the All chats section shows before it scrolls.",
+      "maximum" : 50,
+      "minimum" : 1,
+      "title" : "All Chats Rows",
+      "type" : "number"
+    },
     "sidebar.border" : {
       "default" : false,
       "description" : "A line on the sidebar's edge. Off, the edge shows a line only while you hover or drag it.",
@@ -1456,6 +1470,12 @@
       ],
       "title" : "Command-9",
       "type" : "string"
+    },
+    "sidebar.groupByComputer" : {
+      "default" : false,
+      "description" : "Off: one list of workspaces, and a workspace on another computer names it under its title. On: a section per computer.",
+      "title" : "Group Workspaces by Computer",
+      "type" : "boolean"
     },
     "sidebar.minimalMode" : {
       "default" : "bottom",
@@ -1499,9 +1519,15 @@
       "type" : "string"
     },
     "sidebar.showChats" : {
-      "default" : false,
-      "description" : "Shows the device-wide Chats section in the sidebar.",
-      "title" : "Show Chats",
+      "default" : true,
+      "description" : "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar.",
+      "title" : "Show All Chats",
+      "type" : "boolean"
+    },
+    "sidebar.showProjects" : {
+      "default" : true,
+      "description" : "sidebar.showProjects",
+      "title" : "Show Projects",
       "type" : "boolean"
     },
     "sidebar.showWorkspaceTabs" : {
@@ -1528,6 +1554,16 @@
         "bottom"
       ],
       "title" : "Spaces Position",
+      "type" : "string"
+    },
+    "sidebar.spacesVisibility" : {
+      "default" : "hover",
+      "description" : "On Hover shows the spaces only while the pointer is over the sidebar, like its other buttons.",
+      "enum" : [
+        "hover",
+        "always"
+      ],
+      "title" : "Show Spaces",
       "type" : "string"
     },
     "sidebar.stepping" : {
@@ -1996,6 +2032,20 @@
       "title" : "New Tab Opens",
       "type" : "string"
     },
+    "tabs.newTabTemplate" : {
+      "default" : "default",
+      "description" : "The layout of the New Tab page. Terminal skips the page and opens a terminal. The dots at the bottom of the page also change it.",
+      "enum" : [
+        "default",
+        "composer",
+        "threads",
+        "console",
+        "classic",
+        "terminal"
+      ],
+      "title" : "New Tab Template",
+      "type" : "string"
+    },
     "tabs.plusButton" : {
       "default" : "hover",
       "description" : "On Hover shows each tab bar's + only while the pointer is over that tab bar.",
@@ -2128,6 +2178,17 @@
         "always"
       ],
       "title" : "Titlebar Buttons",
+      "type" : "string"
+    },
+    "workspaces.newPlacement" : {
+      "default" : "top",
+      "description" : "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. Pinned workspaces stay above it.",
+      "enum" : [
+        "top",
+        "afterCurrent",
+        "bottom"
+      ],
+      "title" : "New Workspace Position",
       "type" : "string"
     }
   },

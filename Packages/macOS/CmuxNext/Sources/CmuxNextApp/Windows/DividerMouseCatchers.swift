@@ -25,6 +25,9 @@ final class DividerMouseCatchers {
         self.window = window
     }
 
+    /// Window numbers of the panels shown: they pass divider hover through.
+    var windowNumbers: Set<Int> { Set(panels.values.filter { $0.isVisible }.map(\.windowNumber)) }
+
     /// Frames of the panels shown, in window coordinates (`debug.layers`).
     var framesInWindow: [String: CGRect] {
         panels.compactMapValues { $0.parent === window ? window.convertFromScreen($0.frame) : nil }

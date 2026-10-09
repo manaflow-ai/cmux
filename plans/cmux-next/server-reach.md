@@ -47,13 +47,13 @@ This change adds no relay and no allowlist entry. `RemoteRelayPolicy.allowed` st
 - Access to unowned objects: commands from the app for a server's workspace, pane or tab go only to the server's daemon (`MachineRegistry` resolves each object to exactly one daemon by identity), so the server's session never receives ids of this Mac's or another machine's objects. The `unix` route refuses a socket that answers as this Mac's home daemon.
 - Local-state exposure: the server receives only what the app sends to any attached client of its tree. Personal state (registry, order, groups, windows) stays in the home session (data-model.md 1.2c). The registry transport holds routing only, never a token, key or password; the SSH account is the user's own OpenSSH identity.
 - Command-bearing params: none are added; the remote command line is built from validated plain words (`RemotePath.isSafe` on the binary, socket and state dir, `SSHDestination` parsing), and the server-side `remote-link` rejects anything but shell-safe words.
-- Policy tests: `RemoteRelayPolicyTests` (unchanged, deny by default), `ServerReachTests` (unsafe sockets and foreign ids refused, transport without secrets), `SSHCommandLineTests` (the socket flag only when named), Rust `explicit_mux_socket_is_attach_only` and `remote_link_command_attaches_to_an_explicit_mux_socket`.
+- Policy tests: `RemoteRelayPolicyTests` (unchanged, deny by default), `SSHCommandLineTests` (the socket flag only when named), Rust `explicit_mux_socket_is_attach_only` and `remote_link_command_attaches_to_an_explicit_mux_socket`.
 - G2 (remote ACP attach) adds agent-session verbs to the daemon for trusted Unix connections only; they reach the server through this trusted path and stay off any remote relay allowlist.
 
 ## 5. Tests and proof
 
 - Rust (Testbox): remote connect `--remote-mux-socket` reaches remote-link `--mux-socket`; remote-link with an explicit mux socket starts neither a mux owner nor a sidecar when the daemon is down.
-- Swift: `ServerReachTests` (model), `ServerReachAppTests` (discovery, sidebar section with the brain's workspaces under the server name, revoke, chief moved, failed read, offline status), `SSHCommandLineTests`.
+- Swift: `ServerReachAppTests` (discovery, sidebar section with the brain's workspaces under the server name, revoke, chief moved, failed read, offline status), `SSHCommandLineTests`.
 - Live proof: a test brain on cmux-lawrence-2 itself (own brain home and daemon, `unix` route), paired by Add Server in a tagged app on the same host, a test chief placed on it, a subagent workspace created by the brain, visible in the sidebar under the server's name. The real cmux-lawrence brain is not touched.
 
 ## 6. Open items

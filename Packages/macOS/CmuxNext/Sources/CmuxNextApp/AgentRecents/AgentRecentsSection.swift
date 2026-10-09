@@ -3,16 +3,22 @@ import CmuxAgentBrands
 import CmuxNextAgentPane
 import CmuxNextSidebar
 
-/// One window's Chats section, backed by the shared device-wide chat feed.
+/// One window's All chats section, backed by the shared device-wide chat feed.
 @MainActor
 final class AgentRecentsSection {
     private let feed: ChatsFeed
     private let view = SidebarChatsView()
     var onContentChange: (() -> Void)?
+    /// The header's right-click menu (Hide Section).
+    var headerMenu: (() -> NSMenu?)? {
+        get { view.headerMenu }
+        set { view.headerMenu = newValue }
+    }
 
     init(feed: ChatsFeed, open: @escaping (String) -> Void) {
         self.feed = feed
         view.onOpen = open
+        view.onLayoutChange = { [weak self] in self?.onContentChange?() }
         refresh()
         feed.observe(self) { [weak self] in self?.refresh() }
     }

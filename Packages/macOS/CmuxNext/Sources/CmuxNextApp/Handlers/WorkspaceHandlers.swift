@@ -28,9 +28,12 @@ enum WorkspaceHandlers {
         registry.bindUnavailable(["palette.openFolderInVSCodeInline"], ActionFailure.needsAppCapability("vscode-inline"))
         registry.bindUnavailable(["palette.openWorkspacePullRequests"], ActionFailure.needsAppCapability("github-integration"))
         registry.bindUnavailable(["palette.findWork"], ActionFailure.needsAppCapability("github-integration"))
-        for id: ActionID in ["reopenPreviousSession", "reopenClosedWorkspace"] {
-            registry.bindUnavailable([id], ActionFailure.needsDaemonCapability("closed-history-v1"))
-        }
+        registry.bindUnavailable(["reopenPreviousSession"], ActionFailure.needsDaemonCapability("closed-history-v1"))
+        registry.bind("reopenClosedWorkspace", invoke: { _ in
+            guard let entry = DaemonClosedHistory.entries([.workspace], in: context.services).first(where: { $0.item.group == nil })
+                ?? context.refuse(RefusalStrings.noRecentlyClosedWorkspace) else { return }
+            DaemonClosedHistory.reopen(entry, services: context.services)
+        })
         for id: ActionID in ["saveLayoutTemplate", "palette.layout.open", "manageLayouts"] {
             registry.bindUnavailable([id], ActionFailure.needsDaemonCapability("layout-templates-v1"))
         }
@@ -56,7 +59,7 @@ enum WorkspaceHandlers {
                               newWindow: Bool = false, window: String? = nil, room: ProfileID? = nil,
                               then configure: (@Sendable (DaemonConnection, CreateTerminalResult) async throws -> Void)? = nil) {
         let daemon = services.activeDaemon
-        let windows = services.windows!
+        let windows = services.windows
         // Claimed before the create command, so the workspace lands in (or
         // opens) its window in the step that first mirrors it.
         let target = windows.targetWindow(preferring: newWindow ? nil : window ?? windows.active?.state.id)
@@ -72,6 +75,11 @@ enum WorkspaceHandlers {
             }
             do {
                 let key = workspaceKey ?? WorkspaceKey.generate()
+                // A fresh workspace goes to the `workspaces.newPlacement` slot; a
+                // History reopen (`workspaceKey`) keeps the place the daemon kept.
+                if workspaceKey == nil {
+                    NewWorkspacePlacements.expect(key.rawValue, in: target, byDefault: NewWorkspacePlacements.rule(for: target, in: windows), windows: windows)
+                }
                 windows.claimNew(workspaceID: key.rawValue, window: target)
                 if let room, let session = daemon.store.registryID, let homeConnection = home.connection {
                     try await homeConnection.pinWorkspace(session: session, key: key, to: room)
@@ -108,7 +116,7 @@ enum WorkspaceHandlers {
     /// A workspace whose only tab is a blank browser tab.
     private static func newBrowserWorkspace(_ context: AppActionContext) throws {
         try context.require(DaemonCapabilities.shared.frontendBrowserTabs)
-        let browserTabs = context.services.cache.browserTabs!
+        let browserTabs = context.services.cache.browserTabs
         guard case .open(let choice) = browserTabs.resolve(requested: nil) else { return }
         let fallbacks = browserTabs.fallbacks
         let address = context.services.newTabAddress(for: choice)

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { EMPTY_OMNIBAR, type OmnibarContext } from "../omnibar";
-import { MAX_AGENT_ROWS, orderedAgents, recentChatCards, screenRows, shellEntry, type ScreenRow } from "./screenModel";
+import { orderedAgents, recentChatCards, screenRows, shellEntry, type ScreenRow } from "./screenModel";
 
 const agents = [
   { id: "claude", name: "Claude Code" },
@@ -71,11 +71,25 @@ test("without installed agents Ask still offers the search", () => {
   expect(types(screenRows("hello", { agents: [], omnibar }))).toEqual(["search"]);
 });
 
-test("agent rows are capped and keep the catalog order", () => {
+test("every installed harness stays available in the Ask list", () => {
   const many = Array.from({ length: 9 }, (_, i) => ({ id: `a${i}`, name: `A${i}` }));
-  expect(orderedAgents(many).length).toBe(MAX_AGENT_ROWS);
+  expect(orderedAgents(many).length).toBe(9);
   expect(orderedAgents(many, "a7")[0]!.id).toBe("a7");
   expect(orderedAgents(many, "missing")[0]!.id).toBe("a0");
+});
+
+test("a harness after the old four-row cap still gets an Ask row", () => {
+  const rows = screenRows("hello", {
+    agents: [
+      { id: "codex", name: "Codex" },
+      { id: "opencode", name: "OpenCode" },
+      { id: "gemini", name: "Gemini" },
+      { id: "aider", name: "Aider" },
+      { id: "claude", name: "Claude Code" },
+    ],
+    omnibar: EMPTY_OMNIBAR,
+  });
+  expect(rows.some((row) => row.type === "agent" && row.harness === "claude")).toBe(true);
 });
 
 test("! typed into an empty or wholly selected field enters shell mode, keeping the rest", () => {
@@ -100,6 +114,32 @@ test("chat cards: the three newest, waiting chats first, a dropped chat as an er
   expect(cards[1]).toMatchObject({ title: "Newest", age: "1m", message: "ok", state: "idle" });
   expect(cards[2]).toMatchObject({ title: "Dropped", state: "error" });
   expect(cards[0]).toMatchObject({ state: "input" });
+});
+
+test("chat cards read the device chat index too: no acpmux session still shows the newest chats", () => {
+  const now = 1_000_000_000;
+  const device = [
+    { key: "codex:1", harness: "codex", title: "Older", updatedAt: now - 7200_000 },
+    { key: "claude-code:2", harness: "claude-code", title: "Newest", updatedAt: now - 60_000 },
+    { key: "opencode:3", harness: "opencode", updatedAt: now - 3600_000 },
+    { key: "pi:4", harness: "pi", title: "Oldest", updatedAt: now - 9 * 3600_000 },
+  ];
+  const cards = recentChatCards([], now, undefined, device);
+  expect(cards.map((card) => card.chatKey)).toEqual(["claude-code:2", "opencode:3", "codex:1"]);
+  expect(cards[0]).toMatchObject({ title: "Newest", age: "1m", state: "idle", harness: "claude-code" });
+  expect(cards[1]?.title).toBe("New chat");
+});
+
+test("live acpmux sessions lead; the device index fills the rest without repeating a shown chat", () => {
+  const now = 1_000_000_000;
+  const sessions = [{ sessionId: "s", title: "Fix the build", updatedAt: now - 60_000 }];
+  const device = [
+    { key: "claude-code:x", harness: "claude-code", title: "Fix the build", updatedAt: now },
+    { key: "codex:y", harness: "codex", title: "Docs", updatedAt: now - 120_000 },
+  ];
+  const cards = recentChatCards(sessions, now, undefined, device);
+  expect(cards.map((card) => card.sessionId)).toEqual(["s", "codex:y"]);
+  expect(cards[0]?.chatKey).toBeUndefined();
 });
 
 test("two installed harnesses with one name are told apart by their id", () => {
