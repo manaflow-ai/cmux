@@ -8,14 +8,16 @@ use std::collections::HashSet;
 use std::fs;
 use std::io as std_io;
 use std::io::Write;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use anyhow::Context;
 
-use super::super::sys::{self, LeaseProbe, PrivateOpen};
+use super::super::sys::{self, HostLivenessLease, LeaseProbe, PrivateOpen};
 use super::super::*;
-use super::codec::decode_lower_hex_array;
+use super::codec::{decode_hex_array, decode_lower_hex_array};
+use super::host_shared::HostShared;
 use super::host_state::HOST_EXIT_PERSIST_RETRY_MAX;
 
 pub(crate) static RECORD_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
@@ -469,4 +471,94 @@ pub(crate) fn write_json_record(path: &Path, record: &impl Serialize) -> anyhow:
         let _ = fs::remove_file(&temporary);
     }
     result
+}
+
+pub(crate) struct HostServiceGuard {
+    pub(crate) shared: Arc<HostShared>,
+    pub(crate) endpoint: PathBuf,
+    pub(crate) record_path: PathBuf,
+    pub(crate) record: TerminalHostRecord,
+    pub(crate) lease: Option<HostLivenessLease>,
+    pub(crate) published: bool,
+}
+
+pub(crate) struct UnpublishedHostGuard {
+    pub(crate) shared: Arc<HostShared>,
+    pub(crate) endpoint: PathBuf,
+    pub(crate) armed: bool,
+}
+
+impl Drop for UnpublishedHostGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            // An adopted session is not this host's to end: its owner keeps it.
+            if self.shared.adopted_session.is_none() {
+                self.shared.terminate_and_wait();
+            }
+            let _ = fs::remove_file(&self.endpoint);
+        }
+    }
+}
+
+impl Drop for HostServiceGuard {
+    fn drop(&mut self) {
+        // All normal and early-error paths confirm the PTY child exited
+        // before removing its discoverability record. If this host is
+        // SIGKILLed, Drop cannot run; the locked nonce file remains on
+        // disk but unlocks automatically, giving the next mux positive
+        // stale-record proof.
+        self.shared.terminate_and_wait();
+        if !self.shared.child_exited() {
+            return;
+        }
+        let owns_record = !self.published
+            || fs::read(&self.record_path)
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<TerminalHostRecord>(&bytes).ok())
+                .is_some_and(|current| {
+                    current.terminal_id == self.record.terminal_id
+                        && current.incarnation == self.record.incarnation
+                        && current.host_start_nonce == self.record.host_start_nonce
+                });
+        let released_lease_path = if owns_record {
+            self.lease.take().map(|lease| {
+                let _ = lease.file.sync_all();
+                let path = lease.path.clone();
+                // Unlock the process-incarnation proof before removing its
+                // discovery record. Observers can never see an absent
+                // record whose captured liveness proof still says Live.
+                drop(lease);
+                path
+            })
+        } else {
+            None
+        };
+        let removed_record =
+            !self.published || (owns_record && fs::remove_file(&self.record_path).is_ok());
+        let _ = fs::remove_file(&self.endpoint);
+        if removed_record && let Some(path) = released_lease_path {
+            let _ = fs::remove_file(path);
+        }
+    }
+}
+
+/// The durable owner token a host record names.
+pub(crate) fn record_owner_token(record: &TerminalHostRecord) -> anyhow::Result<CapabilityToken> {
+    Ok(CapabilityToken::from_bytes(decode_hex_array(&record.owner_token)?))
+}
+
+/// The live host that replaced the dead host `dead` of the same terminal
+/// incarnation at `record_path`, if one is published.
+pub(crate) fn live_successor_record(
+    record_path: &Path,
+    dead: &TerminalHostRecord,
+) -> Option<TerminalHostRecord> {
+    let record: TerminalHostRecord = serde_json::from_slice(&fs::read(record_path).ok()?).ok()?;
+    let successor = record.terminal_id == dead.terminal_id
+        && record.incarnation == dead.incarnation
+        && record.owner_token == dead.owner_token
+        && record.host_start_nonce != dead.host_start_nonce
+        && terminal_host_record_liveness(record_path, &record).ok()
+            == Some(TerminalHostLiveness::Live);
+    successor.then_some(record)
 }
