@@ -145,6 +145,8 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
 - `chief.stop` stops the running turn and every subagent at work
   (`session/cancel` on each; their reports come quiet) and drops the queued
   ones; it answers `{"stopped": true, "subagents": [...]}`.
+  `chief.stop {name: "a3"}` stops only that subagent and answers the
+  note `Stopped by the user: a3.`; the turn and the other subagents go on.
 - A subagent prompt the harness fails ends that run with `[a<N>] (failed:
   <error>)`, never a subagent that waits forever.
 

@@ -974,3 +974,33 @@ fn a_tell_that_cannot_steer_is_queued_as_its_next_prompt() {
     }
     assert!(s.h.agents.inner.lock().unwrap().steers.is_empty());
 }
+
+/// Reference parity S11: stop ONE subagent by name (`chief.stop {name}`):
+/// only its session is cancelled; the turn and the other subagents go on.
+#[test]
+fn chief_stop_with_a_name_stops_only_that_subagent() {
+    let mut s = setup();
+    spawn(&mut s, &["one", "two", "three"]).unwrap();
+    let (reply, answer) = std::sync::mpsc::channel();
+    s.h.brain.step(optchat_chief::brain::Input::StopSubagent {
+        name: "a2".into(),
+        reply,
+    });
+    assert_eq!(
+        answer.recv().unwrap(),
+        json!({"stopped": true, "subagents": ["a2"], "note": "Stopped by the user: a2."})
+    );
+    assert_eq!(
+        s.h.agents.inner.lock().unwrap().cancels,
+        vec!["s2".to_owned()]
+    );
+    let (reply, answer) = std::sync::mpsc::channel();
+    s.h.brain.step(optchat_chief::brain::Input::StopSubagent {
+        name: "a9".into(),
+        reply,
+    });
+    assert_eq!(
+        answer.recv().unwrap(),
+        json!({"stopped": false, "error": "no subagent a9 at work"})
+    );
+}
