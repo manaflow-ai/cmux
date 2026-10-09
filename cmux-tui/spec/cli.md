@@ -460,7 +460,7 @@ conversation search <words>... [--limit <1..100>]
 conversation <conv_id> send --text <text> | --parts-json <json> [--reply-to <msg_id> [--reply-part <n>]]
 conversation <conv_id> events [--tail <0..500>] [--cursor-rev <rev>]
 chief [-p <text>] [--timeout <seconds>] [--history <n>]   (also `cmux chief`)
-chief engine [--harness <h>] [--model <m>] [--effort <e>] | chief stop
+chief engine [--harness <h>] [--model <m>] [--effort <e>] [--speed <s>] [--compactor-speed <s>] | chief stop [<subagent>]
 agent list|report
 agent plugin list|install|use|update|remove
 pairing request list

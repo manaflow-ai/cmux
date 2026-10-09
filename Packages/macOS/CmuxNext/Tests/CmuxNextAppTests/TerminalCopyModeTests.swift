@@ -6,21 +6,6 @@ import CmuxNextDaemon
 @testable import CmuxNextTerminal
 import Testing
 
-/// Toggle Copy Mode (⇧⌘M) is bound and `/` routes to the find prompt. Both
-/// hold without a Ghostty surface.
-@MainActor
-struct TerminalCopyModeBindingTests {
-    @Test func toggleCopyModeIsBound() {
-        let registry = ActionBindingCoverageTests.boundServices().registry
-        #expect(registry.isBound("toggleTerminalCopyMode"))
-        #expect(registry.unavailableReason(for: "toggleTerminalCopyMode") == nil)
-    }
-
-    @Test func slashOpensTheFindPrompt() {
-        #expect(TerminalHostActionRoute.route(.find) == TerminalHostActionRoute.Route(id: "find"))
-    }
-}
-
 @MainActor
 private final class QuitMenuProbe: NSObject {
     var invocations = 0

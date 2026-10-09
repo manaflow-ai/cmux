@@ -39,10 +39,10 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
     }
 
     public var onOpen: ((String) -> Void)?
+    /// Open in Terminal from a row's right-click menu (the only way a chat opens in a terminal).
+    public var onOpenInTerminal: ((String) -> Void)?
     /// The header's right-click menu (Hide Section); the App builds it from the registry.
     public var headerMenu: (() -> NSMenu?)?
-    /// Rows shown before the list scrolls inside; nil follows `sidebar.allChatsRows`.
-    public var rowLimit: Int? { didSet { if oldValue != rowLimit { refilter() } } }
     public private(set) var rows: [Row] = []
     /// The header row: hidden (faded out, no clicks) unless revealed.
     let header = SidebarChatsHeader()
@@ -50,16 +50,29 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
     /// The sidebar's hover state (`setHoverRevealed`).
     private(set) var isHoverRevealed = false
     let search = NSSearchField()
-    private let grouping = NSPopUpButton()
+    /// Icon buttons, so the header fits the narrowest sidebar: Search opens
+    /// the search field in the title's place; Group by opens a menu.
+    let searchButton = SidebarIconButton(symbol: "magnifyingglass", label: SidebarChatsView.searchPlaceholder)
+    let groupButton = SidebarIconButton(symbol: "list.bullet.indent", label: SidebarChatsView.groupLabel)
+    /// The search field shows (in the title's place) while opened or holding text.
+    private(set) var isSearchOpen = false
     /// The project filter (`SidebarChatsView+ProjectFilter`) and the project it shows, nil for all.
     let filterButton = SidebarIconButton(symbol: "line.3.horizontal.decrease", label: SidebarChatsView.filterTitle)
     var selectedProject: String?
-    private let table = NSTableView()
+    /// The rows press themselves: one click opens a chat (``SidebarChatsTable``).
+    let chatTable = SidebarChatsTable()
+    private var table: NSTableView { chatTable }
     private let scroll = NSScrollView()
     private var items: [Item] = []
     private(set) var selectedGrouping: SidebarChatsGrouping = .newest
     private let defaults: UserDefaults
     private let preferenceKey = "sidebar.chats.grouping"
+    private let expandedKey = "sidebar.chats.expanded"
+    /// Open (the list shows, a third of the sidebar tall) or minimized to its header row, the
+    /// default (Lawrence 2026-10-09). Kept per Mac.
+    public private(set) var isExpanded = false
+    /// The section's height changed (opened, closed): the sidebar lays its bands out again.
+    public var onLayoutChange: (() -> Void)?
     private var lastEnabled = true
     private var lastReady = true
 
@@ -67,6 +80,7 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
         self.defaults = defaults
         super.init(frame: frame)
         selectedGrouping = SidebarChatsGrouping(rawValue: defaults.string(forKey: preferenceKey) ?? "") ?? .newest
+        isExpanded = defaults.bool(forKey: expandedKey)
         configure()
     }
 
@@ -94,15 +108,8 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
             self.refilter()
         }
         search.setAccessibilityLabel(Self.searchPlaceholder)
-        grouping.controlSize = .small
-        grouping.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
-        grouping.isBordered = false
-        grouping.addItems(withTitles: SidebarChatsGrouping.allCases.map(Self.groupTitle))
-        grouping.selectItem(at: SidebarChatsGrouping.allCases.firstIndex(of: selectedGrouping) ?? 0)
-        grouping.target = self
-        grouping.action = #selector(groupingChanged)
-        grouping.toolTip = Self.groupLabel
-        grouping.setAccessibilityLabel(Self.groupLabel)
+        searchButton.onPress = { [weak self] in self?.openSearch() }
+        groupButton.onPress = { [weak self] in self?.showGroupingMenu() }
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("chat"))
         column.isEditable = false
         table.addTableColumn(column)
@@ -119,7 +126,10 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
         scroll.autohidesScrollers = true
         filterButton.onPress = { [weak self] in self?.showProjectMenu() }
         header.onMenu = { [weak self] in self?.headerMenu?() }
-        for control in [titleLabel, search, filterButton, grouping] as [NSView] { header.addSubview(control) }
+        header.onToggle = { [weak self] in self?.toggleExpanded() }
+        header.icons = [searchButton, filterButton, groupButton]
+        header.searchField = search
+        for control in [titleLabel, search, searchButton, filterButton, groupButton] as [NSView] { header.addSubview(control) }
         addSubview(header)
         addSubview(scroll)
         applyHeaderReveal(animated: false)
@@ -157,16 +167,25 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
         needsLayout = true
     }
 
-    /// The section's height: the header row and up to `maxVisibleRows` rows
-    /// (then the list scrolls inside, so the bottom band keeps room for the footer).
-    public var preferredHeight: CGFloat {
-        Metrics.sidebarRowHeight * CGFloat(1 + min(max(items.count, 1), maxVisibleRows))
-    }
+    /// The section's height when minimized: its header row. Open, it takes ``sidebarShare`` of
+    /// the sidebar instead.
+    public var preferredHeight: CGFloat { Metrics.sidebarRowHeight }
 
-    /// The most chat rows the section shows before it scrolls inside (`sidebar.allChatsRows`).
-    var maxVisibleRows: Int {
-        let range = SidebarSectionsPreferences.allChatsRowsRange
-        return min(max(rowLimit ?? DesignSettings.shared.sidebarSections.allChatsRows, range.lowerBound), range.upperBound)
+    /// Open, the section is a fixed third of the sidebar's height and its list scrolls inside.
+    var sidebarShare: CGFloat? { isExpanded ? 1.0 / 3.0 : nil }
+
+    /// Opens or closes the section (a click on its header).
+    public func toggleExpanded() {
+        isExpanded.toggle()
+        defaults.set(isExpanded, forKey: expandedKey)
+        if !isExpanded, isSearchOpen || !search.stringValue.isEmpty {
+            search.stringValue = ""
+            isSearchOpen = false
+            refilter()
+        }
+        applyHeaderReveal(animated: false)
+        needsLayout = true
+        onLayoutChange?()
     }
 
     // MARK: Hover header
@@ -180,21 +199,27 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
     /// The header shows while hovered, and while a search or project filter
     /// is in effect (a hidden filter would leave rows missing with no sign why).
     var isHeaderRevealed: Bool {
-        isHoverRevealed || !search.stringValue.isEmpty || selectedProject != nil || search.currentEditor() != nil
+        isExpanded && (isHoverRevealed || isSearchOpen || !search.stringValue.isEmpty || selectedProject != nil || search.currentEditor() != nil)
     }
 
     /// Typing in the search keeps the header shown; leaving it may hide it.
     public func controlTextDidBeginEditing(_ obj: Notification) { applyHeaderReveal(animated: true) }
-    public func controlTextDidEndEditing(_ obj: Notification) { applyHeaderReveal(animated: true) }
+    public func controlTextDidEndEditing(_ obj: Notification) {
+        closeSearchIfEmpty()
+        applyHeaderReveal(animated: true)
+    }
 
+    /// The title always shows; the icons fade in with the hover while the section is open.
     private func applyHeaderReveal(animated: Bool) {
         let alpha: CGFloat = isHeaderRevealed ? 1 : 0
-        header.isRevealed = isHeaderRevealed
-        guard header.alphaValue != alpha else { return }
+        header.iconsRevealed = isHeaderRevealed
+        scroll.isHidden = !isExpanded
+        let icons = [searchButton, filterButton, groupButton] as [NSView]
+        guard icons.contains(where: { $0.alphaValue != alpha }) else { return }
         if animated {
-            Motion.animate(.hover, in: self) { header.animator().alphaValue = alpha }
+            Motion.animate(.hover, in: self) { for icon in icons { icon.animator().alphaValue = alpha } }
         } else {
-            header.alphaValue = alpha
+            for icon in icons { icon.alphaValue = alpha }
         }
     }
 
@@ -243,11 +268,43 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
     }
 
     @objc private func searchChanged() { onSearchChanged?() }
-    @objc private func groupingChanged() {
-        let index = grouping.indexOfSelectedItem
-        selectedGrouping = SidebarChatsGrouping.allCases.indices.contains(index) ? SidebarChatsGrouping.allCases[index] : .newest
+    /// Group by: Newest, Harness, Folder, Account; the shown one is checked.
+    func groupingMenu() -> NSMenu {
+        let menu = NSMenu()
+        for grouping in SidebarChatsGrouping.allCases {
+            let item = NSMenuItem(title: Self.groupTitle(grouping), action: #selector(pickGrouping(_:)), keyEquivalent: "")
+            item.representedObject = grouping.rawValue
+            item.state = grouping == selectedGrouping ? .on : .off
+            item.target = self
+            menu.addItem(item)
+        }
+        return menu
+    }
+
+    private func showGroupingMenu() {
+        groupingMenu().popUp(positioning: nil, at: NSPoint(x: 0, y: groupButton.bounds.maxY + Metrics.space1), in: groupButton)
+    }
+
+    @objc private func pickGrouping(_ item: NSMenuItem) {
+        selectedGrouping = (item.representedObject as? String).flatMap(SidebarChatsGrouping.init(rawValue:)) ?? .newest
         defaults.set(selectedGrouping.rawValue, forKey: preferenceKey)
         onSearchChanged?()
+    }
+
+    /// Search: the field takes the title's place and the keyboard.
+    func openSearch() {
+        isSearchOpen = true
+        needsLayout = true
+        layoutSubtreeIfNeeded()
+        window?.makeFirstResponder(search)
+        applyHeaderReveal(animated: true)
+    }
+
+    /// The field closes when it is empty and editing ends (Escape, a click elsewhere).
+    private func closeSearchIfEmpty() {
+        guard isSearchOpen, search.stringValue.isEmpty, search.currentEditor() == nil else { return }
+        isSearchOpen = false
+        needsLayout = true
     }
 
     private var onSearchChanged: (() -> Void)? {
@@ -261,21 +318,30 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
         let top = Metrics.sidebarRowHeight
         let controlHeight: CGFloat = 20
         let y = (top - controlHeight) / 2
-        let groupWidth: CGFloat = 76
-        let filterWidth = filterButton.isHidden ? 0 : controlHeight + Metrics.space1
         header.frame = NSRect(x: 0, y: 0, width: bounds.width, height: top)
-        let titleWidth = min(ceil(titleLabel.intrinsicContentSize.width), max(0, bounds.width * 0.4))
-        titleLabel.frame = NSRect(x: Metrics.space3, y: (top - titleLabel.intrinsicContentSize.height) / 2,
-                                  width: titleWidth, height: titleLabel.intrinsicContentSize.height)
-        let searchX = titleLabel.frame.maxX + Metrics.space2
-        let searchWidth = max(0, bounds.width - searchX - groupWidth - Metrics.space2 - filterWidth)
-        search.frame = NSRect(x: searchX, y: y, width: searchWidth, height: controlHeight)
-        filterButton.frame = NSRect(x: search.frame.maxX + Metrics.space1, y: y, width: controlHeight, height: controlHeight)
-        grouping.frame = NSRect(x: max(0, bounds.width - groupWidth - Metrics.space1), y: y, width: groupWidth, height: controlHeight)
+        // Trailing icon buttons (group, filter, search), then the title or the open search field.
+        let searching = isSearchOpen || !search.stringValue.isEmpty
+        var x = bounds.width - Metrics.space2
+        let buttons = [groupButton] + (filterButton.isHidden ? [] : [filterButton]) + (searching ? [] : [searchButton])
+        for button in buttons {
+            x -= controlHeight
+            button.frame = NSRect(x: x, y: y, width: controlHeight, height: controlHeight)
+            x -= Metrics.space1
+        }
+        searchButton.isHidden = searching
+        search.isHidden = !searching
+        titleLabel.isHidden = searching
+        let leading = Metrics.space3
+        let room = max(0, x - Metrics.space1 - leading)
+        let titleHeight = titleLabel.intrinsicContentSize.height
+        titleLabel.frame = NSRect(x: leading, y: (top - titleHeight) / 2, width: min(ceil(titleLabel.intrinsicContentSize.width), room), height: titleHeight)
+        search.frame = NSRect(x: leading, y: y, width: room, height: controlHeight)
         scroll.frame = NSRect(x: 0, y: top, width: bounds.width, height: max(0, bounds.height - top))
     }
 
     public func numberOfRows(in tableView: NSTableView) -> Int { items.count }
+    /// A click opens a chat (the row presses itself); nothing stays selected.
+    public func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool { false }
     public func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat { Metrics.sidebarRowHeight }
     public func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         guard items.indices.contains(row) else { return nil }
@@ -309,6 +375,7 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
             view.identifier = identifier
             view.configure(SidebarItemInfo(title: row.title, symbol: "bubble.left", icon: .agentChat, brand: row.brand), style: .builtIn)
             view.onPress = { [weak self] in self?.onOpen?(row.id) }
+            view.onContextMenu = { [weak self] event, view in self?.showRowMenu(row.id, event: event, in: view) }
             view.setAccessibilityLabel(row.title)
             return view
         }

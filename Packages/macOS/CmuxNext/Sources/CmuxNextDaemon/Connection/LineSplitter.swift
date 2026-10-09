@@ -26,8 +26,7 @@ nonisolated struct LineSplitter {
         var start = 0
         for end in lineEnds {
             if end > start {
-                let base = pending.startIndex
-                line(Data(pending[(base + start)..<(base + end)]))
+                line(Data(pending.dropFirst(start).prefix(end - start)))
             }
             start = end + 1
         }

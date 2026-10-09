@@ -18,6 +18,7 @@ use super::{CLOUD_TEMPLATE_ENV, CloudTemplateEnv};
 /// another thread can read the environment.
 #[cfg(unix)]
 pub(crate) unsafe fn take_link_token_from_env() {
+    remember_chief_tools_socket();
     // SAFETY: forwarded from this function's own contract (see # Safety).
     unsafe { cmux_link::token::take_from_process_env() };
     // SAFETY: as above.
@@ -32,6 +33,7 @@ pub(crate) unsafe fn take_link_token_from_env() {
 /// on every platform.
 #[cfg(not(unix))]
 pub(crate) unsafe fn take_link_token_from_env() {
+    remember_chief_tools_socket();
     // SAFETY: forwarded from this function's own contract (see # Safety).
     unsafe { cmux_tui_core::server::take_chief_tools_socket_from_env() };
 }
@@ -56,4 +58,22 @@ pub(crate) fn take_cloud_template_env() {
         unsafe { std::env::remove_var(key) };
     }
     let _ = CLOUD_TEMPLATE_ENV.set(settings);
+}
+
+/// The `CMUX_TUI_CHIEF_TOOLS_SOCKET` this process started with, kept before
+/// `take_link_token_from_env` removes it, so `server ensure` hands it to the
+/// owner it spawns (OwnerSpec.chief_tools_socket): the variable is removed
+/// from this process, so the owner would not inherit it.
+static CHIEF_TOOLS_SOCKET: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
+
+fn remember_chief_tools_socket() {
+    let value = std::env::var_os("CMUX_TUI_CHIEF_TOOLS_SOCKET")
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from);
+    let _ = CHIEF_TOOLS_SOCKET.set(value);
+}
+
+/// The brain tools socket this process was started with (see above).
+pub(crate) fn chief_tools_socket() -> Option<PathBuf> {
+    CHIEF_TOOLS_SOCKET.get().cloned().flatten()
 }

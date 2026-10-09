@@ -46,6 +46,19 @@ if ! [[ "$suite_jobs" =~ ^[1-9][0-9]*$ ]]; then
 fi
 lock_args=()
 [ "$suite_jobs" -eq 1 ] || lock_args=(--ignore-lock)
+# CMUX_SWIFT_TEST_SHARD=i/n (1-based) splits one package's suites across n
+# fleet steps: each shard builds, then runs every n-th suite of the sorted list,
+# starting at the i-th. Round-robin over a sorted list is deterministic and keeps
+# shard sizes within one suite of each other.
+shard_index=1 shard_count=1
+if [ -n "${CMUX_SWIFT_TEST_SHARD:-}" ]; then
+  if ! [[ "$CMUX_SWIFT_TEST_SHARD" =~ ^([1-9][0-9]*)/([1-9][0-9]*)$ ]] \
+    || [ "${BASH_REMATCH[1]}" -gt "${BASH_REMATCH[2]}" ]; then
+    echo "CMUX_SWIFT_TEST_SHARD must be i/n with 1 <= i <= n (got '$CMUX_SWIFT_TEST_SHARD')" >&2
+    exit 2
+  fi
+  shard_index="${BASH_REMATCH[1]}" shard_count="${BASH_REMATCH[2]}"
+fi
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 evidence_dir="$(mktemp -d)"
 trap 'rm -rf "$evidence_dir"' EXIT
@@ -73,11 +86,18 @@ fi
 # list each suite's result and exit with the first failure's status (first in
 # suite order, whatever order the suites finish in).
 suites=()
+position=0
 while IFS= read -r suite; do
   [ -n "$suite" ] || continue
-  suites+=("$suite")
-done < "$evidence_dir/filters.txt"
+  if [ $((position % shard_count + 1)) -eq "$shard_index" ]; then
+    suites+=("$suite")
+  fi
+  position=$((position + 1))
+done < <(if [ "$shard_count" -eq 1 ]; then cat "$evidence_dir/filters.txt"; else LC_ALL=C sort -u "$evidence_dir/filters.txt"; fi)
 suite_count=${#suites[@]}
+if [ -n "${CMUX_SWIFT_TEST_SHARD:-}" ]; then
+  echo "Swift test shard $shard_index/$shard_count: $suite_count of $position suites"
+fi
 
 # attempt_suite SUITE EXECUTION_LOG SINK...: one watchdog-guarded swift test of
 # SUITE. The output replaces EXECUTION_LOG (the --log check reads the last

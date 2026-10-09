@@ -174,3 +174,27 @@ fn an_agent_bound_connection_reaches_nothing_and_the_owner_reaches_the_brain() {
     assert_eq!(stopped["result"]["value"]["stopped"], true, "{stopped}");
     assert_eq!(seen.lock().unwrap().as_slice(), [json!({"tool":"stop"})]);
 }
+
+/// chief.engine.set forwards speed and compactor_speed; chief.stop forwards
+/// a subagent's name, and its result keeps the brain's subagents and note.
+#[test]
+fn engine_speed_and_a_named_stop_reach_the_brain() {
+    assert_eq!(
+        tool_line(
+            ResourceOperation::ChiefEngineSet,
+            &fields(json!({"speed":"fast","compactor_speed":"default"}))
+        ),
+        json!({"tool":"engine","action":"set","speed":"fast","compactor_speed":"default"})
+    );
+    assert_eq!(
+        tool_line(ResourceOperation::ChiefStop, &fields(json!({"name":"a3"}))),
+        json!({"tool":"stop","name":"a3"})
+    );
+    let mux = Mux::new_for_test("chief-control", crate::SurfaceOptions::default());
+    let brain_answer = json!({"stopped":true,"subagents":["a3"],"note":"Stopped by the user: a3."});
+    let stop = result(&mux, ResourceOperation::ChiefStop, Ok(brain_answer)).unwrap();
+    assert_eq!(
+        stop["value"],
+        json!({"stopped":true,"subagents":["a3"],"note":"Stopped by the user: a3."})
+    );
+}

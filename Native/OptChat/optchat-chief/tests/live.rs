@@ -39,6 +39,7 @@ fn start(chat: &optchat_host::OptChat, n: u64, text: &str) -> TurnStart {
             preset: None,
             tags: Default::default(),
             env: Default::default(),
+            fast: false,
         },
         blocks: turn_blocks(&view.text, &[text.to_owned()]),
         limit: Some(Duration::from_secs(600)),
@@ -214,7 +215,7 @@ fn the_acpmux_compactor_builds_a_node_through_claude_sr() {
         system: system.clone(),
         context: context.clone(),
         step: format!(
-            "Compaction: compress message 100000 into one line of at most 512 bytes\n(about 70 words), the length of this ruler:\n{}\n<input>\nuser: deploy service-{i} the same way and tell me when it is healthy\n</input>",
+            "Compaction: compress message 100000 into one line of at most 512 bytes\n(about 70 words; aim for about 400 bytes, well inside the limit), the\nlimit is the length of this ruler:\n{}\n<input>\nuser: deploy service-{i} the same way and tell me when it is healthy\n</input>",
             optchat_core::RULER
         ),
         cut: None,
@@ -466,6 +467,7 @@ fn two_turns_and_two_nodes_through_local_acp() {
                 preset,
                 tags: optchat_chief::acpmux::chief_tags(&home_id(&home), "turn"),
                 env: Default::default(),
+                fast: false,
             },
             blocks,
             system_prompt,
@@ -524,7 +526,7 @@ fn two_turns_and_two_nodes_through_local_acp() {
             system: config.prompt.text(&config.agent),
             context: context.clone(),
             step: format!(
-                "Compaction: compress message {} into one line of at most 512 bytes\n(about 70 words), the length of this ruler:\n{}\n<input>\nuser: deploy service-{} the same way and tell me when it is healthy\n</input>",
+                "Compaction: compress message {} into one line of at most 512 bytes\n(about 70 words; aim for about 400 bytes, well inside the limit), the\nlimit is the length of this ruler:\n{}\n<input>\nuser: deploy service-{} the same way and tell me when it is healthy\n</input>",
                 200_000 + k,
                 optchat_core::RULER,
                 i + k as usize

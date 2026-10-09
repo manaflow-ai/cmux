@@ -34,8 +34,10 @@ public struct IrxTunnelNetworkConnector: IrxTunnelConnecting {
     /// Waits out the connect deadline; injected so tests control time.
     private let sleep: @Sendable (Duration) async throws -> Void
 
-    public init(sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {
-        self.sleep = sleep
+    /// - Parameter sleep: Defaults to `Task.sleep(for:)`. Not a closure-literal
+    ///   default: see IrxPeerEngine.init (cx-bsue).
+    public init(sleep: (@Sendable (Duration) async throws -> Void)? = nil) {
+        self.sleep = sleep ?? { try await Task.sleep(for: $0) }
     }
 
     public func resolve(host: String) async -> [IrxTunnelIPAddress] {
@@ -51,7 +53,7 @@ public struct IrxTunnelNetworkConnector: IrxTunnelConnecting {
             var cursor: UnsafeMutablePointer<addrinfo>? = first
             while let info = cursor, addresses.count < 16 {
                 if let sockaddr = info.pointee.ai_addr {
-                    switch Int32(sockaddr.pointee.sa_family) {
+                    switch Int32(clamping: sockaddr.pointee.sa_family) {
                     case AF_INET:
                         sockaddr.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { pointer in
                             var address = pointer.pointee.sin_addr

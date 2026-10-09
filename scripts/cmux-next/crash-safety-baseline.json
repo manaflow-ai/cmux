@@ -43,7 +43,6 @@
    "CmuxAuthRuntime": 7,
    "CmuxInstallAuthCore": 1,
    "CmuxIrohTransport": 4,
-   "CmuxIrxTransport": 6,
    "CmuxNextApp": 5,
    "CmuxNextBrowserHost": 1,
    "CmuxNextDaemon": 1,
@@ -60,22 +59,6 @@
    "CmuxNextPages": 4,
    "CmuxNextSidebar": 3,
    "MessagesLabHome": 20
-  },
-  "index_subscript": {
-   "CMUXMobileCore": 15,
-   "CmuxIrohTransport": 41,
-   "CmuxIrxTransport": 21,
-   "CmuxNextControl": 20,
-   "CmuxNextDaemon": 62,
-   "CmuxNextMobile": 1
-  },
-  "int_conversion": {
-   "CMUXMobileCore": 18,
-   "CmuxIrohTransport": 16,
-   "CmuxIrxTransport": 10,
-   "CmuxNextControl": 5,
-   "CmuxNextDaemon": 4,
-   "CmuxNextMobile": 1
   },
   "render_font": {
    "CmuxHomeRender": 4,
