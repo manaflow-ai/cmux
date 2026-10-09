@@ -240,3 +240,69 @@ private final class NavigationOutcome: @unchecked Sendable {
     var value: Bool? { lock.withLock { stored } }
     func set(_ value: Bool) { lock.withLock { stored = value } }
 }
+
+/// r38 native#1: `secrets.load` protects the file app-wide before it knows
+/// the file holds secrets it will load. A load that fails loaded nothing,
+/// so it must not keep that protection: before the fix every failed load
+/// left one entry in the app-wide set (bounded at 4,096 for every session
+/// together), and failed loads across sessions denied other sessions'
+/// valid loads. A failed load must not drop a protection another session's
+/// successful load of the same file holds either.
+@Suite("Browser REPL failed secrets.load protections", .serialized)
+struct BrowserReplFailedSecretLoadTests {
+    private func makeSession(cwd: String) throws -> BrowserReplSession {
+        let bundle = try browserReplRepositoryBundle()
+        return BrowserReplSession(id: "failed-load-\(UUID().uuidString)", cwd: cwd, bundle: bundle, driver: ScriptedPageDriver())
+    }
+
+    private func run(_ session: BrowserReplSession, _ code: String) async -> String {
+        let result = await browserReplWithDeadline(seconds: 60) { await session.evaluate(code: code, timeout: .seconds(30)) }
+        return (result?.lines.map(\.text) ?? []).joined(separator: "\n") + (result?.error.map { "\nerror: \($0)" } ?? "")
+    }
+
+    private func workDirectory() throws -> URL {
+        let work = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-repl-failed-load-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        return work
+    }
+
+    private let attempt = #"const attempt = (p, o) => { try { secrets.load(p, o); console.log("loaded"); } catch (e) { console.log("refused", e.message); } };"#
+
+    @Test("A secrets.load that fails leaves its file unprotected, so failed loads take no room in the app-wide set")
+    func failedLoadIsNotProtected() async throws {
+        let work = try workDirectory()
+        defer { try? FileManager.default.removeItem(at: work) }
+        let files = ["not-json.json": "this is not JSON", "weak.json": #"{"example.com":{"pw":"abc"}}"#, "bad-shape.json": "[1, 2, 3]"]
+        for (name, text) in files { try Data(text.utf8).write(to: work.appendingPathComponent(name)) }
+        let session = try makeSession(cwd: work.path)
+        defer { session.close() }
+        let output = await run(session, """
+        \(attempt)
+        attempt("./not-json.json"); attempt("./weak.json"); attempt("./bad-shape.json");
+        """)
+        #expect(!output.contains("loaded"), "a load that should fail succeeded: \(output)")
+        for name in files.keys {
+            #expect(!BrowserReplSecretSources.shared.contains(path: work.appendingPathComponent(name).path), "\(name): a failed secrets.load kept its app-wide protection: \(output)")
+        }
+    }
+
+    @Test("A failed secrets.load does not drop the protection another session's load of the same file holds")
+    func failedLoadKeepsAnotherSessionsProtection() async throws {
+        let work = try workDirectory()
+        defer { try? FileManager.default.removeItem(at: work) }
+        let path = work.appendingPathComponent("weak.json").path
+        try Data(#"{"example.com":{"pw":"abc"}}"#.utf8).write(to: URL(fileURLWithPath: path))
+        let loader = try makeSession(cwd: work.path)
+        defer { loader.close() }
+        let other = try makeSession(cwd: work.path)
+        defer { other.close() }
+        let loaded = await run(loader, "\(attempt)\nattempt(\"./weak.json\", { allowWeak: true });")
+        #expect(loaded.contains("loaded"), "the weak load with allowWeak failed: \(loaded)")
+        let refused = await run(other, "\(attempt)\nattempt(\"./weak.json\");")
+        #expect(refused.contains("refused"), "the weak load without allowWeak succeeded: \(refused)")
+        #expect(BrowserReplSecretSources.shared.contains(path: path), "another session's failed load dropped the protection of a file that was loaded")
+        // The loader's own retry that fails keeps its earlier protection too.
+        _ = await run(loader, "\(attempt)\nattempt(\"./weak.json\");")
+        #expect(BrowserReplSecretSources.shared.contains(path: path), "the loader's failed retry dropped its own protection")
+    }
+}

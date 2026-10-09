@@ -679,6 +679,28 @@ test("session.storageState: localStorage is read within the page-read budget, an
   }
 });
 
+// r38 runtime#1: a frame with no localStorage costs no items, so before
+// the fix a page of many iframes drove one native frame.evaluate per frame
+// past any budget. The frames read are now capped (100, as Markdown export)
+// and the call fails with the frames note rather than save part of a state.
+test("session.storageState: a page of many iframes is read for at most 100 frames, then the call fails with the note", async () => {
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});
+        await page.evaluate(() => { localStorage.clear(); for (let i = 0; i < 150; i++) document.body.appendChild(document.createElement("iframe")); });
+        await page._refreshFrames();
+        console.log("@@" + page.frames().length);`).then((r) => assert.equal(r.value, "151", "the fixture's iframes were not all known to the session"));
+      const r = await run(`const out = await session.storageState().then((s) => "saved " + s.origins.length, (e) => e.message); console.log("@@" + JSON.stringify(out));`);
+      const reads = r.log.filter((e) => e.method === "frame.evaluate").length;
+      assert.ok(reads <= 101, `storageState made ${reads} page-agent reads for a page of 151 frames`);
+      assert.match(JSON.parse(r.value), /^session\.storageState: the page is too large to read whole: localStorage stopped after 100 frames/);
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
 test("page.exportContent: the default Markdown export stops at the page-read budget with a note", async () => {
   const servers = await startFixtureServers();
   try {
