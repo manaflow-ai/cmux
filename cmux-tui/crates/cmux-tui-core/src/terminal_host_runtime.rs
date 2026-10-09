@@ -614,7 +614,6 @@ mod unix {
     mod adopted_child;
     mod barrier_sync;
     mod clipboard_read;
-    mod control_responses;
     mod exited_drain;
     mod host_accept;
     mod host_crash;
@@ -627,12 +626,15 @@ mod unix {
     mod pty_lock;
     mod renderer_grant;
     mod standby;
+    use super::shared::attachment::InputAckReceipt;
     pub(crate) use super::shared::clipboard_read::ClipboardReadSignal;
-    use super::shared::clipboard_read::{ClipboardReadInbox, ClipboardReads, SystemClock};
+    use super::shared::clipboard_read::{ClipboardReads, SystemClock};
     use super::shared::clipboard_read::{OwnerIntent, owner_rights_allowed, owner_rights_for};
+    use super::shared::control_responses::ControlResponseWaiter;
+    pub(crate) use super::shared::control_responses::{
+        ControlResponses, DeferredCellPixelResolution,
+    };
     pub use adopt_launch::{TerminalHostAdoption, launch_terminal_host_adopting};
-    use control_responses::ControlResponseWaiter;
-    pub(crate) use control_responses::{ControlResponses, DeferredCellPixelResolution};
     use host_parser::{ParserSignals, run_guarded_host_parser, run_host_parser};
     use host_start::HostChild;
     pub use pty_custody::{PtyCustody, request_terminal_host_pty_custody};
@@ -642,68 +644,6 @@ mod unix {
     pub(crate) use standby::{
         StandbyTerminalHost, launch_terminal_host_from, launch_terminal_host_seeded,
     };
-
-    pub(crate) struct InputAckReceipt {
-        request_id: u64,
-        receiver: Receiver<Frame>,
-        control_responses: Arc<ControlResponses>,
-        shutdown: Arc<UnixStream>,
-        bytes: usize,
-    }
-
-    impl InputAckReceipt {
-        fn abort_connection(&self) {
-            let _ = self.shutdown.shutdown(std::net::Shutdown::Both);
-        }
-
-        pub(crate) fn wait(self) -> std::io::Result<()> {
-            self.wait_for(CONTROL_RESPONSE_TIMEOUT)
-        }
-
-        fn wait_for(self, timeout: Duration) -> std::io::Result<()> {
-            match self.receiver.recv_timeout(timeout) {
-                Ok(frame) => {
-                    if !frame.payload.is_empty() {
-                        self.abort_connection();
-                        return Err(std::io::Error::new(
-                            std::io::ErrorKind::InvalidData,
-                            "terminal host returned a malformed input acknowledgement",
-                        ));
-                    }
-                    Ok(())
-                }
-                Err(error) => {
-                    self.control_responses.waiters.lock().unwrap().remove(&self.request_id);
-                    // Shutdown uses a separately cloned socket handle. A timed-out
-                    // receipt therefore does not wait behind another frame writer
-                    // before it can abort the broken attachment.
-                    self.abort_connection();
-                    let kind = match error {
-                        RecvTimeoutError::Timeout => std::io::ErrorKind::TimedOut,
-                        RecvTimeoutError::Disconnected => std::io::ErrorKind::ConnectionAborted,
-                    };
-                    Err(std::io::Error::new(
-                        kind,
-                        format!("terminal host did not acknowledge receipted input: {error}"),
-                    ))
-                }
-            }
-        }
-    }
-
-    impl Drop for InputAckReceipt {
-        fn drop(&mut self) {
-            let abandoned =
-                self.control_responses.waiters.lock().unwrap().remove(&self.request_id).is_some();
-            self.control_responses.release_input_ack(self.bytes);
-            if abandoned {
-                // A submitted request whose confirmation is abandoned can still
-                // produce a late targeted ACK. Close this attachment now rather
-                // than letting that late frame fail the production reader later.
-                self.abort_connection();
-            }
-        }
-    }
 
     pub struct HostAttachment {
         pub record: TerminalHostRecord,
