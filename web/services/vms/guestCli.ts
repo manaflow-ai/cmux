@@ -2295,7 +2295,7 @@ peer_agent() {
   cmux_pa_json=0
   while [ "\$#" -gt 0 ]; do
     case "\$1" in
-      --agent) [ "\$#" -ge 2 ] || die "vm agent: --agent needs claude, codex, opencode, or pi" 2; cmux_pa_agent="\$2"; shift 2 ;;
+      --agent) [ "\$#" -ge 2 ] || die "vm agent: --agent needs claude, codex, opencode, pi, or hermes" 2; cmux_pa_agent="\$2"; shift 2 ;;
       --agent=*) cmux_pa_agent="\${1#--agent=}"; shift ;;
       --name) [ "\$#" -ge 2 ] || die "vm agent: --name needs a value" 2; cmux_pa_name="\$2"; shift 2 ;;
       --name=*) cmux_pa_name="\${1#--name=}"; shift ;;
@@ -2309,14 +2309,14 @@ peer_agent() {
       --timeout=*) cmux_pa_timeout="\${1#--timeout=}"; cmux_pa_wait=1; shift ;;
       --json) cmux_pa_json=1; shift ;;
       --) shift; break ;;
-      claude|codex|opencode|pi) if [ -z "\$cmux_pa_agent" ]; then cmux_pa_agent="\$1"; shift; else break; fi ;;
+      claude|codex|opencode|pi|hermes) if [ -z "\$cmux_pa_agent" ]; then cmux_pa_agent="\$1"; shift; else break; fi ;;
       *) break ;;
     esac
   done
-  [ -n "\$cmux_pa_agent" ] || die "usage: cmux vm agent <machine> --agent <claude|codex|opencode|pi> [--name <n>] [--cwd <dir>] [--workspace <ws>] [--wait [--output] [--timeout <s>]] -- <prompt or args…>" 2
+  [ -n "\$cmux_pa_agent" ] || die "usage: cmux vm agent <machine> --agent <claude|codex|opencode|pi|hermes> [--name <n>] [--cwd <dir>] [--workspace <ws>] [--wait [--output] [--timeout <s>]] -- <prompt or args…>" 2
   case "\$cmux_pa_agent" in
-    claude|codex|opencode|pi) ;;
-    *) die "vm agent: unsupported agent '\$cmux_pa_agent' (choose claude, codex, opencode, or pi)" 2 ;;
+    claude|codex|opencode|pi|hermes) ;;
+    *) die "vm agent: unsupported agent '\$cmux_pa_agent' (choose claude, codex, opencode, pi, or hermes)" 2 ;;
   esac
   [ -z "\$cmux_pa_timeout" ] || timeout_ms "\$cmux_pa_timeout" "vm agent" >/dev/null
   use_peer "\$cmux_pa_peer"
@@ -2756,9 +2756,9 @@ case "\${1:-}" in
         esac
         ;;
       agent)
-        peer="\${1:-}"; [ -n "\$peer" ] || die "usage: cmux vm agent <machine> --agent <claude|codex|opencode|pi> -- <prompt or args…>" 2
+        peer="\${1:-}"; [ -n "\$peer" ] || die "usage: cmux vm agent <machine> --agent <claude|codex|opencode|pi|hermes> -- <prompt or args…>" 2
         case "\${2:-}" in
-          --agent|--agent=*|claude|codex|opencode|pi|--wait|--output|--timeout|--timeout=*|--name|--name=*|--cwd|--cwd=*|--workspace|--workspace=*) peer_agent "\$@" ;;
+          --agent|--agent=*|claude|codex|opencode|pi|hermes|--wait|--output|--timeout|--timeout=*|--name|--name=*|--cwd|--cwd=*|--workspace|--workspace=*) peer_agent "\$@" ;;
           *)
             shift
             use_peer "\$peer"

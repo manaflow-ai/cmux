@@ -184,8 +184,8 @@ esac
     expect(run.status).toBe(0);
     expect(run.stdout).toContain("cmux auth status [--json]");
     expect(run.stdout).toContain("cmux coderouter status|usage [--json]|models");
-    expect(run.stdout).toContain("cmux coderouter agent <claude|codex|opencode|pi>");
-    expect(run.stdout).toContain("cmux agent <claude|codex|opencode|pi>");
+    expect(run.stdout).toContain("cmux coderouter agent <claude|codex|opencode|pi|hermes>");
+    expect(run.stdout).toContain("cmux agent <claude|codex|opencode|pi|hermes>");
   });
 
   test("agent login prints shared-account, native, and Codex display guidance", async () => {
@@ -893,15 +893,15 @@ describe("in-VM cmux shim: agent primitives", () => {
       "cmux terminal send|read|wait|wait-exit|output|close <id>",
       "cmux vm terminal send|read|wait|wait-exit|output|close <machine> <term>",
       "cmux vm workspace new|rename|close|rm <machine>",
-      "cmux vm agent <machine> --agent <claude|codex|opencode|pi>",
+      "cmux vm agent <machine> --agent <claude|codex|opencode|pi|hermes>",
       "cmux vm layout export|apply <machine>",
       "cmux vm env set|ls|rm|path <machine>",
       "cmux self [--json]",
       "cmux vm ls [--json]",
       "cmux file receive <path> [--mode <octal>]",
       "cmux vm push <machine> <local-file> <remote-path> [--mode <octal>]",
-      "cmux vm agent <machine> --agent <claude|codex|opencode|pi> [--wait [--output] [--timeout <s>]] -- <prompt>",
-      "cmux agent <claude|codex|opencode|pi> [--timeout <s>] [args...]",
+      "cmux vm agent <machine> --agent <claude|codex|opencode|pi|hermes> [--wait [--output] [--timeout <s>]] -- <prompt>",
+      "cmux agent <claude|codex|opencode|pi|hermes> [--timeout <s>] [args...]",
     ]) {
       expect(run.stdout).toContain(line);
     }
