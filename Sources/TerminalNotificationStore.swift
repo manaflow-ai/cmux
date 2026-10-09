@@ -1165,22 +1165,24 @@ final class TerminalNotificationStore: ObservableObject {
         let clickAction = origin.isRemote ? nil : clickAction
         let agent = origin.isRemote ? nil : agent
         let soundContext = origin.isRemote ? nil : soundContext
-        let resolvedHooks = origin.isRemote ? (resolvedHooks ?? []) : resolvedHooks
         let admissionTabId = notificationMuteAdmissionTabID(
             claimedTabId: tabId,
             surfaceId: surfaceId,
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner
         )
-        guard !isWorkspaceNotificationsMuted(forTabId: admissionTabId) else {
-            if let preRegisteredPolicyRequestId {
-                abortDesktopNotificationHookResolution(preRegisteredPolicyRequestId)
-            }
-            return nil
+        // A muted workspace still keeps the entry in history, already read.
+        // It never runs user hooks or consumes a cooldown; `applyNotification`
+        // strips every alerting effect.
+        let isMuted = isWorkspaceNotificationsMuted(forTabId: admissionTabId)
+        if isMuted, let preRegisteredPolicyRequestId {
+            abortDesktopNotificationHookResolution(preRegisteredPolicyRequestId)
         }
+        let preRegisteredPolicyRequestId = isMuted ? nil : preRegisteredPolicyRequestId
+        let resolvedHooks = isMuted ? [] : origin.isRemote ? (resolvedHooks ?? []) : resolvedHooks
         let reservedNotificationID = notificationID ?? UUID()
         let now = Date()
         let resolvedCooldownInterval: TimeInterval?
-        if let cooldownInterval, cooldownInterval.isFinite, cooldownInterval > 0 {
+        if !isMuted, let cooldownInterval, cooldownInterval.isFinite, cooldownInterval > 0 {
             resolvedCooldownInterval = cooldownInterval
         } else {
             resolvedCooldownInterval = nil
@@ -1535,13 +1537,14 @@ final class TerminalNotificationStore: ObservableObject {
             restoreCooldownReservation(cooldownReservation)
             return false
         }
-        // Workspace mute is an admission gate, not merely an external-delivery
-        // preference: it must prevent history, unread projections, commands,
-        // sounds, pane flashes, reordering, and phone forwarding alike.
-        guard !isWorkspaceNotificationsMuted(forTabId: request.tabId) else {
+        // Workspace mute keeps the entry in history as read, but suppresses
+        // unread projections, commands, sounds, banners, pane flashes,
+        // reordering, and phone forwarding alike.
+        let isMuted = isWorkspaceNotificationsMuted(forTabId: request.tabId)
+        if isMuted {
             restoreCooldownReservation(cooldownReservation)
-            return false
         }
+        let cooldownReservation = isMuted ? nil : cooldownReservation
         let focusState = notificationFocusState(tabId: request.tabId, surfaceId: request.surfaceId)
         let shouldSuppressExternalDelivery = Self.shouldSuppressExternalDelivery(
             focusState,
@@ -1551,7 +1554,7 @@ final class TerminalNotificationStore: ObservableObject {
         // Only the exact focused pane holds the workspace in place;
         // `suppressWhenAppFocused` withholds the banner without changing
         // sidebar ordering, matching Feed's delivery decision.
-        let effects = effects.keepingFocusedWorkspaceInPlace(
+        let effects = (isMuted ? .mutedHistoryOnly : effects).keepingFocusedWorkspaceInPlace(
             isFocusedPane: isFocusedSurfaceArrival
         )
         let notification = TerminalNotification(
@@ -1743,6 +1746,7 @@ final class TerminalNotificationStore: ObservableObject {
         // may be frontmost with nobody at it, so phone forwarding keeps the
         // exact focused-surface gate.
         let shouldAttemptPhone = !isFocusedSurfaceArrival
+            && !isWorkspaceNotificationsMuted(forTabId: notification.tabId)
             && Self.shouldAttemptPhoneForward(
                 effects: effects,
                 phoneForwardingEnabled: PhonePushClient.shared
