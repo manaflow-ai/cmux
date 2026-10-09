@@ -542,7 +542,8 @@ assert "resolve-notarization-recovery.py" in auto
 assert "Reject stale continuation before publication" in auto
 assert "cmux-published-build" in auto
 assert "final_dmg_sha256" in auto
-assert 'branch not in {"main", "nightly-next"}' in auto
+# nightly-next continues on its own track (tests/test_nightly_resume_tracks.py).
+assert 'if branch == "nightly-next":' in auto and "nightly-next-continues-on-its-own-track" in auto
 assert "eligible=false" in auto and "source-branch-is-not-published" in auto
 assert "published: ${{ steps.publication-result.outputs.published }}" in auto
 assert "needs.publish.outputs.published == 'true'" in auto

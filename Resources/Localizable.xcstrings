@@ -15064,6 +15064,131 @@
         }
       }
     },
+    "cli.vault.error.conflictingForkSelectors": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork takes --checkpoint <id> or --turn <n>, not both"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork には --checkpoint <id> と --turn <n> のどちらか一方だけを指定してください"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork 只能指定 --checkpoint <id> 或 --turn <n> 之一，不能同时指定"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork akzeptiert --checkpoint <id> oder --turn <n>, nicht beides"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork accepte --checkpoint <id> ou --turn <n>, pas les deux"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يقبل vault fork الخيار --checkpoint <id> أو --turn <n>، وليس كليهما"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork acepta --checkpoint <id> o --turn <n>, no ambos"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork 只能指定 --checkpoint <id> 或 --turn <n> 其中之一，不能同時指定"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork에는 --checkpoint <id> 또는 --turn <n> 중 하나만 지정할 수 있습니다"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork prihvata --checkpoint <id> ili --turn <n>, ne oboje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork accepterer --checkpoint <id> eller --turn <n>, ikke begge"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork accetta --checkpoint <id> oppure --turn <n>, non entrambi"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork ទទួលយក --checkpoint <id> ឬ --turn <n> មិនមែនទាំងពីរទេ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork godtar --checkpoint <id> eller --turn <n>, ikke begge"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork przyjmuje --checkpoint <id> albo --turn <n>, nie oba naraz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork aceita --checkpoint <id> ou --turn <n>, não ambos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork принимает --checkpoint <id> или --turn <n>, но не оба сразу"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork รับ --checkpoint <id> หรือ --turn <n> อย่างใดอย่างหนึ่ง ไม่ใช่ทั้งสองอย่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork, --checkpoint <id> veya --turn <n> kabul eder, ikisini birden değil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork приймає --checkpoint <id> або --turn <n>, але не обидва"
+          }
+        }
+      }
+    },
     "cli.vault.checkpoints.viewOnly": {
       "extractionState": "manual",
       "localizations": {
@@ -22542,6 +22667,131 @@
           "stringUnit": {
             "state": "translated",
             "value": "일치하는 체크포인트가 없습니다. vault checkpoints에서 checkpoint <id> 또는 turn <n>을 전달하세요."
+          }
+        }
+      }
+    },
+    "socket.vault.conflictingForkSelectors": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pass checkpoint or turn, not both."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "checkpoint と turn のどちらか一方だけを指定してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请只传入 checkpoint 或 turn 之一，不要同时传入。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Übergib checkpoint oder turn, nicht beides."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passez checkpoint ou turn, pas les deux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مرّر checkpoint أو turn، وليس كليهما."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pasa checkpoint o turn, no ambos."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請只傳入 checkpoint 或 turn 其中之一，不要同時傳入。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "checkpoint 또는 turn 중 하나만 전달하세요."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proslijedite checkpoint ili turn, ne oboje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angiv checkpoint eller turn, ikke begge."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passa checkpoint oppure turn, non entrambi."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សូមបញ្ជូន checkpoint ឬ turn មិនមែនទាំងពីរទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppgi checkpoint eller turn, ikke begge."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przekaż checkpoint albo turn, nie oba naraz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passe checkpoint ou turn, não ambos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Передайте checkpoint или turn, но не оба сразу."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่ง checkpoint หรือ turn อย่างใดอย่างหนึ่ง ไม่ใช่ทั้งสองอย่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "checkpoint veya turn gönderin, ikisini birden değil."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Передайте checkpoint або turn, але не обидва."
           }
         }
       }
