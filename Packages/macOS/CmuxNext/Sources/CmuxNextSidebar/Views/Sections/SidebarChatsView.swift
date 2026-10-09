@@ -350,7 +350,8 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
         let leading = Metrics.space3
         let room = max(0, x - Metrics.space1 - leading)
         let titleHeight = titleLabel.intrinsicContentSize.height
-        titleLabel.frame = NSRect(x: leading, y: (top - titleHeight) / 2, width: min(ceil(titleLabel.intrinsicContentSize.width), room), height: titleHeight)
+        let titleWidth = ceil(titleLabel.cell?.cellSize.width ?? titleLabel.intrinsicContentSize.width)
+        titleLabel.frame = NSRect(x: leading, y: (top - titleHeight) / 2, width: min(titleWidth, isExpanded ? room : bounds.width - leading), height: titleHeight)
         search.frame = NSRect(x: leading, y: y, width: room, height: controlHeight)
         scroll.frame = NSRect(x: 0, y: top, width: bounds.width, height: max(0, bounds.height - top))
     }
