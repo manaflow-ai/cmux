@@ -25,7 +25,26 @@ public nonisolated struct AcpmuxHarnessRow: Sendable, Equatable {
 
     /// The rows of a `_acpmux/harnesses` reply, sorted by id.
     static func rows(from reply: [String: Any]) -> [AcpmuxHarnessRow] {
-        [] // red
+        guard let harnesses = reply["harnesses"] as? [String: Any] else { return [] }
+        return harnesses.compactMap { id, value -> AcpmuxHarnessRow? in
+            guard let profile = value as? [String: Any] else { return nil }
+            let kind = (profile["kind"] as? String) ?? "acp"
+            let description = (profile["description"] as? String) ?? ""
+            let source: String
+            if let fileSource = profile["source"] as? String, profile["sourcePath"] != nil {
+                source = fileSource
+            } else if description.contains("ACP Registry") {
+                source = "registry"
+            } else if description == "found on PATH" || description.hasPrefix("imported from ~/.acpx")
+                        || description.contains(" through ") {
+                source = "path"
+            } else {
+                source = "config"
+            }
+            let name = (profile["displayName"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            let problem = (profile["unavailable"] as? String) ?? (profile["probeError"] as? String)
+            return AcpmuxHarnessRow(id: id, name: name, kind: kind, source: source, problem: problem)
+        }.sorted { $0.id < $1.id }
     }
 }
 
@@ -44,8 +63,18 @@ extension AcpmuxEnvironment {
 
     /// The shell line that runs this app's acpmux with `arguments` against this daemon's home
     /// (a tagged build's `~/.acpmux/tags/<tag>`), each word single-quoted: Settings types it
-    /// into a terminal tab for `harness login` and `harness registry`.
-    public nonisolated func shellLine(_ arguments: [String]) -> String {
-        "" // red
+    /// into a terminal tab for `harness login` and `harness registry`. Nil when a word holds a
+    /// quote, a backslash or a control character: single quotes then mean different things in
+    /// bash, zsh and fish, so no typed line is safe.
+    public nonisolated func shellLine(_ arguments: [String]) -> String? {
+        let unsafe: (Character) -> Bool = { character in
+            character == "'" || character == "\\" || character.isNewline
+                || character.unicodeScalars.contains { $0.properties.generalCategory == .control }
+        }
+        let words = [executable.path] + Array(childEnvironment.values) + arguments
+        guard !words.contains(where: { $0.contains(where: unsafe) }) else { return nil }
+        let quote = { (word: String) in "'" + word + "'" }
+        let env = childEnvironment.sorted { $0.key < $1.key }.map { "\($0.key)=\(quote($0.value))" }
+        return (env + [quote(executable.path)] + arguments.map(quote)).joined(separator: " ")
     }
 }
