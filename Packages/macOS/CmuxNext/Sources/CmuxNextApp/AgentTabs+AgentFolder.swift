@@ -17,6 +17,10 @@ extension AgentTabStore {
             guard let self else { return nil }
             return agentHome(of: resolve(provisional))
         }
+        model.onChooseChatFolder = { [weak self] chat in
+            guard let self, let view = views[resolve(provisional)], let url = await view.pickFolder() else { return .cancelled }
+            return await reopenChat(chat, url.path)
+        }
         model.onChooseFolder = { [weak self] in
             guard let self else { return .cancelled }
             return await chooseAgentFolder(for: resolve(provisional))

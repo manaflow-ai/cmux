@@ -61,6 +61,29 @@ extension AgentPaneModel {
         }
     }
 
+    /// Choose Folder… for a chat whose folder is missing (cx-nn3e.1): the sheet only after a real
+    /// gesture; a resumable chat comes back as the adopt the page resumes in this pane.
+    func chooseChatFolder() async -> [String: Any] {
+        guard let needed = folderNeeded, let onChooseChatFolder else { return Self.unsupported("chat.folder.choose") }
+        guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
+        switch await onChooseChatFolder(needed.chat) {
+        case .adopt(let adopt, let cwd):
+            folderNeeded = nil
+            if let cwd { handshakeCwd = cwd }
+            var value: [String: Any] = ["adopt": adopt.reply]
+            if let cwd { value["cwd"] = cwd }
+            return AgentPaneReply.success(value)
+        case .opened:
+            folderNeeded = nil
+            return AgentPaneReply.success(["opened": true])
+        case .needsFolder(let reason):
+            folderNeeded = AgentPaneFolderNeeded(chat: needed.chat, reason: reason)
+            return AgentPaneReply.success(["reason": reason])
+        case .cancelled:
+            return AgentPaneReply.success()
+        }
+    }
+
     /// Whether `path` is the user's home folder (``AgentPaneTransport/homeFolder``) or above it.
     func isHomeOrAbove(_ path: String) -> Bool {
         AgentHome.isHomeOrAbove(path, home: transport.homeFolder)

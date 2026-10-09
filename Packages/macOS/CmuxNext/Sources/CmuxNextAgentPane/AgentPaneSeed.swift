@@ -18,9 +18,12 @@ public nonisolated struct AgentPaneSeed: Sendable, Equatable {
     public var surface: AgentPaneSurface?
     /// The harness a new chat starts on (`newTab.submit --agent`); nil is the default.
     public var harness: String?
+    /// A chat that opened without its folder: the page explains it and offers Choose Folder.
+    public var folderNeeded: AgentPaneFolderNeeded?
 
     public init(cwd: String? = nil, draft: String? = nil, prompt: String? = nil, adopt: AgentPaneAdopt? = nil,
-                surface: AgentPaneSurface? = nil, harness: String? = nil) {
+                surface: AgentPaneSurface? = nil, harness: String? = nil, folderNeeded: AgentPaneFolderNeeded? = nil) {
+        self.folderNeeded = folderNeeded
         self.cwd = cwd
         self.draft = draft
         self.prompt = prompt

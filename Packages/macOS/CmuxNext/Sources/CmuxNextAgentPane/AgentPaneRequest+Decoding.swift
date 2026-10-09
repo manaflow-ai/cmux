@@ -118,6 +118,7 @@ extension AgentPaneRequest {
             }
         case "project.browse": self = .browseProject
         case "workspace.chooseFolder": self = .chooseFolder
+        case "chat.folder.choose": self = .chooseChatFolder
         case "project.list":
             let query = (params?["query"] as? String).map { String($0.prefix(512)) }
             self = .listProjects(query)

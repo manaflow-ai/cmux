@@ -116,10 +116,15 @@ public final class AgentPaneModel {
     /// agent folder; a refusal carries its localized text (an older background service, a save
     /// that failed).
     @ObservationIgnored public var onChooseFolder: (@MainActor () async -> AgentPaneFolderChoice)?
+    /// Choose Folder… for a chat whose folder is missing: the native folder sheet on this pane,
+    /// then acpmux's `chat_open` with the pick (cx-nn3e.1).
+    @ObservationIgnored public var onChooseChatFolder: (@MainActor (_ chat: String) async -> AgentPaneChatFolderResult)?
+    /// The missing folder this pane's chat waits for, until the user picks one that works.
+    @ObservationIgnored public internal(set) var folderNeeded: AgentPaneFolderNeeded?
     /// The folder this pane's user chose with "Choose Folder…": new chats start there until the
     /// workspace's own field (``workspaceRoots``) carries it.
     @ObservationIgnored public internal(set) var chosenFolder: String?
-    @ObservationIgnored private(set) var handshakeCwd: String?
+    @ObservationIgnored internal(set) var handshakeCwd: String?
 
     /// Saves the inspector's exported log (text, suggested file name) where
     /// the user picks; true when saved, false when the user cancelled. Nil
@@ -212,6 +217,7 @@ public final class AgentPaneModel {
                     handshake.prompt = seed.prompt
                     handshake.harness = seed.harness
                     handshake.adopt = seed.adopt
+                    if let needed = seed.folderNeeded { folderNeeded = needed }
                 }
                 // The surface holds after the chat has a session (a reload
                 // of the quick panel stays compact).
@@ -224,6 +230,7 @@ public final class AgentPaneModel {
                     handshake.newSession = true
                     if handshake.cwd == nil { handshake.cwd = newTab.cwd }
                 }
+                if sessionId == nil, let folderNeeded { handshake.folderNeeded = AgentPaneHandshake.FolderNeeded(reason: folderNeeded.reason) }
                 handshake.linkScheme = linkScheme
                 handshake.machineName = await Self.localMachineName?.value
                 if sessionMustExist, sessionId != nil { handshake.sessionMustExist = true }
@@ -297,6 +304,8 @@ public final class AgentPaneModel {
         case .setNewTabTemplate(let template): return write(.template(template), method: "newTab.setTemplate")
         case .chooseFolder:
             return await chooseFolder()
+        case .chooseChatFolder:
+            return await chooseChatFolder()
         case .browseProject:
             guard let onBrowseProject else { return Self.unsupported("project.browse") }
             guard let cwd = await onBrowseProject() else { return AgentPaneReply.success() }
