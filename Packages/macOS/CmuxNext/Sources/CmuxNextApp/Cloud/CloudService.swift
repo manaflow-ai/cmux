@@ -26,6 +26,10 @@ final class CloudService {
     @ObservationIgnored private var observers: [Task<Void, Never>] = []
     /// The local side event subscription for `cloud.link.changed` (app link).
     @ObservationIgnored private var linkEvents: UInt64?
+    /// The `credential` provider family on the local daemon (cx-wb5.63):
+    /// app servers' Cloud API calls, sent with the install token.
+    @ObservationIgnored private var credentialProvider: CloudCredentialProvider?
+    @ObservationIgnored private var credentialEvents: UInt64?
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
     /// The last list or connection failure, for diagnostics and refusals.
     private(set) var lastError: String?
@@ -52,6 +56,15 @@ final class CloudService {
             deviceName: Self.deviceName,
             clientVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
         )
+        let identity = installIdentity
+        let transport = InstallHTTPTransport(baseURL: configuration.ownerAPIBaseURL())
+        let clientHeaders = identity.requestHeaders
+        credentialProvider = CloudCredentialProvider(relay: CloudCredentialRelay(
+            post: { path, body, bearer in try await transport.post(path, json: body, bearer: bearer, headers: clientHeaders) },
+            token: { try await identity.installToken() },
+            invalidate: { await identity.invalidate() },
+            session: { @MainActor [auth] in CloudCredentialRelay.Session(signedIn: auth.isSignedIn, team: auth.teamID) }
+        ))
         binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)
         if let binary {
             hub = CloudTunnelHub(api: api, paths: paths, binary: binary, deviceName: Self.deviceName)
@@ -94,6 +107,7 @@ final class CloudService {
 
     func start() {
         auth.start()
+        startCredentialProvider()
         if configuration.linkSource == .appServer, linkEvents == nil {
             // `cloud.link.changed` arrives on the local daemon as an app server event.
             let machines = machines
@@ -167,9 +181,34 @@ final class CloudService {
         observers.removeAll()
         if let linkEvents { machines.local.store.sideEvents.unsubscribe(linkEvents) }
         linkEvents = nil
+        if let credentialEvents { machines.local.store.sideEvents.unsubscribe(credentialEvents) }
+        credentialEvents = nil
+        credentialProvider?.stop()
         for session in machines.cloud { session.disconnect() }
         // task-owner: teardown hop at quit; hub.stop() is idempotent
         if let hub { Task { await hub.stop() } }
+    }
+
+    /// Serves the `credential` family on the local daemon: answers its
+    /// calls on the connection that sent them, and registers again after
+    /// every handshake of the verified app connection (a reconnected
+    /// connection is a new provider; its calls in flight ended with it).
+    private func startCredentialProvider() {
+        guard let provider = credentialProvider, credentialEvents == nil else { return }
+        let local = machines.local
+        credentialEvents = local.store.sideEvents.subscribe { [weak local] event in
+            guard let connection = local?.connection else { return }
+            provider.handle(event) { result in _ = try await connection.request(result) }
+        }
+        // task-owner: observers; cancelled in stop()
+        observers.append(Task {
+            for await state in Observations({ local.store.connectionState }) {
+                guard case .connected = state, let connection = local.connection else { continue }
+                provider.stop()
+                let allowed = await connection.userOriginAllowed
+                _ = await CloudCredentialProvider.register(userOriginAllowed: allowed) { try await connection.request($0) }
+            }
+        })
     }
 
     // MARK: Machine list
