@@ -136,12 +136,17 @@ def launch():
            "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1280,800"}
     log = open(os.path.join(SCRATCH, "app.log"), "a")
     app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-    up = wait(lambda: os.path.exists(SOCKET) and "windows" in rpc("debug.surfaces"), 180, 0.5)
-    if up and not rpc("debug.surfaces").get("windows"):
-        rpc("action.run", {"action": "newWindow", "origin": "script", "focus": True})
-    if not wait(lambda: os.path.exists(SOCKET) and rpc("debug.surfaces").get("windows"), 60, 0.5):
+    def windows():
+        value = rpc("debug.surfaces") if os.path.exists(SOCKET) else {}
+        return (value or {}).get("windows") if isinstance(value, dict) else None
+    up = wait(lambda: os.path.exists(SOCKET) and isinstance(rpc("debug.surfaces"), dict)
+              and "error" not in rpc("debug.surfaces"), 180, 0.5)
+    if up and not wait(windows, 20, 0.5):
+        print(f"no window yet; newWindow -> {rpc('action.run', {'id': 'newWindow'})}", flush=True)
+    if not wait(windows, 90, 0.5):
         tail = open(os.path.join(SCRATCH, "app.log"), errors="replace").read()[-4000:]
-        sys.exit(f"tagged app did not come up (exit {app.poll()}); log tail:\n{tail}")
+        sys.exit(f"tagged app did not come up (exit {app.poll()}, socket {os.path.exists(SOCKET)}, "
+                 f"debug.surfaces {json.dumps(rpc('debug.surfaces'))[:600]}); log tail:\n{tail}")
     print(f"launched pid {app.pid}", flush=True)
 
 
@@ -230,7 +235,18 @@ def expect_banner(name, title):
 
 
 def read_screen(terminal):
-    return cli("terminal", terminal, "screen", "read").stdout
+    """The terminal's screen text, one row per line."""
+    value = cli_json("terminal", terminal, "screen", "read")
+    if isinstance(value, dict) and isinstance(value.get("text"), str):
+        return value["text"]
+    return cli("terminal", terminal, "screen", "read").stdout.replace("\\n", "\n")
+
+
+def output_line(terminal, marker, seconds=15):
+    """The screen row a command printed with `marker` (not the typed command line, which has `$r`)."""
+    def found():
+        return next((l for l in read_screen(terminal).splitlines() if marker in l and "$r" not in l), None)
+    return wait(found, seconds) or ""
 
 
 teardown = TagTeardown(APP)
@@ -304,11 +320,10 @@ try:
     step("bidi", term, lambda r: r.get("", {}).get("msg") == "okgnp.exe")
 
     # 7. The support query, ST and BEL.
-    for name, end, expected in (("query-st", "\\033\\\\", "033]7501;?033\\"), ("query-bel", "\\007", "033]7501;?007")):
-        run(term, f"stty raw -echo; printf '\\033]7501;?{end}'; r=$(dd bs=1 count={10 if end.startswith(chr(92) + '033') else 9} "
-                  f"2>/dev/null | od -An -c | tr -d ' \\n'); stty sane; echo \"Q{name}=$r\"")
-        screen = wait(lambda: (lambda s: s if f"Q{name}=" in s else None)(read_screen(term)), 15)
-        line = next((l for l in (screen or "").splitlines() if f"Q{name}=" in l and "$r" not in l), "")
+    for name, end, expected in (("query-st", "\\033\\\\", "033]7501;?033\\"), ("query-bel", "\\007", "033]7501;?\\a")):
+        run(term, f"stty raw -echo min 0 time 20; printf '\\033]7501;?{end}'; r=$(dd bs=1 count=16 "
+                  f"2>/dev/null | od -An -c | tr -d ' \\n'); stty sane; printf '%s\\n' \"Q{name}=$r\"")
+        line = output_line(term, f"Q{name}=")
         ok = expected in line
         report["steps"][name] = {"ok": ok, "line": line.strip()}
         print(f"{'ok  ' if ok else 'FAIL'} {name}: {line.strip()}", flush=True)
@@ -323,10 +338,15 @@ try:
     print(f"{'ok  ' if pst == 'PSTCOUNT=1' else 'GAP '} terminfo-pst: {pst}", flush=True)
     if pst != "PSTCOUNT=1":
         report["notes"].append(f"terminfo-pst: {pst}")
-    run(term, "stty raw -echo; printf '\\033P+q507374\\033\\\\'; r=$(dd bs=1 count=12 2>/dev/null & p=$!; sleep 2; kill $p 2>/dev/null; wait $p) ; "
-              "stty sane; echo \"XTG=$(printf '%s' \"$r\" | od -An -c | tr -d ' \\n')\"")
-    screen = wait(lambda: (lambda s: s if "XTG=" in s else None)(read_screen(term)), 15) or ""
-    xtg = next((l for l in screen.splitlines() if "XTG=" in l and "$(" not in l), "")
+    # min 0 time 20: the read returns after 2 s when the terminal does not answer.
+    run(term, "stty raw -echo min 0 time 20; printf '\\033P+q507374\\033\\\\'; r=$(dd bs=1 count=40 2>/dev/null | od -An -c | tr -d ' \\n'); "
+              "stty sane; printf '%s\\n' \"XTG=$r\"")
+    xtg = output_line(term, "XTG=")
+    # Control: a capability every build answers from the same table (Co), so an empty Pst reply is the capability, not the transport.
+    run(term, "stty raw -echo min 0 time 20; printf '\\033P+q436F\\033\\\\'; r=$(dd bs=1 count=60 2>/dev/null | od -An -c | tr -d ' \\n'); "
+              "stty sane; printf '%s\\n' \"XTGCO=$r\"")
+    report["steps"]["xtgettcap-control-co"] = {"line": output_line(term, "XTGCO=").strip()}
+    print(f"info xtgettcap-control-co: {report['steps']['xtgettcap-control-co']['line']}", flush=True)
     ok = "P1+r507374" in xtg
     report["steps"]["xtgettcap-pst"] = {"ok": ok, "line": xtg.strip()}
     print(f"{'ok  ' if ok else 'GAP '} xtgettcap-pst: {xtg.strip()}", flush=True)
