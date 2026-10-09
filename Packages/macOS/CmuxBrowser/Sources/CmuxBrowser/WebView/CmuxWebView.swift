@@ -1640,8 +1640,8 @@ public final class CmuxWebView: CmuxUndoableWebView {
             return candidateFromElement(single) || '';
         })();
         """
-        evaluateJavaScript(js) { result, _ in
-            guard let src = result as? String, !src.isEmpty,
+        evaluateJavaScript(js, in: nil, in: .defaultClient) { callResult in
+            guard let src = (try? callResult.get()) as? String, !src.isEmpty,
                   let url = URL(string: src) else {
                 completion(nil)
                 return
@@ -1682,9 +1682,9 @@ public final class CmuxWebView: CmuxUndoableWebView {
             return JSON.stringify({count: nodes.length, entries});
         })();
         """
-        evaluateJavaScript(js) { [weak self] result, _ in
+        evaluateJavaScript(js, in: nil, in: .defaultClient) { [weak self] callResult in
             guard let self,
-                  let payload = result as? String,
+                  let payload = (try? callResult.get()) as? String,
                   !payload.isEmpty else { return }
             self.debugContextDownload(
                 "browser.ctxdl.inspect trace=\(traceID) kind=\(kind) payload=\(payload)"

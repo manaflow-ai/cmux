@@ -5456,8 +5456,8 @@ final class BrowserPanel: Panel, ObservableObject {
                 continuation.resume(returning: value)
             }
 
-            webView.evaluateJavaScript(script) { result, _ in
-                let value = result as? String
+            webView.evaluateJavaScript(script, in: nil, in: .defaultClient) { result in
+                let value = (try? result.get()) as? String
                 Task { @MainActor in
                     resume(value)
                 }
@@ -7362,7 +7362,7 @@ extension BrowserPanel {
 
     /// Execute JavaScript
     func evaluateJavaScript(_ script: String) async throws -> Any? {
-        try await webView.evaluateJavaScript(script)
+        try await webView.evaluateJavaScript(script, in: nil, contentWorld: .defaultClient)
     }
 
     func readSurfaceSelection() async -> SurfaceSelectionReadResult {

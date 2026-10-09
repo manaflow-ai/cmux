@@ -13560,8 +13560,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         })();
         """
 
-        panel.webView.evaluateJavaScript(script) { result, _ in
-            let payload = result as? [String: Any]
+        panel.webView.evaluateJavaScript(script, in: nil, in: .defaultClient) { callResult in
+            let payload = (try? callResult.get()) as? [String: Any]
             completion([
                 "id": (payload?["id"] as? String) ?? "",
                 "tag": (payload?["tag"] as? String) ?? "",
