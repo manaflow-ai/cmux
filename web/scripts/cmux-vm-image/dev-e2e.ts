@@ -23,7 +23,6 @@ import { fileURLToPath } from "node:url";
 import { API_ORIGINS, HOST_JOURNAL, HOST_UNIT, signMessage } from "./host-agent";
 import { argValue, freestyleApiKey, run, type Vm } from "./guest";
 import { Freestyle } from "freestyle";
-import { freestyleDevKey } from "../../../scripts/lib/freestyle-dev-key.mjs";
 
 const ORIGIN = API_ORIGINS.dev;
 const STACK_API = "https://api.stack-auth.com";
@@ -148,8 +147,8 @@ export async function main(argv = process.argv): Promise<number> {
   const outDir = path.resolve(argValue("--out-dir", argv) ?? `cmux-dev-e2e-${Date.now()}`);
   mkdirSync(outDir, { recursive: true });
   const creds = readEnvFile(readFileSync(argValue("--credentials", argv) ?? path.join(os.homedir(), ".secrets/cmuxterm-dev.env"), "utf8"));
-  const keyFile = argValue("--freestyle-key-file", argv);
-  const fs = new Freestyle({ apiKey: keyFile === undefined ? freestyleDevKey() : freestyleApiKey({ FREESTYLE_API_KEY_FILE: keyFile }) });
+  const keyFile = argValue("--freestyle-key-file", argv) ?? path.join(os.homedir(), ".secrets/freestyle-cmux-next-dev-20261004.key");
+  const fs = new Freestyle({ apiKey: freestyleApiKey({ FREESTYLE_API_KEY_FILE: keyFile }) });
   const R = new Runner(outDir);
   const api = new Api("");
   let machine: string | null = null;

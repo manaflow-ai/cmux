@@ -6345,6 +6345,268 @@
         }
       }
     },
+    "handlers.misc.failed.switchModelNeedsAgentChat": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعمل تبديل النموذج… في محادثات الوكلاء. ركّز على إحداها أولًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Promijeni model… radi u agent razgovorima. Prvo fokusiraj jedan."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skift model… virker i agentchats. Fokuser på en først."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„Modell wechseln…“ funktioniert in Agent-Chats. Fokussiere zuerst einen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch Model… works in agent chats. Focus one first."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cambiar modelo… funciona en chats de agentes. Enfoca uno primero."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Changer de modèle… fonctionne dans les discussions d’agent. Mettez-en une au premier plan d’abord."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cambia modello… funziona nelle chat degli agenti. Metti prima a fuoco una chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「モデルを切り替え…」はエージェントのチャットで使えます。先にチャットにフォーカスしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្តូរម៉ូដែល… ដំណើរការក្នុងការជជែកភ្នាក់ងារ។ សូមផ្ដោតលើមួយជាមុនសិន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모델 전환…은 에이전트 채팅에서 작동합니다. 먼저 채팅에 포커스를 두세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bytt modell… virker i agentchatter. Fokuser på én først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zmień model… działa w czatach agentów. Najpierw ustaw fokus na czacie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trocar modelo… funciona em chats de agentes. Foque em um primeiro."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Сменить модель…» работает в чатах агентов. Сначала переведите фокус на чат."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สลับโมเดล… ใช้ได้ในแชตของเอเจนต์ โปรดโฟกัสแชตก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modeli Değiştir… ajan sohbetlerinde çalışır. Önce birine odaklanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Змінити модель…» працює в чатах агентів. Спершу наведіть фокус на чат."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chuyển mô hình… hoạt động trong cuộc trò chuyện với tác tử. Hãy chọn một cuộc trò chuyện trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“切换模型…”适用于智能体聊天。请先聚焦一个聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「切換模型…」適用於代理聊天。請先聚焦一個聊天。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.switchModelNeedsFocus": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يفتح تبديل النموذج… قائمة، لذا يحتاج إلى التركيز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Promijeni model… otvara meni, pa mu je potreban fokus."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skift model… åbner en menu, så den kræver fokus."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„Modell wechseln…“ öffnet ein Menü und braucht deshalb den Fokus."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch Model… opens a menu, so it needs focus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cambiar modelo… abre un menú, por lo que necesita el foco."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Changer de modèle… ouvre un menu et a donc besoin du focus."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cambia modello… apre un menu, quindi richiede il focus."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「モデルを切り替え…」はメニューを開くため、フォーカスが必要です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្តូរម៉ូដែល… បើកម៉ឺនុយ ដូច្នេះវាត្រូវការការផ្ដោត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모델 전환…은 메뉴를 열기 때문에 포커스가 필요합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bytt modell… åpner en meny, så den trenger fokus."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zmień model… otwiera menu, więc wymaga fokusu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trocar modelo… abre um menu, então precisa do foco."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Сменить модель…» открывает меню, поэтому нужен фокус."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สลับโมเดล… จะเปิดเมนู จึงต้องมีโฟกัส"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modeli Değiştir… bir menü açar, bu yüzden odak gerekir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Змінити модель…» відкриває меню, тому потрібен фокус."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chuyển mô hình… mở một menu nên cần tiêu điểm."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“切换模型…”会打开菜单，因此需要焦点。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「切換模型…」會開啟選單，因此需要焦點。"
+          }
+        }
+      }
+    },
     "handlers.agentChats.title": {
       "extractionState": "manual",
       "localizations": {
