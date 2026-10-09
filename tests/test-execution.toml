@@ -1670,3 +1670,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_nightly_resume_tracks.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_platform_scope.py"
+lane = "linux-guard"

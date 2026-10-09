@@ -36,6 +36,8 @@ permissions:
 jobs:
   validate-inputs:
     name: validate exact commit request
+    outputs:
+      platform_matrix: ${{ steps.platform-scope.outputs.platform_matrix }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
@@ -78,6 +80,29 @@ jobs:
               exit 1
               ;;
           esac
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.commit }}
+          fetch-depth: 2
+
+      - name: Select focused platforms from the exact diff
+        id: platform-scope
+        env:
+          EXACT_COMMIT: ${{ inputs.commit }}
+          MODE: ${{ inputs.mode }}
+        run: |
+          set -euo pipefail
+          if [[ "$MODE" == "full" ]]; then
+            echo 'platform_matrix={"include":[{"os":"linux","hosted_runner":"ubuntu-24.04"},{"os":"macos","hosted_runner":"macos-26"}]}' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          base="$(git rev-parse "$EXACT_COMMIT^1")"
+          scope="$(python3 scripts/ci/cmux_tui_platform_scope.py --repo "$GITHUB_WORKSPACE" --base "$base" --head "$EXACT_COMMIT")"
+          echo "Focused platform scope: $scope"
+          matrix="$(python3 -c 'import json,sys; s=json.load(sys.stdin); print(json.dumps({"include":[{"os": os, "hosted_runner": "macos-26" if os == "macos" else "ubuntu-24.04"} for os in s["os"]]}, separators=(",", ":")))' <<< "$scope")"
+          echo "platform_matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   msrv-check:
     name: Rust MSRV (1.91)
@@ -154,16 +179,14 @@ jobs:
   lint:
     name: lint (${{ matrix.os }})
     needs: validate-inputs
-    runs-on: ${{ matrix.runner }}
+    # Focused runs get the Linux leg for generic changes. The validation job
+    # adds macOS only when the exact commit diff touches a macOS-sensitive TUI
+    # path; full runs always keep both legs.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && matrix.hosted_runner || matrix.os == 'macos' && vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || matrix.os == 'macos' && 'blacksmith-6vcpu-macos-15' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 40
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: macos
-            runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-15' }}
-          - os: linux
-            runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+      matrix: ${{ fromJSON(needs.validate-inputs.outputs.platform_matrix) }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -435,16 +458,12 @@ jobs:
   test:
     name: test (${{ matrix.os }})
     needs: validate-inputs
-    runs-on: ${{ matrix.runner }}
+    # Keep the focused path cheap without weakening full cross-platform runs.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && matrix.hosted_runner || matrix.os == 'macos' && vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || matrix.os == 'macos' && 'blacksmith-6vcpu-macos-15' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 40
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: macos
-            runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-15' }}
-          - os: linux
-            runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+      matrix: ${{ fromJSON(needs.validate-inputs.outputs.platform_matrix) }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
