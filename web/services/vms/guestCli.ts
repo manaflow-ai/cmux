@@ -151,6 +151,10 @@ load_agent_config() {
   fi
 }
 
+# The image's agent-config.sh replaces this with the auth-aware preflight. The
+# no-op keeps the guest CLI useful on older images and in bootstrap tests.
+cmux_agent_auth_preflight() { return 0; }
+
 cmux_curl() {
   command -v curl >/dev/null 2>&1 || return 127
   if [ -f /usr/local/share/ca-certificates/freestyle-tls.crt ]; then
@@ -771,7 +775,7 @@ guest_coderouter_agent() {
   fi
   shift
   case "\$cmux_agent" in
-    claude|codex|opencode|pi) ;;
+    claude|codex|opencode|pi|hermes) ;;
     *) die_message 2 unsupportedAgent "\$cmux_agent" ;;
   esac
   # This form runs the agent right here, in the caller's terminal, so it is
@@ -788,6 +792,7 @@ guest_coderouter_agent() {
   done
   [ -z "\$cmux_ag_timeout" ] || timeout_ms "\$cmux_ag_timeout" "agent" >/dev/null
   load_agent_config
+  cmux_agent_auth_preflight "\$cmux_agent" "\$@" || return "\$?"
   # Match the host vm-agent contract: a bare sentence becomes the provider's
   # one-shot form, while flags/subcommands are passed through byte-for-byte.
   if [ "\$#" -eq 0 ]; then
@@ -802,6 +807,7 @@ guest_coderouter_agent() {
       codex) set -- codex exec "\$cmux_prompt" ;;
       opencode) set -- opencode run "\$cmux_prompt" ;;
       pi) set -- pi -p "\$cmux_prompt" ;;
+      hermes) set -- hermes "\$cmux_prompt" ;;
     esac
     agent_exec "\$@"
   fi
@@ -817,6 +823,7 @@ guest_coderouter_agent() {
         codex) set -- codex exec "\$cmux_prompt" ;;
         opencode) set -- opencode run "\$cmux_prompt" ;;
         pi) set -- pi -p "\$cmux_prompt" ;;
+        hermes) set -- hermes "\$cmux_prompt" ;;
       esac
       agent_exec "\$@"
       ;;
@@ -825,7 +832,11 @@ guest_coderouter_agent() {
 
 guest_agent_command() {
   case "\${1:-}" in
-    claude|codex|opencode|pi|--agent)
+    login|auth|setup)
+      shift
+      guest_agent_login "\$@"
+      ;;
+    claude|codex|opencode|pi|hermes|--agent)
       guest_coderouter_agent "\$@"
       ;;
     list|report|hook)
@@ -838,6 +849,77 @@ guest_agent_command() {
       die_message 2 agentCommand "\$1"
       ;;
   esac
+}
+
+# Explain the two supported ways to authenticate an agent in a Cloud VM. The
+# account handoff is host-owned, while native credentials remain local to the
+# VM. This is deliberately a small interactive prompt: it also works over SSH
+# and in a non-interactive terminal by printing the same actionable commands.
+guest_agent_login() {
+  cmux_login_agent="\${1:-}"
+  [ -n "\$cmux_login_agent" ] || { cmux_message agentLoginUsage >&2; return 2; }
+  case "\$cmux_login_agent" in
+    cc|claude-code) cmux_login_agent=claude ;;
+    cx|codex-cli) cmux_login_agent=codex ;;
+    oc|open-code) cmux_login_agent=opencode ;;
+    p|pi-agent) cmux_login_agent=pi ;;
+    h|hermes-agent) cmux_login_agent=hermes ;;
+  esac
+  case "\$cmux_login_agent" in claude|codex|opencode|pi|hermes) ;; *) cmux_message agentLoginUsage >&2; return 2 ;; esac
+  shift
+  cmux_login_native=0
+  cmux_login_device=0
+  while [ "\$#" -gt 0 ]; do
+    case "\$1" in
+      --native) cmux_login_native=1 ;;
+      --device-auth) cmux_login_device=1 ;;
+      --help|-h) cmux_message agentLoginUsage; return 0 ;;
+      *) cmux_message agentLoginUsage >&2; return 2 ;;
+    esac
+    shift
+  done
+  case "\$cmux_login_agent" in
+    codex) cmux_login_native_command='codex login' ;;
+    claude) cmux_login_native_command='claude' ;;
+    opencode) cmux_login_native_command='opencode auth login' ;;
+    pi) cmux_login_native_command='pi' ;;
+    hermes) cmux_login_native_command='hermes login' ;;
+  esac
+  cmux_message agentLoginTitle "\$cmux_login_agent" >&2
+  cmux_message agentLoginShared >&2
+  cmux_message agentLoginNative "\$cmux_login_native_command" >&2
+  if [ "\$cmux_login_agent" = codex ]; then
+    cmux_message agentLoginDisplay >&2
+    cmux_message agentLoginDevice >&2
+  fi
+  cmux_message agentLoginRetry "\$cmux_login_native_command" >&2
+  if [ "\$cmux_login_native" -eq 1 ]; then return 2; fi
+  if [ "\$cmux_login_device" -eq 1 ]; then return 2; fi
+  if [ -t 0 ] && [ -t 1 ]; then
+    printf '%s' "\$(cmux_message agentLoginChoice)" >&2
+    IFS= read -r cmux_login_choice || cmux_login_choice=""
+    case "\$cmux_login_choice" in
+      1) printf '%s\n' "\$(cmux_message agentLoginShared)" >&2 ;;
+      2)
+        case "\$cmux_login_agent" in
+          codex)
+            if [ -n "\${DISPLAY-}" ] && [ -n "\${CMUX_TUI_TERMINAL_ID-}" ]; then
+              command codex login
+            else
+              command codex login --device-auth
+            fi
+            return "\$?"
+            ;;
+          claude) command claude ;;
+          opencode) command opencode auth login ;;
+          pi) command pi ;;
+          hermes) command hermes login ;;
+        esac
+        return "\$?"
+        ;;
+    esac
+  fi
+  return 2
 }
 
 ${GUEST_CODEROUTER_SHELL}

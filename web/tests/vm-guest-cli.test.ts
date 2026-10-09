@@ -188,6 +188,26 @@ esac
     expect(run.stdout).toContain("cmux agent <claude|codex|opencode|pi>");
   });
 
+  test("agent login prints shared-account, native, and Codex display guidance", async () => {
+    const run = await runShim(["agent", "login", "codex"]);
+    expect(run.status).toBe(2);
+    expect(run.stderr).toContain("shared CodeRouter account");
+    expect(run.stderr).toContain("cmux auth login");
+    expect(run.stderr).toContain("open this VM's Desktop first");
+    expect(run.stderr).toContain("codex login --device-auth");
+    expect(run.stderr).toContain("After signing in");
+  });
+
+  test("agent login accepts common aliases and localizes the guide", async () => {
+    const japanese = await runShim(["agent", "login", "cx"], { LANG: "ja_JP.UTF-8" });
+    expect(japanese.status).toBe(2);
+    expect(japanese.stderr).toContain("共有 CodeRouter");
+    expect(japanese.stderr).toContain("codex login --device-auth");
+    const hermes = await runShim(["agent", "login", "hermes-agent"]);
+    expect(hermes.status).toBe(2);
+    expect(hermes.stderr).toContain("hermes login");
+  });
+
   describe("auth status", () => {
     const fakeCurl = (status: string, body = "") => (directory: string) => {
       const curl = join(directory, "curl");

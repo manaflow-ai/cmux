@@ -251,14 +251,161 @@ with (state / "opencode-config.lock").open("a") as lock:
 CMUX_OPENCODE_CONFIG
 }
 
+# Agent login is checked at launch time rather than shell startup. A Cloud
+# machine can gain or lose a shared account while shells are open, and the
+# check must not turn every prompt into a network request.
+cmux_agent_real_key() {
+  case "${1-}" in
+    ''|cmux-vm-edge-placeholder|e30.*coderouter*) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+cmux_agent_native_auth_ready() {
+  case "$1" in
+    codex)
+      cmux_agent_real_key "${CODEX_API_KEY-}" || cmux_agent_real_key "${OPENAI_API_KEY-}" ||
+        [ -s "${CODEX_HOME:-$HOME/.codex}/auth.json" ]
+      ;;
+    claude)
+      cmux_agent_real_key "${ANTHROPIC_API_KEY-}" || [ -n "${CLAUDE_CODE_OAUTH_TOKEN-}" ] ||
+        [ -s "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.credentials.json" ] ||
+        [ -s "$HOME/.claude/.credentials.json" ]
+      ;;
+    opencode)
+      cmux_agent_real_key "${OPENAI_API_KEY-}" || cmux_agent_real_key "${ANTHROPIC_API_KEY-}" ||
+        [ -s "${XDG_DATA_HOME:-$HOME/.local/share}/opencode/auth.json" ]
+      ;;
+    pi)
+      cmux_agent_real_key "${OPENAI_API_KEY-}" || cmux_agent_real_key "${ANTHROPIC_API_KEY-}" ||
+        [ -s "$HOME/.pi/agent/auth.json" ]
+      ;;
+    hermes)
+      cmux_agent_real_key "${OPENAI_API_KEY-}" || cmux_agent_real_key "${ANTHROPIC_API_KEY-}" ||
+        [ -s "$HOME/.hermes/auth.json" ] || [ -s "${XDG_CONFIG_HOME:-$HOME/.config}/hermes/auth.json" ]
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+cmux_agent_coderouter_ready() {
+  cmux_agent_connect_hint=""
+  [ -n "${CMUX_CODEROUTER_URL-}" ] || return 1
+  case "$CMUX_CODEROUTER_URL" in https://*) ;; *) return 1 ;; esac
+
+  # /v1/status was added after some existing images were baked. A 404 means
+  # the old image contract, so retain the configured-route behavior. A real
+  # status response is authoritative: a configured edge with no account must
+  # show the login guide instead of launching into a cryptic 401.
+  if command -v curl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+    cmux_agent_status_file="$(mktemp "${TMPDIR:-/tmp}/cmux-agent-status.XXXXXX")"
+    cmux_agent_status_code="$(curl -sS -o "$cmux_agent_status_file" -w '%{http_code}' \
+      --connect-timeout 2 --max-time 4 \
+      -H "authorization: Bearer ${OPENAI_API_KEY:-cmux-vm-edge-placeholder}" \
+      "${CMUX_CODEROUTER_URL%/}/v1/status" 2>/dev/null || printf '000')"
+    case "$cmux_agent_status_code" in
+      200)
+        if jq -e --arg agent "$1" '.agents[$agent].ready == true' "$cmux_agent_status_file" >/dev/null 2>&1; then
+          rm -f "$cmux_agent_status_file"
+          return 0
+        fi
+        cmux_agent_connect_hint="$(jq -r --arg agent "$1" '.agents[$agent].connect // empty' "$cmux_agent_status_file" 2>/dev/null || true)"
+        rm -f "$cmux_agent_status_file"
+        return 1
+        ;;
+      404) : ;; # old image/server: configured route remains the best signal
+      *)
+        rm -f "$cmux_agent_status_file"
+        return 1
+        ;;
+    esac
+    rm -f "$cmux_agent_status_file"
+  fi
+  [ -n "${OPENAI_BASE_URL-}" ] || [ -n "${ANTHROPIC_BASE_URL-}" ] || return 1
+  [ -n "${OPENAI_API_KEY-}" ] || [ -n "${ANTHROPIC_API_KEY-}" ] || return 1
+  return 0
+}
+
+cmux_agent_display_ready() {
+  [ -n "${DISPLAY-}" ] && [ -n "${CMUX_TUI_TERMINAL_ID-}" ] &&
+    { [ ! -e /usr/local/bin/cmux-open-url ] || [ -x /usr/local/bin/cmux-open-url ]; }
+}
+
+cmux_agent_login_invocation() {
+  case "${1-}" in
+    login|setup-token) return 0 ;;
+    auth) [ "${2-}" = login ] || [ "${2-}" = signin ] ;;
+  esac
+  return 1
+}
+
+cmux_agent_auth_preflight() {
+  cmux_agent_name="$1"
+  shift
+  cmux_agent_first="${1-}"
+  # Version/help/diagnostics should always work, even before account setup.
+  case "$cmux_agent_first" in
+    --help|-h|--version|-V|version|doctor|config|models) return 0 ;;
+  esac
+  if cmux_agent_login_invocation "$@"; then
+    # Codex's device flow is designed for SSH/headless machines. Native
+    # browser flows need the VM display and a terminal id for the callback.
+    case "$cmux_agent_name" in
+      codex)
+        for cmux_agent_arg in "$@"; do [ "$cmux_agent_arg" = --device-auth ] && return 0; done
+        ;;
+    esac
+    cmux_agent_display_ready && return 0
+    if command -v cmux >/dev/null 2>&1; then
+      cmux agent login "$cmux_agent_name"
+      cmux_agent_login_rc=$?
+      [ "$cmux_agent_login_rc" -eq 0 ] && return 0
+      printf '%s\n' "cmux: open the Cloud VM Desktop before running $cmux_agent_name sign-in; Codex also supports: codex login --device-auth" >&2
+    else
+      printf '%s\n' "cmux: open the Cloud VM Desktop before running $cmux_agent_name sign-in; Codex also supports: codex login --device-auth" >&2
+    fi
+    return 1
+  fi
+  cmux_agent_coderouter_ready "$cmux_agent_name" && return 0
+  cmux_agent_native_auth_ready "$cmux_agent_name" && return 0
+  if [ -n "${cmux_agent_connect_hint-}" ]; then
+    printf '%s\n' "cmux: on your Mac, run $cmux_agent_connect_hint to share an account with this Cloud VM." >&2
+  fi
+  if command -v cmux >/dev/null 2>&1; then
+    cmux agent login "$cmux_agent_name"
+    cmux_agent_login_rc=$?
+    [ "$cmux_agent_login_rc" -eq 0 ] && return 0
+    printf '%s\n' "cmux: $cmux_agent_name is not signed in. Run cmux auth login on your Mac and connect an account, or sign in natively in this VM." >&2
+  else
+    printf '%s\n' "cmux: $cmux_agent_name is not signed in. Run cmux auth login on your Mac and connect an account, or sign in natively in this VM." >&2
+  fi
+  return 1
+}
+
 # The installed executable wrapper also covers exec/direct agent launches.
 # This function retains the lazy path when this file is updated independently.
 opencode() {
   if [ "$#" -eq 1 ]; then
     case "$1" in --version|-v|--help|-h) command opencode "$@"; return $? ;; esac
   fi
+  cmux_agent_auth_preflight opencode "$@" || return $?
   cmux_ensure_opencode_config || return $?
   command opencode "$@"
+}
+
+claude() {
+  cmux_agent_auth_preflight claude "$@" || return $?
+  command claude "$@"
+}
+
+pi() {
+  cmux_agent_auth_preflight pi "$@" || return $?
+  command pi "$@"
+}
+
+hermes() {
+  cmux_agent_auth_preflight hermes "$@" || return $?
+  command hermes "$@"
 }
 
 # claude folder-trust gate: claude's trust check short-circuits on
@@ -295,6 +442,7 @@ export DISABLE_AUTOUPDATER=1
 # Paths a TOML string cannot carry raw (quote, backslash, unprintable) are
 # skipped; codex then prompts, which beats failing its config parse.
 codex() {
+  cmux_agent_auth_preflight codex "$@" || return $?
   local sub main d entries
   sub=$(git rev-parse --show-toplevel 2>/dev/null) || sub=$PWD
   main=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || main=""
