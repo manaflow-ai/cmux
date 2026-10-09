@@ -359,20 +359,39 @@ def allowed(lines, index):
     return bool(ALLOW.search(lines[index]) or (index > 0 and ALLOW.search(lines[index - 1])))
 
 
+# --exported-tree: REPO is a tree of tracked files only (git archive of a ref), so every file
+# under a root counts. safe-push-ratchet.py passes it for the remote tip's export.
+EXPORTED_TREE = False
+SOURCE_SUFFIXES = (".swift", ".rs")
+
+
+def refuse(message):
+    print(f"crash-ratchet: refused: {message}", file=sys.stderr)
+    raise SystemExit(2)
+
+
 def tracked_files(repo, root):
     """Files under ROOT that git tracks (absolute paths, sorted). Ignored and untracked
     files never count: build or sync output in a per-job tree made the ratchet red while
-    every tracked file equalled the tip (2026-10-07). Outside a git checkout every file
-    under ROOT is scanned, with a warning."""
+    every tracked file equalled the tip (2026-10-07). Outside a git checkout, or with an
+    index that lists none of ROOT's sources (a Testbox sync), the ratchet refuses (exit 2):
+    walking every file counted build output and vendored crates and gave a false red on
+    2026-10-09. An exported tree (--exported-tree) is walked."""
     rel = os.path.relpath(root, repo)
+    if EXPORTED_TREE:
+        return sorted(os.path.join(d, n) for d, _, names in os.walk(root) for n in names)
     try:
         out = subprocess.run(["git", "-C", repo, "ls-files", "-z", "--", rel],
                              check=True, capture_output=True).stdout.decode("utf-8", "replace")
-        return sorted(os.path.join(repo, p) for p in out.split("\0") if p)
     except (OSError, subprocess.CalledProcessError) as error:
-        print(f"crash-ratchet: WARNING: {repo} is not a git checkout ({error}); scanning every file under {rel}, "
-              "ignored build output included", file=sys.stderr)
-        return sorted(os.path.join(d, n) for d, _, names in os.walk(root) for n in names)
+        refuse(f"{repo} is not a git checkout ({error}). Run in a checkout, or pass --exported-tree "
+               "for a tree that holds only tracked files (git archive).")
+    files = sorted(os.path.join(repo, p) for p in out.split("\0") if p)
+    if not files and os.path.isdir(root) and any(
+            n.endswith(SOURCE_SUFFIXES) for _, _, names in os.walk(root) for n in names):
+        refuse(f"the git index of {repo} lists no file under {rel}, but the folder has sources "
+               "(a sync without a usable index). Run in a real checkout.")
+    return files
 
 
 def swift_source_roots(repo):
@@ -658,7 +677,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repo", default=os.path.abspath(os.path.join(HERE, "../..")))
     parser.add_argument("--update-baseline", action="store_true")
+    parser.add_argument("--exported-tree", action="store_true",
+                        help="REPO holds only tracked files (git archive): scan every file, no git needed")
     opts = parser.parse_args()
+    global EXPORTED_TREE
+    EXPORTED_TREE = opts.exported_tree
     counts = {"swift": {}, "rust": {}}
     banned_files = {}
     scan_swift(opts.repo, counts["swift"], banned_files)
