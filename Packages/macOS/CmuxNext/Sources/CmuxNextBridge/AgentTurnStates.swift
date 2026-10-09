@@ -14,6 +14,9 @@ public nonisolated enum AgentTurnState: Hashable, Sendable {
     /// The last turn failed (`lastTurn.status` = `failed`). A disconnect
     /// alone is not a failure: the next prompt respawns the agent.
     case failed
+    /// The last turn completed while no client watched the chat (acpmux
+    /// `unread`): done until the chat is opened, which clears `unread`.
+    case done
 
     /// The state of one `_acpmux/watch` / `session_changed` session summary;
     /// nil when no turn runs and the last turn did not fail, and always for
@@ -24,7 +27,11 @@ public nonisolated enum AgentTurnState: Hashable, Sendable {
         if ((summary["pendingPermissions"] as? NSNumber)?.intValue ?? 0) > 0 || status == "waiting" { return .needsInput }
         if status == "running" { return .working }
         let lastTurn = summary["lastTurn"] as? [String: Any]
-        return lastTurn?["status"] as? String == "failed" ? .failed : nil
+        switch lastTurn?["status"] as? String {
+        case "failed"?: return .failed
+        case "completed"?, "ok"? where (summary["unread"] as? Bool) == true: return .done
+        default: return nil
+        }
     }
 }
 
