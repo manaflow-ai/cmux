@@ -128,8 +128,8 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 600), styleMask: [.borderless], backing: .buffered, defer: true)
         let model = SidebarModel(sections: fixture())
         let sidebar = SidebarView(model: model)
-        sidebar.frame = window.contentView.bounds
-        window.contentView.addSubview(sidebar)
+        sidebar.frame = window.contentView!.bounds
+        window.contentView!.addSubview(sidebar)
         sidebar.layoutSubtreeIfNeeded()
         let center = window.convertPoint(toScreen: NSPoint(x: 150, y: 300))
         model.presentation = .hidden

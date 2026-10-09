@@ -13,7 +13,7 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 40), styleMask: [.borderless], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
         bar.frame = NSRect(x: 0, y: 0, width: width, height: SavedGroupsBarView.preferredHeight)
-        window.contentView.addSubview(bar)
+        window.contentView!.addSubview(bar)
         bar.layoutSubtreeIfNeeded()
         return (window, bar)
     }

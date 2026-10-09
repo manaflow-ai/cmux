@@ -90,7 +90,7 @@ struct TabWidthBreakpointTests {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 60), styleMask: [.borderless], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
         strip.frame = NSRect(x: 0, y: 0, width: 400, height: TabStripView.preferredHeight)
-        window.contentView.addSubview(strip)
+        window.contentView!.addSubview(strip)
         strip.layoutSubtreeIfNeeded()
         strip.sync(fromModel: true)
         return (strip, window)

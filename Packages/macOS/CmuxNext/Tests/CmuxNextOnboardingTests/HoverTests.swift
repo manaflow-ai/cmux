@@ -18,13 +18,13 @@ import Testing
         }
 
         func host(_ view: NSView, width: CGFloat) {
-            window.contentView.addSubview(view)
+            window.contentView!.addSubview(view)
             NSLayoutConstraint.activate([
-                view.leadingAnchor.constraint(equalTo: window.contentView.leadingAnchor, constant: 20),
-                view.topAnchor.constraint(equalTo: window.contentView.topAnchor, constant: 20),
+                view.leadingAnchor.constraint(equalTo: window.contentView!.leadingAnchor, constant: 20),
+                view.topAnchor.constraint(equalTo: window.contentView!.topAnchor, constant: 20),
                 view.widthAnchor.constraint(equalToConstant: width),
             ])
-            window.contentView.layoutSubtreeIfNeeded()
+            window.contentView!.layoutSubtreeIfNeeded()
         }
 
         func event(_ type: NSEvent.EventType, at point: NSPoint, in view: NSView) -> NSEvent {
@@ -67,7 +67,7 @@ import Testing
         let h = Harness()
         defer { h.window.close() }
         let button = OnboardingTextButton("Skip", target: nil, action: #selector(Sink.hit))
-        h.window.contentView.addSubview(button)
+        h.window.contentView!.addSubview(button)
         button.frame = button.frame(forAlignmentRect: NSRect(origin: NSPoint(x: 20, y: 20), size: button.intrinsicContentSize))
         button.layoutSubtreeIfNeeded()
         let frame = button.frame
@@ -93,7 +93,7 @@ import Testing
         let h = Harness()
         defer { h.window.close() }
         let button = OnboardingTextButton("Back", target: nil, action: #selector(Sink.hit))
-        h.window.contentView.addSubview(button)
+        h.window.contentView!.addSubview(button)
         button.isEnabled = false
         button.mouseEntered(with: h.event(.mouseEntered, at: .zero, in: button))
         #expect(!button.hover.state.hovering)
@@ -109,7 +109,7 @@ import Testing
         let h = Harness()
         defer { h.window.close() }
         let button = OnboardingTextButton("Check Again", target: nil, action: #selector(Sink.hit))
-        h.window.contentView.addSubview(button)
+        h.window.contentView!.addSubview(button)
         button.mouseEntered(with: h.event(.mouseEntered, at: .zero, in: button))
         #expect(button.hover.state.hovering)
         button.isHidden = true

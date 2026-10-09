@@ -30,7 +30,7 @@ import Testing
     @Test func markThenStatusAfterTheirDelays() async {
         let h = Harness()
         h.view.apply(.connecting)
-        h.window.contentView.addSubview(h.view)
+        h.window.contentView!.addSubview(h.view)
         #expect(!h.view.mark.isRevealed && !h.view.isTitleShown)
         // Both timers registered, so each deadline counts from the same instant.
         await h.clock.sleepers(atLeast: 2)
@@ -44,7 +44,7 @@ import Testing
 
     @Test func contentArrivingFirstShowsNeither() async {
         let h = Harness()
-        h.window.contentView.addSubview(h.view)
+        h.window.contentView!.addSubview(h.view)
         await h.clock.sleepers(atLeast: 2)
         h.view.removeFromSuperview()
         h.clock.advance(by: .seconds(5))
@@ -55,7 +55,7 @@ import Testing
 
     @Test func failureShowsMarkAndStatusAtOnce() {
         let h = Harness()
-        h.window.contentView.addSubview(h.view)
+        h.window.contentView!.addSubview(h.view)
         h.view.apply(.unavailable(.launchFailed("exit 1")))
         #expect(h.view.mark.isRevealed)
         #expect(h.view.isTitleShown)

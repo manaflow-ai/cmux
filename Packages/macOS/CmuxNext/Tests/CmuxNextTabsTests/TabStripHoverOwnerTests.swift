@@ -17,7 +17,7 @@ import Testing
         window.isReleasedWhenClosed = false
         defer { window.close() }
         strip.frame = NSRect(x: 0, y: 0, width: 600, height: TabStripView.preferredHeight)
-        window.contentView.addSubview(strip)
+        window.contentView!.addSubview(strip)
         strip.sync(fromModel: true)
         strip.layoutSubtreeIfNeeded()
         let button = strip.newTabButton

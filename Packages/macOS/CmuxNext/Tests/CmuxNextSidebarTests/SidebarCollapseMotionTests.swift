@@ -68,8 +68,8 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 260, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
-        sidebar.frame = window.contentView.bounds
-        window.contentView.addSubview(sidebar)
+        sidebar.frame = window.contentView!.bounds
+        window.contentView!.addSubview(sidebar)
         sidebar.layoutSubtreeIfNeeded()
         let list = sidebar.list
         list.reload(animated: false)

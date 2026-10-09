@@ -55,7 +55,7 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.borderless], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
         let probe = ProbeView(frame: NSRect(x: 0, y: 0, width: 50, height: 50))
-        window.contentView.addSubview(probe)
+        window.contentView!.addSubview(probe)
         let before = probe.appearanceCalls
 
         #expect(shared.apply(ThemeFixtures.gruvboxDark))
