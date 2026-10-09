@@ -29,7 +29,36 @@ nonisolated enum HostTypoFixup {
 
     /// The fixed text, or nil when `text` has nothing to fix.
     static func fix(_ text: String, isTopLevelDomain: (String) -> Bool = TopLevelDomains.contains) -> Fix? {
-        nil
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, !text.contains(where: \.isWhitespace) else { return nil }
+        let authorityStart: String.Index
+        if let separator = text.range(of: "://") {
+            let scheme = text[..<separator.lowerBound].lowercased()
+            guard scheme == "http" || scheme == "https" else { return nil }
+            authorityStart = separator.upperBound
+        } else {
+            authorityStart = text.startIndex
+        }
+        let rest = text[authorityStart...]
+        let authorityEnd = rest.firstIndex { "/?#".contains($0) } ?? rest.endIndex
+        let authority = rest[..<authorityEnd]
+        guard !authority.isEmpty, !authority.contains("@"), !authority.hasPrefix("[") else { return nil }
+
+        var hostEnd = authority.endIndex
+        if let colon = authority.firstIndex(of: ":") {
+            let port = authority[authority.index(after: colon)...]
+            guard !port.isEmpty, port.allSatisfy(\.isASCII), port.allSatisfy(\.isNumber) else { return nil }
+            hostEnd = colon
+        }
+        let host = authority[..<hostEnd]
+        let labels = host.split(separator: ".", omittingEmptySubsequences: false)
+        guard labels.count >= 2, labels.allSatisfy({ !$0.isEmpty }), let last = labels.last else { return nil }
+        let typedLabel = last.lowercased()
+        guard let intended = typos[typedLabel], !isTopLevelDomain(typedLabel) else { return nil }
+
+        var fixed = text
+        fixed.replaceSubrange(last.startIndex..<last.endIndex, with: intended)
+        return Fix(text: fixed, typedHost: host.lowercased())
     }
 }
 
