@@ -36,6 +36,12 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
             && !cloudEnabled
     }
 
+    /// Records that this release's announcement has been considered. The
+    /// caller writes this before presenting so a crash or quit cannot replay it.
+    nonisolated static func markCampaignSeen(in defaults: UserDefaults) {
+        defaults.set(campaignVersion, forKey: seenVersionDefaultsKey)
+    }
+
     /// Presents at launch when it applies, and marks it seen on the way so a
     /// quit or crash while it is open does not show it again.
     func presentIfNeeded(over parent: NSWindow?, defaults: UserDefaults = .standard) {
@@ -48,7 +54,7 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
             cloudAvailable: CloudMachinesFeature.isAvailable,
             cloudEnabled: CloudMachinesFeature.isEnabled
         ) else { return }
-        defaults.set(Self.campaignVersion, forKey: Self.seenVersionDefaultsKey)
+        Self.markCampaignSeen(in: defaults)
         present(over: parent)
     }
 

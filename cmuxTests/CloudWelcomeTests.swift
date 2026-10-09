@@ -34,6 +34,31 @@ struct CloudWelcomeTests {
         #expect(!CloudWelcomeWindowController.shouldPresentAutomatically(seenVersion: nil, appVersion: "0.65.1", cloudAvailable: true, cloudEnabled: true))
     }
 
+    @Test("an older marker upgrades to 0.65.1 and prevents a repeat")
+    func campaignMarkerUpgradeAndNoRepeat() {
+        let suiteName = "CloudWelcomeTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set("0.65.0", forKey: CloudWelcomeWindowController.seenVersionDefaultsKey)
+        #expect(CloudWelcomeWindowController.shouldPresentAutomatically(
+            seenVersion: defaults.string(forKey: CloudWelcomeWindowController.seenVersionDefaultsKey),
+            appVersion: CloudWelcomeWindowController.campaignVersion,
+            cloudAvailable: true,
+            cloudEnabled: false
+        ))
+
+        CloudWelcomeWindowController.markCampaignSeen(in: defaults)
+
+        #expect(defaults.string(forKey: CloudWelcomeWindowController.seenVersionDefaultsKey) == CloudWelcomeWindowController.campaignVersion)
+        #expect(!CloudWelcomeWindowController.shouldPresentAutomatically(
+            seenVersion: defaults.string(forKey: CloudWelcomeWindowController.seenVersionDefaultsKey),
+            appVersion: CloudWelcomeWindowController.campaignVersion,
+            cloudAvailable: true,
+            cloudEnabled: false
+        ))
+    }
+
     @Test("automatic presentation is suppressed for development and test launches")
     func suppressesDevelopmentAndTestLaunches() {
         let arguments: [(Bool, Bool, Bool)] = [

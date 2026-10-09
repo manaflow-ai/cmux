@@ -498,7 +498,9 @@ struct CloudWelcomeMediaCarousel: View {
         durationLoadFailed = false
         guard let url = mediaURL(currentSlide) else { return }
         if url.pathExtension.lowercased() == "gif" {
-            duration = await Self.gifDuration(url) ?? Self.fallbackDuration
+            let loadedDuration = await Self.gifDuration(url) ?? Self.fallbackDuration
+            guard !Task.isCancelled else { return }
+            duration = loadedDuration
         } else {
             guard let seconds = await Self.movieDuration(url) else {
                 guard !Task.isCancelled else { return }
