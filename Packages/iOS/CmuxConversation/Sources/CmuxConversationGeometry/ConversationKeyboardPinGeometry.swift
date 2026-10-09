@@ -3,10 +3,11 @@ import CoreGraphics
 /// Where the iOS composer sits relative to the keyboard.
 ///
 /// The composer hangs below a base line 4 pt above the keyboard layout guide.
-/// Its offset below that line (the "drop") is measured on iOS 26 Messages: at
-/// rest the field's bottom sits 28.25 pt above the screen bottom (6 pt into
-/// the home indicator's safe area); with the keyboard up it sits 17.5 pt above
-/// the keyboard.
+/// Its offset below that line (the "drop") is measured on Messages (iOS 26.5
+/// and 27.0, iPhone 17 Pro, pixel rows of the field's edge): at rest the
+/// field's bottom sits 28 pt above the screen bottom (6 pt into the home
+/// indicator's safe area); with the keyboard up it sits 16 pt above the
+/// keyboard's top edge.
 ///
 /// The keyboard's real top edge decides the drop. The composer rides
 /// `dockedDrop` above it, and never sits lower than its resting place. An
@@ -17,9 +18,9 @@ import CoreGraphics
 /// safe area, where the layout guide stops following the keyboard.
 public enum ConversationKeyboardPinGeometry {
     /// Drop below the base line with no keyboard.
-    public static let restDrop: CGFloat = 13.75
+    public static let restDrop: CGFloat = 14
     /// Drop below the base line with the keyboard up (negative: above it).
-    public static let dockedDrop: CGFloat = -9.5
+    public static let dockedDrop: CGFloat = -8
 
     /// The composer's drop below its base line.
     /// - Parameters:

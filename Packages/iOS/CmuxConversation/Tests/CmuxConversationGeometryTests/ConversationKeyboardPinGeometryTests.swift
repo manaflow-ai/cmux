@@ -16,13 +16,13 @@ import Testing
 
     @Test func endStatesMatchMessages() {
         let rest = composerBottom(keyboardTop: screenBottom, guideTop: restingGuideTop)
-        #expect(rest == 849.75)
+        #expect(rest == 850)
         let docked = composerBottom(keyboardTop: dockedTop, guideTop: dockedTop)
-        #expect(docked == dockedTop - 13.5)
+        #expect(docked == dockedTop - 12)
     }
 
     /// The finger drags the keyboard: the guide follows it down to the safe
-    /// area, then stops; the composer stays 13.5 pt above the keyboard all
+    /// area, then stops; the composer stays 12 pt above the keyboard all
     /// the way and settles at rest without a step.
     @Test func composerRidesTheKeyboardThroughAnInteractiveDismissal() {
         var previous = -CGFloat.infinity
@@ -33,7 +33,7 @@ import Testing
             )
             #expect(top == finger)
             let bottom = composerBottom(keyboardTop: finger, guideTop: guideTop)
-            #expect(bottom == min(finger - 13.5, 849.75))
+            #expect(bottom == min(finger - 12, 850))
             #expect(bottom >= previous)
             #expect(bottom - previous <= 0.5 || previous == -.infinity)
             previous = bottom
@@ -61,13 +61,13 @@ import Testing
             guideTop: restingGuideTop, restingGuideTop: restingGuideTop, screenBottom: screenBottom, dragLocation: nil
         )
         #expect(top == screenBottom)
-        #expect(composerBottom(keyboardTop: screenBottom, guideTop: restingGuideTop) == 849.75)
+        #expect(composerBottom(keyboardTop: screenBottom, guideTop: restingGuideTop) == 850)
     }
 
     /// A hardware keyboard's bar (or a shorter keyboard) that stays below the
     /// resting composer leaves it at rest.
     @Test func shortKeyboardBelowTheComposerLeavesItAtRest() {
-        #expect(composerBottom(keyboardTop: 866, guideTop: restingGuideTop) == 849.75)
-        #expect(composerBottom(keyboardTop: 860, guideTop: restingGuideTop) == 846.5)
+        #expect(composerBottom(keyboardTop: 866, guideTop: restingGuideTop) == 850)
+        #expect(composerBottom(keyboardTop: 860, guideTop: restingGuideTop) == 848)
     }
 }
