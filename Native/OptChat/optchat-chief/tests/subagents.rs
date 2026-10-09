@@ -512,3 +512,32 @@ fn zoom_with_a_subagents_id_gives_its_whole_chat_in_pages() {
         "no such subagent"
     );
 }
+
+/// The new messages' block of the turn prompt whose messages contain `needle`.
+fn turn_tail(s: &Setup, needle: &str) -> String {
+    let agents = s.h.agents.inner.lock().unwrap();
+    agents
+        .prompts
+        .iter()
+        .filter_map(|p| p.last().and_then(|b| b["text"].as_str()).map(str::to_owned))
+        .find(|t| t.contains(needle))
+        .unwrap_or_else(|| panic!("no turn prompt with {needle}"))
+}
+
+#[test]
+fn a_turn_says_which_subagents_are_at_work_after_the_view() {
+    let mut s = setup();
+    spawn(&mut s, &["list the files in ~/", "say the date"]).unwrap();
+    finish(&mut s, "s1", "s1", "a1");
+    s.h.settle();
+    // a1's report turn: a2 still works.
+    let tail = turn_tail(&s, "[a1] done");
+    assert!(
+        tail.starts_with("Subagents at work now: a2.\n\n"),
+        "{tail}"
+    );
+    finish(&mut s, "s2", "s1", "a2");
+    s.h.settle();
+    let tail = turn_tail(&s, "[a2] done");
+    assert!(!tail.contains("at work now"), "none works: {tail}");
+}
