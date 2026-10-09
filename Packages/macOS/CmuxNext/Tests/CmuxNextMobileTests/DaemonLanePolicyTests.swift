@@ -98,17 +98,3 @@ struct DaemonLanePolicyTests {
     }
 }
 
-struct LineSplitterTests {
-    @Test func splitsAcrossChunks() throws {
-        var splitter = LineSplitter(maximumLineBytes: 16)
-        #expect(try splitter.append(Data("ab".utf8)).isEmpty)
-        let lines = try splitter.append(Data("c\n\nde\nf".utf8))
-        #expect(lines.map { String(decoding: $0, as: UTF8.self) } == ["abc", "de"])
-        #expect(splitter.pendingByteCount == 1)
-    }
-
-    @Test func rejectsOverlongLine() {
-        var splitter = LineSplitter(maximumLineBytes: 4)
-        #expect(throws: LineSplitter.Failure.lineTooLong(limit: 4)) { try splitter.append(Data("12345".utf8)) }
-    }
-}

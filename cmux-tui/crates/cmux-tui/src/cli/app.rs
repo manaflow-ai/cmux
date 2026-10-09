@@ -618,11 +618,18 @@ pub(super) fn socket_path(global: &GlobalArgs) -> Result<PathBuf, String> {
     Ok(identity.control_socket(&home))
 }
 
+/// No app listens at `socket` (no file, or a stale one): the command needs
+/// the app, which a Chief without the app must hear plainly (E17).
 pub(super) fn connect(socket: &PathBuf) -> Result<UnixStream, String> {
     let messages = &crate::localization::catalog().app_control;
     UnixStream::connect(socket).map_err(|error| {
-        messages
-            .unreachable
+        let template = match error.kind() {
+            std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused => {
+                messages.needs_app
+            }
+            _ => messages.unreachable,
+        };
+        template
             .replace("{path}", &socket.display().to_string())
             .replace("{error}", &error.to_string())
     })

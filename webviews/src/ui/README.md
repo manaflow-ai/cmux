@@ -72,3 +72,39 @@ above so there is one press-drag-release implementation.
 `Popover`, `Tooltip`, `Dialog`, and `Sheet` all portal into the `UiProvider` container, return focus
 to their trigger, close on Escape, and use Ghostty theme tokens. Tooltips wait 500 ms on the first
 hover and move immediately to a neighbor. Menus have no fade-in; overlays only use a short fade-out.
+
+## Layers and transparency
+
+One z-index scale for every page and the agent pane, defined in `pages/shared/desktop.css` (loaded
+first everywhere). Use the token, never a number: `z-index: var(--layer-dropdown)` in CSS,
+`z-(--layer-dropdown)` in Tailwind.
+
+| token              | value      | for                                                                                                          |
+| ------------------ | ---------- | ------------------------------------------------------------------------------------------------------------ |
+| `--layer-base`     | 0          | normal flow                                                                                                  |
+| `--layer-raised`   | 1          | a part lifted above its siblings inside one component (a hover card edge, a selected row's outline)          |
+| `--layer-sticky`   | 10         | sticky headers, docked bars inside a scroller                                                                |
+| `--layer-overlay`  | 30         | scrims and dimming layers                                                                                    |
+| `--layer-modal`    | 40         | dialogs and sheets                                                                                           |
+| `--layer-dropdown` | 50         | menus, popovers, pickers, comboboxes (the shared positioner); above modals so a picker inside a dialog shows |
+| `--layer-toast`    | 900        | transient notices                                                                                            |
+| `--layer-tooltip`  | 1000       | tooltips, including the title tooltip                                                                        |
+| `--layer-debug`    | 2147483000 | dev-only overlays (gallery error panel)                                                                      |
+
+Rules:
+
+- Popups, menus, pickers and tooltips render in the portal container (`usePortalContainer`), never
+  inside a component, so no parent's stacking context (`transform`, `filter`, `opacity`, `isolation`)
+  or `overflow` traps or clips them. Inside a component use only base, raised and sticky.
+- Menus, popovers and tooltips are opaque. A translucent surface that carries text keeps at least
+  `--surface-text-min` of its fill: `color-mix(in srgb, <fill> var(--surface-text-min), transparent)`.
+- A blur uses `backdrop-filter: var(--surface-blur)`, or the file has its own
+  `@media (prefers-reduced-transparency: reduce)` rule that makes the surface opaque. Both tokens turn
+  opaque under Reduce Transparency (`prefers-reduced-transparency`, or `data-reduce-transparency` on
+  the root, which the host may set from the app setting).
+- `scripts/cmux-next/check-layers.py` (run by `bun run check`) fails on a new raw z-index or a new
+  bare `backdrop-filter`; the old ones sit in `scripts/cmux-next/layers-baseline.tsv`, which may only
+  go down. Each component moves to the tokens in its UI-tournament round.
+- The gallery stage checks every play step: an open popup must be the top element at its corners and
+  center, and nothing may clip it (`judgePopups` in `gallery/play.ts`). It warns by default; an entry
+  gates it with `checks.popupLayer = { value: true, reason }`.

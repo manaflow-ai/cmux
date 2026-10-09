@@ -17092,6 +17092,32 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "guiOnly",
+      "cli_name" : "action home-stop-chief",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.stopChief",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "title" : "Stop the Chief",
+      "title_key" : "action.home.stopChief",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "devOnly",
       "cli_name" : "action chief-open-memory-inspector",
       "context_menu" : "noObject",

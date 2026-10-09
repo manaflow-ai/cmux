@@ -42,6 +42,9 @@ enum AgentHandlers {
         registry.bind("home.toggleChiefSettings", run: { _ in
             NotificationCenter.default.post(name: HomeHostView.toggleSettings, object: nil)
         })
+        registry.bind(HomeChiefControl.stopAction, run: { _ in
+            NotificationCenter.default.post(name: HomeChiefControl.stopNotification, object: nil)
+        })
         // Start Agent: its key, the palette, the menu and the CLI toggle one floating panel, and so
         // does Start Agent from Any App, its opt-in system-wide key (`app.startAgentGlobalHotKey`).
         // The panel takes the keyboard from the frontmost app, so automation
