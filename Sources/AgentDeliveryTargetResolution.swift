@@ -68,8 +68,10 @@ nonisolated func agentLiveProcessIdentity(pid: pid_t) -> (ttyDevice: Int64?, sco
     let expectedSize = MemoryLayout<proc_bsdinfo>.stride
     let size = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(expectedSize))
     guard size == expectedSize else { return nil }
-    let device = Int64(info.e_tdev)
-    return (device > 0 ? device : nil, CmuxTopProcessSnapshot.scopeCacheKey(from: info))
+    return (
+        CmuxTopProcessSnapshot.controllingTTYDevice(info.e_tdev),
+        CmuxTopProcessSnapshot.scopeCacheKey(from: info)
+    )
 }
 @MainActor
 extension Workspace {

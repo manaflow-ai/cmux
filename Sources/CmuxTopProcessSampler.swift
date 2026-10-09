@@ -94,8 +94,7 @@ struct CmuxTopProcessSampler: Sendable {
         let resourceUsage = includeResources ? reader.resourceUsage(for: pid) : nil
         let cacheKey = CmuxTopProcessSnapshot.scopeCacheKey(from: bsdInfo)
         let fallbackName = CmuxTopProcessSnapshot.fixedString(bsdInfo.pbi_comm)
-        let rawTTY = Int64(bsdInfo.e_tdev)
-        let ttyDevice = rawTTY > 0 ? rawTTY : nil
+        let ttyDevice = CmuxTopProcessSnapshot.controllingTTYDevice(bsdInfo.e_tdev)
         let rawProcessGroupID = Int(bsdInfo.pbi_pgid)
         let processGroupID = rawProcessGroupID > 0 ? rawProcessGroupID : nil
         let rawTerminalProcessGroupID = Int(bsdInfo.e_tpgid)
