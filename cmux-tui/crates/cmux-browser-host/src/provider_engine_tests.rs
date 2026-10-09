@@ -722,6 +722,24 @@ fn a_kept_tab_stays_in_the_sessions_own_list() {
     assert!(rows.as_array().unwrap().iter().any(|r| r["targetId"] == "new"), "{rows}");
 }
 
+/// A one-shot eval opens and closes its session: a tab it kept is still in
+/// the next session's own `tabs.list()` when that session has the same name
+/// (tabs.keep-deliverable), never in another session's.
+#[test]
+fn a_kept_tab_is_listed_by_the_next_session_of_the_same_name() {
+    let (_app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("new", "webkit")]);
+    let first = session(&provider, "webkit", "s1");
+    first.call("tabs.open", &json!({})).unwrap();
+    first.call("tab.keep", &json!({"targetId": "new"})).unwrap();
+    drop(first);
+    let listed = |name: &str| {
+        let rows = session(&provider, "webkit", name).call("tabs.list", &json!({})).unwrap();
+        rows.as_array().unwrap().iter().any(|r| r["targetId"] == "new")
+    };
+    assert!(listed("s1"), "the same session name lists the kept tab");
+    assert!(!listed("s2"), "another session does not");
+}
+
 /// A WebKit session drives a Chromium tab it claimed: the call goes to that
 /// tab's engine (the CDP relay), never refused. Before: "tab c1 is a cef tab;
 /// this session runs on webkit".
