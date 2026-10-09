@@ -45,7 +45,9 @@ import Testing
         let groups = try #require(general["groups"] as? [[String: Any]])
         let keys = groups.compactMap { $0["key"] as? String }
         #expect(keys.first == "settings.group.window")
-        #expect(keys.firstIndex(of: "settings.group.tabs")! < keys.firstIndex(of: "settings.group.chats")!)
+        let tabs = try #require(keys.firstIndex(of: "settings.group.tabs"))
+        let chats = try #require(keys.firstIndex(of: "settings.group.chats"))
+        #expect(tabs < chats)
         for group in groups { #expect(!(group["rows"] as? [String] ?? []).isEmpty, "\(group["key"] ?? "?") is empty") }
         let terminal = try #require(Self.categories(Self.document()).first { $0["id"] as? String == "terminal" })
         let behavior = try #require((terminal["groups"] as? [[String: Any]])?.first)

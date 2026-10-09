@@ -1,11 +1,11 @@
 // P2/P4: every setting the page shows has exactly one home, and every old section route still
 // opens the category that holds its rows. Category and group titles are in the page catalog.
 import { expect, test } from "bun:test";
+import exported from "../../../../schemas/settings/settings-schema.json";
 import "./testCatalog";
-import { categories, categoryOf, homes } from "./categories";
+import { CATEGORY_CARDS, categories, categoryOf, homes } from "./categories";
 import strings from "./generated/strings.json";
 import { parseLocation } from "./router";
-import exported from "../../../../schemas/settings/settings-schema.json";
 import { schema, sections } from "./schema";
 
 test("every page row has exactly one home", () => {
@@ -50,6 +50,14 @@ test("every category and group title is in all locales", () => {
     keys.filter((key) => !table[key]).map((key) => `${locale}:${key}`),
   );
   expect(missing).toEqual([]);
+});
+
+// Every non-schema card the export names has a renderer here; none is dropped silently.
+test("every exported card is one the page draws", () => {
+  const page = (exported as { page?: { categories: Array<{ lead: string[]; trail: string[] }> } }).page;
+  const cards = (page?.categories ?? []).flatMap((category) => [...category.lead, ...category.trail]);
+  expect(cards.length).toBeGreaterThan(0);
+  expect(cards.filter((card) => !(CATEGORY_CARDS as readonly string[]).includes(card))).toEqual([]);
 });
 
 // Parity: the page draws the layout the Swift schema exports (`page`), nothing it copied by hand.
