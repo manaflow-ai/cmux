@@ -40,6 +40,12 @@ reviewed `// crash-allow: <reason>` (Swift) or `// crash-allow: <reason>`
                       not fit; use `exactly:` (optional), `clamping:` or `truncatingIfNeeded:`.
                       `UInt8(ascii:)` and a pure integer literal (`UInt8(0)`, checked by the
                       compiler) do not count
+    objc_observer     a selector-based NotificationCenter registration `addObserver(<target>, selector:`
+                      (the call may span lines). The target method is @objc; when it is also
+                      @MainActor, a post off the main thread traps in Swift's dynamic isolation
+                      check (PointerHover's KeyWindowObserver trapped CmuxNextAppTests on a
+                      willClose posted from a detached thread). Use the block form with
+                      `queue: .main` and keep the token
     dynamic_dispatch  NSSelectorFromString, Selector("..."), KVC value/setValue by key
                       (an unknown selector or key raises an Objective-C exception)
     env_write         setenv( / unsetenv( / putenv( / an assignment to environ. Not in
@@ -91,7 +97,7 @@ SWIFT = {
         r"\bNSSelectorFromString\(|\bSelector\(\"|\b(?:setValue|value)\((?:[^()]|\([^()]*\))*\bforKey(?:Path)?:"),
 }
 # Counted by objc_selector_hits (needs the declaration, which may span two lines).
-SWIFT_KINDS = list(SWIFT) + ["objc_selector", "render_font", "index_subscript", "int_conversion"]
+SWIFT_KINDS = list(SWIFT) + ["objc_selector", "objc_observer", "render_font", "index_subscript", "int_conversion"]
 # Modules whose drawing runs on background threads (RowBitmaps, tile and measure queues,
 # the sidebar's concurrentPerform), and their font caches (allowlisted when banned).
 RENDER_MODULES = {"MessagesLabHome", "MessagesLabSidebar", "CmuxHomeRender"}
@@ -200,6 +206,8 @@ def index_hits(code, dictionaries=frozenset()):
             continue
         hits += 1
     return hits
+ADD_OBSERVER = re.compile(r"\baddObserver\(")
+SELECTOR_OBSERVER = re.compile(r"addObserver\(\s*[^,()]+?,\s*selector\s*:")
 OBJC_ATTR = re.compile(r"@objc(?![\w(])")
 OBJC_FUNC = re.compile(r"\bfunc\s+[\w`]+\s*(?:<[^>]*>)?\s*\(")
 OTHER_DECL = re.compile(r"\b(protocol|class|struct|enum|extension|var|let|init|subscript|case)\b")
@@ -356,6 +364,16 @@ def objc_selector_hits(lines, index, code):
     return 0
 
 
+def objc_observer_hits(lines, index, code):
+    """Selector-based addObserver calls that start in LINE; the arguments may continue
+    on the next two lines."""
+    starts = [m.start() for m in ADD_OBSERVER.finditer(code)]
+    if not starts:
+        return 0
+    follow = " ".join(swift_code(l).strip() for l in lines[index + 1:index + 3])
+    return sum(1 for start in starts if SELECTOR_OBSERVER.match(code[start:] + " " + follow))
+
+
 def swift_line_hits(lines, index, module=None, dictionaries=frozenset()):
     """{kind: hits} for one Swift line (comment lines and crash-allow are the caller's)."""
     line = lines[index]
@@ -374,6 +392,9 @@ def swift_line_hits(lines, index, module=None, dictionaries=frozenset()):
         hits[kind] = found
     if objc_selector_hits(lines, index, code):
         hits["objc_selector"] = 1
+    found = objc_observer_hits(lines, index, code)
+    if found:
+        hits["objc_observer"] = found
     if module in INDEX_MODULES:
         found = index_hits(code, dictionaries)
         if found:

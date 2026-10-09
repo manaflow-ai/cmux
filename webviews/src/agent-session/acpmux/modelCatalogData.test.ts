@@ -148,10 +148,13 @@ describe("buildPickerCatalog", () => {
     expect(picker.harnesses.some((harness) => harness.id === "corp-claude")).toBe(false);
   });
 
-  test("catalog models list in order; an alias the harness probed maps to its model; new probed models are added", () => {
+  // cx-jqkx: a catalog alias never names what a harness alias runs (that depends on the installed
+  // Claude Code version), so an alias the harness reports without naming a release is its own row.
+  test("catalog models list in order by their own ids; models the harness reports are added", () => {
     expect(byId("claude").models.map((model) => model.id)).toEqual([
       "claude-opus-5-5",
       "claude-sonnet-5",
+      "opus",
       "claude-next-1",
     ]);
     expect(byId("claude").models[0]).toMatchObject({
@@ -166,7 +169,74 @@ describe("buildPickerCatalog", () => {
       input: ["text", "image"],
     });
     expect(byId("claude").models[0]?.searchText).toContain("opus");
-    expect(byId("claude").models[2]).toMatchObject({ name: "Next 1", efforts: [], fast: false });
+    expect(byId("claude").models[2]).toMatchObject({ name: "Opus" });
+    expect(byId("claude").models[3]).toMatchObject({ name: "Next 1", efforts: [], fast: false });
+  });
+
+  // cx-jqkx: Claude Code names what each alias runs in its initialize reply. An alias named as a
+  // catalog release replaces that release's row (one row that follows the harness's newest); an
+  // alias named as a release the catalog lacks stays its own row with the harness's name.
+  test("an alias the harness names as a catalog release takes that release's row", () => {
+    const reported = (name: string) =>
+      buildPickerCatalog({
+        catalog: CATALOG,
+        acpmux: normalizeCatalog({ harnesses: { claude: { family: "claude", models: [{ id: "opus", name }] } } }),
+      }).harnesses[0]!.models;
+    expect(reported("Opus 5.5").map((model) => model.id)).toEqual(["opus", "claude-sonnet-5"]);
+    expect(reported("Opus 5.5")[0]).toMatchObject({ name: "Claude Opus 5.5", shortName: "Opus 5.5", fast: true });
+    // The session pinned to the release keeps that release's own row.
+    const pinned = buildPickerCatalog({
+      catalog: CATALOG,
+      acpmux: normalizeCatalog({
+        harnesses: { claude: { family: "claude", models: [{ id: "opus", name: "Opus 5.5" }] } },
+      }),
+      session: {
+        harness: "claude",
+        configOptions: [
+          {
+            id: "model",
+            category: "model",
+            currentValue: "claude-opus-5-5",
+            options: [{ value: "opus", name: "Opus 5.5" }],
+          },
+        ] as never,
+      },
+    }).harnesses[0]!.models;
+    expect(pinned.map((model) => model.id)).toEqual(["claude-opus-5-5", "claude-sonnet-5", "opus"]);
+    expect(reported("Opus 6").map((model) => [model.id, model.name])).toEqual([
+      ["claude-opus-5-5", "Claude Opus 5.5"],
+      ["claude-sonnet-5", "Claude Sonnet 5"],
+      ["opus", "Opus 6"],
+    ]);
+  });
+
+  // cx-jqkx: the harness is the authority. A model the running session's own model option lists is
+  // offered even when neither the catalog nor acpmux's model list has it.
+  test("a model the session's model option reports is offered even when the catalog lacks it", () => {
+    const live = buildPickerCatalog({
+      catalog: CATALOG,
+      acpmux: ACPMUX,
+      session: {
+        harness: "claude-sr",
+        configOptions: [
+          {
+            id: "model",
+            name: "Model",
+            category: "model",
+            currentValue: "claude-pinned-1",
+            options: [
+              { value: "opus", name: "Opus 5.5" },
+              { value: "claude-haiku-9", name: "Haiku 9" },
+            ],
+          },
+        ] as never,
+      },
+    });
+    const ids = live.harnesses[0]?.models.map((model) => model.id);
+    expect(ids).toContain("claude-haiku-9");
+    expect(ids).toContain("claude-pinned-1");
+    expect(ids?.filter((id) => id === "opus")).toHaveLength(1);
+    expect(live.harnesses[0]?.models.find((model) => model.id === "claude-haiku-9")?.name).toBe("Haiku 9");
   });
 
   test("acpmux reasons are kept; a catalog harness acpmux lacks lists as not installed", () => {
@@ -249,7 +319,7 @@ describe("buildPickerCatalog", () => {
     expect(layered.harnesses.map((harness) => harness.id)).toEqual(["claude", "codex", "opencode"]);
     expect(layered.harnesses[0]).toMatchObject({ name: "Claude (work)" });
     expect(layered.harnesses[0]?.models.map((model) => [model.id, model.name, model.defaultEffort])).toEqual([
-      ["claude-opus-5-5", "Opus", "max"],
+      ["opus", "Opus", "max"],
     ]);
     expect(layered.harnesses[1]?.models.map((model) => model.id)).toEqual(["gpt-5.5", "gpt-6-local"]);
     expect(layered.harnesses[2]?.models[1]).toMatchObject({

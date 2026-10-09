@@ -308,6 +308,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
     private var observers: [NSObjectProtocol] = []
 
     init(host: HostView = HostView(frame: NSRect(origin: .zero, size: Fixture.windowSize)), wake: ChatWakeScheduler) {
+        HomeMarkdownPolicy.install()  // cmux: before the first Markdown parse
         self.host = host
         self.wake = wake
         super.init()
