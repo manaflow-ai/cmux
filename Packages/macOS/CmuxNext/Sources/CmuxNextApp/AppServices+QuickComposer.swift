@@ -7,12 +7,12 @@ extension AppServices {
     /// focused pane of the frontmost main window.
     func makeQuickComposer() -> QuickComposerController {
         QuickComposerController(
-            makeChat: { [unowned self] in
-                guard self.agentTabs.canHostChat else { return nil }
+            makeChat: { [weak self] in
+                guard let self, self.agentTabs.canHostChat else { return nil }
                 return self.agentTabs.standaloneView(seed: AgentPaneSeed(surface: .quick))
             },
             makeWindow: { QuickComposerPanel() },
-            openInWindow: { [unowned self] session in self.openQuickChat(session: session) }
+            openInWindow: { [weak self] session in self?.openQuickChat(session: session) ?? false }
         )
     }
 

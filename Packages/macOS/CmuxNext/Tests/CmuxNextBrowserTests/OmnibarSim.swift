@@ -121,6 +121,8 @@ import Testing
             case .query(let generation, let text): queries.append((generation, text))
             case .keywordInput(_, let text, let generation): queries.append((generation, text))
             case .cancelQuery: queries.removeAll()
+            // AddressBarView records the fix in the engine's resolver.
+            case .hostTypoFixed(let host): resolver.hostTypoMemory.recordFix(of: host)
             case .began, .ended, .beep, .deleteSuggestion, .typedNavigation, .copyAnswer, .keywordStarted, .keywordEnded: break
             }
         }

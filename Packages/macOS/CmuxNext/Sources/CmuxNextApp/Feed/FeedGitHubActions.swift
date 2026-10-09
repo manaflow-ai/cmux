@@ -10,7 +10,7 @@ enum FeedGitHubActions {
     static func install(on model: FeedModel, services: AppServices) {
         model.onOpenItem = { [weak services] item in
             guard let services, let url = item.context.url else { return }
-            services.externalOpen.open(url)
+            services.externalOpen.openWebLink(url)
         }
         model.onAddConnection = { [weak services] in
             guard let services else { return }
@@ -36,7 +36,7 @@ enum FeedGitHubActions {
         guard let detail = services.feed.githubDetail(for: item), let url = detail.url else { return }
         switch action {
         case .open:
-            services.externalOpen.open(url)
+            services.externalOpen.openWebLink(url)
         case .startAgent:
             guard let pane = services.windows.active?.focusedPane else { return }
             let draft = "Review this GitHub pull request:\n\(url.absoluteString)\n\nTitle: \(detail.title)"

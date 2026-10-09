@@ -48,12 +48,11 @@ public actor CmxIrohSystemBonjourBrowser: CmxIrohBonjourBrowsing {
         maximumPendingResolves: Int,
         resolveTimeout: TimeInterval
     ) {
-        precondition(maximumPendingResolves > 0)
-        precondition(resolveTimeout.isFinite && resolveTimeout > 0)
         self.dnsService = dnsService
         self.clock = clock
-        self.maximumPendingResolves = maximumPendingResolves
-        self.resolveTimeout = resolveTimeout
+        // Out-of-range values take their defaults instead of trapping.
+        self.maximumPendingResolves = maximumPendingResolves > 0 ? maximumPendingResolves : Self.defaultMaximumPendingResolves
+        self.resolveTimeout = resolveTimeout.isFinite && resolveTimeout > 0 ? resolveTimeout : Self.defaultResolveTimeout
     }
 
     public func events() -> AsyncStream<CmxIrohBonjourBrowserEvent> {

@@ -4928,5 +4928,329 @@
         ]
       }
     }
+  },
+  "inspector.bytes": {
+    "source": "{value} B",
+    "identityLocales": {
+      "de": {
+        "reason": "B is the standard byte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} B"
+        ]
+      },
+      "es": {
+        "reason": "B is the standard byte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} B"
+        ]
+      },
+      "zh-Hant": {
+        "reason": "B is the standard byte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} B"
+        ]
+      },
+      "zh-Hans": {
+        "reason": "B is the standard byte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} B"
+        ]
+      },
+      "ja": {
+        "reason": "B is the standard byte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} B"
+        ]
+      },
+      "bs": {
+        "reason": "B is the standard byte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} B"
+        ]
+      },
+      "da": {
+        "reason": "B is the standard byte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} B"
+        ]
+      },
+      "it": {
+        "reason": "B is the standard byte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} B"
+        ]
+      },
+      "km": {
+        "reason": "B is the standard byte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} B"
+        ]
+      },
+      "nb": {
+        "reason": "B is the standard byte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} B"
+        ]
+      },
+      "pl": {
+        "reason": "B is the standard byte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} B"
+        ]
+      },
+      "pt-BR": {
+        "reason": "B is the standard byte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} B"
+        ]
+      },
+      "th": {
+        "reason": "B is the standard byte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} B"
+        ]
+      },
+      "tr": {
+        "reason": "B is the standard byte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} B"
+        ]
+      },
+      "vi": {
+        "reason": "B is the standard byte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} B"
+        ]
+      }
+    }
+  },
+  "inspector.filter": {
+    "source": "Filter",
+    "identityLocales": {
+      "bs": {
+        "reason": "Filter is the Bosnian word for this control.",
+        "values": [
+          "Filter"
+        ]
+      }
+    }
+  },
+  "inspector.kilobytes": {
+    "source": "{value} KB",
+    "identityLocales": {
+      "de": {
+        "reason": "KB is the kilobyte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} KB"
+        ]
+      },
+      "es": {
+        "reason": "KB is the kilobyte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} KB"
+        ]
+      },
+      "zh-Hant": {
+        "reason": "KB is the kilobyte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} KB"
+        ]
+      },
+      "zh-Hans": {
+        "reason": "KB is the kilobyte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} KB"
+        ]
+      },
+      "ja": {
+        "reason": "KB is the kilobyte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} KB"
+        ]
+      },
+      "bs": {
+        "reason": "KB is the kilobyte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} KB"
+        ]
+      },
+      "da": {
+        "reason": "KB is the kilobyte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} KB"
+        ]
+      },
+      "it": {
+        "reason": "KB is the kilobyte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} KB"
+        ]
+      },
+      "km": {
+        "reason": "KB is the kilobyte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} KB"
+        ]
+      },
+      "nb": {
+        "reason": "KB is the kilobyte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} KB"
+        ]
+      },
+      "pl": {
+        "reason": "KB is the kilobyte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} KB"
+        ]
+      },
+      "pt-BR": {
+        "reason": "KB is the kilobyte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} KB"
+        ]
+      },
+      "th": {
+        "reason": "KB is the kilobyte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} KB"
+        ]
+      },
+      "tr": {
+        "reason": "KB is the kilobyte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} KB"
+        ]
+      },
+      "vi": {
+        "reason": "KB is the kilobyte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} KB"
+        ]
+      }
+    }
+  },
+  "inspector.latencyValue": {
+    "source": "p50 {p50} ms · max {max} ms",
+    "identityLocales": {
+      "fr": {
+        "reason": "p50, max, ms, and the numeric placeholders are standard latency notation in this locale.",
+        "values": [
+          "p50 {p50} ms · max {max} ms"
+        ]
+      },
+      "it": {
+        "reason": "p50, max, ms, and the numeric placeholders are standard latency notation in this locale.",
+        "values": [
+          "p50 {p50} ms · max {max} ms"
+        ]
+      }
+    }
+  },
+  "inspector.milliseconds": {
+    "source": "{value} ms",
+    "identityLocales": {
+      "de": {
+        "reason": "ms is the standard millisecond unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} ms"
+        ]
+      },
+      "fr": {
+        "reason": "ms is the standard millisecond unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} ms"
+        ]
+      },
+      "es": {
+        "reason": "ms is the standard millisecond unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} ms"
+        ]
+      },
+      "ja": {
+        "reason": "ms is the standard millisecond unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} ms"
+        ]
+      },
+      "bs": {
+        "reason": "ms is the standard millisecond unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} ms"
+        ]
+      },
+      "da": {
+        "reason": "ms is the standard millisecond unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} ms"
+        ]
+      },
+      "it": {
+        "reason": "ms is the standard millisecond unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} ms"
+        ]
+      },
+      "km": {
+        "reason": "ms is the standard millisecond unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} ms"
+        ]
+      },
+      "nb": {
+        "reason": "ms is the standard millisecond unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} ms"
+        ]
+      },
+      "pl": {
+        "reason": "ms is the standard millisecond unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} ms"
+        ]
+      },
+      "pt-BR": {
+        "reason": "ms is the standard millisecond unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} ms"
+        ]
+      },
+      "th": {
+        "reason": "ms is the standard millisecond unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} ms"
+        ]
+      },
+      "tr": {
+        "reason": "ms is the standard millisecond unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} ms"
+        ]
+      },
+      "vi": {
+        "reason": "ms is the standard millisecond unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} ms"
+        ]
+      }
+    }
+  },
+  "inspector.session": {
+    "source": "Session",
+    "identityLocales": {
+      "fr": {
+        "reason": "Session is the standard word in this locale.",
+        "values": [
+          "Session"
+        ]
+      },
+      "da": {
+        "reason": "Session is the standard word in this locale.",
+        "values": [
+          "Session"
+        ]
+      }
+    }
   }
 }

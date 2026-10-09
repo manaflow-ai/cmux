@@ -243,6 +243,11 @@ export class SettingsStore {
     else await this.refresh();
   }
 
+  /** Writes `text` to the pasteboard (a row's Copy Setting Key) through the host. */
+  async copy(text: string): Promise<void> {
+    await this.request("cmux.app.clipboard.write", { text });
+  }
+
   revealSettingsFile(): void {
     void this.request("cmux.settings.file.reveal", {});
   }

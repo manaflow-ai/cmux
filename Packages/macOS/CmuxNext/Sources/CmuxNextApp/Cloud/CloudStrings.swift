@@ -14,12 +14,13 @@ enum CloudStrings {
     static func compatibility(_ compat: DaemonCompatibility) -> String {
         switch compat.level {
         case .current: return ""
+        // The missing capability ids stay in the Cloud diagnostics JSON
+        // (`missing_features`); the text never shows them.
         case .limited:
-            return String(format: String(localized: "cloud.compat.limited", defaultValue: "This machine runs cmux-tui %1$@. Update it to turn on: %2$@.", table: "Cloud", bundle: .module),
-                          compat.versionLabel, compat.missingOptional.joined(separator: ", "))
+            return String(format: String(localized: "cloud.compat.limitedUpdate", defaultValue: "This machine runs cmux-tui %@. Update it to turn on every feature of this app.", table: "Cloud", bundle: .module),
+                          compat.versionLabel)
         case .incompatible:
-            return String(format: String(localized: "cloud.compat.incompatible", defaultValue: "This machine runs a cmux-tui this app cannot use (%@). Update the machine to connect.", table: "Cloud", bundle: .module),
-                          compat.missingRequired.joined(separator: ", "))
+            return String(localized: "cloud.compat.incompatibleUpdate", defaultValue: "This machine runs a cmux-tui this app cannot use. Update the machine to connect.", table: "Cloud", bundle: .module)
         }
     }
     /// A Cloud machine's link ended; v1 does not reconnect by itself.

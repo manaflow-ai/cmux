@@ -172,6 +172,27 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .keyboard, .contextMenu], targets: section, cliName: "sidebar remove-section",
                 destructive: true, surfacePlan: plan(menus: [p(.sidebarSection, .close, 100)])
             ),
+            // Leo (2026-10-06): Projects and Chats hide from their headers'
+            // menus and come back from the sidebar's menu or Settings
+            // (`sidebar.showProjects`, `sidebar.showChats`; scripts set those).
+            ActionDescriptor(
+                id: "sidebar.section.hide", title: t("action.sidebar.section.hide", "Hide Section"),
+                keywords: ["sidebar", "section", "hide", "recents"], category: .sidebar, symbol: "eye.slash",
+                surfaces: [.palette, .keyboard, .contextMenu], targets: section,
+                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarSection, .view, 100)])
+            ),
+            ActionDescriptor(
+                id: "sidebar.projects.hide", title: t("action.sidebar.projects.hide", "Hide Projects"),
+                keywords: ["sidebar", "section", "hide", "projects", "workspaces"], category: .sidebar, symbol: "eye.slash",
+                surfaces: [.palette, .keyboard, .contextMenu],
+                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 100)])
+            ),
+            ActionDescriptor(
+                id: "sidebar.sections.showHidden", title: t("action.sidebar.sections.showHidden", "Show Hidden Sections"),
+                keywords: ["sidebar", "section", "show", "unhide", "projects", "recents"], category: .sidebar, symbol: "eye",
+                surfaces: [.palette, .keyboard, .contextMenu],
+                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 110)])
+            ),
             ActionDescriptor(
                 id: "sidebar.layout.reset", title: t("action.sidebar.layout.reset", "Reset Sidebar Layout"),
                 keywords: ["sidebar", "section", "reset", "default", "layout"], category: .sidebar, symbol: "arrow.counterclockwise",

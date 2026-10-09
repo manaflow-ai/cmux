@@ -207,7 +207,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         if Self.rendersWhenCovered(ProcessInfo.processInfo.environment) { keepRenderingWhenCovered() }
         #endif
         PagePaintProbe.install(in: webView.configuration.userContentController) { [weak self] in
-            self?.paintedUptime = ProcessInfo.processInfo.systemUptime
+            guard let self else { return }
+            paintedUptime = ProcessInfo.processInfo.systemUptime
+            let waiters = paintWaiters
+            paintWaiters = []
+            waiters.forEach { $0() }
         }
         bridge.install { [weak self] message in
             await self?.receive(message)
@@ -301,8 +305,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     /// When the current document painted its first frame (``PagePaintProbe``), in
     /// `ProcessInfo.systemUptime` seconds; nil until it has.
-    public private(set) var paintedUptime: TimeInterval?
+    public internal(set) var paintedUptime: TimeInterval?
     public var hasPainted: Bool { paintedUptime != nil }
+    /// Callbacks for the current document's first frame (`whenPainted`).
+    var paintWaiters: [() -> Void] = []
 
     private func receive(_ message: PageHostMessage) async -> Any? {
         guard PageHostTrust.isTrusted(message, page: descriptor) else {
@@ -371,7 +377,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         }
     }
 
-    public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+    public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation?) {
         // A new document: the old one's subscriptions and host calls end with it, and it has not
         // painted yet.
         router.reset()
@@ -382,7 +388,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         router.send = { envelope in bridge.evaluate(PageRouter.receiveScript(envelope)) }
     }
 
-    public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+    public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
         loaded = true
         applyUIScale()
         applyTheme(force: true)

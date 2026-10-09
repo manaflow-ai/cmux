@@ -6,6 +6,7 @@ import { readChangeSet } from "./changes/model";
 import { GROUP_ROWS, sessionMark, sidebarSections } from "./sessionList";
 import { workedTurn } from "./mockFixture";
 import { turnView } from "./conversation/turns";
+import { renderCall } from "./conversation/renderCall";
 
 describe("mock transport", () => {
   const connectMock = async (
@@ -190,6 +191,19 @@ describe("mock transport", () => {
       "assistant",
       "activity",
     ]);
+    client.close();
+  });
+
+  test("a seeded render call draws as a render card above the reply", async () => {
+    const snapshots: AcpmuxSnapshot[] = [];
+    const client = await connectMock(snapshots);
+    await client.select("mock-typing-latency");
+    await until(() => snapshots.at(-1)?.sessionId === "mock-typing-latency" && snapshots.at(-1)!.rows.length > 0);
+    const view = turnView(snapshots.at(-1)!.rows, new Set());
+    const kinds = view.map((row) => row.kind);
+    expect(kinds.indexOf("render")).toBe(kinds.indexOf("assistant") - 1);
+    const tool = view.find((row) => row.kind === "render")!.items![0]!.tool!;
+    expect(renderCall(tool)?.title).toBe("Keystroke to paint, median ms");
     client.close();
   });
 

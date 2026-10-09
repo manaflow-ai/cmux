@@ -383,10 +383,9 @@ actor MobileCoreRPCSession {
 
     func addEventListener(topics: Set<String>) -> EventSubscription {
         let id = UUID()
-        var continuation: AsyncStream<MobileEventEnvelope>.Continuation!
-        let stream = AsyncStream<MobileEventEnvelope>(bufferingPolicy: .bufferingNewest(256)) { cont in
-            continuation = cont
-        }
+        let (stream, continuation) = AsyncStream<MobileEventEnvelope>.makeStream(
+            bufferingPolicy: .bufferingNewest(256)
+        )
         listeners[id] = EventListener(topics: topics, continuation: continuation)
         continuation.onTermination = { @Sendable [weak self] _ in
             guard let self else { return }

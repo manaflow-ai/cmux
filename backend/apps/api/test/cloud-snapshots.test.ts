@@ -58,7 +58,7 @@ describe("snapshots", { timeout: 60_000 }, () => {
     const x = person()
     await ensureUser(x)
     const { machine } = await createdAndBound(x)
-    expect(reply(await x.stub.submit(x.team, installOf(x.p), frame("cloud.snapshot.create", { machine })))).toMatchObject({ t: "reject", code: "auth.forbidden" })
+    expect(reply(await x.stub.submit(x.team, installOf(x.p), frame("cloud.snapshot.create", { machine })))).toMatchObject({ t: "reject", code: "approval.pending" })
     expect(reply(await x.stub.submit(x.team, x.p, frame("cloud.snapshot.restore", { snapshot: "snap_00000000000000000009" })))).toMatchObject({ t: "reject", code: "cloud.snapshot.not_found" })
     expect(reply(await x.stub.submit(x.team, x.p, frame("cloud.snapshot.delete", { snapshot: "snap_00000000000000000009" })))).toMatchObject({ t: "reject", code: "cloud.snapshot.not_found" })
     for (let i = 0; i < 10; i++) expect(reply(await x.stub.submit(x.team, x.p, frame("cloud.snapshot.create", { machine }))).t).toBe("result")

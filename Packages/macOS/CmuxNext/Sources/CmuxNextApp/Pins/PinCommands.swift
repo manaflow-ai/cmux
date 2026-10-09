@@ -46,7 +46,7 @@ struct PinCommands {
     /// Cmd-Z, and an entry on the window would keep the toast from the key.)
     func registerUndo(title: String, _ inverse: @escaping @MainActor (PinCommands) -> Void) {
         let windows = context.services.windows
-        guard let window = windows?.active?.window ?? NSApp.keyWindow ?? NSApp.mainWindow ?? windows?.controllers.last?.window else { return }
+        guard let window = windows.active?.window ?? NSApp.keyWindow ?? NSApp.mainWindow ?? windows.controllers.last?.window else { return }
         let handle = CmuxToastCenter.shared.show(CmuxToast(id: Self.undoToastID, message: PinStrings.done(title), action: .undo()), in: window)
         handle.onAction = { inverse(self) }
     }

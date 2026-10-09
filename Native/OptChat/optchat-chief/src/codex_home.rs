@@ -19,6 +19,14 @@ pub fn codex_cache_key(home: &Path, role: &str) -> String {
     format!("optchat-{}-{role}", home_id(home))
 }
 
+/// The private, empty HOME every codex compactor slot runs with (under
+/// `base`): codex finds user skills under `$HOME/.agents/skills` whatever
+/// CODEX_HOME and the slot config say (codex ext/skills host_roots.rs), and
+/// a session that offers skills fails the isolation check.
+pub fn codex_private_home(base: &Path) -> PathBuf {
+    base.join("home")
+}
+
 /// Compactor slot `k`'s own `CODEX_HOME` under `base`.
 pub fn codex_slot_home(base: &Path, k: usize) -> PathBuf {
     base.join(format!("slot-{k}"))
@@ -111,9 +119,13 @@ pub fn prepare_codex_homes(paths: &Paths, user_home: &Path) -> Result<(), String
     let config = codex_compactor_config(user.as_deref())?;
     private_dir(&paths.compactor_codex)
         .map_err(|e| format!("creating {}: {e}", paths.compactor_codex.display()))?;
+    let private_home = codex_private_home(&paths.compactor_codex);
+    private_dir(&private_home)
+        .and_then(|()| wipe_codex_home(&private_home))
+        .map_err(|e| format!("preparing {}: {e}", private_home.display()))?;
     let id = chief_installation_id(&paths.compactor_codex)
         .map_err(|e| format!("the compactor's codex installation id: {e}"))?;
-    for k in 0..optchat_core::JOBS {
+    for k in 0..crate::compactor::COMPACTOR_SESSIONS {
         let dir = codex_slot_home(&paths.compactor_codex, k);
         let made = private_dir(&dir)
             .and_then(|()| wipe_codex_home(&dir))

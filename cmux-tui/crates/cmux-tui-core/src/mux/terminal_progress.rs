@@ -41,7 +41,7 @@ impl Mux {
             "kind": "upsert", "sequence": 0, "resource": "terminal", "id": id, "value": value,
         }]);
         let commit = registry.commit_resource_patch(
-            &WorkspaceMutation::local(mutation),
+            &WorkspaceMutation::daemon_local(mutation),
             mutation,
             &value,
             None,

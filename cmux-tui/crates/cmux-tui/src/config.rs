@@ -5995,11 +5995,11 @@ fn overlay_ghostty_defaults(defaults: &mut DefaultColors, overrides: DefaultColo
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     #[cfg(unix)]
     use crate::test_exec::write_executable;
     use ratatui::buffer::CellWidth;
     use std::cell::{Cell, RefCell};
+    use {super::*, crate::local_actor::TuiMuxOps};
 
     #[test]
     fn config_diagnostics_do_not_echo_parser_details() {

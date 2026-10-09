@@ -13,11 +13,12 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// The machine daemon that owns `workspace`; every command goes there.
     let daemon: DaemonService
     let layoutModel = LayoutModel()
-    private(set) var layoutView: LayoutRootView!
+    // Built in init in this order (lazy because they hold self; no IUOs).
+    private(set) lazy var layoutView = LayoutRootView(model: layoutModel, contentProvider: self)
     /// Layout plus the bottom screen bar; what the window shows.
-    private(set) var contentView: WorkspaceContentView!
+    private(set) lazy var contentView = WorkspaceContentView(layoutView: layoutView, bar: screenBar.view)
     private(set) var emptyView: EmptyWorkspaceView?
-    private(set) var screenBar: ScreenBarController!
+    private(set) lazy var screenBar = ScreenBarController(content: self)
     /// The workspace theme: only this content area, under the window's
     /// room theme.
     let themeScope = ThemeScope(level: .workspace)
@@ -61,9 +62,9 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         self.state = state
         focus = state.focus
         layoutModel.intentHandler = { [weak self] intent in self?.handle(intent) }
-        layoutView = LayoutRootView(model: layoutModel, contentProvider: self)
-        screenBar = ScreenBarController(content: self)
-        contentView = WorkspaceContentView(layoutView: layoutView, bar: screenBar.view)
+        _ = layoutView  // built here, then the bar and the content view, as before
+        _ = screenBar
+        _ = contentView
         let fallbackCreate = emptyWorkspaceRepair.create
         emptyWorkspaceRepair.createFirst = { [weak services, weak daemon] key in
             guard let services, let daemon, let workspace = daemon.store.workspaces.first(where: { $0.key == key }) else { throw DaemonError.notConnected }
@@ -219,6 +220,11 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         if panes.count == 1, services.settingsWindow.isWaiting {
             let settings = services.settingsWindow
             Task { settings.windowDidShowContent() }
+        }
+        // So does the App Store (S22: never a window of its own).
+        if panes.count == 1, services.apps.isStoreWaiting {
+            let apps = services.apps
+            Task { apps.windowDidShowContent() }
         }
         return controller.view
     }

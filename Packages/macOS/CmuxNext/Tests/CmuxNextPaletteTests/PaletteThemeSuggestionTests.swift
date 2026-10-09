@@ -5,7 +5,7 @@ import Testing
 
 /// A suggested free-text argument (Set Theme) lists its pinned values, a row
 /// for other text, then every known value, and typing searches them.
-@MainActor @Suite struct PaletteThemeSuggestionTests {
+@MainActor @Suite(.paletteRanker) struct PaletteThemeSuggestionTests {
     @Test func themePageListsEveryGhosttyThemeAndTakesOtherText() async throws {
         let registry = ActionRegistry.standard()
         var ran: [ActionInvocation] = []

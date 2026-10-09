@@ -7,6 +7,7 @@
 //! held, so tree serialization never reads SQLite.
 
 use super::*;
+use crate::Actor;
 use crate::resource::BrowserPublicId;
 use crate::workspace_registry::{
     FrontendBrowserRecord, PresentationSnapshot, WorkspaceGroupRecord, WorkspacePresentationUpdate,
@@ -33,6 +34,9 @@ pub struct TreeDecorations {
     /// Typed ends of ended terminals without a runtime surface, keyed by
     /// public terminal id (tab JSON `end`).
     pub terminal_ends: HashMap<String, Value>,
+    /// Cause text of each terminal's last host loss, keyed by public
+    /// terminal id (tab JSON `end.cause` for a `host_lost` end).
+    pub terminal_loss_causes: HashMap<String, Value>,
 }
 
 /// Why a terminal has no runtime surface while its host may still run its
@@ -141,6 +145,19 @@ impl TreeDecorations {
     pub fn from_notifications(notifications: HashMap<SurfaceId, SurfaceNotification>) -> Self {
         Self { notifications, ..Self::default() }
     }
+
+    /// A tab's `end` with the recorded cause of a host loss (`cause`, cx-0tgl
+    /// LA): the first recorded signal and its sender, and whether the host had
+    /// panicked. Other ends are unchanged.
+    pub(crate) fn with_loss_cause(&self, terminal: Option<&str>, mut end: Value) -> Value {
+        let cause = terminal.and_then(|id| self.terminal_loss_causes.get(id));
+        if let (Some(cause), Some(fields)) = (cause, end.as_object_mut())
+            && fields.get("kind").and_then(Value::as_str) == Some("host_lost")
+        {
+            fields.insert("cause".to_string(), cause.clone());
+        }
+        end
+    }
 }
 
 /// Result of `set-tab-pinned`: whether the flag changed and the tab's final
@@ -241,6 +258,7 @@ impl Mux {
             directories,
             pending_terminals,
             terminal_ends,
+            terminal_loss_causes: self.terminal_loss_causes_snapshot(),
         }
     }
 
@@ -259,6 +277,7 @@ impl Mux {
             directories,
             pending_terminals,
             terminal_ends,
+            terminal_loss_causes: self.terminal_loss_causes_snapshot(),
         }
     }
 
@@ -360,8 +379,9 @@ impl Mux {
     /// it to the start of the unpinned run. The flag is durable and keyed by
     /// the public tab id, so it survives restarts and cross-pane moves. The
     /// raw command and v2 `tab.pin` share one commit path.
-    pub fn set_tab_pinned(
+    pub fn set_tab_pinned_as(
         self: &Arc<Self>,
+        actor: &Actor,
         surface: SurfaceId,
         pinned: bool,
     ) -> anyhow::Result<TabPinChange> {
@@ -374,7 +394,7 @@ impl Mux {
             ..Self::ordinary_resource_selectors()
         };
         self.state_pin_tab(
-            StripRequest::local(if pinned { "tab.pin" } else { "tab.unpin" }),
+            StripRequest::local(actor, if pinned { "tab.pin" } else { "tab.unpin" }),
             selectors,
             pinned,
         )?;
@@ -801,20 +821,28 @@ impl Mux {
     /// registered durably before the tab commits, under the browser id the
     /// creation then uses, so neither a live daemon nor a restarted one ever
     /// bootstraps a CDP target for it. A failed creation removes the record.
-    pub fn new_frontend_browser_tab(
+    pub fn new_frontend_browser_tab_as(
         self: &Arc<Self>,
+        actor: &Actor,
         pane: Option<PaneId>,
         record: FrontendBrowserRecord,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
-        self.new_frontend_browser_tab_placed(pane, record, size, FrontendTabPlacement::default())
+        self.new_frontend_browser_tab_placed_as(
+            actor,
+            pane,
+            record,
+            size,
+            FrontendTabPlacement::default(),
+        )
     }
 
-    /// [`Mux::new_frontend_browser_tab`] with a [`FrontendTabPlacement`]: a
+    /// [`Mux::new_frontend_browser_tab_as`] with a [`FrontendTabPlacement`]: a
     /// background tab (`frontend-browser-activate-v1`) and a slot right
     /// after another tab of the pane (`frontend-browser-insert-after-v1`).
-    pub(crate) fn new_frontend_browser_tab_placed(
+    pub(crate) fn new_frontend_browser_tab_placed_as(
         self: &Arc<Self>,
+        actor: &Actor,
         pane: Option<PaneId>,
         record: FrontendBrowserRecord,
         size: Option<(u16, u16)>,
@@ -828,7 +856,7 @@ impl Mux {
             self.reload_presentation(&registry)?;
         }
         let fields = frontend_browser_fields(&browser_id, placement);
-        match self.new_browser_tab_with_fields(record.url.clone(), pane, size, fields) {
+        match self.new_browser_tab_with_fields_as(actor, record.url.clone(), pane, size, fields) {
             Ok(surface) => {
                 if let Some(runtime) = surface.as_browser()
                     && runtime.set_frontend_location(None, record.title)

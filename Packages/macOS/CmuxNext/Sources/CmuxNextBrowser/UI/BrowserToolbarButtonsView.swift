@@ -85,7 +85,7 @@ public final class BrowserToolbarButtonsView: NSStackView {
     public func present(_ menu: NSMenu, from button: BrowserToolbarButton) {
         refresh()
         CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) { [weak self] in
-            MainActor.assumeIsolated {
+            MainActor.assumeIsolated { // main-proof: a CFRunLoopGetMain() block runs on the main thread
                 guard let self, let anchor = self.anchor(for: button) else { return }
                 menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: anchor, gap: 4), in: anchor)
             }

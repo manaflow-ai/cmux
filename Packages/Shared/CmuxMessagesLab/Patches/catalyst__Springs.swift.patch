@@ -10,3 +10,21 @@
                let data = try? Data(contentsOf: url),
                let obj = try? JSONSerialization.jsonObject(with: data) as? [String: [String: Any]] else { return [:] }
          var out: [String: SpringElement] = [:]
+@@ -149,7 +150,7 @@
+                                                spring: Spring(duration: duration, bounce: c["bounce"] as? Double ?? 0,
+                                                               initialVelocity: c["initialVelocity"] as? Double ?? 0),
+                                                delta: c["delta"] as? Double ?? 0,
+-                                               curve: cp?.count == 4 ? Curve(x1: cp![0], y1: cp![1], x2: cp![2], y2: cp![3], duration: duration) : nil)
++                                               curve: cp.flatMap { $0.count == 4 ? Curve(x1: $0[0], y1: $0[1], x2: $0[2], y2: $0[3], duration: duration) : nil }) // cmux: no force unwrap
+             }
+             out[name] = SpringElement(name: name, from: e["from"] as? Double ?? 0, to: e["to"] as? Double ?? 0, components: comps)
+         }
+@@ -486,7 +487,7 @@
+                 tau = 0
+             }
+             let total = k.duration * Double(max(1, k.repeatCount))
+-            if k.repeatCount < .infinity, tau >= total { return k.isRemovedOnCompletion ? nil : (kp, values.last!.doubleValue) }
++            if k.repeatCount < .infinity, tau >= total { return k.isRemovedOnCompletion ? nil : values.last.map { (kp, $0.doubleValue) } } // cmux: no force unwrap
+             // Wrap only repeating animations (a one-shot at exactly its end
+             // must not wrap to its first value).
+             if k.repeatCount > 1 { tau = tau.truncatingRemainder(dividingBy: k.duration) }

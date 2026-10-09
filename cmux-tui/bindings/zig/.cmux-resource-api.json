@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "0c2bfc3b760b05875aca019d0040fe74961f164990de6a22b4cafc4b1096461c",
+  "catalog_sha256": "ce8c70cddb931283b720842e39a4d74ad39155e186a2811613af9484dbfd7baf",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -52,6 +52,15 @@
     "browser.viewer.resize": {
       "class": "connection_control"
     },
+    "chief.engine.get": {
+      "class": "read"
+    },
+    "chief.engine.set": {
+      "class": "mutation"
+    },
+    "chief.stop": {
+      "class": "mutation"
+    },
     "client.cell_pixels.set": {
       "class": "connection_control"
     },
@@ -80,6 +89,30 @@
       "class": "mutation"
     },
     "column.update": {
+      "class": "mutation"
+    },
+    "conversation.draft": {
+      "class": "mutation"
+    },
+    "conversation.events": {
+      "class": "stream_open"
+    },
+    "conversation.get": {
+      "class": "read"
+    },
+    "conversation.history": {
+      "class": "read"
+    },
+    "conversation.list": {
+      "class": "read"
+    },
+    "conversation.search": {
+      "class": "read"
+    },
+    "conversation.send": {
+      "class": "mutation"
+    },
+    "conversation.typing": {
       "class": "mutation"
     },
     "frontend_projection.get": {

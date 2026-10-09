@@ -44,6 +44,14 @@ import Testing
         #expect(throws: CookieImportError.undecryptable) { try ChromiumCookieReader().read(file, crypto: crypto) }
     }
 
+    /// An empty Safe Storage password must refuse values, never trap the import.
+    @Test func emptySafeStoragePasswordRefusesValues() throws {
+        let cipher = try ChromiumCookieCrypto(safeStoragePassword: Data("peanuts".utf8))
+            .encrypt("hello-cookie", hostKey: "a.example", databaseVersion: 24)
+        let crypto = ChromiumCookieCrypto(safeStoragePassword: Data())
+        #expect(throws: (any Error).self) { try crypto.decrypt(cipher, hostKey: "a.example", databaseVersion: 24) }
+    }
+
     @Test func unknownPrefixesAreRefused() throws {
         let crypto = ChromiumCookieCrypto(safeStoragePassword: Data("k".utf8))
         for prefix in ["v11", "v20"] {

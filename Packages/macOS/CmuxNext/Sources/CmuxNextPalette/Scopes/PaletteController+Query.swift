@@ -43,8 +43,8 @@ extension PaletteController {
             // Reuse the model's bridge and index cache. The versioned install
             // keeps this headless query from rebuilding the JavaScript context.
             let searcher = model.searcher
-            await searcher.install(entries: state.entries, version: state.version)
-            ranked = await searcher.search(query: text, generation: 0, sectionOrders: state.sectionOrders, frecency: model.frecency,
+            ranked = await searcher.search(entries: state.entries, version: state.version,
+                                           query: text, generation: 0, sectionOrders: state.sectionOrders, frecency: model.frecency,
                                            now: model.now(), showsRecent: page.showsRecent,
                                            keepsSectionOrder: page.keepsSectionOrder).sections
         }

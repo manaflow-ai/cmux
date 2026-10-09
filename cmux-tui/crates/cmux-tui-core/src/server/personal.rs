@@ -62,10 +62,16 @@ pub(super) fn move_profile(mux: &Mux, id: &str, index: usize) -> anyhow::Result<
 /// closes its workspaces as one reopenable group (`closed_id`,
 /// SPACE-DELETE-CLOSES-ITS-WORKSPACES); with `move_to` its pins and groups
 /// move there.
-pub(super) fn delete_profile(mux: &Mux, id: &str, move_to: Option<&str>) -> anyhow::Result<Value> {
+pub(super) fn delete_profile(
+    mux: &Mux,
+    client: u64,
+    id: &str,
+    move_to: Option<&str>,
+) -> anyhow::Result<Value> {
     if move_to.is_none() {
         let closed_id = crate::state::closed_history_store::new_closed_id();
-        let mutation = crate::WorkspaceMutation::local("delete-profile");
+        let actor = super::origin_gate::connection_actor(mux, client);
+        let mutation = crate::WorkspaceMutation::local("delete-profile", actor);
         let fingerprint = json!({"operation": "delete-profile", "profile": id});
         let deleted =
             mux.state_room_delete(&mutation, "room.delete", &fingerprint, None, id, &closed_id)?;
@@ -206,9 +212,12 @@ pub(super) fn update_group(
 
 /// The same delete as `workspace_group.delete` (one closed-history record,
 /// so Reopen Closed forms the group again); the raw result shape stays.
-pub(super) fn delete_group(mux: &Mux, id: &str) -> anyhow::Result<Value> {
+pub(super) fn delete_group(mux: &Mux, client: u64, id: &str) -> anyhow::Result<Value> {
     let commit = mux.state_personal(
-        &crate::WorkspaceMutation::local("delete-personal-group"),
+        &crate::WorkspaceMutation::local(
+            "delete-personal-group",
+            super::origin_gate::connection_actor(mux, client),
+        ),
         "workspace_group.delete",
         None,
         &Mux::ordinary_resource_selectors(),

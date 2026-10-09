@@ -125,6 +125,19 @@ import Testing
         #expect(h.coordinator.machine.activeTarget?.id == HoverTargetID("tab:1"))
     }
 
+    @Test func sidebarHideCannotRearmOnAStillPointerTargetChange() {
+        let h = Harness()
+        h.topWindow = h.a.window.windowNumber
+        h.pointer = CGPoint(x: 10, y: 10)
+        h.coordinator.pointerMoved()
+        h.coordinator.suppress(.sidebarHide)
+        h.a.targets = [HoverTargetID("tab:2"): CGRect(x: 0, y: 0, width: 100, height: 20)]
+        h.coordinator.geometryChanged(in: h.a.window)
+        #expect(h.coordinator.machine.phase == .idle)
+        #expect(h.coordinator.machine.activeTarget == nil)
+        h.coordinator.unsuppress(.sidebarHide)
+    }
+
     @Test func noCardWindowExistsUntilACardShows() {
         let h = Harness()
         h.topWindow = h.a.window.windowNumber

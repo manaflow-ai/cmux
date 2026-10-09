@@ -123,9 +123,13 @@ describe("fork support", () => {
 
 describe("turn footer fork", () => {
   const summary: AcpmuxRow = { id: "s", version: 1, at: 0, kind: "turnSummary", seq: 42, text: "Done.", folded: true };
-  const html = (fork?: (seq: number) => void, row = summary) =>
+  const html = (fork?: (seq: number) => void, row = summary, forkSeq = 42) =>
     renderToStaticMarkup(
-      createElement(TurnActionsContext.Provider, { value: fork ? { fork } : {} }, createElement(TurnFooter, { row })),
+      createElement(
+        TurnActionsContext.Provider,
+        { value: fork ? { fork, forkSeq } : {} },
+        createElement(TurnFooter, { row }),
+      ),
     );
 
   test("the footer offers fork only when acpmux serves forks", () => {
@@ -133,5 +137,10 @@ describe("turn footer fork", () => {
     expect(html()).not.toContain("Fork from here");
     // A summary without its event (a row the client did not number) has nothing to fork through.
     expect(html(() => {}, { ...summary, seq: undefined })).not.toContain("Fork from here");
+  });
+
+  test("only the latest completed turn's footer offers fork", () => {
+    expect(html(() => {}, summary, 57)).not.toContain("Fork from here");
+    expect(html(() => {}, { ...summary, seq: 57 }, 57)).toContain('aria-label="Fork from here"');
   });
 });

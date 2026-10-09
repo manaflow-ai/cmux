@@ -20,6 +20,12 @@ struct IconPickerHostTests {
         #expect(!IconPickerSession(id: "s", current: "not an icon").canClear)
     }
 
+    /// Copy in the picker's Actions menu writes the pasteboard; the page runs no app action.
+    @Test func thePickerPageMayWriteTheClipboardAndNothingElseOfTheApp() {
+        #expect(PageDescriptor.iconPicker.admits(PageNativeOp.clipboardWrite))
+        #expect(!PageDescriptor.iconPicker.admits(PageNativeOp.actionRun))
+    }
+
     @Test func finishAppliesOnlyToItsSessionAndOnlyValidIcons() {
         let ok: JSONValue = .object(["session": .string("s1"), "value": .string("🎉")])
         #expect(IconPickerResult.decode(ok, session: "s1") == .set("🎉"))

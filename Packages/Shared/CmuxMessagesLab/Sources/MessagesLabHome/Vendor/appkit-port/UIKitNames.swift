@@ -70,7 +70,7 @@ enum DisplayScale {
     /// (Core Animation then uploads them without a per-commit color
     /// conversion on the main thread, which cost 5-9 ms per fling frame),
     /// sRGB in captures and the harness (as Catalyst's renderer).
-    static var colorSpace: CGColorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
+    static var colorSpace: CGColorSpace = LabColorSpace.sRGB // cmux: no force unwrap
 }
 
 // MARK: Drawing context (UIGraphics)
@@ -209,7 +209,7 @@ final class UIImage {
     func preparingForDisplay() -> UIImage? {
         guard let cg = cgImage else { return self }
         guard let ctx = CGContext(data: nil, width: cg.width, height: cg.height, bitsPerComponent: 8, bytesPerRow: 0,
-                                  space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                  space: LabColorSpace.sRGB, // cmux: no force unwrap
                                   bitmapInfo: CGBitmapInfo.byteOrder32Little.rawValue | CGImageAlphaInfo.premultipliedFirst.rawValue) else { return self }
         ctx.draw(cg, in: CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
         return UIImage(cgImage: ctx.makeImage(), scale: scale)

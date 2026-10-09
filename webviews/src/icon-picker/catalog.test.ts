@@ -1,6 +1,6 @@
 // The system SF Symbol catalog in the picker (ICON-PICKER-ALL-EMOJI-AND-SF-SYMBOLS, S3): the host
 // sends the names in the system's order, each name's search keywords and the system categories;
-// the Symbols tab shows one section per category and finds symbols by keyword.
+// the SF Symbols category shows one section per system category and finds symbols by keyword.
 import { describe, expect, test } from "bun:test";
 import { decodeEmojiTable, type RawEmojiTable } from "./emojiData";
 import raw from "./generated/emoji-data.json";
@@ -24,7 +24,7 @@ const CATALOG: SymbolCatalog = {
 function store(catalog: SymbolCatalog | readonly string[] = CATALOG) {
   const picker = new PickerStore({ emoji, titles: (id) => `T(${id})` });
   picker.configure(catalog);
-  picker.setTab("symbol");
+  picker.setCategory("sfSymbols");
   return picker;
 }
 

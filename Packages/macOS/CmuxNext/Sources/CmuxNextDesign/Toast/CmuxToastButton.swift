@@ -39,6 +39,8 @@ public final class CmuxToastButton: NSButton {
         setContentHuggingPriority(.required, for: .horizontal)
         setContentCompressionResistancePriority(.required, for: .horizontal)
         hover.refresh(animated: false)
+        // Hover follows the pointer and the toast's slot (cx-3wu5).
+        hover.followPointer(onChange: { [weak self] in self?.applyStyle() })
         applyStyle()
     }
 
@@ -78,21 +80,6 @@ public final class CmuxToastButton: NSButton {
     public override func layout() {
         super.layout()
         hover.layout()
-    }
-
-    public override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        hover.updateTrackingAreas()
-    }
-
-    public override func mouseEntered(with event: NSEvent) {
-        changeHover { $0.hovering = true }
-        super.mouseEntered(with: event)
-    }
-
-    public override func mouseExited(with event: NSEvent) {
-        changeHover { $0.hovering = false }
-        super.mouseExited(with: event)
     }
 
     public override func mouseDown(with event: NSEvent) {

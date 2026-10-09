@@ -124,35 +124,43 @@ public struct TerminalSizingEngine: Sendable {
         }
     }
 
+    /// A counting entry with its viewport unwrapped: `counts(_:)` refuses an
+    /// entry without one, and the pair makes the type hold that.
+    private struct Sized {
+        var entry: Entry
+        var viewport: TerminalGridSize
+    }
+
     private func decide(_ counting: [Entry]) -> (TerminalGridSize, [String], TerminalSizingReason) {
         if policy.mode == .fixed, let fixed = policy.fixed {
             return (fixed, [], .fixed)
         }
-        guard !counting.isEmpty else { return (held, [], .held) }
-        func newest(_ list: [Entry]) -> Entry {
-            list.max { $0.activity < $1.activity }!
+        let sized = counting.compactMap { entry in
+            entry.participant.viewport.map { Sized(entry: entry, viewport: $0) }
         }
+        func newest(_ list: [Sized]) -> Sized? {
+            list.max { $0.entry.activity < $1.entry.activity }
+        }
+        guard let latest = newest(sized) else { return (held, [], .held) }
         switch policy.mode {
         case .latest, .fixed:
-            let owner = newest(counting)
-            return (owner.participant.viewport!, [owner.participant.id], .latest)
+            return (latest.viewport, [latest.entry.participant.id], .latest)
         case .priority:
             for key in policy.priority {
-                let matches = counting.filter { $0.participant.matchesPriorityKey(key) }
-                if !matches.isEmpty {
-                    let owner = newest(matches)
-                    return (owner.participant.viewport!, [owner.participant.id], .priority)
+                let matches = sized.filter { $0.entry.participant.matchesPriorityKey(key) }
+                if let owner = newest(matches) {
+                    return (owner.viewport, [owner.entry.participant.id], .priority)
                 }
             }
-            let owner = newest(counting)
-            return (owner.participant.viewport!, [owner.participant.id], .priorityFallback)
+            return (latest.viewport, [latest.entry.participant.id], .priorityFallback)
         case .smallest, .largest:
-            let pick: ([Int]) -> Int = policy.mode == .smallest ? { $0.min()! } : { $0.max()! }
-            let cols = pick(counting.map { $0.participant.viewport!.cols })
-            let rows = pick(counting.map { $0.participant.viewport!.rows })
-            let owners = counting
-                .filter { $0.participant.viewport!.cols == cols || $0.participant.viewport!.rows == rows }
-                .map(\.participant.id)
+            let pick: ([Int]) -> Int? = policy.mode == .smallest ? { $0.min() } : { $0.max() }
+            guard let cols = pick(sized.map(\.viewport.cols)), let rows = pick(sized.map(\.viewport.rows)) else {
+                return (held, [], .held)
+            }
+            let owners = sized
+                .filter { $0.viewport.cols == cols || $0.viewport.rows == rows }
+                .map(\.entry.participant.id)
             return (TerminalGridSize(cols: cols, rows: rows), owners, policy.mode == .smallest ? .smallest : .largest)
         }
     }

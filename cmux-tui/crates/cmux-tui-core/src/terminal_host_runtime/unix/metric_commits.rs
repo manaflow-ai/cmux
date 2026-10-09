@@ -155,9 +155,25 @@ impl HostShared {
             .context("could not preflight terminal-host Kitty limit replay")?;
         // Kitty quota changes can evict scene state and have no raw PTY
         // representation. Smart renderers must reopen from the committed
-        // authoritative state instead of retaining their old scene.
-        let source_cursor = self.smart.publish(Frame::new(MessageKind::ResyncRequired, Vec::new()));
-        if let Err(error) = term.set_kitty_graphics_limits(limits) {
+        // authoritative state instead of retaining their old scene, unless
+        // the change evicted nothing (nx-scale 1b): then the ResyncRequired
+        // carries the new limits, and a client that applies them to its own
+        // parser at this sequence may continue. No Output is published while
+        // the parser and source-order locks are held, so publishing after the
+        // change keeps the frame at the same stream position.
+        let quiet = !term.kitty_upload_in_progress();
+        let generation = term.kitty_image_generation();
+        let applied = term.set_kitty_graphics_limits(limits);
+        let evicted_nothing = quiet
+            && applied.is_ok()
+            && generation.is_ok_and(|before| term.kitty_image_generation().ok() == Some(before));
+        let mut resync_payload = Vec::new();
+        if evicted_nothing && encode_kitty_graphics_limits(&mut resync_payload, limits).is_err() {
+            resync_payload.clear();
+        }
+        let source_cursor =
+            self.smart.publish(Frame::new(MessageKind::ResyncRequired, resync_payload));
+        if let Err(error) = applied {
             self.smart.mark_applied(source_cursor);
             let mut taps = self.taps.lock().unwrap();
             for tap in taps.values() {

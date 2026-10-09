@@ -52,7 +52,7 @@
     "_acpmux/harnesses": {"params": ["cwd"], "acpmux": []},
     "_acpmux/models": {"params": [], "acpmux": []},
     "_acpmux/status": {"params": [], "acpmux": []},
-    "_acpmux/permission_respond": {"params": ["sessionId", "permissionId", "optionId"], "acpmux": []},
+    "_acpmux/permission_respond": {"params": ["sessionId", "permissionId", "optionId", "answers"], "acpmux": []},
     "_acpmux/handoff_prepare": {"params": ["sessionId", "harness", "handoffKey"], "acpmux": []},
     "_acpmux/handoff_get": {"params": ["sessionId", "handoffId"], "acpmux": []},
     "_acpmux/handoff_draft": {"params": ["handoffId", "revision", "draftKey", "capsule", "checkpoint"], "acpmux": []},
@@ -73,5 +73,12 @@
   },
   "history_replies": ["_acpmux/attach", "_acpmux/events"],
   "path_keys": ["cwd", "path", "additionalDirectories", "directory", "directories", "workingDirectory",
-    "folder", "folders", "root", "roots", "worktree", "worktreePath"]
+    "folder", "folders", "root", "roots", "worktree", "worktreePath"],
+  "question_answers": {
+    "description": "Answers are allowed only for a pending question (toolCall._meta.acpmux.question), as an object of at most 64 item ids; each id and scalar value is at most 4096 UTF-8 bytes, and list strings are counted together under that bound. Swift and Rust enforce these bounds; Swift additionally accepts Codex's {answers: [string]} wrapper, marked as a gap in tests/cases/check.json (swift_gap).",
+    "method": "_acpmux/permission_respond",
+    "param": "answers",
+    "maximum_items": 64,
+    "maximum_value_bytes": 4096
+  }
 }

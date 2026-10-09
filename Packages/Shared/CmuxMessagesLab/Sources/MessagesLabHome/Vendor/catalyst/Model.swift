@@ -226,7 +226,7 @@ enum Instant {
     /// Unset (fixtures, the differential harness), the conversation's -07:00.
     static var liveZone: TimeZone?
     static var liveLocale: Locale?
-    static let zone = liveZone ?? TimeZone(secondsFromGMT: -7 * 3600)!
+    static let zone = liveZone ?? TimeZone(secondsFromGMT: -7 * 3600) ?? .gmt // cmux: no force unwrap
     static let locale = liveLocale ?? Locale(identifier: "en_US")
     private static let writer: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
@@ -313,7 +313,7 @@ enum Fixtures {
     /// into this variant's sources).
     /// cmux: fixtures are not in the app bundle; the harness sets `root`.
     static var root: URL?
-    static var sharedDirectory: URL { root ?? Bundle.main.resourceURL! }
+    static var sharedDirectory: URL { root ?? Bundle.main.resourceURL ?? Bundle.main.bundleURL } // cmux: no force unwrap
     /// The repo's shared/ directory, for the large generated stores that are
     /// not bundled.
     static var repoShared: URL {
@@ -322,12 +322,17 @@ enum Fixtures {
     }
     static func loadConversation() -> Conversation {
         let url = sharedDirectory.appendingPathComponent("conversation.json")
-        let data = try! Data(contentsOf: url)
-        return try! JSONDecoder().decode(Conversation.self, from: data)
+        // cmux: no try! (crash program); a missing or unreadable fixture is an empty conversation.
+        guard let data = try? Data(contentsOf: url),
+              let conversation = try? JSONDecoder().decode(Conversation.self, from: data) else {
+            return Conversation(id: "", title: "", participants: [], messages: [])
+        }
+        return conversation
     }
     /// Resolve an AssetRef: a path relative to shared/assets or a file URL.
     static func assetURL(_ ref: String) -> URL {
-        if ref.hasPrefix("file:") { return URL(string: ref)! }
+        // cmux: no force unwrap; a file: ref that does not parse resolves like any other ref.
+        if ref.hasPrefix("file:"), let url = URL(string: ref) { return url }
         // Catalyst fixture assets (Fixtures/real, bundled as `real/`).
         if ref.hasPrefix("real/") { return sharedDirectory.appendingPathComponent(ref) }
         return sharedDirectory.appendingPathComponent("assets").appendingPathComponent(ref)

@@ -44,12 +44,15 @@ final class UpdateTestURLProtocol: URLProtocol {
             "Content-Length": "\(data.count)"
         ]
 
-        let response = HTTPURLResponse(
+        guard let response = HTTPURLResponse(
             url: url,
             statusCode: statusCode,
             httpVersion: "HTTP/1.1",
             headerFields: headers
-        )!
+        ) else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
 
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
 

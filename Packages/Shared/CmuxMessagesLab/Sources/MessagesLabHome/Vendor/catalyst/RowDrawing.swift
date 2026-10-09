@@ -13,8 +13,9 @@ enum RowDraw {
     static let margin: CGFloat = 24
 
     static func receiptParts(_ bold: String, _ rest: String) -> [(String, UIFont, UIColor)] {
-        [(bold, .systemFont(ofSize: Fixture.captionSize, weight: .semibold), Fixture.secondaryText),
-         (rest, .systemFont(ofSize: Fixture.captionSize), Fixture.secondaryText)]
+        // cmux: fonts held for the process (HomeFonts, cx-qpqs); receipts draw on RowBitmaps' threads.
+        [(bold, HomeFonts.system(ofSize: Fixture.captionSize, weight: .semibold), Fixture.secondaryText),
+         (rest, HomeFonts.system(ofSize: Fixture.captionSize), Fixture.secondaryText)]
     }
     static let captionKern: CGFloat = -0.03
 
@@ -65,17 +66,17 @@ enum RowDraw {
             }
         case let .unsent(outgoing):
             let s = outgoing ? Strings.unsentMine : Strings.unsentTheirs
-            let f = UIFont.systemFont(ofSize: 11)
+            let f = HomeFonts.system(ofSize: 11) // cmux: HomeFonts (cx-qpqs)
             let w = TextDraw.width(s, font: f)
             TextDraw.line(s, font: f, color: Fixture.secondaryText, x: m.centerX + 0.1 - w / 2, baseline: top + 12, in: ctx)
         case let .label(text, outgoing, color):
-            let f = UIFont.systemFont(ofSize: 10, weight: .medium)
+            let f = HomeFonts.system(ofSize: 10, weight: .medium) // cmux: HomeFonts (cx-qpqs)
             let c: UIColor = color == .failure ? UIColor(red: 1, green: 0.27, blue: 0.23, alpha: 1)
                 : color == .link ? UIColor(red: 0.2, green: 0.55, blue: 1, alpha: 1) : Fixture.secondaryText
             let w = TextDraw.width(text, font: f)
             TextDraw.line(text, font: f, color: c, x: outgoing ? m.receiptRight - w : Fixture.labelLeft, baseline: top + 11, in: ctx)
         case let .replies(count, _, outgoing):
-            let f = UIFont.systemFont(ofSize: 10, weight: .semibold)
+            let f = HomeFonts.system(ofSize: 10, weight: .semibold) // cmux: HomeFonts (cx-qpqs)
             let s = Strings.replies(count)
             let w = TextDraw.width(s, font: f, kern: captionKern)
             TextDraw.line(s, font: f, color: PreviewStyle.repliesBlue,
@@ -131,8 +132,9 @@ enum PartRenderer {
             BubbleView.drawBubble(ctx, body: body, lines: [], outgoing: p.outgoing, tail: p.tail, windowY: windowY)
             _ = lines
             if let md = p.markdown {
-                MarkdownDraw.draw(ctx, md, body: body, outgoing: p.outgoing, offsets: MarkdownScroll.all(md.identity),
-                                  mode: MarkdownOverlay.active ? .skipScrollable : .all)
+                // Every block, at its scroll offset (thread view, morph and menu copies of the row are
+                // complete); a live cell masks the bitmap under its overlays (MarkdownOverlay).
+                MarkdownDraw.draw(ctx, md, body: body, outgoing: p.outgoing, offsets: MarkdownScroll.all(md.identity))
             } else if let tl = p.text { drawText(ctx, tl, in: body, outgoing: p.outgoing) }
         case let .link(url, title, site, image, _) where Sizing.linkPending(title: title, site: site, image: image):
             // Messages' loading card: a grey rounded square, an activity spinner
@@ -150,7 +152,7 @@ enum PartRenderer {
                 UIColor(white: light ? 0 : 1, alpha: 0.25 + 0.6 * CGFloat(k) / 7).setStroke(); p.stroke()
             }
             let host = URL(string: url).map(TextParts.host) ?? url
-            let f = UIFont.systemFont(ofSize: 10)
+            let f = HomeFonts.system(ofSize: 10) // cmux: HomeFonts (cx-qpqs)
             TextDraw.line(host, font: f, color: Fixture.secondaryText, x: body.midX - TextDraw.width(host, font: f) / 2, baseline: c.y + 24, in: ctx)
         case let .link(_, title, site, image, theme):
             // A light appearance draws every card light; a dark one keeps the card's
@@ -177,7 +179,7 @@ enum PartRenderer {
             let c = CGPoint(x: body.minX - 14, y: body.midY)
             UIColor(red: 1, green: 0.27, blue: 0.23, alpha: 1).setFill()
             UIBezierPath(ovalIn: CGRect(x: c.x - 8, y: c.y - 8, width: 16, height: 16)).fill()
-            let f = UIFont.systemFont(ofSize: 12, weight: .bold)
+            let f = HomeFonts.system(ofSize: 12, weight: .bold) // cmux: HomeFonts (cx-qpqs)
             TextDraw.line("!", font: f, color: .white, x: c.x - TextDraw.width("!", font: f) / 2, baseline: c.y + 4.5, in: ctx)
         }
         drawReactions(ctx, p.reactions, body: body, outgoing: p.outgoing, windowY: windowY)
@@ -222,7 +224,7 @@ enum PartRenderer {
             TextDraw.line(s, font: Sizing.linkTitleFont, color: titleColor, x: card.minX + 10, baseline: y, in: ctx, kern: -0.005)
             y += 12
         }
-        TextDraw.line(site, font: .systemFont(ofSize: 10), color: siteColor, x: card.minX + 10.25, baseline: y + 2.8, in: ctx, kern: -0.03)
+        TextDraw.line(site, font: HomeFonts.system(ofSize: 10), color: siteColor, x: card.minX + 10.25, baseline: y + 2.8, in: ctx, kern: -0.03) // cmux: HomeFonts (cx-qpqs)
     }
 
     static func drawAttachment(_ ctx: CGContext, _ a: Attachment, body: CGRect, row p: PartRow, windowY: CGFloat) {
@@ -273,7 +275,7 @@ enum PartRenderer {
                              cornerRadius: 1).fill()
             }
             let d = Format.duration(a.durationSeconds ?? 0)
-            TextDraw.line(d, font: .monospacedDigitSystemFont(ofSize: 11, weight: .regular), color: fg, x: body.maxX - 36,
+            TextDraw.line(d, font: HomeFonts.monospacedDigit(ofSize: 11, weight: .regular), color: fg, x: body.maxX - 36, // cmux: HomeFonts (cx-qpqs)
                           baseline: body.midY + 4, in: ctx)
         default:
             fillBubble(ctx, shape, outgoing: p.outgoing, windowY: windowY)
@@ -283,11 +285,11 @@ enum PartRenderer {
                 UIColor(white: 0.55, alpha: 1).setFill()
                 UIBezierPath(ovalIn: CGRect(x: body.minX + 9, y: body.minY + 10, width: 36, height: 36)).fill()
                 let initial = String(a.fileName.prefix(1)).uppercased()
-                let f = UIFont.systemFont(ofSize: 17, weight: .semibold)
+                let f = HomeFonts.system(ofSize: 17, weight: .semibold) // cmux: HomeFonts (cx-qpqs)
                 TextDraw.line(initial, font: f, color: .white, x: body.minX + 27 - TextDraw.width(initial, font: f) / 2,
                               baseline: body.minY + 34, in: ctx)
                 let name = (a.fileName as NSString).deletingPathExtension
-                TextDraw.line(name, font: .systemFont(ofSize: 13, weight: .semibold), color: fg, x: body.minX + 54, baseline: body.minY + 33, in: ctx)
+                TextDraw.line(name, font: HomeFonts.system(ofSize: 13, weight: .semibold), color: fg, x: body.minX + 54, baseline: body.minY + 33, in: ctx) // cmux: HomeFonts (cx-qpqs)
                 let chev = UIBezierPath()
                 chev.move(to: CGPoint(x: body.maxX - 18, y: body.midY - 5))
                 chev.addLine(to: CGPoint(x: body.maxX - 13, y: body.midY))
@@ -347,11 +349,11 @@ enum PartRenderer {
                 }
             }
             let label = ext.uppercased()
-            let f = UIFont.systemFont(ofSize: 7, weight: .regular)
+            let f = HomeFonts.system(ofSize: 7, weight: .regular) // cmux: HomeFonts (cx-qpqs)
             TextDraw.line(label, font: f, color: UIColor(white: 0.6, alpha: 1), x: icon.midX - TextDraw.width(label, font: f) / 2,
                           baseline: icon.maxY - 5, in: ctx)
         }
-        let nameFont = UIFont.systemFont(ofSize: 13, weight: .semibold)
+        let nameFont = HomeFonts.system(ofSize: 13, weight: .semibold) // cmux: HomeFonts (cx-qpqs)
         var name = a.fileName
         while TextDraw.width(name, font: nameFont) > body.width - 100, name.count > 4 { name = String(name.dropLast(5)) + "…" }
         let x = body.minX + 84.5
@@ -365,7 +367,7 @@ enum PartRenderer {
             fg.setFill()
             UIBezierPath(roundedRect: CGRect(x: bar.minX, y: bar.minY, width: bar.width * CGFloat(pr), height: 4), cornerRadius: 2).fill()
         }
-        TextDraw.line(sub, font: .systemFont(ofSize: 11), color: fg.withAlphaComponent(0.6), x: x, baseline: body.minY + 58.5, in: ctx)
+        TextDraw.line(sub, font: HomeFonts.system(ofSize: 11), color: fg.withAlphaComponent(0.6), x: x, baseline: body.minY + 58.5, in: ctx) // cmux: HomeFonts (cx-qpqs)
     }
 
     /// The round save button beside a photo or video (measured: 28 pt, 14 pt
@@ -433,7 +435,7 @@ enum PartRenderer {
         Fixture.connector.setFill()
         UIBezierPath(roundedRect: CGRect(x: 32.5, y: stubTop, width: 2.5, height: stubH), cornerRadius: 1.25).fill()
         if pv.count >= 2 {
-            let f = UIFont.systemFont(ofSize: 10, weight: .semibold)
+            let f = HomeFonts.system(ofSize: 10, weight: .semibold) // cmux: HomeFonts (cx-qpqs)
             TextDraw.line(Strings.replies(pv.count), font: f, color: PreviewStyle.repliesBlue, x: 44.5, baseline: box.maxY + (pv.isText ? 12.5 : 11.5), in: ctx,
                           kern: RowDraw.captionKern)
         }
@@ -462,7 +464,7 @@ enum PartRenderer {
         BubblePath.make(body: full, outgoing: outgoing, tail: tail).addClip()
         img.draw(in: full)
         ctx.restoreGState()
-        TextDraw.line(caption, font: .systemFont(ofSize: 12), color: .white, x: full.minX + 13, baseline: full.maxY - 14, in: ctx)
+        TextDraw.line(caption, font: HomeFonts.system(ofSize: 12), color: .white, x: full.minX + 13, baseline: full.maxY - 14, in: ctx) // cmux: HomeFonts (cx-qpqs)
     }
 
     static func drawLocation(_ ctx: CGContext, body: CGRect, title: String, subtitle: String, tail: Bool, outgoing: Bool) {
@@ -500,7 +502,7 @@ enum PartRenderer {
         UIBezierPath(ovalIn: CGRect(x: pin.x - 2, y: pin.y - 2, width: 4, height: 4)).fill()
         ctx.restoreGState()
         TextDraw.line(title, font: Sizing.linkTitleFont, color: UIColor(white: 0.93, alpha: 1), x: body.minX + 10, baseline: map.maxY + 18, in: ctx)
-        TextDraw.line(subtitle, font: .systemFont(ofSize: 10), color: UIColor(white: 0.68, alpha: 1), x: body.minX + 10, baseline: map.maxY + 32, in: ctx)
+        TextDraw.line(subtitle, font: HomeFonts.system(ofSize: 10), color: UIColor(white: 0.68, alpha: 1), x: body.minX + 10, baseline: map.maxY + 32, in: ctx) // cmux: HomeFonts (cx-qpqs)
     }
 
     /// The person whose tapbacks draw blue (the conversation's own participant).
@@ -567,7 +569,7 @@ enum PartRenderer {
     }
 
     static func drawEmoji(_ e: String, in rect: CGRect, ctx: CGContext) {
-        let f = UIFont.systemFont(ofSize: 15)
+        let f = HomeFonts.system(ofSize: 15) // cmux: HomeFonts (cx-qpqs)
         let w = TextDraw.width(e, font: f)
         TextDraw.line(e, font: f, color: .white, x: rect.midX - w / 2, baseline: rect.midY + 5.5, in: ctx)
     }
@@ -630,7 +632,7 @@ enum TapbackGlyph {
             let s = img.size
             img.draw(in: CGRect(x: r.midX - s.width / 2, y: r.midY - s.height / 2, width: s.width, height: s.height))
         } else {
-            let f = UIFont.systemFont(ofSize: r.height * 0.42, weight: .heavy)
+            let f = HomeFonts.system(ofSize: r.height * 0.42, weight: .heavy) // cmux: HomeFonts (cx-qpqs)
             let lines = Strings.laughGlyph.components(separatedBy: "\n")
             for (i, l) in lines.enumerated() {
                 TextDraw.line(l, font: f, color: color, x: r.midX - TextDraw.width(l, font: f) / 2,
