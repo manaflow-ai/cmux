@@ -621,6 +621,20 @@
       "group": "exact"
     },
     {
+      "query": "theme",
+      "expect": ["setting:appearance.theme"],
+      "group": "guard",
+      "guard": true,
+      "note": "the one Theme setting stays in the top 3 (chief, 2026-10-09)"
+    },
+    {
+      "query": "color",
+      "expect": ["action:palette.workspaceColor"],
+      "group": "guard",
+      "guard": true,
+      "note": "ten settings titled Color never bury Set Workspace Color (chief, 2026-10-09)"
+    },
+    {
       "query": "add agent",
       "expect": ["action:agent.harness.add", "action:agent.harness.addFromRegistry"],
       "group": "exact"
