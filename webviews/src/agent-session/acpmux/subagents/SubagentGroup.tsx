@@ -3,11 +3,11 @@
 // and a chevron; opened, a bordered list with a row per subagent (SUBAGENT_ROW rows below it).
 // Every line has a fixed height (model.ts), so a running clock or a changing status never moves
 // the transcript.
-import { useEffect, useState } from "react";
 import { Icon } from "../icons/Icon";
 import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { formatDuration } from "../conversation/turns";
+import { useLiveText } from "../conversation/liveClock";
 import type { Subagent } from "./subagentFold";
 
 /// Avatars drawn before "+N".
@@ -35,18 +35,6 @@ export function groupElapsed(agents: readonly Subagent[], now: number): number {
   return Math.max(0, end - start);
 }
 
-/// The current time, ticking each second only while `live`.
-function useNow(live: boolean): number {
-  const [now, setNow] = useState(Date.now);
-  useEffect(() => {
-    if (!live) return;
-    setNow(Date.now());
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [live]);
-  return now;
-}
-
 function Avatar({ agent, dot = false }: { agent: Subagent; dot?: boolean }) {
   return (
     <span className="cv-subagent-avatar" data-state={agent.state}>
@@ -68,7 +56,7 @@ export function SubagentGroupHeader({
   const t = useT();
   const agents = row.subagents ?? [];
   const live = agents.some(running);
-  const now = useNow(live);
+  const time = useLiveText((now) => formatDuration(groupElapsed(agents, now)), live);
   const count = (state: string) => agents.filter((agent) => agent.state === state).length;
   const status = [
     count("running") > 0 && t("summary.subagents.running", { n: count("running") }),
@@ -91,7 +79,7 @@ export function SubagentGroupHeader({
           {status}
         </span>
       </span>
-      <span className="cv-subagents__time">{formatDuration(groupElapsed(agents, now))}</span>
+      <span ref={time} className="cv-subagents__time tabular-nums" />
       <Icon name={expanded ? "disclosure.expanded" : "disclosure.collapsed"} size={12} />
     </button>
   );
@@ -102,7 +90,7 @@ export function SubagentGroupHeader({
 export function SubagentListRow({ row }: { row: AcpmuxRow }) {
   const t = useT();
   const agent = row.subagents?.[0];
-  const now = useNow(agent ? running(agent) : false);
+  const time = useLiveText((now) => (agent ? formatDuration(elapsed(agent, now)) : ""), agent ? running(agent) : false);
   if (!agent) return null;
   const label = STATE_LABEL[agent.state as keyof typeof STATE_LABEL] ?? STATE_LABEL.completed;
   const state = running(agent) ? (agent.action ?? t(label)) : t(label);
@@ -113,7 +101,7 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
         <span className="cv-subagent__name">{agent.name}</span>
         <span className="cv-subagent__state">{state}</span>
       </span>
-      <span className="cv-subagent__time">{formatDuration(elapsed(agent, now))}</span>
+      <span ref={time} className="cv-subagent__time tabular-nums" />
     </div>
   );
 }

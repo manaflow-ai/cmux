@@ -12,7 +12,7 @@ import { turnPreviewUrl } from "./previewUrl";
 import { renderCall } from "./renderCall";
 import { timestampTurns } from "./timestamps";
 import { isSubagentGroup } from "../subagents/subagentRows";
-import type { Translate } from "../i18n";
+import { currentLanguage, type Translate } from "../i18n";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -33,12 +33,49 @@ export const RENDER = "render";
 const FOLDED = ":fold";
 
 /// "1m 16s", "42s", "1h 3m"; zero units dropped, under one second is "0s".
+type DurationFormatter = { format(duration: Record<string, number>): string };
+type DurationFormatCtor = new (lang: string, options: Record<string, string>) => DurationFormatter;
+/// Intl.DurationFormat where the engine has it (WebKit does), per language; null where it does not.
+const durationFormats = new Map<string, { units: DurationFormatter; zero: DurationFormatter } | null>();
+function durationFormat(lang: string) {
+  if (!durationFormats.has(lang)) {
+    const Ctor = (Intl as unknown as { DurationFormat?: DurationFormatCtor }).DurationFormat;
+    let formats: { units: DurationFormatter; zero: DurationFormatter } | null = null;
+    try {
+      if (Ctor)
+        formats = {
+          units: new Ctor(lang, { style: "narrow" }),
+          zero: new Ctor(lang, { style: "narrow", secondsDisplay: "always" }),
+        };
+    } catch {
+      formats = null;
+    }
+    durationFormats.set(lang, formats);
+  }
+  return durationFormats.get(lang) ?? null;
+}
+
+/// "1h 2m 3s" in the pane's language ("1時間2分3秒"); whole seconds, zero units left out.
 export function formatDuration(ms: number): string {
+  return formatDurationIn(ms, currentLanguage());
+}
+
+/// `formatDuration` in a given language.
+export function formatDurationIn(ms: number, lang: string): string {
   const total = Math.floor(ms / 1000);
+  const h = Math.floor(Math.max(0, total) / 3600);
+  const m = Math.floor((Math.max(0, total) % 3600) / 60);
+  const s = Math.max(0, total) % 60;
+  const formats = durationFormat(lang);
+  if (formats) {
+    if (total <= 0) return formats.zero.format({ seconds: 0 });
+    const parts: Record<string, number> = {};
+    if (h) parts.hours = h;
+    if (m) parts.minutes = m;
+    if (s) parts.seconds = s;
+    return formats.units.format(parts);
+  }
   if (total <= 0) return "0s";
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const s = total % 60;
   return [h && `${h}h`, m && `${m}m`, s && `${s}s`].filter(Boolean).join(" ");
 }
 
@@ -258,8 +295,3 @@ function liveTurn(user: AcpmuxRow, turn: AcpmuxRow[]): AcpmuxRow[] {
 
 /// A folded copy of an activity row is drawn as tool rows, never as the edited-files card.
 export const isFoldedCopy = (row: AcpmuxRow) => row.id.endsWith(FOLDED);
-
-/// Stub (red commit): `formatDuration` in a given language lands in the next commit.
-export function formatDurationIn(ms: number, _lang: string): string {
-  return formatDuration(ms);
-}

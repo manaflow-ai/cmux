@@ -282,6 +282,10 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
     },
+    "working-long": {
+      note: "A turn working for over an hour: the live line keeps a steady width (tabular digits) and its text comes from the shared live clock, not a React re-render per second.",
+      snapshot: chat([user(prompt, 64)], { isWorking: true }),
+    },
     "working-tools": {
       note: "Tool calls running in a live turn.",
       snapshot: chat(
