@@ -32,6 +32,9 @@ export interface Receipt {
   readonly errors?: ReadonlyArray<string>
   readonly warnings?: ReadonlyArray<string>
   readonly gitSha?: string
+  /** compat-smoke: the cmux-old release tag (and its commit) whose requests were replayed. */
+  readonly release?: string
+  readonly releaseSha?: string
   readonly by: string
 }
 

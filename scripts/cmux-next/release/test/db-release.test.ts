@@ -56,7 +56,7 @@ const world = async (): Promise<World> => {
   const receipts = mkdtempSync(join(tmpdir(), "rails-receipts-"))
   const logs: Array<string> = []
   const errors: Array<string> = []
-  const env: Record<string, string | undefined> = { CMUX_RELEASE_RECEIPTS_DIR: receipts, STAGING_URL: provider.ownerUrl(staging), PROD_URL: provider.ownerUrl(production), CMUX_RELEASE_LANDED_REF: "landed" }
+  const env: Record<string, string | undefined> = { CMUX_RELEASE_RECEIPTS_DIR: receipts, STAGING_URL: provider.ownerUrl(staging), PROD_URL: provider.ownerUrl(production), CMUX_RELEASE_LANDED_REF: "landed", CMUX_RELEASE_LATEST_STABLE: "v0.65.0" }
   const w: World = {
     root,
     receipts,
@@ -95,7 +95,7 @@ const addExtra = (w: World) => {
 }
 const compatReceipts = (w: World) => {
   const key = changeKey(w.root, { kind: "migrations", tree: vm })
-  for (const action of ["compat-static", "compat-smoke"] as const) writeReceipt(w.receipts, { action, tree: "cmux-vm", target: "production", result: "pass", at: new Date(w.clock).toISOString(), setHash: key, by: "test" })
+  for (const action of ["compat-static", "compat-smoke"] as const) writeReceipt(w.receipts, { action, tree: "cmux-vm", target: "production", result: "pass", at: new Date(w.clock).toISOString(), setHash: key, release: "v0.65.0", by: "test" })
 }
 const git = (root: string, ...a: Array<string>) => execFileSync("git", ["-C", root, "-c", "user.email=t@t", "-c", "user.name=t", ...a], { encoding: "utf8" })
 

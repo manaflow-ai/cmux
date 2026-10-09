@@ -174,15 +174,24 @@ export const staticChecks = async (root: string, change: Change, options: { base
   return { key: changeKey(root, change, options.gitSha), errors, notes, affectsCmuxOld: hits.length > 0 }
 }
 
-/** The passing static and smoke receipts of `key` for `target` in the last 24 h, or what is missing. */
-export const compatProblems = (dir: string, key: string, target: string, now = Date.now()): Array<string> => {
+/**
+ * The passing static and smoke receipts of `key` for `target` in the last 24 h, or what is missing.
+ * With `latest` (the newest stable cmux release tag), the smoke must have replayed that release:
+ * a newer release needs `cmux-old.ts generate --tag <latest>` and a new replay.
+ */
+export const compatProblems = (dir: string, key: string, target: string, now = Date.now(), latest?: string): Array<string> => {
   const fresh = readReceipts(dir).filter((r) => r.target === target && r.setHash === key && now - Date.parse(r.at) <= REHEARSAL_MAX_AGE_MS)
   const problems: Array<string> = []
   const last = (action: "compat-static" | "compat-smoke") => fresh.filter((r) => r.action === action).at(-1)
   if (last("compat-static")?.result !== "pass") problems.push(`no passing cmux-old static compat receipt for ${key} (bun scripts/cmux-next/release/compat.ts static ...)`)
-  if (last("compat-smoke")?.result !== "pass") problems.push(`no passing cmux-old client smoke against staging for ${key} in the last 24 h (scripts/cmux-next/release/compat-smoke.sh on cmux-lawrence-2)`)
+  const smoke = last("compat-smoke")
+  if (smoke?.result !== "pass") problems.push(`no passing cmux-old client smoke against staging for ${key} in the last 24 h (bun scripts/cmux-next/release/cmux-old.ts replay --change ${key})`)
+  else if (latest && smoke.release !== latest) problems.push(`the cmux-old smoke replayed ${smoke.release ?? "an unknown release"}, but the latest stable release is ${latest}: run cmux-old.ts generate --tag ${latest}, commit the spec, and replay`)
   return problems
 }
+
+/** The newest stable release for production checks (CMUX_RELEASE_LATEST_STABLE overrides; tests). */
+export const latestStable = (env: Record<string, string | undefined> = process.env): string => env.CMUX_RELEASE_LATEST_STABLE || latestRelease()
 
 const main = async (argv: ReadonlyArray<string>): Promise<number> => {
   const [command, ...rest] = argv
@@ -214,7 +223,7 @@ const main = async (argv: ReadonlyArray<string>): Promise<number> => {
     return result === "pass" ? 0 : 1
   }
   if (command === "check") {
-    const problems = compatProblems(dir, key, target)
+    const problems = compatProblems(dir, key, target, Date.now(), target === "production" ? latestStable() : undefined)
     for (const p of problems) console.error(`compat: ${p}`)
     if (!problems.length) console.log(`compat ok: ${key} (${target})`)
     return problems.length ? 1 : 0

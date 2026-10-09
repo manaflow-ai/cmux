@@ -295,8 +295,8 @@ export const main = async (argv: ReadonlyArray<string>, initialDeps: Deps = defa
               const setHash = await setHashOf(tree, plan)
               if (target === "production") {
                 // cmux-old shares cmux-prod: production needs the compat receipts of this exact tree (compat.ts).
-                const { changeKey, compatProblems } = await import("./compat.ts")
-                const compat = compatProblems(dir, changeKey(deps.root, { kind: "migrations", tree }), "production", deps.now().getTime())
+                const { changeKey, compatProblems, latestStable } = await import("./compat.ts")
+                const compat = compatProblems(dir, changeKey(deps.root, { kind: "migrations", tree }), "production", deps.now().getTime(), latestStable(deps.env))
                 if (compat.length) throw new Refused(compat.join("; "))
                 const staging = await open(deps, tree, "staging", value("--staging-url-env"), "read")
                 try {

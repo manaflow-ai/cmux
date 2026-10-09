@@ -190,8 +190,8 @@ export const promote = async (argv: ReadonlyArray<string>, deps: PromoteDeps): P
     }
     if (channel === "production") {
       // cmux-old shares the Freestyle production account: production needs the compat receipts (compat.ts).
-      const { compatProblems } = await import("./compat.ts")
-      const compat = compatProblems(receiptsDir(deps.env), `image:${v}:${entry.snapshot_id}`, "production", deps.now().getTime())
+      const { compatProblems, latestStable } = await import("./compat.ts")
+      const compat = compatProblems(receiptsDir(deps.env), `image:${v}:${entry.snapshot_id}`, "production", deps.now().getTime(), latestStable(deps.env))
       if (compat.length) {
         for (const c of compat) deps.error(c)
         return 1
