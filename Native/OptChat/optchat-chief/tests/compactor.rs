@@ -58,6 +58,7 @@ fn spec(dir: &std::path::Path) -> CompactorSpec {
         timeout: Duration::from_secs(30),
         chief: "h0me".into(),
         user_env: Default::default(),
+        fast: false,
     }
 }
 
@@ -2000,4 +2001,35 @@ fn a_capacity_wait_is_one_trace_event_with_its_route_wait_and_failover() {
     assert_eq!(capacity[0]["failover"], "claude");
     assert_eq!(capacity[0]["status"], 503);
     assert_eq!(capacity[1]["failover"], Value::Null);
+}
+
+/// Engine speed: a compactor slot never inherits the user's codex
+/// service_tier (cmux-lawrence-2's config says "fast"): the slot sets its
+/// own, fast for compactor_speed fast, none (the default) otherwise.
+#[test]
+fn a_codex_compactor_slot_sets_its_own_service_tier() {
+    use optchat_chief::compactor::codex_compactor_config_at;
+    let user = "model = \"gpt-6-astra\"\nservice_tier = \"fast\"\n";
+    let off: toml::Table = codex_compactor_config_at(Some(user), false).unwrap().parse().unwrap();
+    assert!(off.get("service_tier").is_none(), "{off:?}");
+    let on: toml::Table = codex_compactor_config_at(Some(user), true).unwrap().parse().unwrap();
+    assert_eq!(on["service_tier"].as_str(), Some("fast"));
+    let bare: toml::Table = codex_compactor_config_at(None, true).unwrap().parse().unwrap();
+    assert_eq!(bare["service_tier"].as_str(), Some("fast"));
+}
+
+/// Engine speed: a fast compactor asks for the fast tier on each session.
+#[test]
+fn a_fast_compactor_starts_fast_sessions() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: pasted a deploy log")));
+    let spec = CompactorSpec {
+        harness: "codex".into(),
+        family: Family::Codex,
+        fast: true,
+        ..spec(dir.path())
+    };
+    let compactor = AcpmuxCompactor::new(agents.clone(), spec, Slots::new(COMPACTOR_SESSIONS));
+    run_node(&compactor, &request(1)).unwrap();
+    assert!(agents.inner.lock().unwrap().specs.iter().all(|s| s.fast));
 }
