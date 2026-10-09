@@ -3,6 +3,8 @@ import CmuxHomeCore
 import CmuxiOSCloudCore
 import CmuxMobileWire
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
 
 /// The iOS Home owner backed by the cloud UserDO and ConversationDOs.
 ///
@@ -30,13 +32,26 @@ final actor CloudHomeSource: HomeSource {
     private var conversationTasks: [ConversationID: Task<Void, Never>] = [:]
     private var continuations: [UUID: AsyncStream<HomeEvent>.Continuation] = [:]
     private var lastConnection: HomeConnection?
+    /// Downloaded cloud attachment variants. URLSession writes to a temporary
+    /// file first, then moves into this directory atomically.
+    private let attachmentCache: URL
+
+    private static let defaultAttachmentCache: URL = {
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        return caches.appendingPathComponent(Bundle.main.bundleIdentifier ?? "cmux", isDirectory: true)
+            .appendingPathComponent("HomeAttachments", isDirectory: true)
+    }()
+    private static let attachmentCacheLimit = 512_000_000
 
     init(me: Participant, api: any CloudAPIClient, makeUser: @escaping MakeUser,
-         makeConversation: MakeConversation? = nil) {
+         makeConversation: MakeConversation? = nil,
+         attachmentCache: URL = CloudHomeSource.defaultAttachmentCache) {
         self.me = me
         self.api = api
         self.makeUser = makeUser
         self.makeConversation = makeConversation
+        self.attachmentCache = attachmentCache
         inboxCache = InboxSnapshot(me: me, conversations: [], rev: 0)
     }
 
@@ -44,11 +59,13 @@ final actor CloudHomeSource: HomeSource {
     /// example focused tests). Production composition should use the factory
     /// initializer above so identity resolution remains lazy.
     init(user: String, me: Participant, userClient: any ControlPlaneSession, api: any CloudAPIClient,
-         makeConversation: MakeConversation? = nil) {
+         makeConversation: MakeConversation? = nil,
+         attachmentCache: URL = CloudHomeSource.defaultAttachmentCache) {
         self.me = me
         self.api = api
         self.makeUser = { (user: user, session: userClient) }
         self.makeConversation = makeConversation
+        self.attachmentCache = attachmentCache
         inboxCache = InboxSnapshot(me: me, conversations: [], rev: 0)
     }
 
@@ -186,6 +203,234 @@ final actor CloudHomeSource: HomeSource {
     }
 
     func resolve(_ contact: ContactAddress) async throws -> ContactResolution { .invitable(contact) }
+
+    // MARK: Cloud attachments
+
+    /// Requests a single-use owner slot, uploads any declared derived image,
+    /// then uploads or commits the original. The owner verifies every hash and
+    /// keeps the first record for a hash, making this safe to retry after a
+    /// lost response.
+    func upload(_ file: AttachmentUpload) async throws -> AttachmentRef {
+        var params: [String: JSONValue] = [
+            "conversation": .string(file.conversation.rawValue),
+            "sha256": .string(file.ref.hash),
+            "byte_count": .int(Int64(file.ref.byteCount)),
+            "mime_type": .string(file.ref.mimeType),
+            "name": .string(file.ref.name),
+        ]
+        if let width = file.ref.width { params["width"] = .int(Int64(width)) }
+        if let height = file.ref.height { params["height"] = .int(Int64(height)) }
+        if let duration = file.ref.durationMs { params["duration_ms"] = .int(Int64(duration)) }
+        if let poster = file.ref.poster {
+            params["poster"] = .object(["sha256": .string(poster.hash),
+                                         "byte_count": .int(Int64(poster.byteCount)),
+                                         "mime_type": .string(poster.mimeType)])
+        }
+        if let preview = file.ref.preview {
+            params["preview"] = .object(["sha256": .string(preview.hash),
+                                          "byte_count": .int(Int64(preview.byteCount)),
+                                          "mime_type": .string(preview.mimeType)])
+        }
+
+        let intent = try await attachmentCall { try await api.attachmentIntent(params: params) }
+        if intent["state"]?.stringValue == "exists" {
+            file.progress(1)
+            return try storedAttachment(file.ref, from: intent)
+        }
+        guard intent["state"]?.stringValue == "upload",
+              let originalURL = intent["upload_url"]?.stringValue.flatMap(URL.init(string:)),
+              let originalHeaders = headers(intent["headers"]),
+              (intent["method"]?.stringValue ?? "PUT") == "PUT" else {
+            throw HomeRejection.indeterminate
+        }
+        let mode = intent["mode"]?.stringValue ?? "stream"
+
+        // A declared poster/preview must land before the original; otherwise
+        // the owner deliberately answers `attachment.*_missing` and leaves the
+        // original slot usable for a retry.
+        if let posterURL = file.posterURL, intent["poster_upload"] != nil {
+            try await putDerived(posterURL, description: intent["poster_upload"], progress: file.progress)
+        }
+        if let previewURL = file.previewURL, intent["preview_upload"] != nil {
+            try await putDerived(previewURL, description: intent["preview_upload"], progress: file.progress)
+        }
+        guard file.ref.poster == nil || file.posterURL != nil || intent["poster_upload"] == nil else {
+            throw HomeRejection.invalid("poster_missing")
+        }
+        guard file.ref.preview == nil || file.previewURL != nil || intent["preview_upload"] == nil else {
+            throw HomeRejection.invalid("preview_missing")
+        }
+
+        file.progress(0.1)
+        var streamAnswer: JSONValue = .null
+        do {
+            streamAnswer = try await api.uploadAttachmentBytes(file: file.fileURL, to: originalURL, headers: originalHeaders,
+                                                               progress: { fraction in file.progress(0.1 + fraction * 0.85) })
+        } catch let error as CloudAPIError {
+            // A presigned PUT is protected by `if-none-match: *`; a retry can
+            // legitimately observe 412 after the first PUT already landed.
+            if mode != "presigned" || !Self.isPreconditionFailure(error) { throw mapAttachment(error) }
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw HomeRejection.indeterminate
+        }
+
+        let answer: JSONValue
+        if mode == "presigned" {
+            guard let slot = intent["slot"]?.stringValue else { throw HomeRejection.indeterminate }
+            answer = try await attachmentCall { try await api.commitAttachment(conversation: file.conversation.rawValue, slot: slot) }
+        } else {
+            // Worker stream PUT answers with the final stored attachment.
+            answer = streamAnswer
+        }
+        file.progress(1)
+        return try storedAttachment(file.ref, from: answer)
+    }
+
+    func fetch(_ ref: AttachmentRef, at location: AttachmentLocation, variant: AttachmentVariant) async throws -> URL {
+        let variantName: String?
+        let mimeType: String
+        switch variant {
+        case .original:
+            variantName = nil; mimeType = ref.mimeType
+        case .poster:
+            guard let poster = ref.poster else { throw HomeRejection.invalid("no_poster") }
+            variantName = "poster"; mimeType = poster.mimeType
+        case .preview:
+            guard let preview = ref.preview else { throw HomeRejection.invalid("no_preview") }
+            variantName = "preview"; mimeType = preview.mimeType
+        case .thumbnail(let maxPixel):
+            let target = attachmentCache.appendingPathComponent("\(ref.hash)-thumb-\(max(1, maxPixel)).jpg")
+            if FileManager.default.fileExists(atPath: target.path) { return Self.touch(target) }
+            let source: URL
+            if ref.mimeType.lowercased().hasPrefix("image/") {
+                source = try await fetch(ref, at: location, variant: .original)
+            } else if ref.poster != nil {
+                source = try await fetch(ref, at: location, variant: .poster)
+            } else {
+                throw HomeRejection.invalid("no_thumbnail")
+            }
+            try FileManager.default.createDirectory(at: attachmentCache, withIntermediateDirectories: true)
+            guard let sourceImage = CGImageSourceCreateWithURL(source as CFURL, nil),
+                  let image = CGImageSourceCreateThumbnailAtIndex(sourceImage, 0, [
+                      kCGImageSourceCreateThumbnailFromImageAlways: true,
+                      kCGImageSourceCreateThumbnailWithTransform: true,
+                      kCGImageSourceThumbnailMaxPixelSize: max(1, maxPixel),
+                  ] as CFDictionary) else { throw HomeRejection.invalid("thumbnail_failed") }
+            let data = NSMutableData()
+            guard let destination = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil) else {
+                throw HomeRejection.invalid("thumbnail_failed")
+            }
+            CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
+            guard CGImageDestinationFinalize(destination) else { throw HomeRejection.invalid("thumbnail_failed") }
+            try Task.checkCancellation()
+            try data.write(to: target, options: .atomic)
+            trimAttachmentCache(keeping: target)
+            return target
+        }
+
+        let target = attachmentCache.appendingPathComponent("\(ref.hash)-\(variantName ?? "original")\(Self.extensionFor(mimeType))")
+        if FileManager.default.fileExists(atPath: target.path) { return Self.touch(target) }
+        var params: [String: JSONValue] = [
+            "conversation": .string(location.conversation.rawValue),
+            "hash": .string(ref.hash),
+        ]
+        if let message = location.message {
+            guard let partIndex = location.partIndex else { throw HomeRejection.invalid("message_id needs a part_index") }
+            params["message_id"] = .string(message.rawValue)
+            params["part_index"] = .int(Int64(partIndex))
+        } else if location.partIndex != nil {
+            throw HomeRejection.invalid("message_id needs a part_index")
+        }
+        if let variantName { params["variant"] = .string(variantName) }
+        let signed = try await attachmentCall { try await api.attachmentURL(params: params) }
+        try await attachmentCall { try await api.downloadAttachment(from: signed, to: target, progress: { _ in }) }
+        trimAttachmentCache(keeping: target)
+        return target
+    }
+
+    private func putDerived(_ file: URL, description: JSONValue?, progress: @escaping @Sendable (Double) -> Void) async throws {
+        guard let description, let url = description["upload_url"]?.stringValue.flatMap(URL.init(string:)),
+              let headers = headers(description["headers"]) else { throw HomeRejection.indeterminate }
+        do {
+            _ = try await api.uploadAttachmentBytes(file: file, to: url, headers: headers, progress: { progress(0.02 + $0 * 0.06) })
+        } catch let error as CloudAPIError { throw mapAttachment(error) }
+    }
+
+    private func storedAttachment(_ declared: AttachmentRef, from value: JSONValue) throws -> AttachmentRef {
+        guard let attachment = value["attachment"] ?? (value["state"] == nil ? value : nil),
+              let hash = attachment["hash"]?.stringValue, hash == declared.hash else {
+            throw HomeRejection.invalid("attachment_hash_mismatch")
+        }
+        var result = declared
+        result.mimeType = attachment["mime_type"]?.stringValue ?? declared.mimeType
+        result.byteCount = Int(attachment["byte_count"]?.intValue ?? Int64(declared.byteCount))
+        if let poster = attachment["poster"] { result.poster = derivedImage(poster) }
+        if let preview = attachment["preview"] { result.preview = derivedImage(preview) }
+        return result
+    }
+
+    private func derivedImage(_ value: JSONValue) -> AttachmentDerivedImage? {
+        guard let hash = value["hash"]?.stringValue, let mime = value["mime_type"]?.stringValue,
+              let bytes = value["byte_count"]?.intValue else { return nil }
+        return AttachmentDerivedImage(hash: hash, mimeType: mime, byteCount: Int(bytes))
+    }
+
+    private func headers(_ value: JSONValue?) -> [String: String]? {
+        guard case .object(let values)? = value else { return nil }
+        return Dictionary(uniqueKeysWithValues: values.compactMap { key, value in value.stringValue.map { (key, $0) } })
+    }
+
+    private func attachmentCall<T>(_ body: () async throws -> T) async throws -> T {
+        do { return try await body() }
+        catch is CancellationError { throw CancellationError() }
+        catch let error as CloudAPIError { throw mapAttachment(error) }
+        catch { throw HomeRejection.indeterminate }
+    }
+
+    private func mapAttachment(_ error: CloudAPIError) -> HomeRejection {
+        switch error {
+        case .transport: return .indeterminate
+        case .unauthenticated: return .notAuthorized
+        case .refused(let code):
+            if code == "auth.unauthenticated" || code == "auth.forbidden" { return .notAuthorized }
+            if code == "owner.unreachable" || code == "rate_limited" { return .ownerUnreachable }
+            return .invalid(code)
+        }
+    }
+
+    private static func isPreconditionFailure(_ error: CloudAPIError) -> Bool {
+        if case .refused(let code) = error { return code == "http.412" }
+        return false
+    }
+
+    private static func extensionFor(_ mimeType: String) -> String {
+        UTType(mimeType: mimeType)?.preferredFilenameExtension.map { ".\($0)" } ?? ""
+    }
+
+    private static func touch(_ url: URL) -> URL {
+        try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: url.path)
+        return url
+    }
+
+    private func trimAttachmentCache(keeping kept: URL) {
+        let keys: Set<URLResourceKey> = [.contentModificationDateKey, .fileSizeKey, .isRegularFileKey]
+        guard let files = try? FileManager.default.contentsOfDirectory(at: attachmentCache,
+                                                                         includingPropertiesForKeys: Array(keys),
+                                                                         options: [.skipsHiddenFiles]) else { return }
+        var entries = files.compactMap { url -> (url: URL, used: Date, size: Int)? in
+            guard let values = try? url.resourceValues(forKeys: keys), values.isRegularFile == true else { return nil }
+            return (url, values.contentModificationDate ?? .distantPast, values.fileSize ?? 0)
+        }
+        var total = entries.reduce(0) { $0 + $1.size }
+        guard total > Self.attachmentCacheLimit else { return }
+        entries.sort { $0.used < $1.used }
+        let keptPath = kept.standardizedFileURL.path
+        for entry in entries where total > Self.attachmentCacheLimit && entry.url.standardizedFileURL.path != keptPath {
+            if (try? FileManager.default.removeItem(at: entry.url)) != nil { total -= entry.size }
+        }
+    }
 
     nonisolated func close(_ conversation: ConversationID) {
         Task { await closeConversation(conversation) }
@@ -438,7 +683,17 @@ private extension CloudHomeSource {
         switch type {
         case "text": return .text(value["text"]?.stringValue ?? "", mentions: (value["runs"]?.arrayValue ?? []).compactMap { run in guard let start = run["start"]?.intValue, let length = run["length"]?.intValue, let mention = run["mention"]?.stringValue else { return nil }; return Mention(start: Int(start), length: Int(length), participant: ParticipantID(mention)) })
         case "work": return .work(WorkRef(session: value["session"]?.stringValue ?? "", host: value["host"]?.stringValue, title: value["session"]?.stringValue ?? "", status: WorkRef.Status(rawValue: value["status"]?.stringValue ?? "done") ?? .done, preview: value["preview"]?.stringValue))
-        case "attachment": guard let hash = value["hash"]?.stringValue else { return nil }; return .attachment(AttachmentRef(hash: hash, name: value["name"]?.stringValue ?? "", mimeType: value["mime_type"]?.stringValue ?? "application/octet-stream", byteCount: Int(value["byte_count"]?.intValue ?? 0), width: value["width"]?.intValue.map(Int.init), height: value["height"]?.intValue.map(Int.init), durationMs: value["duration_ms"]?.intValue.map(Int.init)))
+        case "attachment":
+            guard let hash = value["hash"]?.stringValue else { return nil }
+            return .attachment(AttachmentRef(hash: hash,
+                                              name: value["name"]?.stringValue ?? "",
+                                              mimeType: value["mime_type"]?.stringValue ?? "application/octet-stream",
+                                              byteCount: Int(value["byte_count"]?.intValue ?? 0),
+                                              width: value["width"]?.intValue.map(Int.init),
+                                              height: value["height"]?.intValue.map(Int.init),
+                                              durationMs: value["duration_ms"]?.intValue.map(Int.init),
+                                              poster: value["poster"].flatMap(derivedImage),
+                                              preview: value["preview"].flatMap(derivedImage)))
         default: return nil
         }
     }

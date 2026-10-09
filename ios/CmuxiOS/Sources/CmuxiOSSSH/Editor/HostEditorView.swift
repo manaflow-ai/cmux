@@ -114,15 +114,6 @@ struct HostEditorView: View {
                 let saveEnabled = model.canSave
                 Button(model.isNew ? SSHText.add : SSHText.save) { Task { await model.save() } }
                     .disabled(!saveEnabled)
-                    // Toolbar buttons can expose their UIKit wrapper rather
-                    // than the SwiftUI Button on iOS 26. Publish the disabled
-                    // state on that wrapper as well, so keyboard and UI test
-                    // clients cannot activate an empty host form.
-                    .accessibilityElement(children: .ignore)
-                    // `AccessibilityTraits.notEnabled` is a UIKit trait and
-                    // is not available in SwiftUI. This modifier exposes the
-                    // same disabled interaction state on SwiftUI's element.
-                    .accessibilityRespondsToUserInteraction(saveEnabled)
                     .accessibilityIdentifier("ssh.editor.save")
             }
         }

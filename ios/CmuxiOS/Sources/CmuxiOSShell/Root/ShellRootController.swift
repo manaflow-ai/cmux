@@ -100,6 +100,22 @@ public final class ShellRootController: UITabBarController {
 
     @objc private func performSearchCommand() { onSearchCommand?() }
 
+    /// SwiftUI-hosted tab roots can consume a hardware key before UIKit asks
+    /// the tab controller for `keyCommands`. Keep Cmd-K functional at the
+    /// shell boundary as a physical-key fallback.
+    override public func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        if onSearchCommand != nil, !selectedScreenHidesTabBar,
+           presses.contains(where: { press in
+               guard let key = press.key else { return false }
+               return key.charactersIgnoringModifiers.lowercased() == "k"
+                   && key.modifierFlags.contains(.command)
+           }) {
+            performSearchCommand()
+            return
+        }
+        super.pressesBegan(presses, with: event)
+    }
+
     private var selectedScreenHidesTabBar: Bool {
         guard let tab = selectedShellTab, let root = controllers[tab] else { return false }
         let top = (root as? UINavigationController)?.topViewController ?? root

@@ -107,6 +107,23 @@ final class RootViewController: UIViewController {
 
     @objc private func performShellSearch() { openSearch(query: nil) }
 
+    // UIKit normally routes Cmd-K through `keyCommands`, but a SwiftUI
+    // hosting controller can become the first responder and consume the
+    // command before the controller chain is queried. Handle the physical key
+    // as a fallback so universal search remains available from every shell
+    // surface, including Settings and Hosts.
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        if shell != nil, presses.contains(where: { press in
+            guard let key = press.key else { return false }
+            return key.charactersIgnoringModifiers.lowercased() == "k"
+                && key.modifierFlags.contains(.command)
+        }) {
+            performShellSearch()
+            return
+        }
+        super.pressesBegan(presses, with: event)
+    }
+
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         if toastWindow == nil, let scene = view.window?.windowScene {
