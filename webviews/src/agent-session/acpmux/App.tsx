@@ -143,6 +143,7 @@ type RowProps = {
   row: AcpmuxRow;
   onToggleActivity: (id: string) => void;
   expanded: boolean;
+  controls?: string;
   onOpenDiff?: OpenDiff;
   githubRepository?: string;
 };
@@ -323,13 +324,14 @@ const ToolActivityRow = memo(
 
 /// "Worked for 15s": opens the turn's commentary and tool calls (turnView in conversation/turns.ts).
 const WorkedRow = memo(
-  function WorkedRow({ row, onToggleActivity, expanded }: RowProps) {
-    return <WorkedFor row={row} expanded={expanded} onToggle={() => onToggleActivity(row.id)} />;
+  function WorkedRow({ row, onToggleActivity, expanded, controls }: RowProps) {
+    return <WorkedFor row={row} expanded={expanded} controls={controls} onToggle={() => onToggleActivity(row.id)} />;
   },
   (a, b) =>
     a.row.id === b.row.id &&
     a.row.version === b.row.version &&
     a.expanded === b.expanded &&
+    a.controls === b.controls &&
     a.onToggleActivity === b.onToggleActivity,
 );
 
@@ -531,6 +533,7 @@ function RowFrame({
   return (
     <article
       ref={ref}
+      id={rowDomId(row.id)}
       data-row-id={row.id}
       className={`acpmux-row acpmux-${kind}${entering ? " acpmux-row--enter" : ""}`}
       aria-label={speaker(kind, t)}
@@ -552,6 +555,16 @@ const rowKind = (row: AcpmuxRow) =>
   row.items?.some((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange")
     ? "editedFiles"
     : row.kind;
+const rowDomId = (id: string) => `acpmux-row-${encodeURIComponent(id)}`;
+const disclosureControls = (rows: readonly AcpmuxRow[], after: number): string | undefined => {
+  const ids: string[] = [];
+  for (let index = after; index < rows.length; index += 1) {
+    const row = rows[index]!;
+    if (row.kind !== "activity") break;
+    ids.push(rowDomId(row.id));
+  }
+  return ids.length > 0 ? ids.join(" ") : undefined;
+};
 const currentRegistry = (): NativeRegistry => ({
   ...defaultRegistry,
   ...(window.cmuxAcpmuxRegistry as unknown as NativeRegistry | undefined),
@@ -831,6 +844,8 @@ export function VirtualTranscript({
             const kind = rowKind(row);
             const Component = registry[kind] ?? NoticeRow;
             const isExpanded = expanded.has(row.id);
+            const controls =
+              row.kind === WORKED && isExpanded ? disclosureControls(rows, absoluteIndex + 1) : undefined;
             return (
               <RowFrame
                 key={row.id}
@@ -851,6 +866,7 @@ export function VirtualTranscript({
                   onToggleActivity={onToggleActivity}
                   onOpenDiff={onOpenDiff}
                   expanded={isExpanded}
+                  controls={controls}
                   githubRepository={githubRepository}
                 />
               </RowFrame>

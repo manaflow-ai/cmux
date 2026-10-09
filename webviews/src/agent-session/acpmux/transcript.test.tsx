@@ -2768,6 +2768,20 @@ describe("acpmux turn counts", () => {
         ),
       );
       expect(dom.window.document.querySelector(".cv-worked")?.textContent).toBe("Worked for 3s");
+      expect(dom.window.document.querySelector(".cv-worked")?.getAttribute("aria-controls")).toBeNull();
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, {
+            rows: turnView(turn, new Set(["worked-u"])),
+            onToggleActivity: () => {},
+            expanded: new Set(["worked-u"]),
+          }),
+        ),
+      );
+      const worked = dom.window.document.querySelector<HTMLButtonElement>(".cv-worked")!;
+      const controls = worked.getAttribute("aria-controls")?.split(" ") ?? [];
+      expect(controls).toEqual(["acpmux-row-a"]);
+      expect(dom.window.document.getElementById("acpmux-row-a")).not.toBeNull();
       expect(dom.window.document.querySelector(".cv-turn-summary")).toBeNull();
     } finally {
       await act(async () => root.unmount());
