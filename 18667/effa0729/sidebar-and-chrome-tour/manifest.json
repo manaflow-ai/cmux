@@ -1,0 +1,18 @@
+{
+  "tour": "sidebar-and-chrome-tour",
+  "head_sha": "effa0729df5dfe534fb59e5bfaf514c87cec8372",
+  "result": "failure",
+  "shots": [
+    {
+      "name": "04-three-workspaces",
+      "file": "04-three-workspaces.png"
+    }
+  ],
+  "gif": "tour.gif",
+  "tested_sha": "d8b350fe373994766db4f22edb779c4039ebd648",
+  "run_url": "https://github.com/manaflow-ai/cmux/actions/runs/37867100001",
+  "failures": [
+    "Test exceeded execution time allowance of 2 minutes"
+  ],
+  "frames": 2
+}
