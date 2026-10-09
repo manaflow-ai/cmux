@@ -121,6 +121,7 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onChooseChatFolder: (@MainActor (_ chat: String) async -> AgentPaneChatFolderResult)?
     /// The missing folder this pane's chat waits for, until the user picks one that works.
     @ObservationIgnored public internal(set) var folderNeeded: AgentPaneFolderNeeded?
+    @ObservationIgnored private var folderNeededTaken = false
     /// The folder this pane's user chose with "Choose Folder…": new chats start there until the
     /// workspace's own field (``workspaceRoots``) carries it.
     @ObservationIgnored public internal(set) var chosenFolder: String?
@@ -217,7 +218,11 @@ public final class AgentPaneModel {
                     handshake.prompt = seed.prompt
                     handshake.harness = seed.harness
                     handshake.adopt = seed.adopt
-                    if let needed = seed.folderNeeded { folderNeeded = needed }
+                    // Taken once: the seed is read again on a reload, after a pick changed it.
+                    if !folderNeededTaken, let needed = seed.folderNeeded {
+                        folderNeeded = needed
+                        folderNeededTaken = true
+                    }
                 }
                 // The surface holds after the chat has a session (a reload
                 // of the quick panel stays compact).
