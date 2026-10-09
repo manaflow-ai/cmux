@@ -29,9 +29,11 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # The matrix: both default themes (dark and light), both engines, the pane at its normal width.
+  # The matrix: both default themes (dark and light), both engines, and both compact and normal
+  # pane widths so responsive regressions are visible in the same before/after receipt.
   GALLERY_THEMES: pair
   GALLERY_ENGINES: chromium,webkit
+  GALLERY_WIDTHS: narrow,normal
 
 jobs:
   render:
@@ -107,7 +109,7 @@ jobs:
           IDS: ${{ steps.touched.outputs.ids }}
         run: |
           set -euo pipefail
-          bun scripts/gallery/manifest.ts --entries "$IDS" --themes "$GALLERY_THEMES" --frame component --out "$RUNNER_TEMP/head.json"
+          bun scripts/gallery/manifest.ts --entries "$IDS" --themes "$GALLERY_THEMES" --widths "$GALLERY_WIDTHS" --frame component --out "$RUNNER_TEMP/head.json"
           CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery-head" bun run gallery:build
 
       # The merge-base renders with its own gallery code: a change to the gallery shows as a change.
@@ -127,7 +129,7 @@ jobs:
             exit 0
           fi
           bun install --frozen-lockfile
-          if ! { bun scripts/gallery/manifest.ts --entries "$IDS" --themes "$GALLERY_THEMES" --frame component --out "$RUNNER_TEMP/base.json" &&
+          if ! { bun scripts/gallery/manifest.ts --entries "$IDS" --themes "$GALLERY_THEMES" --widths "$GALLERY_WIDTHS" --frame component --out "$RUNNER_TEMP/base.json" &&
             CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery-base" bun run gallery:build; }; then
             echo "[]" > "$RUNNER_TEMP/base.json"
             rm -rf "$RUNNER_TEMP/gallery-base"
