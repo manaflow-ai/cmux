@@ -167,7 +167,8 @@ final class ChromeView: UIView {
         super.init(frame: frame)
         isUserInteractionEnabled = false
         addSubview(canvas)
-        canvas.drawer = { [unowned self] ctx, b in
+        canvas.drawer = { [weak self] ctx, b in
+            guard let self else { return }
             if self.drawsTrafficLights {
                 // Measured top/bottom colours of each glassy light, plus a light rim.
                 let colors: [((CGFloat, CGFloat, CGFloat), (CGFloat, CGFloat, CGFloat))] = [

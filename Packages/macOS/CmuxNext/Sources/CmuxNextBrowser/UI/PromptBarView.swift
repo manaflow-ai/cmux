@@ -66,7 +66,8 @@ final class PromptBarView: NSView {
                 density.bind(field.heightAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.controlHeight },
             ])
         }
-        density.update { [unowned self] in
+        density.update { [weak self] in
+            guard let self else { return }
             let padding = BrowserMetrics.overlayPadding
             messageLabel.font = BrowserMetrics.bodyFont
             messageLabel.preferredMaxLayoutWidth = BrowserMetrics.promptMaxWidth - padding * 2
