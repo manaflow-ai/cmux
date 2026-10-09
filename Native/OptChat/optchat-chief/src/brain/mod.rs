@@ -394,10 +394,7 @@ pub struct Brain {
     prewarm_ttl: Option<crate::prompt::CacheTtl>,
     /// This turn's TTL differs from `prewarm_ttl` (cache.ttl changed).
     ttl_stale: Arc<std::sync::atomic::AtomicBool>,
-    /// The view up to and including the last turn's marked block
-    /// (`optchat_core::mark_piece`): the next turn keeps its mark within the
-    /// API's lookback of it.
-    last_mark: Option<String>,
+
     /// The monitoring trace (`trace.rs`).
     pub(crate) trace: crate::trace::Trace,
     /// Where subagents' workspaces are renamed when they finish.
@@ -493,7 +490,6 @@ impl Brain {
             ttl_refused: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             prewarm_ttl: None,
             ttl_stale: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            last_mark: None,
             chief,
             turn_remote: false,
             turn_ask: false,
