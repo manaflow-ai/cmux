@@ -36,15 +36,14 @@ struct StatusFirstBrowser: OnboardingScreenVariant {
 final class StatusFirstBrowserBody: BrowserClaimView {
     private let headline = OnboardingLabel.make(font: .systemFont(ofSize: 28, weight: .regular), lines: 2)
     private let note = OnboardingLabel.make(color: Palette.textSecondary, lines: 2)
-    private var button: NSButton!
-    private var stack: NSStackView!
+    private lazy var button: NSButton = OnboardingControl.button(BrowserVariantStrings.useCmux, prominent: true, target: self, action: #selector(requestClaim))  // no IUO (crash program)
+    private lazy var stack: NSStackView = NSStackView(views: [headline, note, button])  // no IUO (crash program)
 
     override init(model: DefaultAppsStepModel) {
         super.init(model: model)
-        button = OnboardingControl.button(BrowserVariantStrings.useCmux, prominent: true, target: self, action: #selector(requestClaim))
+        _ = button  // built here, as before
         headline.alignment = .center
         note.alignment = .center
-        stack = NSStackView(views: [headline, note, button])
         stack.orientation = .vertical
         stack.alignment = .centerX
         stack.spacing = 12

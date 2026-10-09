@@ -35,3 +35,29 @@
          }
          return nil
      }
+@@ -190,13 +204,14 @@
+ /// grey placeholder square, 137.5 x 103.5 pt) until LinkPreviews fills it or,
+ /// without metadata, the domain card (title = site = host) replaces it.
+ enum TextParts {
+-    private static let detector = try! NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
++    // cmux: optional, no try! (crash program); without it no link is detected.
++    static let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+     static func host(_ url: URL) -> String {
+         url.host.map { $0.hasPrefix("www.") ? String($0.dropFirst(4)) : $0 } ?? url.absoluteString
+     }
+     static func linkRuns(_ text: String) -> [TextRun] {
+         let ns = text as NSString
+-        return detector.matches(in: text, range: NSRange(location: 0, length: ns.length)).compactMap { m in
++        return (detector?.matches(in: text, range: NSRange(location: 0, length: ns.length)) ?? []).compactMap { m in
+             guard let url = m.url else { return nil }
+             return TextRun(start: m.range.location, length: m.range.length, style: nil, link: url.absoluteString, mention: nil, detected: nil)
+         }
+@@ -205,7 +220,7 @@
+     static func soleURL(_ line: String) -> URL? {
+         let t = line.trimmingCharacters(in: .whitespaces)
+         let ns = t as NSString
+-        guard ns.length > 0, let m = detector.firstMatch(in: t, range: NSRange(location: 0, length: ns.length)),
++        guard ns.length > 0, let m = detector?.firstMatch(in: t, range: NSRange(location: 0, length: ns.length)),
+               m.range.location == 0, m.range.length == ns.length, let url = m.url,
+               url.scheme == "http" || url.scheme == "https" else { return nil }
+         return url

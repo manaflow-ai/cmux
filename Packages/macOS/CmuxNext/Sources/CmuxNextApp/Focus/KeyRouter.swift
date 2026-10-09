@@ -52,7 +52,7 @@ final class KeyRouter: BrowserKeyRouting {
         resignObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didResignActiveNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.cancelChord() }
+            MainActor.assumeIsolated { self?.cancelChord() } // main-proof: observer on queue: .main
         }
     }
     // MARK: Tiers

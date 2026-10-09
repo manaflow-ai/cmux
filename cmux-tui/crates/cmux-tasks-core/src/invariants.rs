@@ -117,7 +117,8 @@ fn acyclic(state: &State, out: &mut Vec<String>) {
     while let Some(node) = ready.pop() {
         visited += 1;
         for to in edges.get(node).into_iter().flatten() {
-            let d = indegree.get_mut(to).expect("counted");
+            // Every edge target was counted above.
+            let Some(d) = indegree.get_mut(to) else { continue };
             *d -= 1;
             if *d == 0 {
                 ready.push(to);

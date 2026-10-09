@@ -118,7 +118,8 @@ public nonisolated struct RemoteViewTabRecord: Sendable, Hashable {
             URLQueryItem(name: "target", value: target.rawValue),
             URLQueryItem(name: "mode", value: mode.rawValue),
         ]
-        return components.url!
+        // A scheme, a host, no path and query items always form a URL; /dev/null stands in otherwise.
+        return components.url ?? URL(fileURLWithPath: "/dev/null")
     }
 
     /// True for `cmux://remote-view` with any query (valid or not): the App

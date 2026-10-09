@@ -10,6 +10,10 @@ import CmuxNextUpdater
 /// release notes (UPDATE-CARD screenshots; nothing downloads or installs);
 /// `{action: "unstage"}` follows the real updater again. `{action: "tip",
 /// id?}` shows a "Did you know" tip; `{action: "untip"}` hides it.
+/// `{action: "updated", previous?}` records `previous` (default "0.0.1")
+/// as the last seen version, so this launch
+/// shows the "cmux Updated!" card (cx-7py7); `{action: "share"}` opens the
+/// Share cmux modal and `{action: "share-copy"}` presses its Copy Link.
 @MainActor
 enum DebugUpdater {
     static func run(_ params: [String: JSONValue], _ services: AppServices,
@@ -32,11 +36,24 @@ enum DebugUpdater {
         case "untip":
             services.updater.debugShowTip(nil)
             return .object(["tip": .null])
+        case "updated":
+            let previous = params["previous"]?.stringValue ?? "0.0.1"
+            guard services.updater.whatsNew.debugPretendUpdated(from: previous) else {
+                throw ControlError.invalidParams("debug.updater updated: previous must be a version older than \(services.updater.identity.shortVersion)")
+            }
+            return .object(["updatedCard": .bool(services.updater.whatsNew.showsUpdatedCard)])
+        case "share":
+            ShareCmuxPresenter.present(services)
+            return .object(["shown": .bool(ShareCmuxPresenter.shown != nil)])
+        case "share-copy":
+            guard let view = ShareCmuxPresenter.shown else { throw ControlError.invalidParams("debug.updater share-copy: the Share cmux modal is not open") }
+            view.copyMessage()
+            return .object(["copied": .string(view.messageText)])
         case "unstage":
             services.updater.debugStage(version: nil, notes: nil)
             return .object(["staged": .null])
         default:
-            throw ControlError.invalidParams("debug.updater: action must be \"relaunch\", \"stage\", \"unstage\", \"tip\" or \"untip\"")
+            throw ControlError.invalidParams("debug.updater: action must be \"relaunch\", \"stage\", \"unstage\", \"tip\", \"untip\", \"updated\", \"share\" or \"share-copy\"")
         }
     }
 

@@ -107,7 +107,7 @@ extension SidebarBridge {
             sendPinned(ids, pinned)
         case .activateItem(let id, let opensWorkspace):
             activateLayoutItem(id, opensWorkspace: opensWorkspace)
-        case .installUpdate, .setAutomaticUpdates, .openUpdateLink, .tryTip, .dismissTip:
+        case .installUpdate, .setAutomaticUpdates, .openUpdateLink, .tryTip, .dismissTip, .openWhatsNew, .shareCmux, .dismissUpdated:
             SidebarCardFeed.handle(intent, services: services)
         case .layout(let op):
             applyLayoutOp(op)
@@ -196,9 +196,9 @@ extension SidebarBridge {
     func resync() {
         guard let state else { return }
         model.ungroupedFirst = !usesMixedOrder
-        model.setSections(Self.sections(services.machines, members: services.windows.registry.members(of: state.id), profile: state.profileID,
-                                        hidesHome: Self.hidesHome(services.sidebarLayout.document), selection: state.selection,
-                                        newTabPages: services.agentTabs.pageTabs.ids, muted: services.notifications.preferences.mutedWorkspaces))
+        rows.show(Self.sections(services.machines, members: services.windows.registry.members(of: state.id), profile: state.profileID,
+                                       hidesHome: Self.hidesHome(services.sidebarLayout.document), selection: state.selection,
+                                       newTabPages: services.agentTabs.pageTabs.ids, muted: services.notifications.preferences.mutedWorkspaces))
         model.profiles = Self.profiles(services.machines.local.store)
         groupFlow.openPendingEditor()
     }

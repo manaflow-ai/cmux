@@ -4,9 +4,12 @@
 //! is one argv word handed to the process as it is (no shell, so quoting,
 //! globs and `$(…)` stay literal and an empty string is a real empty
 //! argument). They are an allowlist: on a Claude stdio command line only
-//! `--tools ""` (no tools), `--strict-mcp-config` (no MCP servers, as no
-//! `--mcp-config` may be given) and `--no-session-persistence`; on any other
-//! harness none. Every other word is refused, `=` forms and short aliases
+//! `--tools ""` (no tools) or `--tools <built-in names>` (only those), `--strict-mcp-config` (no MCP servers, as no
+//! `--mcp-config` may be given), `--no-session-persistence`,
+//! `--setting-sources project` (no user or local settings: no user MCP
+//! servers, hooks or plugins; the project's own settings, its denied tools
+//! included, stay) and `--disable-slash-commands` (no skills or slash
+//! commands); on any other harness none. Every other word is refused, `=` forms and short aliases
 //! included, so a preset can only take capabilities away, never widen the
 //! permission policy or reach outside the session.
 //!
@@ -65,7 +68,13 @@ impl Preset {
 }
 
 /// The Claude Code flags a preset may pass.
-const CLAUDE_ALLOWED: [&str; 3] = ["--tools", "--strict-mcp-config", "--no-session-persistence"];
+const CLAUDE_ALLOWED: [&str; 5] = [
+    "--tools",
+    "--strict-mcp-config",
+    "--no-session-persistence",
+    "--setting-sources",
+    "--disable-slash-commands",
+];
 
 /// The system prompt file's name in a preset's directory.
 pub const SYSTEM_PROMPT_FILE: &str = "system.md";
@@ -98,23 +107,45 @@ pub fn check_preset_args(kind: HarnessKind, args: &[String]) -> Result<(), Strin
     while let Some(arg) = words.next() {
         match arg.as_str() {
             "--tools" => match words.next().map(String::as_str) {
-                Some("") => {}
+                Some(list) if list.is_empty() || is_builtin_list(list) => {}
                 _ => {
                     return Err(
-                        "args: --tools takes only an empty value (\"\": no tools)".to_owned()
+                        "args: --tools takes an empty value (\"\": no tools) or a comma list of built-in tool names (\"Bash,Read\")"
+                            .to_owned(),
                     );
                 }
             },
-            "--strict-mcp-config" | "--no-session-persistence" => {}
+            "--setting-sources" => match words.next().map(String::as_str) {
+                Some("project") => {}
+                _ => {
+                    return Err(
+                        "args: --setting-sources takes only \"project\" (no user or local settings)"
+                            .to_owned(),
+                    );
+                }
+            },
+            "--strict-mcp-config" | "--no-session-persistence" | "--disable-slash-commands" => {}
             other => {
                 return Err(format!(
-                    "args: {other:?} is not allowed; a preset may pass only {} (\"--tools\" with an empty value); set systemPrompt for a system prompt file",
+                    "args: {other:?} is not allowed; a preset may pass only {} (\"--tools\" with an empty value or built-in names, \"--setting-sources\" with \"project\"); set systemPrompt for a system prompt file",
                     CLAUDE_ALLOWED.join(", ")
                 ));
             }
         }
     }
     Ok(())
+}
+
+/// A comma list of built-in tool names (`Bash,Read`): letters and digits,
+/// starting with a letter, none empty. No rule (`Bash(rm:*)`), no MCP tool
+/// (`mcp__…`), no wildcard, no `default` (Claude Code's word for every
+/// built-in): the list only narrows the built-ins offered.
+fn is_builtin_list(list: &str) -> bool {
+    list.split(',').all(|name| {
+        name.bytes().next().is_some_and(|b| b.is_ascii_alphabetic())
+            && name.bytes().all(|b| b.is_ascii_alphanumeric())
+            && !name.eq_ignore_ascii_case("default")
+    })
 }
 
 /// A preset name that can name a directory: ASCII letters, digits, `-`,
@@ -199,6 +230,32 @@ mod tests {
         )
     }
 
+    /// The Chief's turns and compactor load no user settings, MCP servers,
+    /// skills or slash commands (`--setting-sources project` keeps only the
+    /// session directory's own settings, its denied tools included), while
+    /// the user's login still signs them in (credentials are not a setting
+    /// source). An empty source list stays refused: it would drop the
+    /// project's denied tools too.
+    #[test]
+    fn setting_sources_project_and_disable_slash_commands_pass() {
+        assert_eq!(claude(&["--setting-sources", "project", "--disable-slash-commands"]), Ok(()));
+        assert_eq!(
+            claude(&["--tools", "", "--strict-mcp-config", "--setting-sources", "project"]),
+            Ok(())
+        );
+    }
+
+    /// `--tools` with a list of built-in names: the session offers only
+    /// those, so a built-in Claude Code adds later is not offered.
+    #[test]
+    fn tools_with_a_list_of_builtin_names_pass() {
+        assert_eq!(
+            claude(&["--tools", "Bash,Read,Edit,Write,WebFetch,WebSearch,ToolSearch"]),
+            Ok(())
+        );
+        assert_eq!(claude(&["--tools", "Read"]), Ok(()));
+    }
+
     #[test]
     fn the_allowlisted_words_pass() {
         assert_eq!(claude(&[]), Ok(()));
@@ -224,8 +281,20 @@ mod tests {
 
     refused! {
         refuses_an_unknown_flag: ["--verbose"];
+        refuses_user_setting_source: ["--setting-sources", "user"];
+        refuses_local_setting_source: ["--setting-sources", "local"];
+        refuses_a_setting_source_list_with_user: ["--setting-sources", "project,user"];
+        refuses_setting_sources_without_a_value: ["--setting-sources"];
+        refuses_setting_sources_equals_project: ["--setting-sources=project"];
+        refuses_disable_slash_commands_equals: ["--disable-slash-commands=true"];
         refuses_a_bare_word: ["hello"];
-        refuses_tools_with_a_value: ["--tools", "Bash"];
+        refuses_tools_with_a_rule: ["--tools", "Bash(rm:*)"];
+        refuses_tools_with_an_mcp_tool: ["--tools", "mcp__x__y"];
+        refuses_tools_with_a_space: ["--tools", "Bash, Read"];
+        refuses_tools_with_an_empty_name: ["--tools", "Bash,,Read"];
+        refuses_tools_with_a_wildcard: ["--tools", "*"];
+        refuses_tools_default: ["--tools", "default"];
+        refuses_tools_default_in_a_list: ["--tools", "Read,Default"];
         refuses_tools_without_a_value: ["--tools"];
         refuses_tools_equals_empty: ["--tools="];
         refuses_tools_equals_value: ["--tools=Bash"];

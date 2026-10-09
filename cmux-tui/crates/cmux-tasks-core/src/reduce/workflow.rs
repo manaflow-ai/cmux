@@ -77,7 +77,7 @@ impl Tx<'_> {
             return Err(conflict(format!("label name already used: {name}")));
         }
         let color = p.color.map(|c| validate_color(Some(c))).transpose()?;
-        let label = self.state.labels.get_mut(&id).expect("validated label");
+        let label = self.state.labels.get_mut(&id).ok_or_else(|| not_found("label", &id))?;
         if let Some(name) = name {
             label.name = name;
         }
@@ -105,7 +105,7 @@ impl Tx<'_> {
             .map(|t| t.id.clone())
             .collect();
         for task_id in holders {
-            let task = self.state.tasks.get_mut(&task_id).expect("task exists");
+            let Some(task) = self.state.tasks.get_mut(&task_id) else { continue };
             task.labels.remove(&id);
             task.updated_at = self.now;
             let snapshot = task.clone();
@@ -115,7 +115,8 @@ impl Tx<'_> {
                 json!({"added": [], "removed": [id], "cascade": true}),
             ));
         }
-        let label = self.state.labels.get_mut(&id).expect("validated label");
+        // Validated at the top; the cascade above does not remove it.
+        let label = self.state.labels.get_mut(&id).ok_or_else(|| not_found("label", &id))?;
         label.archived = true;
         let snapshot = label.clone();
         self.events.push(EventKind::upsert(
@@ -166,7 +167,7 @@ impl Tx<'_> {
             return Err(conflict(format!("status name already used: {name}")));
         }
         let color = p.color.map(|c| validate_color(Some(c))).transpose()?;
-        let status = self.state.statuses.get_mut(&id).expect("validated status");
+        let status = self.state.statuses.get_mut(&id).ok_or_else(|| not_found("status", &id))?;
         if let Some(name) = name {
             status.name = name;
         }
@@ -258,7 +259,7 @@ impl Tx<'_> {
             .resolve_project(&p.project)
             .ok_or_else(|| not_found("project", &p.project))?;
         let name = p.name.as_deref().map(|n| validate_name(n, "project")).transpose()?;
-        let project = self.state.projects.get_mut(&id).expect("validated project");
+        let project = self.state.projects.get_mut(&id).ok_or_else(|| not_found("project", &id))?;
         if let Some(name) = name {
             project.name = name;
         }
@@ -286,7 +287,7 @@ impl Tx<'_> {
             .map(|t| t.id.clone())
             .collect();
         for task_id in members {
-            let task = self.state.tasks.get_mut(&task_id).expect("task exists");
+            let Some(task) = self.state.tasks.get_mut(&task_id) else { continue };
             task.project = None;
             task.updated_at = self.now;
             let snapshot = task.clone();
@@ -296,7 +297,8 @@ impl Tx<'_> {
                 json!({"fields": ["project"], "cascade": true}),
             ));
         }
-        let project = self.state.projects.get_mut(&id).expect("validated project");
+        // Validated at the top; the cascade above does not remove it.
+        let project = self.state.projects.get_mut(&id).ok_or_else(|| not_found("project", &id))?;
         project.archived = true;
         let snapshot = project.clone();
         self.events.push(EventKind::upsert(

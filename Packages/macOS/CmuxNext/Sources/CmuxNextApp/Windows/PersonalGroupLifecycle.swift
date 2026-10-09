@@ -104,18 +104,22 @@ struct PersonalGroupLife {
     /// command landed, read from the latest personal state: a member
     /// another window or client placed meanwhile keeps its group.
     /// `failed` runs when a command fails (the caller re-syncs).
+    /// `applied` runs once the home store holds the command's result
+    /// (read-your-writes): a sidebar pending edit settles there (cx-odqn).
     func commit(_ label: String, ending: [WorkspaceGroupID], recheck: @escaping @MainActor () -> [WorkspaceGroupID] = { [] },
-                failed: @escaping @MainActor () -> Void,
+                failed: @escaping @MainActor () -> Void, applied: (@MainActor () -> Void)? = nil,
                 _ body: @escaping @Sendable (DaemonConnection) async throws -> Void) {
         let home = machines.local, personal = personal, v2 = home.store.servesStateResources
+        let transaction = ClientTransactionID.generate()
         personal.endingGroups.formUnion(ending)
         Task {
             // Shown again before a failure re-syncs, so a kept group never stays hidden.
             @MainActor func end() { personal.endingGroups.subtract(ending) }
-            guard await home.request(label, body) != nil else {
+            guard await home.request(label, transaction: transaction, { connection, _ in try await body(connection) }) != nil else {
                 end()
                 return failed()
             }
+            if let applied { home.whenApplied(transaction, applied) }
             let still = Set(recheck())
             let doomed = ending.filter(still.contains)
             guard !doomed.isEmpty else { return end() }

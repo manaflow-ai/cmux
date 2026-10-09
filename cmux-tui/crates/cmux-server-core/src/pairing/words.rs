@@ -12,9 +12,11 @@ use std::sync::LazyLock;
 
 const RAW: &str = include_str!("bip39-english.txt");
 
+/// The list has exactly 2,048 lines (a unit test checks it; a short list
+/// would leave empty words, never a panic).
 pub static WORDLIST: LazyLock<[&'static str; 2048]> = LazyLock::new(|| {
-    let words: Vec<&'static str> = RAW.lines().collect();
-    words.try_into().expect("the word list has exactly 2,048 lines")
+    let mut lines = RAW.lines();
+    std::array::from_fn(|_| lines.next().unwrap_or_default())
 });
 
 pub fn word_count() -> usize {

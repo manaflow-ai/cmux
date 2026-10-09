@@ -52,7 +52,7 @@ final class BrowserHibernation {
         source.setEventHandler { [weak self, weak source] in
             guard let event = source?.data else { return }
             let level: MemoryPressureLevel = event.contains(.critical) ? .critical : event.contains(.warning) ? .warning : .normal
-            MainActor.assumeIsolated { self?.pressureDidChange(level) }
+            MainActor.assumeIsolated { self?.pressureDidChange(level) } // main-proof: dispatch source on queue: .main
         }
         source.activate()
         pressureSource = source

@@ -3,6 +3,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import enum CmuxNextLayout.DockEdge
 import enum CmuxNextLayout.DockMode
+import enum CmuxNextLayout.DockRole
 import Foundation
 
 /// Daemon commands for tab moves. With `tab-drag-v1` every outcome is one
@@ -131,9 +132,11 @@ enum TabMoves {
     /// `dock` and make a plain column, so it is refused here). The column that held the edge scrolls again. Top and
     /// bottom are edge docks; `mode` nil uses `layout.dockColumnMode`, and
     /// `width` nil a third of the height for a band or the width of a new
-    /// column beside the anchor for a side.
+    /// column beside the anchor for a side. `role` marks the chat dock
+    /// (dock-column-role-v1; an older daemon drops it).
     static func toNewDockColumn(_ tab: TabModel, anchor pane: PaneModel, edge: CmuxNextLayout.DockEdge,
-                                  mode: CmuxNextLayout.DockMode? = nil, width: Double? = nil, respawn: SplitRespawn? = nil,
+                                  mode: CmuxNextLayout.DockMode? = nil, role: CmuxNextLayout.DockRole? = nil,
+                                  width: Double? = nil, respawn: SplitRespawn? = nil,
                                   services: AppServices,
                                   transaction: ClientTransactionID = .generate(), completion: @escaping Completion = { _ in }) {
         let daemon = services.machines.daemon(forTab: tab)
@@ -142,7 +145,8 @@ enum TabMoves {
               !refusesIncognitoCrossing(tab, to: pane, services: services) else { return completion(false) }
         let surface = tab.surface, paneHandle = pane.handle
         let overlay = mode.map { $0 == .overlay } ?? (DesignSettings.shared.dockColumnMode == .overlay)
-        let pin = DockSnapshot(edge: DockSnapshot.Edge(rawValue: edge.rawValue) ?? .right, mode: overlay ? .overlay : .docked)
+        let pin = DockSnapshot(edge: DockSnapshot.Edge(rawValue: edge.rawValue) ?? .right, mode: overlay ? .overlay : .docked,
+                               role: role.map { _ in .agentChat })
         // A band's size is a share of the screen height; a side column takes
         // the width a new column next to the anchor would take.
         let spawn = edge.isBand || width != nil ? nil

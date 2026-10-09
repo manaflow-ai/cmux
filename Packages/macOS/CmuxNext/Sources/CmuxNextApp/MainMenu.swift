@@ -50,7 +50,7 @@ enum MainMenu {
         NSApp.windowsMenu = windowMenu.submenu
         // Debug (DEV and NIGHTLY, `DevTools`): debug-only actions placed there.
         var debug = DevTools.isEnabled ? registry.makeMainMenuItems(for: .debug) : []
-        if DevTools.isEnabled { debug += [.separator(), SidebarToggleIconMenu.shared.makeItem()] }
+        if DevTools.isEnabled { debug += [.separator(), SidebarToggleIconMenu.shared.makeItem(), StatusIconSetMenu.shared.makeItem()] }
         if !debug.isEmpty { mainMenu.addItem(submenu(Strings.menuDebug, items: debug)) }
         return mainMenu
     }

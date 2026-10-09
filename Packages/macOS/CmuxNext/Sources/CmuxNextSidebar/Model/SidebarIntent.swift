@@ -71,6 +71,12 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     case tryTip(String)
     /// The tip card's x: never show this tip again.
     case dismissTip(String)
+    /// The "cmux Updated!" card's "See What's New" row (`updates.whatsNew`).
+    case openWhatsNew
+    /// The "cmux Updated!" card's "Share cmux" row (`app.shareCmux`).
+    case shareCmux
+    /// The "cmux Updated!" card's x: this version is seen.
+    case dismissUpdated
     /// Change the section layout; the App sends it to the workspace store.
     case layout(SidebarLayoutOp)
     /// Workspace rows dropped on a top section (the pinned tiles or the top
