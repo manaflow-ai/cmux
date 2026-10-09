@@ -210,6 +210,40 @@ struct BrowserReplSessionTests {
         #expect(after.lines == [BrowserReplOutputLine(level: "log", text: "download.finished YSxi")])
     }
 
+    /// r41: a `download.finished` past the per-event byte limit is withheld
+    /// without parsing its payload (a refusal reason can name a page's
+    /// multi-megabyte URL); its path is read in one bounded pass, so the
+    /// finished file still becomes readable. The payload's tail is not
+    /// even JSON: a parse of the whole payload would find no path.
+    @Test("An oversized download.finished is not parsed, and its file still becomes readable")
+    func oversizedDownloadEventIsNotParsed() async throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-repl-session-\(UUID().uuidString)")
+        let work = base.appendingPathComponent("work")
+        let downloads = base.appendingPathComponent("downloads")
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: downloads, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+        let file = downloads.appendingPathComponent("big report.csv")
+        try Data("a,b".utf8).write(to: file)
+
+        let driver = RecordingReplDriver()
+        let session = makeSession(driver: driver, cwd: work.path, temporaryDirectory: base.appendingPathComponent("tmp").path)
+        defer { session.close() }
+
+        // As native JSON writes it: every "/" escaped.
+        let escapedPath = file.path.replacingOccurrences(of: "/", with: "\\/")
+        let padding = String(repeating: "x", count: BrowserReplSession.maxEventPayloadBytes + 1024)
+        driver.emit("download.finished", #"{"targetId":"t1","downloadId":"d1","path":"\#(escapedPath)","error":"\#(padding)"#)
+        let after = await session.evaluate(
+            code: """
+            await call("tabs.list"); // a driver result follows the events before it
+            console.log(fs('readFile', { path: \(quoted(file.path)) }));
+            """
+        )
+        #expect(after.error == nil)
+        #expect(after.lines == [BrowserReplOutputLine(level: "log", text: "YSxi")])
+    }
+
     @Test(
         "A working directory that holds the user's files is refused as the fs root",
         arguments: [
