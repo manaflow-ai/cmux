@@ -87,6 +87,10 @@ extension SessionRestorableAgentSnapshot {
         let policy = NormallyEndedClaudeResumePolicy()
         guard let restorableAgent,
               let resumeBinding else { return false }
+        // Native Claude resume is a local fallback. A persistent SSH binding
+        // must retain its remote launch path and host identity instead of
+        // executing the captured command on this Mac.
+        guard resumeBinding.launchFlavor == .local else { return false }
         guard policy.admits(.init(
             agentKind: restorableAgent.kind.rawValue,
             agentSessionID: restorableAgent.sessionId,

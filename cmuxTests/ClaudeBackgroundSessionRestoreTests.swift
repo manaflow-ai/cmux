@@ -57,6 +57,7 @@ struct ClaudeBackgroundSessionRestoreTests {
                     .appendingPathComponent("\(processID).json"))
         }
 
+        @MainActor
         func cleanup() {
             if daemonProcess.isRunning {
                 daemonProcess.terminate()
@@ -179,9 +180,13 @@ struct ClaudeBackgroundSessionRestoreTests {
     private func restore(
         _ fixture: Fixture,
         roundTrip: Bool = false,
+        restorableAgentIndexProvider: (@MainActor () -> RestorableAgentSessionIndex?)? = nil,
         mutate: (inout SessionTerminalPanelSnapshot) -> Void
     ) throws -> Restored {
-        let source = Workspace(agentSessionAutoResumeDefaults: fixture.defaults)
+        let source = Workspace(
+            agentSessionAutoResumeDefaults: fixture.defaults,
+            restorableAgentIndexProvider: restorableAgentIndexProvider
+        )
         defer { source.teardownAllPanels() }
         let sourcePanelID = try #require(source.focusedPanelId)
         var snapshot = source.sessionSnapshot(includeScrollback: false)
@@ -195,7 +200,10 @@ struct ClaudeBackgroundSessionRestoreTests {
             snapshot = try JSONDecoder().decode(SessionWorkspaceSnapshot.self, from: data)
         }
 
-        let restored = Workspace(agentSessionAutoResumeDefaults: fixture.defaults)
+        let restored = Workspace(
+            agentSessionAutoResumeDefaults: fixture.defaults,
+            restorableAgentIndexProvider: restorableAgentIndexProvider
+        )
         defer { restored.teardownAllPanels() }
         let restoredIDs = restored.restoreSessionSnapshot(snapshot)
         let restoredPanelID = try #require(restoredIDs[sourcePanelID])
@@ -282,16 +290,36 @@ struct ClaudeBackgroundSessionRestoreTests {
             snapshot.panels[index].terminal = terminal
         }
 
-        let restored = Workspace(agentSessionAutoResumeDefaults: fixture.defaults)
+        let restored = Workspace(
+            agentSessionAutoResumeDefaults: fixture.defaults,
+            restorableAgentIndexProvider: { .empty }
+        )
         defer { restored.teardownAllPanels() }
         let restoredIDs = restored.restoreSessionSnapshot(snapshot)
-        let inputs = try snapshot.panels.compactMap { panel in
-            try restoredIDs[panel.id].flatMap { panelID in
+        let inputs = snapshot.panels.compactMap { panel in
+            restoredIDs[panel.id].flatMap { panelID in
                 restored.terminalPanel(for: panelID)?.surface.debugInitialInputForTesting()
             }
         }
         #expect(inputs.count == 1, Comment(rawValue: inputs.joined(separator: "\n")))
         #expect(inputs.first?.contains("--resume") == true, Comment(rawValue: inputs.first ?? ""))
+    }
+
+    @Test("A normally completed Claude session owned by the daemon reattaches")
+    func normallyCompletedLiveBackgroundSessionAttaches() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        try fixture.registerSession(kind: "bg", sessionID: sessionID, jobID: jobID, processID: fixture.daemonProcessID)
+
+        let restored = try restore(fixture, roundTrip: true) { terminal in
+            terminal.agent = agent(fixture, hadActivePromptTurn: false)
+            terminal.resumeBinding = hookBinding(fixture, autoResume: true)
+            terminal.wasAgentRunning = false
+        }
+
+        let input = try #require(restored.input)
+        #expect(input.contains("'attach' '\(jobID)'"), Comment(rawValue: input))
+        #expect(!input.contains("--resume"), Comment(rawValue: input))
     }
 
     @Test("A Claude session with an active prompt keeps deferred restore admission")
