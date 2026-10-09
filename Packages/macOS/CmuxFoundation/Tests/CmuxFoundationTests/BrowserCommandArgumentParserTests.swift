@@ -61,6 +61,29 @@ struct BrowserCommandArgumentParserTests {
         }
     }
 
+    @Test("Allows configured empty values in joined and separate forms")
+    func allowsConfiguredEmptyValues() throws {
+        let parser = BrowserCommandArgumentParser(
+            valueOptions: ["--value"],
+            optionsAllowingEmptyValues: ["--value"]
+        )
+
+        let joined = try parser.parse(["--value="])
+        let separate = try parser.parse(["--value", ""])
+
+        #expect(joined.positionals.isEmpty)
+        #expect(separate.positionals.isEmpty)
+    }
+
+    @Test("Rejects empty joined values unless explicitly allowed")
+    func rejectsUnconfiguredEmptyValues() {
+        let parser = BrowserCommandArgumentParser(valueOptions: ["--selector"])
+
+        #expect(throws: BrowserCommandArgumentParser.ParseError.missingValue(option: "--selector")) {
+            try parser.parse(["--selector="])
+        }
+    }
+
     @Test("Reports a missing value using only the documented option")
     func reportsMissingValue() {
         let parser = BrowserCommandArgumentParser(valueOptions: ["--selector"])

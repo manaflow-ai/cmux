@@ -32,14 +32,17 @@ public struct BrowserCommandArgumentParser: Sendable {
 
     private let valueOptions: Set<String>
     private let allowedFlags: Set<String>
+    private let optionsAllowingEmptyValues: Set<String>
 
     /// Creates a parser for the documented options and flags of one browser subcommand.
     public init(
         valueOptions: Set<String> = [],
-        allowedFlags: Set<String> = []
+        allowedFlags: Set<String> = [],
+        optionsAllowingEmptyValues: Set<String> = []
     ) {
         self.valueOptions = valueOptions
         self.allowedFlags = allowedFlags
+        self.optionsAllowingEmptyValues = optionsAllowingEmptyValues
     }
 
     /// Parses arguments, honoring `--` and both `--option value` and `--option=value`.
@@ -74,7 +77,7 @@ public struct BrowserCommandArgumentParser: Sendable {
                 let option = String(value[..<equal])
                 if valueOptions.contains(option) {
                     let optionValue = value[value.index(after: equal)...]
-                    guard !optionValue.isEmpty else {
+                    guard !optionValue.isEmpty || optionsAllowingEmptyValues.contains(option) else {
                         throw ParseError.missingValue(option: option)
                     }
                     index += 1

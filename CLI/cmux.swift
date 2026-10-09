@@ -16829,12 +16829,14 @@ struct CMUXCLI {
         _ values: [String],
         valueOptions: Set<String> = [],
         allowedFlags: Set<String> = [],
+        optionsAllowingEmptyValues: Set<String> = [],
         commandName: String
     ) throws {
         do {
             _ = try BrowserCommandArgumentParser(
                 valueOptions: valueOptions,
-                allowedFlags: allowedFlags
+                allowedFlags: allowedFlags,
+                optionsAllowingEmptyValues: optionsAllowingEmptyValues
             ).parse(values)
         } catch let error as BrowserCommandArgumentParser.ParseError {
             throw browserCommandArgumentError(error, commandName: commandName)
@@ -18160,6 +18162,7 @@ struct CMUXCLI {
                 subArgs,
                 valueOptions: ["--selector", "--value"],
                 allowedFlags: ["--snapshot-after"],
+                optionsAllowingEmptyValues: ["--value"],
                 commandName: commandName
             )
             let sid = try requireSurface()
@@ -18689,6 +18692,7 @@ struct CMUXCLI {
                 cookieArgs,
                 valueOptions: cookieValueOptions,
                 allowedFlags: cookieFlags,
+                optionsAllowingEmptyValues: cookieVerb == "set" ? ["--value"] : [],
                 commandName: commandName
             )
 
