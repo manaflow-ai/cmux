@@ -23,10 +23,23 @@ struct CryptoTests {
         #expect(hasher.finalize() == Blake2s.hash(message))
     }
 
-    @Test func blake2sKeyed() {
-        #expect(Blake2s.hash(message, key: key).hex == "13c88480a5d00d6c8c7ad2110d76a82d9b70f4fa6696d4e5dd42a066dcaf9920")
-        #expect(Blake2s.hash([], key: key).hex == "48a8997da407876b3d79c0d92325ad3b89cbb754d86ab71aee047ad345fd2c49")
-        #expect(WireGuardHash.mac(key: Array(key[..<16]), message).hex == "b8d300fa7937e4d1e67c8468df4c9a43")
+    @Test func blake2sKeyed() throws {
+        #expect(try Blake2s.hash(message, key: key).hex == "13c88480a5d00d6c8c7ad2110d76a82d9b70f4fa6696d4e5dd42a066dcaf9920")
+        #expect(try Blake2s.hash([], key: key).hex == "48a8997da407876b3d79c0d92325ad3b89cbb754d86ab71aee047ad345fd2c49")
+        #expect(try WireGuardHash.mac(key: Array(key[..<16]), message).hex == "b8d300fa7937e4d1e67c8468df4c9a43")
+    }
+
+    @Test(arguments: [Int.min, 0, 33, Int.max])
+    func blake2sRejectsInvalidOutputLength(_ length: Int) {
+        #expect(throws: Blake2s.ParameterError.invalidOutputLength) {
+            try Blake2s.hash(message, outputLength: length, key: [])
+        }
+    }
+
+    @Test func blake2sRejectsOversizedKey() {
+        #expect(throws: Blake2s.ParameterError.keyTooLong) {
+            try WireGuardHash.mac(key: [UInt8](repeating: 0, count: 33), message)
+        }
     }
 
     @Test func hmacBlake2s() {

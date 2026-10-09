@@ -1,6 +1,11 @@
 /// BLAKE2s (RFC 7693), unkeyed or keyed, 1 to 32 byte output. WireGuard's
 /// HASH, MAC and (inside HMAC) KDF. CryptoKit has no BLAKE2s.
 struct Blake2s {
+    enum ParameterError: Error, Equatable {
+        case invalidOutputLength
+        case keyTooLong
+    }
+
     static let blockLength = 64
 
     private static let iv: [UInt32] = [
@@ -29,12 +34,14 @@ struct Blake2s {
     init() {
         outputLength = 32
         state = Self.iv
+        state[0] ^= 0x0101_0020
     }
 
     /// Creates a hasher for the RFC 7693 parameter range. Invalid parameters
     /// are rejected at the boundary instead of trapping the process.
-    init?(outputLength: Int, key: [UInt8]) {
-        guard (1...32).contains(outputLength), key.count <= 32 else { return nil }
+    init(outputLength: Int, key: [UInt8]) throws {
+        guard (1...32).contains(outputLength) else { throw ParameterError.invalidOutputLength }
+        guard key.count <= 32 else { throw ParameterError.keyTooLong }
         self.outputLength = outputLength
         state = Self.iv
         state[0] ^= 0x0101_0000 ^ (UInt32(key.count) << 8) ^ UInt32(outputLength)
@@ -68,8 +75,14 @@ struct Blake2s {
         return Array(output.prefix(outputLength))
     }
 
-    static func hash(_ parts: [UInt8]..., outputLength: Int = 32, key: [UInt8] = []) -> [UInt8] {
-        guard var hasher = Blake2s(outputLength: outputLength, key: key) else { return [] }
+    static func hash(_ parts: [UInt8]...) -> [UInt8] {
+        var hasher = Blake2s()
+        for part in parts { hasher.update(part) }
+        return hasher.finalize()
+    }
+
+    static func hash(_ parts: [UInt8]..., outputLength: Int = 32, key: [UInt8]) throws -> [UInt8] {
+        var hasher = try Blake2s(outputLength: outputLength, key: key)
         for part in parts { hasher.update(part) }
         return hasher.finalize()
     }

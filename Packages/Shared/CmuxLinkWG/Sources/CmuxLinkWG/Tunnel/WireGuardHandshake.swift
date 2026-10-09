@@ -34,7 +34,7 @@ struct WireGuardHandshake {
 
         var message = [WireGuardProtocol.initiationType, 0, 0, 0] + WireGuardProtocol.le32(localIndex)
         message += ephemeralPublic + encryptedStatic + encryptedTimestamp
-        message += WireGuardHash.mac(key: WireGuardProtocol.mac1Key(for: peer), message)
+        message += try WireGuardHash.mac(key: WireGuardProtocol.mac1Key(for: peer), message)
         message += [UInt8](repeating: 0, count: 16)
         return WireGuardInitiation(
             localIndex: localIndex, chainKey: chain, hash: hash, ephemeral: ephemeral, sentAt: now, message: message
@@ -121,7 +121,7 @@ struct WireGuardHandshake {
 
         var message = [WireGuardProtocol.responseType, 0, 0, 0] + WireGuardProtocol.le32(localIndex)
         message += WireGuardProtocol.le32(initiation.remoteIndex) + ephemeralPublic + encryptedNothing
-        message += WireGuardHash.mac(key: WireGuardProtocol.mac1Key(for: initiation.peer.bytes), message)
+        message += try WireGuardHash.mac(key: WireGuardProtocol.mac1Key(for: initiation.peer.bytes), message)
         message += [UInt8](repeating: 0, count: 16)
         let transport = WireGuardHash(key: chain).kdf([], outputs: 2)
         let keypair = WireGuardKeypair(
@@ -138,7 +138,7 @@ struct WireGuardHandshake {
     /// mac1 covers every byte before it and is keyed by this end's public key.
     private func verifyMAC1(_ message: [UInt8]) throws {
         let macStart = message.count - 32
-        let expected = WireGuardHash.mac(key: WireGuardProtocol.mac1Key(for: localPublic), Array(message[..<macStart]))
+        let expected = try WireGuardHash.mac(key: WireGuardProtocol.mac1Key(for: localPublic), Array(message[..<macStart]))
         guard WireGuardProtocol.equal(message[macStart..<(macStart + 16)], expected) else { throw WireGuardTunnelError.badMAC }
     }
 }

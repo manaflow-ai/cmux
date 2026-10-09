@@ -29,6 +29,13 @@ import Testing
         #expect(try JSONDecoder().decode(LinkCertificate.self, from: json) == cert)
     }
 
+    @Test(arguments: [0, 31, 33, 64])
+    func rejectsInvalidKeyLength(_ length: Int) async {
+        await #expect(throws: LinkCertificateError.badKey) {
+            try await issuer().issue(purpose: .direct, key: Data(repeating: 0, count: length), now: now)
+        }
+    }
+
     @Test func refusesTamperWrongEnvironmentExpiryAndLifetime() async throws {
         let x = Data(repeating: 7, count: 32)
         let cert = try await issuer().issue(purpose: .direct, key: x, now: now)

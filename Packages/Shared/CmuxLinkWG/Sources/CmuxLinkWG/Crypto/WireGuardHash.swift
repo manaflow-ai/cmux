@@ -29,7 +29,7 @@ struct WireGuardHash {
     }
 
     /// MAC(key, input) = keyed BLAKE2s with a 16-byte output.
-    static func mac(key: [UInt8], _ input: [UInt8]) -> [UInt8] {
-        Blake2s.hash(input, outputLength: 16, key: key)
+    static func mac(key: [UInt8], _ input: [UInt8]) throws -> [UInt8] {
+        try Blake2s.hash(input, outputLength: 16, key: key)
     }
 }
