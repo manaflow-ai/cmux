@@ -13,7 +13,10 @@ import CmuxNextWakeups
 /// stays open while engaged (a click on the toggle that hides the sidebar
 /// leaves the band under the pointer). Disengaged, it closes after
 /// `closeDelay` on the injected clock, so a pointer that grazes the edge
-/// does not flicker; a return before then cancels the close.
+/// does not flicker; a return before then cancels the close. While open
+/// it holds the row's reveal, so the buttons stay shown for the whole
+/// delay instead of fading before the band closes; that hold does not
+/// count as engagement.
 ///
 /// The open share is the width of `driver`, a constraint animated with the
 /// sidebar's tokens: every animation frame lays the window root out, which
@@ -26,10 +29,15 @@ final class CollapsedBandReveal {
     static let closeDelay: Duration = .milliseconds(300)
 
     /// Whether the row's reveal inputs count as engaged (pointer, focus or
-    /// a hold; `isEnabled` is a display setting, not an engagement).
-    static func isEngaged(_ state: HoverRevealState) -> Bool {
-        state.pointerInside || state.focusInside || state.holds > 0
+    /// a hold other than this band's own; `isEnabled` is a display setting,
+    /// not an engagement).
+    func isEngaged(_ state: HoverRevealState) -> Bool {
+        state.pointerInside || state.focusInside || state.holds - (ownHold == nil ? 0 : 1) > 0
     }
+
+    /// The row's reveal (its buttons' alpha): held while the band is open.
+    weak var reveal: HoverReveal?
+    private var ownHold: HoverReveal.Hold?
 
     private(set) var sidebarHidden = false
     private(set) var engaged = false
@@ -97,6 +105,10 @@ final class CollapsedBandReveal {
 
     private func open() {
         isOpen = true
+        if ownHold == nil, let reveal {
+            // An open always comes from engagement, so the callback inside hold() changes nothing.
+            ownHold = reveal.hold()
+        }
         let full = TitlebarToolbarBand.width
         guard let width else { return }
         lastChangeAnimated = animates
@@ -111,10 +123,17 @@ final class CollapsedBandReveal {
 
     private func close() {
         isOpen = false
+        releaseHold()
         guard let width else { return }
         lastChangeAnimated = animates
         guard lastChangeAnimated else { width.constant = 0; return }
         Motion.animateExit(.disappear, in: driver) { Motion.animator(width, in: driver).constant = 0 }
+    }
+
+    private func releaseHold() {
+        let hold = ownHold
+        ownHold = nil
+        hold?.release()
     }
 
     private var animates: Bool { Motion.policy.animatesMovement && Motion.canAnimate(in: driver) }
