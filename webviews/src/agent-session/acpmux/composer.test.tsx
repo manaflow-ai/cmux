@@ -954,3 +954,104 @@ describe("acpmux composer remote editing note", () => {
     expect(sendButton()).not.toBeNull();
   });
 });
+
+// Round 1 of the UI tournament, design A: Up recalls the chat's previous prompts in an empty field,
+// and a very large plain-text paste becomes a text attachment instead of flooding the field.
+describe("acpmux composer prompt recall and large pastes", () => {
+  let root: ReturnType<typeof createRoot>;
+  let sent: string[];
+  let sentAttachments: { name: string; kind: string; size?: number }[][];
+  const user = (id: string, text: string) => ({ id, version: 1, at: 0, kind: "user", text });
+  const withPrompts = (): AcpmuxSnapshot => ({
+    ...snapshot(),
+    rows: [user("u1", "first prompt"), user("u2", "second prompt"), user("u3", "second prompt"), user("u4", "third")],
+  });
+  const render = async (value: AcpmuxSnapshot) => {
+    await act(async () =>
+      root.render(
+        createElement(Composer, {
+          snapshot: value,
+          chips: () => null,
+          onSend: (text: string, attachments = []) => {
+            sent.push(text);
+            sentAttachments.push(attachments.map((item) => ({ name: item.name, kind: item.kind, size: item.size })));
+          },
+          onStop: () => {},
+        }),
+      ),
+    );
+    await ready();
+  };
+  const key = async (name: string) =>
+    act(async () => {
+      promptField().dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true }));
+    });
+  const pasteText = async (text: string) => {
+    const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "clipboardData", {
+      value: { files: [], types: ["text/plain"], getData: (type: string) => (type === "text/plain" ? text : "") },
+    });
+    await act(async () => promptField().element.dispatchEvent(event));
+    await act(() => new Promise((resolve) => setTimeout(resolve, 5)));
+    return event;
+  };
+
+  beforeEach(() => {
+    sent = [];
+    sentAttachments = [];
+    root = createRoot(dom.window.document.getElementById("root")!);
+  });
+  afterEach(async () => {
+    await act(async () => root.unmount());
+  });
+
+  test("Up in an empty field recalls the previous prompts, newest first; Down walks back to empty", async () => {
+    await render(withPrompts());
+    await key("ArrowUp");
+    expect(promptField().value).toBe("third");
+    await key("ArrowUp");
+    expect(promptField().value).toBe("second prompt");
+    await key("ArrowUp");
+    expect(promptField().value).toBe("first prompt");
+    // The oldest prompt stays at the top.
+    await key("ArrowUp");
+    expect(promptField().value).toBe("first prompt");
+    await key("ArrowDown");
+    expect(promptField().value).toBe("second prompt");
+    await key("ArrowDown");
+    await key("ArrowDown");
+    expect(promptField().value).toBe("");
+  });
+
+  test("a typed draft is never replaced by recall", async () => {
+    await render(withPrompts());
+    await act(async () => typeInto(promptField(), "my own draft"));
+    await key("ArrowUp");
+    expect(promptField().value).toBe("my own draft");
+  });
+
+  test("a recalled prompt sends like a typed one", async () => {
+    await render(withPrompts());
+    await key("ArrowUp");
+    await key("Enter");
+    expect(sent).toEqual(["third"]);
+  });
+
+  test("a very large plain-text paste becomes a text attachment; a small one is typed", async () => {
+    await render(snapshot());
+    const big = Array.from({ length: 200 }, (_, line) => `log line ${line}`).join("\n");
+    const event = await pasteText(big);
+    expect(event.defaultPrevented).toBe(true);
+    const chips = [...dom.window.document.querySelectorAll(".acpmux-attachment")].map((chip) => chip.getAttribute("title"));
+    expect(chips).toEqual(["Pasted text (200 lines).txt"]);
+    expect(promptField().value).toBe("");
+    const small = await pasteText("a short line");
+    expect(small.defaultPrevented).toBe(false);
+    await act(async () =>
+      dom.window.document
+        .querySelector("form")!
+        .dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })),
+    );
+    expect(sentAttachments[0]?.[0]).toMatchObject({ name: "Pasted text (200 lines).txt", kind: "text" });
+  });
+});
