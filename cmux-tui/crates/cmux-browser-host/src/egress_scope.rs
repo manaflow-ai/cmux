@@ -212,6 +212,9 @@ pub struct EgressRule {
     resolver: NameResolver,
     /// Why a loopback port is a cmux service's (crate::egress_services).
     services: crate::egress_services::ServiceCheck,
+    /// The check of a connected peer (a listener exists, so one this host
+    /// cannot see refuses).
+    connected_services: crate::egress_services::ServiceCheck,
     /// Tests: one loopback address that counts as public (a stand-in for
     /// an internet host the test can dial).
     #[cfg(test)]
@@ -230,6 +233,7 @@ impl EgressRule {
             allow: allow.into_iter().map(canonical).collect(),
             resolver,
             services: crate::egress_services::system_check(),
+            connected_services: crate::egress_services::system_connected_check(),
             #[cfg(test)]
             test_public: None,
         }
@@ -240,6 +244,7 @@ impl EgressRule {
         mut self,
         services: crate::egress_services::ServiceCheck,
     ) -> EgressRule {
+        self.connected_services = services.clone();
         self.services = services;
         self
     }
@@ -324,6 +329,13 @@ impl EgressRule {
     pub fn service_refusal(&self, addr: SocketAddr) -> Option<String> {
         let addr = canonical(addr);
         is_loopback(addr.ip()).then(|| (self.services)(addr)).flatten()
+    }
+
+    /// `service_refusal` for the peer of a connection that just succeeded:
+    /// a listener exists, so one this host cannot see refuses the port.
+    pub fn connected_service_refusal(&self, addr: SocketAddr) -> Option<String> {
+        let addr = canonical(addr);
+        is_loopback(addr.ip()).then(|| (self.connected_services)(addr)).flatten()
     }
 
     /// The rule for a URL's literal host only (an IP, `localhost`, a
