@@ -18,9 +18,13 @@ pub(crate) use super::super::unix::process_definitely_absent as process_definite
 pub(crate) use super::super::unix::remove_released as remove_released_pty_lock;
 mod barrier_sync;
 mod lease;
+mod pty_readiness;
+mod waker;
 pub(crate) use crate::terminal_loss_log::remove_signals as remove_terminal_loss_signals;
 pub(crate) use barrier_sync::{barrier_sync, barrier_sync_dir};
 pub(crate) use lease::*;
+pub(crate) use pty_readiness::wait_for_pty_readable_or_forced_drain;
+pub(crate) use waker::AcceptWaker;
 
 /// The owner of a file: its uid.
 pub(crate) type FileOwner = u32;
