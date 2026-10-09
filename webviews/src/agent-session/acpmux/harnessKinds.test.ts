@@ -17,4 +17,16 @@ describe("harness kinds from acpmux", () => {
     expect(catalog.find((h) => h.id === "future")?.unavailable).toBe("not yet");
     expect(catalog.every((h) => Array.isArray(h.models))).toBe(true);
   });
+
+  test("preserves the harness login command for an inline reauthentication action", () => {
+    const catalog = normalizeCatalog({
+      harnesses: {
+        "claude-sr": {
+          kind: "claude-stdio",
+          auth: { login: "  claude /login  " },
+        },
+      },
+    });
+    expect(catalog[0]?.auth).toEqual({ login: "claude /login" });
+  });
 });
