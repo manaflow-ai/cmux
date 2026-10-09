@@ -70,7 +70,7 @@ export default componentEntry<Props>({
   variants: {
     closed: { props: {} },
     keyboard: {
-      note: "Opening focuses the native effort slider, ArrowRight changes the level, and Escape returns focus to Effort.",
+      note: "Opening focuses the selected effort row, ArrowDown changes the level, and Escape returns focus to Effort.",
       props: {},
       play: keyboard,
     },

@@ -10,7 +10,7 @@ beforeAll(installDom);
 afterEach(unmount);
 afterAll(restoreDom);
 
-test("selects an effort row and returns to the trigger after Escape", async () => {
+test("focuses the selected effort row and returns to the trigger after Escape", async () => {
   function Fixture() {
     const [current, setCurrent] = useState("medium");
     return (
