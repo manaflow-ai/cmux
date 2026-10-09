@@ -238,6 +238,37 @@ fn no_snapshot_configured_and_rate_limited_are_typed() {
     assert_eq!(limited["details"]["retry_after_ms"], 30000);
 }
 
+/// cx-t2rz: an install's create waits for the person's approval (G8,
+/// cx-wb5.65). The approval codes are typed, keep the request id in
+/// `details`, and `approval.pending` / `approval.too_many_pending` are
+/// retryable with the same key; never `protocol_error`.
+#[test]
+fn approval_codes_are_typed() {
+    let pending = refused_create(
+        json!({ "error": { "code": "approval.pending", "message": "cloud.machine.create waits for the user's approval in the feed",
+            "retryable": true, "details": { "request": "apr_0123456789abcdef0123456789abcdef", "expires_at": 1790086400000_i64 } } }),
+        "key-create-approval-pending",
+    );
+    assert_eq!(pending["code"], "cmux.cloud.approval_pending", "{pending}");
+    assert_eq!(pending["upstream_code"], "approval.pending");
+    assert_eq!(pending["retryable"], true);
+    assert_eq!(pending["details"]["request"], "apr_0123456789abcdef0123456789abcdef");
+    for (wire, code, retryable) in [
+        ("approval.denied", "cmux.cloud.approval_denied", false),
+        ("approval.expired", "cmux.cloud.approval_expired", false),
+        ("approval.too_many_pending", "cmux.cloud.approval_too_many_pending", true),
+    ] {
+        let refused = refused_create(
+            json!({ "error": { "code": wire, "message": "approval", "retryable": retryable,
+                "details": { "request": "apr_0123456789abcdef0123456789abcdef" } } }),
+            &format!("key-create-{wire}"),
+        );
+        assert_eq!(refused["code"], code, "{refused}");
+        assert_eq!(refused["upstream_code"], wire);
+        assert_eq!(refused["retryable"], retryable, "{refused}");
+    }
+}
+
 #[test]
 fn an_agent_principal_refusal_surfaces_as_forbidden() {
     let mut s = server();
