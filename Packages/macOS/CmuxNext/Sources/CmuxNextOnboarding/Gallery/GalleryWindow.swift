@@ -55,7 +55,7 @@ final class GalleryWindow: NSWindow {
         switch event.charactersIgnoringModifiers?.lowercased() {
         case "p": return .pick
         case "t": return .appearance
-        case let digit? where digit.count == 1 && "123456789".contains(digit): return .jump(Int(digit)! - 1)
+        case let digit? where digit.count == 1 && "123456789".contains(digit): return .jump((Int(digit) ?? 1) - 1)
         default: return nil
         }
     }

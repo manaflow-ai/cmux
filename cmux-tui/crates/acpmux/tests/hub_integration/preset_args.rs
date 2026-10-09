@@ -251,7 +251,8 @@ async fn preset_args_are_validated() {
         json!(["--dangerously-skip-permissions"]),
         json!(["--settings", "{}"]),
         json!(["--system-prompt-file", "/tmp/x"]),
-        json!(["--tools", "Bash"]),
+        json!(["--tools", "default"]),
+        json!(["--tools", "Bash(rm:*)"]),
         json!(["--add-dir", "/"]),
     ] {
         let err =

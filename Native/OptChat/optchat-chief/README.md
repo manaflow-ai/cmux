@@ -153,9 +153,11 @@ queues the prompt; claude-sr has no steering), not between its tool calls.
 A Claude spawn of several subagents is single-flight on the shared view: the
 first subagent starts alone, its first message marked at the view's last whole
 block with the turns' TTL (`Brain::turn_cache_ttl`, 1 hour by default; none once
-a route refused our marks), and its session told the same TTL
-(`CLAUDE_CODE_PROMPT_CACHE_TTL=1h`, or `FORCE_PROMPT_CACHING_5M=1`), so the API
-never sees a 1h mark after a 5m one. The rest start when its response began
+a route refused our marks), and the subagent directory's project settings
+give Claude Code the same TTL (`promptCacheTtl`, as the turns' session
+directory; acpmux takes no TTL variable in a session's env), so the API never
+sees a 1h mark after a 5m one. A spawn in a directory of the user's gets no
+mark: that directory is not ours to write. The rest start when its response began
 streaming (the view's cache entry then exists), at most `WARM_WAIT` (20 s)
 later, and read that entry. The trace's `spawn.warm` says whether the first
 spoke and how long the wait took.
