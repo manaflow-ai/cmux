@@ -68,12 +68,23 @@ extension ProfileBarView {
     // theme-scoped: called only from drawMarks(), inside performWithTheme
     func profileColor(_ profile: SidebarProfile, active: Bool) -> NSColor {
         let base = profile.color?.swatch ?? Palette.textPrimary
-        return base.blended(withFraction: active ? 0.05 : 0.2, of: Palette.stripStep) ?? base
+        return Self.markColor(base: base, step: Palette.stripStep, active: active)
     }
 
-    /// A mark's color: `base` softened toward the strip step `step`.
+    /// A mark's color: the strip step (`Palette.stripStep`, design-tokens.json theme.stripStep) painted
+    /// over `base`, at full strength for the other spaces and a quarter for the current one. The result
+    /// is opaque and composited in sRGB, as the token is defined: `NSColor.blended` mixes in its own color
+    /// space and also blends alpha, which left the mark see-through.
     static func markColor(base: NSColor, step: NSColor, active: Bool) -> NSColor {
-        base.blended(withFraction: active ? 0.05 : 0.2, of: step) ?? base
+        guard let step = step.usingColorSpace(.sRGB), let base = base.usingColorSpace(.sRGB) else { return base }
+        let strength = step.alphaComponent * (active ? 0.25 : 1)
+        func over(_ under: CGFloat, _ top: CGFloat) -> CGFloat { under * (1 - strength) + top * strength }
+        return NSColor(
+            srgbRed: over(base.redComponent, step.redComponent),
+            green: over(base.greenComponent, step.greenComponent),
+            blue: over(base.blueComponent, step.blueComponent),
+            alpha: 1
+        )
     }
 
     // theme-scoped: called only from drawMarks() inside performWithTheme
