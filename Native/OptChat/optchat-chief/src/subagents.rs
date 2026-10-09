@@ -298,6 +298,14 @@ impl Spawner {
                 crate::harness_gate::trace_refusal(&self.trace, "subagent", &s.harness, &reason);
                 crate::harness_gate::refusal(&reason)
             })?;
+        // codex under approve-all: no sandbox for its cmux calls (E6).
+        if let Some(mode) = crate::acpmux::chief_session_mode(admitted.family, &spec.policy)
+            && let Err(e) = self.agents.set_mode(&session, mode)
+        {
+            (self.log)(&format!(
+                "subagent {id}: {e}; its cmux calls may be sandboxed"
+            ));
+        }
         // Registered before its prompt: its turn end can only follow.
         self.send(Input::SubagentStarted {
             id: id.to_owned(),
