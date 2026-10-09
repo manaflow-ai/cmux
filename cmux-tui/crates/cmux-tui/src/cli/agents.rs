@@ -51,7 +51,7 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
 }
 
 fn is_help_request(args: &[String]) -> bool {
-    args.is_empty() || args.iter().any(|arg| matches!(arg.as_str(), "--help" | "-h"))
+    args.first().is_none_or(|arg| matches!(arg.as_str(), "--help" | "-h"))
 }
 
 enum AgentCommand {
@@ -61,25 +61,26 @@ enum AgentCommand {
 }
 
 fn command(args: &[String]) -> Result<AgentCommand, UsageError> {
-    match args {
+    let words = args.iter().map(String::as_str).collect::<Vec<_>>();
+    match words.as_slice() {
         [family] if family == "snapshot" => Ok(AgentCommand::Snapshot),
         ["workspace", "select", target] => Ok(resource(
             "workspace.select",
-            vec!["workspace".into(), target.clone(), "focus".into()],
+            vec!["workspace".into(), (*target).into(), "focus".into()],
         )),
         ["workspace", "create", rest @ ..] => {
             let mut mapped = vec!["workspace".into(), "create".into()];
-            mapped.extend(rest.iter().cloned());
+            mapped.extend(rest.iter().map(ToString::to_string));
             Ok(resource("workspace.create", mapped))
         }
         ["tab", "select", target] => {
-            Ok(resource("tab.select", vec!["tab".into(), target.clone(), "focus".into()]))
+            Ok(resource("tab.select", vec!["tab".into(), (*target).into(), "focus".into()]))
         }
         ["surface", "focus", target] => {
-            Ok(resource("surface.focus", vec!["tab".into(), target.clone(), "focus".into()]))
+            Ok(resource("surface.focus", vec!["tab".into(), (*target).into(), "focus".into()]))
         }
         ["surface", "split", direction, rest @ ..]
-            if matches!(direction.as_str(), "left" | "right" | "up" | "down") =>
+            if matches!(*direction, "left" | "right" | "up" | "down") =>
         {
             let mut mapped = vec!["pane".into(), "current".into(), "split".into()];
             mapped.push(format!("--{direction}"));
@@ -90,7 +91,7 @@ fn command(args: &[String]) -> Result<AgentCommand, UsageError> {
                     let value = rest.get(index + 1).ok_or_else(|| {
                         UsageError::new("agents surface split: --surface needs a value")
                     })?;
-                    surface = Some(value.clone());
+                    surface = Some((*value).to_owned());
                     index += 2;
                 } else {
                     return Err(UsageError::new(format!(
@@ -108,13 +109,18 @@ fn command(args: &[String]) -> Result<AgentCommand, UsageError> {
             Ok(AgentCommand::App { action: "palette.open".into(), args: Vec::new() })
         }
         ["dialog", "list"] | ["dialog", "list", "--all"] => {
-            Ok(AgentCommand::App { action: "dialog.list".into(), args: args[2..].to_vec() })
+            Ok(AgentCommand::App {
+                action: "dialog.list".into(),
+                args: words[2..].iter().map(ToString::to_string).collect(),
+            })
         }
         ["dialog", "answer", request_id, rest @ ..] => Ok(AgentCommand::App {
             action: "dialog.answer".into(),
-            args: std::iter::once(request_id.clone()).chain(rest.iter().cloned()).collect(),
+            args: std::iter::once((*request_id).to_owned())
+                .chain(rest.iter().map(ToString::to_string))
+                .collect(),
         }),
-        _ => Err(UsageError::new(format!("unknown agents command; run `cmux agents --help`"))),
+        _ => Err(UsageError::new("unknown agents command; run `cmux agents --help`")),
     }
 }
 
@@ -292,6 +298,7 @@ pub(super) fn compose_snapshot(daemon: Result<Value, Value>, app: Result<Value, 
         "screens": daemon_value.as_ref().and_then(|value| value.get("screens")).cloned().unwrap_or_else(|| json!([])),
         "panes": daemon_value.as_ref().and_then(|value| value.get("panes")).cloned().unwrap_or_else(|| json!([])),
         "tabs": daemon_value.as_ref().and_then(|value| value.get("tabs")).cloned().unwrap_or_else(|| json!([])),
+        "surfaces": daemon_value.as_ref().and_then(|value| value.get("surfaces")).cloned().or_else(|| daemon_value.as_ref().and_then(|value| value.get("tabs")).cloned()).unwrap_or_else(|| json!([])),
         "terminals": daemon_value.as_ref().and_then(|value| value.get("terminals")).cloned().unwrap_or_else(|| json!([])),
         "focus": topology.and_then(|value| value.get("focus")).cloned().or_else(|| daemon_value.as_ref().and_then(|value| value.get("focus")).cloned()).unwrap_or(Value::Null),
         "selection": selection(topology, daemon_value.as_ref()),
@@ -317,6 +324,7 @@ fn selection(topology: Option<&Value>, daemon: Option<&Value>) -> Value {
         "workspace": focus.and_then(|value| value.get("workspace")).cloned().unwrap_or(Value::Null),
         "pane": focus.and_then(|value| value.get("pane")).cloned().unwrap_or(Value::Null),
         "tab": focus.and_then(|value| value.get("tab")).cloned().unwrap_or(Value::Null),
+        "surface": focus.and_then(|value| value.get("surface")).cloned().or_else(|| focus.and_then(|value| value.get("tab")).cloned()).unwrap_or(Value::Null),
     })
 }
 
@@ -344,7 +352,9 @@ mod tests {
         );
         assert_eq!(value["windows"][0]["id"], "win_a");
         assert_eq!(value["workspaces"][0]["id"], "ws_a");
+        assert_eq!(value["surfaces"][0]["id"], "tab_a");
         assert_eq!(value["selection"]["tab"], "tab_a");
+        assert_eq!(value["selection"]["surface"], "tab_a");
         assert_eq!(value["sources"]["daemon"]["available"], true);
     }
 

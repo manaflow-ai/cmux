@@ -186,6 +186,36 @@ map every operational one-shot command and parameter in
 Sensitive renderer grants and connection-owned stream/viewer controls remain
 SDK and raw-only.
 
+## Agent topology surface
+
+Agents can use one JSON-first surface for topology reads and common focus and
+layout actions. `cmux agents snapshot` combines the session daemon's stable
+workspace, screen, pane, tab, surface, terminal and focus records with the
+native app's window and dialog state. A surface is the public tab placement,
+so `surfaces` and `tabs` carry the same stable tab IDs when the daemon does not
+provide a separate surface collection.
+
+Mutations return the operation result and a fresh `state` snapshot. Use an
+explicit `--idempotency-key` for a retryable mutation. If the app or daemon is
+temporarily unavailable, the JSON error includes a retryable code and source
+diagnostics instead of silently waiting.
+
+```text
+cmux agents snapshot
+cmux agents workspace select <workspace-id>
+cmux agents workspace create [--name <name>] [--empty]
+cmux agents tab select <tab-id>
+cmux agents surface focus <surface-id>
+cmux agents surface split <left|right|up|down> [--surface <surface-id>]
+cmux agents palette open
+cmux agents dialog list [--all]
+cmux agents dialog answer <request-id> --mode <mode>
+cmux agents dialog answer <request-id> --selection <value>
+```
+
+The stdio MCP server exposes `agents_snapshot` alongside the existing daemon
+and app tools. It is read-only and has no network listener.
+
 ## Shorthands
 
 `cmux help shorthands` lists the supported spellings. Every shorthand lowers to
