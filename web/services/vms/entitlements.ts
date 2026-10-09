@@ -208,7 +208,7 @@ export const GO_MEMORY_UPGRADE_PLAN_ID = PRO_PLAN_ID;
 export function upgradePlanForMemory(memoryMb: number, currentPlanId: string, env: Record<string, string | undefined> = process.env): string | null {
   const current = normalizedPlanId(currentPlanId);
   if (current === MAX_PLAN_ID) return null;
-  if ((current === GO_PLAN_ID || current === "free") && memoryMb <= maxMemoryMbForPlan(PRO_PLAN_ID, env)) return PRO_PLAN_ID;
+  if ((current === GO_PLAN_ID || current === "free" || !isPaidPlanId(current)) && memoryMb <= maxMemoryMbForPlan(PRO_PLAN_ID, env)) return PRO_PLAN_ID;
   return memoryMb <= maxMemoryMbForPlan(MAX_PLAN_ID, env) ? MAX_PLAN_ID : null;
 }
 
@@ -224,7 +224,7 @@ export function maxMemoryMbForPlan(
     ? MAX_PLAN_MAX_MEMORY_MB
     : normalized === GO_PLAN_ID
       ? GO_PLAN_MAX_MEMORY_MB
-      : normalized === "free"
+      : normalized === "free" || !isPaidPlanId(normalized)
         ? FREE_PLAN_MAX_MEMORY_MB
         : PLAN_MAX_MEMORY_MB;
   if (specific?.trim()) return Math.min(ceiling, positiveInteger(specific, `CMUX_VM_PLAN_${planKey}_MAX_MEMORY_MB`));
@@ -283,7 +283,7 @@ export function lockedMemoryOptionsMbForPlan(
   const max = maxMemoryMbForPlan(planId, env);
   const locked = VM_MEMORY_OPTIONS_MB.filter((mb) => mb > max);
   const normalized = normalizedPlanId(planId ?? "");
-  const candidateUpgradePlanId = normalized === GO_PLAN_ID || normalized === "free"
+  const candidateUpgradePlanId = normalized === GO_PLAN_ID || normalized === "free" || !isPaidPlanId(normalized)
     ? GO_MEMORY_UPGRADE_PLAN_ID
     : MEMORY_UPGRADE_PLAN_ID;
   const upgradePlanId = locked.length > 0 && normalized !== candidateUpgradePlanId &&

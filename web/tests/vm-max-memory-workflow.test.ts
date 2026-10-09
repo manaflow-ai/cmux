@@ -220,7 +220,13 @@ test("paid access allows legacy rows without a reservation during migration", as
     providerMetadata: {},
   };
   const repo = { findUserVm: () => Effect.succeed(row) } as unknown as VmRepositoryShape;
-  const providers = {} as VmProviderGatewayShape;
+  const providers = {
+    getStats: () => Effect.fail(new VmProviderOperationError({
+      provider: "freestyle",
+      operation: "getStats",
+      cause: "legacy stats unavailable",
+    })),
+  } as unknown as VmProviderGatewayShape;
   const layer = Layer.mergeAll(
     Layer.succeed(VmRepository, repo),
     Layer.succeed(VmProviderGateway, providers),
@@ -370,6 +376,7 @@ test("an idempotent create retry returns a grandfathered oversized row to Pro", 
     },
   };
   const repo = {
+    findCreateByIdempotencyKey: () => Effect.succeed(existing),
     beginCreate: () => Effect.succeed({ inserted: false as const, vm: existing }),
     findNetwork: () => Effect.succeed({
       id: "network",
@@ -402,6 +409,8 @@ test("an idempotent create retry returns a grandfathered oversized row to Pro", 
     maxActiveVms: 5,
     provider: "freestyle",
     image: "snapshot",
+    memoryMb: 65536,
+    imageSize: { name: "2xl", cpu: 32, memoryMb: 65536, storageMb: 131072 },
     idempotencyKey: "retry",
   }).pipe(Effect.provide(layer)));
 
