@@ -682,17 +682,25 @@ impl Hub {
     /// the background at daemon start so the picker is full before the first
     /// session exists.
     pub async fn probe_models(self: &Arc<Self>) {
-        self.probe_models_with(false, false).await;
+        self.probe_models_with(false, false, None).await;
     }
 
     /// `daemon models --refresh`: forget every reported catalog, probe every
     /// ACP harness again, and wait for the answers (bounded).
     pub async fn refresh_models(self: &Arc<Self>) {
         self.known_models.lock().unwrap().clear();
-        self.probe_models_with(true, true).await;
+        self.probe_models_with(true, true, None).await;
     }
 
-    pub(super) async fn probe_models_with(self: &Arc<Self>, force: bool, wait: bool) {
+    /// `only`: probe these harnesses alone (`allow_probes`); None: every
+    /// harness the probe list allows.
+    pub(super) async fn probe_models_with(
+        self: &Arc<Self>,
+        force: bool,
+        wait: bool,
+        only: Option<std::collections::BTreeSet<String>>,
+    ) {
+        let picked = |n: &str| only.as_ref().is_none_or(|o| o.contains(n));
         let agents: Vec<(String, HarnessProfile)> = {
             let cfg = self.config.read().await;
             let known = self.known_models.lock().unwrap();
@@ -702,6 +710,7 @@ impl Hub {
                     p.kind == crate::config::HarnessKind::Acp
                         && (force || !known.contains_key(*n))
                         && self.probes(n)
+                        && picked(n)
                 })
                 .map(|(n, p)| (n.clone(), p.clone()))
                 .collect()
@@ -709,7 +718,8 @@ impl Hub {
         // Claude Code's and Codex's own lists, beside the ACP probes.
         let live = {
             let hub = self.clone();
-            tokio::spawn(async move { hub.probe_live_models(wait).await })
+            let only = only.clone();
+            tokio::spawn(async move { hub.probe_live_models(wait, only).await })
         };
         let mut handles = vec![live];
         for (name, profile) in agents {

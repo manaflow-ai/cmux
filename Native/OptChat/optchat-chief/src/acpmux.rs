@@ -882,6 +882,13 @@ impl AgentPort for Acpmux {
             .map_err(|e| format!("set_mode {mode}: {e}"))
     }
 
+    fn probe_models(&self, harness: &str) -> Result<(), String> {
+        self.client()?
+            .request("_acpmux/models", json!({"probe": [harness]}))
+            .map(|_| ())
+            .map_err(|e| format!("models probe: {e}"))
+    }
+
     fn harness_catalog(&self) -> Result<Value, String> {
         self.client()?
             .request("_acpmux/harnesses", json!({}))

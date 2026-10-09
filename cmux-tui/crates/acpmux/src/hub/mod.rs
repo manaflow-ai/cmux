@@ -350,7 +350,13 @@ impl Hub {
     /// probe list and are probed now, in the background, so their model
     /// lists arrive without a daemon restart.
     pub async fn allow_probes(self: &Arc<Self>, names: std::collections::BTreeSet<String>) {
-        let _ = names;
+        if let Some(list) =
+            self.probe_only.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_mut()
+        {
+            list.extend(names.iter().cloned());
+        }
+        let hub = self.clone();
+        tokio::spawn(async move { hub.probe_models_with(false, false, Some(names)).await });
     }
 
     /// Whether the model probes may start harness `name`.
