@@ -181,9 +181,21 @@
       "scope": "chief:write",
       "class": "mutation"
     },
+    "chief.engine.get": {
+      "scope": "chief:read",
+      "class": "read"
+    },
+    "chief.engine.set": {
+      "scope": "chief:write",
+      "class": "mutation"
+    },
     "chief.list": {
       "scope": "chief:read",
       "class": "read"
+    },
+    "chief.stop": {
+      "scope": "chief:write",
+      "class": "mutation"
     },
     "chief.update": {
       "scope": "chief:write",
@@ -1733,7 +1745,9 @@
     "stream.cancel",
     "tab.close",
     "tab_group.close",
+    "team.audit.list",
     "team.enrollment_token.revoke",
+    "team.members.remove",
     "team_vm.rebuild",
     "team_vm.retired.delete",
     "team_vm.retired.export",

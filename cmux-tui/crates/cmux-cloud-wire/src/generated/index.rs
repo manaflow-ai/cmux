@@ -136,6 +136,7 @@ pub mod op_names {
     pub const SSO_CONNECTION_DISABLE: &str = "sso.connection.disable";
     pub const SSO_CONNECTION_LIST: &str = "sso.connection.list";
     pub const SSO_CONNECTION_SET_SECRET: &str = "sso.connection.set_secret";
+    pub const TEAM_AUDIT_LIST: &str = "team.audit.list";
     pub const TEAM_DEVICE_COMPLIANCE: &str = "team.device.compliance";
     pub const TEAM_DEVICE_ENROLL: &str = "team.device.enroll";
     pub const TEAM_DEVICE_POLICY: &str = "team.device.policy";
@@ -148,6 +149,7 @@ pub mod op_names {
     pub const TEAM_HOSTS_LIST: &str = "team.hosts.list";
     pub const TEAM_INTEGRATION_RELEASE_LOCK: &str = "team.integration.release_lock";
     pub const TEAM_MEMBERS_LIST: &str = "team.members.list";
+    pub const TEAM_MEMBERS_REMOVE: &str = "team.members.remove";
     pub const TEAM_POLICY_GET: &str = "team.policy.get";
     pub const TEAM_POLICY_HISTORY: &str = "team.policy.history";
     pub const TEAM_POLICY_ROLLBACK: &str = "team.policy.rollback";
@@ -313,6 +315,7 @@ pub mod op_names {
         SSO_CONNECTION_DISABLE,
         SSO_CONNECTION_LIST,
         SSO_CONNECTION_SET_SECRET,
+        TEAM_AUDIT_LIST,
         TEAM_DEVICE_COMPLIANCE,
         TEAM_DEVICE_ENROLL,
         TEAM_DEVICE_POLICY,
@@ -325,6 +328,7 @@ pub mod op_names {
         TEAM_HOSTS_LIST,
         TEAM_INTEGRATION_RELEASE_LOCK,
         TEAM_MEMBERS_LIST,
+        TEAM_MEMBERS_REMOVE,
         TEAM_POLICY_GET,
         TEAM_POLICY_HISTORY,
         TEAM_POLICY_ROLLBACK,
@@ -493,6 +497,7 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "sso.connection.disable" => visitor.visit::<SsoConnectionDisableOp>(),
         "sso.connection.list" => visitor.visit::<SsoConnectionListOp>(),
         "sso.connection.set_secret" => visitor.visit::<SsoConnectionSetSecretOp>(),
+        "team.audit.list" => visitor.visit::<TeamAuditListOp>(),
         "team.device.compliance" => visitor.visit::<TeamDeviceComplianceOp>(),
         "team.device.enroll" => visitor.visit::<TeamDeviceEnrollOp>(),
         "team.device.policy" => visitor.visit::<TeamDevicePolicyOp>(),
@@ -505,6 +510,7 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "team.hosts.list" => visitor.visit::<TeamHostsListOp>(),
         "team.integration.release_lock" => visitor.visit::<TeamIntegrationReleaseLockOp>(),
         "team.members.list" => visitor.visit::<TeamMembersListOp>(),
+        "team.members.remove" => visitor.visit::<TeamMembersRemoveOp>(),
         "team.policy.get" => visitor.visit::<TeamPolicyGetOp>(),
         "team.policy.history" => visitor.visit::<TeamPolicyHistoryOp>(),
         "team.policy.rollback" => visitor.visit::<TeamPolicyRollbackOp>(),

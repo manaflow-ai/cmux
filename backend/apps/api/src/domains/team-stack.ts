@@ -4,6 +4,7 @@ import { decodeParams, internalOps, reject } from "./common.ts"
 import { memberOf, memberUpsert, teamIndexItem, type Member } from "./team-members.ts"
 import type { TeamState } from "./team.ts"
 import { appendAudit } from "./team-audit.ts"
+import { usesSeat } from "./team-roles.ts"
 
 /**
  * Shared (Stack) teams in TeamDO (cx-3bi.43). TeamDO asks Stack for the current team and
@@ -40,6 +41,9 @@ export const reduceStackMirror = (state: TeamState, params: unknown, ctx: Reduce
   }
 }
 
+/** Paid seats in use: every member but guests (spec H12). A head from before cx-3bi.4 had only seat roles, so its member count is its seat count. */
+export const seatsOf = (state: TeamState) => state.seat_count ?? state.member_count ?? 0
+
 export const reduceMemberProvision = (state: TeamState, params: unknown, ctx: ReduceContext) => {
   if (!ownSubmit(ctx)) return reject("auth.forbidden", "internal op")
   const d = decodeParams<typeof TeamMemberProvisionParams.Type>(internalOps.get("team.member.provision")!, params)
@@ -47,17 +51,24 @@ export const reduceMemberProvision = (state: TeamState, params: unknown, ctx: Re
   const v = d.value
   if (!state.team || state.team.kind !== "stack") return reject("validation.invalid", "only a Stack team takes provisioned members")
   if (teamDeleted(state)) return { ok: true as const, state, value: { user: v.user, added: false }, changed: false }
-  // An existing member keeps their role and name: role changes are team roles (cx-3bi.4), not Stack's membership.
-  if (memberOf(state, ctx.rows, v.user)) return { ok: true as const, state, value: { user: v.user, added: false }, changed: false }
-  const member: Member = { user: v.user, role: v.role, display_name: v.display_name }
+  const prior = memberOf(state, ctx.rows, v.user)
+  // An existing member keeps their name; their role follows Stack's permissions as read now (cx-3bi.4), so a demotion in Stack demotes here.
+  if (prior && prior.role === v.role) return { ok: true as const, state, value: { user: v.user, added: false }, changed: false }
+  const member: Member = prior ? { ...prior, role: v.role } : { user: v.user, role: v.role, display_name: v.display_name }
+  const seats = seatsOf(state)
+  const seatCount = seats - (prior && usesSeat(prior.role) ? 1 : 0) + (usesSeat(member.role) ? 1 : 0)
+  const next: TeamState = { ...state, member_count: (state.member_count ?? 0) + (prior ? 0 : 1), seat_count: seatCount }
+  const summary = prior ? `role of ${v.user} changed in Stack: ${prior.role} -> ${member.role}` : `${v.user} joined from Stack as ${member.role}`
+  const a = appendAudit(next, state.team.id, ctx, "team.member.provision", summary, { user: v.user, role: member.role, ...(prior ? { previous_role: prior.role } : {}), seats_before: seats, seats_after: seatCount, source: "stack" }, seats === seatCount ? "admin" : "billing")
   return {
     ok: true as const,
-    state: { ...state, member_count: (state.member_count ?? 0) + 1 },
+    state: a.state,
     writes: [memberUpsert(member)],
-    value: { user: v.user, added: true },
+    value: { user: v.user, added: !prior, role: member.role },
     outbox: [
       { kind: "membership.upsert", entity: `${state.team.id}:${v.user}`, payload: { team: state.team.id, ...member } },
-      teamIndexItem(state.team, v.user, member.role, ctx.tx)
+      teamIndexItem(state.team, v.user, member.role, ctx.tx),
+      a.outbox
     ]
   }
 }

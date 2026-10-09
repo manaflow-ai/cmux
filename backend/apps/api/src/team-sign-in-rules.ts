@@ -1,4 +1,5 @@
 import { roleOf, type RowsWithScan } from "./domains/team-members.ts"
+import { roleHas } from "./domains/team-roles.ts"
 import { currentPolicy, enforcedOn, ssoServable, type PolicyValues } from "./domains/team-policy.ts"
 import { connectionForDomain } from "./domains/team-sso.ts"
 import type { TeamState } from "./domains/team.ts"
@@ -29,7 +30,7 @@ export const signInRulesOf = (state: TeamState, rows: RowsWithScan | undefined, 
   const min = values["updates.minimumVersion"]?.value
   const classes = values["agents.allowedClasses"]?.value
   return {
-    sso_required: enforce && (role !== "owner" || owners),
+    sso_required: enforce && (!roleHas(role, "team.owner") || owners),
     minimum_version: typeof min === "string" ? min : null,
     allowed_classes: Array.isArray(classes) ? (classes as Array<string>) : ["mux", "agent", "run"]
   }

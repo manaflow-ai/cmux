@@ -4,6 +4,19 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_enum! {
+    TeamPolicyValuesMcpServerValue {
+        UserChoice = "user_choice",
+        Disabled = "disabled",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesMcpServer {
+    pub value: TeamPolicyValuesMcpServerValue,
+    pub mode: PolicyMode,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamPolicyValuesMcpRemoteTransport {
     pub value: bool,
@@ -200,6 +213,16 @@ pub struct TeamPolicyVersion {
     pub at: i64,
     pub reason: Option<String>,
     pub rollback_of: Option<i64>,
+}
+
+wire_enum! {
+    TeamRole {
+        Owner = "owner",
+        Admin = "admin",
+        Member = "member",
+        Billing = "billing",
+        Guest = "guest",
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

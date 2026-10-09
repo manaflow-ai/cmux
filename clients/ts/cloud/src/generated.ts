@@ -822,6 +822,17 @@ export type TargetPolicy = {
   readonly fallback: "cloud_vm" | "wait" | "fail"
 }
 
+export type TeamAuditEntry = {
+  readonly n: number
+  readonly op: string
+  readonly actor: string
+  readonly at: number
+  readonly category: "admin" | "billing"
+  readonly summary: string
+  readonly detail: unknown
+  readonly hash: string
+}
+
 export type TeamDomain = {
   readonly domain: EmailDomain
   readonly state: "pending" | "verified" | "lost" | "lapsed"
@@ -854,7 +865,7 @@ export type TeamJournalStream = "tasks" | "mail" | "memory" | "files"
 
 export type TeamMember = {
   readonly user: UserId
-  readonly role: "owner" | "admin" | "member"
+  readonly role: TeamRole
   readonly display_name: string
 }
 
@@ -994,6 +1005,8 @@ export type TeamPolicyVersion = {
   readonly reason: string | null
   readonly rollback_of: number | null
 }
+
+export type TeamRole = "owner" | "admin" | "member" | "billing" | "guest"
 
 export type TeamVmAccountUser = {
   readonly user: string
@@ -2804,6 +2817,20 @@ export interface CloudOps {
       readonly accepted_at: number
     }
   }
+  /** Read the team's audit records, newest first (owners and admins: all; billing: billing records only). */
+  readonly "team.audit.list": {
+    readonly params: {
+      readonly team?: TeamId
+      readonly before?: number
+      readonly limit?: number
+    }
+    readonly result: {
+      readonly team: TeamId
+      readonly entries: ReadonlyArray<TeamAuditEntry>
+      readonly next_cursor: number | null
+      readonly revision: string
+    }
+  }
   /** Per managed device: the last status report and whether it is compliant (applied the current policy version, no MDM conflicts). Owners and admins; readable by a customer dashboard through an admin's session or install token. */
   readonly "team.device.compliance": {
     readonly params: Readonly<Record<string, never>>
@@ -2928,14 +2955,25 @@ export interface CloudOps {
       readonly team?: TeamId
       readonly cursor?: string
       readonly limit?: number
-      readonly role?: "owner" | "admin" | "member"
+      readonly role?: TeamRole
     }
     readonly result: {
       readonly team: TeamId
       readonly members: ReadonlyArray<TeamMember>
       readonly member_count: number | "Infinity" | "-Infinity" | "NaN"
+      readonly seat_count?: number | "Infinity" | "-Infinity" | "NaN"
       readonly next_cursor: string | null
       readonly revision: string
+    }
+  }
+  /** Remove a member from the team. Owners remove admins; admins remove members, guests and billing members; an owner must be demoted in Stack first. In a person's session only. */
+  readonly "team.members.remove": {
+    readonly params: {
+      readonly user: UserId
+    }
+    readonly result: {
+      readonly user: UserId
+      readonly removed: boolean
     }
   }
   /** Read the team policy (current or a retained past version). Every member may read it; clients apply its device-scoped keys. */
@@ -3230,6 +3268,7 @@ export const cloudOpMeta = {
   "team_vm.ssh_cert.revoke": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "team_vm.status": { class: "read", owner: "cloud:TeamVmDO", risk: "read" },
   "team_vm.taint.accept": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
+  "team.audit.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.device.compliance": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.device.enroll": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },
   "team.device.policy": { class: "read", owner: "cloud:TeamDO", risk: "read" },
@@ -3242,6 +3281,7 @@ export const cloudOpMeta = {
   "team.hosts.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.integration.release_lock": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "team.members.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
+  "team.members.remove": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
   "team.policy.get": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.policy.history": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.policy.rollback": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },

@@ -22,6 +22,7 @@ declare namespace Cmux {
   type CellPixelsResult = { width_px: number; height_px: number; resized_terminals: Array<string /* terminal_… */>; failures: Record<string, string> }
   type ChiefBrainPlace = { host: Cmux.HostId; install: Cmux.InstallId }
   type ChiefId = string
+  type ChiefStopResult = { stopped: boolean; subagents?: Array<string>; note?: string }
   type ClientSnapshot = { id: string /* client_… */; session_id: string /* session_… */; name: string | null; client_kind: string | null; transport: Cmux.ClientTransport; connected_seconds: string; attached_terminal_ids: Array<string /* terminal_… */>; sizes: Array<Cmux.ClientTerminalSize>; self: boolean; extra?: Record<string, Cmux.JsonValue> }
   type ClientTerminalSize = { terminal_id: string /* terminal_… */; cols: number | null; rows: number | null; participating: boolean }
   type ClientToken = string
@@ -57,14 +58,14 @@ declare namespace Cmux {
   type ConversationMessage = { id: string; conversation: string; seq: number; client_msg_id: string; author: string; parts: Array<Cmux.JsonValue>; reply_to?: Cmux.ConversationPartRef; created_at: string; edited_at?: string; retracted_at?: string; reactions: Array<Cmux.JsonValue>; origin?: Cmux.ConversationOrigin }
   type ConversationMessageItem = { type: "message" | "message_updated"; conversation: string; rev: number; message: Cmux.ConversationMessage }
   type ConversationOrigin = { kind: "remote"; install: string }
-  type ConversationPage = { conversation: Cmux.ConversationSummary; messages: Array<Cmux.ConversationMessage> }
+  type ConversationPage = { conversation: Cmux.ConversationSummary; messages: Array<Cmux.ConversationMessage>; typing: Array<string> }
   type ConversationParticipant = { id: string; kind: "human" | "agent"; display_name: string; agent_class?: "mux" | "agent"; acp_session?: string; person?: string }
   type ConversationPartRef = { message_id: string; part_index: number }
   type ConversationPublishResult = { published: boolean }
   type ConversationReadCursorItem = { type: "read_cursor"; conversation: string; rev: number; participant: string; seq: number }
   type ConversationSearchHit = { conversation: string; title: string; seq: number; message_id: string; author: string; created_at: string; snippet: string }
   type ConversationSendResult = { message: Cmux.ConversationMessage; rev: number }
-  type ConversationSnapshotItem = { type: "snapshot"; reset_reason: "initial" | "cursor_expired"; conversation: Cmux.ConversationSummary; messages: Array<Cmux.ConversationMessage> }
+  type ConversationSnapshotItem = { type: "snapshot"; reset_reason: "initial" | "cursor_expired"; conversation: Cmux.ConversationSummary; messages: Array<Cmux.ConversationMessage>; typing: Array<string> }
   type ConversationSummary = { id: string; owner: "local"; title: string; participants: Array<Cmux.ConversationParticipant>; last_seq: number; rev: number; created_at: string; updated_at: string; last_message?: Cmux.ConversationMessage; read_cursors: Record<string, number> }
   type ConversationTypingItem = { type: "typing"; conversation: string; participant: string; on: boolean }
   type CreatedBrowserPath = { kind: "browser"; workspace_id: string /* workspace_… */; screen_id: string /* screen_… */; pane_id: string /* pane_… */; tab_id: string /* tab_… */; browser_id: string /* browser_… */ }
@@ -300,14 +301,16 @@ declare namespace Cmux {
   type TabGroupSnapshot = { id: Cmux.StateId; pane_id: string /* pane_… */; name: string; color: Cmux.GroupColor; collapsed: boolean; tab_ids: Array<string /* tab_… */>; saved_tab_group_id: Cmux.StateId | null }
   type TabSnapshot = { id: string /* tab_… */; pane_id: string /* pane_… */; name: string | null; index: number; focused: boolean; content_kind: "terminal" | "browser" | "conversation"; content_id: unknown; extra?: Record<string, Cmux.JsonValue> }
   type TargetPolicy = unknown
+  type TeamAuditEntry = { n: number; op: string; actor: string; at: number; category: "admin" | "billing"; summary: string; detail: string; hash: string }
   type TeamDomain = { domain: Cmux.EmailDomain; state: "pending" | "verified" | "lost" | "lapsed"; record_name: string; record_value: string; requested_at: number; expires_at: number; verified_at: number | null; last_checked_at?: number; check_failures?: number }
   type TeamId = string
   type TeamIntegrationPolicy = { allowed_providers: Array<Cmux.IntegrationProvider> | null; github: { scope: "linking_user_repos" | "installation"; require_org_admin: boolean; repo_allowlist: Array<Cmux.RepoPattern> | null }; source: "default" | "admin" | "sso" | "mdm" | "team_policy"; locked: boolean; updated_at: number | null; updated_by: string | null }
   type TeamJournalStream = "tasks" | "mail" | "memory" | "files"
-  type TeamMember = { user: Cmux.UserId; role: "owner" | "admin" | "member"; display_name: string }
+  type TeamMember = { user: Cmux.UserId; role: Cmux.TeamRole; display_name: string }
   type TeamPolicy = { version: number; values: Cmux.TeamPolicyValues; updated_at: number | null; updated_by: string | null }
   type TeamPolicyValues = { "github.repoScope"?: { value: "linking_user_repos" | "installation"; mode: Cmux.PolicyMode }; "github.requireOrgAdmin"?: { value: boolean; mode: Cmux.PolicyMode }; "github.repoAllowList"?: { value: unknown; mode: Cmux.PolicyMode }; "integrations.allowedProviders"?: { value: unknown; mode: Cmux.PolicyMode }; "mcp.server"?: { value: "user_choice" | "disabled"; mode: Cmux.PolicyMode }; "mcp.remoteTransport"?: { value: boolean; mode: Cmux.PolicyMode }; "apps.install"?: { value: "any" | "allow_list" | "disabled"; mode: Cmux.PolicyMode }; "apps.allowedTiers"?: { value: Array<"first-party" | "verified" | "community" | "unverified">; mode: Cmux.PolicyMode }; "apps.allowList"?: { value: Array<string>; mode: Cmux.PolicyMode }; "apps.forcedInstalls"?: { value: Array<string>; mode: Cmux.PolicyMode }; "computerUse.allowed"?: { value: boolean; mode: Cmux.PolicyMode }; "browserAutomation.rawCdp"?: { value: boolean; mode: Cmux.PolicyMode }; "cloud.sandboxes"?: { value: boolean; mode: Cmux.PolicyMode }; "cloud.connectServices"?: { value: Cmux.CloudConnectServices; mode: Cmux.PolicyMode }; "cloud.idlePause"?: { value: boolean; mode: Cmux.PolicyMode }; "telemetry.level"?: { value: "full" | "crash_only" | "off"; mode: Cmux.PolicyMode }; "updates.channel"?: { value: "stable" | "nightly"; mode: Cmux.PolicyMode }; "updates.minimumVersion"?: { value: string; mode: Cmux.PolicyMode }; "retention.cuaEventsDays"?: { value: number; mode: Cmux.PolicyMode }; "retention.cuaFramesDays"?: { value: number; mode: Cmux.PolicyMode }; "retention.transcriptDays"?: { value: number; mode: Cmux.PolicyMode }; "retention.auditDays"?: { value: number; mode: Cmux.PolicyMode }; "sso.enforce"?: { value: boolean; mode: Cmux.PolicyMode }; "sso.enforceForOwners"?: { value: boolean; mode: Cmux.PolicyMode }; "sso.allowGuests"?: { value: boolean; mode: Cmux.PolicyMode }; "sso.sessionMaxAgeHours"?: { value: number; mode: Cmux.PolicyMode }; "sso.idleTimeoutHours"?: { value: number; mode: Cmux.PolicyMode }; "agents.allowedClasses"?: { value: Array<"mux" | "agent" | "run">; mode: Cmux.PolicyMode }; "device.settings"?: { value: Record<string, never>; mode: Cmux.PolicyMode } }
   type TeamPolicyVersion = { version: number; values: Cmux.TeamPolicyValues; changed: Array<Cmux.PolicyKey>; actor: string | null; at: number; reason: string | null; rollback_of: number | null }
+  type TeamRole = "owner" | "admin" | "member" | "billing" | "guest"
   type TeamVmAccountUser = { user: string; uid: number; class: Cmux.SshCertClass; principals: Array<string> }
   type TeamVmError = { code: string; message: string; at: number }
   type TeamVmLeaseId = string
@@ -481,8 +484,16 @@ interface CmuxGlobal {
   chief: {
     /** `chief.create` (mutation, scope `chief:write`): Create a chief (the user's first chief is the default; use the idempotency key chief-default for it). Binds its wake queue and gives it the user's text confirmation level. brain_place (session only) names the paired server that runs its brain. */
     create: CmuxOp<{ display_name?: string; is_default?: boolean; brain_place?: Cmux.ChiefBrainPlace; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeChief>>
+    engine: {
+      /** `chief.engine.get` (read, scope `chief:read`) */
+      get: CmuxOp<{ machine?: string; session?: string }, Cmux.JsonValue>
+      /** `chief.engine.set` (mutation, scope `chief:write`) */
+      set: CmuxOp<{ machine?: string; session?: string; harness?: string; model?: string; effort?: string; speed?: string; compactor_speed?: string }, Cmux.MutationResult<Cmux.JsonValue>>
+    }
     /** `chief.list` (read, scope `chief:read`): The user's chiefs (active first, the default marked), archived ones on request, and tombstones. */
     list: CmuxOp<{ include_archived?: boolean }, { chiefs: Array<Cmux.HomeChief>; tombstones: Array<{ id: Cmux.ChiefId; owner_user: string; archived_at: Cmux.Timestamp }> }>
+    /** `chief.stop` (mutation, scope `chief:write`) */
+    stop: CmuxOp<{ machine?: string; session?: string; name?: string }, Cmux.MutationResult<Cmux.ChiefStopResult>>
     /** `chief.update` (mutation, scope `chief:write`): Rename a chief, make it the default (clears the old default in the same commit), set its harness, place its brain on a paired server or clear that (brain_place, session only), or restore it within 30 days of archiving (archived: false). */
     update: CmuxOp<{ chief: Cmux.ChiefId; expected_rev: unknown; display_name?: string; is_default?: true; harness?: string | null; archived?: false; brain_place?: Cmux.ChiefBrainPlace | null; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeChief>>
   }
@@ -1291,7 +1302,7 @@ interface CmuxGlobal {
     }
     members: {
       /** `team.members.list` (read, scope `team:read`): Page a team's members by user id (keyset: pass next_cursor as cursor), optionally one role. */
-      list: CmuxOp<{ team?: Cmux.TeamId; cursor?: string; limit?: number; role?: "owner" | "admin" | "member" }, { team: Cmux.TeamId; members: Array<Cmux.TeamMember>; member_count: unknown; next_cursor: string | null; revision: string }>
+      list: CmuxOp<{ team?: Cmux.TeamId; cursor?: string; limit?: number; role?: Cmux.TeamRole }, { team: Cmux.TeamId; members: Array<Cmux.TeamMember>; member_count: unknown; seat_count?: unknown; next_cursor: string | null; revision: string }>
     }
     policy: {
       /** `team.policy.get` (read, scope `team:read`): Read the team policy (current or a retained past version). Every member may read it; clients apply its device-scoped keys. */

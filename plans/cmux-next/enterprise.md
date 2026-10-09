@@ -174,6 +174,32 @@ Lawrence's decisions (2026-10-02):
 - (b) `billing` reads only billing-related audit entries (an audit read filtered by category).
 - (c) Only an `owner` removes or suspends an `admin`. An `admin` removes `member`, `guest` and `billing` only.
 
+### Decision proposal: team roles and their Stack source (cx-3bi.4, 2026-10-09, for the chief)
+
+Built in TeamDO (`backend/apps/api/src/domains/team-roles.ts`). Ops check grants; a role is only its bundle.
+
+| Role | Grants (default bundle) | Seat | Stack source (team permissions, `recursive=true`; first match wins) |
+| --- | --- | --- | --- |
+| owner | all: team.resources, team.manage, members.remove, members.remove_admin, audit.read, audit.read_billing, billing.manage, team.owner | yes | `$delete_team` or custom `cmux:owner` (Stack's default `team_admin`, which its team creator gets, contains `$delete_team`) |
+| admin | all but team.owner and members.remove_admin | yes | `$remove_members` or custom `cmux:admin` |
+| billing | audit.read_billing, billing.manage | yes | custom `cmux:billing` |
+| guest | none | no | custom `cmux:guest` |
+| member | team.resources | yes | anything else (Stack's default `team_member`) |
+
+- The role is read from Stack on every sync: a team event lists every member's permissions (`GET /team-permissions?team_id`), a membership or `team_permission.created/deleted` event re-reads that member. A demotion in Stack demotes in cmux at that delivery.
+- Personal teams keep their single owner (no Stack mirror).
+- Guests and billing pass team selection; TeamDO answers them by grant, and every other owner (TeamVmDO, CloudDO, SchedulerDO, ConnectionDO...) refuses a role without team.resources (`team-select.ts principalForOwner`, CloudDO socket check).
+- `team.members.remove` (new): owners remove admins, members, guests and billing; admins remove all but admins; an owner is never removed here (remove the owner permission in Stack first). A Stack team's member is removed in Stack first, then in TeamDO.
+- `team.audit.list` (new): owners and admins read every record; billing reads only `category: billing` records (any record that changes the seat count, and future billing ops). Records are kept as TeamDO rows from this change on; older ones are only in `audit_events`.
+- Seats: `seat_count` counts every role but guest (decision (a) frees guests only, so billing takes a seat).
+
+Open points for the chief:
+- Stack's own `$remove_members` lets any Stack team admin remove anyone in Stack, an admin or the creator included; cmux follows Stack, so rule (c) binds only removals made through cmux. Closing it needs Stack's `team_admin` without `$remove_members` (project config) or a cmux-only membership source.
+- A Stack demotion of the last owner leaves the cmux team with no owner (Stack is the source; no invariant is enforced for Stack teams).
+- `billing` takes a seat; reply if billing should be free like guests.
+- PlanetScale Postgres `memberships_role_check` allows only owner/admin/member: `backend/db/migrations/0007_membership_roles.sql` (contract, relaxing) must be applied before billing/guest rows project; until then those `membership.upsert` rows dead-letter (replayable). No Stack project has the `cmux:` permissions yet, so no such row exists today.
+- SSO JIT and SCIM do not exist yet; when they land, `team.member.provision` takes the same roles (default member, enterprise item 4).
+
 Pending verification (the enterprise lead's OIDC callback): the Stack server calls (user search, create user, create session) ran only against a fake. Verify them against the real Stack project on staging the next time auth code changes, before SSO sign-in is enabled for a real connection.
 
 ## P17: every policy key has an enforcement point (catalog lane, 2026-10-03)
