@@ -638,7 +638,9 @@ through it. Two rules keep that true:
   (a human reply 5 to 60 minutes later still reads the view), and each turn
   writes `promptCacheTtl` into the session directory's Claude Code project
   settings so Claude Code's own marks match. `OPTCHAT_CACHE_TTL` (`5m` or
-  `1h`) at host start, else the Chief setting `cache.ttl`
+  `1h`) at host start (Claude Code's own `FORCE_PROMPT_CACHING_5M` or
+  `CLAUDE_CODE_PROMPT_CACHE_TTL` in the host env win over it, since every
+  turn's harness inherits them), else the Chief setting `cache.ttl`
   (`optchat-chief settings set cache.ttl 5m`, from the next turn), picks
   another TTL. The native engine (a direct API call) defaults to 5 minutes
   and reads the same two at host start. A route that refuses the 1-hour TTL
