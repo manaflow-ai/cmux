@@ -17,21 +17,21 @@ type Waker = Box<dyn Fn() + Send + Sync>;
 
 /// A one-shot stop signal for one blocking loop.
 #[derive(Default)]
-pub(crate) struct StreamInterrupt {
+pub struct StreamInterrupt {
     fired: AtomicBool,
     wakers: Mutex<Vec<Waker>>,
 }
 
 impl StreamInterrupt {
-    pub(crate) fn new() -> Arc<Self> {
+    pub fn new() -> Arc<Self> {
         Arc::default()
     }
 
-    pub(crate) fn is_fired(&self) -> bool {
+    pub fn is_fired(&self) -> bool {
         self.fired.load(Ordering::Acquire)
     }
 
-    pub(crate) fn fire(&self) {
+    pub fn fire(&self) {
         if self.fired.swap(true, Ordering::AcqRel) {
             return;
         }
@@ -45,7 +45,7 @@ impl StreamInterrupt {
     /// waker must take the lock its receiver waits under before notifying,
     /// so a receiver that checked `is_fired` and is about to wait cannot miss
     /// the notification.
-    pub(crate) fn on_fire(&self, waker: impl Fn() + Send + Sync + 'static) {
+    pub fn on_fire(&self, waker: impl Fn() + Send + Sync + 'static) {
         let mut wakers = self.wakers.lock().unwrap();
         if self.is_fired() {
             drop(wakers);
@@ -59,7 +59,7 @@ impl StreamInterrupt {
 /// The interrupts to fire when one close source closes. Clones share the
 /// set; it latches, so a registration after the close fires at once.
 #[derive(Clone, Default)]
-pub(crate) struct InterruptSet {
+pub struct InterruptSet {
     inner: Arc<Mutex<InterruptSetState>>,
 }
 
@@ -70,7 +70,7 @@ struct InterruptSetState {
 }
 
 impl InterruptSet {
-    pub(crate) fn register(&self, interrupt: &Arc<StreamInterrupt>) {
+    pub fn register(&self, interrupt: &Arc<StreamInterrupt>) {
         let mut state = self.inner.lock().unwrap();
         if state.fired {
             drop(state);
@@ -81,7 +81,7 @@ impl InterruptSet {
         state.members.push(Arc::downgrade(interrupt));
     }
 
-    pub(crate) fn fire(&self) {
+    pub fn fire(&self) {
         let members = {
             let mut state = self.inner.lock().unwrap();
             state.fired = true;
@@ -109,7 +109,7 @@ pub(crate) fn wake_condvar_on<T: Send + 'static>(
 /// A capacity-one "something changed" signal (a coalescing wake), like
 /// `sync_channel::<()>(1)`, whose receiver can also be woken by a
 /// `StreamInterrupt`.
-pub(crate) fn signal() -> (SignalSender, SignalReceiver) {
+pub fn signal() -> (SignalSender, SignalReceiver) {
     let state = Arc::new((
         Mutex::new(SignalState { pending: false, sender_alive: true, receiver_alive: true }),
         Condvar::new(),
@@ -186,13 +186,13 @@ impl SignalReceiver {
     }
 
     /// Wakes a blocked `recv_until_interrupted` when `interrupt` fires.
-    pub(crate) fn wake_on(&self, interrupt: &StreamInterrupt) {
+    pub fn wake_on(&self, interrupt: &StreamInterrupt) {
         wake_condvar_on(interrupt, Arc::downgrade(&self.state));
     }
 
     /// Blocks for a signal. Returns `Timeout` once `interrupt` has fired
     /// and no signal is pending, `Disconnected` when the sender is gone.
-    pub(crate) fn recv_until_interrupted(
+    pub fn recv_until_interrupted(
         &self,
         interrupt: &StreamInterrupt,
     ) -> Result<(), RecvTimeoutError> {

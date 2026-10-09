@@ -77,16 +77,18 @@ struct PairingState {
     credentials: VecDeque<Credential>,
 }
 
-pub(crate) struct PairingBroker {
+pub struct PairingBroker {
     state: Mutex<PairingState>,
 }
 
 impl PairingBroker {
-    pub(crate) fn new() -> Self {
+    // Move-only crate split: `new` became pub for core; a Default impl would be a new API.
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
         Self { state: Mutex::new(PairingState::default()) }
     }
 
-    pub(crate) fn begin(
+    pub fn begin(
         &self,
         peer: IpAddr,
     ) -> Result<(PairingChallenge, Receiver<PairingDecision>), PairingError> {
@@ -142,14 +144,14 @@ impl PairingBroker {
         Ok((challenge, rx))
     }
 
-    pub(crate) fn respond(&self, id: u64, approve: bool) -> bool {
+    pub fn respond(&self, id: u64, approve: bool) -> bool {
         self.respond_after(id, approve, |_| Ok(())).ok().flatten().is_some()
     }
 
     /// Run a durable commit while this exact pending request is reserved,
     /// then publish the decision. Credential allocation happens before the
     /// commit, and every step after it succeeds is infallible.
-    pub(crate) fn respond_after<R>(
+    pub fn respond_after<R>(
         &self,
         id: u64,
         approve: bool,
@@ -194,11 +196,11 @@ impl PairingBroker {
         Ok(Some(committed))
     }
 
-    pub(crate) fn cancel(&self, id: u64) -> bool {
+    pub fn cancel(&self, id: u64) -> bool {
         self.state.lock().unwrap().pending.remove(&id).is_some()
     }
 
-    pub(crate) fn authenticate(&self, provided: &str) -> bool {
+    pub fn authenticate(&self, provided: &str) -> bool {
         let now = Instant::now();
         let mut state = self.state.lock().unwrap();
         Self::prune(&mut state, now);
@@ -208,7 +210,7 @@ impl PairingBroker {
             .any(|credential| constant_time_eq(provided.as_bytes(), credential.value.as_bytes()))
     }
 
-    pub(crate) fn pending(&self) -> Vec<PairingChallenge> {
+    pub fn pending(&self) -> Vec<PairingChallenge> {
         let now = Instant::now();
         let mut state = self.state.lock().unwrap();
         Self::prune(&mut state, now);
