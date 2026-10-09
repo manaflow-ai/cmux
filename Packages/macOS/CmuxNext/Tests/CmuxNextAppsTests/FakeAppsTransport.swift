@@ -8,15 +8,15 @@ import Foundation
 /// sample scene per mount. Tests can hold replies, refuse changes and drop
 /// the connection.
 @MainActor
-public final class FakeAppsTransport: AppsTransport {
+final class FakeAppsTransport: AppsTransport {
     private(set) var availability: AppsAvailability
-    public var onEvent: ((AppsTransportEvent) -> Void)?
+    var onEvent: ((AppsTransportEvent) -> Void)?
     private(set) var records: [AppRecord]
     private(set) var revision: UInt64 = 1
     /// Refuses a change before it commits (nil lets it through).
-    public var refusal: ((String, AppChange, AppOrigin) -> AppsTransportError?)?
+    var refusal: ((String, AppChange, AppOrigin) -> AppsTransportError?)?
     /// While true, `apps-set` replies wait for `releaseReplies()`.
-    public var holdsReplies = false
+    var holdsReplies = false
     private(set) var mounted: [String: (app: String, interface: String, context: AppJSON)] = [:]
     private(set) var dispatched: [(mountID: String, node: String, event: String)] = []
     private(set) var seenKeys: [String] = []
@@ -26,7 +26,7 @@ public final class FakeAppsTransport: AppsTransport {
     private var held: [CheckedContinuation<Void, Never>] = []
     private var epoch = 1
 
-    public init(records: [AppRecord] = FakeAppsTransport.sampleRecords(), available: Bool = true) {
+    init(records: [AppRecord] = FakeAppsTransport.sampleRecords(), available: Bool = true) {
         self.records = records
         availability = available ? .available(epoch: 1) : .unavailable(.needsNewerDaemon)
     }
@@ -35,7 +35,7 @@ public final class FakeAppsTransport: AppsTransport {
     /// required scopes granted), then the samples: agent-status as a default
     /// app, the others available and not installed. Reads the bundled manifests from
     /// disk (tests and demos only, never the shipping store path).
-    public static func sampleRecords() -> [AppRecord] {
+    static func sampleRecords() -> [AppRecord] {
         let firstParty = AppPlatformResources.firstPartyManifests().map { sample in
             var record = AppRecord(manifest: sample.manifest, tier: .firstParty, installed: true, source: .default,
                                    grants: Set(sample.manifest.scopes.map(\.scope)))
@@ -52,10 +52,10 @@ public final class FakeAppsTransport: AppsTransport {
         }
     }
 
-    public func start() {}
+    func start() {}
 
     /// Drops or restores the connection (a restored one is a new epoch).
-    public func setAvailable(_ available: Bool, reason: AppsUnavailableReason = .notConnected) {
+    func setAvailable(_ available: Bool, reason: AppsUnavailableReason = .notConnected) {
         if available {
             epoch += 1
             availability = .available(epoch: epoch)
@@ -65,19 +65,19 @@ public final class FakeAppsTransport: AppsTransport {
         onEvent?(.availability(availability))
     }
 
-    public func releaseReplies() {
+    func releaseReplies() {
         let waiting = held
         held.removeAll()
         for continuation in waiting { continuation.resume() }
     }
 
-    public func list() async throws(AppsTransportError) -> AppsListReply {
+    func list() async throws(AppsTransportError) -> AppsListReply {
         try requireAvailable()
         listCalls += 1
         return AppsListReply(revision: revision, apps: records)
     }
 
-    public func set(app: String, change: AppChange, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppRecord {
+    func set(app: String, change: AppChange, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppRecord {
         try requireAvailable()
         if holdsReplies {
             await withCheckedContinuation { held.append($0) }
@@ -107,7 +107,7 @@ public final class FakeAppsTransport: AppsTransport {
         return next
     }
 
-    public func mount(app: String, interface: String, mountID: String, context: AppJSON) async throws(AppsTransportError) {
+    func mount(app: String, interface: String, mountID: String, context: AppJSON) async throws(AppsTransportError) {
         try requireAvailable()
         guard let record = records.first(where: { $0.id == app }) else { throw AppsTransportError(code: "apps.unknown", message: "no app \(app)") }
         let preview = context["preview"]?.boolValue == true
@@ -119,38 +119,38 @@ public final class FakeAppsTransport: AppsTransport {
         Task { @MainActor [weak self] in self?.onEvent?(.scene(mountID: mountID, ops: ops)) }
     }
 
-    public func unmount(mountID: String) async throws(AppsTransportError) {
+    func unmount(mountID: String) async throws(AppsTransportError) {
         mounted[mountID] = nil
     }
 
-    public func dispatch(mountID: String, node: String, event: String, payload: AppJSON) async throws(AppsTransportError) {
+    func dispatch(mountID: String, node: String, event: String, payload: AppJSON) async throws(AppsTransportError) {
         try requireAvailable()
         dispatched.append((mountID, node, event))
     }
 
-    public func run(app: String, op: String, args: AppJSON, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppJSON {
+    func run(app: String, op: String, args: AppJSON, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppJSON {
         try requireAvailable()
         runs.append((op, origin))
         throw AppsTransportError(code: "operation.unsupported", message: "\(op) is not supported by the demo supervisor")
     }
 
-    public func logs(app: String, follow: Bool) async throws(AppsTransportError) -> [AppLogLine] {
+    func logs(app: String, follow: Bool) async throws(AppsTransportError) -> [AppLogLine] {
         try requireAvailable()
         return [AppLogLine(id: 1, date: nil, level: "info", message: "started"), AppLogLine(id: 2, date: nil, level: "info", message: "mounted")]
     }
 
     /// The supervisor restarted the app host (crash, grant change) and
     /// re-mounted `mountID`: its first scene batch resets the tree (tests).
-    public func restartHost(mountID: String) {
+    func restartHost(mountID: String) {
         guard let mount = mounted[mountID], let record = records.first(where: { $0.id == mount.app }) else { return }
         onEvent?(.scene(mountID: mountID, ops: FakeAppScenes.scene(for: record, interface: mount.interface, preview: false), reset: true))
     }
 
     /// Pushes an event as the daemon would (tests).
-    public func emit(_ event: AppsTransportEvent) { onEvent?(event) }
+    func emit(_ event: AppsTransportEvent) { onEvent?(event) }
 
     /// Replaces a record as if another client changed it (tests).
-    public func commitElsewhere(_ record: AppRecord) {
+    func commitElsewhere(_ record: AppRecord) {
         guard let index = records.firstIndex(where: { $0.id == record.id }) else { return }
         records[index] = record
         revision += 1
