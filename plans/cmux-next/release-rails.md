@@ -257,9 +257,9 @@ The replay signs in as the AGENT test profile only (`CMUX_UITEST_STACK_EMAIL`/`_
 the environment, else the file named by `--credentials` or `CMUX_RELEASE_AGENT_CREDENTIALS`, else
 `~/.secrets/cmuxterm-dev.env`; `--credentials -` reads stdin; values never
 printed; it refuses an email equal to `CMUX_DOGFOOD_STACK_EMAIL` of the environment, that file or
-`~/.secrets/cmuxterm-dev.env`). Until the shared file is fixed (2026-10-09: its UITEST pair is the
-personal account), production runs set `CMUX_RELEASE_AGENT_CREDENTIALS=~/.secrets/cmux.env`, whose
-UITEST pair is the separate agent account; without it the step refuses. It signs in exactly as the tag does:
+`~/.secrets/cmuxterm-dev.env`; a file whose agent email is the personal one fails the step).
+`CMUX_RELEASE_AGENT_CREDENTIALS` is an optional override; the default is `~/.secrets/cmuxterm-dev.env`.
+It signs in exactly as the tag does:
 Stack password sign-in with the development project id and publishable key read from the tag's
 `AuthConfig.swift` (the project cmux-staging serves; the replay checks that first). Reads (21 for
 v0.65.0: every GET plus POST /api/client-config) go out with the client's headers (bearer, refresh
