@@ -84,6 +84,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The composer's mic: `dictation.toggle`, `.start`, `.stop`, `.cancel`,
     /// or `dictation.openSettings` with `{permission}`.
     case dictation(AgentPaneDictationCommand)
+    /// `pane.edit` with `{command}`: the composer menu's Cut, Copy, Paste or Paste as Plain Text.
+    /// Only ``AgentPageProvider`` runs it, on the user's gesture; the model refuses it.
+    case edit(AgentPaneEditCommand)
     /// `file.open` with `{path, where}`: a changed file from the changes view,
     /// in a tab beside the agent or in the text editor.
     case openFile(path: String, target: AgentPaneFileTarget)

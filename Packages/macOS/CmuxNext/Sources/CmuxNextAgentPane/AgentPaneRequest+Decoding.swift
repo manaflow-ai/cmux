@@ -199,6 +199,12 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.edit":
+            if let command = (params?["command"] as? String).flatMap(AgentPaneEditCommand.init(rawValue:)) {
+                self = .edit(command)
+            } else {
+                self = .unsupported(method)
+            }
         case "dictation.toggle": self = .dictation(.toggle)
         case "dictation.start": self = .dictation(.start)
         case "dictation.stop": self = .dictation(.stop)

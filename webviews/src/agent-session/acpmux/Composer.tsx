@@ -19,6 +19,7 @@ import {
   StopIcon,
 } from "./ComposerPickers";
 import { FileSearch } from "./FileSearch";
+import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import type { Choice } from "./ComposerPickers";
 import type { FileSearchSource } from "./fileSearchModel";
 import { commandArgs, type CmuxCommand } from "./cmuxCommands";
@@ -32,6 +33,8 @@ import type { SendBlock } from "./useFolderTrustAsk";
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
 const STOP_GUARD_MS = 600;
+
+export type ComposerEditCommand = "cut" | "copy" | "paste" | "pasteAsPlainText";
 
 export const COMPOSER_LABELS = {
   placeholder: "composer.placeholder",
@@ -53,6 +56,12 @@ export const COMPOSER_LABELS = {
   tooMany: "composer.tooMany",
   queue: "composer.queue",
   queued: "composer.queued",
+  cut: "composer.menu.cut",
+  copy: "composer.menu.copy",
+  paste: "composer.menu.paste",
+  pasteAsPlainText: "composer.menu.pasteAsPlainText",
+  attachFiles: "composer.menu.attachFiles",
+  insertMention: "composer.menu.insertMention",
 } as const satisfies Record<string, StringKey>;
 
 function attachmentErrorText(error: AttachmentError, t: Translate): string {
@@ -92,6 +101,9 @@ type Props = {
   handle?: React.Ref<ComposerHandle>;
   /// Opens the host's file and image picker; the + menu offers it only when set.
   onAttach?(): void;
+  /// The context menu's Cut, Copy, Paste and Paste as Plain Text: the host runs the web view's own
+  /// editing command (`pane.edit`). Without it those items are disabled.
+  onEdit?(command: ComposerEditCommand): void;
   /// Handles a cmux-owned slash command after the user submits it.
   onCmuxCommand?(command: CmuxCommand, args?: string): boolean | void;
   /// Reads a transcript chosen by the cmux-owned `/import` command.
@@ -143,6 +155,7 @@ export function Composer({
   accessory,
   prompt,
   onAttach,
+  onEdit,
   onCmuxCommand,
   onImportFile,
   searchFiles,
@@ -607,6 +620,51 @@ export function Composer({
     if (original !== text) edit(original, original.length);
     else if (open) setDismissed(text);
   };
+  // The prompt's context menu: the edit items, then Attach Files… and Insert Mention. Cut and Copy
+  // need a selection in the field, read when the menu opens.
+  const [fieldSelected, setFieldSelected] = useState(false);
+  const noteSelection = () => {
+    const shellInput = shellField.current;
+    if (shell && shellInput) {
+      setFieldSelected(shellInput.selectionStart !== shellInput.selectionEnd);
+      return;
+    }
+    const selection = window.getSelection();
+    const element = field.current?.element();
+    setFieldSelected(Boolean(selection && !selection.isCollapsed && element?.contains(selection.anchorNode)));
+  };
+  const runEdit = (command: ComposerEditCommand) => {
+    if (shell) shellField.current?.focus();
+    else field.current?.focus();
+    onEdit?.(command);
+  };
+  const fieldMenu: ContextMenuItem[] = [
+    { id: "cut", label: t(COMPOSER_LABELS.cut), disabled: !onEdit || !fieldSelected, onSelect: () => runEdit("cut") },
+    {
+      id: "copy",
+      label: t(COMPOSER_LABELS.copy),
+      disabled: !onEdit || !fieldSelected,
+      onSelect: () => runEdit("copy"),
+    },
+    { id: "paste", label: t(COMPOSER_LABELS.paste), disabled: !onEdit, onSelect: () => runEdit("paste") },
+    {
+      id: "pasteAsPlainText",
+      label: t(COMPOSER_LABELS.pasteAsPlainText),
+      disabled: !onEdit,
+      onSelect: () => runEdit("pasteAsPlainText"),
+    },
+    ...(onAttach
+      ? [{ id: "attach", label: t(COMPOSER_LABELS.attachFiles), separatorBefore: true, onSelect: onAttach }]
+      : []),
+    {
+      id: "mention",
+      label: t(COMPOSER_LABELS.insertMention),
+      separatorBefore: !onAttach,
+      disabled: shell,
+      onSelect: () => mention(),
+    },
+  ];
+
   return (
     <form
       ref={form}
@@ -702,55 +760,58 @@ export function Composer({
             )}
           </fieldset>
         )}
-        {/* An editable prompt that drives a listbox: a native combobox cannot hold a multi-line prompt. */}
-        <MarkdownField
-          ref={fieldRef}
-          className={shell ? "acpmux-composer-prompt is-hidden" : "acpmux-composer-prompt"}
-          value={text}
-          placeholder={t(COMPOSER_LABELS.placeholder)}
-          attributes={{
-            role: "combobox",
-            "aria-label": t(COMPOSER_LABELS.prompt),
-            "aria-multiline": "true",
-            "aria-expanded": String(open),
-            "aria-controls": open ? "acpmux-slash-menu" : undefined,
-            "aria-autocomplete": "list",
-            "aria-activedescendant": open && matches.length > 0 ? `acpmux-slash-${selected}` : undefined,
-          }}
-          onBeforeInput={(data, state) => {
-            // `!` first: shell mode, in place. A pasted `!cmd` keeps what follows the `!`.
-            if (!onShell || state.composing || !state.empty || !data.startsWith("!")) return false;
-            enterShell(data.slice(1));
-            return true;
-          }}
-          onChange={(markdown, at) => edit(markdown, at)}
-          onCaret={setCaret}
-          onKeyDown={keyDown}
-          onCompositionChange={(value) => {
-            composing.current = value;
-          }}
-        />
-        {shell && (
-          <div className="acpmux-shell-prompt">
-            <span className="acpmux-shell-glyph" aria-hidden="true">
-              !
-            </span>
-            <textarea
-              ref={shellField}
-              className="acpmux-shell-field"
-              rows={1}
-              value={shellText}
-              aria-label={t("composer.shell")}
-              placeholder={t("composer.shellPlaceholder")}
-              spellCheck={false}
-              autoCapitalize="off"
-              autoCorrect="off"
-              onChange={(event) => setShellText(event.target.value)}
-              // ui-allow: the shell field's own editing keys (Enter runs, Esc or empty Backspace leaves, Ctrl-C stops).
-              onKeyDown={shellKeyDown}
-            />
-          </div>
-        )}
+        {/* The prompt's own right-click menu (POLISH.md right-click contract); WebKit's never shows. */}
+        <ContextMenu className="acpmux-composer-field-menu" items={fieldMenu} selection="menu" onOpen={noteSelection}>
+          {/* An editable prompt that drives a listbox: a native combobox cannot hold a multi-line prompt. */}
+          <MarkdownField
+            ref={fieldRef}
+            className={shell ? "acpmux-composer-prompt is-hidden" : "acpmux-composer-prompt"}
+            value={text}
+            placeholder={t(COMPOSER_LABELS.placeholder)}
+            attributes={{
+              role: "combobox",
+              "aria-label": t(COMPOSER_LABELS.prompt),
+              "aria-multiline": "true",
+              "aria-expanded": String(open),
+              "aria-controls": open ? "acpmux-slash-menu" : undefined,
+              "aria-autocomplete": "list",
+              "aria-activedescendant": open && matches.length > 0 ? `acpmux-slash-${selected}` : undefined,
+            }}
+            onBeforeInput={(data, state) => {
+              // `!` first: shell mode, in place. A pasted `!cmd` keeps what follows the `!`.
+              if (!onShell || state.composing || !state.empty || !data.startsWith("!")) return false;
+              enterShell(data.slice(1));
+              return true;
+            }}
+            onChange={(markdown, at) => edit(markdown, at)}
+            onCaret={setCaret}
+            onKeyDown={keyDown}
+            onCompositionChange={(value) => {
+              composing.current = value;
+            }}
+          />
+          {shell && (
+            <div className="acpmux-shell-prompt">
+              <span className="acpmux-shell-glyph" aria-hidden="true">
+                !
+              </span>
+              <textarea
+                ref={shellField}
+                className="acpmux-shell-field"
+                rows={1}
+                value={shellText}
+                aria-label={t("composer.shell")}
+                placeholder={t("composer.shellPlaceholder")}
+                spellCheck={false}
+                autoCapitalize="off"
+                autoCorrect="off"
+                onChange={(event) => setShellText(event.target.value)}
+                // ui-allow: the shell field's own editing keys (Enter runs, Esc or empty Backspace leaves, Ctrl-C stops).
+                onKeyDown={shellKeyDown}
+              />
+            </div>
+          )}
+        </ContextMenu>
         <div className="acpmux-composer-bar">
           {leading !== undefined ? (
             leading

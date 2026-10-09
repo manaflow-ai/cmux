@@ -17,17 +17,24 @@ export interface ContextMenuProps {
   items: readonly ContextMenuItem[];
   children: ReactNode;
   className?: string;
+  /**
+   * "menu": a right-click over selected text opens this menu too (the surface offers its own
+   * selected-text items, such as Cut and Copy). By default a selection keeps the host's menu.
+   */
+  selection?: "menu";
+  /** Called as the menu opens, before it renders, so items can read what was under the pointer. */
+  onOpen?(): void;
 }
 
 /**
  * A point-anchored context menu for surfaces that do not use the shared Menu trigger.
  * It owns only the context-menu gesture; regular menus and selects should use `Menu`/`Select`.
- * A right-click over selected text keeps the host's native menu (Copy).
+ * A right-click over selected text keeps the host's native menu (Copy), unless `selection="menu"`.
  * The menu renders at the document root: a fixed popup inside an ancestor with a transform (or a
  * transform animation, such as a settings category's enter animation) is placed relative to that
  * ancestor, not the viewport, so it opened away from the pointer (cx-dmnf).
  */
-export function ContextMenu({ items, children, className }: ContextMenuProps) {
+export function ContextMenu({ items, children, className, selection, onOpen }: ContextMenuProps) {
   const [point, setPoint] = useState<{ x: number; y: number } | null>(null);
   const [active, setActive] = useState(0);
   const enabled = items.filter((item) => !item.disabled);
@@ -54,8 +61,9 @@ export function ContextMenu({ items, children, className }: ContextMenuProps) {
     <div
       className={cx("ui-context-menu-host", className)}
       onContextMenu={(event) => {
-        if (window.getSelection()?.isCollapsed === false) return;
+        if (selection !== "menu" && window.getSelection()?.isCollapsed === false) return;
         event.preventDefault();
+        onOpen?.();
         setActive(0);
         setPoint({ x: event.clientX, y: event.clientY });
       }}

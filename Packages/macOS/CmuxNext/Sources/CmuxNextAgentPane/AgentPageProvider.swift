@@ -27,7 +27,7 @@ public nonisolated struct AgentPageOps {
     /// Op suffix to the old bridge method that ``AgentPaneRequest`` parses.
     static let methods: [String: String] = {
         var methods = Dictionary(uniqueKeysWithValues: [
-            "pane.checkpointAvailability", "pane.framePacing", "pane.painted", "pane.renderRate", "pane.saveLog",
+            "pane.checkpointAvailability", "pane.framePacing", "pane.painted", "pane.renderRate", "pane.saveLog", "pane.edit",
             "chat.readDraft", "chat.writeDraft",
             "tab.open", "tab.typeAhead", "tab.jump", "tab.setDefaultKind",
             "newTab.remember", "newTab.inputReady", "newTab.touched", "shortcut.edit", "action.run", "file.open", "browser.open",
@@ -102,7 +102,15 @@ public final class AgentPageProvider: PageProvider {
         guard let method = AgentPageOps.method(for: op) else { throw PageError.unknownOp(op) }
         let request = AgentPaneRequest(body: ["method": method, "params": params.foundationObject])
         if case .unsupported = request { throw PageError.invalidParams(op) }
+        // An edit (a paste puts the pasteboard in the page) needs the user's click or key.
+        if case .edit = request, !context.userGesture {
+            throw PageError(code: PageNativeOp.userOnlyCode, message: "")
+        }
         guard let model = prepare(request) else { throw PageError.closed }
+        if case .edit(let command) = request {
+            model.onEdit?(command)
+            return .null
+        }
         return try Self.value(of: await model.respond(to: request))
     }
 

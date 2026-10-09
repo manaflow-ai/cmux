@@ -55,6 +55,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var header: AgentPaneHeaderHooks?
     /// Gets the composer's dictation requests (the pane's mic).
     @ObservationIgnored public var onDictation: ((AgentPaneDictationCommand) -> Void)?
+    /// Runs a composer menu edit in the web view; ``AgentPageProvider`` calls it on a gesture.
+    @ObservationIgnored public var onEdit: (@MainActor (AgentPaneEditCommand) -> Void)?
     /// Opens a changed file the page names; false when it could not.
     @ObservationIgnored public var onOpenFile: (@MainActor (URL, AgentPaneFileTarget) async -> Bool)?
     /// Opens a turn's local web page in a browser tab beside the agent;
@@ -318,6 +320,8 @@ public final class AgentPaneModel {
             guard let onEditShortcut else { return Self.unsupported("shortcut.edit") }
             onEditShortcut(kind)
             return AgentPaneReply.success()
+        // Only the page provider runs an edit, on the user's gesture.
+        case .edit: return Self.unsupported("pane.edit")
         case .dictation(let command):
             guard let onDictation else { return AgentPaneReply.failure(code: "unsupported", message: "Dictation is unavailable") }
             onDictation(command)

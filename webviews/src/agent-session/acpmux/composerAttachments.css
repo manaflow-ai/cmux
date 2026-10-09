@@ -87,3 +87,7 @@
   font-size: 12px;
   white-space: nowrap;
 }
+/* The prompt's context menu host wraps the field without a box of its own. */
+.acpmux-composer-field-menu {
+  display: contents;
+}
