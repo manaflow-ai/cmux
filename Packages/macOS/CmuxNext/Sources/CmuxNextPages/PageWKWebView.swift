@@ -10,6 +10,7 @@ import WebKit
 /// - Select All acts only inside the focused field, never over the whole page.
 /// Swipe navigation and link previews are off in ``PageWebView``. Third-party pages in browser tabs
 /// use their own views and are not affected.
+@MainActor
 final class PageWKWebView: WKWebView {
     var onUserEvent: (() -> Void)?
     /// The context menu items a page keeps: Copy (WebKit adds it only when there is a selection).
@@ -30,12 +31,24 @@ final class PageWKWebView: WKWebView {
         super.init(frame: frame, configuration: configuration)
         allowsMagnification = false
         // A choice in this view's context menu is the person's input (``menuWillSendAction(_:)``).
-        NotificationCenter.default.addObserver(self, selector: #selector(menuWillSendAction(_:)),
-                                               name: NSMenu.willSendActionNotification, object: nil)
+        // queue: .main runs the block inline for AppKit's post on main, before the action is
+        // sent; a selector into this main-actor view trapped on a post off main.
+        menuActionObserver = NotificationCenter.default.addObserver(
+            forName: NSMenu.willSendActionNotification, object: nil, queue: .main
+        ) { [weak self] note in
+            let menu = note.object as? NSMenu
+            MainActor.assumeIsolated { self?.menuWillSendAction(from: menu) } // main-proof: observer on queue: .main
+        }
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    private var menuActionObserver: (any NSObjectProtocol)?
+
+    isolated deinit {
+        if let menuActionObserver { NotificationCenter.default.removeObserver(menuActionObserver) }
+    }
 
     /// When a real key or mouse event last reached this view (`systemUptime`): a page call shortly
     /// after it is backed by the person's gesture (``hasRecentUserGesture(within:)``). Page script
@@ -70,8 +83,8 @@ final class PageWKWebView: WKWebView {
     /// An item of this view's context menu (or one of its submenus) is about to send its action:
     /// the person chose it, so the page call it leads to (a host-built Copy) follows a gesture.
     /// AppKit posts this only for a real menu choice; page script cannot.
-    @objc private func menuWillSendAction(_ notification: Notification) {
-        guard let opened = openedMenu, var menu = notification.object as? NSMenu else { return }
+    private func menuWillSendAction(from sender: NSMenu?) {
+        guard let opened = openedMenu, var menu = sender else { return }
         while menu !== opened {
             guard let parent = menu.supermenu else { return }
             menu = parent
