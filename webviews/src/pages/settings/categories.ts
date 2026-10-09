@@ -11,6 +11,7 @@ export type CategoryCard =
   | "terminalInfo"
   | "ghosttyDiagnostics"
   | "computerUse"
+  | "harnesses"
   | "spaces"
   | "browserProfiles"
   | "machines"
@@ -112,7 +113,7 @@ const SPECS: CategorySpec[] = [
       { group: "settings.group.agentChat", keys: ["app.warnBeforeClosingAgentSession"] },
       { group: "settings.group.computerUse" },
     ],
-    trail: ["computerUse"],
+    trail: ["harnesses", "computerUse"],
   },
   {
     // A core cmux feature: banners, sounds, the attention ring and the feed for agents,
