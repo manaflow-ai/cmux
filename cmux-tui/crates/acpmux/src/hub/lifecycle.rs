@@ -324,6 +324,7 @@ impl Hub {
             let fresh_id =
                 if resume.is_none() { Some(uuid::Uuid::now_v7().to_string()) } else { None };
             let effort = current_option(&meta, "effort").unwrap_or_else(|| "default".into());
+            let fast = current_option(&meta, "fast-mode").as_deref() == Some("on");
             let mode = meta
                 .modes
                 .as_ref()
@@ -350,6 +351,7 @@ impl Hub {
                     mode: mode.clone(),
                     model: model.clone(),
                     effort: effort.clone(),
+                    fast,
                     claude_session_id: known.clone(),
                 };
                 self.spawn_hosted_child(
@@ -368,6 +370,7 @@ impl Hub {
                     &model,
                     &effort,
                 );
+                *tr.fast.lock().await = fast;
                 if let Some(sid) = known {
                     *tr.session_id.lock().await = Some(sid);
                 }
