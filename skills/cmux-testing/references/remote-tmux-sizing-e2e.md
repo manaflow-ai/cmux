@@ -19,8 +19,9 @@ xcodebuild test -project cmux.xcodeproj -scheme cmux -configuration Debug \
 Scope to one scenario while iterating with `-only-testing:cmuxUITests/RemoteTmuxSizingUITests/<testName>`. Requires a local `tmux` at `/opt/homebrew/bin/tmux`, `/usr/local/bin/tmux`, or `/usr/bin/tmux` (the exact paths the suite and the `test_exec` allowlist probe); it skips when none exists.
 
 `testDisplayDisconnectRefreshesVisiblePaneGrids` needs an external display
-harness. Build and launch `scripts/create-virtual-display.m` with a 2560x1440
-mode larger than every remaining display; the test uses a 2400x1300 window. Write `/tmp/cmux-ui-test-tmux-display-harness.json`:
+harness. Build and launch `scripts/create-virtual-display.m` with a mode more than
+200 points wider and taller than every remaining display (for example, 5120x2880).
+The test sizes its window above the remaining displays. Write `/tmp/cmux-ui-test-tmux-display-harness.json`:
 
 ```json
 {"displayID": 8, "requestPath": "/path/in/test-runner-home/disconnect.request", "recordingPath": "/tmp/tmux-display-disconnect.gif"}
@@ -32,6 +33,13 @@ own display-helper process. The test moves its window onto that display,
 requests removal, and checks that columns and rows shrink, grids settle, and terminal
 content matches. `recordingPath` is optional. Remove the manifest afterward;
 without it, the disconnect scenario skips while the other scenarios still run.
+
+macOS may initially select a smaller mode. Use `--modes 5120x2880,5120x2880
+--iterations 1` to explicitly select that mode through the helper.
+
+To record `testHeightResizeSweepConvergesWithStackedPanes`, write the desired GIF
+output path into `/tmp/cmux-ui-test-tmux-height-recording.path`. The test records
+the stacked-pane sweep with height and tmux-row captions. Remove that file afterward.
 
 As a sandboxed agent, `xcodebuild` cannot run under the Bash-tool sandbox (its SwiftPM resolver's `sandbox-exec` dies with `Operation not permitted`). Run it outside the sandbox through the ssh hairpin, exactly like the build:
 

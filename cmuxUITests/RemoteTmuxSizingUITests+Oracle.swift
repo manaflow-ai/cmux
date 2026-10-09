@@ -307,10 +307,7 @@ extension RemoteTmuxSizingUITests {
                   let height = entry["content_layout_height"] as? Double else { continue }
             contentByWindow[id] = (width, height)
         }
-        let cell = try XCTUnwrap(
-            calibratedCellSizePt(),
-            "no calibrated cell size to derive the claim ceiling \(context)"
-        )
+        let cells = calibratedCellSizesPt()
         for entry in claims {
             guard let windowId = entry["window"] as? Int,
                   let claimed = entry["claimed"] as? String, claimed != "none" else { continue }
@@ -323,6 +320,7 @@ extension RemoteTmuxSizingUITests {
                 contentByWindow[windowId],
                 "@\(windowId) claimed \(claimed) with no visible window frame \(context)"
             )
+            let cell = try XCTUnwrap(cells[windowId], "@\(windowId) has no calibrated cell size \(context)")
             let ceilingCols = Int(content.width / cell.width) + 2
             let ceilingRows = Int(content.height / cell.height) + 2
             XCTAssertLessThanOrEqual(
@@ -340,22 +338,24 @@ extension RemoteTmuxSizingUITests {
         }
     }
 
-    /// The cell size in points from the first live calibration sample in
-    /// `pane_grids` (cell px over backing scale) — the divisor the claim's
-    /// own `floor(available / cell)` uses.
-    func calibratedCellSizePt() -> (width: Double, height: Double)? {
-        guard let windows = paneGridsWindows() else { return nil }
+    /// Each mirror's cell size in points; hidden siblings may use another scale.
+    func calibratedCellSizesPt() -> [Int: (width: Double, height: Double)] {
+        var cells: [Int: (width: Double, height: Double)] = [:]
+        guard let windows = paneGridsWindows() else { return cells }
         for window in windows {
+            guard let name = window["window_id"] as? String,
+                  let id = Int(name.dropFirst()) else { continue }
             for pane in window["panes"] as? [[String: Any]] ?? [] {
                 guard let calibration = pane["calibration"] as? [String: Any],
                       let cellPx = calibration["cell_px"] as? [String: Any],
                       let width = cellPx["w"] as? Double, width > 0,
                       let height = cellPx["h"] as? Double, height > 0,
                       let scale = calibration["scale"] as? Double, scale > 0 else { continue }
-                return (width / scale, height / scale)
+                cells[id] = (width / scale, height / scale)
+                break
             }
         }
-        return nil
+        return cells
     }
 
     /// The client claim, read once for either resize axis.

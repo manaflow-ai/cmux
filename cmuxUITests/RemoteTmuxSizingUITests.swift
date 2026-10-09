@@ -127,20 +127,26 @@ final class RemoteTmuxSizingUITests: XCTestCase {
         ])
         XCTAssertEqual(moved?["ok"] as? Bool, true, "could not move onto test display: \(moved ?? [:])")
         let remaining = displays.filter { ($0["display_id"] as? NSNumber)?.uint32Value != harness.displayID }
+        XCTAssertFalse(remaining.isEmpty, "disconnect harness needs a remaining display")
+        var windowSize = CGSize.zero
         for display in remaining {
             let frame = try XCTUnwrap(display["frame"] as? [String: Any])
-            XCTAssertLessThan(try XCTUnwrap(frame["width"] as? Int), 2400,
-                              "disconnect harness needs a wider display than every remaining display")
-            XCTAssertLessThan(try XCTUnwrap(frame["height"] as? Int), 1300,
-                              "disconnect harness needs a taller display than every remaining display")
+            windowSize.width = max(windowSize.width, CGFloat(try XCTUnwrap(frame["width"] as? Int)) + 200)
+            windowSize.height = max(windowSize.height, CGFloat(try XCTUnwrap(frame["height"] as? Int)) + 200)
         }
-        setMirrorWindowSize(CGSize(width: 2400, height: 1300))
+        let targetFrame = try XCTUnwrap(target["frame"] as? [String: Any])
+        XCTAssertLessThan(windowSize.width, CGFloat(try XCTUnwrap(targetFrame["width"] as? Int)),
+                          "disconnect harness needs a wider virtual display")
+        XCTAssertLessThan(windowSize.height, CGFloat(try XCTUnwrap(targetFrame["height"] as? Int)),
+                          "disconnect harness needs a taller virtual display")
+        setMirrorWindowSize(windowSize)
         // Recenter after growing so the whole window is on the test display.
         XCTAssertEqual(socketJSON(method: "window.display", params: [
             "window_id": windowID, "display": "\(displayIndex)",
         ])?["ok"] as? Bool, true)
         try startRulers(window: 0)
         try assertSettles(selectedWindow: 0, within: 10, context: "on the virtual display")
+        try assertWindowContentMatchesTmux(window: 0, context: "before display recording")
         let before = try XCTUnwrap(pushedSize(window: 0))
 
         var isRecording = false
@@ -222,9 +228,33 @@ final class RemoteTmuxSizingUITests: XCTestCase {
         for name in ["rows3", "nested"] {
             let window = try XCTUnwrap(windowId(named: name))
             XCTAssertTrue(selectTab(named: name))
-            setMirrorWindowSize(CGSize(width: 1200, height: 620))
+            setMirrorWindowSize(CGSize(width: 1200, height: 900))
             try assertSettles(selectedWindow: window, within: 10, context: "\(name) before height sweep")
             try startRulers(window: window)
+            try assertWindowContentMatchesTmux(window: window, context: "\(name) before height recording")
+            var isRecording = false
+            if name == "rows3",
+               let data = FileManager.default.contents(atPath: "/tmp/cmux-ui-test-tmux-height-recording.path"),
+               let path = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) {
+                let recording = socketJSON(method: "window.record.start", params: [
+                    "window": try XCTUnwrap(mirrorWindowId), "format": "gif", "max_seconds": 60,
+                    "max_width": 1000, "out": path,
+                ])
+                XCTAssertEqual(recording?["ok"] as? Bool, true, "height recording did not start: \(recording ?? [:])")
+                isRecording = recording?["ok"] as? Bool == true
+                _ = socketJSON(method: "window.record.note", params: ["text": "Height 900; three stacked tmux panes"])
+                Thread.sleep(forTimeInterval: 0.4)
+            }
+            defer {
+                if isRecording { _ = socketJSON(method: "window.record.stop", params: [:]) }
+            }
+            setMirrorWindowSize(CGSize(width: 1200, height: 620))
+            try assertSettles(selectedWindow: window, within: 10, context: "\(name) at height 620")
+            try assertWindowContentMatchesTmux(window: window, context: "\(name) at height 620")
+            if isRecording {
+                _ = socketJSON(method: "window.record.note", params: ["text": "Height 620; three stacked tmux panes"])
+                Thread.sleep(forTimeInterval: 0.4)
+            }
             var previous = try XCTUnwrap(pushedSize(window: window))
             var previousHeight = 620
             for height in [760, 900, 760, 620] {
@@ -236,6 +266,13 @@ final class RemoteTmuxSizingUITests: XCTestCase {
                 else { XCTAssertLessThan(claim.rows, previous.rows) }
                 try assertRootContentTracksWindow(context: "\(name) at height \(height)")
                 try assertWindowContentMatchesTmux(window: window, context: "\(name) at height \(height)")
+                print("Height resize: \(name) height \(height), tmux \(claim.cols)x\(claim.rows)")
+                if isRecording {
+                    _ = socketJSON(method: "window.record.note", params: [
+                        "text": "Height \(height); tmux \(claim.cols) columns x \(claim.rows) rows",
+                    ])
+                    Thread.sleep(forTimeInterval: 0.4)
+                }
                 previous = claim
                 previousHeight = height
             }
@@ -465,11 +502,23 @@ final class RemoteTmuxSizingUITests: XCTestCase {
         try buildLabSession()
         attachSession()
         setMirrorWindowSize(CGSize(width: 1000, height: 700))
+        let displays = try XCTUnwrap(socketJSON(method: "window.displays", params: [:])?["displays"] as? [[String: Any]])
+        let display = try XCTUnwrap(displays.first {
+            guard let frame = $0["frame"] as? [String: Any] else { return false }
+            return (frame["width"] as? Int ?? 0) > 1050 && (frame["height"] as? Int ?? 0) > 700
+        })
+        XCTAssertEqual(socketJSON(method: "window.display", params: [
+            "window_id": try XCTUnwrap(mirrorWindowId), "display": "\(try XCTUnwrap(display["index"] as? Int))",
+        ])?["ok"] as? Bool, true)
+        let frame = try XCTUnwrap(display["frame"] as? [String: Any])
+        let origin = Double(try XCTUnwrap(frame["x"] as? Int))
+            + (Double(try XCTUnwrap(frame["width"] as? Int)) - 1000) / 2
+        setMirrorWindowOrigin(x: origin)
         try assertSettles(selectedWindow: 0, within: 10, context: "before origin-only moves")
 
         let before = try XCTUnwrap(sizingCounters(), "sizing counters unavailable before moves")
         for move in 0..<50 {
-            setMirrorWindowOrigin(x: Double(20 + (move % 2) * 24))
+            setMirrorWindowOrigin(x: origin + Double((move % 2) * 24))
         }
         let after = try XCTUnwrap(sizingCounters(), "sizing counters unavailable after moves")
 
