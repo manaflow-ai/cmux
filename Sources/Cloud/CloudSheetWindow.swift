@@ -34,7 +34,12 @@ final class CloudSheetWindow {
         let controller = NSHostingController(rootView: CloudSheetContent(content: rootView, report: reporter))
         controller.sizingOptions = []
         window = NSWindow(contentViewController: controller)
-        let initialSize = controller.view.fittingSize
+        // NSHostingController's flexible root view can report its temporary
+        // attached-sheet proposal (1×0). Measure an unattached hosting view so
+        // the first window frame is based on the content's intrinsic size.
+        let initialSize = NSHostingView(
+            rootView: CloudSheetContent(content: rootView, report: reporter)
+        ).fittingSize
         initialContentSize = Self.rounded(initialSize)
         if initialSize.width > 0, initialSize.height > 0 {
             window.setContentSize(initialContentSize)
