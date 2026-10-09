@@ -17376,7 +17376,10 @@ enum BonsplitTabDragPayload {
         from pasteboard: NSPasteboard,
         registry: TabDragTransferRegistry? = nil
     ) -> Transfer? {
-        guard !DragOverlayRoutingPolicy.hasFilePreviewTransfer(pasteboard.types) else {
+        // A workspace row exports both its reorder payload and a pane merge
+        // capability; sidebar destinations must keep reading it as a reorder.
+        guard !DragOverlayRoutingPolicy.hasFilePreviewTransfer(pasteboard.types),
+              !DragOverlayRoutingPolicy.hasSidebarTabReorder(pasteboard.types) else {
             return nil
         }
         return liveTransfer(from: pasteboard, registry: registry).map(Transfer.init)

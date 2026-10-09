@@ -138,9 +138,9 @@ export function AppPricingContent({
     "month",
     attribution,
   );
-  // Max is monthly only: one checkout link, no interval parameter.
+  const maxPortalSwitch = snapshot.isPro && !isMax;
   const maxCheckoutHref =
-    snapshot.isPro && !isMax
+    maxPortalSwitch
       ? withExternalBrowserIntent(
           `/api/billing/portal?flow=switch_plan&plan=max&cmux_source=${encodeURIComponent(CHECKOUT_SOURCE_APP_PRICING)}&cmux_client=${encodeURIComponent(appStorePaymentGated ? "ios" : "mac")}`,
         )
@@ -148,9 +148,13 @@ export function AppPricingContent({
           "max",
           requestOrigin,
           cmuxScheme,
-          undefined,
+          "month",
           attribution,
         );
+  const maxCheckoutHrefs = {
+    month: maxCheckoutHref,
+    year: appPricingCheckoutURL("max", requestOrigin, cmuxScheme, "year", attribution),
+  };
   const maxComparePrice = `$${MAX_PRICING_USD.month.billedAmount} ${pricing.perMonth}`;
   const signInHref = appPricingSignInHref(cmuxScheme, params);
   const banner = pending
@@ -261,7 +265,7 @@ export function AppPricingContent({
         </PlanCard>
       ) : null}
 
-      {/* Pro: the only plan sold yearly as well as monthly. */}
+      {/* Pro: sold monthly or yearly. */}
       <ProPlanCard
         name={pricing.pro.name}
         surface="app_pricing"
@@ -291,36 +295,37 @@ export function AppPricingContent({
         <FeatureList items={proFeatures} />
       </ProPlanCard>
 
-      {/* Max: larger machines on the monthly personal plan. */}
-      <PlanCard
+      {/* Max: larger machines with the same 20% annual discount as Pro. */}
+      <ProPlanCard
         name={pricing.max.name}
-        price={`$${MAX_PRICING_USD.month.billedAmount}`}
-        period={pricing.perMonth}
+        plan="max"
+        pricing={MAX_PRICING_USD}
+        surface="app_pricing"
+        monthlyOnly={maxPortalSwitch}
+        initialInterval={firstParam(params.interval) === "month" ? "month" : "year"}
+        labels={proAnnualLabelSet}
+        checkoutHrefs={maxCheckoutHrefs}
+        location="app_pricing"
+        requiresSignIn={!pending && !snapshot.authenticated}
+        ctaLabel={pricing.max.cta}
         badge={
           isMax ? (
             <CurrentPlanBadge>{pricing.currentPlan}</CurrentPlanBadge>
           ) : null
         }
-      >
-        <PersonalPlanAction
+        action={maxAction === "checkout" ? undefined : (
+          <PersonalPlanAction
           state={maxAction}
           unavailableLabel={pending ? pricing.max.cta : undefined}
           portalVisible={portalVisible}
           resumeLabel={resumeLabel(pricing.max.name)}
-          checkout={
-            <PricingCheckoutButton
-              href={maxCheckoutHref}
-              requiresSignIn={!pending && !snapshot.authenticated}
-              location="app_pricing"
-              plan="max"
-            >
-              {pricing.max.cta}
-            </PricingCheckoutButton>
-          }
-        />
+          checkout={null}
+          />
+        )}
+      >
         <p className="mt-5 text-sm font-medium">{pricing.max.featuresLead}</p>
         <FeatureList items={pricing.max.features} />
-      </PlanCard>
+      </ProPlanCard>
     </PricingCategorySection>
   );
   const comparison = (

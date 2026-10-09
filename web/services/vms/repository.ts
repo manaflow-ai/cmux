@@ -1124,7 +1124,8 @@ function reservationMetadataForInput(
 /**
  * One pooled dimension of a live row's reservation. A row without a complete,
  * bounded marker (legacy rows, or a malformed marker) draws from the pool at
- * the plan's default machine size, never at a quota-sized historical default.
+ * the plan's conservative legacy claim until provider reconciliation records
+ * its actual shape.
  */
 function pooledResourceFieldSql(key: "vcpus" | "memoryMb", fallback: number) {
   const markerKey = sql.raw(`'${VM_RESOURCE_RESERVATION_METADATA_KEY}'`);
@@ -1197,7 +1198,7 @@ async function assertResourcePoolFits(
   });
 }
 
-/** A row's pooled share: its valid marker, or the plan default for a legacy row. */
+/** A row's pooled share: its valid marker, or the plan's conservative legacy claim. */
 function pooledReservationForRow(
   row: Pick<CloudVmRow, "providerMetadata">,
   legacy: VmComputeResources,
