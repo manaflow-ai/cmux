@@ -649,6 +649,19 @@ describe("acpmux composer pickers", () => {
     expect(doc.querySelector(".acpmux-context-ring")).toBeNull();
   });
 
+  // Dogfood 2026-10-08 ("this button does not work yet"): before the first usage update the
+  // ring opened "0% used" over an empty bar. It keeps its place (no shift when usage arrives) but
+  // is disabled until there is something to show.
+  test("before its first usage the context ring holds its place but opens nothing", async () => {
+    await render(snapshot());
+    const ring = () => doc.querySelector<HTMLButtonElement>("button.acpmux-context-ring")!;
+    expect(ring().disabled).toBe(true);
+    await act(async () => ring().click());
+    expect(doc.querySelector(".acpmux-context-pop")).toBeNull();
+    await render(snapshot({ usage: { used: 34000, size: 200000 } }));
+    expect(ring().disabled).toBe(false);
+  });
+
   test("a click on the context ring opens the usage details and Compact", async () => {
     let compacted = 0;
     const withCompact = (summary: Parameters<typeof snapshot>[0], isWorking = false) => ({
