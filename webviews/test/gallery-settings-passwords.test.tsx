@@ -32,6 +32,8 @@ for (const [name, state] of Object.entries(settings.variants)) {
     const page = await renderPage({
       mock: structuredClone(state.options ?? {}),
       path: sectionHref(state.section, state.focus),
+      agents: state.agents,
+      harnesses: state.harnesses,
     });
     try {
       await run(async () => {
