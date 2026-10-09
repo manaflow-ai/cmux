@@ -113,6 +113,39 @@ impl Link {
         }
     }
 
+    /// Sends a raw session command (`conversation-agent-token`,
+    /// `conversation-create`: the Chief's bootstrap, which has no v2
+    /// operation) and waits for its answer.
+    pub(super) fn command(&mut self, cmd: &str, params: Value) -> Result<Value, LinkError> {
+        let id = format!("chief-{}", self.next_id);
+        self.next_id += 1;
+        let mut body = match params {
+            Value::Object(map) => map,
+            _ => serde_json::Map::new(),
+        };
+        body.insert("id".into(), json!(id));
+        body.insert("cmd".into(), json!(cmd));
+        let line = Value::Object(body).to_string();
+        self.writer
+            .write_all(line.as_bytes())
+            .and_then(|()| self.writer.write_all(b"\n"))
+            .and_then(|()| self.writer.flush())
+            .map_err(|e| LinkError::Transport(e.to_string()))?;
+        loop {
+            let value = read_line(&mut self.reader)
+                .map_err(|e| LinkError::Transport(e.to_string()))?
+                .ok_or_else(|| LinkError::Transport(super::messages::messages().lost.into()))?;
+            if value.get("id").and_then(Value::as_str) != Some(&id) || value.get("type").is_some() {
+                continue;
+            }
+            if value.get("ok").and_then(Value::as_bool) == Some(true) {
+                return Ok(value.get("data").cloned().unwrap_or(Value::Null));
+            }
+            let text = |key: &str| value.get(key).and_then(Value::as_str).unwrap_or("").to_owned();
+            return Err(LinkError::Rejected { code: text("error_code"), message: text("error") });
+        }
+    }
+
     /// Turns this connection into the conversation's event stream: opens
     /// `conversation.events` (`tail` messages in its snapshot item), then a
     /// thread forwards every item to `sink` until the stream ends.

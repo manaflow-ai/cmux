@@ -676,8 +676,16 @@ so it would make 5 on the session's second request, which the API refuses.
 So a turn or a compactor node that carries our mark runs with
 `DISABLE_PROMPT_CACHING=1` in its directory's settings env: Claude Code
 places none, every request of the session reads up to our mark, and a
-turn's tool steps send their own tail uncached. A turn or node too small
-for a mark keeps Claude Code's own. Subagents never carry our mark: their
+turn's tool steps send their own tail uncached. The `<chat>` header is its
+own block, so a view with no whole 4-line block marks the header and every
+turn and node carries our mark (early turns read 93-94% instead of 86-87%,
+measured). The trade-off, measured on a 30 KB view through `sr`
+(2026-10-08): our mark wins 11x on a one-request turn and 20% at 12 tool
+steps with tiny outputs; Claude Code's own rolling marks win only past
+about 400 output tokens per step at 12 steps (32% cheaper at about 1k).
+Claude Code reads the setting at process start, so a turn cannot switch
+after its first step, and 11 of 13 real turns made 1-2 requests: every
+turn keeps our mark, and tool-heavy work goes to subagents. Subagents never carry our mark: their
 sessions are long, and Claude Code's own marks cache them step by step.
 
 `turn.start` records the marked piece and the TTL (`layout.mark`,
