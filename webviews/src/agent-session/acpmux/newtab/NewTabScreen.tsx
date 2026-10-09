@@ -395,6 +395,7 @@ function ToolsSection({
   const [openTool, setOpenTool] = React.useState<string | null>(null);
   const openMenu = React.useRef<HTMLDivElement>(null);
   const triggers = React.useRef(new Map<string, HTMLButtonElement>());
+  const menuItems = React.useRef(new Map<string, Array<HTMLButtonElement | null>>());
 
   React.useEffect(() => {
     if (!openTool) return;
@@ -405,6 +406,10 @@ function ToolsSection({
     };
     document.addEventListener("pointerdown", dismiss);
     return () => document.removeEventListener("pointerdown", dismiss);
+  }, [openTool]);
+
+  React.useLayoutEffect(() => {
+    if (openTool) menuItems.current.get(openTool)?.[0]?.focus();
   }, [openTool]);
 
   const closeMenu = (toolId: string, restoreFocus = false) => {
@@ -443,6 +448,11 @@ function ToolsSection({
                     aria-controls={menuId}
                     onClick={() => setOpenTool((current) => (current === tool.id ? null : tool.id))}
                     onKeyDown={(event) => {
+                      if (event.key === "ArrowDown" && !menuOpen) {
+                        event.preventDefault();
+                        setOpenTool(tool.id);
+                        return;
+                      }
                       if (event.key === "Escape" && menuOpen) {
                         event.preventDefault();
                         closeMenu(tool.id, true);
@@ -470,6 +480,26 @@ function ToolsSection({
                         type="button"
                         role="menuitem"
                         key={id}
+                        ref={(node) => {
+                          const items = menuItems.current.get(tool.id) ?? [];
+                          items[index] = node;
+                          menuItems.current.set(tool.id, items);
+                        }}
+                        onKeyDown={(event) => {
+                          const items = menuItems.current.get(tool.id)?.filter(Boolean) as
+                            | HTMLButtonElement[]
+                            | undefined;
+                          if (!items?.length) return;
+                          const currentIndex = items.indexOf(event.currentTarget);
+                          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                            event.preventDefault();
+                            const direction = event.key === "ArrowDown" ? 1 : -1;
+                            items[(currentIndex + direction + items.length) % items.length]?.focus();
+                          } else if (event.key === "Home" || event.key === "End") {
+                            event.preventDefault();
+                            items[event.key === "Home" ? 0 : items.length - 1]?.focus();
+                          }
+                        }}
                         onClick={() => {
                           closeMenu(tool.id);
                           onRunAction?.(id);

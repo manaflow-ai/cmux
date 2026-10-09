@@ -155,15 +155,22 @@ test("tool overflow menus expose disclosure state and dismiss on Escape or outsi
   await act(async () => trigger.click());
   expect(trigger.getAttribute("aria-expanded")).toBe("true");
   expect(menu.hidden).toBe(false);
-  expect(menu.querySelector("[role=menuitem]")).not.toBeNull();
+  const item = menu.querySelector<HTMLButtonElement>("[role=menuitem]")!;
+  expect(item).not.toBeNull();
+  expect(dom.window.document.activeElement).toBe(item);
 
   await act(async () => {
-    trigger.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    item.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
   });
   expect(trigger.getAttribute("aria-expanded")).toBe("false");
   expect(dom.window.document.activeElement).toBe(trigger);
 
-  await act(async () => trigger.click());
+  await act(async () => {
+    trigger.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+  });
+  expect(trigger.getAttribute("aria-expanded")).toBe("true");
+  expect(dom.window.document.activeElement).toBe(item);
+
   await act(async () => {
     dom.window.document.body.dispatchEvent(new dom.window.PointerEvent("pointerdown", { bubbles: true }));
   });
