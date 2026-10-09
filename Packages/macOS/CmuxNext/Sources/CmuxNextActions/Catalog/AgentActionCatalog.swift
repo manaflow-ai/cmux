@@ -14,8 +14,8 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 id: "agentPane.toggleInspector",
                 title: String(localized: "action.agentPane.toggleInspector", defaultValue: "Show ACP Inspector", bundle: .module),
                 keywords: ["agent", "acp", "acpmux", "inspector", "log", "debug"], category: .agents, symbol: "list.bullet.rectangle",
-                surfaces: [.palette], targets: [.pane], cliName: "agent toggle-acp-inspector",
-                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .guiOnly)
+                surfaces: [.palette, .contextMenu], targets: [.pane], cliName: "agent toggle-acp-inspector",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [ContextMenuPlacement(.agentChat, .inspect, 0)])
             ),
             {
                 var quick = ActionDescriptor(

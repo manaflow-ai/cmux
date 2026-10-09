@@ -7,6 +7,7 @@ Lawrence (2026-10-09): no blocking size limits beyond the existing ratchets. Man
 ## All languages
 
 - G1. One owner per piece of state. Name the owner before you write code (OWNERSHIP-PRINCIPLES.md). No second copy that is written back.
+- G10. Layer ownership: Rust owns durable state, shared state and product rules; Swift owns presentation and platform; TS webviews are views; shared rules reach Swift/TS by codegen (layer-ownership.md, rules L1-L9).
 - G2. One responsibility per file and per type: one screen, one resource, one op family, or one concern. A file name says what it owns.
 - G3. Narrow surface. Private or module-internal by default. Make an item public only when a caller outside the module needs it.
 - G4. No crash paths in runtime code. `crash_ratchet.py` (run by `check-crash-safety.sh` and safe-push) fails a module that gains one. Return a typed error.
@@ -24,7 +25,7 @@ Lawrence (2026-10-09): no blocking size limits beyond the existing ratchets. Man
 - SW4. Value types first. Model data as `struct` and `enum`; use a `class` or `actor` only for identity or shared lifetime. Use `enum` with associated values instead of flag sets and optional groups.
 - SW5. No force unwrap, `as!`, `try!`, implicitly unwrapped optional (`!` type), `fatalError` or `precondition` in runtime code. Use `guard let` with a typed error or a logged early return.
 - SW6. Thin views. An `NSView`, `NSViewController` or SwiftUI `View` renders state and forwards user intents. Decisions, I/O, parsing and state machines go into a separate model or controller type that tests can drive without a window.
-- SW7. Small types. Absolute limits for CmuxNext: 400 lines per file (tests 600), 3 top-level types per file, 1,000 lines per type including extensions (`check-no-godfiles.sh`). For other packages use the same numbers as targets. A type that grows a second responsibility splits; an extension in a second file is not a split.
+- SW7. Small types. Absolute limits for CmuxNext: 400 lines per file (tests 600), 3 top-level types per file, 1,000 lines per type including extensions (`check-no-godfiles.sh`). For other packages use the same numbers as targets. A type that grows a second responsibility splits into owner types (each owns its state); moving methods into `Type+Concern.swift` extensions is only a first step, because the type keeps every responsibility.
 - SW8. Typed errors. `enum ...Error: Error` with cases that callers can act on. Do not throw `NSError` or strings across module boundaries.
 - SW9. Swift Testing (`import Testing`, `@Test`, `#expect`) for new tests. Keep XCTest only where the file already uses it. A test uses fakes through a protocol, not real sockets or timers.
 - SW10. Dependencies come in through the initializer (protocols, clocks, file roots). No new singletons, no global mutable state.
@@ -59,6 +60,7 @@ Lawrence (2026-10-09): no blocking size limits beyond the existing ratchets. Man
 ## How agents refactor
 
 - R1. Move-only steps. A landing moves code to a better place (G2) with no behavior change. Tests pass unchanged; only their imports or paths may change. A bug found during a move becomes a bead; it is not fixed in the move.
+- R1a. Prefer owner splits: move a concern and its state into its own type that the old type owns. A file-only split (extension files, child modules) is phase 1; record the phase 2 owner design in refactor-log.md and agree it with the file's feature owner.
 - R2. One responsibility per landing, under 2,000 moved lines. Land on the newest tip, gate, push. No long-lived branch; rebase at least hourly.
 - R3. Check before you touch a file: `git log --since=3.days -- <file>` and the beads. If another lane edits the file, ask the chief first. Never edit another refactor lane's files.
 - R4. Keep the diff reviewable: move the code byte for byte, then (in the same commit) only change visibility, imports and the names needed to compile. Formatting changes go in a separate commit or not at all.

@@ -40,6 +40,9 @@ describe("runtime confinement guard (P0): writes outside cmux_vm roll back", () 
     ["a foreign key into public", "CREATE TABLE cmux_vm.z (u text REFERENCES public.users (id));", "SELECT count(*)::text AS v FROM pg_class WHERE relname = 'z'"],
     ["a GRANT on a public table", "GRANT SELECT ON public.users TO PUBLIC;", "SELECT has_table_privilege('public', 'public.users', 'SELECT')::text AS v"],
     ["a new schema", "CREATE SCHEMA other;", "SELECT count(*)::text AS v FROM pg_namespace WHERE nspname = 'other'"],
+    ["a comment on the database (shared catalog)", "COMMENT ON DATABASE postgres IS 'x';", "SELECT coalesce(shobj_description((SELECT oid FROM pg_database WHERE datname = 'postgres'), 'pg_database'), '') AS v"],
+    ["a comment on a public table", "COMMENT ON TABLE public.users IS 'x';", "SELECT coalesce(obj_description('public.users'::regclass, 'pg_class'), '') AS v"],
+    ["a comment on schema public", "COMMENT ON SCHEMA public IS 'x';", "SELECT coalesce(obj_description('public'::regnamespace, 'pg_namespace'), '') AS v"],
   ]
   for (const [what, body, probe] of outside) {
     it(`refuses ${what} and leaves the database as it was`, async () => {

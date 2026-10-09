@@ -191,11 +191,12 @@ describe("tree rules: numbering, lock, base revision", () => {
 
 describe("acceptance migration 0009 (feat-cmux-next-wg-link cec68f7fadd8)", () => {
   const fixture = readText(join(import.meta.dirname, "fixtures/0009_cmux_vm_mesh_device_address.sql"))
-  it("is refused as written: it drops a CHECK constraint and adds a validated CHECK on an existing table", async () => {
+  it("is refused as written: it drops a CHECK constraint, adds a validated CHECK and a checked column on an existing table", async () => {
     const errors = await errorsOf(fixture, "0009_cmux_vm_mesh_device_address.sql")
     expect(errors.some((e) => e.includes("DROP CONSTRAINT mesh_signed_requests_purpose_check"))).toBe(true)
     expect(errors.some((e) => e.includes("ADD CONSTRAINT mesh_signed_requests_purpose_check validated on an existing table"))).toBe(true)
-    expect(errors.length).toBe(2) // the two ADD COLUMNs (nullable, inline CHECK) are expand
+    expect(errors.some((e) => e.includes("public_ipv6: a CHECK on a new column of an existing table"))).toBe(true)
+    expect(errors.length).toBe(3) // rails-hardening-1: an inline CHECK on a new column of a live table also needs the header
   })
   it("passes with a contract header that states why the replaced CHECK only widens", async () => {
     const withHeader = `-- contract: widens mesh_signed_requests_purpose_check to a superset (adds 'address'); old writes stay valid\n${fixture}`
@@ -350,5 +351,27 @@ describe("design E (third review)", () => {
     const root = tempRoot()
     execFileSync("git", ["-C", root, "init", "-q"])
     expect((await lintTree(vm, { ...optionsFor(root), base: "0123456789abcdef0123456789abcdef01234567" })).errors.join()).toContain("does not resolve")
+  })
+})
+
+describe("rails-hardening-1: the grandfathered set is fixed in the linter (P2-3)", () => {
+  it("a lock that moves grandfatheredThrough does not exempt a new file", async () => {
+    const root = tempRoot()
+    const { addMigration, addRequirement } = await import("./helpers.ts")
+    addMigration(root, "cmux-vm", "0010_drop.sql", "DROP TABLE cmux_vm.audit_log;\n")
+    addRequirement(root, '{ table: "cmux_vm.resources", migration: "0010" }')
+    const lock = readJson<Lock>(join(root, LOCK_PATH))
+    ;(lock.trees["cmux-vm"] as { grandfatheredThrough: string }).grandfatheredThrough = "0010"
+    expect((await lintTree(vm, { ...optionsFor(root), lock })).errors.join()).toContain("DROP TABLE")
+  })
+  it("a grandfathered name whose content changed is not grandfathered", async () => {
+    const root = tempRoot()
+    const file = join(root, "workers/cmux-vm/migrations/0004_cmux_vm_mesh.sql")
+    const { writeFileSync: write, readFileSync: read } = await import("node:fs")
+    write(file, read(file, "utf8") + "\nDROP TABLE cmux_vm.audit_log;\n")
+    const lock = readJson<Lock>(join(root, LOCK_PATH))
+    lock.trees["cmux-vm"].files["0004_cmux_vm_mesh.sql"] = (await import("../lint.ts")).sha256(read(file, "utf8"))
+    const errors = (await lintTree(vm, { ...optionsFor(root), lock })).errors.join("\n")
+    expect(errors).toContain("0004_cmux_vm_mesh.sql")
   })
 })
