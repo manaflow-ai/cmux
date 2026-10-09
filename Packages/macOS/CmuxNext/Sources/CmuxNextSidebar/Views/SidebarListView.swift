@@ -96,7 +96,7 @@ final class SidebarListView: NSView {
             occlusionObserver = center.addObserver(
                 forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main
             ) { [weak self] _ in
-                MainActor.assumeIsolated { self?.windowOcclusionChanged() }
+                MainDelivery().run { self?.windowOcclusionChanged() }
             }
         }
     }

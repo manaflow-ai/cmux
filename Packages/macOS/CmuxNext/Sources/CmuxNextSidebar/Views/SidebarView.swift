@@ -198,14 +198,14 @@ public final class SidebarView: NSView {
         scrollView.documentView = list
         scrollView.contentView.postsBoundsChangedNotifications = true
         notificationObservers.append(NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: scrollView.contentView, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.clipBoundsChanged() }
+            MainDelivery().run { self?.clipBoundsChanged() }
         })
         scrollView.contentView.postsFrameChangedNotifications = true
         notificationObservers.append(NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: scrollView.contentView, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.clipFrameChanged() }
+            MainDelivery().run { self?.clipFrameChanged() }
         })
         notificationObservers.append(NotificationCenter.default.addObserver(forName: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.scrollerStyleChanged() }
+            MainDelivery().run { self?.scrollerStyleChanged() }
         })
         scrollView.onHorizontalScroll = { [weak self] phase, dx, time in self?.spacePaging.scroll(phase, deltaX: dx, time: time) }
         addSubview(edgeFade)

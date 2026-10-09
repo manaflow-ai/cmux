@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextWakeups
 public import Observation
 import WebKit
 
@@ -18,6 +19,7 @@ import WebKit
 /// missed until the next read; the toolbar also reads when it is shown,
 /// when a toolbar menu opens and on every press.
 @Observable
+@MainActor
 public final class WebKitInspectorWatch: NSObject {
     public private(set) var isVisible = false
     @ObservationIgnored private weak var webView: WKWebView?
@@ -32,11 +34,11 @@ public final class WebKitInspectorWatch: NSObject {
             forName: NSWindow.willCloseNotification, object: nil, queue: .main
         ) { [weak self] _ in
             // main-proof: NotificationCenter delivers this block on the main operation queue.
-            MainActor.assumeIsolated { self?.windowWillClose() }
+            MainDelivery().run { self?.windowWillClose() }
         }
     }
 
-    deinit {
+    isolated deinit {
         if let windowCloseObserver { NotificationCenter.default.removeObserver(windowCloseObserver) }
     }
 

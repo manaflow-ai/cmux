@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextWakeups
 import Foundation
 import WebKit
 
@@ -38,9 +39,7 @@ final class PageWKWebView: WKWebView {
             // A synchronous callback records activation before AppKit invokes the menu action.
             // main-proof: NotificationCenter delivers this block on the main operation queue.
             let menuID = (notification.object as? NSMenu).map(ObjectIdentifier.init)
-            MainActor.assumeIsolated {
-                self?.menuWillSendAction(menuID)
-            }
+            MainDelivery().run { self?.menuWillSendAction(menuID) }
         }
     }
 
