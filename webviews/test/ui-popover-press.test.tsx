@@ -34,6 +34,9 @@ function Picker({ onPick }: { onPick(value: string): void }) {
               setOpen(false);
             }}
           >
+            <svg aria-hidden="true" width="12" height="12">
+              <path d="M0 0h12v12H0z" />
+            </svg>
             {value}
           </button>
         ))}
@@ -89,6 +92,21 @@ describe("composer popover press-drag-release", () => {
     await settle();
     expect(picked).toEqual(["two"]);
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  test("releasing over a row's icon picks the row", async () => {
+    const picked: string[] = [];
+    const root = await render(<Picker onPick={(value) => picked.push(value)} />);
+    const trigger = root.querySelector("button")!;
+    await act(async () => trigger.dispatchEvent(pointer("pointerdown", 8, 10, 10)));
+    await settle();
+    const icon = rows()[1]!.querySelector("path")!;
+    await over(icon, async () => {
+      await act(async () => trigger.dispatchEvent(pointer("pointermove", 8, 10, 60)));
+      await act(async () => trigger.dispatchEvent(pointer("pointerup", 8, 10, 60)));
+    });
+    await settle();
+    expect(picked).toEqual(["two"]);
   });
 
   test("a plain click opens it and keeps it open; the next click on a row picks", async () => {
