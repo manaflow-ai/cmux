@@ -144,7 +144,7 @@ fn consecutive_claude_turns_find_the_last_turns_marker_within_the_lookback() {
     // The second turn has the first turn's marked block at the same place,
     // and its own marker at most 20 blocks later (the API's lookback).
     let (a, b) = (&inner.prompts[0], &inner.prompts[1]);
-    let (ma, mb) = (markers(a)[0], markers(b)[0]);
+    let (ma, mb) = (*markers(a).last().unwrap(), *markers(b).last().unwrap());
     assert_eq!(texts(a)[..=ma], texts(b)[..=ma]);
     assert!(mb >= ma && mb - ma <= 20, "markers {ma} then {mb}");
 }
@@ -241,7 +241,8 @@ fn a_four_breakpoint_refusal_reruns_the_turn_without_the_marker_and_later_turns_
             2,
             "the refused prompt, then the same turn again"
         );
-        assert_eq!(markers(&inner.prompts[0]).len(), 1);
+        // The header's mark and the view's.
+        assert_eq!(markers(&inner.prompts[0]).len(), 2);
         assert!(markers(&inner.prompts[1]).is_empty());
         assert_eq!(texts(&inner.prompts[0]), texts(&inner.prompts[1]));
         assert_ne!(
@@ -864,8 +865,10 @@ fn the_marker_ends_the_stable_view_prefix_and_the_next_turn_keeps_that_boundary(
     };
     let first = &inner.prompts[0];
     let marked = markers(first);
-    assert_eq!(marked.len(), 1, "one marker of ours in a small view too");
-    let at = marked[0];
+    // The header's mark, then the view's.
+    assert_eq!(marked.len(), 2, "two markers of ours in a small view too");
+    assert_eq!(marked[0], 0);
+    let at = marked[1];
     assert!(
         at + 1 < first.len() - 1,
         "the marker leaves the view's newest lines out"
@@ -881,7 +884,7 @@ fn the_marker_ends_the_stable_view_prefix_and_the_next_turn_keeps_that_boundary(
         "the next turn has a block boundary at the marker with the same bytes before it"
     );
     // And its own marker is at or after the first turn's.
-    let next = markers(&inner.prompts[1])[0];
+    let next = *markers(&inner.prompts[1]).last().unwrap();
     assert!(second[next].0 >= offset);
 }
 
