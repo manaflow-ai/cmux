@@ -85,6 +85,15 @@ bun $R/db-release.ts rehearse --tree cmux-vm --target production
 bun $R/db-release.ts apply --tree cmux-vm --target production --url-env PROD_OWNER_URL --confirm-production
 ```
 
+Credentials: plan and rehearse against development or staging may mint a 2 h read-only pscale
+role on the target (deleted afterwards); against production they need `--url-env` with an
+existing read credential, because the tool never creates a production role. The first
+production read credential needs the chief's go (lane rules: no new production keys). apply
+and adopt always need `--url-env` with the owner role (they refuse any other role). A
+rehearsal branch is a point-in-time restore of the target 6 minutes ago (PlanetScale needs
+5+; `--from` alone makes an empty cluster) and runs as the copy's own owner-role record,
+whose password it resets on the copy only.
+
 Each step prints a `bd-summary:` line for the bead. Receipts (append-only, one JSON file
 per event plus `receipts.jsonl`) live in `~/.local/state/cmux-release/receipts` or
 `$CMUX_RELEASE_RECEIPTS_DIR`. A receipt records what, target, run id, migration ids and

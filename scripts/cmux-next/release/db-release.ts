@@ -97,6 +97,8 @@ const open = async (deps: Deps, tree: Tree, target: Target, urlVar: string | und
     return { sql, close: () => sql.end() }
   }
   if (access === "admin") throw new Refused("this command needs --url-env with the owner's credentials for the target")
+  // A new production credential needs the chief's go (lane rules, 2026-10-09): never mint one here.
+  if (target === "production") throw new Refused("production reads need --url-env with an existing read credential; this tool creates no role on production")
   const conn = await deps.provider.connect(tree.database, tree.branches[target], "read", "rr-read")
   const sql = await deps.connect(conn.url)
   return {
@@ -197,7 +199,10 @@ export const main = async (argv: ReadonlyArray<string>, initialDeps: Deps = defa
     const target = targetOf(value("--target"))
     if (value("--root")) {
       // A candidate checkout (for example a lane branch's worktree): the lint, the lock and the files come from there.
-      if (command === "apply" || command === "adopt" || command === "gate") throw new Refused("--root is for plan and rehearse only; apply from the checkout that lands the files")
+      // gate must judge the deploying commit; adopt has no files to choose. apply may use a candidate
+      // root: the lint, the lock, the rehearsed set hash and the owner check still hold, and the database
+      // records each file's checksum, so a landed file that differs is refused by the lint and the gate.
+      if (command === "adopt" || command === "gate") throw new Refused("--root is for plan, rehearse and apply only")
       deps = { ...deps, root: value("--root")! }
     }
     const files = readMigrations(deps.root, tree)
@@ -369,14 +374,14 @@ export const main = async (argv: ReadonlyArray<string>, initialDeps: Deps = defa
                 await staging.close()
               }
             }
+            const sha = gitSha(deps)
             const result = await applyPending(db.sql, tree, files, { by, allowContract, target })
             const errors = (await schemaProblems(db.sql, requirementsOf(tree))).filter((p) => !p.includes(" privilege")).map((p) => `after apply: ${p}`)
             for (const e of errors) deps.error(e)
             const afterPlan = await planOf(db.sql, tree, files)
-            const sha = gitSha(deps)
             emit({
               action: "apply",
-              what: `apply ${result.applied.join(", ")} to ${tree.database}/${tree.branches[target]} (rehearsal ${rehearsal.file})`,
+              what: `apply ${result.applied.join(", ")} to ${tree.database}/${tree.branches[target]} from ${deps.root}${sha ? ` (HEAD ${sha.slice(0, 12)})` : ""} (rehearsal ${rehearsal.file})`,
               tree: tree.name,
               target,
               before: [...plan.applied.keys()].sort(),

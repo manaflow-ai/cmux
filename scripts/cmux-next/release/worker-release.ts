@@ -37,7 +37,7 @@ export interface RouteResult {
   readonly last: string
 }
 
-const globRegex = (glob: string) =>
+export const globRegex = (glob: string) =>
   new RegExp(`^${glob.split("**").map((part) => part.split("*").map((p) => p.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join("[^/]*")).join(".*")}$`)
 
 /** Routes to smoke: those without sources always; the rest when a changed file matches (all, when `changed` is undefined). */

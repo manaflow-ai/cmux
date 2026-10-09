@@ -3,7 +3,7 @@ import { afterAll, describe, expect, it } from "bun:test"
 import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { currentVersion, main, selectRoutes, type Route } from "../worker-release.ts"
+import { currentVersion, globRegex, main, selectRoutes, type Route } from "../worker-release.ts"
 
 const dir = mkdtempSync(join(tmpdir(), "rails-worker-"))
 const calls = join(dir, "wrangler-calls.txt")
@@ -126,6 +126,17 @@ describe("route selection", () => {
       const parsed = JSON.parse(readFileSync(join(REPO_ROOT, file), "utf8")) as { routes: Array<Route> }
       expect(parsed.routes.length).toBeGreaterThan(0)
       for (const r of parsed.routes) expect(r.name && r.path.startsWith("/") && r.expect.length > 0).toBe(true)
+    }
+  })
+
+  it("every source glob in the committed route files matches at least one file", async () => {
+    const { REPO_ROOT } = await import("../trees.ts")
+    const { execFileSync } = await import("node:child_process")
+    for (const [file, dir] of [["workers/cmux-vm/release-smoke.json", "workers/cmux-vm"], ["backend/apps/api/release-smoke.json", "backend/apps/api"]] as const) {
+      const files = execFileSync("git", ["-C", join(REPO_ROOT, dir), "ls-files"], { encoding: "utf8" }).split("\n").filter(Boolean)
+      const parsed = JSON.parse(readFileSync(join(REPO_ROOT, file), "utf8")) as { routes: Array<Route> }
+      for (const r of parsed.routes)
+        for (const g of r.sources ?? []) expect({ file, route: r.name, glob: g, matches: files.some((f) => globRegex(g).test(f)) }).toEqual({ file, route: r.name, glob: g, matches: true })
     }
   })
 })
