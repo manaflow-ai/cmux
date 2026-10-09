@@ -101,6 +101,9 @@ extension TabStripView {
         hasSynced = true
     }
 
+    /// The strip's window became or stopped being main.
+    func windowMainChanged(isMain: Bool) {}
+
     /// Creates the layers for a new tab and returns its id.
     func makeCell(_ item: TabItem, animated: Bool) -> TabID {
         let cell = TabCell(item: item)

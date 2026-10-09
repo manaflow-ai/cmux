@@ -20,6 +20,10 @@ final class TabCell {
     var isCloseHovered = false { didSet { if oldValue != isCloseHovered { updateColors(animated: true) } } }
     var isClosePressed = false { didSet { if oldValue != isClosePressed { updateColors(animated: false) } } }
     var isLifted = false { didSet { if oldValue != isLifted { updateLift() } } }
+    /// The strip's window is main (in front); off, the selected tab has no fill.
+    var isWindowMain = true
+    /// The selected (or lifted) tab's fill shows.
+    var fillsSelection: Bool { isSelected || isLifted }
     /// Hover may start the title marquee (off while a drag or rename runs).
     var allowsMarquee = true { didSet { if !allowsMarquee { titleFade.stopMarquee(animated: false) } } }
     var showsSeparator = false { didSet { if oldValue != showsSeparator { separatorLayer.opacity = showsSeparator ? 1 : 0 } } }
