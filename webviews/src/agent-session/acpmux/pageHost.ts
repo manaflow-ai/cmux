@@ -6,6 +6,7 @@ import { NativeError } from "./nativeError";
 import { receiveTransportEvent, type TransportEvent } from "./bridgeSocket";
 import { receiveModelCatalog } from "./modelCatalogHost";
 import { setEditedFilesSettings } from "./turnChanges/settings";
+import { setDeviceChats } from "./newtab/deviceChats";
 
 export const HOST_EVENTS = "cmux.agent.host.events";
 /// NewTabPage's FOCUS_LOCATION_EVENT, kept here so the transport does not load the new tab page.
@@ -77,6 +78,9 @@ export function applyHostEvent(event: HostEvent): void {
       // Direct, not through window.cmuxAcpmuxEditedFiles: an event that arrives before the card
       // module loads still sets the value the card then reads.
       return setEditedFilesSettings(event.value);
+    case "deviceChats":
+      // Direct, like editedFiles: a push before the New Tab screen mounts is kept.
+      return setDeviceChats(event.value);
     case "customization":
       return bridge?.applyCustomization(value);
     case "dictation":
