@@ -57,9 +57,8 @@ extension SidebarListView {
                 return
             }
         case let .tab(workspace, tab):
-            self.press = nil
+            // Selected at once; the press stays so a drag can take the tab.
             model.send(.selectTab(workspace: workspace, tab: tab))
-            return
         case .section, .emptySection:
             break
         }
@@ -67,6 +66,9 @@ extension SidebarListView {
     }
     override func mouseDragged(with event: NSEvent) {
         guard let press, !press.cancelled else { return }
+        if case let .tab(workspace, tab) = press.key {
+            return dragTabRow(workspace, tab, press: press, event: event)
+        }
         if drag == nil {
             let point = convert(event.locationInWindow, from: nil)
             guard hypot(point.x - press.point.x, point.y - press.point.y) >= SidebarStyle.dragThreshold,
@@ -108,6 +110,21 @@ extension SidebarListView {
         }
         reload(animated: true)
     }
+    /// A tab row past the drag distance goes to the App's tab drag (one
+    /// offer per press); the sidebar runs no drag of its own for it.
+    private func dragTabRow(_ workspace: WorkspaceID, _ tab: TabID, press: Press, event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        guard hypot(point.x - press.point.x, point.y - press.point.y) >= SidebarStyle.dragThreshold else { return }
+        self.press?.cancelled = true
+        guard let offer = onTabRowDrag, let window, let row = displayed.row(for: .tab(workspace, tab)) else { return }
+        let rowFrame = window.convertToScreen(convert(frame(for: row), to: nil))
+        let pressed = window.convertPoint(toScreen: convert(press.point, to: nil))
+        _ = offer(SidebarTabRowDragHandoff(
+            workspace: workspace, tab: tab, rowScreenFrame: rowFrame,
+            grabOffset: CGPoint(x: pressed.x - rowFrame.minX, y: pressed.y - rowFrame.minY),
+            screenPoint: window.convertPoint(toScreen: event.locationInWindow)))
+    }
+
     // MARK: - Middle click (MIDDLE-CLICK-CLOSES-WORKSPACE; SidebarMiddleClick)
     override func otherMouseDown(with event: NSEvent) { if !middleClick.down(event, in: self) { super.otherMouseDown(with: event) } }
     override func otherMouseUp(with event: NSEvent) { if !middleClick.up(event, in: self) { super.otherMouseUp(with: event) } }
