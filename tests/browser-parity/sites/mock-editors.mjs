@@ -182,6 +182,7 @@ const shell = (file, body, account) => `<!doctype html><html><head><meta charset
 <div id="docs-titlebar"><input class="docs-title-input" value="${esc(file.title)}" aria-label="Rename">
 <div id="share-slot"></div><div role="button" aria-label="Share screen">Present</div>
 <div id="docs-file-menu" role="menuitem">File</div><div id="docs-edit-menu" role="menuitem">Edit</div></div>
+${file.decoyTrash ? '<div class="decoy"><div role="menuitem" id="decoy-trash">Move to trash</div></div>' : ""}
 ${body}
 <script>
 // As in the editors: the Share button (no id) renders a moment after the title.
@@ -200,6 +201,9 @@ document.querySelector(".docs-title-input").addEventListener("keydown", (e) => {
   post("title", { title: e.target.value });
   document.title = e.target.value + " - Google Docs";
 });
+// decoyTrash: a "Move to trash" item outside the File menu (page content,
+// another menu); a press on it is recorded, never trashes.
+document.querySelector("#decoy-trash")?.addEventListener("click", () => post("decoy", { what: "Move to trash" }));
 document.getElementById("docs-file-menu").addEventListener("click", () => {
   document.body.insertAdjacentHTML("beforeend", '<div role="menu"><div role="menuitem" id="trash-item">Move to trash</div></div>');
   document.getElementById("trash-item").addEventListener("click", async () => { await post("trash", {}); document.body.insertAdjacentHTML("beforeend", '<div role="dialog">File moved to trash</div>'); });
@@ -400,6 +404,7 @@ nw.addEventListener("keydown", (e) => {
     }
     if (action === "title") file.title = data.title;
     if (action === "trash") file.trashed = true;
+    if (action === "decoy") (file.decoyClicks ||= []).push(data.what);
     if (action === "append") file.blocks.push({ type: "paragraph", text: data.text });
     if (action === "notes") file.slides[data.index].notes = data.replaceAll ? data.text : file.slides[data.index].notes + data.text;
     if (action === "replace") return { json: { count: replaceIn(file, data.find, data.replace) } };

@@ -79,7 +79,7 @@ export function createState() {
   // query match the RegExp `path` to the same path on mirror.example, which
   // serves `host`'s pages and requests signed in (an off-site copy of the
   // site, as a redirect could reach); mirrorRequests records what it got.
-  return { tabRedirect: null, mirrorRequests: [], gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [], editors: createEditors(), slackChannels: null, googleAccounts: null, gmailThreadExtra: null, linkedinViewer: null, linkedinSwitchOnCompose: null, linkedinComposer: null, googleSwitchOnLoad: null, notionUser: null, notionSwitchOnSync: null, notionRobotsRedirect: null, slackClientRedirect: null, xAccount: null, xAccountId: null, xSwitchOnCompose: null, xAccountUnknown: false, googlePageAccount: null, googleSwitchAfterListAccounts: null, slackSwitchOnInfo: null, slackMemberNow: null, composerSuffix: null, gmailSignature: null, gmailComposeTamper: null, gmailReplyRecipients: null, calendarTamper: null, gmailTyped: [], gmailDecoyClicks: [], gmailTrailingBody: null };
+  return { tabRedirect: null, mirrorRequests: [], gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [], editors: createEditors(), slackChannels: null, googleAccounts: null, gmailThreadExtra: null, linkedinViewer: null, linkedinSwitchOnCompose: null, linkedinComposer: null, googleSwitchOnLoad: null, notionUser: null, notionSwitchOnSync: null, notionRobotsRedirect: null, slackClientRedirect: null, xAccount: null, xAccountId: null, xSwitchOnCompose: null, xAccountUnknown: false, googlePageAccount: null, googleSwitchAfterListAccounts: null, slackSwitchOnInfo: null, slackMemberNow: null, composerSuffix: null, gmailSignature: null, gmailComposeTamper: null, gmailReplyRecipients: null, calendarTamper: null, gmailTyped: [], gmailDecoyClicks: [], gmailTrailingBody: null, gmailOutsideControls: null, gmailSwitchOnCompose: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -238,6 +238,10 @@ const TAMPER = __GMAIL_COMPOSE_TAMPER__;
 // gmailTrailingBody: a sender's message body (HTML) Gmail shows below the
 // thread's own controls; its elements are the sender's, never Gmail's.
 const TRAILING = __GMAIL_TRAILING__;
+// gmailOutsideControls: HTML of controls outside the thread view (an
+// add-on panel, another part of the page), before and after it; a click
+// on any of them is recorded as a decoy click.
+const OUTSIDE = __GMAIL_OUTSIDE__;
 // Records synchronously what reaches the page (text typed into a reply
 // composer, a click on a sender's decoy), before the input or click returns.
 const record = (what, text) => { const x = new XMLHttpRequest(); x.open("POST", base + "__mock/" + what, false); x.send(text); };
@@ -283,6 +287,11 @@ function thread(app, key) {
       EXTRA.map((m) => msg(m.id, m.from, m.to, "Tue, Sep 29, 2026, 8:00 AM", m.body, false, true)).join("") +
       '<div role="button" data-tooltip="Reply" aria-label="Reply">Reply</div><div role="button" data-tooltip="Reply all" aria-label="Reply all">Reply all</div><div id="replybox"></div>' +
       (TRAILING ? '<div class="adn" data-message-id="#msg-f:9" data-legacy-message-id="9"><div class="a3s" id="trailing">' + TRAILING + '</div></div>' : '') + '</div>';
+    if (OUTSIDE) {
+      app.insertAdjacentHTML("afterbegin", '<div class="outside">' + OUTSIDE + '</div>');
+      app.insertAdjacentHTML("beforeend", '<div class="outside">' + OUTSIDE + '</div>');
+    }
+    for (const decoy of app.querySelectorAll(".outside [role], .outside [aria-label]")) decoy.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); record("decoy", decoy.getAttribute("aria-label") || decoy.getAttribute("role")); });
     for (const decoy of app.querySelectorAll("#trailing [role]")) decoy.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); record("decoy", decoy.getAttribute("aria-label") || decoy.getAttribute("role")); });
     const expand = app.querySelector('[aria-label="Expand all"]');
     if (expand) expand.addEventListener("click", () => { expanded = true; draw(); });
@@ -323,7 +332,11 @@ function compose(app) {
   const tamper = TAMPER || {};
   tamperRows(app);
   if (tamper.subject) app.querySelector('[name="subjectbox"]').value = tamper.subject;
-  const held = (field) => [...app.querySelectorAll('[data-row="' + field + '"] [data-hovercard-id]')].map((e) => e.getAttribute("data-hovercard-id")).join(",") || null;
+  // A page script changes the subject again once the body is typed into.
+  const bodyBox = app.querySelector('[role="textbox"]');
+  if (tamper.subject) bodyBox.addEventListener("input", () => { app.querySelector('[name="subjectbox"]').value = tamper.subject; });
+  // As live, Send sends each row's chips and any address typed into its input.
+  const held = (field) => [...app.querySelectorAll('[data-row="' + field + '"] [data-hovercard-id]')].map((e) => e.getAttribute("data-hovercard-id")).concat(String(app.querySelector('[data-row="' + field + '"] input').value || "").split(/[,;\s]+/).filter((x) => x.includes("@"))).join(",") || null;
   app.querySelector('[data-tooltip^="Send"]').addEventListener("click", () => send({ to: held("to"), cc: held("cc"), bcc: held("bcc"), subject: app.querySelector('[name="subjectbox"]').value || null, body: app.querySelector('[role="textbox"]').innerText }));
 }
 async function send(message) {
@@ -354,8 +367,11 @@ function gmail(req, url, body, state) {
   if (url.searchParams.get("view") === "att") return { status: 200, headers: { "content-type": "text/csv", "content-disposition": 'attachment; filename="q3.csv"' }, body: "quarter,total\nQ3,9000\n" };
   if (/^\/mail\/u\/\d+\/$/.test(url.pathname)) {
     switchGoogleOnLoad(state);
+    // gmailSwitchOnCompose: ListAccounts rows another session's sign-in
+    // makes current when a compose window loads.
+    if (url.searchParams.get("view") === "cm" && state.gmailSwitchOnCompose) (state.googleAccounts = state.gmailSwitchOnCompose), (state.gmailSwitchOnCompose = null);
     // As live, the title names the account the page is signed in as.
-    return { html: html(GMAIL_APP.replace("__GMAIL_EXTRA__", JSON.stringify(state.gmailThreadExtra || [])).replace("__COMPOSER_SUFFIX__", JSON.stringify(state.composerSuffix || null)).replace("__GMAIL_SIGNATURE__", JSON.stringify(state.gmailSignature || null)).replace("__GMAIL_COMPOSE_TAMPER__", JSON.stringify(state.gmailComposeTamper || null)).replace("__GMAIL_REPLY__", JSON.stringify(state.gmailReplyRecipients || null)).replace("__GMAIL_TRAILING__", JSON.stringify(state.gmailTrailingBody || null)), `Inbox - ${pageAccountRow(state, googleAccountAt(state, url.pathname.split("/")[3]))[3]} - Gmail`) };
+    return { html: html(GMAIL_APP.replace("__GMAIL_EXTRA__", JSON.stringify(state.gmailThreadExtra || [])).replace("__COMPOSER_SUFFIX__", JSON.stringify(state.composerSuffix || null)).replace("__GMAIL_SIGNATURE__", JSON.stringify(state.gmailSignature || null)).replace("__GMAIL_COMPOSE_TAMPER__", JSON.stringify(state.gmailComposeTamper || null)).replace("__GMAIL_REPLY__", JSON.stringify(state.gmailReplyRecipients || null)).replace("__GMAIL_TRAILING__", JSON.stringify(state.gmailTrailingBody || null)).replace("__GMAIL_OUTSIDE__", JSON.stringify(state.gmailOutsideControls || null)), `Inbox - ${pageAccountRow(state, googleAccountAt(state, url.pathname.split("/")[3]))[3]} - Gmail`) };
   }
   return { status: 404, text: "" };
 }

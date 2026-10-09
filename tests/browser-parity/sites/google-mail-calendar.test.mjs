@@ -102,6 +102,24 @@ test("gmail.send reply: a sender's Reply and Send look-alikes in a message body 
   assert.deepEqual(env.state.gmailDecoyClicks.slice(clicks), [], "a sender's look-alike control was clicked");
 });
 
+// r41 sites#3: every control a Gmail write presses is inside the thread
+// view (the one div[role=main] that shows the thread's subject) or the
+// one compose window; a look-alike elsewhere on the page, before or after
+// the thread view, is never pressed.
+test("gmail.send reply: Expand all, Reply and Send controls outside the thread view are never pressed", async () => {
+  env.state.gmailOutsideControls = '<span role="button" aria-label="Expand all">Expand all</span><div role="button" data-tooltip="Reply" aria-label="Reply">Reply</div><div role="button" data-tooltip="Reply all" aria-label="Reply all">Reply all</div>';
+  const clicks = env.state.gmailDecoyClicks.length;
+  try {
+    const d = await s.value('sites.gmail.send({ threadId: "thread-f:1790000000000000001", body: "Scoped controls." })');
+    assert.deepEqual(d.preview.to, ["bob@example.com"]);
+    assert.equal((await s.value(`sites.gmail.send(${JSON.stringify(d.id)}, { confirm: true })`)).status, "sent");
+    assert.deepEqual(env.state.gmailSent.at(-1), { threadId: "thread-f:1790000000000000001", to: "bob@example.com", cc: null, bcc: null, body: "Scoped controls." });
+  } finally {
+    env.state.gmailOutsideControls = null;
+  }
+  assert.deepEqual(env.state.gmailDecoyClicks.slice(clicks), [], "a control outside the thread view was pressed");
+});
+
 // decisions.md, "Gmail replies": until a live check (drafts only, never
 // confirmed) shows that the To, Cc and Bcc a reply draft previews are the
 // ones Gmail's own reply composer addresses, replies are off in source: a

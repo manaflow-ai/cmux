@@ -69,7 +69,9 @@ test("gmail.send: no drafted content reaches a page whose account switched befor
     const requests = env.state.requests.length;
     env.state.googleSwitchOnLoad = SWITCHED();
     assert.match(await s.error("sites.gmail.send(gcN.id, { confirm: true })"), /account_mismatch|account it acts as differs|ada@work\.example/);
-    const loaded = env.state.requests.slice(requests).map((r) => r.url).filter((u) => /Private|view=cm/.test(u));
+    // A compose window may open empty before the check (r41); none carries
+    // drafted content.
+    const loaded = env.state.requests.slice(requests).map((r) => r.url).filter((u) => /Private/.test(u));
     assert.deepEqual(loaded, [], "a compose window with the drafted content loaded in the switched account");
     env.state.googleAccounts = null;
     env.state.googleSwitchOnLoad = SWITCHED();
@@ -79,6 +81,26 @@ test("gmail.send: no drafted content reaches a page whose account switched befor
   } finally {
     env.state.googleAccounts = null;
     env.state.googleSwitchOnLoad = null;
+  }
+});
+
+// r41 sites#4: a new message's recipients, subject and body never travel in
+// a URL. The compose window opens empty, the commit reads the account on
+// it, and only then are the fields typed in: an account switch while the
+// compose window loads gets none of them.
+test("gmail.send: a switch while the compose window loads reaches no drafted field, in any URL", async () => {
+  try {
+    await s.run('var gcU = await sites.gmail.send({ to: "bob@example.com", cc: "cy@example.com", subject: "Private subject", body: "Private body." })');
+    const requests = env.state.requests.length;
+    const sent = env.state.gmailSent.length;
+    env.state.gmailSwitchOnCompose = SWITCHED();
+    assert.match(await s.error("sites.gmail.send(gcU.id, { confirm: true })"), /account_mismatch|account it acts as differs|ada@work\.example/);
+    const carried = env.state.requests.slice(requests).map((r) => r.url).filter((u) => /Private|bob%40example|bob@example|cy%40example|cy@example/.test(u));
+    assert.deepEqual(carried, [], "a drafted field travelled in a URL");
+    assert.equal(env.state.gmailSent.length, sent);
+  } finally {
+    env.state.googleAccounts = null;
+    env.state.gmailSwitchOnCompose = null;
   }
 });
 

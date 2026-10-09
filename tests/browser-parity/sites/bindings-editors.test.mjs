@@ -252,6 +252,18 @@ test("googleSlides.replace: the draft states the match count per slide; a new ma
   }
 });
 
+// r41 sites#5: the trash press lands only on the Move to trash item of the
+// one File menu the tool opened; an item with the same text anywhere else
+// on the page (page content, another menu) is never pressed.
+test("googleDrive.trash: a Move to trash item outside the opened File menu is never pressed", async () => {
+  const f = await s.value('sites.googleDrive.create("document", "cmux REPL trash decoy")');
+  const file = files.get(f.id);
+  file.decoyTrash = true;
+  assert.deepEqual(await s.confirmed(`sites.googleDrive.trash(${JSON.stringify(f.url)})`), { status: "trashed", verified: true });
+  assert.deepEqual(file.decoyClicks || [], [], "a Move to trash item outside the File menu was pressed");
+  assert.equal(file.trashed, true);
+});
+
 test("googleDrive.trash: even a private file this session created needs a confirmed draft; shared after the preview, it is not trashed", async () => {
   const f = await s.value('sites.googleDrive.create("document", "cmux REPL trash binding")');
   const file = files.get(f.id);
