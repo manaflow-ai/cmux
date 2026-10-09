@@ -46,11 +46,12 @@ public final class PaletteController {
     public init(
         registry: ActionRegistry,
         sources: PaletteSources = PaletteSources(),
-        frecencyPersistence: (any FrecencyPersisting)? = UserDefaultsFrecencyPersistence()
+        frecencyPersistence: (any FrecencyPersisting)? = UserDefaultsFrecencyPersistence(),
+        usage: (any PaletteUsageStore)? = nil
     ) {
         self.registry = registry
         self.sources = sources
-        self.model = PaletteModel(persistence: frecencyPersistence)
+        self.model = PaletteModel(usage: usage ?? LocalPaletteUsageStore(persistence: frecencyPersistence))
         model.onDismiss = { [weak self] in self?.hide() }
         // A command that refuses shows why on its row instead of beeping,
         // and the palette comes back on the same page.
@@ -206,6 +207,7 @@ public final class PaletteController {
     }
 
     private func present(relativeTo window: NSWindow?) {
+        model.usage.prepare()
         let started = openStarted ?? .now
         let modelDone = modelReady ?? started
         openStarted = nil

@@ -471,7 +471,11 @@ mod unix {
     use super::shared::codec::*;
     use super::shared::host_state::*;
     use super::shared::records::*;
-    use super::sys::{connect_with_retry, prepare_endpoint_dir, prepare_private_dir};
+    use super::sys::{
+        AcceptWaker, HostLivenessLease, acquire_terminal_host_publication_lock, connect_with_retry,
+        prepare_endpoint_dir, prepare_private_dir, reserve_terminal_host_publication,
+        wait_for_pty_readable_or_forced_drain,
+    };
     use super::*;
 
     /// Own a PTY child until the host's reaper thread has taken responsibility
@@ -568,8 +572,6 @@ mod unix {
 
     mod adopt_launch;
     mod adopted_child;
-    mod barrier_sync;
-    pub(crate) use barrier_sync::{barrier_sync, barrier_sync_dir};
     mod clipboard_read;
     mod exited_drain;
     mod host_accept;
@@ -753,75 +755,6 @@ mod unix {
     pub mod unadoptable;
     pub(crate) use unadoptable::process_definitely_absent;
 
-    fn wait_for_pty_readable_or_forced_drain(
-        pty_fd: RawFd,
-        drain_waiter: &mut UnixStream,
-        force_drain: &AtomicBool,
-        forced_at: &mut Option<Instant>,
-    ) -> std::io::Result<bool> {
-        // A hung-up waiter stays readable forever, so once forced it is left
-        // out of the poll set; it used to busy-loop the rest of the window.
-        let mut waiter_closed = false;
-        loop {
-            if force_drain.load(Ordering::Acquire) {
-                let started = forced_at.get_or_insert_with(Instant::now);
-                if started.elapsed() >= HOST_FORCED_DRAIN_WINDOW {
-                    return Ok(false);
-                }
-            }
-            let mut poll_fds = [
-                libc::pollfd {
-                    fd: pty_fd,
-                    events: libc::POLLIN | libc::POLLHUP | libc::POLLERR,
-                    revents: 0,
-                },
-                libc::pollfd {
-                    // poll ignores negative descriptors.
-                    fd: if waiter_closed { -1 } else { drain_waiter.as_raw_fd() },
-                    events: libc::POLLIN | libc::POLLHUP | libc::POLLERR,
-                    revents: 0,
-                },
-            ];
-            let timeout_ms = forced_at
-                .map(|started| {
-                    let remaining = HOST_FORCED_DRAIN_WINDOW.saturating_sub(started.elapsed());
-                    remaining.as_millis().clamp(1, i32::MAX as u128) as i32
-                })
-                .unwrap_or(-1);
-            // SAFETY: poll_fds points to two initialized values and both
-            // descriptors remain owned by the caller for this call.
-            let ready = unsafe {
-                libc::poll(poll_fds.as_mut_ptr(), poll_fds.len() as libc::nfds_t, timeout_ms)
-            };
-            if ready < 0 {
-                let error = std::io::Error::last_os_error();
-                if error.kind() == std::io::ErrorKind::Interrupted {
-                    continue;
-                }
-                return Err(error);
-            }
-            if poll_fds[0].revents & libc::POLLNVAL != 0 {
-                return Ok(false);
-            }
-            if poll_fds[1].revents & libc::POLLIN != 0 {
-                let mut wake = [0u8; 64];
-                let _ = drain_waiter.read(&mut wake);
-            }
-            if poll_fds[0].revents != 0 {
-                return Ok(true);
-            }
-            if poll_fds[1].revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0 {
-                if !force_drain.load(Ordering::Acquire) {
-                    return Ok(false);
-                }
-                waiter_closed = true;
-            }
-            // A wake transitions the next iteration into forced mode. While
-            // forced, an empty poll waits again until the remaining bounded
-            // window expires so late final bytes are still observed.
-        }
-    }
-
     struct HostShared {
         terminal_id: TerminalId,
         incarnation: HostIncarnation,
@@ -884,36 +817,6 @@ mod unix {
         adopted_session: Option<libc::pid_t>,
         #[cfg(test)]
         fail_next_resize_publication: AtomicBool,
-    }
-
-    /// A self-pipe (socket pair) that the host's accept loop polls next to
-    /// its listener. Writes never block: a full buffer already means a wake
-    /// is pending.
-    struct AcceptWaker {
-        reader: UnixStream,
-        writer: UnixStream,
-    }
-
-    impl AcceptWaker {
-        fn new() -> std_io::Result<Self> {
-            let (reader, writer) = UnixStream::pair()?;
-            reader.set_nonblocking(true)?;
-            writer.set_nonblocking(true)?;
-            Ok(Self { reader, writer })
-        }
-
-        fn wake(&self) {
-            let _ = (&self.writer).write(&[1]);
-        }
-
-        fn drain(&self) {
-            let mut buffer = [0_u8; 64];
-            while matches!((&self.reader).read(&mut buffer), Ok(count) if count > 0) {}
-        }
-
-        fn fd(&self) -> RawFd {
-            self.reader.as_raw_fd()
-        }
     }
 
     struct LaunchOwnerConnection {
@@ -1928,171 +1831,6 @@ mod unix {
         }
     }
 
-    struct HostLivenessLease {
-        file: File,
-        path: PathBuf,
-    }
-
-    impl HostLivenessLease {
-        fn acquire(path: PathBuf) -> anyhow::Result<Self> {
-            let file = OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
-                .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
-                .open(&path)?;
-            // SAFETY: flock only changes the advisory lock on this newly
-            // created, valid file descriptor.
-            if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-                let error = std::io::Error::last_os_error();
-                let _ = fs::remove_file(&path);
-                return Err(error.into());
-            }
-            barrier_sync(&file)?; // why no full sync: barrier_sync.rs
-            Ok(Self { file, path })
-        }
-    }
-
-    impl Drop for HostLivenessLease {
-        fn drop(&mut self) {
-            // Closing the owner's descriptor does not release flock while a
-            // concurrently forked child still holds an inherited duplicate.
-            // The lease lifetime belongs to this owner, so end it explicitly
-            // before closing the descriptor.
-            // SAFETY: flock only changes the advisory lock associated with
-            // this valid, owned file descriptor.
-            let _ = unsafe { libc::flock(self.file.as_raw_fd(), libc::LOCK_UN) };
-        }
-    }
-
-    pub(crate) struct TerminalHostResetLock {
-        file: File,
-    }
-
-    pub(crate) struct TerminalHostPublicationLock {
-        file: File,
-    }
-
-    pub(crate) fn prepare_terminal_host_publication_lock(root: &Path) -> anyhow::Result<()> {
-        prepare_private_dir(root)?;
-        let path = terminal_host_publication_lock_path(root);
-        let (file, existed) = barrier_sync::open_lock_file(&path)
-            .with_context(|| format!("create terminal-host publication lock {}", path.display()))?;
-        validate_terminal_host_publication_lock(root, &path, &file)?;
-        file.set_permissions(fs::Permissions::from_mode(0o600))?;
-        barrier_sync::sync_new_lock_file(&file, root, existed)?;
-        Ok(())
-    }
-
-    pub(crate) fn reserve_terminal_host_publication(
-        root: &Path,
-    ) -> anyhow::Result<TerminalHostPublicationLock> {
-        prepare_terminal_host_publication_lock(root)?;
-        acquire_terminal_host_publication_lock(root)
-    }
-
-    pub(crate) fn acquire_terminal_host_reset_lock(
-        root: &Path,
-    ) -> anyhow::Result<Option<TerminalHostResetLock>> {
-        prepare_terminal_host_publication_lock(root)?;
-        let path = terminal_host_publication_lock_path(root);
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .mode(0o600)
-            .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
-            .open(&path)
-            .with_context(|| format!("open terminal-host publication lock {}", path.display()))?;
-        validate_terminal_host_publication_lock(root, &path, &file)?;
-        lock_terminal_host_publication_file(&file, libc::LOCK_EX | libc::LOCK_NB).with_context(
-            || format!("terminal host state has live or unverified hosts: {}", root.display()),
-        )?;
-        validate_terminal_host_publication_lock(root, &path, &file)?;
-        Ok(Some(TerminalHostResetLock { file }))
-    }
-
-    pub(crate) fn acquire_terminal_host_publication_lock(
-        root: &Path,
-    ) -> anyhow::Result<TerminalHostPublicationLock> {
-        let path = terminal_host_publication_lock_path(root);
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
-            .open(&path)
-            .with_context(|| format!("open terminal-host publication lock {}", path.display()))?;
-        validate_terminal_host_publication_lock(root, &path, &file)?;
-        lock_terminal_host_publication_file(&file, libc::LOCK_SH)
-            .with_context(|| format!("lock terminal-host publication lock {}", path.display()))?;
-        validate_terminal_host_publication_lock(root, &path, &file)?;
-        Ok(TerminalHostPublicationLock { file })
-    }
-
-    fn terminal_host_publication_lock_path(root: &Path) -> PathBuf {
-        crate::platform::normalize_filesystem_path(root.join(TERMINAL_HOST_PUBLICATION_LOCK_FILE))
-    }
-
-    fn validate_terminal_host_publication_lock(
-        root: &Path,
-        path: &Path,
-        file: &File,
-    ) -> anyhow::Result<()> {
-        let root_metadata = fs::metadata(root)
-            .with_context(|| format!("inspect terminal-host root {}", root.display()))?;
-        let path_metadata = fs::symlink_metadata(path).with_context(|| {
-            format!("inspect terminal-host publication lock {}", path.display())
-        })?;
-        if !path_metadata.file_type().is_file()
-            || path_metadata.uid() != root_metadata.uid()
-            || path_metadata.mode() & 0o077 != 0
-            || path_metadata.nlink() != 1
-        {
-            anyhow::bail!("terminal-host publication lock is unsafe: {}", path.display());
-        }
-        let file_metadata = file.metadata()?;
-        if path_metadata.dev() != file_metadata.dev() || path_metadata.ino() != file_metadata.ino()
-        {
-            anyhow::bail!(
-                "terminal-host publication lock changed while opening: {}",
-                path.display()
-            );
-        }
-        Ok(())
-    }
-
-    fn lock_terminal_host_publication_file(
-        file: &File,
-        operation: libc::c_int,
-    ) -> anyhow::Result<()> {
-        loop {
-            // SAFETY: flock only observes or changes the advisory lock on this
-            // valid descriptor.
-            if unsafe { libc::flock(file.as_raw_fd(), operation) } == 0 {
-                return Ok(());
-            }
-            let error = std::io::Error::last_os_error();
-            if error.kind() == std::io::ErrorKind::Interrupted {
-                continue;
-            }
-            return Err(error.into());
-        }
-    }
-
-    impl Drop for TerminalHostResetLock {
-        fn drop(&mut self) {
-            // SAFETY: flock only changes the advisory lock on this valid descriptor.
-            let _ = unsafe { libc::flock(self.file.as_raw_fd(), libc::LOCK_UN) };
-        }
-    }
-
-    impl Drop for TerminalHostPublicationLock {
-        fn drop(&mut self) {
-            // SAFETY: flock only changes the advisory lock on this valid descriptor.
-            let _ = unsafe { libc::flock(self.file.as_raw_fd(), libc::LOCK_UN) };
-        }
-    }
-
     struct HostServiceGuard {
         shared: Arc<HostShared>,
         endpoint: PathBuf,
@@ -2966,6 +2704,7 @@ mod unix {
         mod parser_failure;
         mod parser_order;
         use super::super::shared::control_responses::ControlResponseWaiter;
+        use super::super::sys::terminal_host_publication_lock_path;
         use super::*;
         use cmux_pty::{Child, PtyOpenError, PtySize};
         use ghostty_vt::CursorShape;
@@ -6656,24 +6395,26 @@ pub use shared::records::{
     validate_terminal_host_record,
 };
 #[cfg(unix)]
+pub(crate) use sys::acquire_terminal_host_reset_lock;
+#[cfg(all(unix, test))]
+pub(crate) use sys::{
+    acquire_terminal_host_publication_lock, prepare_terminal_host_publication_lock,
+};
+#[cfg(all(unix, test))]
+pub(crate) use unix::input_ack_surface_fixture;
+#[cfg(unix)]
 pub use unix::unadoptable::*;
 #[cfg(unix)]
 pub(crate) use unix::{
     ClipboardReadSignal, ControlResponses, DeferredCellPixelResolution, StandbyTerminalHost,
-    acquire_terminal_host_reset_lock, adopt_terminal_host_with_kitty_limits,
-    launch_terminal_host_from, launch_terminal_host_seeded, live_successor_record,
-    record_owner_token, sweep_released_pty_locks,
+    adopt_terminal_host_with_kitty_limits, launch_terminal_host_from, launch_terminal_host_seeded,
+    live_successor_record, record_owner_token, sweep_released_pty_locks,
 };
 #[cfg(unix)]
 pub use unix::{
     PtyCustody, TerminalHostAdoption, adopt_terminal_host, isolate_terminal_host_process_fds,
     launch_terminal_host, launch_terminal_host_adopting, launch_terminal_host_with_identity,
     request_terminal_host_pty_custody, serve_terminal_host_stdio, terminal_host_root,
-};
-#[cfg(all(unix, test))]
-pub(crate) use unix::{
-    acquire_terminal_host_publication_lock, input_ack_surface_fixture,
-    prepare_terminal_host_publication_lock,
 };
 
 #[cfg(not(unix))]
