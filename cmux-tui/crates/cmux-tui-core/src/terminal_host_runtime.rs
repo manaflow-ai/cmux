@@ -469,7 +469,6 @@ mod unix {
     use ghostty_vt::Terminal;
 
     use super::shared::codec::*;
-    use super::shared::host_serve::*;
     use super::shared::host_shared::HostShared;
     use super::shared::host_state::*;
     use super::shared::records::*;
@@ -575,8 +574,7 @@ mod unix {
 
     mod adopt_launch;
     mod adopted_child;
-    mod host_accept;
-    mod host_crash;
+    use super::shared::host_accept;
     mod host_scope;
     mod host_signals;
     mod host_start;
@@ -596,7 +594,6 @@ mod unix {
     use host_start::HostChild;
     pub(crate) use pty_custody::serve as serve_pty_custody;
     pub use pty_custody::{PtyCustody, request_terminal_host_pty_custody};
-    pub(crate) use pty_custody::{live_successor_record, record_owner_token};
     pub(crate) use pty_lock::{remove_released, sweep_released_pty_locks};
     pub(crate) use standby::{
         StandbyTerminalHost, launch_terminal_host_from, launch_terminal_host_seeded,
@@ -655,102 +652,6 @@ mod unix {
         }
         crate::host_exe::hold_in_use_lock();
         host_signals::install()
-    }
-
-    pub fn launch_terminal_host(
-        options: &SurfaceOptions,
-        root: &Path,
-        default_colors: DefaultColors,
-        cell_pixels: (u16, u16),
-        kitty_graphics_limits: KittyGraphicsLimits,
-    ) -> anyhow::Result<HostAttachment> {
-        let terminal_id = TerminalId::random()?;
-        launch_terminal_host_with_identity(
-            options,
-            root,
-            default_colors,
-            cell_pixels,
-            kitty_graphics_limits,
-            terminal_id,
-        )
-    }
-
-    /// Launch using a registry-reserved stable UUID. The workspace registry
-    /// can commit identity/placement before process creation, eliminating the
-    /// launch-window orphan race without changing the host wire protocol.
-    pub fn launch_terminal_host_with_identity(
-        options: &SurfaceOptions,
-        root: &Path,
-        default_colors: DefaultColors,
-        cell_pixels: (u16, u16),
-        kitty_graphics_limits: KittyGraphicsLimits,
-        terminal_id: TerminalId,
-    ) -> anyhow::Result<HostAttachment> {
-        let (colors, kitty) = (default_colors, kitty_graphics_limits);
-        launch_terminal_host_from(options, root, colors, cell_pixels, kitty, terminal_id, None)
-    }
-
-    /// A one-shot owner connection (for example to terminate a host no
-    /// surface adopted). It never takes clipboard reads; surfaces adopt with
-    /// [`adopt_terminal_host_with_kitty_limits`].
-    pub fn adopt_terminal_host(
-        record: TerminalHostRecord,
-        record_path: PathBuf,
-    ) -> anyhow::Result<HostAttachment> {
-        validate_terminal_host_record(&record_path, &record)?;
-        let mut attachment = connect_record(record, record_path, OwnerIntent::OneShot)?;
-        attachment.activate_launched_host()?;
-        Ok(attachment)
-    }
-
-    pub(crate) fn adopt_current_terminal_host(
-        record: TerminalHostRecord,
-        record_path: PathBuf,
-    ) -> anyhow::Result<HostAttachment> {
-        validate_terminal_host_record(&record_path, &record)?;
-        connect_current_record_with_timeout(
-            record,
-            record_path,
-            HOST_HANDSHAKE_TIMEOUT,
-            OwnerIntent::Surface,
-        )
-    }
-
-    pub(crate) fn adopt_terminal_host_with_kitty_limits(
-        record: TerminalHostRecord,
-        record_path: PathBuf,
-        ceiling: KittyGraphicsLimits,
-    ) -> anyhow::Result<HostAttachment> {
-        let ceiling = ceiling
-            .validate()
-            .map_err(|_| anyhow::anyhow!("Kitty graphics limits are out of range"))?;
-        let connect = |record: TerminalHostRecord, record_path: PathBuf| {
-            if record.record_version >= HOST_RECORD_VERSION {
-                // Current records guarantee the current smart protocol. Keep
-                // startup and reconnect head-of-line blocking to one bounded
-                // handshake; only legacy records need version probing.
-                adopt_current_terminal_host(record, record_path)
-            } else {
-                connect_record(record, record_path, OwnerIntent::Surface)
-            }
-        };
-        let mut attachment = connect(record.clone(), record_path.clone())?;
-        if kitty_graphics_limits_within(attachment.snapshot.kitty_state.limits, ceiling) {
-            attachment.activate_launched_host()?;
-            return Ok(attachment);
-        }
-
-        attachment.reconfigure_kitty_graphics_for_adoption(ceiling)?;
-        attachment.activate_launched_host()?;
-        attachment.disconnect();
-        drop(attachment);
-
-        let attachment = connect(record, record_path)?;
-        anyhow::ensure!(
-            kitty_graphics_limits_within(attachment.snapshot.kitty_state.limits, ceiling),
-            "terminal host retained Kitty graphics state above its adoption quota"
-        );
-        Ok(attachment)
     }
 
     pub mod unadoptable;
@@ -1031,6 +932,7 @@ mod unix {
         mod parser_failure;
         mod parser_order;
         use super::super::shared::control_responses::ControlResponseWaiter;
+        use super::super::shared::host_serve::*;
         use super::super::sys::terminal_host_publication_lock_path;
         use super::*;
         use cmux_pty::{Child, PtyOpenError, PtySize};
@@ -4709,6 +4611,12 @@ mod unix {
 #[cfg(unix)]
 pub use shared::attachment::HostAttachment;
 #[cfg(unix)]
+pub(crate) use shared::attachment::launch::adopt_terminal_host_with_kitty_limits;
+#[cfg(unix)]
+pub use shared::attachment::launch::{
+    adopt_terminal_host, launch_terminal_host, launch_terminal_host_with_identity,
+};
+#[cfg(unix)]
 pub(crate) use shared::codec::{
     DecodedHostResize, decode_host_resize_payload_for_version, decode_resync_kitty_graphics_limits,
 };
@@ -4724,6 +4632,8 @@ pub use shared::records::{
     validate_terminal_host_record,
 };
 #[cfg(unix)]
+pub(crate) use shared::records::{live_successor_record, record_owner_token};
+#[cfg(unix)]
 pub(crate) use sys::acquire_terminal_host_reset_lock;
 #[cfg(all(unix, test))]
 pub(crate) use sys::{
@@ -4736,14 +4646,13 @@ pub use unix::unadoptable::*;
 #[cfg(unix)]
 pub(crate) use unix::{
     ClipboardReadSignal, ControlResponses, DeferredCellPixelResolution, StandbyTerminalHost,
-    adopt_terminal_host_with_kitty_limits, launch_terminal_host_from, launch_terminal_host_seeded,
-    live_successor_record, record_owner_token, sweep_released_pty_locks,
+    launch_terminal_host_from, launch_terminal_host_seeded, sweep_released_pty_locks,
 };
 #[cfg(unix)]
 pub use unix::{
-    PtyCustody, TerminalHostAdoption, adopt_terminal_host, isolate_terminal_host_process_fds,
-    launch_terminal_host, launch_terminal_host_adopting, launch_terminal_host_with_identity,
-    request_terminal_host_pty_custody, serve_terminal_host_stdio, terminal_host_root,
+    PtyCustody, TerminalHostAdoption, isolate_terminal_host_process_fds,
+    launch_terminal_host_adopting, request_terminal_host_pty_custody, serve_terminal_host_stdio,
+    terminal_host_root,
 };
 
 #[cfg(not(unix))]

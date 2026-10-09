@@ -14,6 +14,7 @@ use super::super::{HOST_CONNECT_RETRY_INTERVAL, HOST_CONNECT_RETRY_WINDOW};
 use super::{HostStream, LeaseProbe, PrivateOpen};
 
 pub(crate) use super::super::unix::PtyCustody;
+pub(crate) use super::super::unix::launch_terminal_host_from;
 pub(crate) use super::super::unix::process_definitely_absent as process_definitely_gone;
 pub(crate) use super::super::unix::remove_released as remove_released_pty_lock;
 pub(crate) use super::super::unix::serve_pty_custody;
