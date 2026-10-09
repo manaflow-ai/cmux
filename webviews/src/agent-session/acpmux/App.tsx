@@ -2327,6 +2327,8 @@ function AcpmuxPane() {
       {snapshot.permissionGroups?.supported && (
         <PermissionPanel
           state={snapshot.permissionGroups}
+          agent={snapshot.summary?.harness}
+          cwd={snapshot.summary?.cwd}
           onRespond={(groupId, revision, decision) => {
             void callNative("chat.permission_group.respond", { groupId, revision, decision });
           }}

@@ -146,3 +146,42 @@ test("modifier hold reveals key hints and focus loss clears them", async () => {
   await act(async () => dom.window.dispatchEvent(new dom.window.Event("blur")));
   expect(panel().getAttribute("data-shortcut-hints")).toBe("false");
 });
+
+test("batch rows disclose independently and one decision addresses the entire group revision", async () => {
+  const batch = {
+    ...state.groups[0]!,
+    items: [
+      state.groups[0]!.items[0]!,
+      {
+        permissionId: "p2",
+        state: "pending" as const,
+        request: { toolCall: { title: "Read README.md", kind: "read", locations: [{ path: "/work/cmux/README.md" }] } },
+      },
+    ],
+  };
+  await render({ groups: [batch] });
+  expect(doc.querySelector("h3")?.textContent).toBe("2 requests from The agent");
+  expect(doc.querySelectorAll('svg[data-icon="tool.read"]')).toHaveLength(1);
+  const rows = [...doc.querySelectorAll("details")];
+  await act(async () => rows[1]!.querySelector("summary")!.click());
+  expect(rows.map((row) => row.open)).toEqual([false, true]);
+  const allow = doc.querySelector<HTMLButtonElement>(".acpmux-permission-buttons button")!;
+  await act(async () => allow.click());
+  expect(answers).toEqual([["g", 7, "allow_once"]]);
+});
+
+test("disabled and deny-only groups never gain an approval through the redesigned controls", async () => {
+  for (const flags of [{ busy: true }, { loading: true }, { ready: false }, { uncertain: true }]) {
+    await render(flags);
+    for (const button of doc.querySelectorAll<HTMLButtonElement>(".acpmux-permission-buttons button")) {
+      expect(button.disabled).toBe(true);
+      await act(async () => button.click());
+    }
+  }
+  expect(answers).toEqual([]);
+  await render({ groups: [{ ...state.groups[0]!, decisions: ["deny"] }] });
+  const buttons = [...doc.querySelectorAll<HTMLButtonElement>(".acpmux-permission-buttons button")];
+  expect(buttons.map(accessibleText)).toEqual(["Deny"]);
+  await act(async () => buttons[0]!.click());
+  expect(answers).toEqual([["g", 7, "deny"]]);
+});

@@ -2,6 +2,11 @@
 // The transcript's row kinds and states (conversation/*, App.tsx VirtualTranscript), each as the
 // snapshot the pane bridge would deliver. src/gallery/format.ts describes the format.
 import { agentPaneEntry } from "../../../gallery/format";
+import type { PlayContext } from "../../../gallery/play";
+import { agentPaneTheme } from "../../../gallery/theme/web";
+import { deriveTokens, GHOSTTY_DEFAULT, rgbHex } from "../../../gallery/theme/tokens";
+import type { PermissionClientState, PermissionGroup } from "../permissions/protocol";
+import { SHORTCUT_ACTIONS } from "../shortcuts";
 import { activity, assistant, chat, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
 import { workedTurnRows } from "../workedTurn";
 import { minutesAgo } from "../../../gallery/clock";
@@ -11,6 +16,76 @@ import {
   LOGIN_SCREENSHOT_PNG,
   LOGIN_TESTS_MP4,
 } from "../../../gallery/fixtures/toolImages";
+
+const permissionGroup = (
+  items: Record<string, unknown>[],
+  overrides: Partial<PermissionGroup> = {},
+): PermissionClientState => ({
+  supported: true,
+  ready: true,
+  loading: false,
+  busy: false,
+  chatAllowance: false,
+  groups: [
+    {
+      groupId: "gallery-permission-group",
+      sessionId: "gallery-session",
+      turnId: "gallery-turn",
+      revision: 1,
+      state: "pending",
+      decision: null,
+      decisions: ["allow_once", "allow_chat", "deny"],
+      items: items.map((toolCall, index) => ({
+        permissionId: `gallery-permission-${index}`,
+        state: "pending",
+        request: { toolCall },
+      })),
+      ...overrides,
+    },
+  ],
+});
+const onePermission = permissionGroup([
+  {
+    title: "bun add @pierre/trees",
+    kind: "execute",
+    rawInput: { command: "bun add @pierre/trees", cwd: "/Users/lawrence/fun/cmuxterm-hq" },
+  },
+]);
+const severalPermissions = permissionGroup([
+  {
+    title: "bun test webviews",
+    kind: "execute",
+    rawInput: { command: "bun test webviews", cwd: "/Users/lawrence/fun/cmuxterm-hq" },
+  },
+  {
+    title: "Edit package.json",
+    kind: "edit",
+    locations: [{ path: "webviews/package.json" }],
+    rawInput: { path: "webviews/package.json", content: "{ ... }" },
+  },
+  { title: "Read CONTRIBUTING.md", kind: "read", locations: [{ path: "CONTRIBUTING.md" }] },
+]);
+const permissionSnapshot = (permissionGroups: PermissionClientState, question = "Install the tree package") =>
+  chat(
+    [
+      user(question, 1),
+      activity([tool("bun add @pierre/trees", "execute", "pending", { command: "bun add @pierre/trees" })], 0.9),
+    ],
+    {
+      isWorking: true,
+      permissionGroups,
+      summary: { sessionId: "gallery-session", cwd: "/Users/lawrence/fun/cmuxterm-hq", harness: "claude" },
+    },
+  );
+
+async function permissionShortcuts(ctx: PlayContext) {
+  ctx.document.defaultView?.cmuxAcpmuxBridge?.applyShortcuts?.({
+    [SHORTCUT_ACTIONS.permissionAllowOnce]: "⌥⌘1",
+    [SHORTCUT_ACTIONS.permissionAllowChat]: "⌥⌘2",
+    [SHORTCUT_ACTIONS.permissionDeny]: "⌥⌘3",
+    [SHORTCUT_ACTIONS.permissionExpand]: "⌥⌘4",
+  });
+}
 
 const prompt = "Add retries with backoff to the fetch helper";
 
@@ -235,6 +310,8 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/DateLine.tsx",
     "agent-session/acpmux/FailedPrompt.tsx",
     "agent-session/acpmux/PermissionCard.tsx",
+    "agent-session/acpmux/permissions/Panel.tsx",
+    "agent-session/acpmux/permissions/RequestRows.tsx",
   ],
   variants: {
     conversation: {
@@ -503,27 +580,74 @@ export default agentPaneEntry({
       snapshot: chat([user("What is the expected wait?", 4), assistant(MATH, 3.9), summary(3.9)]),
     },
     permission: {
-      note: "A tool call waiting for the user's permission.",
-      snapshot: chat(
-        [
-          user("Install the tree package", 1),
-          activity([tool("bun add @pierre/trees", "execute", "pending", { command: "bun add @pierre/trees" })], 0.9),
-        ],
-        {
-          isWorking: true,
-          permission: {
-            permissionId: "gallery-permission",
-            title: "bun add @pierre/trees",
+      note: "One tool request: command, folder, and the three decisions are visible together.",
+      snapshot: permissionSnapshot(onePermission),
+      play: permissionShortcuts,
+    },
+    "permission-several": {
+      note: "Several requests from one turn stay compact; the batch actions apply to the group.",
+      snapshot: permissionSnapshot(severalPermissions, "Run the checks and update the manifest"),
+      play: permissionShortcuts,
+    },
+    "permission-expanded": {
+      note: "The request row is the only disclosure; the original input is open for review.",
+      snapshot: permissionSnapshot(onePermission),
+      play: async (ctx) => {
+        await permissionShortcuts(ctx);
+        await ctx.click({ selector: ".acpmux-permission-items summary" });
+      },
+    },
+    "permission-unverified": {
+      note: "The isolation warning stays in the header with its explanation in the tooltip.",
+      snapshot: permissionSnapshot(onePermission),
+      play: permissionShortcuts,
+    },
+    "permission-long-command": {
+      note: "Long commands wrap in the title while the folder remains readable metadata.",
+      snapshot: permissionSnapshot(
+        permissionGroup([
+          {
+            title:
+              "bun run generate:fixtures -- --workspace /Users/lawrence/fun/cmuxterm-hq/webviews --include-hidden --check-lockfile",
             kind: "execute",
-            pending: true,
-            options: [
-              { id: "allow_once", name: "Allow", allow: true },
-              { id: "allow_always", name: "Always allow", allow: true },
-              { id: "reject_once", name: "Deny", allow: false },
-            ],
+            rawInput: {
+              command:
+                "bun run generate:fixtures -- --workspace /Users/lawrence/fun/cmuxterm-hq/webviews --include-hidden --check-lockfile",
+              cwd: "/Users/lawrence/fun/cmuxterm-hq/webviews",
+            },
           },
-        },
+        ]),
       ),
+    },
+    "permission-narrow": {
+      note: "A 360px pane: the status and decisions wrap without hiding the request.",
+      height: 680,
+      snapshot: permissionSnapshot(onePermission),
+      play: async (ctx) => {
+        await permissionShortcuts(ctx);
+        const shell = ctx.document.querySelector<HTMLElement>(".acpmux-shell");
+        if (shell) {
+          shell.style.width = "min(100%, 360px)";
+          shell.style.marginInline = "auto";
+        }
+      },
+    },
+    "permission-light": {
+      note: "Light appearance through the real pane theme bridge.",
+      snapshot: permissionSnapshot(onePermission),
+      play: async (ctx) => {
+        await permissionShortcuts(ctx);
+        ctx.document.defaultView?.cmuxAcpmuxBridge?.applyTheme(
+          agentPaneTheme(
+            deriveTokens({
+              ...GHOSTTY_DEFAULT,
+              background: rgbHex(0xffffff),
+              foreground: rgbHex(0x1d1d1f),
+            }),
+            true,
+          ),
+        );
+      },
     },
     queued: {
       note: "Prompts queued behind a running turn.",
