@@ -66,6 +66,18 @@
    "CmuxNextMobile": 1,
    "MessagesLabHome": 48
   },
+  "objc_observer": {
+   "CmuxNextApp": 3,
+   "CmuxNextBrowser": 1,
+   "CmuxNextDesign": 3,
+   "CmuxNextLayout": 1,
+   "CmuxNextPages": 1,
+   "CmuxNextPalette": 1,
+   "CmuxNextSidebar": 4,
+   "CmuxNextTerminal": 1,
+   "MessagesLabHome": 3,
+   "MessagesLabSidebar": 2
+  },
   "render_font": {
    "CmuxHomeRender": 4,
    "MessagesLabHome": 25,
