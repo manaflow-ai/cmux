@@ -141,6 +141,9 @@ pub struct TurnFold {
     tools: HashMap<String, Tool>,
     /// The last finished reply: what the turn posts.
     last_talk: Option<String>,
+    /// Answers Claude Code finished (`result`) before a steered message
+    /// made it go on in the same prompt: the post holds them first.
+    answered: Vec<String>,
     ended: Option<Ended>,
     /// The last raw Claude Code line came from one of its own subagents
     /// (Task/Agent): the translated updates that follow it are that
@@ -207,8 +210,14 @@ impl TurnFold {
     }
 
     /// The turn's final assistant text: its last finished reply.
-    pub fn final_text(&self) -> Option<&str> {
-        self.last_talk.as_deref()
+    pub fn final_text(&self) -> Option<String> {
+        let parts: Vec<&str> = self
+            .answered
+            .iter()
+            .map(String::as_str)
+            .chain(self.last_talk.as_deref())
+            .collect();
+        (!parts.is_empty()).then(|| parts.join("\n\n"))
     }
 
     /// Folds one event; events at or below the last seq are replays.
@@ -240,6 +249,16 @@ impl TurnFold {
                 matches!(event.msg.get("parent_tool_use_id"), Some(Value::String(_)));
             if !self.in_subagent && event.dir != "out" {
                 self.time_request(event);
+            }
+            // Claude Code finished an answer; with a steered message it goes
+            // on in this prompt, and the next answer is posted after it.
+            if !self.in_subagent && event.kind.starts_with("claude.result") {
+                let mut out = Vec::new();
+                self.finish_talk(&mut out);
+                if let Some(text) = self.last_talk.take() {
+                    self.answered.push(text);
+                }
+                return out;
             }
             if event.kind == "claude.assistant" && !self.in_subagent {
                 let message = event.msg.get("message");
@@ -630,7 +649,7 @@ mod tests {
                 (Kind::Talk, "It is empty."),
             ]
         );
-        assert_eq!(fold.final_text(), Some("It is empty."));
+        assert_eq!(fold.final_text().as_deref(), Some("It is empty."));
         assert_eq!(fold.ended(), Some(&Ended { error: None }));
         // A replay of the same events changes nothing.
         for e in &events {
@@ -765,7 +784,7 @@ mod tests {
                 (Kind::Talk, "Found it."),
             ]
         );
-        assert_eq!(fold.final_text(), Some("Found it."));
+        assert_eq!(fold.final_text().as_deref(), Some("Found it."));
     }
 
     /// Audit round 2: a turn that stops early (refusal, max_tokens,

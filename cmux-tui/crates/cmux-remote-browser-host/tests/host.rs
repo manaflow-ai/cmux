@@ -7,7 +7,9 @@ use cmux_remote_browser::proto::{
 };
 use cmux_remote_browser::rp_input::{InputReject, RpCall};
 use cmux_remote_browser::session::ScreenSize;
-use cmux_remote_browser_host::tab::{HostTab, PageChange, Presentation, SurfaceOut};
+use cmux_remote_browser_host::tab::{
+    HostTab, PageChange, Presentation, SurfaceOut, fork_surface_kind,
+};
 
 #[derive(Default)]
 struct Fake {
@@ -68,6 +70,10 @@ impl Presentation for Fake {
     }
     fn surface_close(&mut self, surface: u32) {
         self.ui.push(format!("surface_close {surface}"));
+    }
+    fn surface_refresh(&mut self, surface: u32) -> bool {
+        self.ui.push(format!("surface_refresh {surface}"));
+        true
     }
     fn load_url(&mut self, browser: i32, url: &str) -> bool {
         self.calls.push(format!("load_url {browser} {url}"));
@@ -574,6 +580,62 @@ fn a_page_popup_gets_its_own_stream_on_its_first_frame_and_goes_with_its_widget(
     assert_eq!(tab.input(&pointer(5, PointerKind::Up, 30.0, 40.0, 0), &mut fake), Ok(false));
     assert!(fake.sent.is_empty(), "input to a gone surface is dropped");
     assert!(tab.surface_frame(5, 400, 300).is_empty(), "a late frame of a gone surface");
+}
+
+#[test]
+fn fork_surface_kinds_map_to_rb_kinds_and_bubbles_are_left_alone() {
+    // cef_cmux.h API 21: 1 page popup, 2 autofill (also <datalist>),
+    // 3 extension popup, 4 bubble (untested in the fork: ignored).
+    assert_eq!(fork_surface_kind(1), Some(SurfaceKind::PagePopup));
+    assert_eq!(fork_surface_kind(2), Some(SurfaceKind::Autofill));
+    assert_eq!(fork_surface_kind(3), Some(SurfaceKind::ExtensionPopup));
+    assert_eq!(fork_surface_kind(4), None);
+    assert_eq!(fork_surface_kind(0), None);
+    assert_eq!(fork_surface_kind(5), None);
+}
+
+#[test]
+fn an_autofill_surface_shows_with_its_kind() {
+    let mut fake = Fake::default();
+    let mut tab = live_tab(&mut fake);
+    let at = rect(8.0, 40.0, 180.0, 90.0);
+    let kind = fork_surface_kind(2).expect("autofill");
+    tab.surface_changed(9, kind, true, at, &mut fake);
+    let out = tab.surface_frame(9, 360, 180);
+    assert_eq!(
+        out.last(),
+        Some(&SurfaceOut::Control(Control::SurfaceShow {
+            surface: 9,
+            stream: 1,
+            kind: SurfaceKind::Autofill,
+            anchor: at,
+            width: 360,
+            height: 180,
+        }))
+    );
+}
+
+#[test]
+fn a_viewer_joining_while_a_popup_is_shown_gets_its_stream_show_and_a_fresh_frame() {
+    let mut fake = Fake::default();
+    let mut tab = live_tab(&mut fake);
+    let at = rect(10.0, 20.0, 200.0, 150.0);
+    tab.surface_changed(5, SurfaceKind::PagePopup, true, at, &mut fake);
+    tab.surface_frame(5, 400, 300);
+    // A popup with no pixels yet shows on its first frame as usual.
+    tab.surface_changed(6, SurfaceKind::PagePopup, true, at, &mut fake);
+    fake.ui.clear();
+    let out = tab.rejoin_surfaces(&mut fake);
+    assert_eq!(
+        out,
+        vec![
+            SurfaceOut::AddStream { surface: 5, stream: 1, width: 400, height: 300 },
+            show(5, 1, at, 400, 300),
+        ]
+    );
+    // The new stream's encoder needs a frame: the page may never change.
+    assert_eq!(fake.ui, vec!["surface_refresh 5"]);
+    assert_eq!(tab.surface_stream(6), None);
 }
 
 #[test]

@@ -457,7 +457,8 @@
       ],
       "packages": [
         "CMUXAuthCore",
-        "CmuxAuthRuntime"
+        "CmuxAuthRuntime",
+        "CmuxInstallAuthCore"
       ]
     },
     "CmuxNextCloudTests": {
@@ -466,7 +467,9 @@
       "targets": [
         "CmuxNextCloud"
       ],
-      "packages": [],
+      "packages": [
+        "CmuxInstallAuthCore"
+      ],
       "reads": []
     },
     "CmuxNextCodeRouter": {

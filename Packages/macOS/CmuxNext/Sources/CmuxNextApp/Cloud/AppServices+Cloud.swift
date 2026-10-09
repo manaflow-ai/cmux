@@ -9,7 +9,7 @@ extension AppServices {
     /// window's machine (the local daemon, or its Cloud machine).
     var activeDaemon: DaemonService {
         if let routedDaemon { return routedDaemon }
-        guard let machine = windows?.active?.state.machineID else { return daemon }
+        guard let machine = windows.active?.state.machineID else { return daemon }
         // A window of a machine turned off by policy (DisabledFeatures) keeps
         // its blocked daemon: commands fail there, never land on this Mac.
         return machines.daemon(machine: machine) ?? machines.anyDaemon(machine: machine) ?? daemon
@@ -26,15 +26,16 @@ extension AppServices {
         let signedIn = cloud.isSignedIn
         context.remove([.signedIn, .signedOut, .cloudWorkspace])
         context.insert(signedIn ? .signedIn : .signedOut)
-        if signedIn, let machine = windows?.active?.state.machineID, machines.session(machine) != nil {
+        if signedIn, let machine = windows.active?.state.machineID, machines.session(machine) != nil {
             context.insert(.cloudWorkspace)
         }
         if registry.context != context { registry.context = context }
     }
 
+    /// Starts Cloud and keeps the registry context current.
     func startCloud() -> Task<Void, Never> {
         cloud.start()
-        let cloud = cloud!, machines = machines
+        let cloud = cloud, machines = machines
         AppMobileLinkServices.configure(self, cloud: cloud, apiBaseURL: feed.apiBaseURL, launch: environment.launch)
         return Task { [weak self] in
             var account: String?
