@@ -6,11 +6,10 @@
 //! file, and answers like the Chief.
 
 use super::*;
-use serde_json::Value;
 
 /// The stand-in brain: `host --daemon-socket S --mux-home H`.
 const FAKE_BRAIN: &str = r#"#!/usr/bin/env python3
-import fcntl, json, os, socket, sys
+import fcntl, json, os, socket, sys, time
 args = sys.argv[1:]
 sock_path = args[args.index("--daemon-socket") + 1]
 home = args[args.index("--mux-home") + 1]
@@ -44,28 +43,41 @@ chats = request("conversation-list")["conversations"]
 chief = [c for c in chats if any(p["id"] == "agent_mux" for p in c["participants"])][0]["id"]
 request("conversation-bind", participant="agent_mux", token=token)
 request("subscribe")
-done = 0
+done = [0]
+def answer(message):
+    seq = message["seq"]
+    if message.get("author") != "user_local" or seq <= done[0]:
+        return
+    done[0] = seq
+    text = message["parts"][0]["text"]
+    request("conversation-op", conversation=chief, idempotency_key="cursor:%d" % seq,
+            op={"kind": "read_cursor.set", "seq": seq})
+    request("conversation-typing", conversation=chief, on=True)
+    key = "turn:fake:%d" % seq
+    # The owner limits how fast an agent posts (agent_rate): retry.
+    for _ in range(20):
+        try:
+            request("conversation-op", conversation=chief, idempotency_key=key,
+                    op={"kind": "message.send", "client_msg_id": key,
+                        "parts": [{"type": "text", "text": "echo: " + text}]})
+            break
+        except AssertionError:
+            time.sleep(0.5)
+    request("conversation-typing", conversation=chief, on=False)
+# Catch up first, as the real brain does: what came before it subscribed.
+history = request("conversation-snapshot", conversation=chief, tail=50)["messages"]
+answered = max([m["seq"] for m in history if m["author"] == "agent_mux"] + [0])
+done[0] = answered
+for message in history:
+    answer(message)
 while True:
     line = reader.readline()
     if not line:
         break
     event = json.loads(line)
     change = event.get("change") or {}
-    message = change.get("message") or {}
-    if event.get("event") != "conversation-changed" or change.get("kind") != "message" \
-            or message.get("author") != "user_local" or message["seq"] <= done:
-        continue
-    seq = message["seq"]
-    done = seq
-    text = message["parts"][0]["text"]
-    request("conversation-op", conversation=chief, idempotency_key="cursor:%d" % seq,
-            op={"kind": "read_cursor.set", "seq": seq})
-    request("conversation-typing", conversation=chief, on=True)
-    key = "turn:fake:%d" % seq
-    request("conversation-op", conversation=chief, idempotency_key=key,
-            op={"kind": "message.send", "client_msg_id": key,
-                "parts": [{"type": "text", "text": "echo: " + text}]})
-    request("conversation-typing", conversation=chief, on=False)
+    if event.get("event") == "conversation-changed" and change.get("kind") == "message":
+        answer(change["message"])
 "#;
 
 /// A temp user home, runtime directory and stand-in brain; stops what the
@@ -88,7 +100,7 @@ impl Sandbox {
     }
 
     fn chief(&self, args: &[&str]) -> Output {
-        let mut child = Command::new(bin())
+        let child = Command::new(bin())
             .arg("chief")
             .args(args)
             .env("LC_ALL", "C")
@@ -104,13 +116,26 @@ impl Sandbox {
             .stderr(Stdio::piped())
             .spawn()
             .unwrap();
+        let pid = child.id();
         let (tx, rx) = mpsc::channel();
-        let wait = std::thread::spawn(move || {
+        std::thread::spawn(move || {
             let _ = tx.send(child.wait_with_output());
         });
-        let output = rx.recv_timeout(Duration::from_secs(60)).expect("cmux chief did not exit");
-        let _ = wait.join();
-        output.unwrap()
+        match rx.recv_timeout(Duration::from_secs(60)) {
+            Ok(output) => output.unwrap(),
+            Err(_) => {
+                // SAFETY: kill(2) of the CLI this test spawned.
+                unsafe { libc::kill(pid as i32, libc::SIGKILL) };
+                let output = rx.recv_timeout(Duration::from_secs(10)).ok().and_then(Result::ok);
+                let home = self.isolated();
+                panic!(
+                    "cmux chief did not exit; stderr: {}\nhost.log: {}\nbrain starts: {}",
+                    output.map(|o| stderr_of(&o)).unwrap_or_default(),
+                    fs::read_to_string(home.join("host.log")).unwrap_or_default(),
+                    fs::read_to_string(home.join("brain-starts.log")).unwrap_or_default(),
+                );
+            }
+        }
     }
 
     fn isolated(&self) -> PathBuf {
@@ -130,10 +155,15 @@ impl Drop for Sandbox {
         // The daemon the CLI started for the home ends with its terminals.
         let started = fs::read_to_string(home.join("daemon-socket")).ok().map(PathBuf::from);
         for socket in sockets(&self.dir.join("run")).into_iter().chain(started) {
-            let _ = try_json_socket_request(
-                &socket,
-                serde_json::json!({"id": 1, "cmd": "shutdown-daemon", "end_terminals": true}),
-            );
+            // shutdown-daemon names the daemon's pid and generation (identify).
+            let identity = try_json_socket_request(&socket, serde_json::json!({"id": 1, "cmd": "identify"}));
+            if let Some(identity) = identity {
+                let _ = try_json_socket_request(
+                    &socket,
+                    serde_json::json!({"id": 2, "cmd": "shutdown-daemon", "pid": identity["pid"],
+                                       "generation": identity["generation"], "end_terminals": true}),
+                );
+            }
         }
         let _ = fs::remove_dir_all(&self.dir);
     }

@@ -259,3 +259,49 @@ fn wrap_keeps_lines_and_breaks_at_spaces_by_width() {
     assert_eq!(wrap("a\nb", 8), vec!["a", "b"]);
     assert_eq!(wrap("日本語日本語", 8).len(), 2, "wide characters count two columns");
 }
+
+#[test]
+fn the_chief_home_resolves_as_the_app_resolves_it() {
+    use super::home::ChiefHome;
+    use std::path::{Path, PathBuf};
+    let user = Path::new("/Users/a");
+    let cwd = Path::new("/work");
+    let none = |_: &str| None::<String>;
+    let default = ChiefHome::resolve(None, none, user, cwd);
+    assert_eq!(default.root, PathBuf::from("/Users/a/.cmux/chief/default"));
+    assert!(!default.isolated);
+    // The app's FNV-1a 32 of the root path (ChiefHome.sessionName).
+    assert_eq!(default.session(), "cmux-chief-aa441d8a");
+    let env = |key: &str| match key {
+        "CMUX_NEXT_CHIEF_ACCOUNT" => Some("work acct!".to_owned()),
+        _ => None,
+    };
+    assert_eq!(
+        ChiefHome::resolve(None, env, user, cwd).root,
+        PathBuf::from("/Users/a/.cmux/chief/work-acct")
+    );
+    let isolated = |key: &str| (key == "CMUX_NEXT_NO_ACTIVATE").then(|| "1".to_owned());
+    assert_eq!(
+        ChiefHome::resolve(None, isolated, user, cwd).root,
+        PathBuf::from("/Users/a/.cmux/chief/isolated/untagged")
+    );
+    // --chief-home wins over every variable, relative to the working
+    // directory, standardized like Foundation's path.
+    let both = |key: &str| (key == "CMUX_CHIEF_HOME").then(|| "/tmp/x/iso".to_owned());
+    let explicit = ChiefHome::resolve(Some(Path::new("tests/../iso/")), both, user, cwd);
+    assert_eq!(explicit.root, PathBuf::from("/work/iso"));
+    assert!(explicit.isolated);
+    let by_env = ChiefHome::resolve(None, both, user, cwd);
+    assert_eq!(by_env.root, PathBuf::from("/tmp/x/iso"));
+    assert_eq!(by_env.session(), "cmux-chief-36e35ec2");
+}
+
+#[test]
+fn the_acpmux_socket_follows_acpmux_length_rule() {
+    use super::home::ChiefHome;
+    let short = ChiefHome { root: "/h/c".into(), isolated: true };
+    assert_eq!(short.acpmux_socket(501), std::path::PathBuf::from("/h/c/acpmux/acpmux.sock"));
+    let long = ChiefHome { root: format!("/{}", "x".repeat(100)).into(), isolated: true };
+    let socket = long.acpmux_socket(501).to_string_lossy().into_owned();
+    assert!(socket.starts_with("/tmp/acpmux-501/") && socket.ends_with(".sock"), "{socket}");
+}
