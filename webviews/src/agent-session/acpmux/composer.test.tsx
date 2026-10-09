@@ -772,9 +772,11 @@ describe("acpmux composer draft", () => {
         ),
       );
       await ready();
-      (dom.window as unknown as {
-        cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
-      }).cmuxAcpmuxActions = {
+      (
+        dom.window as unknown as {
+          cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
+        }
+      ).cmuxAcpmuxActions = {
         "chat.readDraft": async () => ({ draft: "draft from daemon" }),
         "chat.writeDraft": async (params) => {
           writes.push(params);
