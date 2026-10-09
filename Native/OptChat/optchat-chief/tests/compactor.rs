@@ -2395,3 +2395,51 @@ fn a_turn_starts_while_imported_lines_are_still_unbuilt() {
     h.chat.shutdown();
     drop(release);
 }
+
+/// Import at 06a7b250b1fc, 16 sessions: an 8-message merge took 87 s
+/// (median), of which 77 s was waiting for a session slot, while its 3.9
+/// prompts took about 1.8 s each. A fresh size retry gave its slot back and
+/// queued again behind every waiting import node. A node's size retry is
+/// part of the same job: it keeps its slot.
+#[test]
+fn a_size_retry_keeps_its_session_slot() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|turn, _| {
+        if turn == 0 {
+            answer(&format!("user: {}", "w".repeat(700)))
+        } else {
+            answer("user: a line")
+        }
+    }));
+    agents.hold(true);
+    let compactor = Arc::new(AcpmuxCompactor::new(
+        agents.clone(),
+        spec(dir.path()),
+        Slots::new(1),
+    ));
+    let spawn = |r: CompactRequest| {
+        let c = compactor.clone();
+        std::thread::spawn(move || run_node(&*c, &r))
+    };
+    let first = spawn(request(1));
+    agents.wait_prompts(1);
+    // Another node waits for the one slot.
+    let other = spawn(request(2));
+    std::thread::sleep(Duration::from_millis(300));
+    // The first node's reply is too long: it retries.
+    agents.release();
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while agents.inner.lock().unwrap().specs.len() < 2 {
+        assert!(std::time::Instant::now() < deadline, "no second session");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let second = agents.inner.lock().unwrap().specs[1].name.clone();
+    agents.hold(false);
+    agents.release();
+    assert!(first.join().unwrap().is_ok());
+    assert!(other.join().unwrap().is_ok());
+    assert_eq!(
+        second, "optchat-compact-test-1+1",
+        "the retry waited for the slot"
+    );
+}
