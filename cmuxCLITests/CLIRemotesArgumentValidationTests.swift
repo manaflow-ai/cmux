@@ -75,8 +75,11 @@ struct CLIVPNArgumentValidationTests {
             )
 
             #expect(!result.timedOut)
-            #expect(result.status == 1)
-            #expect(result.stderr.contains("Usage: cmux vpn <up|down|status|revoke>"))
+            #expect(result.status == 1, Comment(rawValue: result.stderr))
+            #expect(
+                result.stderr.contains("Error: Usage: cmux vpn <up|down|status|revoke>"),
+                Comment(rawValue: result.stderr)
+            )
             let tunnelMethods = fixture.requestsSnapshot().compactMap { request in
                 (request["method"] as? String).flatMap { method in
                     method.hasPrefix("vm.tunnel_") ? method : nil
