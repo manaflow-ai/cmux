@@ -119,6 +119,10 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         XCTAssertTrue(pluginSource.contains("event.properties || event.data"))
         XCTAssertTrue(pluginSource.contains("\"hooks\", \"enqueue\", \"opencode\""))
         XCTAssertTrue(pluginSource.contains("CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC: \"1\""))
+        XCTAssertTrue(pluginSource.contains("import { spawn } from \"node:child_process\";"))
+        XCTAssertTrue(pluginSource.contains("child.stdin?.on(\"error\", () => {}).end(JSON.stringify(payload));"))
+        XCTAssertTrue(pluginSource.contains("child.unref();"))
+        XCTAssertFalse(pluginSource.contains("spawnSync"), "The shared OpenCode service must not block on cmux admission")
 
         let secondResult = runProcess(executablePath: cliPath, arguments: ["setup-hooks", "--agent", "opencode"], environment: environment, timeout: 5)
         XCTAssertFalse(secondResult.timedOut, secondResult.stderr)
@@ -133,6 +137,57 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: try Data(contentsOf: configURL), options: []) as? [String: Any])
         XCTAssertNil(json["plugin"])
         XCTAssertEqual(try XCTUnwrap(json["plugins"] as? [String]), ["other-plugin", "./plugins"])
+    }
+
+    func testOpenCodeSessionPluginDoesNotWaitForSharedServiceAdmission() throws {
+        let fileManager = FileManager.default
+        let cliPath = try bundledCLIPath()
+        let bunURL = try Self.bunExecutableURL()
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-opencode-session-async-\(UUID().uuidString)", isDirectory: true
+        )
+        let configDir = root.appendingPathComponent("opencode", isDirectory: true)
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        try fileManager.createDirectory(at: configDir, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: binDir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let fakeOpenCodeURL = binDir.appendingPathComponent("opencode", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: fakeOpenCodeURL, atomically: true, encoding: .utf8)
+        chmod(fakeOpenCodeURL.path, 0o755)
+        let slowCmuxURL = binDir.appendingPathComponent("cmux-slow", isDirectory: false)
+        try "#!/bin/sh\nsleep 5\n".write(to: slowCmuxURL, atomically: true, encoding: .utf8)
+        chmod(slowCmuxURL.path, 0o755)
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["OPENCODE_CONFIG_DIR"] = configDir.path
+        environment["PATH"] = "\(binDir.path):\(environment["PATH"] ?? "/usr/bin")"
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        let install = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "opencode", "install", "--yes"],
+            environment: environment,
+            timeout: 5
+        )
+        XCTAssertFalse(install.timedOut, install.stderr)
+        XCTAssertEqual(install.status, 0, install.stderr)
+
+        let pluginURL = configDir.appendingPathComponent("plugins/cmux-session.js", isDirectory: false)
+        let harnessURL = root.appendingPathComponent("harness.js", isDirectory: false)
+        try Self.openCodeSessionAsyncHarness.write(to: harnessURL, atomically: true, encoding: .utf8)
+        environment["CMUX_SURFACE_ID"] = "surface-shared-service"
+        environment["CMUX_WORKSPACE_ID"] = "workspace-shared-service"
+        environment["CMUX_OPENCODE_CMUX_BIN"] = slowCmuxURL.path
+
+        let result = runProcess(
+            executablePath: bunURL.path,
+            arguments: [harnessURL.path, pluginURL.path],
+            environment: environment,
+            timeout: 2
+        )
+        XCTAssertFalse(result.timedOut, "The shared OpenCode service must return without waiting for cmux admission: \(result.stderr)")
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines), "returned")
     }
 
     // Regression for https://github.com/manaflow-ai/cmux/issues/7140: opencode resolves
@@ -207,6 +262,24 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         }
         throw XCTSkip("Bun runtime is required for the OpenCode plugin harness")
     }
+
+    private static let openCodeSessionAsyncHarness = #"""
+const { pathToFileURL } = require("node:url");
+
+(async () => {
+  const pluginPath = process.argv[2];
+  const plugin = await import(pathToFileURL(pluginPath).href);
+  const hooks = await plugin.CMUXSessionRestore({ directory: "/tmp/opencode-project" });
+  await hooks.event({ event: {
+    type: "session.created",
+    properties: { info: { id: "slow-session", directory: "/tmp/opencode-project" } }
+  } });
+  console.log("returned");
+})().catch((error) => {
+  console.error(error && error.stack ? error.stack : String(error));
+  process.exit(1);
+});
+"""#
 
     private static let openCodeFeedEventHarness = #"""
 const net = require("node:net");
