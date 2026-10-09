@@ -71,6 +71,5 @@
   "pages/settings/editors/TextEditor.tsx": 1,
   "pages/settings/editors/ToggleEditor.tsx": 1,
   "pages/settings/keyboard.ts": 1,
-  "pages/settings/testing.tsx": 1,
-  "pages/shared/PageMenu.tsx": 4
+  "pages/settings/testing.tsx": 1
 }

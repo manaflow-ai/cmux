@@ -260,7 +260,6 @@ final class AgentTabStore {
             newTab: local ? newTabPages[key]?.page : nil,
             allowsTabConversion: local
         )
-        model.sessionMustExist = linkedSessions.contains(key) || !local
         model.pendingRevealTurn = pendingTurns.removeValue(forKey: key)
         wire(model, key: key)
         if !local {
