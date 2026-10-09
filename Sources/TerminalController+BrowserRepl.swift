@@ -139,7 +139,7 @@ extension TerminalController {
         case .success(.allWorkspaces):
             let count = registry.reset(name: name, workspaceID: nil, owner: owner)
             return .ok(["session": name, "existed": count > 0, "count": count])
-        case .success(.caller(.outside)) where !BrowserReplSessionRegistry.isPrivateName(name):
+        case .success(.caller(.outside)) where owner == nil:
             let existed = registry.reset(outsideNamed: name)
             return .ok(["session": name, "existed": existed, "count": existed ? 1 : 0, "outside_cmux": true])
         case .success(.caller(let caller)):
@@ -243,6 +243,15 @@ extension TerminalController {
                 ),
                 data: ["caller_workspace_id": caller.uuidString]
             )
+        case .callerUnresolved:
+            return .err(
+                code: "denied",
+                message: String(
+                    localized: "cli.browser.repl.error.callerUnresolved",
+                    defaultValue: "cmux could not trace this process to a cmux terminal or to outside cmux (its parent process chain is too deep or loops); run the REPL call from a shallower process"
+                ),
+                data: nil
+            )
         }
     }
 
@@ -303,11 +312,13 @@ extension TerminalController {
             return error
         }
         // A shared name from outside cmux is one session per name, made in
-        // the workspace focused then; a client-made private name (the
-        // interactive REPL's and mcp's, which pin the workspace their first
-        // call bound) and every caller inside cmux use a workspace's session.
+        // the workspace focused then; a private session (one made with the
+        // client's owner token: one-shot runs, the interactive REPL's and
+        // mcp's, which pin the workspace their first call bound) and every
+        // caller inside cmux use a workspace's session. Privacy is the token,
+        // never the name.
         var isOutsideNamed = false
-        if case .outside = caller, let named, !BrowserReplSessionRegistry.isPrivateName(named) {
+        if case .outside = caller, named != nil, owner == nil {
             isOutsideNamed = true
         }
         if !isOutsideNamed, Self.browserReplWorkspace(of: caller) == nil {
@@ -339,8 +350,6 @@ extension TerminalController {
                 )
             }
             if isOutsideNamed {
-                // A shared name takes no owner token, from anywhere.
-                if owner != nil { throw BrowserReplSessionRegistry.Refusal.ownerOnSharedName }
                 guard case .outside(let focused) = caller else { return Self.browserReplNoWorkspaceError }
                 let found = try host.registry.outsideSession(named: sessionName, focusedWorkspace: focused, make: make)
                 key = found.key
@@ -370,15 +379,6 @@ extension TerminalController {
             return .err(code: "invalid_params", message: Self.browserReplOwnedSessionMessage, data: nil)
         } catch BrowserReplSessionRegistry.Refusal.invalidOwner {
             return .err(code: "invalid_params", message: Self.browserReplInvalidOwnerMessage, data: nil)
-        } catch BrowserReplSessionRegistry.Refusal.ownerOnSharedName {
-            return .err(
-                code: "invalid_params",
-                message: String(
-                    localized: "cli.browser.repl.error.sessionOwnerShared",
-                    defaultValue: "A named REPL session is shared by name and takes no owner token; send session_owner only with a session name the client made for itself (cli-, mcp- or oneshot-)"
-                ),
-                data: nil
-            )
         } catch {
             return .err(code: "invalid_params", message: Self.browserReplInvalidSessionNameMessage, data: nil)
         }
@@ -428,7 +428,7 @@ extension TerminalController {
             // The same pid -> pane lookup agent hook delivery uses: a
             // process's controlling TTY matched against every live pane's PTY.
             let terminals = AppDelegate.shared?.liveAgentDeliveryTTYBindings() ?? []
-            let derived = BrowserReplCallerLocality(
+            let locality = BrowserReplCallerLocality(
                 host: getpid(),
                 parent: TerminalController.browserReplParentProcessID,
                 workspace: { pid in
@@ -436,7 +436,15 @@ extension TerminalController {
                         agentDeliveryTargetMatchingTTYDevice($0, surfaceTTYDevices: terminals)?.workspaceId
                     }
                 }
-            ).workspace(ofPeer: peer)
+            ).locality(ofPeer: peer)
+            // A walk that could not finish proves neither a terminal nor
+            // outside cmux: refused, never an outside caller.
+            let derived: UUID?
+            switch locality {
+            case .terminal(let workspace): derived = workspace
+            case .outside: derived = nil
+            case .unresolved: return .failure(.callerUnresolved)
+            }
             return BrowserReplWorkspaceBinding(
                 exists: { AppDelegate.shared?.workspaceFor(tabId: $0) != nil },
                 focused: {

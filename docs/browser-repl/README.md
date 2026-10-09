@@ -473,10 +473,14 @@ rest. Measurements: [performance.md](performance.md).
   its session ended (it then idles out after 30 minutes). When such a
   session ends by itself (its heap limit), its name stays its client's
   until it idles out: only that token makes the next session under it.
-  Named sessions
-  are shared by name: an owner token is taken only with a client-made
-  name (`cli-`, `mcp-`, `oneshot-`), and one sent with any other name is
-  refused, so no client can hide a shared name from the others. An owner token is at most 128 bytes and a working
+  A session is private because it was made with an owner token, never
+  because of its name: a private session and the shared session of the
+  same name are two sessions, so a token can neither hide a shared name
+  from the other clients nor make a shared one private (a shared
+  `--session cli-x` stays shared). Any socket client can make private
+  sessions up to their cap (24 of the 32); a same-user client that fills
+  it blocks other private sessions until its own idle out, and named
+  sessions keep the rest. An owner token is at most 128 bytes and a working
   directory at most 1024 bytes (`PATH_MAX`); a longer one is refused
   before a session is made.
 - A session binds to the caller's cmux workspace (from `CMUX_WORKSPACE_ID`).
@@ -513,7 +517,10 @@ rest. Measurements: [performance.md](performance.md).
   process outside every cmux terminal (one that detached from the
   terminal and outlived its parents, or one of another terminal app) is
   an outside caller: it can still list, reset and use
-  every workspace's named sessions. Named sessions are shared by name and
+  every workspace's named sessions. A peer whose parent chain cannot be
+  walked to its end (more than 256 processes, or a loop) is neither: its
+  call is refused with a `denied` error, never treated as outside cmux.
+  Named sessions are shared by name and
   are not an isolation boundary; private sessions (owner tokens, the
   interactive REPL's, `mcp`'s and one-shot runs) are.
 - A session name is 1 to 64 characters of letters, digits, `.`, `_` and

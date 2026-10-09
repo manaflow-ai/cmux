@@ -25,6 +25,10 @@ public struct BrowserReplWorkspaceBinding {
         /// The caller runs in a cmux terminal of `caller` and asked for
         /// every workspace's sessions.
         case allWorkspacesDenied(caller: UUID)
+        /// The caller's process ancestry could not be walked to its end
+        /// (``BrowserReplCallerLocality/Locality/unresolved``), so it is
+        /// neither a terminal's caller nor provably outside cmux.
+        case callerUnresolved
     }
 
     private let exists: (UUID) -> Bool

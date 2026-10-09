@@ -10,11 +10,28 @@ public struct BrowserReplSessionKey: Hashable, Sendable {
     /// workspace's own callers share. `workspaceID` is where its tabs open,
     /// the workspace focused when it was made.
     public let outsideCmux: Bool
+    /// A session made with an owner token
+    /// (``BrowserReplSessionRegistry/session(for:owner:make:)``), which only
+    /// that token reaches. The registry sets it from the owner token, never
+    /// from the name: a private session and the shared session of the same
+    /// name are two sessions.
+    public let isPrivate: Bool
 
     public init(workspaceID: UUID, name: String, outsideCmux: Bool = false) {
+        self.init(workspaceID: workspaceID, name: name, outsideCmux: outsideCmux, isPrivate: false)
+    }
+
+    init(workspaceID: UUID, name: String, outsideCmux: Bool, isPrivate: Bool) {
         self.workspaceID = workspaceID
         self.name = name
         self.outsideCmux = outsideCmux
+        self.isPrivate = isPrivate
+    }
+
+    /// This key in the namespace `owner` selects: private with a token,
+    /// shared without.
+    func owned(by owner: String?) -> BrowserReplSessionKey {
+        BrowserReplSessionKey(workspaceID: workspaceID, name: name, outsideCmux: outsideCmux, isPrivate: owner != nil)
     }
 
     /// The key an instance id from ``BrowserReplSessionRegistry/session(for:make:)``
@@ -42,9 +59,11 @@ public struct BrowserReplSessionKey: Hashable, Sendable {
 /// random string only the client holds: it is left out of every other
 /// caller's list, and attaching to it or resetting it needs the token, so
 /// knowing or guessing its name gives another local client nothing. A
-/// token is taken only with such a client-made name (``isPrivateName(_:)``):
-/// a name a person chose is shared, and a token on it would hide it from
-/// every other client while it holds the name. At most ``maximumSessions`` live at once: each holds a JavaScript thread,
+/// session is private because it was made with a token
+/// (``BrowserReplSessionKey/isPrivate``), never because of its name: a
+/// private session lives apart from the shared session of the same name,
+/// so a token can neither hide a shared name from the other clients nor
+/// make a shared session private. At most ``maximumSessions`` live at once: each holds a JavaScript thread,
 /// timers and directories, so one more is refused rather than an idle one
 /// evicted. Each touch re-arms the session's idle timer on a shared
 /// `BrowserReplTimerScheduler`, so expiry needs no polling and is cancelled
@@ -75,23 +94,9 @@ public final class BrowserReplSessionRegistry: @unchecked Sendable {
         case ownedByAnotherClient
         /// The owner token is empty or longer than ``maximumOwnerBytes``.
         case invalidOwner
-        /// An owner token came with a shared name, one that is not a
-        /// client-made private name (``isPrivateName(_:)``).
-        case ownerOnSharedName
         /// A caller outside cmux named a session that is not live, and no
         /// workspace is focused to open its tabs in.
         case noWorkspace
-    }
-
-    /// The prefixes of the names clients make for a session only they use
-    /// (the interactive CLI's `cli-`, `mcp`'s `mcp-`, the socket's own
-    /// one-shot `oneshot-`), the only names an owner token may come with.
-    public static let privateNamePrefixes = ["cli-", "mcp-", "oneshot-"]
-
-    /// Whether `name` is a client-made private name that may carry an
-    /// owner token.
-    public static func isPrivateName(_ name: String) -> Bool {
-        privateNamePrefixes.contains { name.hasPrefix($0) }
     }
 
     /// The longest session name.
@@ -200,7 +205,7 @@ public final class BrowserReplSessionRegistry: @unchecked Sendable {
         lock.lock()
         let key: BrowserReplSessionKey
         do {
-            key = try pick()
+            key = try pick().owned(by: owner)
         } catch {
             lock.unlock()
             throw error
@@ -208,10 +213,6 @@ public final class BrowserReplSessionRegistry: @unchecked Sendable {
         guard Self.isValidName(key.name) else {
             lock.unlock()
             throw Refusal.invalidName
-        }
-        guard owner == nil || Self.isPrivateName(key.name) else {
-            lock.unlock()
-            throw Refusal.ownerOnSharedName
         }
         // A session that ended by itself (its JavaScript heap passed its
         // limit) stays here, closed, until its idle timer removes it, and
@@ -265,7 +266,7 @@ public final class BrowserReplSessionRegistry: @unchecked Sendable {
     /// - Returns: Whether such a session existed.
     @discardableResult
     public func reset(_ key: BrowserReplSessionKey, owner: String? = nil) -> Bool {
-        remove(key, ifOwnedBy: owner)
+        remove(key.owned(by: owner), ifOwnedBy: owner)
     }
 
     /// Closes and forgets the session for `key` while its owner token is

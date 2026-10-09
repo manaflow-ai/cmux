@@ -71,6 +71,27 @@ struct BrowserReplCallerLocalityTests {
     func parentLoop() {
         let looping = BrowserReplCallerLocality(host: host, parent: { $0 == 10 ? 11 : 10 }, workspace: { _ in nil })
         #expect(looping.workspace(ofPeer: 10) == nil)
+        #expect(looping.locality(ofPeer: 10) == .unresolved)
+    }
+
+    /// A walk that runs out of steps proves neither a terminal nor outside
+    /// cmux: the caller is unresolved, and the scope lookup refuses it
+    /// rather than treating it as an outside caller.
+    @Test("A peer chain longer than the walk is unresolved, not outside")
+    func chainBeyondTheWalkIsUnresolved() {
+        let base: Int32 = 10_000
+        let depth = Int32(BrowserReplCallerLocality.maximumDepth) + 10
+        let endless = BrowserReplCallerLocality(
+            host: host,
+            parent: { $0 > base ? $0 - 1 : 1 },
+            workspace: { [workspaceA] in $0 == base ? workspaceA : nil }
+        )
+        #expect(endless.locality(ofPeer: base + depth) == .unresolved)
+        #expect(endless.workspace(ofPeer: base + depth) == nil)
+        #expect(endless.locality(ofPeer: base + 5) == .terminal(workspaceA))
+        #expect(locality.locality(ofPeer: 700) == .outside)
+        #expect(locality.locality(ofPeer: nil) == .outside)
+        #expect(locality.locality(ofPeer: 999) == .outside)
     }
 
     @Test("A caller in workspace A's terminal cannot list or reset every workspace's sessions")
