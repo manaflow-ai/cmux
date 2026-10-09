@@ -23,6 +23,13 @@ public final class WhatsNewCenter {
 
     /// Whether the sidebar's What's New item shows (with its unread dot).
     public var showsItem: Bool { isItemEnabled && !unseen.isEmpty }
+    /// This launch's version is newer than the last seen one, and neither
+    /// the page nor the "cmux Updated!" card's x has marked it seen (cx-7py7).
+    public private(set) var isUpdated = false
+    /// Whether the sidebar shows the "cmux Updated!" card: after any update,
+    /// with or without notes, until the page opens or the x; never on a
+    /// first install. `updates.showWhatsNew` off hides it too.
+    public var showsUpdatedCard: Bool { isItemEnabled && isUpdated }
 
     public let current: WhatsNewVersion?
     @ObservationIgnored let seen: WhatsNewSeenStore
@@ -51,6 +58,7 @@ public final class WhatsNewCenter {
         }
         let tracker = seen.tracker(current: current)
         self.tracker = tracker
+        isUpdated = tracker.lastSeen.map { $0 < current } ?? false
         let sources = sources
         let task = Task { [weak self] in
             var documents: [WhatsNewDocument] = []
@@ -79,6 +87,29 @@ public final class WhatsNewCenter {
         presented = unseen.isEmpty ? (tracker?.recent(known) ?? []) : unseen
         if let current { seen.markSeen(current) }
         unseen = []
+        isUpdated = false
         return presented
+    }
+
+    /// The "cmux Updated!" card's x: this version is seen, so the card and
+    /// the sidebar item's dot go together (one seen state).
+    public func dismissUpdated() {
+        if let current { seen.markSeen(current) }
+        unseen = []
+        isUpdated = false
+    }
+
+    /// DEV/NIGHTLY proof (`debug.updater {action: "updated", previous}`):
+    /// records `previous` as the last seen version and shows this launch as
+    /// an update from it. False for an unreadable or not older version.
+    @discardableResult
+    public func debugPretendUpdated(from previous: String) -> Bool {
+        guard let current, let lastSeen = WhatsNewVersion(previous), lastSeen < current else { return false }
+        seen.defaults.set(lastSeen.description, forKey: WhatsNewSeenStore.lastSeenKey)
+        let tracker = WhatsNewTracker(current: current, lastSeen: lastSeen)
+        self.tracker = tracker
+        unseen = tracker.unseen(known)
+        isUpdated = true
+        return true
     }
 }

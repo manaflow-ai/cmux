@@ -42,8 +42,9 @@ import Testing
         let updated = await updater(updatedFrom: "0.65.0")
         let registry = ActionRegistry(catalog: ActionCatalog.all)
         var ran: [String] = []
-        #expect(registry.bind("updates.whatsNew", run: { _ in ran.append("updates.whatsNew") }))
-        #expect(registry.bind("app.shareCmux", run: { _ in ran.append("app.shareCmux") }))
+        let whatsNewBound = registry.bind("updates.whatsNew", run: { _ in ran.append("updates.whatsNew") })
+        let shareBound = registry.bind("app.shareCmux", run: { _ in ran.append("app.shareCmux") })
+        #expect(whatsNewBound && shareBound)
         SidebarCardFeed.route(.openWhatsNew, registry: registry, updater: updated)
         SidebarCardFeed.route(.shareCmux, registry: registry, updater: updated)
         #expect(ran == ["updates.whatsNew", "app.shareCmux"])
