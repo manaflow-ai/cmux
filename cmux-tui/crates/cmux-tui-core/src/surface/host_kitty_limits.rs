@@ -10,6 +10,8 @@
 //! exactly as the host did, and keeps reading. If the mirror's own state
 //! changes anyway, it reconnects as before.
 
+use std::sync::PoisonError;
+
 use super::*;
 
 impl PtySurface {
@@ -17,7 +19,7 @@ impl PtySurface {
     /// whether the mirror kept its state; `false` means the caller reopens
     /// the host stream from a snapshot.
     pub(super) fn apply_host_kitty_graphics_limits(&self, limits: KittyGraphicsLimits) -> bool {
-        let mut term = self.term.lock().unwrap();
+        let mut term = self.term.lock().unwrap_or_else(PoisonError::into_inner);
         if term.kitty_upload_in_progress() {
             return false;
         }
@@ -32,7 +34,7 @@ impl PtySurface {
         // this reader reached the frame. That window is harmless: the field
         // only answers "is this request already applied", and the mirror's
         // parser changes here, at the host's stream position.
-        *self.kitty_graphics_limits.lock().unwrap() = limits;
+        *self.kitty_graphics_limits.lock().unwrap_or_else(PoisonError::into_inner) = limits;
         // Attach mirrors carry the limits in their replay state.
         self.resynchronize_attach_taps_locked(&mut term);
         true

@@ -75,7 +75,7 @@ fn record_pixel_cache_miss() {}
 pub(crate) struct KittyInFlightTracker {
     scan: KittyStreamScan,
     prefix: Vec<u8>,
-    loading: bool,
+    pub(crate) loading: bool,
     overflowed: bool,
     max_bytes: usize,
 }
@@ -184,12 +184,6 @@ impl KittyInFlightTracker {
             return Err(Error::OutOfSpace);
         }
         Ok((prefix, partial))
-    }
-
-    /// Whether a Kitty upload is being assembled: a chunked transmission
-    /// still loading, or a Kitty command not yet terminated.
-    pub(crate) fn upload_in_progress(&self) -> bool {
-        self.loading || matches!(self.scan, KittyStreamScan::Kitty(_) | KittyStreamScan::ApcType(_))
     }
 
     /// Whether the stream is inside a direct Kitty command this tracker
