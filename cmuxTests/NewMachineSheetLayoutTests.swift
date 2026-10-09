@@ -119,9 +119,21 @@ struct NewMachineSheetLayoutTests {
             Self.runMainLoopTurns()
         }
         model.selectBaseImage(.machine(model.sourceMachines[3]))
-        Self.runMainLoopTurns()
 
         let ideal = NSHostingView(rootView: NewMachineSheet(model: model)).fittingSize
+        // The attached sheet's hosting view is not necessarily laid out just
+        // because the model changed. Drive the same layout/display path used
+        // by the detached rendering helpers until the async geometry report
+        // has been applied, or until the bounded test deadline expires.
+        for _ in 0..<100 {
+            sheet.contentView?.layoutSubtreeIfNeeded()
+            sheet.displayIfNeeded()
+            let content = sheet.contentRect(forFrameRect: sheet.frame).size
+            if abs(content.height - ceil(ideal.height)) <= 1, abs(content.width - ceil(ideal.width)) <= 1 {
+                break
+            }
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+        }
         let content = sheet.contentRect(forFrameRect: sheet.frame).size
         #expect(abs(content.height - ceil(ideal.height)) <= 1, "sheet content \(content) does not fit its content \(ideal)")
         #expect(abs(content.width - ceil(ideal.width)) <= 1, "sheet content \(content) does not fit its content \(ideal)")
