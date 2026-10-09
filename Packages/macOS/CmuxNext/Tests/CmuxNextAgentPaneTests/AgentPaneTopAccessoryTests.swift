@@ -65,4 +65,18 @@ import Testing
         #expect(!bar.isHidden)
         #expect(Self.content(of: view).frame.height == 360)
     }
+
+    /// cx-e2aa: a chat a chip pick started behind a New Tab page, never sent, is discarded when the
+    /// page closes (the page's harness switch drops it); a page that became a chat keeps its chat.
+    @Test func closingANewTabPageAsksThePageToDiscardItsUnsentChat() async throws {
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: SilentHost(), newTab: AgentPaneNewTab(kind: .agent))))
+        var scripts: [String] = []
+        view.evaluateScript = { scripts.append($0) }
+        view.discardUnsentChat()
+        #expect(scripts == ["window.dispatchEvent(new Event('acpmux-newtab-close'))"])
+        _ = await view.model.respond(to: .persistSession("s1"))
+        scripts.removeAll()
+        view.discardUnsentChat()
+        #expect(scripts.isEmpty)
+    }
 }

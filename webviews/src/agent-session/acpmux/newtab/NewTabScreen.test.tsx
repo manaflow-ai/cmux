@@ -334,6 +334,29 @@ test("the project picker and the agent's model chip sit above the field", async 
   await act(async () => root.unmount());
 });
 
+// cx-e2aa decision (chief 2026-10-09): before a pick the chip names the agent's default model, never a bare "Model".
+test("before a pick the chip draws the shown agent's default model", async () => {
+  const seen: (string | undefined)[] = [];
+  const Chips = ({ snapshot }: { snapshot: AcpmuxSnapshot }) => {
+    seen.push(snapshot.summary?.model);
+    return createElement("span", { className: "test-chips" }, "model");
+  };
+  const withModels = {
+    ...snapshot,
+    catalog: [
+      { id: "claude", name: "Claude Code", models: [{ id: "claude-opus-5-5", name: "Opus 5.5" }] },
+      { id: "codex", name: "Codex", models: [] },
+    ],
+  } as unknown as AcpmuxSnapshot;
+  const { root } = await mount({ snapshot: withModels, chips: Chips });
+  expect(seen.at(-1)).toBe("claude-opus-5-5");
+  await act(async () => root.unmount());
+  const second = await mount({ snapshot: withModels, chips: Chips, lastAgent: "codex" });
+  // No model listed yet: the agent's own default, which the chip names (or "Default").
+  expect(seen.at(-1)).toBe("default");
+  await act(async () => second.root.unmount());
+});
+
 // cx-e2aa (Lawrence 2026-10-09): "if i just start typing it needs to automatically start typing".
 test("a key typed anywhere on the page goes into the field, the first key kept", async () => {
   const { container, root, field, touches } = await mount();
