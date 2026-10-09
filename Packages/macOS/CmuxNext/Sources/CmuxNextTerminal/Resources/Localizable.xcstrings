@@ -4978,6 +4978,137 @@
           }
         }
       }
+    },
+    "terminal.link.endsWithStarter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This terminal ends when the program that started cmux closes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このターミナルは cmux を起動したプログラムが終了すると終了します"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ستنتهي هذه الطرفية عند إغلاق البرنامج الذي شغّل cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj terminal se završava kada se zatvori program koji je pokrenuo cmux"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne terminal lukker, når programmet, der startede cmux, lukker"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieses Terminal endet, wenn das Programm geschlossen wird, das cmux gestartet hat"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta terminal se cerrará cuando se cierre el programa que inició cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ce terminal se fermera à la fermeture du programme qui a lancé cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo terminale termina quando si chiude il programma che ha avviato cmux"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទែមីណល់នេះនឹងបញ្ចប់នៅពេលកម្មវិធីដែលបានចាប់ផ្ដើម cmux បិទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux를 시작한 프로그램이 닫히면 이 터미널이 종료됩니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne terminalen avsluttes når programmet som startet cmux, lukkes"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten terminal zakończy się po zamknięciu programu, który uruchomił cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este terminal será encerrado quando o programa que iniciou o cmux for fechado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот терминал завершится, когда закроется программа, запустившая cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เทอร์มินัลนี้จะปิดเมื่อโปรแกรมที่เริ่ม cmux ปิดลง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu terminal, cmux'u başlatan program kapandığında kapanır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей термінал завершиться, коли закриється програма, що запустила cmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal này sẽ kết thúc khi chương trình đã khởi động cmux đóng lại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "启动 cmux 的程序关闭时，此终端会结束"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "啟動 cmux 的程式關閉時，此終端機會結束"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
