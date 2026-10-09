@@ -65,3 +65,31 @@ fn a_port_held_by_a_cmux_executable_is_refused() {
     drop(unused);
     assert_eq!(check(at(unused_port)), None, "nobody listens");
 }
+
+/// A live listener whose process runs with `--inspect=0` (inspector port
+/// unknown) is refused; the same listener without the flag is allowed.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn a_port_held_by_a_process_with_an_inspector_is_refused() {
+    use std::io::{BufRead, BufReader};
+    use std::process::{Command, Stdio};
+    let listen = |extra: &[&str]| {
+        let mut child = Command::new("python3")
+            .args(["-c", "import socket,sys; s=socket.socket(); s.bind(('127.0.0.1',0)); s.listen(); print(s.getsockname()[1], flush=True); sys.stdin.read()"])
+            .args(extra)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut line = String::new();
+        BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).unwrap();
+        let port: u16 = line.trim().parse().unwrap();
+        let verdict = system_connected_check()(SocketAddr::from(([127, 0, 0, 1], port)));
+        drop(child.stdin.take());
+        let _ = child.wait();
+        verdict
+    };
+    assert_eq!(listen(&[]), None, "a plain dev server");
+    let refused = listen(&["--inspect=0"]).expect("an inspector process is refused");
+    assert!(refused.contains("inspect"), "{refused}");
+}
