@@ -13,10 +13,21 @@
  * With CMUX_VM_SMOKE_API_KEY_B (a key of a second tenant, same scopes) it checks that
  * the second tenant gets 404 for every read and mutation on the first
  * tenant's VM, and that the VM is absent from the second tenant's list.
+ *
+ * API key management (cx-b4h.12): the smoke key holds no admin scope, so list,
+ * create and revoke of API keys must each answer 403 (the route is live, past
+ * the schema gate, and refuses a non-admin before reading any key).
+ *
+ * With CMUX_VM_SMOKE_SERVICE_KEY and CMUX_VM_SMOKE_SERVICE_TEAM (a service key
+ * limited to role=chief VMs and to that team, cx-b4h.13) it checks: 401
+ * without X-Cmux-Team-Id, 403 for a VM without role=chief, 404 on the smoke
+ * tenant's VM, then create role=chief, exec, pause and delete by exact id.
  */
 const base = process.env["CMUX_VM_SMOKE_URL"];
 const key = process.env["CMUX_VM_SMOKE_API_KEY"];
 const keyB = process.env["CMUX_VM_SMOKE_API_KEY_B"] ?? "";
+const serviceKey = process.env["CMUX_VM_SMOKE_SERVICE_KEY"] ?? "";
+const serviceTeam = process.env["CMUX_VM_SMOKE_SERVICE_TEAM"] ?? "";
 if (base === undefined || base === "" || key === undefined || key === "") {
   console.error("CMUX_VM_SMOKE_URL and CMUX_VM_SMOKE_API_KEY are required");
   process.exit(2);
@@ -60,10 +71,10 @@ const expectStatus = (step: string, actual: number, expected: number, body: unkn
 };
 
 /** Polls the VM until it reaches `state` or the step times out. */
-const waitForState = async (vmId: string, state: string) => {
+const waitForState = async (vmId: string, state: string, as: { readonly bearer: string; readonly headers: Record<string, string> } = { bearer: key, headers: {} }) => {
   const deadline = Date.now() + STEP_TIMEOUT_MS;
   for (;;) {
-    const read = await call("GET", `/v1/vms/${vmId}`);
+    const read = await call("GET", `/v1/vms/${vmId}`, undefined, as.headers, as.bearer);
     expectStatus(`get ${vmId}`, read.status, 200, read.body);
     if (field(read.body, "state") === state) return;
     if (Date.now() > deadline) throw new Error(`VM ${vmId} did not reach ${state}; last state ${String(field(read.body, "state"))}`);
@@ -72,7 +83,9 @@ const waitForState = async (vmId: string, state: string) => {
 };
 
 let vmId: string | null = null;
+let serviceVmId: string | null = null;
 let failed = false;
+const asService = { bearer: serviceKey, headers: { "x-cmux-team-id": serviceTeam } };
 try {
   const health = await call("GET", "/healthz");
   expectStatus("health", health.status, 200, health.body);
@@ -122,10 +135,61 @@ try {
   const paused = await call("POST", `/v1/vms/${vmId}/pause`);
   expectStatus("pause", paused.status, 200, paused.body);
   await waitForState(vmId, "paused");
+
+  // API key management needs the admin scope; the smoke key has none.
+  const keysList = await call("GET", "/v1/api-keys");
+  expectStatus("api-keys list without admin", keysList.status, 403, keysList.body);
+  const keysCreate = await call("POST", "/v1/api-keys", { name: "smoke", scopes: ["vm:read"] });
+  expectStatus("api-keys create without admin", keysCreate.status, 403, keysCreate.body);
+  const keysRevoke = await call("DELETE", "/v1/api-keys/vmk_00000000000000000000000000");
+  expectStatus("api-keys revoke without admin", keysRevoke.status, 403, keysRevoke.body);
+
+  if (serviceKey !== "" && serviceTeam !== "") {
+    const noTeam = await call("GET", "/v1/vms", undefined, {}, serviceKey);
+    expectStatus("service without team header", noTeam.status, 401, noTeam.body);
+    const unlabelled = await call("POST", "/v1/vms", { idleTimeoutSeconds: 60, autoDeleteSeconds: 3600 }, asService.headers, serviceKey);
+    expectStatus("service create without role=chief", unlabelled.status, 403, unlabelled.body);
+    const foreign = await call("GET", `/v1/vms/${vmId}`, undefined, asService.headers, serviceKey);
+    expectStatus("service GET the smoke tenant's VM", foreign.status, 404, foreign.body);
+
+    const chief = await call(
+      "POST",
+      "/v1/vms",
+      { displayName: `smoke chief ${runId}`, idleTimeoutSeconds: 60, autoDeleteSeconds: 3600, labels: { role: "chief", purpose: "smoke" } },
+      { ...asService.headers, "idempotency-key": `smoke-chief-${runId}` },
+      serviceKey,
+    );
+    expectStatus("service create role=chief", chief.status, 201, chief.body);
+    const chiefId = field(chief.body, "id");
+    if (typeof chiefId !== "string" || !/^vm_[0-9a-z]{26}$/.test(chiefId)) throw new Error(`service create returned no VM id: ${JSON.stringify(chief.body)}`);
+    serviceVmId = chiefId;
+    console.log(`    created ${serviceVmId}`);
+    await waitForState(serviceVmId, "running", asService);
+    const chiefExec = await call("POST", `/v1/vms/${serviceVmId}/exec`, { command: "echo cmux-vm-chief", timeoutMs: 30_000 }, asService.headers, serviceKey);
+    expectStatus("service exec", chiefExec.status, 200, chiefExec.body);
+    const chiefList = await call("GET", "/v1/vms", undefined, asService.headers, serviceKey);
+    expectStatus("service list", chiefList.status, 200, chiefList.body);
+    if (!JSON.stringify(chiefList.body).includes(serviceVmId)) throw new Error("service list does not show its chief VM");
+    const ownerSees = await call("GET", `/v1/vms/${serviceVmId}`);
+    expectStatus("smoke tenant GET the service team's VM", ownerSees.status, 404, ownerSees.body);
+    const chiefPause = await call("POST", `/v1/vms/${serviceVmId}/pause`, undefined, asService.headers, serviceKey);
+    expectStatus("service pause", chiefPause.status, 200, chiefPause.body);
+  }
 } catch (error) {
   failed = true;
   console.error(`FAIL ${error instanceof Error ? error.message : String(error)}`);
 } finally {
+  if (serviceVmId !== null) {
+    const deleted = await call("DELETE", `/v1/vms/${serviceVmId}`, undefined, asService.headers, serviceKey);
+    try {
+      expectStatus(`service delete ${serviceVmId}`, deleted.status, 204, deleted.body);
+      const gone = await call("GET", `/v1/vms/${serviceVmId}`, undefined, asService.headers, serviceKey);
+      expectStatus(`service get after delete ${serviceVmId}`, gone.status, 404, gone.body);
+    } catch (error) {
+      failed = true;
+      console.error(`FAIL ${error instanceof Error ? error.message : String(error)}; delete ${serviceVmId} by hand`);
+    }
+  }
   if (vmId !== null) {
     const deleted = await call("DELETE", `/v1/vms/${vmId}`);
     try {
