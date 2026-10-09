@@ -42,7 +42,7 @@ jobs:
       - name: Clone the herdr tip
         run: |
           set -euo pipefail
-          git clone --depth 1 --filter=blob:none https://github.com/ogulcancelik/herdr.git "$RUNNER_TEMP/herdr"
+          git clone --filter=blob:none https://github.com/ogulcancelik/herdr.git "$RUNNER_TEMP/herdr"
           git -C "$RUNNER_TEMP/herdr" log -1 --format='herdr tip %H %cs %s'
       - name: Compare with the pin
         id: drift

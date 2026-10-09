@@ -184,5 +184,17 @@ path = "src/pane/agent_detection.rs"
 sha256 = "762186bc5ec3f523657d86ebb33f34ff142eae6c5912909fc1d2e05b767845a4"
 
 [[engine]]
+path = "src/pane/background_agent.rs"
+sha256 = "ee9edebd9a8885266a205d0b9cd62338420fed4c64b6819efae5b3cdc4a294cb"
+
+[[engine]]
 path = "src/pane/osc.rs"
 sha256 = "993b597a93996cf9efecfb9d62a724dfd4a79daf40d79995bbaa7207c98308f0"
+
+[[engine]]
+path = "src/platform/linux.rs"
+sha256 = "dab501bb9c15ba2f83bb5ddea13eafaabf26f887272f528fc0883c4750c32887"
+
+[[engine]]
+path = "src/platform/macos.rs"
+sha256 = "9c2903c9002773f1718883b2966bc80780c17bbbab3d4773f4b225bb389c8945"

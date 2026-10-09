@@ -46,7 +46,14 @@ TRACKED_ENGINE_FILES = (
     "src/detect/manifest_update.rs",
     "src/pane/agent_detection.rs",
     "src/pane/osc.rs",
+    # Ported into src/background_agent.rs, src/process.rs and
+    # src/process/launchers.rs (950d012c and the process identity fixes).
+    "src/pane/background_agent.rs",
+    "src/platform/linux.rs",
+    "src/platform/macos.rs",
 )
+# Apache-2.0 4(b): a vendored file that cmux changed says so on its first line.
+PATCH_NOTICE = "# Modified by Manaflow (cmux): {reason}\n"
 ENGINE_VERSION_FILE = "src/detect/manifest_update.rs"
 ENGINE_VERSION_RE = re.compile(r"MANIFEST_ENGINE_VERSION:\s*u32\s*=\s*(\d+)\s*;")
 MANIFEST_VERSION_RE = re.compile(r'^version\s*=\s*"([^"]+)"\s*$', re.M)
@@ -104,18 +111,28 @@ def load_patches(plugin_dir: Path) -> dict[str, Patch]:
     return patches
 
 
+def edit_pattern(find: str) -> re.Pattern[str]:
+    """`find` as a whole token: a word character at either end must not run
+    into a neighbouring word character, so `priority = 100` never matches
+    inside `priority = 1000`."""
+    left = r"(?<!\w)" if re.match(r"\w", find[0]) else ""
+    right = r"(?!\w)" if re.match(r"\w", find[-1]) else ""
+    return re.compile(left + re.escape(find) + right)
+
+
 def apply_patch(upstream: bytes, patch: Patch) -> bytes:
     text = upstream.decode("utf-8")
     for index, (find, replace) in enumerate(patch.edits, start=1):
-        count = text.count(find)
+        pattern = edit_pattern(find)
+        count = len(pattern.findall(text))
         if count != 1:
             raise SyncError(
                 f"local patch for {patch.file} no longer applies: edit {index} matches "
                 f"{count} times upstream (needs exactly 1). Check whether upstream now covers "
                 f"the reason ({patch.reason!r}); drop the patch if it does, else rewrite the edit."
             )
-        text = text.replace(find, replace, 1)
-    return text.encode("utf-8")
+        text = pattern.sub(lambda _: replace, text, count=1)
+    return (PATCH_NOTICE.format(reason=" ".join(patch.reason.split())) + text).encode("utf-8")
 
 
 # ---- pin file --------------------------------------------------------------
@@ -255,8 +272,22 @@ def upstream_manifests(checkout: Path, rev: str) -> dict[str, bytes]:
     return {name: show(checkout, rev, f"{UPSTREAM_MANIFEST_DIR}/{name}") for name in names}
 
 
-def upstream_engine(checkout: Path, rev: str) -> dict[str, str]:
-    return {path: sha256(show(checkout, rev, path)) for path in TRACKED_ENGINE_FILES}
+REMOVED = "removed"
+
+
+def upstream_engine(checkout: Path, rev: str, allow_missing: bool = False) -> dict[str, str]:
+    """sha256 of each tracked file; `REMOVED` for one upstream no longer has
+    (only when `allow_missing`: drift reports it, sync refuses to pin it)."""
+    present = set(git(checkout, "ls-tree", "-r", "--name-only", rev, "--", *TRACKED_ENGINE_FILES).decode().splitlines())
+    hashes: dict[str, str] = {}
+    for path in TRACKED_ENGINE_FILES:
+        if path in present:
+            hashes[path] = sha256(show(checkout, rev, path))
+        elif allow_missing:
+            hashes[path] = REMOVED
+        else:
+            raise SyncError(f"tracked engine file {path} is missing at {rev}; update TRACKED_ENGINE_FILES")
+    return hashes
 
 
 def upstream_version(checkout: Path, rev: str) -> str:
@@ -369,8 +400,11 @@ def check(plugin_dir: Path) -> list[str]:
             elif actual == entry.upstream_sha256:
                 problems.append(f"{name}: marked as patched but equals the upstream bytes")
             else:
+                text = data.decode("utf-8")
+                if not text.startswith(PATCH_NOTICE.format(reason=" ".join(patch.reason.split()))):
+                    problems.append(f"{name}: a patched file must start with its Manaflow change notice; rerun sync")
                 for find, replace in patch.edits:
-                    if replace not in data.decode("utf-8"):
+                    if len(edit_pattern(replace).findall(text)) < 1:
                         problems.append(f"{name}: a documented patch edit is not present in the vendored file")
                         break
         else:
@@ -410,8 +444,12 @@ def drift(plugin_dir: Path, checkout: Path, rev: str) -> tuple[Pin, Drift]:
     ]
     added = sorted(set(upstream) - set(pinned))
     removed = sorted(set(pinned) - set(upstream))
-    engine_now = upstream_engine(checkout, revision)
-    engine_changed = [path for path in TRACKED_ENGINE_FILES if engine_now[path] != pin.engine.get(path)]
+    engine_now = upstream_engine(checkout, revision, allow_missing=True)
+    engine_changed = [
+        f"{path} (removed upstream)" if engine_now[path] == REMOVED else path
+        for path in TRACKED_ENGINE_FILES
+        if engine_now[path] != pin.engine.get(path)
+    ]
     commits: list[str] = []
     if changed or added or removed or engine_changed:
         paths = [UPSTREAM_MANIFEST_DIR, *TRACKED_ENGINE_FILES]
@@ -423,6 +461,11 @@ def drift(plugin_dir: Path, checkout: Path, rev: str) -> tuple[Pin, Drift]:
             # links the compare view instead.
             commits = []
     return pin, Drift(revision, changed, added, removed, engine_changed, commits)
+
+
+def plain(text: str) -> str:
+    """Upstream text shown in the issue: no mentions, links or code spans."""
+    return text.replace("`", "'").replace("@", "(at)").replace("<", "(").replace(">", ")")
 
 
 def drift_markdown(pin: Pin, report: Drift) -> str:
@@ -439,9 +482,9 @@ def drift_markdown(pin: Pin, report: Drift) -> str:
     ]
     if report.changed or report.added or report.removed:
         lines.append("Manifests:")
-        lines += [f"- `{name}` {old} -> {new}" for name, old, new in report.changed]
-        lines += [f"- `{name}` added upstream" for name in report.added]
-        lines += [f"- `{name}` removed upstream" for name in report.removed]
+        lines += [f"- `{plain(name)}` {plain(old)} -> {plain(new)}" for name, old, new in report.changed]
+        lines += [f"- `{plain(name)}` added upstream" for name in report.added]
+        lines += [f"- `{plain(name)}` removed upstream" for name in report.removed]
         lines.append("")
     if report.engine_changed:
         lines.append("Tracked engine sources (review and port by hand):")
@@ -449,7 +492,7 @@ def drift_markdown(pin: Pin, report: Drift) -> str:
         lines.append("")
     if report.commits:
         lines.append("Upstream commits on these paths:")
-        lines += [f"- {commit}" for commit in report.commits]
+        lines += [f"- {plain(commit)}" for commit in report.commits]
         lines.append("")
     lines += [
         "To take the change: `python3 -I scripts/cmux-next/herdr-sync.py sync --herdr <checkout> "
@@ -500,6 +543,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     except SyncError as error:
         print(f"herdr-sync: {error}", file=sys.stderr)
+        return 2
+    except Exception as error:  # noqa: BLE001 - exit 1 means drift; anything else is a tool failure
+        print(f"herdr-sync: unexpected {type(error).__name__}: {error}", file=sys.stderr)
         return 2
 
 
