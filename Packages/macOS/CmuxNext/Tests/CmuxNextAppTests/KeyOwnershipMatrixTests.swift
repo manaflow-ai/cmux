@@ -158,7 +158,7 @@ struct KeyOwnershipMatrixTests {
         }
         #expect(Self.owner(services, try K.key("p", keyCode: 35, [.command, .shift]), reactPage) == .action("commandPalette"))
         #expect(Self.owner(services, try K.key("w", keyCode: 13, [.command]), reactPage) == .action("closeTab"))
-        #expect(Self.owner(services, try K.key("\t", keyCode: 48, [.control]), reactPage) == .action("nextSurface"))
+        #expect(Self.owner(services, try K.key("\t", keyCode: 48, [.control]), reactPage) == .action("navigate.next"))
     }
 
     /// Step 1: while an input method composes (marked text), every key it

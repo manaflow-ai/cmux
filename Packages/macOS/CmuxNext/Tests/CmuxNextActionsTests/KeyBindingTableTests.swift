@@ -86,18 +86,18 @@ import Testing
 
     @Test func tabSwitchDefaultsFollowTheirActions() {
         let registry = ActionRegistry(catalog: [
-            ShortcutAssessmentTests.action("nextSurface", Shortcut("]", modifiers: [.command, .shift])),
-            ShortcutAssessmentTests.action("prevSurface", Shortcut("[", modifiers: [.command, .shift])),
+            ShortcutAssessmentTests.action("navigate.next", Shortcut("]", modifiers: [.command, .shift])),
+            ShortcutAssessmentTests.action("navigate.previous", Shortcut("[", modifiers: [.command, .shift])),
         ])
-        for id: ActionID in ["nextSurface", "prevSurface"] { registry.bind(id, invoke: { _ in }) }
+        for id: ActionID in ["navigate.next", "navigate.previous"] { registry.bind(id, invoke: { _ in }) }
         let ctrlTab = Shortcut("\t", modifiers: [.control])
         let agent = KeyContext([KeyContext.surfaceKind: .string("agent")])
         let copyMode = KeyContext([KeyContext.surfaceKind: .string("terminal"), KeyContext.terminalCopyMode: .bool(true)])
         let all = { (_: ActionID) in true }
-        #expect(RegistryKeyBindings(registry).table.resolve([ctrlTab], in: agent, isRunnable: all).winner?.command == "nextSurface")
+        #expect(RegistryKeyBindings(registry).table.resolve([ctrlTab], in: agent, isRunnable: all).winner?.command == "navigate.next")
         #expect(RegistryKeyBindings(registry).table.resolve([ctrlTab], in: Self.terminal, isRunnable: all).winner == nil, "Ghostty keeps it")
-        #expect(RegistryKeyBindings(registry).table.resolve([ctrlTab], in: copyMode, isRunnable: all).winner?.command == "nextSurface")
-        registry.setShortcutOverride(nil, for: "nextSurface")
+        #expect(RegistryKeyBindings(registry).table.resolve([ctrlTab], in: copyMode, isRunnable: all).winner?.command == "navigate.next")
+        registry.setShortcutOverride(nil, for: "navigate.next")
         #expect(RegistryKeyBindings(registry).table.resolve([ctrlTab], in: agent, isRunnable: all).winner == nil, "unbinding removes it")
     }
 

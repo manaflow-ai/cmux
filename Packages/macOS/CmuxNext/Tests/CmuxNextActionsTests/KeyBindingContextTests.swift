@@ -49,19 +49,19 @@ import Testing
     }
 
     /// The real catalog: Cmd-Shift-[ / ] move between conversations on Home
-    /// and switch tabs in a terminal workspace.
+    /// and run Previous / Next in a terminal workspace.
     @Test func homeMovesBetweenConversationsAndATerminalSwitchesTabs() {
         let registry = ActionRegistry.standard()
-        for id: ActionID in ["home.previousConversation", "home.nextConversation", "nextSurface", "prevSurface"] {
+        for id: ActionID in ["home.previousConversation", "home.nextConversation", "navigate.next", "navigate.previous"] {
             registry.bind(id, invoke: { _ in })
         }
         let table = RegistryKeyBindings(registry).table
         let winner = { (keys: Shortcut, context: KeyContext) in table.resolve([keys], in: context) { _ in true }.winner?.command }
         #expect(winner(Self.next, Self.home) == "home.nextConversation")
         #expect(winner(Self.previous, Self.home) == "home.previousConversation")
-        #expect(winner(Self.next, Self.terminal) == "nextSurface")
-        #expect(winner(Self.previous, Self.terminal) == "prevSurface")
-        #expect(winner(Self.next, Self.conversationTab) == "nextSurface", "a conversation tab in a workspace switches tabs")
+        #expect(winner(Self.next, Self.terminal) == "navigate.next")
+        #expect(winner(Self.previous, Self.terminal) == "navigate.previous")
+        #expect(winner(Self.next, Self.conversationTab) == "navigate.next", "a conversation tab in a workspace runs Next")
         #expect(table.conflicts().isEmpty, "\(table.conflicts().map { $0.map(\.command.rawValue) })")
     }
 }

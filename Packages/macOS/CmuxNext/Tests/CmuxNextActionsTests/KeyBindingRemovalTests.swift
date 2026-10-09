@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextActions
 import Testing
 
-/// Negative entries (`"command": "-nextSurface"` in keybindings.json, R59):
+/// Negative entries (`"command": "-navigate.next"` in keybindings.json, R59):
 /// a removal takes out the default and app entries that match its command,
 /// its keys and its `when`, and leaves the action's other keys alone.
 @MainActor
@@ -16,11 +16,11 @@ import Testing
 
     static func registry() -> ActionRegistry {
         let registry = ActionRegistry(catalog: [
-            ActionDescriptor(id: "nextSurface", title: "Next Tab", defaultShortcut: nextKey, category: .tab),
-            ActionDescriptor(id: "prevSurface", title: "Previous Tab", defaultShortcut: Shortcut("[", modifiers: [.command, .shift]),
+            ActionDescriptor(id: "navigate.next", title: "Next", defaultShortcut: nextKey, category: .tab),
+            ActionDescriptor(id: "navigate.previous", title: "Previous", defaultShortcut: Shortcut("[", modifiers: [.command, .shift]),
                              category: .tab),
         ])
-        for id: ActionID in ["nextSurface", "prevSurface"] { registry.bind(id, invoke: { _ in }) }
+        for id: ActionID in ["navigate.next", "navigate.previous"] { registry.bind(id, invoke: { _ in }) }
         return registry
     }
 
@@ -33,29 +33,29 @@ import Testing
     @Test func aRemovalTakesOutOneDefaultByKeyAndWhen() {
         let registry = Self.registry()
         let issues = KeyBindingLoader(registry).load(KeyBindingLayers(removals: [
-            KeyBindingRemoval(command: "nextSurface", keys: [Self.ctrlTab], when: .exactly(KeyBindingDefaults.notTerminal)),
+            KeyBindingRemoval(command: "navigate.next", keys: [Self.ctrlTab], when: .exactly(KeyBindingDefaults.notTerminal)),
         ]))
         #expect(issues.isEmpty)
         #expect(Self.winner(registry, [Self.ctrlTab], Self.agent) == nil)
-        #expect(Self.winner(registry, [Self.ctrlTab], Self.copyMode) == "nextSurface")
-        #expect(Self.winner(registry, [Self.ctrlPageDown], Self.agent) == "nextSurface")
-        #expect(Self.winner(registry, [Self.nextKey], Self.agent) == "nextSurface")
-        #expect(Self.winner(registry, [Shortcut("\t", modifiers: [.control, .shift])], Self.agent) == "prevSurface")
+        #expect(Self.winner(registry, [Self.ctrlTab], Self.copyMode) == "navigate.next")
+        #expect(Self.winner(registry, [Self.ctrlPageDown], Self.agent) == "navigate.next")
+        #expect(Self.winner(registry, [Self.nextKey], Self.agent) == "navigate.next")
+        #expect(Self.winner(registry, [Shortcut("\t", modifiers: [.control, .shift])], Self.agent) == "navigate.previous")
     }
 
     /// No `when`: every entry of the command on that key goes. No keys:
     /// every key of the command goes, as an unbind would.
     @Test func anOmittedWhenOrKeyMatchesEveryEntry() {
         let registry = Self.registry()
-        KeyBindingLoader(registry).load(KeyBindingLayers(removals: [KeyBindingRemoval(command: "nextSurface", keys: [Self.ctrlTab])]))
+        KeyBindingLoader(registry).load(KeyBindingLayers(removals: [KeyBindingRemoval(command: "navigate.next", keys: [Self.ctrlTab])]))
         #expect(Self.winner(registry, [Self.ctrlTab], Self.agent) == nil)
         #expect(Self.winner(registry, [Self.ctrlTab], Self.copyMode) == nil)
-        #expect(Self.winner(registry, [Self.nextKey], Self.agent) == "nextSurface")
+        #expect(Self.winner(registry, [Self.nextKey], Self.agent) == "navigate.next")
 
-        KeyBindingLoader(registry).load(KeyBindingLayers(removals: [KeyBindingRemoval(command: "nextSurface")]))
+        KeyBindingLoader(registry).load(KeyBindingLayers(removals: [KeyBindingRemoval(command: "navigate.next")]))
         #expect(Self.winner(registry, [Self.nextKey], Self.agent) == nil)
         #expect(Self.winner(registry, [Self.ctrlPageDown], Self.agent) == nil)
-        #expect(Self.winner(registry, [Shortcut("[", modifiers: [.command, .shift])], Self.agent) == "prevSurface")
+        #expect(Self.winner(registry, [Shortcut("[", modifiers: [.command, .shift])], Self.agent) == "navigate.previous")
     }
 
     /// `when` must be equal, not merely overlapping: a different clause
@@ -64,16 +64,16 @@ import Testing
     @Test func removalsMatchExactlyAndSpareUserEntries() {
         let registry = Self.registry()
         KeyBindingLoader(registry).load(KeyBindingLayers(
-            app: [KeyBinding(keys: [Shortcut("n", modifiers: [.control])], command: "nextSurface", source: .app)],
-            user: [KeyBinding(keys: [Shortcut("m", modifiers: [.control])], command: "nextSurface", source: .user)],
+            app: [KeyBinding(keys: [Shortcut("n", modifiers: [.control])], command: "navigate.next", source: .app)],
+            user: [KeyBinding(keys: [Shortcut("m", modifiers: [.control])], command: "navigate.next", source: .user)],
             removals: [
-                KeyBindingRemoval(command: "nextSurface", keys: [Self.ctrlTab], when: .exactly(.has("terminalFocused"))),
-                KeyBindingRemoval(command: "nextSurface", keys: [Shortcut("n", modifiers: [.control])]),
-                KeyBindingRemoval(command: "nextSurface", keys: [Shortcut("m", modifiers: [.control])]),
+                KeyBindingRemoval(command: "navigate.next", keys: [Self.ctrlTab], when: .exactly(.has("terminalFocused"))),
+                KeyBindingRemoval(command: "navigate.next", keys: [Shortcut("n", modifiers: [.control])]),
+                KeyBindingRemoval(command: "navigate.next", keys: [Shortcut("m", modifiers: [.control])]),
             ]))
-        #expect(Self.winner(registry, [Self.ctrlTab], Self.agent) == "nextSurface")
+        #expect(Self.winner(registry, [Self.ctrlTab], Self.agent) == "navigate.next")
         #expect(Self.winner(registry, [Shortcut("n", modifiers: [.control])], Self.agent) == nil)
-        #expect(Self.winner(registry, [Shortcut("m", modifiers: [.control])], Self.agent) == "nextSurface")
+        #expect(Self.winner(registry, [Shortcut("m", modifiers: [.control])], Self.agent) == "navigate.next")
     }
 
     @Test func aRemovalOfAnUnknownCommandIsAnIssue() {
