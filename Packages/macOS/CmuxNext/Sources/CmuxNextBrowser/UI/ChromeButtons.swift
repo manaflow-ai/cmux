@@ -47,7 +47,10 @@ final class ChromeIconButton: NSButton {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    /// Unchanged symbol and label keep the current image: a new NSImage
+    /// makes AppKit lay out and redraw the button.
     func setSymbol(_ symbol: String, label: String) {
+        guard symbol != symbolName || label != symbolLabel || image == nil else { return }
         symbolName = symbol
         symbolLabel = label
         applySymbol()
@@ -66,7 +69,7 @@ final class ChromeIconButton: NSButton {
     }
 
     override var isEnabled: Bool {
-        didSet { alphaValue = isEnabled ? 1 : 0.35; updateFill() }
+        didSet { if isEnabled != oldValue { alphaValue = isEnabled ? 1 : 0.35; updateFill() } }
     }
 
     override var isHighlighted: Bool {
