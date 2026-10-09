@@ -367,6 +367,8 @@ fn a_reply_posted_after_the_typing_off_still_ends_the_turn() {
     watch.on(&typing(true));
     watch.on(&typing(false));
     assert!(!watch.done, "no reply yet");
-    assert!(watch.on(&UiEvent::Message(message(4, "agent_mux", "late", "turn:optchat:2"))).is_some());
+    assert!(
+        watch.on(&UiEvent::Message(message(4, "agent_mux", "late", "turn:optchat:2"))).is_some()
+    );
     assert!(watch.done);
 }
