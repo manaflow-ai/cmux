@@ -7,6 +7,7 @@
 use std::sync::PoisonError;
 
 use super::adopted_child::AdoptedChild;
+use super::session_cleanup;
 use super::*;
 
 /// The process a host's PTY runs.
@@ -160,7 +161,7 @@ pub(super) fn start_host_runtime(
         child_signal_lock: Mutex::new(()),
         child_reaped: AtomicBool::new(false),
         group_escalation_complete: AtomicBool::new(false),
-        session_cleanup: Mutex::new(None),
+        session_cleanup: session_cleanup::SessionCleanup::new(),
         adopted_session: child.adopted_session(),
         #[cfg(test)]
         fail_next_resize_publication: AtomicBool::new(false),

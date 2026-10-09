@@ -11,16 +11,51 @@ use std::collections::HashSet;
 use std::fs;
 #[cfg(not(target_os = "linux"))]
 use std::process::Command;
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(super) struct SessionCleanup {
+    captured: Mutex<Option<CapturedSession>>,
+}
+
+#[derive(Debug, Clone)]
+struct CapturedSession {
     session: libc::pid_t,
     groups: Vec<libc::pid_t>,
 }
 
 impl SessionCleanup {
-    pub(super) fn capture(session: Option<libc::pid_t>, host_group: libc::pid_t) -> Option<Self> {
+    pub(super) fn new() -> Self {
+        Self { captured: Mutex::new(None) }
+    }
+
+    pub(super) fn signal(
+        &self,
+        adopted_session: Option<libc::pid_t>,
+        pid: Option<u32>,
+        signal: libc::c_int,
+        host_group: libc::pid_t,
+    ) {
+        let mut captured = self.captured.lock().unwrap();
+        if signal == libc::SIGHUP {
+            let session =
+                adopted_session.or_else(|| pid.and_then(|pid| libc::pid_t::try_from(pid).ok()));
+            *captured = CapturedSession::capture(session, host_group);
+        }
+        if let Some(cleanup) = captured.as_ref() {
+            cleanup.signal(signal, host_group);
+        }
+    }
+
+    pub(super) fn wait_for_exit(&self, timeout: Duration) -> bool {
+        let captured = self.captured.lock().unwrap().clone();
+        captured.map_or(true, |captured| captured.wait_for_exit(timeout))
+    }
+}
+
+impl CapturedSession {
+    fn capture(session: Option<libc::pid_t>, host_group: libc::pid_t) -> Option<Self> {
         let session = session?;
         if session <= 0 || session == current_session() {
             return None;
@@ -32,7 +67,7 @@ impl SessionCleanup {
         (!groups.is_empty()).then_some(Self { session, groups })
     }
 
-    pub(super) fn signal(&self, signal: libc::c_int, host_group: libc::pid_t) {
+    fn signal(&self, signal: libc::c_int, host_group: libc::pid_t) {
         let live_groups = session_groups(self.session)
             .into_iter()
             .filter(|group| *group > 0 && *group != host_group)
@@ -44,7 +79,7 @@ impl SessionCleanup {
         }
     }
 
-    pub(super) fn wait_for_exit(&self, timeout: Duration) -> bool {
+    fn wait_for_exit(&self, timeout: Duration) -> bool {
         let deadline = Instant::now() + timeout;
         loop {
             let live =

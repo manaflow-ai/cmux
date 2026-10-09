@@ -467,7 +467,6 @@ mod unix {
     use ghostty_vt::{Callbacks, CursorShape, Terminal};
 
     mod session_cleanup;
-    use session_cleanup::SessionCleanup;
 
     use super::*;
 
@@ -3400,7 +3399,7 @@ mod unix {
         child_signal_lock: Mutex<()>,
         child_reaped: AtomicBool,
         group_escalation_complete: AtomicBool,
-        session_cleanup: Mutex<Option<SessionCleanup>>,
+        session_cleanup: session_cleanup::SessionCleanup,
         /// Session of an adopted, non-child process (`adopted_child.rs`).
         adopted_session: Option<libc::pid_t>,
         #[cfg(test)]
@@ -4237,33 +4236,20 @@ mod unix {
 
         fn signal_terminal_process_groups(&self, signal: libc::c_int) {
             let mut groups = Vec::with_capacity(2);
-            // The wait thread observes exit with WNOWAIT, then takes this lock
-            // before reaping. While we hold it, `!child_reaped` means the
-            // original PID/PGID is still kernel-reserved and cannot have been
-            // reused between validation and killpg.
+            // The wait thread reaps under this lock, so `!child_reaped` keeps
+            // the original PID/PGID kernel-reserved between validation and killpg.
             let _signal = self.child_signal_lock.lock().unwrap();
             let child_reserved =
                 !self.child_reaped.load(Ordering::Acquire) && self.child_signalable();
             // SAFETY: getpgrp has no preconditions.
             let host_group = unsafe { libc::getpgrp() };
-            let mut session_cleanup = self.session_cleanup.lock().unwrap();
-            if signal == libc::SIGHUP {
-                let session = self
-                    .adopted_session
-                    .or_else(|| self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok()));
-                *session_cleanup = SessionCleanup::capture(session, host_group);
-            }
-            if let Some(cleanup) = session_cleanup.as_ref() {
-                cleanup.signal(signal, host_group);
-            }
+            self.session_cleanup.signal(self.adopted_session, self.pid, signal, host_group);
             if child_reserved
                 && let Some(pid) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok())
             {
                 groups.push(pid);
             }
-            // Query the PTY each time rather than trusting the original group:
-            // a foreground job or retained descendant may own a different
-            // group by the time explicit Terminate escalates.
+            // Include the PTY's current foreground group for retained descendants.
             if child_reserved
                 && let Some(foreground) = self.master.lock().unwrap().process_group_leader()
             {
@@ -4271,9 +4257,7 @@ mod unix {
             }
             groups.sort_unstable();
             groups.dedup();
-            // A portable-pty child starts as a new session/process-group
-            // leader. Signal both that durable group and any foreground job
-            // group, but never risk addressing the terminal-host's own group.
+            // Signal validated groups, excluding the terminal host's own group.
             for group in groups.into_iter().filter(|group| *group > 0 && *group != host_group) {
                 // SAFETY: validated positive process-group ids owned by this
                 // PTY session; signal is a platform constant from this module.
@@ -4312,6 +4296,7 @@ mod unix {
         }
 
         fn finish_group_escalation(&self) {
+            let _ = self.session_cleanup.wait_for_exit(HOST_KILL_WAIT);
             self.publish_child_wait_predicate(&self.group_escalation_complete);
         }
 
@@ -4442,12 +4427,6 @@ mod unix {
             // soon as the session leader exits: an HUP-ignoring descendant
             // can still be alive in the now-invisible original group.
             self.signal_terminal_process_groups(libc::SIGKILL);
-            if let Some(cleanup) = self.session_cleanup.lock().unwrap().clone() {
-                // Do not publish a successful explicit teardown until every
-                // captured PTY-session group has disappeared. The wait is
-                // bounded so an escaped descriptor cannot stall shutdown.
-                let _ = cleanup.wait_for_exit(HOST_KILL_WAIT);
-            }
             self.finish_group_escalation();
             let child_exited = self.wait_for_child_exit(HOST_KILL_WAIT);
             if child_exited && self.wait_for_pty_drain(HOST_PTY_DRAIN_GRACE) {
@@ -6315,7 +6294,7 @@ mod unix {
                 child_signal_lock: Mutex::new(()),
                 child_reaped: AtomicBool::new(true),
                 group_escalation_complete: AtomicBool::new(false),
-                session_cleanup: Mutex::new(None),
+                session_cleanup: session_cleanup::SessionCleanup::new(),
                 adopted_session: None,
                 fail_next_resize_publication: AtomicBool::new(false),
             });
