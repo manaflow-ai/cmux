@@ -22,10 +22,10 @@ enum CloudCreationRows {
             let machineID = MachineID(creation.session?.machineID ?? creation.rowID)
             let row = SidebarWorkspace(
                 id: WorkspaceID(creation.rowID), machineID: machineID,
-                title: creation.machineTitle ?? CloudStrings.newCloudWorkspaceTitle,
+                title: CloudStrings.newCloudWorkspaceTitle,
                 status: CloudStrings.stage(stage), kind: .terminal,
                 progress: SidebarProgress(value: stage.failure == nil ? (stage == .ready ? 1 : nil) : 1, isError: stage.failure != nil),
-                isClosable: false)
+                isClosable: false, stage: CloudStrings.stage(stage))
             if let index = sections.firstIndex(where: { $0.machine?.id == machineID }) {
                 sections[index].nodes.append(.workspace(row))
             } else {
