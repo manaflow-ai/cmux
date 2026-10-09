@@ -94,7 +94,8 @@
   // cannot find holds them), `subject` the subjectbox value (null when
   // there is none).
   function readComposeHeader() {
-    const box = document.querySelector('div[role="textbox"][aria-label="Message Body"], div[role="textbox"][g_editable="true"]');
+    // Gmail's composer, never a look-alike in a message body or quoted text.
+    const box = [...document.querySelectorAll('div[role="textbox"][aria-label="Message Body"], div[role="textbox"][g_editable="true"]')].find((b) => !b.closest(".a3s, .gmail_quote") && !(b.parentElement && b.parentElement.closest('[contenteditable], [role="textbox"]')));
     const root = (box && box.closest('[role="dialog"], form')) || document;
     const CHIPS = '[data-hovercard-id*="@"], [email]';
     const address = (e) => String(e.getAttribute("data-hovercard-id") || e.getAttribute("email") || "").trim().toLowerCase();
@@ -150,10 +151,17 @@
       const mdSource = S.ELEMENT_MARKDOWN;
       const threadFn = new Function("arg", `return (${readThreadBody.toString().replace("(__MD__)", `(${mdSource})`).replace("(__IS_ATTACHMENT_URL__)", `(${isAttachmentURL.toString()})`)})(arg);`);
 
+      // Gmail's own controls: never an element of a message body (.a3s,
+      // which the sender writes), of quoted text, or inside an editor. A
+      // sender's look-alike would otherwise get a trusted click.
+      const OWN = ':not(.a3s *):not(.gmail_quote *):not([contenteditable] *):not([role="textbox"] *)';
+      const own = (page, selectors) => page.locator(selectors.map((sel) => sel + OWN).join(", "));
+      const composerBox = (page) => own(page, ['div[role="textbox"][aria-label="Message Body"]', 'div[role="textbox"][g_editable="true"]']);
+
       async function openThread(page) {
         t.assertSignedIn("gmail", page, SIGN_IN);
         await t.waitIn(page, () => !!document.querySelector("h2.hP, div.adn"), undefined, { signIn: SIGN_IN, name: "gmail", what: "the Gmail thread" });
-        const expand = page.locator('[aria-label="Expand all"]');
+        const expand = own(page, ['[aria-label="Expand all"]']);
         if ((await expand.count()) && (await expand.first().isVisible())) await expand.first().click();
         await t.waitIn(page, () => [...document.querySelectorAll("div.adn")].every((m) => m.querySelector(".a3s")), undefined, { signIn: SIGN_IN, name: "gmail", timeout: 8000, what: "every message body" }).catch(() => {});
       }
@@ -181,10 +189,14 @@
 
       // Opens Gmail's own reply (all) composer in an opened thread.
       async function openReply(page, replyAll) {
-        const button = page.locator(replyAll ? '[data-tooltip="Reply all"], [aria-label="Reply all"]' : '[data-tooltip="Reply"], [aria-label="Reply"]');
+        const name = replyAll ? "Reply all" : "Reply";
+        const button = own(page, [`[role="button"][data-tooltip="${name}"]`, `[role="button"][aria-label="${name}"]`, `[role="link"][data-tooltip="${name}"]`, `[role="link"][aria-label="${name}"]`]);
+        // Gmail shows a Reply per message; the last is the thread's latest.
+        if (!(await button.count())) throw new S.SiteError("target_unverified", `gmail.send: found no Gmail ${name} control in the thread; nothing was drafted`);
         await button.last().click();
-        const box = page.locator('div[role="textbox"][aria-label="Message Body"], div[role="textbox"][g_editable="true"]').last();
-        await box.waitFor({ timeout: 20000 });
+        const box = composerBox(page);
+        await box.first().waitFor({ timeout: 20000 });
+        if ((await box.count()) !== 1) throw new S.SiteError("target_unverified", "gmail.send: expected one Gmail reply composer in the thread; nothing was typed");
         return box;
       }
 
@@ -261,24 +273,49 @@
           return t.withTab(`${base(msg.uid)}#all/${key}`, async (page) => {
             await openThread(page);
             const box = await openReply(page, msg.replyAll);
-            await box.click();
-            await page.keyboard.insertText(msg.body);
-            return c.write(() => observeCompose(page, box, msg), (press) => clickSend(page, msg, press), { submit: sendButton(page), account: () => composeAccount(page, msg) });
+            // The reply's text is typed only after the commit read the
+            // account again ({ fill }).
+            const fill = async () => {
+              await box.click();
+              await page.keyboard.insertText(msg.body);
+            };
+            return c.write(() => observeCompose(page, box, msg), (press) => clickSend(page, msg, press), { fill, submit: sendButton(page), account: () => composeAccount(page, msg) });
           });
         }
         const q = new URLSearchParams({ view: "cm", fs: "1", tf: "1" });
         for (const k of ["to", "cc", "bcc"]) if (msg[k].length) q.set(k, msg[k].join(","));
         if (msg.subject) q.set("su", msg.subject);
         q.set("body", msg.body);
-        return t.withTab(`${base(msg.uid)}?${q}`, async (page) => {
+        // The account's Gmail opens first; the compose window with the
+        // drafted fields loads only after the commit read the account
+        // again ({ fill }), so they never reach another account's drafts.
+        return t.withTab(base(msg.uid), async (page) => {
           t.assertSignedIn("gmail.send", page, SIGN_IN);
-          const box = page.locator('div[role="textbox"][aria-label="Message Body"], div[role="textbox"][g_editable="true"]').first();
-          await box.waitFor({ timeout: 30000 });
-          return c.write(() => observeCompose(page, box, msg), (press) => clickSend(page, msg, press), { submit: sendButton(page), account: () => composeAccount(page, msg) });
+          const box = composerBox(page);
+          const fill = async () => {
+            await page.goto(`${base(msg.uid)}?${q}`);
+            t.assertSignedIn("gmail.send", page, SIGN_IN);
+            await box.first().waitFor({ timeout: 30000 });
+            if ((await box.count()) !== 1) throw new S.SiteError("target_unverified", "gmail.send: expected one Gmail compose window; nothing was sent");
+          };
+          return c.write(() => observeCompose(page, box, msg), (press) => clickSend(page, msg, press), { fill, submit: sendButton(page), account: () => composeAccount(page, msg) });
         });
       }
 
-      const sendButton = (page) => page.locator('div[role="button"][data-tooltip^="Send"], div[role="button"][aria-label^="Send"]').last();
+      // Gmail's one Send control (of the one composer open), never a
+      // look-alike in a message body or quoted text; a page with no Send,
+      // or more than one, sends nothing.
+      const sendButton = (page) => {
+        const send = own(page, ['div[role="button"][data-tooltip^="Send"]', 'div[role="button"][aria-label^="Send"]']);
+        return {
+          elementHandle: async (options) => {
+            await send.first().waitFor(options);
+            const n = await send.count();
+            if (n !== 1) throw new S.SiteError("target_unverified", `gmail.send: expected one Gmail Send control, found ${n}; nothing was sent`);
+            return send.elementHandle(options);
+          },
+        };
+      };
       // Send, pressed through the commit (press: the Send button pinned
       // before the read-back).
       async function clickSend(page, msg, press) {

@@ -413,9 +413,10 @@
   // whose canonical text is kept: confirming runs the draft's commit with
   // that same intent, after checking the text still matches.
   //
-  // The commit protocol: commit(c) prepares the write (opens the page,
-  // fills the composer) and then calls c.write(observe, act, options)
-  // once. observe() reads every bound field back from the site; the loader
+  // The commit protocol: commit(c) prepares the write (opens the page)
+  // and then calls c.write(observe, act, options) once; drafted content
+  // goes into the site through { fill } (run after the account is read
+  // again, before the first read-back and before { submit } is pinned). observe() reads every bound field back from the site; the loader
   // compares it with the intent (checkIntent) and calls act(press), the
   // write itself, only when all of it matches. A commit that returns
   // without calling c.write fails (commit_unverified).
@@ -543,9 +544,21 @@
           async write(observe, act, options = {}) {
             if (wrote) throw new SiteError("commit_reused", `${where}: a draft writes once (a site tool bug)`);
             wrote = true;
-            const submit = options && options.submit ? await pinElement(where, options.submit) : null;
             const readAccount = options && typeof options.account === "function" ? options.account : null;
             if (!readAccount) throw new SiteError("invalid", `${where}: every write needs the commit's { account } reader, read again right before the click or input (a site tool bug); nothing was sent`);
+            // { fill }: puts the drafted content into the site (a composer's
+            // text, a compose window opened with its fields) after the
+            // account is read again and every site tab is still on its
+            // site's origin, so content never reaches an account another
+            // session switched to while the page loaded (the site keeps it
+            // as that account's draft). The read-back below then checks it.
+            if (options.fill !== undefined) {
+              if (typeof options.fill !== "function") throw new SiteError("invalid", `${where}: { fill } must be a function (a site tool bug); nothing was sent`);
+              checkIntent(where, entry, await readAccount(), ["account"]);
+              await checkTabs(where);
+              await options.fill();
+            }
+            const submit = options.submit ? await pinElement(where, options.submit) : null;
             const check = async () => checkIntent(where, entry, await observe());
             const recheck = async (page) => {
               await checkTabs(where, page);
