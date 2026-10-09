@@ -15,11 +15,18 @@ struct AboutPanelCredits {
 
     /// The notices file inside the bundle, when it has one.
     var licensesURL: URL? {
-        nil
+        bundle.url(forResource: "THIRD_PARTY_LICENSES", withExtension: "md")
     }
 
     /// Credits text with a link to the notices file; nil without the file.
     var credits: NSAttributedString? {
-        nil
+        guard let url = licensesURL else { return nil }
+        let centered = NSMutableParagraphStyle()
+        centered.alignment = .center
+        return NSAttributedString(string: Self.title, attributes: [
+            .link: url,
+            .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
+            .paragraphStyle: centered,
+        ])
     }
 }
