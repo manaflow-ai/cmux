@@ -44,7 +44,7 @@ jobs:
     if: ${{ github.repository == 'manaflow-ai/cmux' && contains(fromJSON('["success","failure","timed_out"]'), github.event.workflow_run.conclusion) && (github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.head_branch == 'main') }}
     # GitHub-hosted, like the fast guard it follows: it starts in seconds, and
     # no repository variable may move it onto a queued pool.
-    runs-on: ubuntu-24.04 # github-hosted-required: attribution must follow the fast guard within a minute
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}  # R37 (Lawrence): Blacksmith, not GitHub-hosted; was hosted for: attribution must follow the fast guard within a minute
     timeout-minutes: 20
     permissions:
       actions: read
@@ -105,7 +105,7 @@ jobs:
     name: ${{ needs.analyze.outputs.headline || 'report' }}
     needs: analyze
     if: ${{ needs.analyze.outputs.state == 'red' || needs.analyze.outputs.state == 'green' }}
-    runs-on: ubuntu-24.04 # github-hosted-required: attribution must follow the fast guard within a minute
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}  # R37 (Lawrence): Blacksmith, not GitHub-hosted; was hosted for: attribution must follow the fast guard within a minute
     timeout-minutes: 10
     permissions:
       contents: read

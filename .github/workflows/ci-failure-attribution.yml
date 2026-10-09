@@ -36,7 +36,7 @@ jobs:
   attribute:
     name: Attribute
     if: ${{ github.repository == 'manaflow-ai/cmux' && github.event.workflow_run.event == 'pull_request' && contains(fromJSON('["success","failure","cancelled"]'), github.event.workflow_run.conclusion) }}
-    runs-on: ubuntu-24.04 # github-hosted-required: write token; the re-run must follow CI within a minute
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}  # R37 (Lawrence): Blacksmith, not GitHub-hosted; was hosted for: write token; the re-run must follow CI within a minute
     timeout-minutes: 10
     permissions:
       actions: write

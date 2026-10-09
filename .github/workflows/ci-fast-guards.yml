@@ -41,7 +41,7 @@ jobs:
     # routed `changes` job on the Blacksmith pool waited a median 7 s but a
     # p90 of 99 s and up to 305 s before it could even route the guards
     # (28 merged PRs, 2026-09-25).
-    runs-on: ubuntu-24.04 # github-hosted-required: the fast guard answers within a minute of a push
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}  # R37 (Lawrence): Blacksmith, not GitHub-hosted; was hosted for: the fast guard answers within a minute of a push
     timeout-minutes: 5
     permissions:
       contents: read

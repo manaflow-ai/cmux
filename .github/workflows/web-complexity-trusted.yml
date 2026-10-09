@@ -35,7 +35,7 @@ jobs:
     name: Web complexity
     # The job reads untrusted source bytes. Keep it on an ephemeral GitHub
     # hosted runner and never allow a repository variable to select the host.
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}  # R37 (Lawrence): Blacksmith, not GitHub-hosted
     timeout-minutes: 10
     env:
       # The policy comes from the base of a pull request or merge group, and

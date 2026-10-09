@@ -36,7 +36,7 @@ jobs:
     # A fork pull request, or a comment on one, runs this job with a write
     # token. Neither event says whether the head is a fork, so no runner
     # variable may pick the machine: LINUX_RUNNER can name owned hosts.
-    runs-on: ubuntu-24.04 # github-hosted-required: write token on fork pull requests
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}  # R37 (Lawrence): Blacksmith, not GitHub-hosted; was hosted for: write token on fork pull requests
     timeout-minutes: 10
     # One run at a time per pull request so two signature events cannot write
     # the ledger from different snapshots. Independent pull requests proceed.

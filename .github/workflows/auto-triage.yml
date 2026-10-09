@@ -30,7 +30,7 @@ concurrency:
 jobs:
   triage:
     if: github.event_name == 'issues'
-    runs-on: ubuntu-24.04 # github-hosted-required: trusted issue-write token
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}  # R37 (Lawrence): Blacksmith, not GitHub-hosted; was hosted for: trusted issue-write token
     timeout-minutes: 5
     steps:
       - name: Check out trusted triage code
@@ -46,7 +46,7 @@ jobs:
 
   backfill:
     if: github.event_name == 'workflow_dispatch' && fromJSON(inputs.backfill_limit || '0') > 0
-    runs-on: ubuntu-24.04 # github-hosted-required: trusted issue-write token
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}  # R37 (Lawrence): Blacksmith, not GitHub-hosted; was hosted for: trusted issue-write token
     timeout-minutes: 30
     steps:
       - name: Check out trusted triage code

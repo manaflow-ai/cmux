@@ -1350,7 +1350,7 @@ jobs:
     name: "Dogfood build #${{ github.event.pull_request.number }}"
     needs: changes
     if: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref != 'feat-cmux-next' && contains(github.event.pull_request.labels.*.name, 'dev-build') && github.event.action != 'unlabeled' && (github.event.action != 'labeled' || github.event.label.name == 'dev-build') && github.repository_owner == 'manaflow-ai' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.result == 'success' && needs.changes.outputs.macos != 'false' }}
-    runs-on: ubuntu-24.04 # github-hosted-required: trusted pull-request-write token
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}  # R37 (Lawrence): Blacksmith, not GitHub-hosted; was hosted for: trusted pull-request-write token
     timeout-minutes: 5
     # A failed comment must not turn the run red; the controller acts only on success.
     continue-on-error: true

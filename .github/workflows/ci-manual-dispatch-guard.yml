@@ -16,7 +16,7 @@ env:
 jobs:
   guard:
     if: github.event.workflow_run.path == '.github/workflows/ci.yml' && github.event.workflow_run.event == 'workflow_dispatch'
-    runs-on: ubuntu-24.04 # github-hosted-required: trusted Actions control-plane token
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}  # R37 (Lawrence): Blacksmith, not GitHub-hosted; was hosted for: trusted Actions control-plane token
     timeout-minutes: 3
     permissions:
       actions: write
