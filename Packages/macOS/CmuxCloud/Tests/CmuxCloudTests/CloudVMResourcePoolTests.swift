@@ -1,5 +1,6 @@
 @testable import CmuxCloud
 import CmuxCloudResizeCore
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 
@@ -20,6 +21,32 @@ struct CloudVMResourcePoolTests {
         #expect(pool.freeVcpus == 4)
         #expect(pool.freeMemoryMb == 8192)
         #expect(!pool.isExhausted)
+    }
+
+    @Test
+    func catalogStandbyRowsDoNotSkipWakeTimePoolAdmission() throws {
+        let standby = SurfaceMachineInfo(
+            id: .cloud("standby"),
+            name: "standby",
+            status: "standby",
+            hasDesktop: true,
+            linkState: .connected
+        )
+        let running = SurfaceMachineInfo(
+            id: .cloud("running"),
+            name: "running",
+            status: "running",
+            hasDesktop: true,
+            linkState: .connected
+        )
+        let catalog = SurfaceCatalogSnapshot(
+            machines: [standby, running],
+            resources: [],
+            projections: []
+        )
+
+        let snapshots = MachineSnapshotBuilder.includingCatalogMachines([], catalog: catalog)
+        #expect(snapshots.map(\.usesResourcePool) == [false, true])
     }
 
     @Test
