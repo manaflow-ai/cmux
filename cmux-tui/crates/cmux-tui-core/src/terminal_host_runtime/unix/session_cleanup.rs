@@ -26,6 +26,8 @@ pub(super) struct SessionCleanup {
 enum CaptureState {
     /// No identity-safe session capture was attempted.
     NotCaptured,
+    /// Completion retires the saved identity before the child can be reaped.
+    Complete,
     /// The session was enumerated successfully. An empty group list is a
     /// successful observation that there is nothing to clean up.
     Captured(CapturedSession),
@@ -54,22 +56,34 @@ impl SessionCleanup {
         capture_allowed: bool,
     ) {
         let mut captured = self.captured.lock().unwrap();
-        if signal == libc::SIGHUP && capture_allowed {
+        if signal == libc::SIGHUP
+            && capture_allowed
+            && matches!(&*captured, CaptureState::NotCaptured | CaptureState::ScanFailed)
+        {
             let session =
                 adopted_session.or_else(|| pid.and_then(|pid| libc::pid_t::try_from(pid).ok()));
             *captured = CapturedSession::capture(session, host_group);
         }
-        if let CaptureState::Captured(cleanup) = &*captured {
-            cleanup.signal(signal, host_group);
+        let scan_succeeded = match &*captured {
+            CaptureState::Captured(cleanup) => cleanup.signal(signal, host_group),
+            CaptureState::NotCaptured | CaptureState::Complete | CaptureState::ScanFailed => true,
+        };
+        if !scan_succeeded {
+            *captured = CaptureState::ScanFailed;
         }
     }
 
     pub(super) fn wait_for_exit(&self, timeout: Duration) -> bool {
-        match self.captured.lock().unwrap().clone() {
-            CaptureState::NotCaptured => true,
+        let mut captured = self.captured.lock().unwrap();
+        let complete = match &*captured {
+            CaptureState::NotCaptured | CaptureState::Complete => true,
             CaptureState::ScanFailed => false,
             CaptureState::Captured(captured) => captured.wait_for_exit(timeout),
+        };
+        if complete {
+            *captured = CaptureState::Complete;
         }
+        complete
     }
 }
 
@@ -89,9 +103,9 @@ impl CapturedSession {
         })
     }
 
-    fn signal(&self, signal: libc::c_int, host_group: libc::pid_t) {
+    fn signal(&self, signal: libc::c_int, host_group: libc::pid_t) -> bool {
         let Ok(live_groups) = session_groups(self.session) else {
-            return;
+            return false;
         };
         let live_groups = live_groups
             .into_iter()
@@ -102,6 +116,7 @@ impl CapturedSession {
             // revalidated in that same session immediately before signaling.
             let _ = unsafe { libc::killpg(group, signal) };
         }
+        true
     }
 
     fn wait_for_exit(&self, timeout: Duration) -> bool {
@@ -134,7 +149,8 @@ fn current_session() -> libc::pid_t {
 fn session_groups(session: libc::pid_t) -> Result<Vec<libc::pid_t>, ()> {
     let entries = fs::read_dir("/proc").map_err(|_| ())?;
     let mut groups = HashSet::new();
-    for entry in entries.flatten() {
+    for entry in entries {
+        let entry = entry.map_err(|_| ())?;
         let name = entry.file_name();
         let Some(name) = name.to_str() else { continue };
         let Ok(_pid) = name.parse::<libc::pid_t>() else { continue };
@@ -185,6 +201,10 @@ fn session_groups(session: libc::pid_t) -> Result<Vec<libc::pid_t>, ()> {
     }
     Ok(groups.into_iter().collect())
 }
+
+#[cfg(test)]
+#[path = "tests/session_cleanup.rs"]
+mod tests;
 
 impl HostShared {
     pub(super) fn signal_terminal_process_groups(&self, signal: libc::c_int) {

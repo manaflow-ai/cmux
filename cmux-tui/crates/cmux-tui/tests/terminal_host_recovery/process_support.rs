@@ -29,7 +29,7 @@ pub(crate) fn process_exists(pid: libc::pid_t) -> bool {
 
 /// A signal-0 hit can be a zombie that is still waiting for its parent to
 /// reap it. Cleanup assertions care about a live process, so filter that
-/// state on Linux while retaining the portable signal-0 probe elsewhere.
+/// state on Linux and macOS while retaining the signal-0 probe elsewhere.
 pub(crate) fn process_running(pid: libc::pid_t) -> bool {
     if !process_exists(pid) {
         return false;
@@ -40,7 +40,24 @@ pub(crate) fn process_running(pid: libc::pid_t) -> bool {
     {
         return false;
     }
-    true
+    #[cfg(target_os = "macos")]
+    if let Ok(output) =
+        Command::new("/bin/ps").args(["-o", "stat=", "-p", &pid.to_string()]).output()
+        && output.status.success()
+        && String::from_utf8_lossy(&output.stdout).trim_start().starts_with('Z')
+    {
+        return false;
+    }
+    // The process can disappear between the first probe and the state read.
+    process_exists(pid)
+}
+
+pub(crate) fn wait_for_process_stopped(pid: libc::pid_t) {
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    while process_running(pid) {
+        assert!(Instant::now() < deadline, "terminated fixture process {pid} remained alive");
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }
 
 pub(crate) fn wait_for_terminal_host_dead(path: &Path, record: &TerminalHostRecord) {
