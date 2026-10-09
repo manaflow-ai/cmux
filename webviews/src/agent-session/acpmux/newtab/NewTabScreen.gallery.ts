@@ -34,6 +34,12 @@ export default agentPaneEntry({
   title: "New Tab page",
   area: "New Tab",
   height: 560,
+  checks: {
+    layoutShiftMax: {
+      value: 0.4,
+      reason: "Typing shows the suggestion rows between the field and the chat cards, which move down.",
+    },
+  },
   covers: [
     "agent-session/acpmux/newtab/NewTabScreen.tsx#NewTabScreen",
     "agent-session/acpmux/newtab/ChatCards.tsx",
@@ -77,6 +83,24 @@ export default agentPaneEntry({
       note: "Tools use the host action catalog and shortcut labels.",
       ready: newTab(),
       snapshot: noChat(manySessions(3)),
+    },
+    "typed-prompt": {
+      note: "A typed prompt over recent chats and tools: the rows keep their height, and Down to the last row scrolls to it (dogfood 2026-10-08).",
+      ready: newTab({
+        omnibar: {
+          tabs: [{ id: "tab-1", kind: "browser", title: "Release notes", detail: "cmux.dev" }],
+          workspaces: [{ id: "workspace-1", name: "Release", detail: "~/src/release" }],
+          folders: [CWD],
+          commands: [],
+          history: [{ url: "https://cmux.dev/release", title: "cmux release notes" }],
+        },
+      }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await ctx.type("release", { selector: ".nt-field" });
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-rows"));
+        for (let step = 0; step < 8; step++) await ctx.press("ArrowDown");
+      },
     },
     "omnibar-row-kinds": {
       note: "Open tab, workspace, history, search, agent and shell intent rows.",
