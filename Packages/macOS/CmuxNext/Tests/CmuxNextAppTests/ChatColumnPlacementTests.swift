@@ -19,8 +19,9 @@ import Testing
     }
 
     private func resolve(from pane: String, _ columns: [LayoutColumn], recent: [String] = [],
-                         loneChat: Set<String> = []) -> ChatColumnPlacement {
-        ChatColumnPlacement.resolve(from: LayoutPaneID(pane), columns: columns, recent: recent.map { LayoutPaneID($0) }) {
+                         loneChat: Set<String> = [], zoomed: Bool = false) -> ChatColumnPlacement {
+        ChatColumnPlacement.resolve(from: LayoutPaneID(pane), columns: columns, recent: recent.map { LayoutPaneID($0) },
+                                    zoomed: zoomed) {
             loneChat.contains($0.id.rawValue)
         }
     }
@@ -41,8 +42,18 @@ import Testing
         #expect(resolve(from: "chat", columns, recent: ["notes"]) == .tab(in: LayoutPaneID("term")))
     }
 
-    @Test func theDockedChatWithoutAStripGetsANewColumn() {
-        #expect(resolve(from: "chat", [column("c1", ["chat"], dock: chatDock)]) == .newColumn)
+    /// Cursor review (#18170): the daemon never keeps a dock without a
+    /// scrolling column (an all-docked screen undocks), so a chat dock with
+    /// no strip is not a state to build a column for: the tab stays.
+    @Test func theDockedChatWithoutAStripStaysHere() {
+        #expect(resolve(from: "chat", [column("c1", ["chat"], dock: chatDock)]) == .here)
+    }
+
+    /// Cursor review (#18170): a zoomed screen maps to its zoomed pane
+    /// alone, so a zoomed chat looks like a lone chat. Zoom hides the strip
+    /// and any chat dock; nothing docks or moves until it ends.
+    @Test func aZoomedChatDocksNothing() {
+        #expect(resolve(from: "chat", [column("c1", ["chat"])], loneChat: ["c1"], zoomed: true) == .here)
     }
 
     @Test func aChatAloneOnItsScreenDocks() {
