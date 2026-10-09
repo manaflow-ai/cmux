@@ -18,6 +18,7 @@ public enum MachineSnapshotBuilder: Sendable {
                 activity: activity(fromStatus: info.status),
                 createdAt: nil,
                 label: info.name == id ? nil : info.name,
+                usesResourcePool: ["running", "provisioning"].contains(info.status.lowercased()),
                 privateAddress: info.privateAddress
             )
         }
