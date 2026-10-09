@@ -9,6 +9,11 @@ extension AgentPaneView {
     public func showContinueIn() {
         deliver([.command("continueIn")], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"continueIn\");"])
     }
+    /// Switch Model… (Ctrl-Cmd-M): the page takes the keyboard, then opens its model picker.
+    public func showModelPicker() {
+        if webView.window?.firstResponder !== webView { webView.window?.makeFirstResponder(webView) }
+        deliver([.command("openModelPicker")], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"openModelPicker\");"])
+    }
     /// Palette and page buttons enter the same inline checkpoint review.
     public func showCreateCheckpoint() {
         guard model.checkpointAvailable else { return }

@@ -34,6 +34,8 @@ enum DebugOmnibar {
             "highlighted": snapshot.highlighted.map { .number(Double($0)) } ?? .null,
             "copy_text": snapshot.copyText.map(JSONValue.string) ?? .null,
             "profile_badge": bar.profileBadgeName.map(JSONValue.string) ?? .null,
+            // The page notice on screen (a fallback, a profile move, "runs on this Mac").
+            "notice": entry(params, services: services)?.chrome.noticeText.map(JSONValue.string) ?? .null,
             "consistent": .bool(!snapshot.fieldEditorActive || (snapshot.text == snapshot.fieldText && snapshot.selection == snapshot.fieldSelection)),
             "pressed_row": pressed,
             "card": bar.debugCard.map { card in
@@ -83,11 +85,15 @@ enum DebugOmnibar {
     #endif
 
     private static func addressBar(_ params: [String: JSONValue], services: AppServices) -> AddressBarView? {
+        entry(params, services: services)?.chrome.addressBar
+    }
+
+    private static func entry(_ params: [String: JSONValue], services: AppServices) -> BrowserEntry? {
         let windowID = params["window"]?.stringValue
         guard let controller = services.windows.controllers.first(where: { windowID == nil || $0.state.id == windowID }),
               let pane = params["pane"]?.stringValue ?? controller.focus.state.pane,
               let paneController = controller.content?.paneController(key: pane),
               case .browser(let entry)? = paneController.currentContent else { return nil }
-        return entry.chrome.addressBar
+        return entry
     }
 }
