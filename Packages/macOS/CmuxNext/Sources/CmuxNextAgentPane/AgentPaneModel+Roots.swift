@@ -7,6 +7,8 @@ extension AgentPaneModel {
     func roots() -> [String] {
         var roots = (chosenFolder.map { [$0] } ?? []) + (workspaceRoots?() ?? [])
         if let handshakeCwd { roots.append(handshakeCwd) }
+        // The store's start folder is where the chat runs, so it is a root (cx-9aps).
+        if let folder = startFolder?.folder, !roots.contains(folder) { roots.append(folder) }
         if let cwd = newTab?.cwd { roots.append(cwd) }
         return roots
     }
