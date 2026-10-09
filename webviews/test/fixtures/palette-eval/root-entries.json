@@ -15914,10 +15914,9 @@
     {
       "entry": {
         "accessory": "Current",
-        "actionID": null,
         "demoted": false,
         "entersScope": false,
-        "frecencyKey": "workspace:e41f4918-ec83-4421-a81a-9c99267093f0",
+        "frecencyKey": "workspace:3350b170-c04a-49bf-a0b6-147fa2c677d1",
         "hasShortcut": false,
         "hidesWhenTyping": false,
         "isEnabled": true,
@@ -15930,14 +15929,13 @@
         "title": "Home",
         "typingSectionIndex": 16
       },
-      "id": "workspace:e41f4918-ec83-4421-a81a-9c99267093f0"
+      "id": "workspace:3350b170-c04a-49bf-a0b6-147fa2c677d1"
     },
     {
       "entry": {
-        "actionID": null,
         "demoted": false,
         "entersScope": false,
-        "frecencyKey": "workspace:8f233dd6-2592-4d8e-9317-65214a916d7c",
+        "frecencyKey": "workspace:61f55f65-c4f6-49bf-bfdc-5de68cbfa461",
         "hasShortcut": false,
         "hidesWhenTyping": false,
         "isEnabled": true,
@@ -15950,14 +15948,13 @@
         "title": "workspace-2",
         "typingSectionIndex": 16
       },
-      "id": "workspace:8f233dd6-2592-4d8e-9317-65214a916d7c"
+      "id": "workspace:61f55f65-c4f6-49bf-bfdc-5de68cbfa461"
     },
     {
       "entry": {
-        "actionID": null,
         "demoted": false,
         "entersScope": false,
-        "frecencyKey": "tab:tab_527a5e3739cfff9936a4dd7d0832492c",
+        "frecencyKey": "tab:tab_21ce38999011dc7517af8d3333cf7063",
         "hasShortcut": false,
         "hidesWhenTyping": false,
         "isEnabled": true,
@@ -15971,14 +15968,13 @@
         "title": "about:blank",
         "typingSectionIndex": 16
       },
-      "id": "tab:tab_527a5e3739cfff9936a4dd7d0832492c"
+      "id": "tab:tab_21ce38999011dc7517af8d3333cf7063"
     },
     {
       "entry": {
-        "actionID": null,
         "demoted": false,
         "entersScope": false,
-        "frecencyKey": "tab:tab_a9e97a7aaa67f31b284f8932d991c153",
+        "frecencyKey": "tab:tab_eed0cd20b35a49f85d7855ee5f512dea",
         "hasShortcut": false,
         "hidesWhenTyping": false,
         "isEnabled": true,
@@ -15992,12 +15988,11 @@
         "title": "about:blank",
         "typingSectionIndex": 16
       },
-      "id": "tab:tab_a9e97a7aaa67f31b284f8932d991c153"
+      "id": "tab:tab_eed0cd20b35a49f85d7855ee5f512dea"
     },
     {
       "entry": {
         "accessory": "Off",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:history.terminalCommands",
@@ -16029,7 +16024,6 @@
     {
       "entry": {
         "accessory": "Workspace",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:navigation.historyScope",
@@ -16060,7 +16054,6 @@
     {
       "entry": {
         "accessory": "Workspaces",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:navigation.history.scope",
@@ -16092,7 +16085,6 @@
     {
       "entry": {
         "accessory": "Minimal",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:window.titlebar",
@@ -16119,7 +16111,6 @@
     {
       "entry": {
         "accessory": "On Hover",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:window.titlebarButtons",
@@ -16152,7 +16143,6 @@
     {
       "entry": {
         "accessory": "Off",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:app.globalHotKey",
@@ -16187,7 +16177,6 @@
     {
       "entry": {
         "accessory": "New Tab Page",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:tabs.newTabKind",
@@ -16219,7 +16208,6 @@
     {
       "entry": {
         "accessory": "On Hover",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:tabs.plusButton",
@@ -16250,7 +16238,6 @@
     {
       "entry": {
         "accessory": "Top",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:tabs.barPosition",
@@ -16283,7 +16270,6 @@
     {
       "entry": {
         "accessory": "Tab Bar Above",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:tabs.barOrder",
@@ -16316,7 +16302,6 @@
     {
       "entry": {
         "accessory": "Off",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:newTerminal.opensWorkspace",
@@ -16348,7 +16333,6 @@
     {
       "entry": {
         "accessory": "Off",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:tabs.cmdWClosesPinnedTabs",
@@ -16381,7 +16365,6 @@
     {
       "entry": {
         "accessory": "On",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:app.warnBeforeClosingTab",
@@ -16416,7 +16399,6 @@
     {
       "entry": {
         "accessory": "On",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:app.warnBeforeClosingAgentSession",
@@ -16452,7 +16434,6 @@
     {
       "entry": {
         "accessory": "Ask",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:app.quitBehavior",
@@ -16484,7 +16465,6 @@
     {
       "entry": {
         "accessory": "50%",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:layout.defaultColumnWidth",
@@ -16510,7 +16490,6 @@
     {
       "entry": {
         "accessory": "Never",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:layout.centerFocusedColumn",
@@ -16536,7 +16515,6 @@
     {
       "entry": {
         "accessory": "While Scrolling",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:layout.stripScrollbar",
@@ -16564,7 +16542,6 @@
     {
       "entry": {
         "accessory": "Previous Neighbor",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:layout.closeFocus",
@@ -16593,7 +16570,6 @@
     {
       "entry": {
         "accessory": "On",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:shortcuts.showModifierHoldHints",
@@ -16625,7 +16601,6 @@
     {
       "entry": {
         "accessory": "On",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:updates.checkAutomatically",
@@ -16656,7 +16631,6 @@
     {
       "entry": {
         "accessory": "3,600 s",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:updates.checkIntervalSeconds",
@@ -16686,7 +16660,6 @@
     {
       "entry": {
         "accessory": "On",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:updates.downloadAutomatically",
@@ -16717,7 +16690,6 @@
     {
       "entry": {
         "accessory": "Wait in Low Data Mode",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:updates.meteredNetwork",
@@ -16747,7 +16719,6 @@
     {
       "entry": {
         "accessory": "On",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:updates.installOnQuit",
@@ -16777,7 +16748,6 @@
     {
       "entry": {
         "accessory": "Badge Settings Only",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:updates.notify",
@@ -16806,7 +16776,6 @@
     {
       "entry": {
         "accessory": "1",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:updates.keepPreviousVersions",
@@ -16835,7 +16804,6 @@
     {
       "entry": {
         "accessory": "On",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:updates.showWhatsNew",
@@ -16867,7 +16835,6 @@
     {
       "entry": {
         "accessory": "On",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:announcements.enabled",
@@ -16898,7 +16865,6 @@
     {
       "entry": {
         "accessory": "On",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:announcements.fetch",
@@ -16929,7 +16895,6 @@
     {
       "entry": {
         "accessory": "Off",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:computerUse.enabled",
@@ -16962,7 +16927,6 @@
     {
       "entry": {
         "accessory": "Even",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:layout.splitSizing",
@@ -16990,7 +16954,6 @@
     {
       "entry": {
         "accessory": "Match Current Column",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:layout.newColumnWidth",
@@ -17017,7 +16980,6 @@
     {
       "entry": {
         "accessory": "Nearest Edge",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:layout.dockColumnEdge",
@@ -17045,7 +17007,6 @@
     {
       "entry": {
         "accessory": "Docked",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:layout.dockColumnMode",
@@ -17073,7 +17034,6 @@
     {
       "entry": {
         "accessory": "Side Docks Full Height",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:layout.frameOrientation",
@@ -17102,7 +17062,6 @@
     {
       "entry": {
         "accessory": "On",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:layout.rows",
@@ -17133,7 +17092,6 @@
     {
       "entry": {
         "accessory": "200 pt",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:layout.minimumPaneWidth",
@@ -17161,7 +17119,6 @@
     {
       "entry": {
         "accessory": "64 pt",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:layout.minimumPaneHeight",
@@ -17189,7 +17146,6 @@
     {
       "entry": {
         "accessory": "Open a Tab",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:layout.newPanePlacement",
@@ -17221,7 +17177,6 @@
     {
       "entry": {
         "accessory": "Off",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:layout.tileBrowsers",
@@ -17253,7 +17208,6 @@
     {
       "entry": {
         "accessory": "Top",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:workspaces.newPlacement",
@@ -17288,7 +17242,6 @@
     {
       "entry": {
         "accessory": "Off",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:sidebar.groupByComputer",
@@ -17325,7 +17278,6 @@
     {
       "entry": {
         "accessory": "@",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:palette.scopes.tabs.prefix",
@@ -17354,7 +17306,6 @@
     {
       "entry": {
         "accessory": "#",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:palette.scopes.workspaces.prefix",
@@ -17383,7 +17334,6 @@
     {
       "entry": {
         "accessory": ">",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:palette.scopes.commands.prefix",
@@ -17412,7 +17362,6 @@
     {
       "entry": {
         "accessory": ",",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:palette.scopes.settings.prefix",
@@ -17441,7 +17390,6 @@
     {
       "entry": {
         "accessory": "?",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:palette.scopes.scopes.prefix",
@@ -17470,7 +17418,6 @@
     {
       "entry": {
         "accessory": "On",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:agents.chats.enabled",
@@ -17500,7 +17447,6 @@
     {
       "entry": {
         "accessory": "On",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:agents.chats.discovery",
@@ -17531,7 +17477,6 @@
     {
       "entry": {
         "accessory": "[]",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:agents.chats.roots",
@@ -17561,7 +17506,6 @@
     {
       "entry": {
         "accessory": "[]",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:picker.pinned",
@@ -17592,7 +17536,6 @@
     {
       "entry": {
         "accessory": "Inbox",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:tasks.layout",
@@ -17624,7 +17567,6 @@
     {
       "entry": {
         "accessory": "Ghostty",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.theme",
@@ -17657,7 +17599,6 @@
     {
       "entry": {
         "accessory": "followTerminal",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.appTheme",
@@ -17689,7 +17630,6 @@
     {
       "entry": {
         "accessory": "None",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.backdropArt",
@@ -17720,7 +17660,6 @@
     {
       "entry": {
         "accessory": "None",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.background",
@@ -17751,7 +17690,6 @@
     {
       "entry": {
         "accessory": "Off",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.experimentalControls",
@@ -17785,7 +17723,6 @@
     {
       "entry": {
         "accessory": "Ghostty",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.backgroundOpacity",
@@ -17815,7 +17752,6 @@
     {
       "entry": {
         "accessory": "Ghostty",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.backgroundBlur",
@@ -17845,7 +17781,6 @@
     {
       "entry": {
         "accessory": "0%",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.glassTransparency",
@@ -17874,7 +17809,6 @@
     {
       "entry": {
         "accessory": "50%",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.hue",
@@ -17902,7 +17836,6 @@
     {
       "entry": {
         "accessory": "100%",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.saturation",
@@ -17931,7 +17864,6 @@
     {
       "entry": {
         "accessory": "Compact",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.density",
@@ -17958,7 +17890,6 @@
     {
       "entry": {
         "accessory": "100%",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:app.uiScale",
@@ -17990,7 +17921,6 @@
     {
       "entry": {
         "accessory": "Density default",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.metrics.chromeFontSize",
@@ -18023,7 +17953,6 @@
     {
       "entry": {
         "accessory": "Density default",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.metrics.sidebarWidth",
@@ -18052,7 +17981,6 @@
     {
       "entry": {
         "accessory": "Density default",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.metrics.columnGap",
@@ -18081,7 +18009,6 @@
     {
       "entry": {
         "accessory": "Density default",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.metrics.titlebarHeight",
@@ -18111,7 +18038,6 @@
     {
       "entry": {
         "accessory": "Default",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.borders",
@@ -18141,7 +18067,6 @@
     {
       "entry": {
         "accessory": "Both",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.focusIndicator",
@@ -18171,7 +18096,6 @@
     {
       "entry": {
         "accessory": "Fade",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:focus.inactiveTabStyle",
@@ -18203,7 +18127,6 @@
     {
       "entry": {
         "accessory": "Fast",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:ui.animationSpeed",
@@ -18230,7 +18153,6 @@
     {
       "entry": {
         "accessory": "Borders",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:layout.paneSeparation",
@@ -18263,7 +18185,6 @@
     {
       "entry": {
         "accessory": "Density default",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:layout.panePadding",
@@ -18288,7 +18209,6 @@
     {
       "entry": {
         "accessory": "Density default",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:layout.paneCornerRadius",
@@ -18314,7 +18234,6 @@
     {
       "entry": {
         "accessory": "Subtle",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:layout.paneBorder",
@@ -18339,7 +18258,6 @@
     {
       "entry": {
         "accessory": "Theme",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:layout.paneBorderColor",
@@ -18364,7 +18282,6 @@
     {
       "entry": {
         "accessory": "One pixel",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:layout.paneBorderWidth",
@@ -18389,7 +18306,6 @@
     {
       "entry": {
         "accessory": "On",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:focusRing.enabled",
@@ -18416,7 +18332,6 @@
     {
       "entry": {
         "accessory": "Ring",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:focusRing.style",
@@ -18441,7 +18356,6 @@
     {
       "entry": {
         "accessory": "Subtle",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:focusRing.contrast",
@@ -18466,7 +18380,6 @@
     {
       "entry": {
         "accessory": "Theme",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:focusRing.color",
@@ -18491,7 +18404,6 @@
     {
       "entry": {
         "accessory": "1 pt",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:focusRing.width",
@@ -18516,7 +18428,6 @@
     {
       "entry": {
         "accessory": "Off",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:focusRing.showWhenSinglePane",
@@ -18543,7 +18454,6 @@
     {
       "entry": {
         "accessory": "Same as window",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.surfaces.sidebar.color",
@@ -18574,7 +18484,6 @@
     {
       "entry": {
         "accessory": "Window opacity",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.surfaces.sidebar.opacity",
@@ -18605,7 +18514,6 @@
     {
       "entry": {
         "accessory": "Same as window",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.surfaces.tabBar.color",
@@ -18636,7 +18544,6 @@
     {
       "entry": {
         "accessory": "Window opacity",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.surfaces.tabBar.opacity",
@@ -18667,7 +18574,6 @@
     {
       "entry": {
         "accessory": "Same as window",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.surfaces.terminal.color",
@@ -18698,7 +18604,6 @@
     {
       "entry": {
         "accessory": "Window opacity",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.surfaces.terminal.opacity",
@@ -18729,7 +18634,6 @@
     {
       "entry": {
         "accessory": "Same as window",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.surfaces.agentPane.color",
@@ -18760,7 +18664,6 @@
     {
       "entry": {
         "accessory": "Window opacity",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.surfaces.agentPane.opacity",
@@ -18791,7 +18694,6 @@
     {
       "entry": {
         "accessory": "Same as window",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.surfaces.settings.color",
@@ -18822,7 +18724,6 @@
     {
       "entry": {
         "accessory": "Window opacity",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.surfaces.settings.opacity",
@@ -18853,7 +18754,6 @@
     {
       "entry": {
         "accessory": "Same as window",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.surfaces.newTabPage.color",
@@ -18884,7 +18784,6 @@
     {
       "entry": {
         "accessory": "Window opacity",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.surfaces.newTabPage.opacity",
@@ -18915,7 +18814,6 @@
     {
       "entry": {
         "accessory": "Same as window",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.surfaces.home.color",
@@ -18946,7 +18844,6 @@
     {
       "entry": {
         "accessory": "Window opacity",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.surfaces.home.opacity",
@@ -18977,7 +18874,6 @@
     {
       "entry": {
         "accessory": "Same as window",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.surfaces.browserChrome.color",
@@ -19008,7 +18904,6 @@
     {
       "entry": {
         "accessory": "Window opacity",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.surfaces.browserChrome.opacity",
@@ -19039,7 +18934,6 @@
     {
       "entry": {
         "accessory": "Same as window",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.surfaces.internalPage.color",
@@ -19070,7 +18964,6 @@
     {
       "entry": {
         "accessory": "Window opacity",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.surfaces.internalPage.opacity",
@@ -19101,7 +18994,6 @@
     {
       "entry": {
         "accessory": "Same as window",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.surfaces.splitDivider.color",
@@ -19132,7 +19024,6 @@
     {
       "entry": {
         "accessory": "Window opacity",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.surfaces.splitDivider.opacity",
@@ -19163,7 +19054,6 @@
     {
       "entry": {
         "accessory": "Same as window",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.surfaces.docks.color",
@@ -19194,7 +19084,6 @@
     {
       "entry": {
         "accessory": "Window opacity",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.surfaces.docks.opacity",
@@ -19225,7 +19114,6 @@
     {
       "entry": {
         "accessory": "Same as window",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.surfaces.diff.color",
@@ -19256,7 +19144,6 @@
     {
       "entry": {
         "accessory": "Window opacity",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.surfaces.diff.opacity",
@@ -19287,7 +19174,6 @@
     {
       "entry": {
         "accessory": "Same as window",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.surfaces.markdown.color",
@@ -19318,7 +19204,6 @@
     {
       "entry": {
         "accessory": "Window opacity",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.surfaces.markdown.opacity",
@@ -19349,7 +19234,6 @@
     {
       "entry": {
         "accessory": "Same as window",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.surfaces.editor.color",
@@ -19380,7 +19264,6 @@
     {
       "entry": {
         "accessory": "Window opacity",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.surfaces.editor.opacity",
@@ -19411,7 +19294,6 @@
     {
       "entry": {
         "accessory": "Thin Arc",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.statusIndicator.style",
@@ -19440,7 +19322,6 @@
     {
       "entry": {
         "accessory": "100%",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.statusIndicator.size",
@@ -19465,7 +19346,6 @@
     {
       "entry": {
         "accessory": "1.5 pt",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.statusIndicator.thickness",
@@ -19490,7 +19370,6 @@
     {
       "entry": {
         "accessory": "Theme",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.statusIndicator.color",
@@ -19515,7 +19394,6 @@
     {
       "entry": {
         "accessory": "On",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.statusIndicator.showAgentWorkingOnTabs",
@@ -19546,7 +19424,6 @@
     {
       "entry": {
         "accessory": "On",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.statusIndicator.showPageLoading",
@@ -19577,7 +19454,6 @@
     {
       "entry": {
         "accessory": "On",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:appearance.statusIndicator.honorStatusStyle",
@@ -19604,7 +19480,6 @@
     {
       "entry": {
         "accessory": "On",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:status.inferCommandBusy",
@@ -19631,7 +19506,6 @@
     {
       "entry": {
         "accessory": "3 s",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:status.inferCommandBusyAfter",
@@ -19656,7 +19530,6 @@
     {
       "entry": {
         "accessory": "Unified",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:diff.layout",
@@ -19685,7 +19558,6 @@
     {
       "entry": {
         "accessory": "Bars",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:diff.diffIndicators",
@@ -19714,7 +19586,6 @@
     {
       "entry": {
         "accessory": "Off",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:diff.wordWrap",
@@ -19744,7 +19615,6 @@
     {
       "entry": {
         "accessory": "Off",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:diff.wordDiffs",
@@ -19774,7 +19644,6 @@
     {
       "entry": {
         "accessory": "On",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:diff.lineNumbers",
@@ -19804,7 +19673,6 @@
     {
       "entry": {
         "accessory": "On",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:diff.showBackgrounds",
@@ -19834,7 +19702,6 @@
     {
       "entry": {
         "accessory": "Off",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:diff.expandUnchanged",
@@ -19865,7 +19732,6 @@
     {
       "entry": {
         "accessory": "Ghostty",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:terminal.fontFamily",
@@ -19896,7 +19762,6 @@
     {
       "entry": {
         "accessory": "Ghostty",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:terminal.fontSize",
@@ -19927,7 +19792,6 @@
     {
       "entry": {
         "accessory": "Off",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:sidebar.border",
@@ -19960,7 +19824,6 @@
     {
       "entry": {
         "accessory": "One pixel",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:sidebar.borderWidth",
@@ -19991,7 +19854,6 @@
     {
       "entry": {
         "accessory": "Quiet",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:sidebar.sectionLook",
@@ -20021,7 +19883,6 @@
     {
       "entry": {
         "accessory": "33.3%",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:sidebar.topBandMaxShare",
@@ -20051,7 +19912,6 @@
     {
       "entry": {
         "accessory": "25%",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:sidebar.bottomBandMaxShare",
@@ -20081,7 +19941,6 @@
     {
       "entry": {
         "accessory": "On",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:sidebar.pinnedBandsScroll",
@@ -20112,7 +19971,6 @@
     {
       "entry": {
         "accessory": "Off",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:sidebar.showWorkspaceTabs",
@@ -20142,7 +20000,6 @@
     {
       "entry": {
         "accessory": "Off",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:sidebar.showChats",
@@ -20173,7 +20030,6 @@
     {
       "entry": {
         "accessory": "On",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:sidebar.showProjects",
@@ -20206,7 +20062,6 @@
     {
       "entry": {
         "accessory": "Settings and Account Row",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:sidebar.minimalMode",
@@ -20237,7 +20092,6 @@
     {
       "entry": {
         "accessory": "On",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:sidebar.cards.tips",
@@ -20270,7 +20124,6 @@
     {
       "entry": {
         "accessory": "Left",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:sidebar.side",
@@ -20302,7 +20155,6 @@
     {
       "entry": {
         "accessory": "Bottom",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:sidebar.spacesPosition",
@@ -20336,7 +20188,6 @@
     {
       "entry": {
         "accessory": "On Hover",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:sidebar.spacesVisibility",
@@ -20371,7 +20222,6 @@
     {
       "entry": {
         "accessory": "Every Item",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:sidebar.numbering",
@@ -20402,7 +20252,6 @@
     {
       "entry": {
         "accessory": "Last Item",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:sidebar.cmd9",
@@ -20431,7 +20280,6 @@
     {
       "entry": {
         "accessory": "Every Item",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:sidebar.stepping",
@@ -20461,7 +20309,6 @@
     {
       "entry": {
         "accessory": "On",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:sidebar.steppingWraps",
@@ -20492,7 +20339,6 @@
     {
       "entry": {
         "accessory": "On",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:sidebar.workspaceRow.icon",
@@ -20523,7 +20369,6 @@
     {
       "entry": {
         "accessory": "Off",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:sidebar.workspaceRow.directory",
@@ -20554,7 +20399,6 @@
     {
       "entry": {
         "accessory": "Off",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:sidebar.workspaceRow.branch",
@@ -20585,7 +20429,6 @@
     {
       "entry": {
         "accessory": "Off",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:sidebar.workspaceRow.process",
@@ -20616,7 +20459,6 @@
     {
       "entry": {
         "accessory": "Off",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:sidebar.workspaceRow.agentStatus",
@@ -20647,7 +20489,6 @@
     {
       "entry": {
         "accessory": "Off",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:sidebar.workspaceRow.tabCount",
@@ -20678,7 +20519,6 @@
     {
       "entry": {
         "accessory": "Off",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:sidebar.workspaceRow.ports",
@@ -20709,7 +20549,6 @@
     {
       "entry": {
         "accessory": "Off",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:sidebar.workspaceRow.lastActivity",
@@ -20740,7 +20579,6 @@
     {
       "entry": {
         "accessory": "Off",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:sidebar.workspaceRow.pullRequest",
@@ -20771,7 +20609,6 @@
     {
       "entry": {
         "accessory": "Off",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:sidebar.workspaceRow.progress",
@@ -20802,7 +20639,6 @@
     {
       "entry": {
         "accessory": "On",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:sidebar.workspaceRow.working",
@@ -20833,7 +20669,6 @@
     {
       "entry": {
         "accessory": "[\"directory\",\"branch\",\"process\",\"agentStatus\",\"ports\",\"lastActivity\"]",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:sidebar.workspaceRow.secondLineOrder",
@@ -20863,7 +20698,6 @@
     {
       "entry": {
         "accessory": "Chromium",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:browser.defaultEngine",
@@ -20891,7 +20725,6 @@
     {
       "entry": {
         "accessory": "\"\"",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:browser.newTabPage",
@@ -20919,7 +20752,6 @@
     {
       "entry": {
         "accessory": "Off",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:browser.showBookmarksBar",
@@ -20949,7 +20781,6 @@
     {
       "entry": {
         "accessory": "After 1 Hour",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:browser.hibernation",
@@ -20977,7 +20808,6 @@
     {
       "entry": {
         "accessory": "[]",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:browser.hibernationExclusions",
@@ -21002,7 +20832,6 @@
     {
       "entry": {
         "accessory": "Off",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:browser.hibernatePinnedTabs",
@@ -21029,7 +20858,6 @@
     {
       "entry": {
         "accessory": "On",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:browser.remoteLocalhost",
@@ -21059,7 +20887,6 @@
     {
       "entry": {
         "accessory": "Google",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:browser.searchEngine",
@@ -21088,7 +20915,6 @@
     {
       "entry": {
         "accessory": "\"\"",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:browser.customSearchEngine.search",
@@ -21117,7 +20943,6 @@
     {
       "entry": {
         "accessory": "\"\"",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:browser.customSearchEngine.suggest",
@@ -21146,7 +20971,6 @@
     {
       "entry": {
         "accessory": "On",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:browser.omnibar.remoteSuggestions",
@@ -21177,7 +21001,6 @@
     {
       "entry": {
         "accessory": "On",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:browser.omnibar.inlineAutocomplete",
@@ -21207,7 +21030,6 @@
     {
       "entry": {
         "accessory": "8",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:browser.omnibar.maxRows",
@@ -21235,7 +21057,6 @@
     {
       "entry": {
         "accessory": "On",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:browser.omnibar.calculator",
@@ -21266,7 +21087,6 @@
     {
       "entry": {
         "accessory": "New Background Tab",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:browser.links.cmdClick",
@@ -21294,7 +21114,6 @@
     {
       "entry": {
         "accessory": "New Tab",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:browser.links.cmdShiftClick",
@@ -21322,7 +21141,6 @@
     {
       "entry": {
         "accessory": "New Window",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:browser.links.shiftClick",
@@ -21349,7 +21167,6 @@
     {
       "entry": {
         "accessory": "Download",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:browser.links.optionClick",
@@ -21377,7 +21194,6 @@
     {
       "entry": {
         "accessory": "New Background Tab",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:browser.links.middleClick",
@@ -21405,7 +21221,6 @@
     {
       "entry": {
         "accessory": "Off",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:home.attachments.keepLocation",
@@ -21439,7 +21254,6 @@
     {
       "entry": {
         "accessory": "You Type in the Pane",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:notifications.dismissal",
@@ -21466,7 +21280,6 @@
     {
       "entry": {
         "accessory": "30 s",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:notifications.timeoutSeconds",
@@ -21491,7 +21304,6 @@
     {
       "entry": {
         "accessory": "Same as above",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:notifications.sources.agent.dismissal",
@@ -21516,7 +21328,6 @@
     {
       "entry": {
         "accessory": "Same as above",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:notifications.sources.terminal.dismissal",
@@ -21541,7 +21352,6 @@
     {
       "entry": {
         "accessory": "Same as above",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:notifications.sources.cli.dismissal",
@@ -21566,7 +21376,6 @@
     {
       "entry": {
         "accessory": "Unless the Pane Is Focused",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:notifications.desktop",
@@ -21591,7 +21400,6 @@
     {
       "entry": {
         "accessory": "\"default\"",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:notifications.sound",
@@ -21616,7 +21424,6 @@
     {
       "entry": {
         "accessory": "Off",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:notifications.quietHours",
@@ -21642,7 +21449,6 @@
     {
       "entry": {
         "accessory": "0 s",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:notifications.suppressWhileTypingSeconds",
@@ -21667,7 +21473,6 @@
     {
       "entry": {
         "accessory": "10 s",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:status.runNotifyMinimumSeconds",
@@ -21692,7 +21497,6 @@
     {
       "entry": {
         "accessory": "Off",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:status.runNotifyWhenVisible",
@@ -21719,7 +21523,6 @@
     {
       "entry": {
         "accessory": "On",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:notifications.dockBadge",
@@ -21746,7 +21549,6 @@
     {
       "entry": {
         "accessory": "On",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:feed.mirrorNotifications.agents",
@@ -21776,7 +21578,6 @@
     {
       "entry": {
         "accessory": "Off",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:feed.mirrorNotifications.terminal",
@@ -21805,7 +21606,6 @@
     {
       "entry": {
         "accessory": "Blink",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:notifications.attention.style",
@@ -21832,7 +21632,6 @@
     {
       "entry": {
         "accessory": "Theme",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:notifications.attention.color",
@@ -21857,7 +21656,6 @@
     {
       "entry": {
         "accessory": "2 pt",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:notifications.attention.width",
@@ -21882,7 +21680,6 @@
     {
       "entry": {
         "accessory": "2",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:notifications.attention.blinkCount",
@@ -21907,7 +21704,6 @@
     {
       "entry": {
         "accessory": "3 s",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:notifications.attention.duration",
@@ -21932,7 +21728,6 @@
     {
       "entry": {
         "accessory": "On",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:notifications.attention.persist",
@@ -21959,7 +21754,6 @@
     {
       "entry": {
         "accessory": "On",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:notifications.attention.showOnTab",
@@ -21986,7 +21780,6 @@
     {
       "entry": {
         "accessory": "On",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:notifications.attention.showOnSidebar",
@@ -22013,7 +21806,6 @@
     {
       "entry": {
         "accessory": "Off",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:labs.previewFeatures",
@@ -22045,7 +21837,6 @@
     {
       "entry": {
         "accessory": "Off",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:feed.github.enabled",
@@ -22078,7 +21869,6 @@
     {
       "entry": {
         "accessory": "120 s",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:feed.github.pollIntervalSeconds",
@@ -22108,7 +21898,6 @@
     {
       "entry": {
         "accessory": "Open",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:agentPane.links.outsideRoots",
@@ -22140,7 +21929,6 @@
     {
       "entry": {
         "accessory": "Load on Click",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:agentPane.images.remote",
@@ -22172,7 +21960,6 @@
     {
       "entry": {
         "accessory": "Always",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:agentPane.editedFiles.show",
@@ -22202,7 +21989,6 @@
     {
       "entry": {
         "accessory": "5",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:agentPane.editedFiles.maxRows",
@@ -22231,7 +22017,6 @@
     {
       "entry": {
         "accessory": "Each Turn",
-        "actionID": null,
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:agentPane.editedFiles.scope",
@@ -22260,7 +22045,6 @@
     },
     {
       "entry": {
-        "actionID": null,
         "demoted": false,
         "entersScope": false,
         "frecencyKey": "open:cmux/coderouter",
@@ -22282,7 +22066,6 @@
     },
     {
       "entry": {
-        "actionID": null,
         "demoted": false,
         "entersScope": false,
         "frecencyKey": "cmux/coderouter#open",
@@ -22306,7 +22089,6 @@
     },
     {
       "entry": {
-        "actionID": null,
         "demoted": false,
         "entersScope": false,
         "frecencyKey": "cmux/coderouter#connectAccount",
@@ -22332,7 +22114,6 @@
     },
     {
       "entry": {
-        "actionID": null,
         "demoted": false,
         "entersScope": false,
         "frecencyKey": "cmux/coderouter#createKey",
@@ -22357,7 +22138,6 @@
     },
     {
       "entry": {
-        "actionID": null,
         "demoted": false,
         "entersScope": false,
         "frecencyKey": "cmux/coderouter#runTest",
@@ -22382,7 +22162,6 @@
     },
     {
       "entry": {
-        "actionID": null,
         "demoted": false,
         "entersScope": false,
         "frecencyKey": "cmux/coderouter#startOnboarding",
@@ -22407,7 +22186,6 @@
     },
     {
       "entry": {
-        "actionID": null,
         "demoted": false,
         "entersScope": false,
         "frecencyKey": "cmux/coderouter#cycleVariant",
@@ -22431,11 +22209,10 @@
     },
     {
       "entry": {
-        "actionID": null,
         "demoted": false,
         "entersScope": true,
         "frecencyKey": "scope:tabs",
-        "hasShortcut": false,
+        "hasShortcut": true,
         "hidesWhenTyping": false,
         "isEnabled": true,
         "isVisibleWhenQueryEmpty": false,
@@ -22453,11 +22230,10 @@
     },
     {
       "entry": {
-        "actionID": null,
         "demoted": false,
         "entersScope": true,
         "frecencyKey": "scope:workspaces",
-        "hasShortcut": false,
+        "hasShortcut": true,
         "hidesWhenTyping": false,
         "isEnabled": true,
         "isVisibleWhenQueryEmpty": false,
@@ -22475,11 +22251,10 @@
     },
     {
       "entry": {
-        "actionID": null,
         "demoted": false,
         "entersScope": true,
         "frecencyKey": "scope:commands",
-        "hasShortcut": false,
+        "hasShortcut": true,
         "hidesWhenTyping": false,
         "isEnabled": true,
         "isVisibleWhenQueryEmpty": false,
@@ -22497,11 +22272,10 @@
     },
     {
       "entry": {
-        "actionID": null,
         "demoted": false,
         "entersScope": true,
         "frecencyKey": "scope:settings",
-        "hasShortcut": false,
+        "hasShortcut": true,
         "hidesWhenTyping": false,
         "isEnabled": true,
         "isVisibleWhenQueryEmpty": false,
@@ -22519,7 +22293,6 @@
     },
     {
       "entry": {
-        "actionID": null,
         "demoted": false,
         "entersScope": true,
         "frecencyKey": "scope:shortcuts",
