@@ -77,6 +77,11 @@ extension AgentPaneView {
         String(localized: "agentPane.crashed.message", defaultValue: "The agent pane crashed repeatedly.", bundle: .module)
     }
 
+    /// Shown when automation would open the inspector without an explicit focus request.
+    static var inspectorNeedsFocus: String {
+        String(localized: "agentPane.inspector.needsFocus", defaultValue: "Opening the ACP inspector requires focus.", bundle: .module)
+    }
+
     static var reloadTitle: String {
         String(localized: "agentPane.crashed.reload", defaultValue: "Reload", bundle: .module)
     }
