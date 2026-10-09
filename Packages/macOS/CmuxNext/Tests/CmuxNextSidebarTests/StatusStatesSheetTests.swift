@@ -227,7 +227,7 @@ import UniformTypeIdentifiers
     @Test func writesTheCurrentStatesSheet() throws {
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
-        let count = Int(seconds * fps)
+        let count = Int(Self.seconds * Self.fps)
         var body = ""
         var anyMotion = false
         for look in Self.looks {
