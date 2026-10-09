@@ -226,6 +226,34 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-menu, [role='dialog']"));
       },
     },
+    "context-usage-menu": {
+      note: "Play: right-click the context ring; Hide Context Usage hides it, and a right-click on the footer then offers Show Context Usage.",
+      snapshot: chat(finished, {
+        summary: {
+          sessionId: "gallery-usage",
+          harness: "claude",
+          model: "claude-opus-5-5",
+          cwd: CWD,
+          turnCount: 2,
+          usage: { used: 48_000, size: 200_000 },
+        },
+      }),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector("button.acpmux-context-ring"));
+        const ring = ctx.document.querySelector<HTMLElement>("button.acpmux-context-ring")!;
+        const box = ring.getBoundingClientRect();
+        const view = ctx.document.defaultView!;
+        ring.dispatchEvent(
+          new view.MouseEvent("contextmenu", {
+            bubbles: true,
+            cancelable: true,
+            clientX: box.left + 4,
+            clientY: box.top + 4,
+          }),
+        );
+        await ctx.waitFor(() => ctx.document.querySelector(".ui-context-menu [role=menuitem]"));
+      },
+    },
     "add-menu": {
       note: "Play: open +; Attach files or images comes first and opens the file chooser, and the menu rises out of +.",
       snapshot: chat(finished, {
