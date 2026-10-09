@@ -232,7 +232,7 @@ export function Composer({
   const refocusSend = useRef(false);
   /// The session id owns the prompt. A page can switch sessions without remounting the composer.
   const persistedSession = useRef(sessionId);
-  const hydratedSession = useRef<string | undefined>();
+  const hydratedSession = useRef<string | undefined>(undefined);
   const restoringSession = useRef(false);
   const sendButton = useRef<HTMLButtonElement>(null);
   /// Set while the host has not yet taken a prompt the composer still holds: Enter sends no copy.
