@@ -94,6 +94,16 @@ jobs:
           echo "CI fast guards already reported failure for this revision; skipping duplicate guard execution."
           exit 1
 
+      # toolchain_notices.py (the license compliance test) reads
+      # ghostty-next/build.zig.zon and fails when it is missing; only
+      # feat-cmux-next has that submodule.
+      - name: Initialize ghostty-next for the toolchain notices
+        if: ${{ matrix.group == 'release-notary' }}
+        run: |
+          if git config -f .gitmodules --get submodule.ghostty-next.path >/dev/null; then
+            git submodule update --init --depth 1 ghostty-next
+          fi
+
       - name: Validate macOS runner guards
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_ci_self_hosted_guard.sh
@@ -1005,6 +1015,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: bash ./tests/test_nightly_universal_build.sh
 
+      - name: Validate feat-cmux-next runs these release guards
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_next_guards_route.py
+
       - name: Validate the nightly dSYM upload retries and never fails the nightly
         if: ${{ matrix.group == 'release-notary' }}
         run: bash ./tests/test_upload_sentry_dsyms.sh
@@ -1064,6 +1078,14 @@ jobs:
       - name: Validate nightly notarization behavior
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_notarize_nightly_dmg.sh
+
+      - name: Validate the nightly-next notarization handoff
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_next_notary_handoff.py
+
+      - name: Validate the nightly-next pending notarization continuation
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_next_recovery.py
 
       - name: Validate Sparkle delta finalization
         if: ${{ matrix.group == 'release-notary' }}

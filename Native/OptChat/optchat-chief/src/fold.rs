@@ -151,6 +151,10 @@ pub struct TurnFold {
     request_start: Option<u64>,
     /// The request streaming now.
     stream: Option<Stream>,
+    /// The reply segment the talk buffer belongs to (drafts, `draft.rs`).
+    segment: u64,
+    /// Segments finished since the drafts last took them: (segment, text).
+    closed: Vec<(u64, String)>,
 }
 
 impl TurnFold {
@@ -327,7 +331,11 @@ impl TurnFold {
     fn time_request(&mut self, event: &AcpmuxEvent) {
         let Some(at) = event.at else { return };
         match event.kind.as_str() {
-            "claude.user" => self.request_start = Some(at),
+            // A tool result Claude Code read; its echo of a user line it
+            // read (`isReplay`) is not a start: the line went out earlier.
+            "claude.user" if event.msg.get("isReplay") != Some(&Value::Bool(true)) => {
+                self.request_start = Some(at)
+            }
             "claude.stream_event" => {
                 let ev = event.msg.get("event");
                 match ev.and_then(|e| e.get("type")).and_then(Value::as_str) {
@@ -370,10 +378,21 @@ impl TurnFold {
         out
     }
 
+    /// The reply segments finished since the last call, then the open one
+    /// (its index and its text so far), for the drafts.
+    pub fn take_segments(&mut self) -> (Vec<(u64, String)>, (u64, &str)) {
+        (
+            std::mem::take(&mut self.closed),
+            (self.segment, self.talk.as_str()),
+        )
+    }
+
     fn finish_talk(&mut self, out: &mut Vec<Entry>) {
-        let text = std::mem::take(&mut self.talk);
-        let text = text.trim();
+        let raw = std::mem::take(&mut self.talk);
+        let text = raw.trim();
         if !text.is_empty() {
+            self.closed.push((self.segment, raw.clone()));
+            self.segment += 1;
             out.push(Entry {
                 kind: Kind::Talk,
                 text: text.to_owned(),

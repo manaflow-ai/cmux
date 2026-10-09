@@ -140,8 +140,12 @@ impl Brain {
                                 after,
                             });
                         };
+                        // The reply as it streams, to every client.
+                        let draft = |d: crate::draft::Draft| {
+                            let _ = tx.send(Input::Draft(Box::new(d)));
+                        };
                         let outcome =
-                            turn::run(&*agents, &chat, &start, &interrupt, &*log, &progress, &trace);
+                            turn::run_with_drafts(&*agents, &chat, &start, &interrupt, &*log, &progress, &trace, &draft);
                         // Claude Code placed all four cache breakpoints
                         // itself: the same turn again without the marker
                         // (the refused request did nothing), and later
@@ -204,15 +208,16 @@ impl Brain {
                                     }
                                 }
                                 again.prompt_id = format!("{}:{}", start.prompt_id, retry.as_str());
-                                turn::run(&*agents, &chat, &again, &interrupt, &*log, &progress, &trace)
+                                turn::run_with_drafts(&*agents, &chat, &again, &interrupt, &*log, &progress, &trace, &draft)
                             }
                             (Some(e), _) if marked && is_marker_limit_error(e) => {
-                                marker_refused.store(true, Ordering::SeqCst);
+                                marker_refused.refused();
                                 // The inspector lays this turn out unmarked.
                                 trace.emit("turn.unmarked", serde_json::json!({"turn": start.key}));
                                 log(&format!(
-                                    "turn {}: Claude Code refused the cache_control marker ({e}); running the turn again without it, and later turns go without it",
-                                    start.key
+                                    "turn {}: Claude Code refused the cache_control marker ({e}); running the turn again without it, and the next {} turns go without it",
+                                    start.key,
+                                    crate::prompt::MARK_RETRY_AFTER
                                 ));
                                 let mut again = start.clone();
                                 for block in &mut again.blocks {
@@ -221,7 +226,7 @@ impl Brain {
                                     }
                                 }
                                 again.prompt_id = format!("{}:unmarked", start.prompt_id);
-                                turn::run(&*agents, &chat, &again, &interrupt, &*log, &progress, &trace)
+                                turn::run_with_drafts(&*agents, &chat, &again, &interrupt, &*log, &progress, &trace, &draft)
                             }
                             _ => outcome,
                         }
@@ -300,7 +305,39 @@ impl Brain {
         let session = format!("{}-{first_id}", self.settings.turn_prefix);
         let conversation = side.clone().or_else(|| self.state.conversation.clone());
         let opening: Vec<Item> = items.iter().map(item).collect();
+        // The engine of this turn, read now (engine.rs): a change applies
+        // from this turn on and is logged as a note after its messages.
+        let engine = self.turn_engine_choice();
+        let family = self.family_of(&engine.harness);
+        // The cached layout on a Claude harness whose acpmux takes a preset
+        // system prompt; else the view and the messages as blocks.
+        let (cached, plain_preset) = self.session_presets(family);
+        let marker = self.marker_refused.take();
+        let ttl = self.turn_cache_ttl();
+        // Our one mark: the last whole block of the view, held within the
+        // API's lookback of the last turn's mark (optchat_core::mark_piece),
+        // which is saved with the messages so a restart keeps it.
+        let mark = cached
+            .as_ref()
+            .filter(|_| marker)
+            .and_then(|_| {
+                let prev = self
+                    .state
+                    .last_mark
+                    .as_ref()
+                    .and_then(|m| m.prefix_of(&view.text));
+                optchat_core::mark_piece(&view.text, prev)
+            })
+            .map(|piece| Mark { piece, ttl });
+        let mark_record = mark.map(|m| {
+            crate::state::MarkRecord::of(
+                &optchat_core::block_pieces(&view.text)[..=m.piece].concat(),
+            )
+        });
         let done = self.log_items(&items, move |next, done| {
+            if let Some(record) = mark_record {
+                next.last_mark = Some(record);
+            }
             let first = done.ids.first().copied().unwrap_or(first_id);
             let stamp = done.stamps.first().map(String::as_str).unwrap_or("");
             next.turn = Some(PendingTurn {
@@ -366,28 +403,10 @@ impl Brain {
         // the new messages. Never logged.
         let at_work = self.at_work_line();
         let prompt_texts: Vec<String> = at_work.iter().chain(texts.iter()).cloned().collect();
-        // The engine of this turn, read now (engine.rs): a change applies
-        // from this turn on and is logged as a note after its messages.
-        let engine = self.turn_engine_choice();
-        let family = self.family_of(&engine.harness);
         self.note_engine(&engine);
-        // The cached layout on a Claude harness whose acpmux takes a preset
-        // system prompt; else the view and the messages as blocks.
-        let (cached, plain_preset) = self.session_presets(family);
         let cached = cached.as_deref();
-        let marker = !self.marker_refused.load(Ordering::SeqCst);
-        let ttl = self.turn_cache_ttl();
-        // Our one mark: the last whole block of the view, held within the
-        // API's lookback of the last turn's mark (optchat_core::mark_piece).
-        let mut mark = None;
         let (blocks, system_prompt, preset) = match cached {
             Some(preset) => {
-                mark = marker
-                    .then(|| optchat_core::mark_piece(&view.text, self.last_mark.as_deref()))
-                    .flatten()
-                    .map(|piece| Mark { piece, ttl });
-                self.last_mark =
-                    mark.map(|m| optchat_core::block_pieces(&view.text)[..=m.piece].concat());
                 // Claude Code's own marks take the same TTL: the API refuses
                 // a 1h mark after a 5m one. A session the pool started
                 // before a cache.ttl change still has the old one.
@@ -472,7 +491,7 @@ impl Brain {
     /// cursor past every handled message, then `update`). On a failed write
     /// nothing is posted for them and the host stops (the conversation's
     /// cursor stays before them).
-    fn log_items(
+    pub(super) fn log_items(
         &mut self,
         items: &[Queued],
         update: impl FnOnce(&mut HostState, &Appended),
@@ -575,22 +594,30 @@ impl Brain {
             return Vec::new();
         }
         let items: Vec<Queued> = self.queue.drain(..take).collect();
-        if items.iter().any(|i| {
-            matches!(
-                i.source,
-                Source::Message {
-                    remote: Some(_),
-                    ..
-                }
-            )
-        }) {
-            self.turn_remote = true;
-            self.turn_ask = !self.chief.remote_auto_approve;
-            self.interrupt.set_gate(self.turn_ask);
+        if !self.log_delivered(&items) {
+            return Vec::new();
         }
+        let images: Vec<super::images::TurnImage> = items
+            .iter()
+            .flat_map(|i| i.images.iter().cloned())
+            .collect();
+        let mut blocks: Vec<serde_json::Value> = images
+            .iter()
+            .filter_map(super::images::TurnImage::block)
+            .collect();
+        let texts: Vec<String> = items.into_iter().map(|i| i.text).collect();
+        blocks.push(serde_json::json!({"type": "text", "text": texts.join("\n\n")}));
+        blocks
+    }
+
+    /// Logs messages delivered into the running turn as `user`, in its
+    /// batches, past the read cursor, with their images described like a
+    /// turn's own. False: the write failed (the host stops).
+    pub(super) fn log_delivered(&mut self, items: &[Queued]) -> bool {
+        self.taint_remote(items);
         let at = self.chat.status().messages;
         let batch: Vec<Item> = items.iter().map(item).collect();
-        let logged = self.log_items(&items, move |next, _| {
+        let logged = self.log_items(items, move |next, _| {
             if let Some(turn) = next.turn.as_mut() {
                 turn.mid.push(Batch {
                     at,
@@ -600,23 +627,15 @@ impl Brain {
             }
         });
         if logged.is_none() {
-            return Vec::new();
+            return false;
         }
         self.set_cursor(self.state.logged_seq);
-        // The delivered messages' images go with them, and are described
-        // for the log like a turn's own.
         let images: Vec<super::images::TurnImage> = items
             .iter()
             .flat_map(|i| i.images.iter().cloned())
             .collect();
         self.describe_images(&images);
-        let mut blocks: Vec<serde_json::Value> = images
-            .iter()
-            .filter_map(super::images::TurnImage::block)
-            .collect();
-        let texts: Vec<String> = items.into_iter().map(|i| i.text).collect();
-        blocks.push(serde_json::json!({"type": "text", "text": texts.join("\n\n")}));
-        blocks
+        true
     }
 
     /// A human message arrived during a turn (decision 2026-10-04): the
@@ -634,6 +653,10 @@ impl Brain {
         // so the turn can stop and the next one answers.
         self.deny_pending("a newer message");
         if matches!(self.settings.engine, Engine::Acpmux) {
+            // Parity item 7: between tool calls, when the session steers.
+            if self.try_steer() {
+                return;
+            }
             self.stop_wanted = true;
         }
         self.interrupt.request();
@@ -717,13 +740,17 @@ impl Brain {
     /// `OPTCHAT_CACHE_TTL`, else the Chief's `cache.ttl`, else 1 hour; 5
     /// minutes once a route refused 1 hour.
     pub(super) fn turn_cache_ttl(&self) -> CacheTtl {
-        if self.ttl_refused.load(Ordering::SeqCst) {
-            return CacheTtl::FiveMinutes;
-        }
-        self.settings
-            .cache_ttl
-            .or(self.chief.cache_ttl)
-            .unwrap_or(CacheTtl::OneHour)
+        let ttl = if self.ttl_refused.load(Ordering::SeqCst) {
+            CacheTtl::FiveMinutes
+        } else {
+            self.settings
+                .cache_ttl
+                .or(self.chief.cache_ttl)
+                .unwrap_or(CacheTtl::OneHour)
+        };
+        // The compactor's nodes follow it.
+        self.settings.shared_ttl.set(ttl);
+        ttl
     }
 
     /// This turn's engine: engine.json over the defaults. A harness acpmux
@@ -839,13 +866,15 @@ impl Brain {
         );
     }
 
-    pub(super) fn turn_ended(&mut self, key: &str, outcome: TurnOutcome) {
+    pub(super) fn turn_ended(&mut self, key: &str, mut outcome: TurnOutcome) {
+        let outcome_done = outcome.done_draft.take();
         let conversation = self
             .state
             .turn
             .as_ref()
             .filter(|t| t.key == key)
             .and_then(|t| t.conversation.clone());
+        let done_conversation = conversation.clone();
         // A turn stopped for a newer message posts nothing: the next turn,
         // which starts now with that message, answers both.
         let superseded = outcome.cancelled && self.stop_wanted;
@@ -918,6 +947,10 @@ impl Brain {
         self.stop_wanted = false;
         self.save_with(extra);
         self.flush_outbox();
+        // After the reply: a client drops the draft as the message lands.
+        if let (Some(done), Some(conversation)) = (outcome_done, &done_conversation) {
+            self.publish_draft(conversation, &done);
+        }
         if main {
             self.set_typing(false);
         }

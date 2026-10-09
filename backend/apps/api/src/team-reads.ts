@@ -92,3 +92,19 @@ export const teamRead = (state: TeamState, op: string, params: unknown, principa
       return { ok: false, code: "validation.invalid", message: `unknown read ${op}` }
   }
   }
+
+/**
+ * cx-n3fb: the team VM's own install reads `team_vm.accounts` only while it is the install TeamVmDO
+ * bound for the current epoch (`current`); an older epoch's install, another install or a team
+ * without a VM record is refused. An unreachable TeamVmDO fails closed. Null: the read may answer.
+ */
+export const teamVmAccountsFence = async (current: () => Promise<string | null>, principal: Principal, op: string): Promise<ReadResult | null> => {
+  if (op !== "team_vm.accounts" || principal.kind !== "install" || principal.install_kind !== "team-vm") return null
+  let install: string | null
+  try {
+    install = await current()
+  } catch {
+    return { ok: false, code: "owner.unreachable", message: "the team VM record did not answer; try again" }
+  }
+  return install !== null && install === principal.install ? null : { ok: false, code: "team_vm.stale_epoch", message: "this install is not the team VM's install for the current epoch" }
+}
