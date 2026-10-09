@@ -10,6 +10,7 @@
 use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::Read as _;
+use std::os::unix::ffi::OsStrExt as _;
 use std::os::unix::fs::{FileTypeExt as _, PermissionsExt as _};
 use std::os::unix::process::CommandExt as _;
 use std::path::{Path, PathBuf};

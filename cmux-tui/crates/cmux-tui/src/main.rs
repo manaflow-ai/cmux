@@ -2163,10 +2163,10 @@ fn run_server(
         surface_options.extra_env.push(("PATH".into(), path));
     }
     #[cfg(unix)]
-    if let Some(path) = codex_wrapper::pane_path() {
-        if !surface_options.extra_env.iter().any(|(name, value)| name == "PATH" && value == &path) {
-            surface_options.extra_env.push(("PATH".into(), path));
-        }
+    if let Some(path) = codex_wrapper::pane_path()
+        && !surface_options.extra_env.iter().any(|(name, value)| name == "PATH" && value == &path)
+    {
+        surface_options.extra_env.push(("PATH".into(), path));
     }
 
     let state_root = if args.ephemeral {
