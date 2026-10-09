@@ -256,6 +256,7 @@ public final class CmuxWebView: CmuxUndoableWebView {
         // the Objective-C callback. A default-isolated method therefore
         // traps in `_checkExpectedExecutor` before it can schedule the
         // state update (Sentry CMUXTERM-MACOS-3YKT).
+        /// Bridges WebKit's callback into the actor-isolated paste target state.
         nonisolated func userContentController(
             _ userContentController: WKUserContentController,
             didReceive message: WKScriptMessage
@@ -263,10 +264,7 @@ public final class CmuxWebView: CmuxUndoableWebView {
             guard let webView = message.webView as? CmuxWebView else {
                 return
             }
-            guard let canPaste = CmuxWebView.pasteAsPlainTextTargetAvailable(from: message.body) else {
-                return
-            }
-            Task { @MainActor [weak webView] in
+            CmuxWebView.schedulePasteAsPlainTextTargetUpdate(from: message.body) { [weak webView] canPaste in
                 webView?.updatePasteAsPlainTextTargetAvailable(canPaste)
             }
         }
@@ -278,6 +276,17 @@ public final class CmuxWebView: CmuxUndoableWebView {
     nonisolated static func pasteAsPlainTextTargetAvailable(from body: Any) -> Bool? {
         guard let body = body as? [String: Any] else { return nil }
         return body["canPaste"] as? Bool
+    }
+
+    /// Validates a WebKit payload and schedules its state update on MainActor.
+    nonisolated static func schedulePasteAsPlainTextTargetUpdate(
+        from body: Any,
+        update: @escaping @MainActor @Sendable (Bool) -> Void
+    ) {
+        guard let canPaste = pasteAsPlainTextTargetAvailable(from: body) else { return }
+        Task { @MainActor in
+            update(canPaste)
+        }
     }
 
     private static let sharedPasteAsPlainTextFocusMessageHandler = PasteAsPlainTextFocusMessageHandler()
