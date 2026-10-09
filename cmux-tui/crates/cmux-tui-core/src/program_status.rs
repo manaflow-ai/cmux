@@ -287,7 +287,7 @@ impl ProgramStatusRecords {
     /// therefore observes the same revision as in flight and does not emit a
     /// duplicate journal record or notification.
     pub(crate) fn claim_pending_change(&mut self) -> Option<(u64, Value)> {
-        if self.revision == self.published || self.claimed == Some(self.revision) {
+        if self.revision == self.published || self.claimed.is_some() {
             return None;
         }
         let change = self.last_change_json()?;
