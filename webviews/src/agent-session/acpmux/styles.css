@@ -120,6 +120,8 @@
 .acpmux-context-bar span{display:block;height:100%;border-radius:2px;background:color-mix(in srgb,var(--agent-text) 55%,transparent)}
 .acpmux-context-pop.acpmux-context-full .acpmux-context-bar span{background:var(--acpmux-warning)}
 .acpmux-context-tokens{margin-top:8px;font-size:12px;color:var(--agent-muted);font-variant-numeric:tabular-nums}
+/* The right-click hosts around the context ring and, when it is hidden, the footer: no box of their own. */
+.acpmux-context-usage-menu{display:contents}
 .acpmux-context-compact{width:100%;height:28px;margin-top:12px;border:0;border-radius:8px;background:var(--acpmux-menu-hover);color:var(--agent-text);font:inherit}
 .acpmux-context-compact:hover:not(:disabled){background:var(--acpmux-menu-press)}
 .acpmux-context-compact:disabled{opacity:.5}

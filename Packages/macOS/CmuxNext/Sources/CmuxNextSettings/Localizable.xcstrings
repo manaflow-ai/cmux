@@ -62722,6 +62722,268 @@
         "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "與所有工作區相同" } }
       }
     },
+    "settings.agentPane.showContextUsage": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إظهار استخدام السياق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži korištenje konteksta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis kontekstforbrug"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kontextnutzung anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Context Usage"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar uso del contexto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher l’utilisation du contexte"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra uso del contesto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "コンテキストの使用量を表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញការប្រើប្រាស់បរិបទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "컨텍스트 사용량 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis kontekstbruk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokaż użycie kontekstu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar uso do contexto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывать использование контекста"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงการใช้บริบท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bağlam kullanımını göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показувати використання контексту"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện mức dùng ngữ cảnh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "显示上下文用量"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "顯示上下文用量"
+          }
+        }
+      }
+    },
+    "settings.agentPane.showContextUsage.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الحلقة بجانب النموذج التي تمتلئ كلما استخدمت المحادثة نافذة السياق."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prsten pored modela koji se puni dok razgovor koristi kontekstni prozor."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ringen ved siden af modellen, der fyldes, efterhånden som chatten bruger sit kontekstvindue."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Ring neben dem Modell, der sich füllt, während der Chat sein Kontextfenster nutzt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The ring beside the model that fills as the chat uses its context window."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El anillo junto al modelo que se llena a medida que el chat usa su ventana de contexto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’anneau à côté du modèle qui se remplit à mesure que le chat utilise sa fenêtre de contexte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’anello accanto al modello che si riempie man mano che la chat usa la finestra di contesto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャットがコンテキストウィンドウを使うにつれて満ちる、モデルの横のリング。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រង្វង់នៅក្បែរម៉ូដែលដែលពេញឡើងនៅពេលការជជែកប្រើបង្អួចបរិបទរបស់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅이 컨텍스트 창을 사용할수록 채워지는 모델 옆의 링입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ringen ved siden av modellen som fylles etter hvert som chatten bruker kontekstvinduet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pierścień obok modelu, który wypełnia się, gdy czat zużywa okno kontekstu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O anel ao lado do modelo que se enche conforme o chat usa sua janela de contexto."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Кольцо рядом с моделью, которое заполняется по мере того, как чат использует контекстное окно."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "วงแหวนข้างโมเดลที่เติมเต็มขึ้นเมื่อแชตใช้หน้าต่างบริบท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbet bağlam penceresini kullandıkça dolan, modelin yanındaki halka."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Кільце поруч із моделлю, що заповнюється, коли чат використовує контекстне вікно."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vòng bên cạnh mô hình, đầy dần khi cuộc trò chuyện dùng cửa sổ ngữ cảnh."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "模型旁的圆环，随聊天使用上下文窗口而填满。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "模型旁的圓環，隨聊天使用上下文視窗而填滿。"
+          }
+        }
+      }
+    },
     "settings.agentPane.editedFiles.show": {
       "extractionState": "manual",
       "localizations": {

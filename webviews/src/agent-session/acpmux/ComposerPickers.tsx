@@ -14,6 +14,8 @@ import { ModelPicker } from "./ModelPicker";
 import type { CatalogRefreshState } from "./modelPickerLayout";
 import type { PickerCatalog } from "./modelCatalogData";
 import { Popover } from "../../ui/Popover";
+import { ContextMenu } from "../../ui/ContextMenu";
+import { setComposerSettings, useComposerSettings } from "./composerSettings";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
 import { registerPicker } from "./pickerOpeners";
 import { useUiAnchor } from "../../ui/anchor";
@@ -108,6 +110,8 @@ type Props = {
   catalogRefresh?: CatalogRefreshState;
   /** Joined host catalog supplied by the app root; direct tests keep using the daemon catalog. */
   pickerCatalog?: PickerCatalog;
+  /// Writes `agentPane.showContextUsage` (the ring's Hide and the footer's Show Context Usage).
+  onShowContextUsage?(show: boolean): void;
 };
 
 /// The composer bar's controls: the
@@ -130,8 +134,15 @@ export function ComposerPickers({
   onCompact,
   catalogRefresh,
   pickerCatalog,
+  onShowContextUsage,
 }: Props) {
   const t = useT();
+  const { showContextUsage } = useComposerSettings();
+  // The ring goes or comes back at once; the host's write then pushes the same value.
+  const showUsage = (show: boolean) => {
+    setComposerSettings({ showContextUsage: show });
+    onShowContextUsage?.(show);
+  };
   const summary = snapshot.summary;
   const pickerEntries: AcpmuxSnapshot["catalog"] = pickerCatalog
     ? [
@@ -269,7 +280,7 @@ export function ComposerPickers({
   const usage = summary?.usage;
   const compact = onCompact && snapshot.commands?.some((command) => command.name === "compact") ? onCompact : undefined;
 
-  return (
+  const chips = (
     <div className="acpmux-chips">
       {(models.length > 0 || snapshot.catalog.length > 0 || harness) && (
         <ModelPicker
@@ -298,9 +309,14 @@ export function ComposerPickers({
           measureRoom={measurePickerRoom}
         />
       )}
-      {/* The context ring stays immediately to the right of the model control. */}
-      {(usage || summary?.sessionId) && (
-        <ContextRing used={usage?.used} size={usage?.size} onCompact={compact} working={snapshot.isWorking} />
+      {/* The context ring stays immediately to the right of the model control; its right-click hides it. */}
+      {showContextUsage && (usage || summary?.sessionId) && (
+        <ContextMenu
+          className="acpmux-context-usage-menu"
+          items={[{ id: "hide", label: t("context.hide"), onSelect: () => showUsage(false) }]}
+        >
+          <ContextRing used={usage?.used} size={usage?.size} onCompact={compact} working={snapshot.isWorking} />
+        </ContextMenu>
       )}
       {/* Reasoning is its own stable control, separate from the model and harness picker. */}
       {effort && efforts.length > 0 && (
@@ -333,6 +349,17 @@ export function ComposerPickers({
         </button>
       )}
     </div>
+  );
+  // Hidden, the ring's way back is a right-click anywhere on the footer's controls.
+  return showContextUsage ? (
+    chips
+  ) : (
+    <ContextMenu
+      className="acpmux-context-usage-menu"
+      items={[{ id: "show", label: t("context.show"), onSelect: () => showUsage(true) }]}
+    >
+      {chips}
+    </ContextMenu>
   );
 }
 

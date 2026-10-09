@@ -167,7 +167,8 @@ describe("acpmux composer pickers", () => {
     const chipRow = model.closest(".acpmux-chips")!;
     const controls = [...chipRow.children];
     expect(controls.indexOf(model.closest(".acpmux-model")!)).toBeLessThan(
-      controls.indexOf(doc.querySelector(".acpmux-context")!),
+      // The ring sits in its right-click host, which draws no box (display: contents).
+      controls.indexOf(doc.querySelector(".acpmux-context")!.closest(".acpmux-chips > *")!),
     );
     await act(async () => model.click());
     const menu = doc.querySelector(".acpmux-mp[role=dialog]")!;

@@ -36,6 +36,7 @@ extension SettingsSchema {
         .union(BrowserAppSettingsSchema.descriptors.map(\.id))
         // The edited-files card (looks only).
         .union(AgentPaneEditedFilesSettingsSchema.agentSettableKeys)
+        .union(AgentPaneComposerSettingsSchema.agentSettableKeys) // the composer's context ring (looks only)
 
     private static let agentSettableTable: Set<String> = [
         "window.titlebar",
