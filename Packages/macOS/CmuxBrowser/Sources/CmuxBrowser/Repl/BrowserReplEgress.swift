@@ -15,7 +15,7 @@ enum BrowserReplEgressData {
     /// (``withheldEvent(targetId:reason:)``).
     case event(name: String, payloadJSON: String, maxBytes: Int)
     /// `{ targetId, withheld }` for a page event whose content is not
-    /// delivered: the tab it names (``BrowserReplEgress/eventTargetId(_:)``,
+    /// delivered: the tab it names (``BrowserReplBoundary/eventTargetId(_:)``,
     /// read without parsing the payload), and why.
     case withheldEvent(targetId: String?, reason: String)
     /// An `fs` operation's answer, as `{"ok": value}` or `{"error": …}`.
@@ -390,7 +390,7 @@ extension Data {
 }
 
 /// A forward-only reader of a JSON object's top-level members over UTF-8
-/// bytes, for ``BrowserReplEgress/eventTargetId(_:)``: it skips values
+/// bytes, for ``BrowserReplBoundary/eventTargetId(_:)``: it skips values
 /// without building them, so its cost is one pass and no allocation.
 struct BrowserReplEventTargetScanner {
     let bytes: UnsafeBufferPointer<UInt8>

@@ -2246,7 +2246,7 @@ public final class BrowserReplSession: @unchecked Sendable {
         let maxBytes = ledger.limits.each(.queuedEventBytes) ?? .max
         let size = payloadJSON.utf8.count
         let oversized = size > maxBytes
-        let withheldTarget = oversized ? BrowserReplEgress.eventTargetId(payloadJSON) : nil
+        let withheldTarget = oversized ? BrowserReplBoundary.eventTargetId(payloadJSON) : nil
         let queuedJSON: String? = oversized ? nil : payloadJSON
         let reserved = name.utf8.count + (oversized ? withheldTarget?.utf8.count ?? 0 : size)
         let admitted = admitEvent(bytes: reserved)
@@ -2261,16 +2261,13 @@ public final class BrowserReplSession: @unchecked Sendable {
         }
         eventQueue.async { [weak self] in
             guard let self else { return }
-            let (payload, charged) = if let queuedJSON {
-                self.chargeMaskedEvent(name: name, raw: queuedJSON, reserved: reserved)
-            } else {
-                self.chargeWithheldEvent(
+            let (payload, charged) = queuedJSON.map { self.chargeMaskedEvent(name: name, raw: $0, reserved: reserved) }
+                ?? self.chargeWithheldEvent(
                     name: name,
                     targetId: withheldTarget,
-                    reason: BrowserReplEgress.oversizedEventReason(name: name, size: size, maxBytes: maxBytes),
+                    reason: BrowserReplBoundary.oversizedEventReason(name: name, size: size, maxBytes: maxBytes),
                     reserved: reserved
                 )
-            }
             let queued = self.thread.perform { [weak self] in
                 guard let self else { return }
                 if let downloadPath { self.fileSystem.sandbox.allowReading(downloadPath) }
@@ -2319,7 +2316,7 @@ public final class BrowserReplSession: @unchecked Sendable {
             return (masked, size)
         }
         let reason = "this \(name) event is \(masked.size) bytes with secrets masked, and the page events waiting for the session's thread already hold close to \(BrowserReplResourceLimits.describe(ledger.limits[.queuedEventBytes], of: .queuedEventBytes)), so its content was withheld"
-        return chargeWithheldEvent(name: name, targetId: BrowserReplEgress.eventTargetId(raw), reason: reason, reserved: reserved)
+        return chargeWithheldEvent(name: name, targetId: BrowserReplBoundary.eventTargetId(raw), reason: reason, reserved: reserved)
     }
 
     /// An event's notice in place of its content, and the bytes it now
