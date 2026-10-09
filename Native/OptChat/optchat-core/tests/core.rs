@@ -815,11 +815,15 @@ fn an_import_keeps_every_compaction_context_within_its_budget() {
         if work.is_empty() {
             break;
         }
+        // As the host does: the free nodes are stored before any call starts.
+        for w in &work {
+            if let Work::Free { node, text } = w {
+                store.nodes.borrow_mut().insert(*node, text.clone());
+            }
+        }
         for w in work {
             match w {
-                Work::Free { node, text } => {
-                    store.nodes.borrow_mut().insert(node, text);
-                }
+                Work::Free { .. } => {}
                 Work::Model { node } => {
                     let request = compact_request(&memory, &store, node, String::new()).unwrap();
                     largest = largest.max(request.context.len());
@@ -832,5 +836,8 @@ fn an_import_keeps_every_compaction_context_within_its_budget() {
     }
     assert!(memory.settled());
     // A quarter of the view's budget, plus one batch's last merged lines.
-    assert!(largest <= VIEW / 4 + 2 * NODE, "a compaction context of {largest} bytes");
+    assert!(
+        largest <= VIEW / 4 + 2 * NODE,
+        "a compaction context of {largest} bytes"
+    );
 }
