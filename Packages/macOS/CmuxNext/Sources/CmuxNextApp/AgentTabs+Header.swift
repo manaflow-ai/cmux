@@ -12,5 +12,6 @@ extension AgentTabStore {
             return ["pinned": lookup(key)?.store.tab(id: key)?.pinned ?? false]
         })
         model.chatMenuItems = actions.menuItems
+        model.onSearchWeb = actions.searchWeb
     }
 }
