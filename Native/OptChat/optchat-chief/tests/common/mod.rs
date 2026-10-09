@@ -1095,3 +1095,16 @@ impl Harness {
             .collect()
     }
 }
+
+/// The turn replies the brain posted in the main conversation, as wire
+/// JSON (E22: their `answers` and `answers_pending`), in order.
+pub fn turn_replies(owner: &Mutex<Owner>) -> Vec<Value> {
+    owner
+        .lock()
+        .unwrap()
+        .ops
+        .iter()
+        .filter(|(key, op)| key.starts_with("turn:") && matches!(op, Op::MessageSend { .. }))
+        .map(|(_, op)| serde_json::to_value(op).unwrap())
+        .collect()
+}

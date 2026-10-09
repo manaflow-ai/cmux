@@ -130,3 +130,27 @@ fn a_report_steered_after_the_last_tool_call_keeps_both_answers() {
     assert_eq!(sends.len(), 1, "{sends:?}");
     assert_eq!(sends[0].1, "a1 and a2 are done.\n\na3 is done too.");
 }
+
+/// E22: the turn's reply names every message it answers, the steered one
+/// too, so `cmux chief -p` of either message prints this reply.
+#[test]
+fn the_reply_names_the_steered_message_it_answers() {
+    let mut h = Harness::new(Box::new(|_, _| tool_in_flight()));
+    h.agents.inner.lock().unwrap().steering = true;
+    h.agents.hold(true);
+    h.connect();
+    let first = h.say("user_local", "build it");
+    h.step();
+    h.step();
+    h.agents.wait_prompts(1);
+    let second = h.say("user_local", "also run the tests");
+    h.agents.wait_steers(1);
+    h.agents.push_events("s1", rest());
+    h.agents.hold(false);
+    h.agents.release();
+    h.settle();
+    let replies = turn_replies(&h.owner);
+    assert_eq!(replies.len(), 1, "{replies:?}");
+    assert_eq!(replies[0]["answers"], json!([first.id, second.id]));
+    assert!(replies[0].get("answers_pending").is_none(), "{:?}", replies[0]);
+}
