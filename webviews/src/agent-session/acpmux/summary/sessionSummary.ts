@@ -12,7 +12,9 @@ export type SummaryPullRequest = { url: string; repo: string; number: number; ti
 export type SummarySubagent = { id: string; title: string; state: "running" | "done" | "failed" };
 export type SummaryWakeup = { id: string; text: string; cron?: string };
 export type SummarySource = { url?: string; label: string };
+export type SummaryPlanStep = { text: string; status: "pending" | "in_progress" | "completed" };
 export type SessionSummary = {
+  plan: SummaryPlanStep[];
   scheduled: SummaryWakeup[];
   pullRequests: SummaryPullRequest[];
   outputs: TurnFile[];
@@ -128,9 +130,37 @@ function sources(all: readonly Tool[]): SummarySource[] {
   return [...seen.values()];
 }
 
+/// The agent's latest plan (ACP plan updates; direct.ts keeps each as a `plan` row whose text is
+/// the entries' JSON or plain lines), one step per entry.
+function plan(rows: readonly AcpmuxRow[]): SummaryPlanStep[] {
+  let text: string | undefined;
+  for (let index = rows.length - 1; index >= 0 && text === undefined; index -= 1)
+    if (rows[index]!.kind === "plan") text = rows[index]!.text?.trim() ?? "";
+  if (!text) return [];
+  const status = (value: unknown): SummaryPlanStep["status"] =>
+    value === "completed" || value === "in_progress" ? value : "pending";
+  try {
+    const entries = JSON.parse(text) as unknown;
+    if (Array.isArray(entries))
+      return entries.flatMap((entry) => {
+        const record = (entry ?? {}) as Record<string, unknown>;
+        const step = field(record.content) ?? field(record.text);
+        return step ? [{ text: step, status: status(record.status) }] : [];
+      });
+  } catch {
+    // Plain text: a step per line.
+  }
+  return text
+    .split("\n")
+    .map((line) => line.replace(/^\s*(?:[-*]|\d+[.)])\s*/, "").trim())
+    .filter(Boolean)
+    .map((line) => ({ text: line, status: "pending" as const }));
+}
+
 export function sessionSummary(rows: readonly AcpmuxRow[]): SessionSummary {
   const all = tools(rows);
   return {
+    plan: plan(rows),
     scheduled: scheduled(all),
     pullRequests: pullRequests(all),
     outputs: turnFiles(rows as AcpmuxRow[]),

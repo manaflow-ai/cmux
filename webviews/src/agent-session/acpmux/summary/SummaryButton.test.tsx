@@ -111,7 +111,10 @@ test("the button opens the summary, focuses its first link, and Escape returns f
   const link = popover()!.querySelector<HTMLAnchorElement>("a.acpmux-summary-link")!;
   expect(link.href).toBe("https://github.com/a/b/pull/9");
   expect(link.textContent).toContain("Fix scroll");
-  expect(dom.window.document.activeElement).toBe(popover()!.querySelector("button.acpmux-summary-link"));
+  // The first enabled row takes focus (the Changes row is disabled without a changes view here).
+  expect(dom.window.document.activeElement).toBe(
+    popover()!.querySelector('[data-summary-section="outputs"] button.acpmux-summary-link'),
+  );
   await key("Escape");
   expect(popover()).toBeNull();
   expect(dom.window.document.activeElement).toBe(button);
@@ -122,7 +125,9 @@ test("an output opens the changes view at that file and closes the popover", asy
   const opened: string[] = [];
   const { button, popover, unmount } = await render(opened);
   await act(async () => button.click());
-  await act(async () => popover()!.querySelector<HTMLButtonElement>("button.acpmux-summary-link")!.click());
+  await act(async () =>
+    popover()!.querySelector<HTMLButtonElement>('[data-summary-section="outputs"] button.acpmux-summary-link')!.click(),
+  );
   expect(opened).toEqual(["/repo/notes.md"]);
   expect(popover()).toBeNull();
   await unmount();

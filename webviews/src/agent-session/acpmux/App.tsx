@@ -49,7 +49,8 @@ import { acpWire } from "./wire";
 import { acpmuxPerf } from "./perf";
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
-import { Composer, type ComposerHandle } from "./Composer";
+import { COMPOSER_LABELS, Composer, type ComposerHandle } from "./Composer";
+import { openPicker } from "./pickerOpeners";
 import type { ComposerAttachment } from "./attachments";
 import { ComposerPickers } from "./ComposerPickers";
 import { EmptyState, isNewChat, projectName } from "./EmptyState";
@@ -68,6 +69,7 @@ import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import { DiffPanel } from "./DiffPanel";
 import { Inspector, type ExportOutcome } from "./Inspector";
 import { SummaryButton } from "./summary/SummaryButton";
+import { PinnedSummaryCard, type SummaryCardProps } from "./summary/PinnedSummaryCard";
 import { turnCounts, turnDisplay } from "./changes/turnCheckpoint";
 import { TurnCountsContext, type TurnCountsFor } from "./changes/TurnCountsContext";
 import { useTurnCheckpoints } from "./changes/useTurnCheckpoints";
@@ -2242,6 +2244,18 @@ function AcpmuxPane() {
     if (newTab?.cwd) byPath.set(newTab.cwd, { cwd: newTab.cwd, label: projectLabel(newTab.cwd) });
     return [...byPath.values()];
   }, [composerSnapshot.sessions, newTab?.cwd, newTab?.projects, directProjects]);
+  // The chat summary's header button and pinned card take the same inputs (summary/PinnedSummaryCard.tsx).
+  // Its Changes row opens the changes view (never closes it); Sources' "+" is the composer's file chooser.
+  const summaryProps: SummaryCardProps = {
+    rows: snapshot.rows,
+    project: snapshot.summary?.cwd ? projectLabel(snapshot.summary.cwd) : undefined,
+    folder: snapshot.summary?.cwd,
+    onOpenOutput: quick ? undefined : openOutput,
+    onOpenImage: quick ? undefined : openImage,
+    onOpenChanges:
+      quick || !lastEditTurn ? undefined : () => (diffView && diffOpen ? undefined : openDiff(lastEditTurn.rowId)),
+    onAddSource: quick ? undefined : () => void openPicker(t(COMPOSER_LABELS.attach)),
+  };
   const transcript = (
     <ImageViewerContext.Provider value={quick ? undefined : openImage}>
       <ShellActionsContext.Provider value={shellActions}>
@@ -2605,9 +2619,7 @@ function AcpmuxPane() {
                         <SummaryButton
                           // Another chat closes its summary and gallery, as it does the image viewer.
                           key={snapshot.sessionId}
-                          rows={snapshot.rows}
-                          onOpenOutput={quick ? undefined : openOutput}
-                          onOpenImage={quick ? undefined : openImage}
+                          {...summaryProps}
                         />
                       }
                       menu={chatMenu}
@@ -2617,6 +2629,7 @@ function AcpmuxPane() {
                     />
                   </div>
                 </header>
+                {!quick && !diffView && <PinnedSummaryCard key={snapshot.sessionId} {...summaryProps} />}
                 {!diffView && checkpoints.review}
                 {snapshot.missingSession && (
                   <p className="acpmux-link-missing" role="alert">

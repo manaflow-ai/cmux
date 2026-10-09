@@ -1,3 +1,4 @@
+import { registerPicker } from "./pickerOpeners";
 import React, {
   useCallback,
   useContext,
@@ -249,6 +250,9 @@ export function Composer({
   const allowImages = snapshot.summary?.promptCapabilities?.image !== false;
   // + then Attach files clicks this input: the system file chooser (an open panel in the app).
   const chooser = useRef<HTMLInputElement>(null);
+  // Other controls open the same chooser by the label (the summary's Sources "+"), from their click.
+  const attachLabel = t(COMPOSER_LABELS.attach);
+  useEffect(() => registerPicker(attachLabel, () => chooser.current?.click()), [attachLabel]);
   const attach = useRef<(files: File[]) => Promise<void>>(async () => {});
   attach.current = async (files: File[]) => {
     if (files.length === 0) return;

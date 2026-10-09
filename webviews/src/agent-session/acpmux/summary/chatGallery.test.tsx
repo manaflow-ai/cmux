@@ -145,7 +145,7 @@ test("the gallery shows a tile per item, filters by kind and opens an image in t
 });
 
 test("the summary's Outputs section opens the gallery when the chat has images or renders", async () => {
-  const summary = { scheduled: [], pullRequests: [], outputs: [], subagents: [], sources: [] };
+  const summary = { plan: [], scheduled: [], pullRequests: [], outputs: [], subagents: [], sources: [] };
   let galleries = 0;
   const container = document.getElementById("root")!;
   const root = createRoot(container);

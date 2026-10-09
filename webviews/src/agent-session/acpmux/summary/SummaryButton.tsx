@@ -4,7 +4,8 @@ import { Icon } from "../icons/Icon";
 import { GalleryDialog } from "./GalleryDialog";
 import { chatGallery } from "./chatGallery";
 import { sessionSummary } from "./sessionSummary";
-import { SummaryPopover } from "./SummaryPopover";
+import { SummaryPanel } from "./SummaryPanel";
+import { useSummaryPinned } from "./summaryPin";
 import { Popover } from "../../../ui/Popover";
 import { registerPicker } from "../pickerOpeners";
 import type { SummaryCardProps } from "./PinnedSummaryCard";
@@ -13,8 +14,19 @@ import type { SummaryCardProps } from "./PinnedSummaryCard";
 /// summary is read from the transcript only while the popover is open, so a live turn pays
 /// nothing for it while it is closed. Its Outputs section opens the chat's gallery; an image
 /// there opens the image viewer (`onOpenImage`) in the gallery's place.
-export function SummaryButton({ rows, onOpenOutput, onOpenImage }: SummaryCardProps) {
+/// While the card is pinned (PinnedSummaryCard.tsx), the button shows pressed and unpins it.
+export function SummaryButton({
+  rows,
+  project,
+  folder,
+  sections,
+  onOpenOutput,
+  onOpenChanges,
+  onAddSource,
+  onOpenImage,
+}: SummaryCardProps) {
   const t = useT();
+  const pin = useSummaryPinned();
   const [open, setOpen] = useState(false);
   const [gallery, setGallery] = useState(false);
   const button = useRef<HTMLButtonElement>(null);
@@ -37,7 +49,8 @@ export function SummaryButton({ rows, onOpenOutput, onOpenImage }: SummaryCardPr
     const dismissOutside = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
-      if (button.current?.contains(target) || (target as Element).closest?.(".acpmux-summary-popover")) return;
+      if (button.current?.contains(target) || (target as Element).closest?.(".acpmux-summary-popover, .ui-positioner"))
+        return;
       setOpen(false);
     };
     document.addEventListener("pointerdown", dismissOutside, true);
@@ -45,32 +58,67 @@ export function SummaryButton({ rows, onOpenOutput, onOpenImage }: SummaryCardPr
   }, [open]);
   // Automation and captures open it by its label, as a click does (see pickerOpeners.ts).
   const label = t("summary.open");
-  useEffect(() => registerPicker(label, () => setOpen(true)), [label, setOpen]);
+  const pinnedShown = pin.shown;
+  useEffect(
+    () => registerPicker(label, () => (pinnedShown ? undefined : setOpen(true))),
+    [label, setOpen, pinnedShown],
+  );
   return (
     <span className="acpmux-summary">
       <button
         ref={button}
         type="button"
         className="acpmux-summary-button"
-        aria-label={label}
-        title={label}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        onClick={() => setOpen((current) => !current)}
+        aria-label={pin.shown ? t("summary.unpin") : label}
+        title={pin.shown ? t("summary.unpin") : label}
+        aria-haspopup={pin.shown ? undefined : "dialog"}
+        aria-expanded={pin.shown ? undefined : open}
+        aria-pressed={pin.shown ? true : undefined}
+        onClick={() => (pin.shown ? pin.setPinned(false) : setOpen((current) => !current))}
       >
         <Icon name="view.list" size={15} />
       </button>
-      {summary ? (
+      {summary && !pin.shown ? (
         <Popover
           open={open}
           onOpenChange={setOpen}
           anchor={button.current}
           label={label}
           className="acpmux-summary-popover"
+          initialFocus={false}
           finalFocus={button}
         >
-          <SummaryPopover
+          <SummaryPanel
+            focusFirstRow
             summary={summary}
+            project={project}
+            folder={folder}
+            sections={sections}
+            onOpenChanges={
+              onOpenChanges &&
+              (() => {
+                setOpen(false);
+                onOpenChanges();
+              })
+            }
+            onAddSource={
+              onAddSource &&
+              (() => {
+                setOpen(false);
+                onAddSource();
+              })
+            }
+            pin={
+              pin.wide
+                ? {
+                    pinned: false,
+                    onToggle: () => {
+                      setOpen(false);
+                      pin.setPinned(true);
+                    },
+                  }
+                : undefined
+            }
             galleryCount={galleryCount}
             onOpenGallery={() => {
               setOpen(false);
