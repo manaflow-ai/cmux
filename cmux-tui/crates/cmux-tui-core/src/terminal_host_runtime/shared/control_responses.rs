@@ -3,9 +3,19 @@
 //! receipted-input window. The attachment's writers register waiters; the
 //! surface reader and the connection's frame reader resolve or fail them.
 
-use super::*;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::SyncSender;
+#[cfg(test)]
+use std::sync::mpsc::{Receiver, sync_channel};
+use std::sync::{Arc, Mutex};
 
-pub(super) enum ControlResponseWaiter {
+use super::super::sys::HostStream;
+use super::super::*;
+use super::clipboard_read::ClipboardReadInbox;
+use super::host_state::{MAX_PENDING_INPUT_ACK_BYTES, MAX_PENDING_INPUT_ACKS};
+
+pub(crate) enum ControlResponseWaiter {
     Blocking { kind: MessageKind, sender: SyncSender<Frame> },
     DeferredCellPixel { expected: (u16, u16) },
 }
@@ -20,22 +30,22 @@ pub(crate) type DeferredCellPixelHandler =
     Arc<dyn Fn(u64, (u16, u16), DeferredCellPixelResolution) + Send + Sync + 'static>;
 
 #[derive(Default)]
-pub(super) struct PendingInputAckWindow {
-    writes: usize,
-    bytes: usize,
+pub(crate) struct PendingInputAckWindow {
+    pub(crate) writes: usize,
+    pub(crate) bytes: usize,
 }
 
 pub(crate) struct ControlResponses {
-    pub(super) waiters: Mutex<HashMap<u64, ControlResponseWaiter>>,
-    pub(super) deferred_cell_pixel_handler: Mutex<Option<DeferredCellPixelHandler>>,
-    pub(super) latest_cell_pixel_ack: AtomicU64,
-    pub(super) pending_input_acks: Mutex<PendingInputAckWindow>,
-    pub(super) input_ack_shutdown: Mutex<Option<Arc<UnixStream>>>,
-    pub(super) clipboard_reads: ClipboardReadInbox,
+    pub(crate) waiters: Mutex<HashMap<u64, ControlResponseWaiter>>,
+    pub(crate) deferred_cell_pixel_handler: Mutex<Option<DeferredCellPixelHandler>>,
+    pub(crate) latest_cell_pixel_ack: AtomicU64,
+    pub(crate) pending_input_acks: Mutex<PendingInputAckWindow>,
+    pub(crate) input_ack_shutdown: Mutex<Option<Arc<HostStream>>>,
+    pub(crate) clipboard_reads: ClipboardReadInbox,
 }
 
 impl ControlResponses {
-    pub(super) fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             waiters: Mutex::new(HashMap::new()),
             deferred_cell_pixel_handler: Mutex::new(None),
@@ -118,10 +128,10 @@ impl ControlResponses {
         }
     }
 
-    pub(super) fn input_ack_shutdown_handle(
+    pub(crate) fn input_ack_shutdown_handle(
         &self,
-        writer: &Mutex<UnixStream>,
-    ) -> std::io::Result<Arc<UnixStream>> {
+        writer: &Mutex<HostStream>,
+    ) -> std::io::Result<Arc<HostStream>> {
         let mut cached = self.input_ack_shutdown.lock().unwrap();
         if let Some(shutdown) = cached.as_ref() {
             return Ok(shutdown.clone());
@@ -131,7 +141,7 @@ impl ControlResponses {
         Ok(shutdown)
     }
 
-    pub(super) fn try_reserve_input_ack(&self, bytes: usize) -> bool {
+    pub(crate) fn try_reserve_input_ack(&self, bytes: usize) -> bool {
         if bytes > MAX_PENDING_INPUT_ACK_BYTES {
             return false;
         }
@@ -146,7 +156,7 @@ impl ControlResponses {
         true
     }
 
-    pub(super) fn release_input_ack(&self, bytes: usize) {
+    pub(crate) fn release_input_ack(&self, bytes: usize) {
         let mut pending = self.pending_input_acks.lock().unwrap();
         debug_assert!(pending.writes > 0, "terminal input ACK reservation underflow");
         debug_assert!(pending.bytes >= bytes, "terminal input ACK byte reservation underflow");
@@ -155,12 +165,12 @@ impl ControlResponses {
     }
 
     #[cfg(test)]
-    pub(super) fn pending_input_acks_for_test(&self) -> (usize, usize) {
+    pub(crate) fn pending_input_acks_for_test(&self) -> (usize, usize) {
         let pending = self.pending_input_acks.lock().unwrap();
         (pending.writes, pending.bytes)
     }
 
-    pub(super) fn defer_cell_pixel(&self, request_id: u64, expected: (u16, u16)) -> bool {
+    pub(crate) fn defer_cell_pixel(&self, request_id: u64, expected: (u16, u16)) -> bool {
         let mut waiters = self.waiters.lock().unwrap();
         let Some(waiter) = waiters.get_mut(&request_id) else { return false };
         if !matches!(

@@ -19,6 +19,21 @@ pub fn codex_cache_key(home: &Path, role: &str) -> String {
     format!("optchat-{}-{role}", home_id(home))
 }
 
+/// codex-acp's env for the codex binary it runs (else `codex` on PATH).
+pub const CODEX_PATH_ENV: &str = "CODEX_PATH";
+
+/// The Chief's own codex (the cmux codex fork, which reads
+/// `CODEX_PROMPT_CACHE_KEY`): `OPTCHAT_CODEX_PATH` when it names a file,
+/// else `paths.codex_bin` when installed. None: codex-acp runs the PATH
+/// codex, which may be upstream codex (it ignores the key, so the view is
+/// never read back from the cache).
+pub fn chief_codex(paths: &Paths) -> Option<PathBuf> {
+    crate::cli::env("OPTCHAT_CODEX_PATH")
+        .map(PathBuf::from)
+        .filter(|p| p.is_file())
+        .or_else(|| paths.codex_bin.is_file().then(|| paths.codex_bin.clone()))
+}
+
 /// The private, empty HOME every codex compactor slot runs with (under
 /// `base`): codex finds user skills under `$HOME/.agents/skills` whatever
 /// CODEX_HOME and the slot config say (codex ext/skills host_roots.rs), and

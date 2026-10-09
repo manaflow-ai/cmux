@@ -6,8 +6,10 @@
 #![cfg(unix)]
 
 use std::fs;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 fn bin() -> &'static str {
@@ -20,11 +22,22 @@ struct Fixture {
 }
 
 impl Fixture {
+    /// A directory and session of its own. The clock alone does not make the
+    /// key unique: macOS `SystemTime` has microsecond resolution, so tests
+    /// that start together shared one fixture and one session daemon.
     fn new() -> Self {
-        let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-        let dir = PathBuf::from("/tmp").join(format!("cmux-rlsd-{}-{stamp}", std::process::id()));
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let index = NEXT.fetch_add(1, Ordering::Relaxed);
+        let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() % 1_000_000;
+        let key = format!("{}-{index}-{stamp}", std::process::id());
+        let dir = PathBuf::from("/tmp").join(format!("cmux-rlsd-{key}"));
         fs::create_dir_all(&dir).unwrap();
-        Self { session: format!("rlsd-{}-{}", std::process::id(), stamp % 1_000_000), dir }
+        // Owner-only whatever the caller's umask: remote-link refuses a state
+        // directory below a group-writable parent (a Testbox shell is 002).
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
+        fs::create_dir(dir.join("home")).unwrap();
+        fs::set_permissions(dir.join("home"), fs::Permissions::from_mode(0o700)).unwrap();
+        Self { session: format!("rlsd-{key}"), dir }
     }
 
     fn default_state(&self) -> PathBuf {
@@ -39,7 +52,12 @@ impl Fixture {
     /// state root and the config stay inside the fixture.
     fn command(&self) -> Command {
         let mut command = Command::new(bin());
+        let home = self.dir.join("home");
         command
+            .env("HOME", &home)
+            .env("XDG_STATE_HOME", home.join("state"))
+            .env("XDG_CONFIG_HOME", home.join("config"))
+            .env_remove("XDG_RUNTIME_DIR")
             .env("CMUX_TUI_STATE_DIR", self.default_state())
             .env("CMUX_TUI_CONFIG", self.dir.join("config.json"))
             .env_remove("CMUX_REMOTE_STATE_DIR")

@@ -252,6 +252,11 @@ const REPLY: f64 = 1.1;
 /// read its entry. Returns the seconds until every node is built and the
 /// compactions' cache rate.
 fn burst(n: u64, release: f64) -> (f64, Rate) {
+    burst_sized(n, release, summary)
+}
+
+/// `burst` with the summaries `line` writes.
+fn burst_sized(n: u64, release: f64, line: fn(NodeId) -> String) -> (f64, Rate) {
     let system = CompactPrompt::default().text("Chief");
     let store = Mem::default();
     let mut memory = Memory::new(VIEW);
@@ -301,7 +306,7 @@ fn burst(n: u64, release: f64) -> (f64, Rate) {
             end = end.max(now + release + REPLY);
         }
         for node in built {
-            let text = summary(node);
+            let text = line(node);
             store.nodes.borrow_mut().insert(node, text.clone());
             memory.complete(node, &text).unwrap();
         }
@@ -328,4 +333,30 @@ fn an_import_burst_settles_fast_and_reads_the_writers_entry() {
     assert!((rate.pct() - rate_reply.pct()).abs() < 0.01);
     assert!(rate.pct() >= 90.0, "compactions read {:.2}%", rate.pct());
     assert!(at_start <= 40.0, "the burst took {at_start:.1} s");
+}
+
+/// Soak at 64d57f35a20f: after the import fix, each compactor node of a
+/// 2,020-message import still wrote ~15k tokens (its whole context): the
+/// compaction view merged at almost every node, so its head changed and
+/// no node read the previous one's entry. The reference client applies a
+/// merge batch only when it brings the view down far enough, so its head
+/// holds between batches. An import's compactions read most of their
+/// prefix from the cache.
+#[test]
+fn an_import_reads_most_of_its_compaction_prefix_from_the_cache() {
+    // Lines as the model writes them: 400-512 bytes (the 400-byte aim).
+    fn full(node: NodeId) -> String {
+        let mut h = DefaultHasher::new();
+        node.hash(&mut h);
+        let len = 400 + (h.finish() % 112) as usize;
+        let mut s = format!("sum {}: ", node.name());
+        while s.len() < len {
+            s.push_str("item; ");
+        }
+        s.truncate(len);
+        s
+    }
+    let (_, rate) = burst_sized(2_000, START, full);
+    eprintln!("2,000-message import: compactions read {:.2}%", rate.pct());
+    assert!(rate.pct() >= 90.0, "compactions read {:.2}%", rate.pct());
 }
