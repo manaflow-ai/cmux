@@ -283,16 +283,28 @@ final class WebRTCLinkTransport: NSObject, LinkTransport, @unchecked Sendable {
         let report: RTCStatisticsReport = await withCheckedContinuation { c in
             peerConnection.statistics { c.resume(returning: $0) }
         }
-        return Self.pathInfo(from: report)
+        let info = Self.pathInfo(from: report)
+        let pairs = report.statistics.values.filter { $0.type == "candidate-pair" || $0.type == "transport" }
+            .map { "\($0.type) \($0.id) \($0.values.filter { ["state", "nominated", "selectedCandidatePairId", "localCandidateId", "remoteCandidateId", "bytesReceived"].contains($0.key) })" }
+        webRTCLog.debug("path stats \(self.sessionId, privacy: .public): \(pairs.joined(separator: " | "), privacy: .public)")
+        let candidates = report.statistics.values.filter { $0.type == "local-candidate" || $0.type == "remote-candidate" }
+            .map { "\($0.id)=\(String(describing: $0.values["candidateType"]))" }
+        webRTCLog.debug("path candidates \(self.sessionId, privacy: .public): \(candidates.joined(separator: " "), privacy: .public)")
+        return info
     }
 
     static func pathInfo(from report: RTCStatisticsReport) -> PathInfo {
         let stats = report.statistics
-        var pairId = stats.values.first { $0.type == "transport" }?.values["selectedCandidatePairId"] as? String
+        // The transport's selected pair is libwebrtc's own answer. Without
+        // it, use the nominated succeeded pair carrying the most traffic
+        // (several pairs can be nominated over a link's life).
+        var pairId = stats.values.first { $0.type == "transport" && $0.values["selectedCandidatePairId"] != nil }?
+            .values["selectedCandidatePairId"] as? String
         if pairId == nil {
-            pairId = stats.values.first {
+            func bytes(_ s: RTCStatistics) -> Double { (s.values["bytesReceived"] as? NSNumber)?.doubleValue ?? 0 }
+            pairId = stats.values.filter {
                 $0.type == "candidate-pair" && ($0.values["state"] as? String) == "succeeded" && (($0.values["nominated"] as? NSNumber)?.boolValue ?? false)
-            }?.id
+            }.max { bytes($0) < bytes($1) }?.id
         }
         var info = PathInfo(transport: "webrtc")
         guard let pairId, let pair = stats[pairId] else { return info }

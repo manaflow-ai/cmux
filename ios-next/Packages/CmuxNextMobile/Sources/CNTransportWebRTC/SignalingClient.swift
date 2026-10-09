@@ -1,6 +1,7 @@
 import CNCore
 import CNTransport
 import Foundation
+import Synchronization
 
 public enum SignalingError: Error, Sendable, Hashable, LocalizedError {
     case notConnected
@@ -31,6 +32,10 @@ public actor SignalingClient {
 
     /// Close code the signaling room uses when the access token expired.
     public static let tokenExpiredCloseCode = 4002
+    /// Close code for a revoked sign-in session: do not reconnect.
+    public static let sessionRevokedCloseCode = 4005
+    /// How long to wait for the close frame's code after `receive()` fails.
+    public static let closeCodeWait: Duration = .milliseconds(500)
 
     public private(set) var peerId: String?
     public private(set) var isConnected = false
@@ -49,6 +54,7 @@ public actor SignalingClient {
     private nonisolated let messageHub = Broadcaster<SignalMessage>()
     private nonisolated let presenceHub = Broadcaster<HostPresence>()
     private nonisolated let connectionHub = Broadcaster<Bool>()
+    private nonisolated let revokedHub = Broadcaster<Void>()
 
     public init(
         requestProvider: @escaping RequestProvider,
@@ -98,6 +104,10 @@ public actor SignalingClient {
 
     /// Host online changes (each `welcome` entry and each `presence`).
     public nonisolated func presence() -> AsyncStream<HostPresence> { presenceHub.subscribe() }
+
+    /// The server closed the socket with `sessionRevokedCloseCode`. The
+    /// client has stopped; the app should sign the user out.
+    public nonisolated func sessionRevocations() -> AsyncStream<Void> { revokedHub.subscribe() }
 
     /// Socket connected (after `welcome`) / disconnected.
     public nonisolated func connectionChanges() -> AsyncStream<Bool> { connectionHub.subscribe() }
@@ -149,11 +159,12 @@ public actor SignalingClient {
         var attempt = 0
         var refreshedForExpiry = false
         while !Task.isCancelled {
-            var tokenExpired = false
+            var closeCode: Int?
             do {
                 let request = try await requestProvider()
                 let task = urlSession.webSocketTask(with: request)
-                defer { tokenExpired = task.closeCode.rawValue == Self.tokenExpiredCloseCode }
+                let recorder = WebSocketCloseRecorder()
+                task.delegate = recorder
                 socket = task
                 task.resume()
                 let keepAlive = startKeepAlive(task)
@@ -171,7 +182,10 @@ public actor SignalingClient {
                     handle(message)
                 }
             } catch {
-                // Fall through to reconnect.
+                // Fall through to reconnect; first find out why it closed.
+                if !Task.isCancelled, let task = socket {
+                    closeCode = await Self.closeCode(of: task, clock: clock)
+                }
             }
             socket?.cancel(with: .goingAway, reason: nil)
             socket = nil
@@ -179,7 +193,14 @@ public actor SignalingClient {
             if Task.isCancelled { return }
             // Only the signaling socket reconnects here; established WebRTC
             // links keep running and pick up the new socket for later frames.
-            if tokenExpired, !refreshedForExpiry, let tokenRefresher {
+            if closeCode == Self.sessionRevokedCloseCode {
+                // Signed out elsewhere (or revoked): never reconnect.
+                runTask = nil
+                failWaiters(SignalingError.server(code: "session_revoked", message: "This device was signed out."))
+                revokedHub.yield(())
+                return
+            }
+            if closeCode == Self.tokenExpiredCloseCode, !refreshedForExpiry, let tokenRefresher {
                 // Expired access token: refresh and reconnect immediately
                 // (once in a row; a repeat falls back to the backoff).
                 refreshedForExpiry = true
@@ -189,6 +210,14 @@ public actor SignalingClient {
             attempt += 1
             do { try await clock.sleep(for: backoff.delay(forAttempt: attempt)) } catch { return }
         }
+    }
+
+    /// The server's close code: `task.closeCode`, else the delegate's
+    /// `didCloseWith`, which can arrive just after `receive()` fails.
+    static func closeCode(of task: URLSessionWebSocketTask, clock: any Clock<Duration>) async -> Int? {
+        if task.closeCode != .invalid { return task.closeCode.rawValue }
+        guard let recorder = task.delegate as? WebSocketCloseRecorder else { return nil }
+        return await recorder.code(waitingUpTo: closeCodeWait, clock: clock)
     }
 
     private func startKeepAlive(_ task: URLSessionWebSocketTask) -> Task<Void, Never> {
@@ -241,5 +270,54 @@ public actor SignalingClient {
         let waiters = connectWaiters
         connectWaiters.removeAll()
         for (_, c) in waiters { c.resume(throwing: error) }
+    }
+}
+
+/// Records the close code from `urlSession(_:webSocketTask:didCloseWith:reason:)`.
+final class WebSocketCloseRecorder: NSObject, URLSessionWebSocketDelegate, Sendable {
+    private struct State {
+        var recorded: Int?
+        var waiters: [CheckedContinuation<Int?, Never>] = []
+    }
+    private let state = Mutex(State())
+
+    func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask,
+                    didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
+        record(closeCode.rawValue)
+    }
+
+    func record(_ code: Int) {
+        let pending = state.withLock { s -> [CheckedContinuation<Int?, Never>] in
+            s.recorded = code
+            defer { s.waiters.removeAll() }
+            return s.waiters
+        }
+        for waiter in pending { waiter.resume(returning: code) }
+    }
+
+    /// The recorded code, waiting at most `timeout` for the callback.
+    func code(waitingUpTo timeout: Duration, clock: any Clock<Duration>) async -> Int? {
+        if let code = state.withLock({ $0.recorded }) { return code }
+        let timer = Task { [weak self] in
+            do { try await clock.sleep(for: timeout) } catch { return }
+            self?.expireWaiters()
+        }
+        defer { timer.cancel() }
+        return await withCheckedContinuation { (c: CheckedContinuation<Int?, Never>) in
+            let code = state.withLock { s -> Int? in
+                if let recorded = s.recorded { return recorded }
+                s.waiters.append(c)
+                return nil
+            }
+            if let code { c.resume(returning: code) }
+        }
+    }
+
+    private func expireWaiters() {
+        let pending = state.withLock { s -> [CheckedContinuation<Int?, Never>] in
+            defer { s.waiters.removeAll() }
+            return s.waiters
+        }
+        for waiter in pending { waiter.resume(returning: nil) }
     }
 }

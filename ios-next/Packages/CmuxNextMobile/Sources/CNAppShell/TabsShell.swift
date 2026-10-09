@@ -19,7 +19,7 @@ struct TabsShell: View {
             Tab(ShellDestination.agents.title, systemImage: ShellDestination.agents.symbol, value: .agents) {
                 roots.agents().cnStatusBarStyleSuppressed(selection != .agents)
             }
-            .badge(model.shellData.waitingSessions.count)
+            .badge(model.shellData.attentionCount)
             Tab(ShellDestination.terminals.title, systemImage: ShellDestination.terminals.symbol, value: .terminals) {
                 roots.terminals().cnStatusBarStyleSuppressed(selection != .terminals)
             }
@@ -30,6 +30,7 @@ struct TabsShell: View {
                 roots.settings().cnStatusBarStyleSuppressed(selection != .settings)
             }
         }
+        .environment(\.cnHostedInTabBar, true)
         .tabBarMinimizeBehavior(.onScrollDown)
         .tabViewBottomAccessory {
             StatusAccessory(model: model) { selection = .agents }
@@ -52,6 +53,7 @@ struct StatusAccessory: View {
         let summary = ConnectionSummary(model.connection.state)
         let running = model.shellData.runningSessions.count
         let waiting = model.shellData.waitingSessions.count
+        let unread = model.shellData.unreadSessions.count
         Button(action: openAgents) {
             HStack(spacing: 8) {
                 Circle().fill(summary.tone.color).frame(width: 7, height: 7)
@@ -60,7 +62,7 @@ struct StatusAccessory: View {
                         .font(.footnote.weight(.medium))
                         .lineLimit(1)
                 } else {
-                    Text(agentText(running: running, waiting: waiting))
+                    Text(agentText(running: running, waiting: waiting, unread: unread))
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(.cn(\.textPrimary))
                         .lineLimit(1)
@@ -80,8 +82,9 @@ struct StatusAccessory: View {
         .accessibilityIdentifier("shell.connectionPill")
     }
 
-    private func agentText(running: Int, waiting: Int) -> String {
+    private func agentText(running: Int, waiting: Int, unread: Int) -> String {
         switch (running, waiting) {
+        case (0, 0) where unread > 0: unread == 1 ? "1 unread agent" : "\(unread) unread agents"
         case (0, 0): model.connection.hostInfo?.hostName ?? model.selectedHost?.name ?? "No agents running"
         case (_, 0): running == 1 ? "1 agent running" : "\(running) agents running"
         case (0, _): waiting == 1 ? "1 agent needs you" : "\(waiting) agents need you"

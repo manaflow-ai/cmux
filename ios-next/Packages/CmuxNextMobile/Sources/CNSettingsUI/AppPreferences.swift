@@ -37,6 +37,7 @@ public final class AppPreferences {
     public var selectedHostId: String? { didSet { defaults.set(selectedHostId, forKey: Keys.selectedHostId) } }
 
     @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private var defaultsObserver: (any NSObjectProtocol)?
 
     private enum Keys {
         static let appearance = "cmuxNext.appearance"
@@ -52,5 +53,18 @@ public final class AppPreferences {
         terminalFontSize = size == 0 ? Self.defaultTerminalFontSize : min(max(size, Self.terminalFontRange.lowerBound), Self.terminalFontRange.upperBound)
         forceRelay = defaults.bool(forKey: Keys.forceRelay)
         selectedHostId = defaults.string(forKey: Keys.selectedHostId)
+        // The terminal writes the same key (pinch, Larger/Smaller Text): follow it.
+        defaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification, object: defaults, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.reloadTerminalFontSize() }
+        }
+    }
+
+    private func reloadTerminalFontSize() {
+        let size = defaults.double(forKey: Keys.terminalFontSize)
+        guard size > 0 else { return }
+        let clamped = min(max(size, Self.terminalFontRange.lowerBound), Self.terminalFontRange.upperBound)
+        if clamped != terminalFontSize { terminalFontSize = clamped }
     }
 }

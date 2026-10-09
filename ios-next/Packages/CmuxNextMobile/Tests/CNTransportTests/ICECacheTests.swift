@@ -107,6 +107,37 @@ final class TestNow: Sendable {
         #expect(calls.withLock { $0 } == 1)
     }
 
+    @Test func signInClearsCacheAndSignOutDropsInFlightResponse() async throws {
+        let backend = makeClient(now: TestNow())
+        let calls = Mutex(0)
+        let gate = DispatchSemaphore(value: 0)
+        let blockNext = Mutex(false)
+        HeaderStubURLProtocol.handler.withLock {
+            $0 = { [iceJSON] req in
+                if req.url!.path == "/v1/auth/test" {
+                    return (200, [:], Data(#"{"accessToken":"b","refreshToken":"r2","expiresIn":900,"user":{"id":"u_2","email":"b@test.cmux.dev","name":"B"}}"#.utf8))
+                }
+                calls.withLock { $0 += 1 }
+                if blockNext.withLock({ $0 }) { gate.wait() }
+                return (200, [:], iceJSON)
+            }
+        }
+        _ = try await backend.iceConfiguration()
+        try await backend.testLogin(email: "b@test.cmux.dev", secret: "s")
+        _ = try await backend.iceConfiguration() // new session: cache was cleared
+        #expect(calls.withLock { $0 } == 2)
+
+        // A response that arrives after sign-out is discarded.
+        try await backend.testLogin(email: "b@test.cmux.dev", secret: "s")
+        blockNext.withLock { $0 = true }
+        let inFlight = Task { try await backend.iceConfiguration() }
+        while calls.withLock({ $0 }) < 3 { await Task.yield() }
+        await backend.discardSession()
+        gate.signal()
+        await #expect(throws: (any Error).self) { try await inFlight.value }
+        await #expect(throws: BackendError.self) { try await backend.iceConfiguration() }
+    }
+
     @Test func appleNonceHashesRawValue() {
         let nonce = AppleSignInNonce(raw: "abc")
         #expect(nonce.hashed == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")

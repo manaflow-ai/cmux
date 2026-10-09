@@ -41,6 +41,10 @@ public final class AppModel {
     /// Status bar style requested by the visible root (`.cnStatusBarStyle`);
     /// nil follows the appearance. Applied by `ShellHostingController`.
     public var statusBarStyle: CNStatusBarStyle?
+    /// One-line notice on the sign-in screen (for example after the session
+    /// was revoked); cleared on the next sign-in.
+    public private(set) var signInNotice: String?
+    @ObservationIgnored private var revocationTask: Task<Void, Never>?
     /// Drawer shell: what the content card asked for, restored on close.
     @ObservationIgnored var requestedContentStatusBarStyle: CNStatusBarStyle?
 
@@ -64,6 +68,12 @@ public final class AppModel {
         self.mockHost = mockHost
         self.signaling = signaling
         self.relaySwitch = relaySwitch
+        if let signaling {
+            let revocations = signaling.sessionRevocations()
+            revocationTask = Task { [weak self] in
+                for await _ in revocations { await self?.sessionRevoked() }
+            }
+        }
     }
 
     public var phase: Phase {
@@ -166,6 +176,7 @@ public final class AppModel {
     func authStateChanged() async {
         switch auth.state {
         case .signedIn:
+            signInNotice = nil
             if let signaling {
                 await signaling.start()
                 hosts.observePresence(signaling.presence())
@@ -204,6 +215,15 @@ public final class AppModel {
             return
         }
         connection.connect(hostId: id)
+    }
+
+    /// Signaling closed with 4005: the server revoked this sign-in. Do not
+    /// reconnect; clear the local session and return to sign-in.
+    func sessionRevoked() async {
+        guard auth.state.user != nil else { return }
+        signInNotice = "Signed out on this device."
+        connection.disconnect()
+        await auth.backend.discardSession()
     }
 
     /// Applies the Settings "Force relay (TURN)" toggle and reconnects.

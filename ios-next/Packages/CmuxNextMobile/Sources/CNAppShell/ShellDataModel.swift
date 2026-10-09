@@ -1,4 +1,5 @@
 #if os(iOS)
+import CNAgentUI
 import CNCore
 import CNTransport
 import Foundation
@@ -25,6 +26,11 @@ public final class ShellDataModel {
 
     public var runningSessions: [AgentSession] { sessions.filter { $0.status == .running } }
     public var waitingSessions: [AgentSession] { sessions.filter { $0.status == .waiting } }
+    /// Unread as the user sees it: the phone-local `AgentReadState` that the
+    /// Agents list and chat use, so every unread dot and badge agrees.
+    public var unreadSessions: [AgentSession] { sessions.filter { AgentReadState.shared.isUnread($0) } }
+    /// Sessions that need the user: waiting for input or unread.
+    public var attentionCount: Int { sessions.filter { $0.status == .waiting || AgentReadState.shared.isUnread($0) }.count }
 
     /// Runs for the lifetime of the shell (call from `.task`).
     func run() async {

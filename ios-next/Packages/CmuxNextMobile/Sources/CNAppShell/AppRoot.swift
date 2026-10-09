@@ -44,7 +44,8 @@ public struct AppRoot: View {
         ZStack {
             switch model.phase {
             case .restoring, .signedOut:
-                SignInView(controller: model.signIn, initialMode: Self.debugSignInMode, initialEmail: Self.debugSignInEmail)
+                SignInView(controller: model.signIn, initialMode: Self.debugSignInMode, initialEmail: Self.debugSignInEmail,
+                           notice: model.signInNotice)
                     .transition(.opacity)
             case .loadingHosts:
                 ProgressView()

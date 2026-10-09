@@ -16,6 +16,7 @@ public enum SignInMode: String, Sendable, CaseIterable {
 /// layout, copy, glass styles and the `.snappy(duration: 0.18)` mode switches.
 public struct SignInView: View {
     private let controller: SignInController
+    private let notice: String?
     @State private var email: String
     @State private var code = ""
     @State private var emailEntryMode: SignInMode
@@ -35,8 +36,11 @@ public struct SignInView: View {
     /// - Parameters:
     ///   - initialMode: DEBUG captures start in another card; the app uses `.methods`.
     ///   - initialEmail: Prefills the email (DEBUG captures).
-    public init(controller: SignInController, initialMode: SignInMode = .methods, initialEmail: String = "") {
+    /// - Parameter notice: a one-line message above the sign-in options, for
+    ///   example "Signed out on this device." after a revoked session.
+    public init(controller: SignInController, initialMode: SignInMode = .methods, initialEmail: String = "", notice: String? = nil) {
         self.controller = controller
+        self.notice = notice
         _emailEntryMode = State(initialValue: initialMode)
         _email = State(initialValue: initialEmail)
         _shouldShowBillingRecovery = State(initialValue: initialMode == .emailVerification)
@@ -90,6 +94,13 @@ public struct SignInView: View {
         authCard {
             VStack(spacing: 20) {
                 brandHeader
+                if let notice {
+                    Text(notice)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .accessibilityIdentifier("signin.notice")
+                }
                 SignInAuthRestoreStatusView(controller: controller)
 
                 VStack(spacing: 12) {

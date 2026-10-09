@@ -1,4 +1,5 @@
 #if os(iOS)
+import CNAgentUI
 import CNCore
 import CNDesign
 import CNSettingsUI
@@ -41,7 +42,8 @@ struct DrawerShell: View {
             }
         }
         .overlay(alignment: .top) {
-            if !model.connection.state.isConnected {
+            // Terminals show their own reconnecting toast; one indicator at a time.
+            if !model.connection.state.isConnected, destination != .terminals {
                 ConnectionPill(state: model.connection.state)
                     .padding(.top, 8)
                     .transition(.opacity.combined(with: .move(edge: .top)))
@@ -110,20 +112,20 @@ struct DrawerSidebar: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     section(.home, items: conversations.prefix(searching ? 50 : 6).map { c in
-                        SidebarItem(id: c.id, title: c.title, subtitle: c.lastMessage?.text, dot: c.unread > 0 ? .cn(\.ink) : nil,
+                        SidebarItem(id: c.id, title: c.title, subtitle: c.lastMessage?.text, unread: c.unread > 0,
                                     route: CNShellRoute(kind: .conversation, id: c.id))
                     })
                     section(.agents, items: sessions.prefix(searching ? 50 : 8).map { s in
-                        SidebarItem(id: s.id, title: s.title, subtitle: s.preview, dot: Self.statusColor(s.status),
-                                    route: CNShellRoute(kind: .agentSession, id: s.id))
+                        SidebarItem(id: s.id, title: s.title, subtitle: s.preview, unread: AgentReadState.shared.isUnread(s),
+                                    status: Self.statusColor(s.status), route: CNShellRoute(kind: .agentSession, id: s.id))
                     })
                     section(.terminals, items: terminals.prefix(searching ? 50 : 5).map { t in
-                        SidebarItem(id: t.id, title: t.title, subtitle: t.cwd, dot: t.running ? nil : .cn(\.textTertiary),
-                                    route: CNShellRoute(kind: .terminal, id: t.id))
+                        SidebarItem(id: t.id, title: t.title, subtitle: t.cwd, unread: false,
+                                    status: t.running ? nil : .cn(\.textTertiary), route: CNShellRoute(kind: .terminal, id: t.id))
                     })
                     section(.browser, items: tabs.prefix(searching ? 50 : 5).map { tab in
                         SidebarItem(id: tab.id, title: tab.title.isEmpty ? tab.url : tab.title, subtitle: URL(string: tab.url)?.host(),
-                                    dot: nil, route: CNShellRoute(kind: .browserTab, id: tab.id))
+                                    unread: false, route: CNShellRoute(kind: .browserTab, id: tab.id))
                     })
                     if !searching {
                         DestinationRow(destination: .settings, selected: destination == .settings) { onSelect(.settings, nil) }
@@ -201,9 +203,12 @@ struct DrawerSidebar: View {
                     onSelect(target, item.route)
                 } label: {
                     HStack(spacing: 10) {
+                        // Leading dot: unread, from the item's `unread` count in
+                        // every section (same rule as Home).
                         Circle()
-                            .fill(item.dot ?? .clear)
+                            .fill(item.unread ? Color.cn(\.ink) : .clear)
                             .frame(width: 7, height: 7)
+                            .accessibilityLabel(item.unread ? "Unread" : "")
                         VStack(alignment: .leading, spacing: 1) {
                             Text(item.title)
                                 .font(.body)
@@ -217,6 +222,9 @@ struct DrawerSidebar: View {
                             }
                         }
                         Spacer(minLength: 0)
+                        if let status = item.status {
+                            Circle().fill(status).frame(width: 7, height: 7)
+                        }
                     }
                     .padding(.leading, 24)
                     .padding(.trailing, 16)
@@ -322,7 +330,10 @@ struct SidebarItem: Identifiable {
     var id: String
     var title: String
     var subtitle: String?
-    var dot: Color?
+    /// Leading ink dot (unread).
+    var unread: Bool
+    /// Trailing state dot (agent status, exited terminal).
+    var status: Color? = nil
     var route: CNShellRoute
 }
 

@@ -84,6 +84,9 @@ public actor BackendClient {
     private var iceTask: Task<ICEConfiguration, any Error>?
     /// Set by a 429 from `/ice` (its `Retry-After`).
     private var iceRetryAfter: Date?
+    /// Bumped whenever the session changes (sign-in, sign-out); a `/ice`
+    /// response from an older generation is discarded.
+    private var iceGeneration = 0
     private let now: @Sendable () -> Date
     private let clock: any Clock<Duration>
     /// Reuse ICE credentials until this fraction of their `ttl` has passed.
@@ -170,6 +173,12 @@ public actor BackendClient {
         try await adopt(send("POST", "/auth/test", body: ["email": email, "secret": secret], auth: false, as: Tokens.self))
     }
 
+    /// Clears the local session without calling the backend, for a session
+    /// the server already revoked (signaling close 4005).
+    public func discardSession() {
+        clearSession()
+    }
+
     /// Revokes the refresh token (best effort) and clears local tokens.
     public func signOut() async {
         if let refreshToken = session?.refreshToken {
@@ -232,9 +241,10 @@ public actor BackendClient {
             if let fresh = cachedICE(fraction: iceRefreshFraction) { return fresh }
         }
         if let iceTask { return try await iceTask.value }
-        let task = Task { try await self.fetchICE() }
+        let generation = iceGeneration
+        let task = Task { try await self.fetchICE(generation: generation) }
         iceTask = task
-        defer { iceTask = nil }
+        defer { if iceTask == task { iceTask = nil } }
         return try await task.value
     }
 
@@ -244,12 +254,14 @@ public actor BackendClient {
         return age < Double(cache.config.ttl) * fraction ? cache.config : nil
     }
 
-    private func fetchICE() async throws -> ICEConfiguration {
+    private func fetchICE(generation: Int) async throws -> ICEConfiguration {
         let token = try await validAccessToken()
         var request = URLRequest(url: configuration.url("/ice"))
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         let (data, response) = try await urlSession.data(for: request)
+        // Signed out or signed in again while this was in flight.
+        guard generation == iceGeneration, !Task.isCancelled else { throw CancellationError() }
         guard let http = response as? HTTPURLResponse else { throw BackendError.invalidResponse("not HTTP") }
         switch http.statusCode {
         case 200..<300:
@@ -276,6 +288,16 @@ public actor BackendClient {
             throw BackendError.server(status: http.statusCode, code: "http_\(http.statusCode)",
                                       message: HTTPURLResponse.localizedString(forStatusCode: http.statusCode))
         }
+    }
+
+    /// Drops cached and in-flight ICE credentials (they belong to the old
+    /// session).
+    private func resetICE() {
+        iceGeneration += 1
+        iceTask?.cancel()
+        iceTask = nil
+        iceCache = nil
+        iceRetryAfter = nil
     }
 
     /// Seconds from a `Retry-After` value (delta seconds or an HTTP date).
@@ -339,6 +361,7 @@ public actor BackendClient {
     }
 
     private func adopt(_ tokens: Tokens) throws -> User {
+        resetICE()
         let s = StoredSession(tokens: tokens)
         session = s
         try tokenStore.save(s)
@@ -349,8 +372,7 @@ public actor BackendClient {
     private func clearSession() {
         let had = session != nil
         session = nil
-        iceCache = nil
-        iceRetryAfter = nil
+        resetICE()
         tokenStore.clear()
         if had { emit(.signedOut) }
     }
