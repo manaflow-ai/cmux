@@ -259,7 +259,7 @@ impl HostShared {
         }
     }
 
-    pub(super) fn finish_group_escalation(&self) {
+    pub(crate) fn finish_group_escalation(&self) {
         if self.session_cleanup.wait_for_exit(HOST_KILL_WAIT) {
             self.publish_child_wait_predicate(&self.group_escalation_complete);
         } else {
