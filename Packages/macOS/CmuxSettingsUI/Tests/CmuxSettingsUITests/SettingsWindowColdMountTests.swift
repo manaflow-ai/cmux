@@ -243,4 +243,36 @@ import Testing
 
         #expect(browserControls > accountControls + 10, "browser: \(browserControls), account: \(accountControls)")
     }
+
+    @Test func constrainedWindowKeepsHostedContentInsideViewport() {
+        let fixture = Self.makeFixture()
+        let model = Self.makeMountModel()
+        let root = SettingsWindowRoot(runtime: fixture.runtime, mountModel: model)
+            .defaultAppStorage(fixture.defaults)
+        let hosting = NSHostingView(rootView: root)
+        hosting.sizingOptions = []
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 500),
+                              styleMask: [.titled, .resizable],
+                              backing: .buffered,
+                              defer: false)
+        window.contentView = hosting
+        window.setContentSize(NSSize(width: 640, height: 500))
+        hosting.frame = window.contentView?.bounds ?? .zero
+        hosting.autoresizingMask = [.width, .height]
+        window.contentView?.layoutSubtreeIfNeeded()
+
+        func descendant<T: NSView>(of view: NSView, matching type: T.Type) -> T? {
+            if let view = view as? T { return view }
+            for child in view.subviews {
+                if let match = descendant(of: child, matching: type) { return match }
+            }
+            return nil
+        }
+
+        #expect(hosting.frame.width <= window.contentView?.bounds.width ?? 0)
+        let splitView = descendant(of: hosting, matching: NSSplitView.self)
+        #expect(splitView != nil)
+        #expect(splitView?.frame.minX ?? -1 >= 0)
+        #expect(splitView?.frame.maxX ?? 0 <= hosting.bounds.maxX)
+    }
 }
