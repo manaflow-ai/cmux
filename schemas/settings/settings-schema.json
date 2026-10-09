@@ -450,6 +450,7 @@
               "agentPane.editedFiles.show",
               "agentPane.editedFiles.maxRows",
               "agentPane.editedFiles.scope",
+              "agentPane.showContextUsage",
               "app.warnBeforeClosingAgentSession"
             ],
             "title" : {
