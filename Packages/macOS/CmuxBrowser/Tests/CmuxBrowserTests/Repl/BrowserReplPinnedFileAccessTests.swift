@@ -238,14 +238,10 @@ struct BrowserReplPinnedFileAccessTests {
         let scratch = try Scratch()
         defer { scratch.remove() }
         let manager = FileManager.default
-        let report = "<script>parent.postMessage(document.body.innerText, '*')</script>"
         try manager.createDirectory(atPath: scratch.root + "/frame", withIntermediateDirectories: true)
-        try Data("""
-            <script>window.messages = []; addEventListener('message', event => messages.push(String(event.data)))</script>
-            <iframe src="frame/inner.html"></iframe>
-            """.utf8).write(to: URL(fileURLWithPath: scratch.root + "/index.html"))
-        try Data("<p>own frame</p>\(report)".utf8).write(to: URL(fileURLWithPath: scratch.root + "/frame/inner.html"))
-        try Data("<p>outside secret</p>\(report)".utf8).write(to: URL(fileURLWithPath: scratch.outside + "/inner.html"))
+        try Data(#"<iframe src="frame/inner.html"></iframe>"#.utf8).write(to: URL(fileURLWithPath: scratch.root + "/index.html"))
+        try Data("<p>own frame</p>".utf8).write(to: URL(fileURLWithPath: scratch.root + "/frame/inner.html"))
+        try Data("<p>outside secret</p>".utf8).write(to: URL(fileURLWithPath: scratch.outside + "/inner.html"))
         let roots = [BrowserReplFileRoot(path: scratch.root)]
         let url = URL(fileURLWithPath: scratch.root + "/index.html")
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
@@ -255,7 +251,12 @@ struct BrowserReplPinnedFileAccessTests {
             webView.loadFileURL(url, allowingReadAccessTo: readAccess)
         }
         await waiter.wait()
-        let first = try await webView.evaluateJavaScript("messages.join('|')") as? String
+        /// What the child frame shows now.
+        func frameText() async -> String? {
+            guard let frame = waiter.childFrame else { return nil }
+            return try? await webView.evaluateJavaScript("document.body ? document.body.innerText : ''", in: frame, contentWorld: .page) as? String
+        }
+        let first = await frameText()
         #expect(first?.contains("own frame") == true, "the frame did not show its own page: \(String(describing: first))")
 
         /// Reloads the frame and returns what it showed, if its response
@@ -264,14 +265,12 @@ struct BrowserReplPinnedFileAccessTests {
             waiter.forgetChildFrames()
             _ = try await webView.callAsyncJavaScript("""
                 const frame = document.querySelector('iframe')
-                window.frameDone = new Promise(resolve => {
-                    frame.addEventListener('load', resolve, { once: true })
-                    addEventListener('message', resolve, { once: true })
-                })
+                window.frameDone = new Promise(resolve => frame.addEventListener('load', resolve, { once: true }))
                 frame.src = 'frame/inner.html?\(query)'
                 """, contentWorld: .page)
             guard await waiter.childFrameResponse() else { return nil }
-            return try await webView.callAsyncJavaScript("await window.frameDone; return messages.join('|')", contentWorld: .page) as? String
+            _ = try await webView.callAsyncJavaScript("await window.frameDone", contentWorld: .page)
+            return await frameText()
         }
         // Another session moves the frame's directory away and a link to a
         // directory outside takes its name, after the frame's navigation
@@ -348,6 +347,8 @@ final class FileLoadWaiter: NSObject, WKNavigationDelegate {
     /// Runs once a child frame's file navigation was pinned and allowed,
     /// before the browser opens the file.
     var afterChildFrameDecision: (() -> Void)?
+    /// The child frame whose file navigation was decided last.
+    private(set) var childFrame: WKFrameInfo?
     private var childFrameResults: [Bool] = []
     private var childFrameContinuation: CheckedContinuation<Bool, Never>?
 
@@ -402,7 +403,10 @@ final class FileLoadWaiter: NSObject, WKNavigationDelegate {
         do {
             try BrowserReplPinnedFileLoads.shared.pinNavigation(to: url, roots: roots, in: webView)
             decisionHandler(.allow)
-            if !frame.isMainFrame { afterChildFrameDecision?() }
+            if !frame.isMainFrame {
+                childFrame = frame
+                afterChildFrameDecision?()
+            }
         } catch {
             decisionHandler(.cancel)
             if frame.isMainFrame { finish() } else { noteChildFrame(false) }
