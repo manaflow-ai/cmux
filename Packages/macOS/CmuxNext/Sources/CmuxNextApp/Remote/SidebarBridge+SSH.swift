@@ -20,14 +20,15 @@ extension SidebarBridge {
     static func sshStatus(_ session: SSHMachineSession, compatibility: DaemonCompatibility?) -> SidebarMachine.Status {
         var connected = false
         if case .connected = session.daemon.store.connectionState { connected = true }
-        return sshStatus(link: session.linkStatus, startupFailed: session.daemon.startup.isUnavailable, daemonConnected: connected,
+        return sshStatus(link: session.linkStatus, startupFailed: session.daemonFailure != nil, daemonConnected: connected,
                          compatibility: compatibility)
     }
 
     /// The header status of a link state and its daemon: `startupFailed`
-    /// is the first connection's give-up (past its deadline), so a daemon
-    /// that never starts on the machine is a failure, not Connecting for
-    /// ever (cx-zdh8).
+    /// is the first connection's give-up after SSH reached the machine
+    /// (`SSHMachineSession.daemonFailure`), so a daemon that never starts
+    /// there is a failure, not Connecting for ever (cx-zdh8). While ssh
+    /// itself has not answered, the machine still connects.
     static func sshStatus(link: SSHConnectionMachine.Status, startupFailed: Bool, daemonConnected: Bool,
                           compatibility: DaemonCompatibility?) -> SidebarMachine.Status {
         switch link {

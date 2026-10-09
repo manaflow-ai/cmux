@@ -66,7 +66,8 @@ import Testing
     /// error, and Copy SSH Error copies it.
     @Test func aDaemonThatDoesNotStartIsAFailureNotConnecting() throws {
         #expect(SidebarBridge.sshStatus(link: .connected, startupFailed: true, daemonConnected: false, compatibility: nil) == .failed)
-        #expect(SidebarBridge.sshStatus(link: .connecting, startupFailed: true, daemonConnected: false, compatibility: nil) == .failed)
+        #expect(SidebarBridge.sshStatus(link: .connecting, startupFailed: true, daemonConnected: false, compatibility: nil) == .failed,
+                "the link cycles while the daemon fails")
         #expect(SidebarBridge.sshStatus(link: .connected, startupFailed: false, daemonConnected: false, compatibility: nil) == .connecting,
                 "within the first-connect deadline it still connects")
         #expect(SidebarBridge.sshStatus(link: .connected, startupFailed: false, daemonConnected: true, compatibility: nil) == .connected)
@@ -89,6 +90,17 @@ import Testing
         #expect(RemoteStrings.sshError(machine)?.contains("session_journal has no column named actor") == true)
         machine.daemonFailure = nil
         #expect(RemoteStrings.sshError(machine) == nil)
+    }
+
+    /// A connect that waits for ssh (an unreachable host) is not a daemon
+    /// failure: the first-connect deadline passes before ssh answers.
+    @Test func aDaemonTimeoutBeforeSSHAnswersStaysConnecting() async throws {
+        let machine = try session()
+        machine.linkStatus = .connecting
+        machine.daemon.noteStartupFailure(.endpointBlocked("no link yet"))
+        for _ in 0..<20 { await Task.yield() }
+        #expect(machine.daemonFailure == nil)
+        #expect(SidebarBridge.sshStatus(machine, compatibility: nil) == .connecting)
     }
 
     @Test func machinesResolveByIDNameOrDestination() throws {

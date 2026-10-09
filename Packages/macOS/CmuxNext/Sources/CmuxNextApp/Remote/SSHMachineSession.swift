@@ -22,9 +22,14 @@ final class SSHMachineSession {
     var lastError: String?
     /// Why the machine's cmux-tui did not start: the daemon's error and the
     /// link's output (the remote error, for example a session db the daemon
-    /// cannot open), set when the first connection gives up and cleared
-    /// when the daemon connects (cx-zdh8).
+    /// cannot open). Set when the first connection gives up after the SSH
+    /// link came up at least once, cleared when the daemon connects or the
+    /// link stops (cx-zdh8). Before the link comes up, SSH's own status
+    /// says what is wrong.
     var daemonFailure: String?
+    /// The SSH link came up since the last connect (ssh reached the machine).
+    @ObservationIgnored private var linkReached = false
+    @ObservationIgnored private var startupError: DaemonError?
     /// Connect at launch (the user did not disconnect it). Saved in the
     /// session registry's transport.
     var autoConnect = true
@@ -52,13 +57,26 @@ final class SSHMachineSession {
         startupTask = Task { [weak self] in
             for await startup in Observations({ daemon.startup }) {
                 guard case .unavailable(let error) = startup else {
+                    self?.startupError = nil
                     self?.daemonFailure = nil
                     continue
                 }
-                let output = await link.output()
-                self?.daemonFailure = Self.failureText(error.description, output: output)
+                self?.startupError = error
+                await self?.updateDaemonFailure(link: link)
             }
         }
+    }
+
+    /// The daemon failure text, once both the daemon gave up and the link
+    /// came up.
+    private func updateDaemonFailure(link: SSHMachineLink) async {
+        guard let error = startupError, linkReached else {
+            daemonFailure = nil
+            return
+        }
+        let output = await link.output()
+        guard startupError == error, linkReached else { return }
+        daemonFailure = Self.failureText(error.description, output: output)
     }
 
     /// The daemon's error, then the link's output when it adds to it.
@@ -77,6 +95,19 @@ final class SSHMachineSession {
     private func linkStatusChanged(_ status: SSHConnectionMachine.Status) {
         guard linkStatus != status else { return }
         linkStatus = status
+        switch status {
+        case .connected:
+            if !linkReached {
+                linkReached = true
+                let link = link
+                // task-owner: one actor hop to read the link's output
+                Task { [weak self] in await self?.updateDaemonFailure(link: link) }
+            }
+        case .connecting, .failed: break
+        case .offline, .authFailed, .hostKeyUntrusted, .unreachable, .needsInstall, .installing, .installFailed:
+            linkReached = false
+            daemonFailure = nil
+        }
         onStatusChange?(self, status)
     }
 
