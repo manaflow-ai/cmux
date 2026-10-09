@@ -12,10 +12,10 @@ struct PreviousNextRowWalkTests {
     static let a = WorkspaceID("a"), b = WorkspaceID("b"), c = WorkspaceID("c")
     static let items: [SidebarItem] = [home, .workspace(a), .workspace(b), .workspace(c)]
     /// `a` lists two tabs, `b` one, `c` none (hidden or empty).
-    static func tabs(_ id: WorkspaceID) -> [TabID] {
-        switch id {
-        case a: [TabID("a1"), TabID("a2")]
-        case b: [TabID("b1")]
+    nonisolated static func tabs(_ id: WorkspaceID) -> [TabID] {
+        switch id.rawValue {
+        case "a": [TabID("a1"), TabID("a2")]
+        case "b": [TabID("b1")]
         default: []
         }
     }
