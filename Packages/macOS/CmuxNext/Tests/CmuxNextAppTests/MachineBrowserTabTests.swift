@@ -35,9 +35,17 @@ struct MachineBrowserTabTests {
 
     // MARK: Placement
 
+    /// Placement rule (chief, 2026-10-09): a machine's workspace opens on
+    /// the machine only while its browser host is available (a cached check,
+    /// no wait on the key press); otherwise this Mac's tab with the This Mac
+    /// chip, whose menu offers Open on <machine>.
+    @Test func aTabGoesToTheMachineOnlyWhenItsBrowserHostIsAvailable() {
+        #expect(BrowserPlacement.resolve(isLocal: true, machine: "local", hostAvailable: true) == .local)
+        #expect(BrowserPlacement.resolve(isLocal: false, machine: "vm-1", hostAvailable: true) == .machine("vm-1"))
+        #expect(BrowserPlacement.resolve(isLocal: false, machine: "vm-1", hostAvailable: false) == .local)
+    }
+
     @Test func aTabInAnotherMachinesWorkspaceGoesToThatMachine() {
-        #expect(BrowserPlacement.resolve(isLocal: true, machine: "local") == .local)
-        #expect(BrowserPlacement.resolve(isLocal: false, machine: "vm-1") == .machine("vm-1"))
         let google = URL(string: "https://www.google.com/")
         #expect(BrowserPlacement.machine("vm-1").address(for: google) == MachineBrowserRecord(machine: "vm-1", initialURL: google).url)
         #expect(BrowserPlacement.local.address(for: google) == google)

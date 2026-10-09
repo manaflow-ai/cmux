@@ -142,6 +142,18 @@ struct RemotePaneBrowserTabTests {
         withExtendedLifetime(f.services) {}
     }
 
+    /// The This Mac chip's menu offers the machine (Open on <machine>);
+    /// this Mac's own tabs have no such menu.
+    @Test func theThisMacChipOffersOpenOnTheMachine() throws {
+        let f = try Self.fixture()
+        let remoteTab = try #require(f.remotePane.tabs.first)
+        let menu = try #require(f.services.machineBadgeMenu(key: remoteTab.id))
+        #expect(menu.items.map(\.title) == [MachineBrowserStrings.openOn(f.machine.host.label)])
+        #expect(f.services.machineBadgeMenu(key: try #require(f.localPane.tabs.first).id) == nil)
+        #expect(f.services.cache.browserTabs.browserHostAvailable(f.machine.machineID) == false, "no machine has a browser host yet")
+        withExtendedLifetime(f.services) {}
+    }
+
     @Test func aDisconnectedMachineRefusesWithItsNameInsteadOfDoingNothing() throws {
         let f = try Self.fixture()
         let refusal = try #require(f.services.cache.browserTabs.refusal(in: f.remotePane))
