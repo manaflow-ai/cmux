@@ -11,6 +11,10 @@ import Testing
 struct AgentTabChiefHostTests {
     static let chief = "chief:0a1b2c3d"
 
+    private func kind(_ record: AgentSessionRef, _ fixture: AgentTabFixture) -> AgentPaneHostKind {
+        AgentPaneHostKind(record, localHost: fixture.tabs.localHost, chiefHost: fixture.tabs.chiefHost)
+    }
+
     private func fixture(_ tree: [String] = []) throws -> AgentTabFixture {
         let fixture = try AgentTabFixture(tree: tree)
         fixture.tabs.chiefHost = Self.chief
@@ -23,15 +27,15 @@ struct AgentTabChiefHostTests {
     @Test func aChiefSubagentTabAttachesToTheChiefHomesAcpmux() throws {
         let record = AgentSessionRef(host: Self.chief, session: "s-1")
         let fixture = try fixture([AgentTabFixture.tab(60, "tab_sub", record)])
-        #expect(fixture.tabs.paneHostKind(for: record) == .chief)
+        #expect(kind(record, fixture) == .chief)
         #expect(fixture.tabs.view(for: "tab_sub") != nil)
     }
 
     /// Another Chief home's tab (another app's) and a tab of this Mac keep their hosts.
     @Test func otherHostsKeepTheirPaneHosts() throws {
         let fixture = try fixture()
-        #expect(fixture.tabs.paneHostKind(for: AgentSessionRef(host: "chief:ffffffff", session: "s")) == .remote)
-        #expect(fixture.tabs.paneHostKind(for: AgentSessionRef(host: AgentTabFixture.host, session: "s")) == .local)
+        #expect(kind(AgentSessionRef(host: "chief:ffffffff", session: "s"), fixture) == .remote)
+        #expect(kind(AgentSessionRef(host: AgentTabFixture.host, session: "s"), fixture) == .local)
     }
 
     /// The Chief host opens the tab with its home as the host; the store records it.
