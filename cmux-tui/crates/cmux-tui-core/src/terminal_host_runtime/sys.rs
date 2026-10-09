@@ -129,6 +129,10 @@ mod windows_stubs {
         pub(crate) fn wake(&self) {}
 
         pub(crate) fn drain(&self) {}
+
+        pub(crate) fn wait_readable(&self, _timeout: std::time::Duration) -> io::Result<bool> {
+            Err(unsupported())
+        }
     }
 
     impl super::super::shared::host_shared::HostShared {
