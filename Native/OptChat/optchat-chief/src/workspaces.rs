@@ -92,6 +92,9 @@ pub fn new_key() -> String {
 pub struct AppWorkspaces {
     pub control: PathBuf,
     pub daemon: PathBuf,
+    /// The Chief home (`MUX_HOME`), whose own acpmux runs the subagents: the
+    /// tab's host is `chief:<home id>`, so the app attaches it there.
+    pub home: Option<PathBuf>,
 }
 
 impl AppWorkspaces {
@@ -109,8 +112,27 @@ impl AppWorkspaces {
         env("CMUX_SOCKET_PATH").map(|control| AppWorkspaces {
             control: control.into(),
             daemon: crate::cmux_env::app_daemon_socket(daemon, env).into(),
+            home: None,
         })
     }
+
+    /// The same, for the Chief home `home`.
+    pub fn with_home(mut self, home: &Path) -> AppWorkspaces {
+        self.home = Some(home.to_owned());
+        self
+    }
+}
+
+/// The agent tab host of a session in Chief home `home`'s acpmux.
+pub fn chief_host(home: &Path) -> String {
+    format!("chief:{}", crate::paths::home_id(home))
+}
+
+/// `open_request` whose tab names Chief home `home` as its session's host.
+pub fn open_request_for(home: &Path, session: &str, name: &str, key: &str, cwd: &Path) -> Value {
+    let mut request = open_request(session, name, key, cwd);
+    request["params"]["args"]["host"] = json!(chief_host(home));
+    request
 }
 
 /// The `action.run` request that opens `session` in workspace `key`.
@@ -170,7 +192,10 @@ impl Workspaces for AppWorkspaces {
         let key = key.to_owned();
         match control_call(
             &self.control,
-            &open_request(session, name, &key, cwd),
+            &match &self.home {
+                Some(home) => open_request_for(home, session, name, &key, cwd),
+                None => open_request(session, name, &key, cwd),
+            },
             Duration::from_secs(60),
         ) {
             Ok(_) => Ok(key),
@@ -378,6 +403,19 @@ fn rename_by_key(daemon: &Path, key: &str, name: &str) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    /// Live proof subp6: the app showed "This chat isn't available" for every
+    /// subagent: its panes attach to the app's acpmux, the subagents run in the
+    /// Chief home's. The open request names the Chief home as the tab's host.
+    #[test]
+    fn the_open_request_names_the_chief_home_as_the_sessions_host() {
+        let home = std::path::Path::new("/tmp/mux-home");
+        let request = open_request_for(home, "s1", "a1 · x", "k", std::path::Path::new("/tmp"));
+        assert_eq!(
+            request["params"]["args"]["host"],
+            format!("chief:{}", crate::paths::home_id(home))
+        );
+    }
+
     /// Live proof subp3: every done mark failed with "unknown workspace key":
     /// the renames went to the Chief's conversation owner (--daemon-socket),
     /// while the app makes the workspaces in its own daemon.
@@ -433,6 +471,7 @@ mod tests {
         let w = AppWorkspaces {
             control,
             daemon: dir.path().join("daemon.sock"),
+            home: None,
         };
         assert_eq!(
             w.open(&new_key(), "s", "n", Path::new("/w"))
