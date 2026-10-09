@@ -169,6 +169,23 @@ pub fn compactor_sessions() -> usize {
     compactor_sessions_from(std::env::var("OPTCHAT_COMPACTOR_SESSIONS").ok().as_deref())
 }
 
+/// Spare slots for warm sessions started ahead (`Slots::with_spares`):
+/// `OPTCHAT_COMPACTOR_SPARES` (0 to 16), else `WARM_SESSIONS` (4, about
+/// 0.8 GB of Claude Code processes).
+pub fn compactor_spares() -> usize {
+    std::env::var("OPTCHAT_COMPACTOR_SPARES")
+        .ok()
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .filter(|n| *n <= 16)
+        .unwrap_or(WARM_SESSIONS)
+}
+
+/// Every compactor slot: the active ones and the spares (one preset and
+/// working directory each).
+pub fn compactor_slot_count() -> usize {
+    compactor_sessions() + compactor_spares()
+}
+
 /// `compactor_sessions` for a setting value: a number from 1 to JOBS, else
 /// the default.
 pub fn compactor_sessions_from(value: Option<&str>) -> usize {
@@ -197,7 +214,14 @@ pub struct Slots {
 
 #[derive(Default)]
 struct SlotState {
+    /// Each slot (a working directory and preset, one session at a time):
+    /// free or not. There are `max_active` plus the spares.
     free: Vec<bool>,
+    /// Nodes holding a slot (prompting, or starting their session).
+    active: usize,
+    /// At most this many nodes at once (`COMPACTOR_SESSIONS`); the other
+    /// slots hold warm sessions, started ahead for the next nodes.
+    max_active: usize,
     /// Warm sessions, each holding its slot, waiting for a node.
     warm: Vec<Warm>,
     /// Warm sessions being started (their slots held).
@@ -266,10 +290,22 @@ enum Acquired {
 }
 
 impl Slots {
+    /// `jobs` nodes at once, with `WARM_SESSIONS` spare slots for warm
+    /// sessions.
     pub fn new(jobs: usize) -> Arc<Slots> {
+        Slots::with_spares(jobs, WARM_SESSIONS)
+    }
+
+    /// `jobs` nodes at once, and `spares` more slots where warm sessions
+    /// start ahead: a node that frees its slot starts the next session in
+    /// the background (`rewarm`), and a waiting node takes a ready one, so
+    /// its prompt does not wait for a Claude Code start (about 3.7 s).
+    pub fn with_spares(jobs: usize, spares: usize) -> Arc<Slots> {
+        let jobs = jobs.max(1);
         Arc::new(Slots {
             state: Mutex::new(SlotState {
-                free: vec![true; jobs.max(1)],
+                free: vec![true; jobs + spares],
+                max_active: jobs,
                 ..SlotState::default()
             }),
             freed: Condvar::new(),
@@ -296,7 +332,7 @@ impl Slots {
         st.queues[q].push_back(t);
         st.waiting += 1;
         let got = loop {
-            if st.turn(q, t) {
+            if st.active < st.max_active && st.turn(q, t) {
                 let got = if let Some(key) = key
                     && let Some(k) = st.warm.iter().position(|w| w.key == key)
                 {
@@ -312,6 +348,7 @@ impl Slots {
                 };
                 if let Some(got) = got {
                     st.took(q);
+                    st.active += 1;
                     break got;
                 }
             }
@@ -328,16 +365,39 @@ impl Slots {
     }
 
     /// Whether the caller, which holds a slot it is done with, should start
-    /// a warm session in it: no node waits for a slot, and fewer than `max`
-    /// are warm or warming. True counts it as warming until `put_warm` or
-    /// `give`.
+    /// a warm session in it: fewer than `max` are warm or warming. True
+    /// counts the slot as warming until `put_warm` or `give_slot(_, true)`,
+    /// and frees the caller's place among the active nodes at once: a
+    /// waiting node goes on in a spare slot meanwhile.
     fn rewarm(&self, max: usize) -> bool {
         let mut st = self.lock();
-        if st.waiting > 0 || st.warm.len() + st.warming >= max {
+        if st.warm.len() + st.warming >= max {
             return false;
         }
         st.warming += 1;
+        st.active = st.active.saturating_sub(1);
+        drop(st);
+        self.freed.notify_all();
         true
+    }
+
+    /// A ready warm session with `key`, for a node that already holds a
+    /// place among the active nodes (a size retry).
+    fn take_warm(&self, key: u64) -> Option<Warm> {
+        let mut st = self.lock();
+        let k = st.warm.iter().position(|w| w.key == key)?;
+        Some(st.warm.remove(k))
+    }
+
+    /// Frees slot `k` without changing the active count (a retry that took
+    /// a warm session instead of the slot it kept).
+    fn release_slot(&self, k: usize) {
+        let mut st = self.lock();
+        if let Some(slot) = st.free.get_mut(k) {
+            *slot = true;
+        }
+        drop(st);
+        self.freed.notify_all();
     }
 
     fn put_warm(&self, warm: Warm) {
@@ -348,11 +408,14 @@ impl Slots {
         self.freed.notify_all();
     }
 
-    /// Gives `k` back; `warming`: the slot was counted as warming.
+    /// Gives `k` back; `warming`: the slot was counted as warming, else a
+    /// node held it (one active node fewer).
     fn give_slot(&self, k: usize, warming: bool) {
         let mut st = self.lock();
         if warming {
             st.warming = st.warming.saturating_sub(1);
+        } else {
+            st.active = st.active.saturating_sub(1);
         }
         if let Some(slot) = st.free.get_mut(k) {
             *slot = true;
@@ -767,8 +830,15 @@ impl AcpmuxCompactor {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .remove(&node);
         let acquired = match kept {
-            // A size retry: the slot its first try held.
-            Some(k) => Acquired::Slot(k),
+            // A size retry: a ready warm session, else the slot its first
+            // try held.
+            Some(k) => match (self.warm > 0).then(|| self.slots.take_warm(key)).flatten() {
+                Some(w) => {
+                    self.slots.release_slot(k);
+                    Acquired::Warm(w)
+                }
+                None => Acquired::Slot(k),
+            },
             None => self
                 .slots
                 .acquire((self.warm > 0).then_some(key), foreground),
@@ -1779,7 +1849,7 @@ pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str, family: Fami
     let base = format!("optchat-compact-{}", home_id(home));
     if family == Family::Codex {
         // Codex: the slot's own CODEX_HOME and the Chief's compactor cache key.
-        return (0..compactor_sessions())
+        return (0..compactor_slot_count())
             .map(|k| Preset {
                 name: slot_preset(&base, k),
                 harness: harness.to_owned(),
@@ -1848,7 +1918,7 @@ pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str, family: Fami
     // Claude Code flags and system prompts: a Claude harness only (claude,
     // claude-sr, ...); another harness keeps the old layout.
     let claude = family == Family::Claude;
-    (0..compactor_sessions())
+    (0..compactor_slot_count())
         .map(|k| Preset {
             name: slot_preset(&base, k),
             harness: harness.to_owned(),

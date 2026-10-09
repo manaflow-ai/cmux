@@ -830,9 +830,10 @@ fn the_compactor_presets_are_one_per_slot_with_allowlisted_args_and_a_system_pro
     let home = dir.path().join("mux");
     let paths = Paths::new(&home);
     let presets = compactor_presets(&paths, &home, "claude-sr", Family::Claude);
+    // One per slot: the active ones and the spares for warm sessions.
     assert_eq!(
         presets.len(),
-        COMPACTOR_SESSIONS,
+        COMPACTOR_SESSIONS + optchat_chief::compactor::WARM_SESSIONS,
         "one per slot: a slot's prompt never races another's"
     );
     let id = optchat_chief::paths::home_id(&home);
@@ -858,7 +859,10 @@ fn the_compactor_presets_are_one_per_slot_with_allowlisted_args_and_a_system_pro
     assert_eq!(presets[0].args, COMPACTOR_ARGS);
     // Claude Code flags and system prompts mean nothing to another harness.
     let codex = compactor_presets(&paths, &home, "codex", Family::Codex);
-    assert_eq!(codex.len(), COMPACTOR_SESSIONS);
+    assert_eq!(
+        codex.len(),
+        COMPACTOR_SESSIONS + optchat_chief::compactor::WARM_SESSIONS
+    );
     assert!(
         codex
             .iter()
@@ -970,7 +974,10 @@ fn codex_compactor_presets_give_each_slot_its_own_codex_home_and_the_compact_cac
     let paths = Paths::new(&home);
     let id = optchat_chief::paths::home_id(&home);
     let presets = compactor_presets(&paths, &home, "codex", Family::Codex);
-    assert_eq!(presets.len(), COMPACTOR_SESSIONS);
+    assert_eq!(
+        presets.len(),
+        COMPACTOR_SESSIONS + optchat_chief::compactor::WARM_SESSIONS
+    );
     let mut homes = std::collections::BTreeSet::new();
     for (k, p) in presets.iter().enumerate() {
         assert_eq!(p.name, format!("optchat-compact-{id}-slot-{k}"));
@@ -990,7 +997,11 @@ fn codex_compactor_presets_give_each_slot_its_own_codex_home_and_the_compact_cac
         assert!(p.args.is_empty() && p.system_prompt.is_none());
         homes.insert(p.env["CODEX_HOME"].clone());
     }
-    assert_eq!(homes.len(), COMPACTOR_SESSIONS, "one CODEX_HOME per slot");
+    assert_eq!(
+        homes.len(),
+        COMPACTOR_SESSIONS + optchat_chief::compactor::WARM_SESSIONS,
+        "one CODEX_HOME per slot"
+    );
 }
 
 /// A slot's codex config.toml keeps where requests go and the model, and
