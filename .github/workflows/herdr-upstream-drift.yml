@@ -1,0 +1,75 @@
+# Reports when upstream herdr (https://github.com/ogulcancelik/herdr, Apache-2.0)
+# changes the agent-detection manifests or the detector engine sources that the
+# cmux agent screen-detection plugin vendors and adapts
+# (cmux-tui/bindings/examples/rust-agent-screen-detection, pin HERDR_UPSTREAM.toml).
+#
+# It checks out feat-cmux-next explicitly, shallow-clones the herdr tip from
+# public sources (no token), and runs `herdr-sync.py drift`. On drift it opens
+# or updates ONE issue titled "herdr upstream drift" with the summary. It never
+# opens a pull request: taking the change means running `herdr-sync.py sync`,
+# porting engine changes by hand and updating the attribution notes.
+#
+# Scheduled workflows run only from the default branch (main). Until this file
+# is on main, the schedule does not fire; run it with workflow_dispatch.
+
+name: herdr upstream drift
+
+on:
+  schedule:
+    - cron: "41 7 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: herdr-upstream-drift
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  drift:
+    if: github.repository_owner == 'manaflow-ai'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: feat-cmux-next
+          persist-credentials: false
+      - name: Clone the herdr tip
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --filter=blob:none https://github.com/ogulcancelik/herdr.git "$RUNNER_TEMP/herdr"
+          git -C "$RUNNER_TEMP/herdr" log -1 --format='herdr tip %H %cs %s'
+      - name: Compare with the pin
+        id: drift
+        run: |
+          set -uo pipefail
+          python3 -I scripts/cmux-next/herdr-sync.py drift \
+            --herdr "$RUNNER_TEMP/herdr" --rev HEAD \
+            --summary-out "$RUNNER_TEMP/herdr-drift.md"
+          status=$?
+          case "$status" in
+            0) echo "result=clean" >> "$GITHUB_OUTPUT" ;;
+            1) echo "result=drift" >> "$GITHUB_OUTPUT" ;;
+            *) exit "$status" ;;
+          esac
+      - name: Open or update the drift issue
+        if: steps.drift.outputs.result == 'drift'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          title="herdr upstream drift"
+          number="$(gh issue list --state open --search "\"$title\" in:title" --json number,title \
+            --jq "map(select(.title == \"$title\")) | first | .number // empty")"
+          if [ -n "$number" ]; then
+            gh issue edit "$number" --body-file "$RUNNER_TEMP/herdr-drift.md"
+            echo "updated issue #$number"
+          else
+            gh issue create --title "$title" --body-file "$RUNNER_TEMP/herdr-drift.md"
+          fi
