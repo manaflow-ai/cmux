@@ -23,8 +23,8 @@ pub use compact::{
 pub use memory::{most_due, Checkpoint, Memory, NotRunning, Store, Work, AHEAD};
 pub use node::{Kind, NodeId};
 pub use render::{
-    block_cuts, block_pieces, cache_marks, cache_pieces, render_parts, render_view, view_line,
-    zoom, RenderedView, ZoomError, BLOCK_LINES,
+    block_cuts, block_pieces, cache_marks, cache_pieces, mark_piece, render_parts, render_view,
+    view_line, zoom, RenderedView, ZoomError, BLOCK_LINES, LOOKBACK_BLOCKS, MARK_REACH,
 };
 
 /// Target size of one summary line, in UTF-8 bytes (section 3).
