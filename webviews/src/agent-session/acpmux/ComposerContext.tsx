@@ -565,7 +565,7 @@ function LocationPicker({
         />
         {onBrowse && (
           <>
-            <div className="ui-separator" role="separator" />
+            <hr className="ui-separator" />
             <button
               type="button"
               className="acpmux-menu-item acpmux-location-choose"
