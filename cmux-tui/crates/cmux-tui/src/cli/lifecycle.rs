@@ -294,7 +294,11 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             {
                 return local_error(
                     "server.end_terminals_unsupported",
-                    crate::localization::catalog().local_server.end_terminals_unsupported,
+                    &refused_with_fix(
+                        crate::localization::catalog().local_server.end_terminals_unsupported,
+                        &super::fix_command::this_cli(),
+                        std::path::Path::new(&socket_output),
+                    ),
                     global.output,
                     1,
                 );
@@ -309,7 +313,11 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             {
                 return local_error(
                     "server.force_unsupported",
-                    crate::localization::catalog().local_server.force_unsupported,
+                    &refused_with_fix(
+                        crate::localization::catalog().local_server.force_unsupported,
+                        &super::fix_command::this_cli(),
+                        std::path::Path::new(&socket_output),
+                    ),
                     global.output,
                     1,
                 );
@@ -618,6 +626,13 @@ fn print_success(value: Value, output: OutputMode) -> i32 {
     super::wire::print_local_success(&value, output)
 }
 
+/// A stop this daemon refuses (another build): `text` and the one command
+/// that restarts the daemon at `socket` with `cli`'s build
+/// (plans/cmux-next/version-skew.md).
+fn refused_with_fix(text: &str, cli: &std::path::Path, socket: &std::path::Path) -> String {
+    format!("{text} {}", super::fix_command::restart_daemon(cli, socket))
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::{self, Cursor, Read, Write};
@@ -638,6 +653,24 @@ mod tests {
     fn accepts_session_names_for_explicit_and_default_socket_routes() {
         assert!(valid_session_name("main"));
         assert!(valid_session_name("agent-1"));
+    }
+
+    // Version skew: a refused stop names the one command that restarts the
+    // daemon with this CLI (plans/cmux-next/version-skew.md, skew matrix).
+    #[test]
+    fn refused_stop_names_the_one_restart_command_in_every_language() {
+        let cli = std::path::Path::new("/opt/cmux new/cmux-tui");
+        let socket = std::path::Path::new("/tmp/skm/cmux-tui-1000/skm.sock");
+        let fix = crate::cli::fix_command::restart_daemon(cli, socket);
+        for locale in ["en", "ja"] {
+            let messages = &crate::localization::catalog_for_locale(locale).local_server;
+            for text in [messages.end_terminals_unsupported, messages.force_unsupported] {
+                assert!(text.trim_end().ends_with(':'), "{locale}: {text:?} must lead into the command");
+                let message = refused_with_fix(text, cli, socket);
+                assert_eq!(message.matches(fix.as_str()).count(), 1, "{locale}: {message}");
+                assert!(message.ends_with(&fix), "{locale}: {message}");
+            }
+        }
     }
 
     struct UnreadableStream;
