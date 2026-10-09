@@ -2,6 +2,7 @@ import CmuxControlPlane
 import CmuxFeedPushCore
 import CmuxHomeCore
 import CmuxMobileWire
+import CmuxiOSCloudCore
 import CmuxHomeUI
 import CMUXMobileCore
 import CmuxiOSAuth
@@ -575,7 +576,7 @@ final class AppContainer {
 
     /// Creates one authenticated Durable Object socket. The install token is
     /// supplied only in the WebSocket subprotocol by `ControlPlaneClient`.
-    private static func makeHomeControlPlaneClient(
+    private nonisolated static func makeHomeControlPlaneClient(
         base: URL, path: String, install: String, appVersion: String,
         token: @escaping @Sendable () async throws -> String
     ) -> ControlPlaneClient {

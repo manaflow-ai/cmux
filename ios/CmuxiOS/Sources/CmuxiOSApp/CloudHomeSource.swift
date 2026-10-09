@@ -23,7 +23,7 @@ final actor CloudHomeSource: HomeSource {
     private var user: String?
     private var userSession: (any ControlPlaneSession)?
     private var startTask: Task<Void, Never>?
-    private var inboxCache = InboxSnapshot(me: Participant(id: "", kind: .human, displayName: ""), conversations: [], rev: 0)
+    private var inboxCache = InboxSnapshot(me: Participant(id: ParticipantID(""), kind: .human, displayName: ""), conversations: [], rev: 0)
     private var inboxTask: Task<Void, Never>?
     private var stateTask: Task<Void, Never>?
     private var conversationClients: [ConversationID: any ControlPlaneSession] = [:]
@@ -57,7 +57,10 @@ final actor CloudHomeSource: HomeSource {
             await startTask.value
             return
         }
-        let task = Task { [weak self] in await self?.resolveAndStart() }
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.resolveAndStart()
+        }
         startTask = task
         await task.value
     }
@@ -139,7 +142,7 @@ final actor CloudHomeSource: HomeSource {
         case .committed(let value, let revision):
             let conversation = value["conversation"]?["id"]?.stringValue ?? value["conversation"]?.stringValue
             let invite = value["invite"].flatMap(decodeInvite)
-            return HomeOpResult(rev: revision, replayed: false, conversation: conversation.map(ConversationID.init), invite: invite)
+            return HomeOpResult(rev: revision, replayed: false, conversation: conversation.map { ConversationID($0) }, invite: invite)
         case .rejected(let code, let retryable): throw rejection(code: code, retryable: retryable)
         }
     }
@@ -165,7 +168,11 @@ final actor CloudHomeSource: HomeSource {
 
     func resolve(_ contact: ContactAddress) async throws -> ContactResolution { .invitable(contact) }
 
-    func close(_ conversation: ConversationID) {
+    nonisolated func close(_ conversation: ConversationID) {
+        Task { await closeConversation(conversation) }
+    }
+
+    private func closeConversation(_ conversation: ConversationID) {
         conversationTasks.removeValue(forKey: conversation)?.cancel()
         if let session = conversationClients.removeValue(forKey: conversation) { Task { await session.stop() } }
     }
@@ -191,7 +198,8 @@ final actor CloudHomeSource: HomeSource {
         case .event(let event):
             guard let effects = event.effects?.objectValue,
                   let writes = effects["writes"]?.arrayValue else { return }
-            var current = Dictionary(inboxCache.conversations.map { ($0.id, $0) }, uniquingKeysWith: { $1 })
+            var current: [ConversationID: ConversationSummary] = Dictionary(
+                uniqueKeysWithValues: inboxCache.conversations.map { ($0.id, $0) })
             for write in writes {
                 guard write["table"]?.stringValue == "entry", let key = write["key"]?.stringValue else { continue }
                 if write["op"]?.stringValue == "delete" { current.removeValue(forKey: ConversationID(key)) }
@@ -317,7 +325,7 @@ private extension CloudHomeSource {
         let kind: Participant.Kind = value["kind"]?.stringValue == "agent" ? .agent : .human
         let agentClass: Participant.AgentClass? = value["agent_class"]?.stringValue.map { $0 == "mux" ? .chief : .agent }
         let membership: Participant.Membership = value["kind"]?.stringValue == "address" ? .invited : .active
-        return Participant(id: ParticipantID(id), kind: kind, displayName: value["display_name"]?.stringValue ?? "", agentClass: agentClass, ownerUser: value["owner_user"]?.stringValue.map(ParticipantID.init), membership: membership, invitedContact: membership == .invited ? value["display_name"]?.stringValue : nil)
+        return Participant(id: ParticipantID(id), kind: kind, displayName: value["display_name"]?.stringValue ?? "", agentClass: agentClass, ownerUser: value["owner_user"]?.stringValue.map { ParticipantID($0) }, membership: membership, invitedContact: membership == .invited ? value["display_name"]?.stringValue : nil)
     }
     func message(_ value: JSONValue) throws -> Message? {
         guard let id = value["id"]?.stringValue, let conversation = value["conversation"]?.stringValue, let author = value["author"]?.stringValue else { return nil }
