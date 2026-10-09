@@ -32,7 +32,7 @@ enum AgentSessionWorkspace {
         let cwd = invocation["cwd"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         // The Chief host's own acpmux runs the session (`chief:<home id>`); absent: this Mac's.
         let host = invocation["host"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
-        let task = try open(session: session, name: name, key: key, cwd: cwd, services: context.services)
+        let task = try open(session: session, name: name, key: key, cwd: cwd, host: host, services: context.services)
         context.services.registry.track(task)
     }
 
@@ -41,7 +41,7 @@ enum AgentSessionWorkspace {
     /// sidebar this way too. Throws when this build has no agent page or the
     /// daemon is offline.
     @discardableResult
-    static func open(session: String, name: String?, key: WorkspaceKey = .generate(), cwd: String?,
+    static func open(session: String, name: String?, key: WorkspaceKey = .generate(), cwd: String?, host: String? = nil,
                      services: AppServices) throws -> ActionWork {
         guard services.agentTabs.canHostChat else { throw ActionFailure(message: MiscHandlerStrings.quickChatUnavailable) }
         let daemon = services.daemon
