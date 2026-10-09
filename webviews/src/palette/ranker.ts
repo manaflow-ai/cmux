@@ -435,13 +435,16 @@ function withinOneEdit(a: readonly string[], b: readonly string[]): boolean {
   if (Math.abs(a.length - b.length) > 1) return false;
   const rows = a.length + 1;
   const cols = b.length + 1;
-  const d: number[][] = Array.from({ length: rows }, (_, i) => Array.from({ length: cols }, (_, j) => (i === 0 ? j : j === 0 ? i : 0)));
+  const d: number[][] = Array.from({ length: rows }, (_, i) =>
+    Array.from({ length: cols }, (_, j) => (i === 0 ? j : j === 0 ? i : 0)),
+  );
   for (let i = 1; i < rows; i++) {
     let rowMin = Number.POSITIVE_INFINITY;
     for (let j = 1; j < cols; j++) {
       const cost = a[i - 1] === b[j - 1] ? 0 : 1;
       let value = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
-      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) value = Math.min(value, d[i - 2][j - 2] + 1);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1])
+        value = Math.min(value, d[i - 2][j - 2] + 1);
       d[i][j] = value;
       rowMin = Math.min(rowMin, value);
     }
@@ -509,7 +512,11 @@ function actionIDTier(entry: PaletteRankEntry, query: Query): number | null {
 }
 
 /** The row's tier and the query its quality is measured with (a typo row: the corrected one). */
-function entryTier(entry: PaletteRankEntry, query: Query, fields: readonly Field[]): { tier: number; query: Query } | null {
+function entryTier(
+  entry: PaletteRankEntry,
+  query: Query,
+  fields: readonly Field[],
+): { tier: number; query: Query } | null {
   const byText = textTier(entry, query, fields);
   const byID = actionIDTier(entry, query);
   if (!byText) return byID === null ? null : { tier: byID, query };
@@ -518,7 +525,11 @@ function entryTier(entry: PaletteRankEntry, query: Query, fields: readonly Field
   return byText;
 }
 
-function textTier(entry: PaletteRankEntry, query: Query, fields: readonly Field[]): { tier: number; query: Query } | null {
+function textTier(
+  entry: PaletteRankEntry,
+  query: Query,
+  fields: readonly Field[],
+): { tier: number; query: Query } | null {
   const title = fields[0].text;
   const tiered = (tier: number) => ({ tier, query });
   if (titleIsQuery(entry.title, query.raw)) return tiered(matchTier.wholeTitle);
@@ -590,7 +601,10 @@ function matchQuality(query: Query, fields: readonly Field[]): number {
   }
   const title = fields[0].text;
   // A query that is the title's whole initials ("sr" for Split Right) beats a longer title.
-  const initialsBonus = query.joined.length >= 2 && title.initials.length === query.joined.length && hasPrefix(title.initials, query.joined) ? 40 : 0;
+  const initialsBonus =
+    query.joined.length >= 2 && title.initials.length === query.joined.length && hasPrefix(title.initials, query.joined)
+      ? 40
+      : 0;
   const quality = total + bonus + initialsBonus - Math.floor(title.folded.length / 6);
   return Math.max(0, Math.min(maximumQuality, quality));
 }

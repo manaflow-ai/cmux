@@ -8,7 +8,8 @@
  *   bun scripts/palette-eval.ts --explain "query"         # the top 12 rows with scores and sections
  */
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   evaluate,
   formatReport,
@@ -21,18 +22,16 @@ import {
 } from "../src/palette/eval";
 import { rankPalette } from "../src/palette/ranker";
 
-const root = join(import.meta.dir, "..", "test", "fixtures", "palette-eval");
+const scriptPath = fileURLToPath(import.meta.url);
+const root = join(dirname(scriptPath), "..", "test", "fixtures", "palette-eval");
 const read = <T>(path: string): T => JSON.parse(readFileSync(path, "utf8")) as T;
 
 export function loadEval(fixturePath = join(root, "root-entries.json")) {
-  const fixture = mergeOverlay(
-    read<EvalFixture>(fixturePath),
-    read<EvalOverlayEntry[]>(join(root, "overlay.json")),
-  );
+  const fixture = mergeOverlay(read<EvalFixture>(fixturePath), read<EvalOverlayEntry[]>(join(root, "overlay.json")));
   return { fixture, cases: read<EvalCases>(join(root, "cases.json")) };
 }
 
-if (import.meta.main) {
+if (process.argv[1] && fileURLToPath(new URL(process.argv[1], "file://")) === scriptPath) {
   const args = process.argv.slice(2);
   const option = (name: string) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined);
   const { fixture, cases } = loadEval(option("--fixture"));
@@ -58,7 +57,9 @@ if (import.meta.main) {
   const liveIndex = args.indexOf("--live");
   let report;
   if (liveIndex >= 0) {
-    const live = read<{ tag: string; results: Record<string, Array<{ id: string }> | { error: unknown }> }>(args[liveIndex + 1]);
+    const live = read<{ tag: string; results: Record<string, Array<{ id: string }> | { error: unknown }> }>(
+      args[liveIndex + 1],
+    );
     // Live rows come from a fresh build: no usage, no overlay rows. Only cases without a profile
     // whose expected rows exist in that build are scored.
     const ids = new Set(read<EvalFixture>(join(root, "root-entries.json")).entries.map((row) => row.id));
