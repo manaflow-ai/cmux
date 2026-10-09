@@ -37,9 +37,19 @@ esac
     bin
 }
 
+/// Running, not a zombie: an orphan whose new parent has not reaped it yet
+/// has ended (a container's pid 1 may never reap).
 fn alive(pid: i32) -> bool {
     // SAFETY: signal 0 only checks that the process exists.
-    unsafe { libc::kill(pid, 0) == 0 }
+    if unsafe { libc::kill(pid, 0) } != 0 {
+        return false;
+    }
+    match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+        Ok(stat) => stat
+            .rsplit_once(") ")
+            .is_none_or(|(_, rest)| !rest.starts_with('Z')),
+        Err(_) => true,
+    }
 }
 
 fn wait_for(what: &str, limit: Duration, mut done: impl FnMut() -> bool) {
