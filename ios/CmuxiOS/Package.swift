@@ -18,6 +18,7 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../../Packages/Shared/CmuxHomeCore"),
+        .package(path: "../../Packages/Shared/CmuxAgentQuestion"),
         .package(path: "../../Packages/Shared/CmuxHomeRender"),
         .package(path: "../../Packages/Shared/CmuxFeedPushCore"),
         .package(path: "../../Packages/Shared/CmuxInstallAuthCore"),
@@ -121,6 +122,7 @@ let package = Package(
                 "CmuxiOSTextConfirm",
                 .product(name: "CmuxTextConfirmCore", package: "CmuxTextConfirmCore"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
+                .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 .product(name: "CmuxPhonePush", package: "CmuxPhonePush"),
             ],
             resources: [.process("Resources")],
