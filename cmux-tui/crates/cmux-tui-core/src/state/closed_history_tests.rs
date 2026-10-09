@@ -429,6 +429,9 @@ fn closed_delete_removes_groups_members_and_clears() {
     assert_eq!(whole["deleted"], json!([single]));
     let replay = send(&mux, "closed.delete", json!({"closed": single}), Some("d2")).unwrap();
     assert_eq!(replay["replayed"], true);
+    // The same key with another request is a conflict, not a second delete.
+    let conflict = send(&mux, "closed.delete", json!({"all": true}), Some("d2"));
+    assert_eq!(error_code(conflict), "idempotency.conflict");
     let gone = send(&mux, "closed.reopen", json!({"closed": single}), Some("r1"));
     assert_eq!(error_code(gone), "resource.not_found");
 

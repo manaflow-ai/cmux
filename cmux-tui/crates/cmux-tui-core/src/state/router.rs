@@ -497,15 +497,26 @@ pub(crate) fn dispatch(
         }
         Op::ClosedDelete => {
             ensure_session(mux, selectors)?;
+            let members = match fields.get("members").and_then(Value::as_array) {
+                Some(members) => Some(
+                    members
+                        .iter()
+                        .map(|member| {
+                            member.as_u64().and_then(|m| usize::try_from(m).ok()).ok_or_else(|| {
+                                ResourceError::validation_invalid(
+                                    Some("members"),
+                                    "members must be member indexes",
+                                )
+                            })
+                        })
+                        .collect::<Result<Vec<_>, _>>()?,
+                ),
+                None => None,
+            };
             let delete = DeleteRequest {
                 closed: string(fields, "closed"),
                 all: fields.get("all").and_then(Value::as_bool).unwrap_or(false),
-                members: fields.get("members").and_then(Value::as_array).map(|members| {
-                    members
-                        .iter()
-                        .filter_map(|member| member.as_u64().and_then(|m| usize::try_from(m).ok()))
-                        .collect()
-                }),
+                members,
                 since_ms: match string(fields, "since_ms") {
                     Some(since) => Some(since.parse::<i64>().map_err(|_| {
                         ResourceError::validation_invalid(None, "since_ms must be a decimal")

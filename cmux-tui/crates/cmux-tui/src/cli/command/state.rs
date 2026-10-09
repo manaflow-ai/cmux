@@ -758,6 +758,9 @@ pub(super) fn parse_closed(words: &[&str], flags: &mut Flags) -> Result<CommandP
             Op::ClosedDelete
         }
         [closed, "delete"] => {
+            if closed.is_empty() || closed.len() > 64 {
+                return Err(UsageError::new("closed id must contain 1 to 64 UTF-8 bytes"));
+            }
             params.insert("closed", Value::String((*closed).into()));
             if let Some(members) = flags.take("members") {
                 params.insert("members", closed_members(&members)?);

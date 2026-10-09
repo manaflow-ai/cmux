@@ -11621,7 +11621,7 @@
         },
         "extra": false,
         "constraints": [
-          "Deletion is permanent: a deleted group cannot be reopened."
+          "Deletion is permanent: a deleted group cannot be reopened and its terminal archives are removed; the resource and session journals keep what they already recorded until their own retention."
         ]
       },
       "result": {

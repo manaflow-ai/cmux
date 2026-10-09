@@ -1,8 +1,10 @@
 //! `closed.delete`: Delete Permanently and Clear Recently Closed
 //! (plans/cmux-next/reopen-closed.md, S1b). A group, chosen members of a
 //! group, every group, or every group closed at or after `since_ms` leave
-//! the history for good. The request's key records the result, so a retry
-//! replays it.
+//! the history for good: they cannot be reopened, and their terminal
+//! archives go with them. The resource and session journals keep what they
+//! already recorded (names, screen output) until their own retention. The
+//! request's key records the result, so a retry replays it.
 
 use rusqlite::{Transaction, params};
 
@@ -38,12 +40,19 @@ impl DeleteRequest {
         Ok(())
     }
 
+    /// Members in order, once each: `[1, 0]` and `[0, 1]` are one request.
     fn fingerprint(&self) -> Value {
+        let members = self.members.as_ref().map(|members| {
+            let mut members = members.clone();
+            members.sort_unstable();
+            members.dedup();
+            members
+        });
         serde_json::json!({
             "operation": OPERATION,
             "closed": self.closed,
             "all": self.all,
-            "members": self.members,
+            "members": members,
             "since_ms": self.since_ms,
         })
     }
@@ -96,7 +105,12 @@ fn delete_one(
                 .collect()
         }
     };
-    if keep.is_empty() {
+    // Deleting the last members of a deleted space or workspace group keeps
+    // its restore record (a valid zero-member group); only deleting the group
+    // itself removes it.
+    let restores_container =
+        ["room", "group"].iter().any(|key| record.get(*key).is_some_and(Value::is_object));
+    if keep.is_empty() && !(members.is_some() && restores_container) {
         remove_closed(transaction, closed_id)?;
         out.deleted.push(closed_id.to_string());
         out.changes.push(state_delete("closed", closed_id));
@@ -137,12 +151,17 @@ impl Mux {
         request: &DeleteRequest,
     ) -> anyhow::Result<StateCommit> {
         request.validate()?;
+        // Serialized with closed.reopen: a delete between a reopen's group
+        // read and its commit would fail that reopen after its tabs exist.
+        let _serial =
+            super::closed_history::REOPEN.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let fingerprint = request.fingerprint();
-        if let Some(replay) = self.workspace_registry.lock().unwrap().replay_resource_patch(
-            mutation,
-            OPERATION,
-            &fingerprint,
-        )? {
+        if let Some(replay) = self
+            .workspace_registry
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .replay_resource_patch(mutation, OPERATION, &fingerprint)?
+        {
             return Ok(replay.into());
         }
         self.commit_state(

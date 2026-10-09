@@ -122,3 +122,31 @@ fn deleting_a_space_moving_to_another_keeps_the_workspaces_open() {
     let target = rooms(&mux).into_iter().find(|room| room["id"] == target["id"]).unwrap();
     assert_eq!(pinned_workspaces(&target), vec![workspace]);
 }
+
+/// `closed.delete` of every member of a deleted space keeps the group with
+/// no member: the space itself can still come back. Deleting the group
+/// removes the space record too.
+#[test]
+fn deleting_the_members_of_a_deleted_space_keeps_the_space_restorable() {
+    let mux = Mux::new_for_test("room-delete-members", SurfaceOptions::default());
+    terminal_tabs(&mux, 1);
+    let first = workspace_of(&mux, terminal_tabs(&mux, 1)[0]);
+    let second = workspace_of(&mux, terminal_tabs(&mux, 1)[0]);
+    let room = mutate(&mux, "room.create", json!({"name": "Side"}), "room-1");
+    let room_id = room["id"].as_str().unwrap().to_string();
+    mutate(&mux, "room.pin", json!({"room": room_id, "workspace": first}), "pin-1");
+    mutate(&mux, "room.pin", json!({"room": room_id, "workspace": second}), "pin-2");
+    mutate(&mux, "room.delete", json!({"room": room_id}), "delete");
+    let closed = read(&mux, "closed.list", json!({}));
+    let group = closed[0]["id"].clone();
+
+    let deleted =
+        mutate(&mux, "closed.delete", json!({"closed": group, "members": [1, 0]}), "members");
+    assert_eq!(deleted["deleted"], json!([]), "{deleted}");
+    assert_eq!(deleted["updated"], json!([group]));
+    assert_eq!(read(&mux, "closed.list", json!({}))[0]["member_count"], 0);
+
+    mutate(&mux, "closed.reopen", json!({"closed": group}), "reopen");
+    let restored = rooms(&mux).into_iter().find(|room| room["id"] == room_id);
+    assert!(restored.is_some_and(|room| pinned_workspaces(&room).is_empty()));
+}
