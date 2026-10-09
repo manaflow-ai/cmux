@@ -244,7 +244,8 @@ bun $R/cmux-old.ts generate --tag <new stable tag>                         # aft
 
 The client half replays the requests the latest stable release's shipped Swift builds
 (`cmux-old/<tag>.json`, generated from the tag alone, no network, byte-for-byte reproducible:
-81 requests for v0.65.0, tag commit 499779c6c2c0). For each "/api/" literal the generator finds
+81 requests for v0.65.0, tag commit dda24fbd2250, build 108; origin moved the tag from 499779c6c2c0
+on 2026-10-05, and the gate refuses a spec whose commit is not what origin's tag names now). For each "/api/" literal the generator finds
 the method (call argument, the helper or function that sets `httpMethod`, a ternary, a URL helper's
 callers), the path template, the header names the client sets, the JSON body keys and, for reads,
 the shape the client's decoder needs: parsed from the `Decodable` struct (CodingKeys, optionals,

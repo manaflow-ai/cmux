@@ -1,21 +1,13 @@
 {
-  "_doc": "Reviewed facts about v0.65.0 (tag commit 499779c6c2c0) that cmux-old.ts generate cannot read from the Swift source alone. skip: an \"/api/\" literal that is not a request to the cmux web origin. methods: the method when the source passes it in a variable. responses: the shape a hand-written (JSONSerialization) decoder needs, keys it reads with `guard ... else { throw }` are required, keys it reads with `as?` and a fallback are optional (\"key?\"). reads: a non-GET request that changes no state, replayed signed in with this body. shapeOnly: a GET never replayed signed in. fill: where the replay takes each path parameter (team = the agent's selected Stack team, vm = its first machine, publication = its first publication). Every entry must match the tag; generate fails on a stale one.",
-  "skip": {
-    "Packages/Shared/CmuxAPIClient/Sources/CmuxAPIClient/CmuxAPIClient.swift:11": "base path of the generated OpenAPI client CmuxAPIClient; no shipped code constructs CmuxAPIClient at v0.65.0",
-    "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:13": "path set of the read-cache invalidation table (no request)",
-    "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:17": "read-cache invalidation path (no request)",
-    "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:18": "read-cache invalidation path (no request)",
-    "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:21": "read-cache invalidation path (no request)",
-    "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:23": "read-cache invalidation path (no request)",
-    "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:24": "read-cache invalidation path (no request)",
-    "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:32": "read-cache invalidation path (no request)",
-    "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:36": "read-cache invalidation path (no request)",
-    "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:46": "read-cache invalidation path (no request)",
-    "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1751": "lifecycleTransition(action:) sends only pause or resume (VMClient.swift:1735, 1743): the same requests as POST /api/vm/{id}/pause and /resume from CloudAPIRequestBuilder.swift:69, 75",
-    "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:2408": "comparison in the retry policy (no request)",
-    "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:2469": "comparison in the operation classifier (no request)",
-    "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClientTelemetry.swift:235": "telemetry route label switch (no request)",
-    "Sources/AgentChatThemeSync.swift:181": "POST to the local agent-chat sidecar origin (agentChat.url), not the cmux web origin"
+  "_doc": "Reviewed facts about v0.65.0 (origin's tag, commit dda24fbd2250) that cmux-old.ts generate cannot read from the Swift source alone. skip: an \"/api/\" literal that is not a request to the cmux web origin. methods: the method when the source passes it in a variable. responses: for a hand-written (JSONSerialization) decoder, the keys whose absence or wrong type makes it throw (keys it reads with `as?` and a fallback are left out; \"a|b\" when it accepts either name), with the source line; or `decodable`, a Decodable type the decoder uses away from the request, parsed like the others. reads: a non-GET request that changes no state, replayed like the client with this body. anonymous: a read the client sends without credentials. shapeOnly: a GET never replayed signed in. fill: where the replay takes each path parameter (team = the agent's selected Stack team, vm = its first machine, publication = its first publication; \"=x\" a literal). Every entry must match the tag; generate fails on a stale one.",
+  "anonymous": {
+    "GET /api/mobile-mac-compat": "mobileRemoteJSONLoader (Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/MobileRemoteJSONLoader.swift:10) sets only Accept: no credentials",
+    "GET /api/whats-new": "mobileRemoteJSONLoader (Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/MobileRemoteJSONLoader.swift:10) sets only Accept: no credentials"
+  },
+  "fill": {
+    "team": "team",
+    "encodedID": "vm",
+    "GET /api/vm/publications/{encodedID}/grants#encodedID": "publication"
   },
   "methods": {
     "Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileFeedbackEmailClient.swift:29": {
@@ -57,10 +49,14 @@
       "reason": "the read key feeds self.request(\"GET\", path: key.path) at VMClient.swift:3071"
     }
   },
-  "fill": {
-    "team": "team",
-    "encodedID": "vm",
-    "GET /api/vm/publications/{encodedID}/grants#encodedID": "publication"
+  "reads": {
+    "POST /api/client-config": {
+      "body": {
+        "distinctId": "cmuxnp-dev-compat-replay",
+        "context": {}
+      },
+      "reason": "returns feature-flag config for a distinct id; stores nothing (HTTPClientConfigLoader.swift:34, web/app/api/client-config/route.ts on main); replayed without credentials like the client"
+    }
   },
   "responses": {
     "GET /api/coderouter/claude-upstream": {
@@ -190,17 +186,21 @@
       "source": "Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/MobileWhatsNewCenter.swift:113"
     }
   },
-  "reads": {
-    "POST /api/client-config": {
-      "body": {
-        "distinctId": "cmuxnp-dev-compat-replay",
-        "context": {}
-      },
-      "reason": "returns feature-flag config for a distinct id; stores nothing (HTTPClientConfigLoader.swift:34, web/app/api/client-config/route.ts on main); replayed without credentials like the client"
-    }
-  },
-  "anonymous": {
-    "GET /api/mobile-mac-compat": "mobileRemoteJSONLoader (Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/MobileRemoteJSONLoader.swift:10) sets only Accept: no credentials",
-    "GET /api/whats-new": "mobileRemoteJSONLoader (Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/MobileRemoteJSONLoader.swift:10) sets only Accept: no credentials"
+  "skip": {
+    "Packages/Shared/CmuxAPIClient/Sources/CmuxAPIClient/CmuxAPIClient.swift:11": "base path of the generated OpenAPI client CmuxAPIClient; no shipped code constructs CmuxAPIClient at v0.65.0",
+    "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:13": "path set of the read-cache invalidation table (no request)",
+    "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:17": "read-cache invalidation path (no request)",
+    "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:18": "read-cache invalidation path (no request)",
+    "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:21": "read-cache invalidation path (no request)",
+    "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:23": "read-cache invalidation path (no request)",
+    "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:24": "read-cache invalidation path (no request)",
+    "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:32": "read-cache invalidation path (no request)",
+    "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:36": "read-cache invalidation path (no request)",
+    "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:46": "read-cache invalidation path (no request)",
+    "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1751": "lifecycleTransition(action:) sends only pause or resume (VMClient.swift:1735, 1743): the same requests as POST /api/vm/{id}/pause and /resume from CloudAPIRequestBuilder.swift:69, 75",
+    "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:2408": "comparison in the retry policy (no request)",
+    "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:2469": "comparison in the operation classifier (no request)",
+    "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClientTelemetry.swift:235": "telemetry route label switch (no request)",
+    "Sources/AgentChatThemeSync.swift:181": "POST to the local agent-chat sidecar origin (agentChat.url), not the cmux web origin"
   }
 }

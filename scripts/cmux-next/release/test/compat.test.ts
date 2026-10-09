@@ -92,6 +92,8 @@ describe("the in-step gate decision (compatNow)", () => {
   const pass: GateInput = {
     latest: "v0.65.0",
     specTag: "v0.65.0",
+    specSha: "dda24fbd2250",
+    tagSha: "dda24fbd2250",
     staticErrors: [],
     affectsCmuxOld: true,
     reach: "cmux-old v0.65.0 reaches this change: vm.cmux.dev in CLI/x.swift",
@@ -109,6 +111,7 @@ describe("the in-step gate decision (compatNow)", () => {
     ["a failing replay", { replay: { ok: false, authenticated: true, failures: ["GET /api/vm: response shape: $.vms: missing"] } }, "replay: GET /api/vm: response shape"],
     ["a replay that did not run", { replay: undefined }, "did not run"],
     ["a stable release newer than the spec", { latest: "v0.66.0" }, "latest stable release is v0.66.0"],
+    ["a release tag that moved after the spec was made", { specSha: "499779c6c2c0" }, "names dda24fbd2250: the tag moved"],
     ["staging older than production", { revisions: { relation: "older", staging: { sha: "a" }, production: { sha: "b" } } }, "staging's web revision is older relative to production (staging a, production b)"],
     ["staging diverged from production", { revisions: { relation: "diverged", staging: { sha: "a" }, production: { sha: "b" } } }, "is diverged"],
     ["unreadable revisions", { revisions: { relation: "unknown", staging: { error: "vercel api exited 1" }, production: { sha: "b" } } }, "is unknown relative to production (staging vercel api exited 1"],
