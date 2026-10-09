@@ -242,11 +242,12 @@ describe("T3 model picker", () => {
     expect(calls).toEqual(["config fast-mode on"]);
   });
 
-  test("rows are one line with stable command hotkeys and a star on the row", async () => {
+  // Lawrence 2026-10-08: match the T3 rail picker; one-line rows, no command badges or headings.
+  test("rows are one line with no command badge, and the star toggles on the row", async () => {
     await render();
     await act(async () => modelButton().click());
     expect(modelRows()[0]!.querySelector(".acpmux-mp-row-subtitle")).toBeNull();
-    expect(modelRows()[0]!.querySelector(".acpmux-mp-hotkey")?.textContent).toBe("⌘1");
+    expect(modelRows()[0]!.textContent).not.toContain("⌘");
     const favorite = modelRows()[0]!.parentElement!.querySelector<HTMLButtonElement>(".acpmux-mp-favorite")!;
     expect(favorite.getAttribute("aria-pressed")).toBe("false");
     await act(async () => favorite.click());
@@ -255,23 +256,36 @@ describe("T3 model picker", () => {
     );
   });
 
-  // Leo (dogfood 2026-10-08, A1): the lone star in a big left column filtered every harness down to
-  // "No matching models". Starred models get their own section on top instead; nothing filters.
-  test("starred models sit in a Starred section on top, and no toggle hides the other models", async () => {
+  // Lawrence 2026-10-08: "no concept of starred, starred should just show up in its own column".
+  // A star never reorders or heads a harness's list; the rail's Starred tab lists every starred model.
+  test("starred models show under the rail's Starred tab, and a harness's list keeps its order", async () => {
     await render();
     await act(async () => modelButton().click());
-    expect(menu()!.querySelector(".acpmux-mp-harness-favorites")).toBeNull();
     const labels = () => modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent);
+    const before = labels();
     const sonnet = modelRows().find((row) => row.textContent?.includes("Sonnet 5.5"))!;
     await act(async () => sonnet.parentElement!.querySelector<HTMLButtonElement>(".acpmux-mp-favorite")!.click());
-    expect(labels()).toEqual(["Sonnet 5.5", "Opus 4.1", "Opus 5.5"]);
-    const sections = [...menu()!.querySelectorAll(".acpmux-mp-models .acpmux-mp-section")].map((s) => s.textContent);
-    expect(sections[0]).toBe("Starred");
+    expect(labels()).toEqual(before);
+    expect(menu()!.querySelector(".acpmux-mp-section")).toBeNull();
+    const starred = menu()!.querySelector<HTMLButtonElement>('[aria-label="Starred"]')!;
+    await act(async () => starred.click());
+    expect(labels()).toEqual(["Sonnet 5.5"]);
+  });
+
+  // Lawrence 2026-10-08: "should swap on hover not click for each category".
+  test("hovering a rail tab shows that harness's models without a click", async () => {
+    await render();
+    await act(async () => modelButton().click());
     const codex = [...menu()!.querySelectorAll<HTMLButtonElement>(".acpmux-mp-harness")].find(
       (row) => row.textContent === "Codex",
     )!;
-    await act(async () => codex.click());
-    expect(labels()).toEqual(["o3", "GPT-6-Astra"]);
+    await act(async () => {
+      codex.dispatchEvent(new dom.window.MouseEvent("pointerover", { bubbles: true }));
+    });
+    expect(modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual([
+      "o3",
+      "GPT-6-Astra",
+    ]);
   });
 
   // Leo (dogfood 2026-10-08, A1): after picking Claude Code the chip drew the Codex mark beside

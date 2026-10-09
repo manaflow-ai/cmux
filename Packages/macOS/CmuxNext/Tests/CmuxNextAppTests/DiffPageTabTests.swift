@@ -47,7 +47,7 @@ struct DiffPageTabTests {
     /// (they are bound for the diff page, not left unavailable). With no diff page they do not.
     @Test func aBareKeyOnAFocusedDiffPageRunsItsAction() {
         let services = ActionBindingCoverageTests.boundServices()
-        let router = services.keyRouter!
+        let router = services.keyRouter
         let diffPage = PageKeyOwnershipTests.context(page: PageDescriptor.diff.id)
         for (chars, code, action) in [("j", UInt16(38), "diffViewerNextLine"), ("k", UInt16(40), "diffViewerPreviousLine"),
                                       ("/", UInt16(44), "diffViewerSearch")] {
