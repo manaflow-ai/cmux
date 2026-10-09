@@ -13,18 +13,29 @@ describe("palette ranking eval", () => {
 
   test("every expected row exists in the fixture", () => {
     const ids = new Set(fixture.entries.map((row) => row.id));
-    const missing = cases.cases.flatMap((c) => (c.expect.some((id) => ids.has(id)) ? [] : [c.query]));
+    const missing = cases.cases.flatMap((c) => (c.expect.some((id) => ids.has(id)) || (c.notFirst && ids.has(c.notFirst)) ? [] : [c.query]));
     expect(missing).toEqual([]);
   });
 
   test("guard cases keep their row in the top 3", () => {
     const report = evaluate(fixture, { ...cases, cases: cases.cases.filter((c) => c.guard) });
-    const pushedOut = report.results.filter((r) => r.rank === null || r.rank > 3).map((r) => `${r.query}: ${r.top.join(", ")}`);
+    const pushedOut = report.results
+      .filter((r) => r.rank === null || r.rank > 3)
+      .map((r) => `${r.query}: ${r.top.join(", ")}`);
     expect(pushedOut).toEqual([]);
   });
 
+  // The Raycast bar (palette-ranking.md 5.2): every learning case holds, always.
+  test("every learning (replay) case ranks as expected", () => {
+    const report = evaluate(fixture, { ...cases, cases: cases.cases.filter((c) => c.replay) });
+    const failed = report.results.filter((r) => r.rank !== 1).map((r) => `${r.query}: ${r.top.join(", ")}`);
+    expect(report.cases).toBeGreaterThanOrEqual(8);
+    expect(failed).toEqual([]);
+  });
+
   test("ranking quality stays at or above the recorded floors", () => {
-    const report = evaluate(fixture, cases);
+    // The static floors measure text matching; learning cases have their own 100% floor above.
+    const report = evaluate(fixture, { ...cases, cases: cases.cases.filter((c) => !c.replay) });
     console.log(formatReport(report));
     expect(report.top1).toBeGreaterThanOrEqual(floors.top1);
     expect(report.top3).toBeGreaterThanOrEqual(floors.top3);
