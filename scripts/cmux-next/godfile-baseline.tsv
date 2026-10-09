@@ -80,7 +80,6 @@ rust-file	cmux-tui/crates/cmux-tui/src/app.rs	8370	215
 rust-file	cmux-tui/crates/cmux-tui/src/bin/cmux-tui-hook.rs	1139	54
 rust-file	cmux-tui/crates/cmux-tui/src/browser_input.rs	2025	101
 rust-file	cmux-tui/crates/cmux-tui/src/cli/command.rs	4304	141
-rust-file	cmux-tui/crates/cmux-tui/src/config.rs	1790	45
 rust-file	cmux-tui/crates/cmux-tui/src/machine.rs	1364	63
 rust-file	cmux-tui/crates/cmux-tui/src/machine_agent/runtime.rs	2618	124
 rust-file	cmux-tui/crates/cmux-tui/src/machine_provider_client.rs	2723	110
