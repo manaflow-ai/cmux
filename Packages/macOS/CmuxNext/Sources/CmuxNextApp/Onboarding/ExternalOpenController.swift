@@ -163,15 +163,15 @@ final class CmuxServicesProvider: NSObject {
         self.open = open
     }
 
-    @objc func newTabHere(_ pasteboard: NSPasteboard, userData: String?, error: AutoreleasingUnsafeMutablePointer<NSString?>) {
+    @objc(newTabHere:userData:error:) func newTabHere(_ pasteboard: NSPasteboard, userData: String?, error: AutoreleasingUnsafeMutablePointer<NSString?>) {
         open.newTabHere(Self.paths(pasteboard))
     }
 
-    @objc func openTab(_ pasteboard: NSPasteboard, userData: String?, error: AutoreleasingUnsafeMutablePointer<NSString?>) {
+    @objc(openTab:userData:error:) func openTab(_ pasteboard: NSPasteboard, userData: String?, error: AutoreleasingUnsafeMutablePointer<NSString?>) {
         for path in Self.paths(pasteboard) { open.newWorkspace(at: path, newWindow: false) }
     }
 
-    @objc func openWindow(_ pasteboard: NSPasteboard, userData: String?, error: AutoreleasingUnsafeMutablePointer<NSString?>) {
+    @objc(openWindow:userData:error:) func openWindow(_ pasteboard: NSPasteboard, userData: String?, error: AutoreleasingUnsafeMutablePointer<NSString?>) {
         for path in Self.paths(pasteboard) { open.newWorkspace(at: path, newWindow: true) }
     }
 
