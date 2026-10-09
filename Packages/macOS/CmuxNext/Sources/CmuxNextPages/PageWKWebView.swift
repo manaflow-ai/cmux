@@ -52,6 +52,13 @@ final class PageWKWebView: WKWebView {
         noteUserActivation(at: event.timestamp > 0 ? event.timestamp : ProcessInfo.processInfo.systemUptime)
     }
 
+    /// Drops the recorded activation and the opened menu: the view now shows another document
+    /// (a pooled view rebound or parked), which must not use a gesture made in the old one.
+    func forgetUserActivation() {
+        lastUserEventUptime = nil
+        openedMenu = nil
+    }
+
     private func noteUserActivation(at uptime: TimeInterval) {
         onUserEvent?()
         lastUserEventUptime = uptime

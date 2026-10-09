@@ -40,7 +40,8 @@ and render-server field animation, blurred header and native scrolling.
   disc while paused), `CmuxStrings` (Resources/CmuxHome.xcstrings),
   `HomeLinkPreviews` (which links may fetch a preview),
   `HomeMarkdown` (an agent's Markdown as MessagesLab text and style runs;
-  people's text stays plain), `HomeFlightRecorder` (the flight recorder's
+  people's text stays plain), `HomeFonts` (fonts the off-main row renderers
+  share for the life of the process), `HomeFlightRecorder` (the flight recorder's
   policy, log folder and Save Last 10 Seconds, plus the helpers it calls from
   unvendored MessagesLab files),
   `FixtureTheme` (cmux theme to Fixture colours), `MessagesLabHomeView`
@@ -66,13 +67,17 @@ and render-server field animation, blurred header and native scrolling.
 | Engine, WindowView | `cmuxSetAttachment`: an attachment part's picture or upload state changed in HomeStore (no content change, no transition; the row redraws in place) |
 | Engine, Layout, Transcript | `cmuxNotice`: the host's notice (Home's merge notice) is MessagesLab's centered system row under the newest message, not an overlay; its accessibility label has no leading space |
 | Compose | `onPastePasteboard`: the field's paste reaches the host's attachment intake first (Home's type rule, prepared by HomeStore) |
-| Layout | styled runs (an agent's Markdown) break lines with the fonts they draw with; `code` runs draw monospaced |
+| Layout | styled runs (an agent's Markdown) break lines with the fonts they draw with; `code` runs draw monospaced with one font held for the process (`HomeFonts.code`: a font made per run on the row render threads came back nil and crashed) |
 | Layout | below 434 pt (Messages' window minimum; a Home pane has no per-content minimum and can be 80 pt) the text column keeps its 434 pt share of the width instead of the measured rule reaching 0 pt |
 | NativeScroll | the drawn scroll indicator sits 2 pt from the scroller's own right edge (in a pane the window's edge is not the transcript's) |
 | LinkPreviews | the cache lives in the app's own caches folder (`<bundle id>/link-previews`), not MessagesLab's; `cached(_:)` lets a HomeStore rebuild show a fetched preview again |
 | ComposeAttachments | the image placeholder and file tile fill use the theme's chip fill on a light theme (a dark theme keeps the measured white) |
 | Fixture | the gradient mix falls back to the measured blue when a colour cannot convert (never reads components of an unconverted colour; the Markdown getWhite fix is upstream as 40b9869) |
 | FlightRecorder | the app's policy and log folder (`HomeFlightRecorder`), window captures behind their own opt-in, the pane's optional window (attached from `ChatController.windowChanged`, observers replaced), FlashCheck/LiveProbes/Bench/LiveRecord helpers from `HomeFlightRecorder` |
+| MarkdownStore, LongText | `isPlain`/`setPlain`: a message HomeMapping marks plain (a person's text, or a part with mentions) never takes the Markdown engine; only an agent's text is Markdown |
+| MarkdownParser, MarkdownHost | `MarkdownLinkPolicy` (interim, same API as MessagesLab's coming rule): only http, https and mailto (plus `extraSchemes`, empty) become links; other, obfuscated and relative destinations are plain text; a click re-checks (`Cmux/PaneLinks.swift` for Home) |
+| ComposeAttachments, WindowView, TiledBubble | checked casts instead of `as!` (crash ratchet, cx-6so) |
+| Compose, FlightRecorder, SwipeReply, HeaderBar, UIKitNames, ComposeAttachments, Engine, Fixture, Header, Layout, LinkPreviews, LongText, MarkdownParser, Model, Shapes, Springs, TiledBubble, Transcript, WindowView, Sidebar{Drawing,Model,View} | crash program (plans/cmux-next/crash-elimination.md): no force unwraps, `try!`, `as!` or IUOs; named color spaces and UI fonts through `CrashSafeGraphics`/`SidebarCrashSafe` with stated fallbacks, an optional gradient draws nothing, a fixture that cannot load is an empty conversation |
 
 ## Updating
 
@@ -87,8 +92,16 @@ A patch that no longer applies stops the sync; fix that file by hand, then
 
 Partial roll-ins: a vendor.tsv row with a third column takes that file from
 its own MessagesLab commit (the pin stays for the rest), for upstream commits
-that are wip checkpoints. Current pins (2026-10-07): every file at 9ae05d5, the sidebar's included
-(9ae05d5: the sidebar catalog in all 21 app languages, from cmux, upstream PR #2; 9e1f4a5: Sidebar
+that are wip checkpoints. Current pins (2026-10-08): every file at 2579028 (285538d plus the LongText tail guard from our crash
+ratchet; 285538d = 7d072dd plus 86c3cb3's sidebar row-text and pinned-dot fixes: those patches are gone), the sidebar's included
+(7d072dd and c7b32bb, verified with verify-clean 5/5: the header avatar stays centred on the pill after a
+resize, and ChromeView's `leadingEdgeIsWindowEdge`; Home hides ChromeView, so it keeps the default;
+pinned tiles are layers and the unread dot sits below the unread bubble (`SidebarDraw.tileUnreadDot`); cc52c46, verified with MessagesLab's tools/verify-clean.sh 5/5: selection drags its text out, the
+system text menu (Services) and media placeholders in a cross-bubble copy; long Markdown in tiles
+(MarkdownLong.swift) and the off-main streaming tail, both OFF unless `--long-markdown` /
+`--long-tail-off-main`; pinned sidebar tiles as separate layers; a copied attachment says
+[File: name] in every app language. MessagesLab's custom-row host fixes (4dbf4e3) are in its
+CustomRowsHost.swift, which this package does not vendor; 9ae05d5: the sidebar catalog in all 21 app languages, from cmux, upstream PR #2; 9e1f4a5: Sidebar
 v1.1, strings from its own catalog in this package's bundle (`SidebarLocalization.bundle = .module`), optional menu actions, host menu items and search sections, injectable unread and
 selection colours, and the updateHover fix (Tests/MessagesLabSidebarTests). 40b9869: MessagesLab's own fill span (the visible transcript plus one height above and
 below, from the view's bounds; our fill-clamp patch is gone) and the Markdown colour fix

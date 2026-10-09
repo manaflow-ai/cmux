@@ -182,7 +182,7 @@ fn the_acpmux_compactor_builds_a_node_through_claude_sr() {
         AcpmuxCompactor::new(
             agents.clone(),
             compactor_spec(&paths, &home, &harness, family, model.as_deref()),
-            Slots::new(optchat_core::JOBS),
+            Slots::new(optchat_chief::compactor::COMPACTOR_SESSIONS),
         )
         .with_log(Arc::new(|line: &str| println!("compactor: {line}"))),
     );
@@ -228,7 +228,7 @@ fn the_acpmux_compactor_builds_a_node_through_claude_sr() {
     assert!(line.is_ok(), "{line:?}");
     // No transcript of a compactor slot is left in any Claude home, nor
     // anything but the configuration in a codex slot's CODEX_HOME.
-    for k in 0..optchat_core::JOBS {
+    for k in 0..optchat_chief::compactor::COMPACTOR_SESSIONS {
         let slot = optchat_chief::compactor::codex_slot_home(&paths.compactor_codex, k);
         let left: Vec<String> = std::fs::read_dir(&slot)
             .map(|d| {
@@ -363,6 +363,7 @@ fn two_turns_and_two_nodes_through_local_acp() {
         env,
         instructions: None,
         tools: tools.clone(),
+        user_env: Default::default(),
     };
     session_dir::write(&paths, &setup).unwrap();
     let system = system_text(None, &tools);
@@ -500,7 +501,7 @@ fn two_turns_and_two_nodes_through_local_acp() {
     let compactor = AcpmuxCompactor::new(
         agents.clone(),
         compactor_spec(&paths, &home, &harness, family, compactor_model.as_deref()),
-        Slots::new(optchat_core::JOBS),
+        Slots::new(optchat_chief::compactor::COMPACTOR_SESSIONS),
     )
     .with_log(Arc::new(|line: &str| println!("host.log: {line}")));
     let config = Config::default();

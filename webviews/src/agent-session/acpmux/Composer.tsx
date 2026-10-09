@@ -21,7 +21,7 @@ import {
 import { FileSearch } from "./FileSearch";
 import type { Choice } from "./ComposerPickers";
 import type { FileSearchSource } from "./fileSearchModel";
-import { commandArgs } from "./cmuxCommands";
+import { commandArgs, type CmuxCommand } from "./cmuxCommands";
 import { applyCommand, matchCommands, slashQuery, type SlashCommand, type SlashMatch } from "./slashCommands";
 import {
   readDurableDraft,
@@ -99,7 +99,7 @@ type Props = {
   /// Opens the host's file and image picker; the + menu offers it only when set.
   onAttach?(): void;
   /// Handles a cmux-owned slash command after the user submits it.
-  onCmuxCommand?(command: SlashCommand, args?: string): boolean | void;
+  onCmuxCommand?(command: CmuxCommand, args?: string): boolean | void;
   /// Reads a transcript chosen by the cmux-owned `/import` command.
   onImportFile?(file: File): void | Promise<void>;
   /// Searches the session's files; the + menu offers Search files only when set.
@@ -410,7 +410,9 @@ export function Composer({
       plusDraft.current = undefined;
       return false;
     }
-    const owned = commands?.find((command) => command.source === "cmux" && commandArgs(prompt, command) !== undefined);
+    const owned = commands?.find(
+      (command): command is CmuxCommand => command.source === "cmux" && commandArgs(prompt, command) !== undefined,
+    );
     if (owned) {
       if (owned.name === "import") {
         if (!onImportFile) return false;
@@ -671,8 +673,9 @@ export function Composer({
           className="acpmux-import-input"
           type="file"
           accept=".jsonl,.json,text/plain,application/json"
-          tabIndex={-1}
-          aria-hidden="true"
+          // The /import picker: never shown or focused; the label is the command's language-neutral name.
+          hidden
+          aria-label="/import"
           onChange={(event) => {
             const file = event.currentTarget.files?.[0];
             event.currentTarget.value = "";

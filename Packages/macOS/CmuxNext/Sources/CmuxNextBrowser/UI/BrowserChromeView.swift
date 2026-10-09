@@ -63,7 +63,12 @@ public final class BrowserChromeView: NSView {
     private let promptBar = PromptBarView()
     private let promptDialogs = BrowserPromptDialogs()
     let pageStatus = PageStatusViews()
-    var toolbarHeight: NSLayoutConstraint!
+    /// Bound in setup (first read there), never an IUO.
+    lazy var toolbarHeight: NSLayoutConstraint = density.bind(toolbar.heightAnchor.constraint(equalToConstant: 0)) { [weak self] in
+        // A deallocated chrome view's constraint is never laid out again.
+        guard let self else { return 0 }
+        return isToolbarHidden ? 0 : currentToolbarHeight
+    }
     private var observation: ObservationLoop?
     private var showsStop = false
     var isToolbarHidden = false
@@ -197,9 +202,7 @@ public final class BrowserChromeView: NSView {
         addSubview(promptBar)
         addSubview(findBar)
 
-        toolbarHeight = density.bind(toolbar.heightAnchor.constraint(equalToConstant: 0)) { [unowned self] in
-            isToolbarHidden ? 0 : currentToolbarHeight
-        }
+        _ = toolbarHeight  // binds it here, in the same order as before
         density.update { [extensionSlot, toolbarButtons] in
             extensionSlot.spacing = BrowserMetrics.buttonSpacing
             toolbarButtons.spacing = BrowserMetrics.buttonSpacing
@@ -352,6 +355,10 @@ public final class BrowserChromeView: NSView {
     public override func layout() {
         applyToolbarLayout()
         super.layout()
+        // Auto Layout may defer the address bar's frame until its subtree is
+        // laid out. Follow the card only after that frame reflects this pass.
+        addressBar.layoutSubtreeIfNeeded()
+        addressBar.followLayout()
         updateOcclusion()
         if pageAreaTop != reportedHeader {
             reportedHeader = pageAreaTop

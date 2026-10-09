@@ -65,6 +65,7 @@ describe("acpmux composer slash menu", () => {
   let sent: string[];
   let sentAttachments: { name: string; kind: string }[][];
   let imported: string[];
+  let owned: { name: string; args?: string }[];
   const textarea = () => promptField();
   const rows = () =>
     [...dom.window.document.querySelectorAll(".acpmux-slash-row")].map(
@@ -111,6 +112,9 @@ describe("acpmux composer slash menu", () => {
           onImportFile: (file: File) => {
             imported.push(file.name);
           },
+          onCmuxCommand: (command, args) => {
+            owned.push({ name: command.name, args });
+          },
         }),
       ),
     );
@@ -121,6 +125,7 @@ describe("acpmux composer slash menu", () => {
     sent = [];
     sentAttachments = [];
     imported = [];
+    owned = [];
     root = createRoot(dom.window.document.getElementById("root")!);
   });
   afterEach(async () => {
@@ -154,6 +159,15 @@ describe("acpmux composer slash menu", () => {
     Object.defineProperty(input, "files", { configurable: true, value: [file] });
     await act(async () => input.dispatchEvent(new dom.window.Event("change", { bubbles: true })));
     expect(imported).toEqual(["chat.jsonl"]);
+  });
+
+  test("a cmux-owned /continue stays local instead of sending to the agent", async () => {
+    await render(snapshot([{ name: "continue", description: "", hint: "<harness>", source: "cmux" }]));
+    await type("/continue codex");
+    await key("Enter");
+    expect(sent).toEqual([]);
+    expect(owned).toEqual([{ name: "continue", args: "codex" }]);
+    expect(textarea().value).toBe("");
   });
 
   test("arrows move the selection and Enter writes the command without sending", async () => {
@@ -669,9 +683,11 @@ describe("acpmux composer draft", () => {
       await ready();
       expect(promptField().value).toBe("");
 
-      (dom.window as unknown as {
-        cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
-      }).cmuxAcpmuxActions = {
+      (
+        dom.window as unknown as {
+          cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
+        }
+      ).cmuxAcpmuxActions = {
         "chat.readDraft": async () => ({ draft: "restored after reconnect" }),
         "chat.writeDraft": async () => undefined,
       };
@@ -709,9 +725,11 @@ describe("acpmux composer draft", () => {
       );
       await ready();
       await act(async () => typeInto(promptField(), "typed before reconnect"));
-      (dom.window as unknown as {
-        cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
-      }).cmuxAcpmuxActions = {
+      (
+        dom.window as unknown as {
+          cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
+        }
+      ).cmuxAcpmuxActions = {
         "chat.readDraft": async () => undefined,
         "chat.writeDraft": async (params) => {
           writes.push(params);

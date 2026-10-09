@@ -19,6 +19,8 @@ mod host_frames;
 mod hosted_callbacks;
 #[cfg(unix)]
 use hosted_callbacks::hosted_terminal_callbacks;
+#[cfg(unix)]
+mod host_kitty_limits;
 #[cfg(all(test, unix))]
 mod journal_failure_tests;
 #[cfg(unix)]
@@ -438,6 +440,8 @@ enum HostedTransition {
     Metadata(MessageKind),
     Exit(TerminalExit),
     ResyncRequired,
+    /// A smart host's quota change that evicted nothing (host_kitty_limits.rs).
+    KittyGraphicsLimits(KittyGraphicsLimits),
 }
 
 #[cfg(unix)]
@@ -587,9 +591,16 @@ impl HostedFrameStager {
                 };
                 Ok(Some(HostedTransition::Exit(exit)))
             }
-            MessageKind::ResyncRequired if frame.flags == 0 => {
-                Ok(Some(HostedTransition::ResyncRequired))
-            }
+            MessageKind::ResyncRequired if frame.flags == 0 => Ok(Some(
+                match crate::terminal_host_runtime::decode_resync_kitty_graphics_limits(
+                    &frame.payload,
+                ) {
+                    Some(limits) if self.smart_renderer => {
+                        HostedTransition::KittyGraphicsLimits(limits)
+                    }
+                    _ => HostedTransition::ResyncRequired,
+                },
+            )),
             MessageKind::Colors => Err("unpaired Colors frame"),
             _ if frame.flags != 0 => Err("flags are not valid for this message kind"),
             _ => Err("message kind is not valid on the live stream"),
@@ -3071,6 +3082,12 @@ impl Surface {
                             HostedTransition::ResyncRequired => {
                                 resync_requested = true;
                                 break;
+                            }
+                            HostedTransition::KittyGraphicsLimits(limits) => {
+                                if !pty.apply_host_kitty_graphics_limits(limits) {
+                                    resync_requested = true;
+                                    break;
+                                }
                             }
                         }
                         drop(journal_update.take());

@@ -185,7 +185,8 @@ nonisolated enum AcpmuxPaneMethods {
     ]
 
     /// The error frame that answers a refused request, as the daemon would answer an unknown one.
-    /// `rootRequested`: the host offered the user to add the refused folder as a root.
+    /// `rootRequested` stays in the frame the Rust policy shares; this host no longer offers to add
+    /// a refused folder as a root, so it never sets it.
     public static func refusal(requestID: String, error: AgentPaneTransportError, method: String?, rootRequested: Bool = false) -> String {
         var data: [String: Any] = ["code": error.rawValue, "origin": "native"]
         if let method { data["method"] = method }

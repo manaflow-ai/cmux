@@ -80,7 +80,7 @@ fn replay_a_log_through_both_compactor_prompts_in_acpmux() {
             Family::Claude,
             Some("claude-sonnet-5-5"),
         ),
-        Slots::new(optchat_core::JOBS),
+        Slots::new(optchat_chief::compactor::COMPACTOR_SESSIONS),
     ));
     for prompt in [CompactPrompt::Taelin, CompactPrompt::Cmux] {
         let dir = out.join(prompt.name());

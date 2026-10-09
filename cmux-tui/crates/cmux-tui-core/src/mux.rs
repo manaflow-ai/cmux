@@ -2477,6 +2477,9 @@ struct ClientFocusRecord {
 /// Bounded size of the per-client focus memory.
 const CLIENT_FOCUS_MEMORY_LIMIT: usize = 64;
 
+#[cfg(test)]
+type ScreenCreatedHook = Box<dyn FnOnce(SurfaceId) + Send>;
+
 pub struct Mux {
     /// Serializes durable workspace commits, their in-memory projection, and
     /// publication of revisioned workspace deltas. Lock order is always
@@ -2650,6 +2653,10 @@ pub struct Mux {
     pending_diagnostics: Mutex<Vec<String>>,
     #[cfg(test)]
     journal_segment_prepare_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    /// Runs right after a new screen's creation handoff is released, where a
+    /// terminal that exits at once can already close its screen.
+    #[cfg(test)]
+    screen_created_hook: Mutex<Option<ScreenCreatedHook>>,
     terminal_exit_waiters: TerminalExitWaiters,
     #[cfg(test)]
     terminal_exit_state_queries: AtomicU64,
@@ -3110,6 +3117,8 @@ impl Mux {
             pending_diagnostics: Mutex::new(Vec::new()),
             #[cfg(test)]
             journal_segment_prepare_hook: Mutex::new(None),
+            #[cfg(test)]
+            screen_created_hook: Mutex::new(None),
             terminal_exit_waiters: TerminalExitWaiters::default(),
             #[cfg(test)]
             terminal_exit_state_queries: AtomicU64::new(0),
@@ -7240,6 +7249,15 @@ impl Mux {
     }
 
     #[cfg(test)]
+    pub(crate) fn set_screen_created_hook_for_test(
+        &self,
+        hook: impl FnOnce(SurfaceId) + Send + 'static,
+    ) {
+        *self.screen_created_hook.lock().unwrap_or_else(PoisonError::into_inner) =
+            Some(Box::new(hook));
+    }
+
+    #[cfg(test)]
     pub(crate) fn set_journal_segment_prepare_hook_for_test(
         &self,
         hook: impl FnOnce() + Send + 'static,
@@ -11087,7 +11105,7 @@ impl Mux {
     }
 
     /// Post what a program in `surface`'s terminal asked for with OSC 9,
-    /// OSC 777 or OSC 99. Called by the terminal's output reader after it
+    /// OSC 777 or OSC 99, or an OSC 7501 record's alert. Called by the terminal's output reader after it
     /// released the terminal lock; the reader already applied the rate limit.
     pub(crate) fn post_terminal_notifications(
         &self,
@@ -11100,7 +11118,7 @@ impl Mux {
                     &Actor::Daemon,
                     notification.title,
                     notification.body,
-                    NotificationLevel::Info,
+                    notification.level,
                     Some(surface),
                     NotificationSource::Terminal,
                 )
@@ -12171,7 +12189,10 @@ impl Mux {
         self.begin_session_shutdown();
         // Hosts of closed terminals were already asked to exit; give them
         // their close deadline so this owner acknowledges their exits.
-        if !self.wait_for_terminal_host_closes(Instant::now() + TERMINAL_HOST_CLOSE_WAIT) {
+        if !self.wait_for_terminal_host_closes(
+            TERMINAL_HOST_CLOSE_WAIT,
+            Instant::now() + TERMINAL_HOST_CLOSE_WAIT,
+        ) {
             eprintln!("cmux-tui: closed terminal hosts did not exit before shutdown");
         }
         self.config_reload_changed.notify_all();
@@ -22978,7 +22999,10 @@ mod tests {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
         let attempts = Arc::new(AtomicUsize::new(0));
-        *mux.cell_pixel_fanout_timeout.lock().unwrap() = Some(Duration::from_millis(10));
+        // The operation answers at once; a generous fanout wait means a
+        // worker thread that starts late under load still counts as an
+        // attempt instead of a fanout timeout.
+        *mux.cell_pixel_fanout_timeout.lock().unwrap() = Some(Duration::from_secs(30));
         *mux.cell_pixel_operation.lock().unwrap() = Some(Arc::new({
             let attempts = attempts.clone();
             move |_, _, _| {
@@ -22992,7 +23016,8 @@ mod tests {
 
         assert_eq!(update.failures.len(), 1);
         assert!(update.failures[0].deferred);
-        let deadline = Instant::now() + Duration::from_secs(1);
+        // A safety bound only: the retries stop after their attempts.
+        let deadline = Instant::now() + Duration::from_secs(30);
         while mux.cell_pixel_retries.lock().unwrap().worker_running && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(10));
         }

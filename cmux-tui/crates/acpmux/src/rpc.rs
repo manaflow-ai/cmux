@@ -217,6 +217,8 @@ pub mod method {
     pub const MUX_EXPORT: &str = "_acpmux/export";
     pub const MUX_IMPORT: &str = "_acpmux/import";
     pub const MUX_SHUTDOWN: &str = "_acpmux/shutdown";
+    /// Fork a session through its latest completed turn (`server/fork_through.rs`).
+    pub const ACP_SESSION_FORK: &str = "acp.session.fork";
     /// Folder trust (`crate::trust`): the agents' levels for a folder and
     /// acpmux's own decision; `set` records the decision, never the agents' files.
     pub const ACP_TRUST_GET: &str = "acp.trust.get";

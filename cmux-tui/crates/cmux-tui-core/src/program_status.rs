@@ -9,7 +9,10 @@
 //! `idle`, the process exit hides them, and at most [`MAX_RECORDS`] records
 //! stay (the one updated longest ago goes first). `done` and `error` stay
 //! until the program replaces or clears them; "seen" is client view state,
-//! keyed by `updated_seq`.
+//! keyed by `updated_seq`. A record without `app` shows the app of its
+//! nearest ancestor that has one. A record that starts waiting on the user
+//! (`blocked`) or fails (`error`) raises one [`ProgramStatusAlert`], which the
+//! terminal's reader posts as a rate-limited terminal notification.
 //!
 //! Text is untrusted program output: display only, never interpreted.
 //! libghostty already removed control characters; this module also removes
@@ -52,13 +55,14 @@ impl ProgramStatusRecord {
         )
     }
 
-    fn to_json(&self, id: &str) -> Value {
+    /// `app` is the app the record shows (its own or an ancestor's).
+    fn to_json(&self, id: &str, app: Option<&str>) -> Value {
         json!({
             "id": id,
             "state": self.state.as_str(),
             "progress": self.progress,
             "kind": self.kind.map(ProgramStatusKind::as_str),
-            "app": self.app,
+            "app": app,
             "title": self.title,
             "msg": self.message,
             "updated_seq": self.updated_seq.to_string(),
@@ -67,10 +71,30 @@ impl ProgramStatusRecord {
     }
 }
 
+/// Alerts kept between two takes; more in one output chunk drop the oldest.
+const MAX_PENDING_ALERTS: usize = 8;
+
+/// A notification a record asks for: it started waiting on the user or
+/// failed. `title` names the program and says what it needs; `body` is the
+/// record's message. Both are shown text (no control or invisible
+/// formatting characters).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ProgramStatusAlert {
+    /// The record that raised it; removing the record before the alert is
+    /// taken withdraws it.
+    pub(crate) id: String,
+    pub(crate) title: String,
+    pub(crate) body: String,
+    /// `Error` for a failed record, else `Blocked`.
+    pub(crate) state: ProgramStatusState,
+}
+
 /// The records of one terminal, keyed by record id (`""` is the root).
 #[derive(Debug, Default)]
 pub(crate) struct ProgramStatusRecords {
     records: BTreeMap<String, ProgramStatusRecord>,
+    /// Raised by `apply`, taken by the terminal's reader.
+    alerts: Vec<ProgramStatusAlert>,
     next_seq: u64,
     /// Bumped on every visible change; `published` is the value last handed
     /// to the public graph.
@@ -97,6 +121,7 @@ impl ProgramStatusRecords {
                 let prefix = format!("{id}/");
                 self.records.retain(|key, _| key != &id && !key.starts_with(&prefix));
             }
+            self.withdraw_alerts_of_removed_records();
             if self.records.len() != before {
                 self.revision += 1;
             }
@@ -125,8 +150,67 @@ impl ProgramStatusRecords {
             updated_seq: self.next_seq,
             updated_at_ms: now_ms,
         };
-        self.records.insert(id, record);
+        let previous = self.records.insert(id.clone(), record);
         self.revision += 1;
+        self.raise_alert(&id, previous.as_ref());
+    }
+
+    /// Raises an alert when the record `id` starts waiting on the user or
+    /// fails, or a blocked record changes what it waits for (`kind`). A
+    /// report that keeps the state and kind (a progress update, or a message
+    /// that counts down while blocked) raises nothing, so a program cannot
+    /// turn one wait into a stream of notifications.
+    fn raise_alert(&mut self, id: &str, previous: Option<&ProgramStatusRecord>) {
+        let Some(record) = self.records.get(id) else { return };
+        let verb = match (record.state, record.kind) {
+            (ProgramStatusState::Blocked, Some(ProgramStatusKind::Permission)) => "needs approval",
+            (ProgramStatusState::Blocked, Some(ProgramStatusKind::Question)) => "asks a question",
+            (ProgramStatusState::Blocked, Some(ProgramStatusKind::Auth)) => "needs sign-in",
+            (ProgramStatusState::Blocked, None) => "needs input",
+            (ProgramStatusState::Error, _) => "failed",
+            _ => return,
+        };
+        if previous
+            .is_some_and(|previous| previous.state == record.state && previous.kind == record.kind)
+        {
+            return;
+        }
+        let name = record
+            .title
+            .clone()
+            .or_else(|| self.app_of(id).map(str::to_owned))
+            .unwrap_or_else(|| "A program".to_owned());
+        let alert = ProgramStatusAlert {
+            id: id.to_owned(),
+            title: shown_text(&format!("{name} {verb}"), MAX_TITLE_CHARS),
+            body: record.message.clone().unwrap_or_default(),
+            state: record.state,
+        };
+        if self.alerts.len() == MAX_PENDING_ALERTS {
+            self.alerts.remove(0);
+        }
+        self.alerts.push(alert);
+    }
+
+    /// The alerts raised since the last take, oldest first.
+    pub(crate) fn take_alerts(&mut self) -> Vec<ProgramStatusAlert> {
+        std::mem::take(&mut self.alerts)
+    }
+
+    /// The app record `id` shows: its own, else that of its nearest ancestor
+    /// that has one (`a/b` looks at `a`, then the root `""`). The ancestors
+    /// do not have to exist.
+    fn app_of(&self, id: &str) -> Option<&str> {
+        let mut current = id;
+        loop {
+            if let Some(app) = self.records.get(current).and_then(|record| record.app.as_deref()) {
+                return Some(app);
+            }
+            if current.is_empty() {
+                return None;
+            }
+            current = current.rfind('/').map_or("", |slash| &current[..slash]);
+        }
     }
 
     /// A primary prompt started: the program that reported `working`,
@@ -137,6 +221,14 @@ impl ProgramStatusRecords {
         if self.records.len() != before {
             self.revision += 1;
         }
+        self.withdraw_alerts_of_removed_records();
+    }
+
+    /// A record cleared (or ended by a prompt) before its alert was taken
+    /// no longer asks for anything: its alert goes too.
+    fn withdraw_alerts_of_removed_records(&mut self) {
+        let records = &self.records;
+        self.alerts.retain(|alert| records.contains_key(&alert.id));
     }
 
     #[cfg(test)]
@@ -162,7 +254,7 @@ impl ProgramStatusRecords {
             .records
             .iter()
             .filter(|(_, record)| running || !record.is_transient())
-            .map(|(id, record)| record.to_json(id))
+            .map(|(id, record)| record.to_json(id, self.app_of(id)))
             .collect::<Vec<_>>();
         (!records.is_empty()).then_some(Value::Array(records))
     }

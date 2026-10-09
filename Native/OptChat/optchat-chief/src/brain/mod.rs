@@ -13,21 +13,27 @@
 //! (`Engine::Native`, the host's own Messages API loop) asks the brain for
 //! queued messages at every tool boundary, so MASTER's "messages the user
 //! sends while you work reach you between tool calls" holds. The acpmux
-//! engine cannot: claude-sr reports no steering. There a human message
-//! stops the running turn (`session/cancel`; its steps are already in the
-//! log) and the next fresh turn takes the message with the view of
+//! engine steers the message into the running session (`steer.rs`; acpmux's
+//! Claude Code adapter writes it to claude's stdin, read at the next tool
+//! boundary). A session that cannot steer (another harness, an older
+//! acpmux) stops the running turn (`session/cancel`; its steps are already
+//! in the log) and the next fresh turn takes the message with the view of
 //! everything the stopped turn did. A turn that hangs is stopped by
 //! `Settings::turn_limit`.
 
 mod approvals;
 mod children;
+mod drafts;
+mod engine_control;
 pub mod images;
 mod inbox;
 mod mux_ack;
 mod outbox;
+mod prewarm;
 mod recover;
 mod side;
 mod spawns;
+mod steer;
 mod turns;
 
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -69,9 +75,17 @@ pub enum Input {
         /// The prompt blocks to deliver: the messages' images, then their text.
         reply: Sender<Vec<serde_json::Value>>,
     },
+    /// A draft of the running turn's reply (`draft.rs`).
+    Draft(Box<crate::draft::Draft>),
+    /// A steer's outcome (`steer.rs`): Ok once the harness read it.
+    Steered {
+        id: u64,
+        result: Result<(), String>,
+    },
     TurnEnded {
         key: String,
-        outcome: TurnOutcome,
+        /// Boxed: the outcome and its stats are the largest input.
+        outcome: Box<TurnOutcome>,
     },
     /// Something the user must hear once (the compactor cannot build a
     /// node): posted in the Chief conversation, with `key` as its
@@ -80,6 +94,9 @@ pub enum Input {
         key: String,
         text: String,
     },
+    /// The compactor's start-up probe: Err with the text the user must
+    /// hear (the compactor cannot build a node), Ok when it built one.
+    CompactorStatus(Result<(), String>),
     /// Section 9: a `spawn` asks for its spawn id and subagent ids.
     SpawnRegister {
         tasks: Vec<String>,
@@ -108,6 +125,12 @@ pub enum Input {
         id: String,
         answer: Result<serde_json::Value, String>,
     },
+    /// The acpmux session of subagent `id` (`zoom("a<N>")`), None when
+    /// there is no such subagent or it has none yet.
+    SubSession {
+        id: String,
+        reply: Sender<Option<String>>,
+    },
     /// `tell(id, message)`.
     Tell {
         id: String,
@@ -133,6 +156,29 @@ pub enum Input {
     Described {
         image: Box<images::TurnImage>,
         description: Result<String, String>,
+    },
+    /// chief.engine.get / chief.engine.set: the engine this brain's turns
+    /// take (engine.json), answered as one JSON value (`engine_control`).
+    Engine {
+        request: EngineRequest,
+        reply: Sender<serde_json::Value>,
+    },
+    /// chief.stop: stops the running turn as a newer message does;
+    /// answers `{"stopped": bool}`.
+    Stop {
+        reply: Sender<serde_json::Value>,
+    },
+}
+
+/// What chief.engine.get / chief.engine.set ask the brain.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum EngineRequest {
+    Show,
+    /// An absent field stays; `default` clears one.
+    Set {
+        harness: Option<String>,
+        model: Option<String>,
+        effort: Option<String>,
     },
 }
 
@@ -213,6 +259,13 @@ pub struct Settings {
     /// The monitoring trace's directory, where approvals are recorded
     /// (None: not recorded).
     pub trace_dir: Option<PathBuf>,
+    /// `OPTCHAT_CACHE_TTL` at host start: the turns' cache TTL over the
+    /// Chief's `cache.ttl` setting. None: the setting, else 1 hour on the
+    /// Claude Code path.
+    pub cache_ttl: Option<crate::prompt::CacheTtl>,
+    /// The turns' current TTL, shared with the compactor: its nodes take the
+    /// same TTL on the same route.
+    pub shared_ttl: crate::prompt::SharedTtl,
 }
 
 /// How long a turn waits for the compactor before it tells the conversation
@@ -247,6 +300,14 @@ struct Queued {
     conversation: Option<String>,
 }
 
+impl Queued {
+    /// It starts a turn (and stops a working one); a stopped subagent's
+    /// report does not, and waits for the next turn.
+    fn wakes(&self) -> bool {
+        !matches!(&self.source, Source::Spawn(r) if r.quiet)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Source {
     /// A human message of the Chief conversation; `remote` names the paired
@@ -261,7 +322,7 @@ enum Source {
     Child { session_id: String, floor: u64 },
     /// Anything else (a child's permission request).
     Note,
-    /// Subagents' reports (section 9): all of one spawn's, or a later one.
+    /// A subagent's report (section 9).
     Spawn(crate::state::SpawnRef),
 }
 
@@ -307,8 +368,16 @@ pub struct Brain {
     /// A human message arrived while an acpmux turn ran: that turn is
     /// being stopped, and its end posts nothing.
     stop_wanted: bool,
+    /// The owner stopped the running turn (chief.stop): its end says so.
+    owner_stopped: bool,
     /// The running turn's interrupt (a new one per turn).
     interrupt: Arc<crate::turn::Interrupt>,
+    /// The steer on its way into the running turn (`steer.rs`), and the
+    /// last steer's number.
+    steering: Option<steer::Steering>,
+    steer_seq: u64,
+    /// A draft could not be published (logged once).
+    draft_failed: bool,
     after_turn: Option<TurnHook>,
     /// Notices waiting for the conversation to be known.
     notices: Vec<(String, String)>,
@@ -316,11 +385,25 @@ pub struct Brain {
     noticed: HashSet<String>,
     /// Claude Code refused a turn's cache marker (it placed a fourth
     /// breakpoint of its own): later turns go without it.
-    marker_refused: Arc<std::sync::atomic::AtomicBool>,
+    marker_refused: crate::prompt::MarkLatch,
+    /// A route refused a 1-hour cache mark: turns go at 5 minutes until the
+    /// host restarts or `cache.ttl` is set again.
+    ttl_refused: Arc<std::sync::atomic::AtomicBool>,
+    /// The TTL the session settings held when the pool was last hinted: a
+    /// pooled session runs Claude Code with it.
+    prewarm_ttl: Option<crate::prompt::CacheTtl>,
+    /// This turn's TTL differs from `prewarm_ttl` (cache.ttl changed).
+    ttl_stale: Arc<std::sync::atomic::AtomicBool>,
+
     /// The monitoring trace (`trace.rs`).
     pub(crate) trace: crate::trace::Trace,
     /// Where subagents' workspaces are renamed when they finish.
     workspaces: Option<Arc<dyn crate::workspaces::Workspaces>>,
+    /// Starts a queued subagent by id (`Spawner::queue_starter`).
+    sub_starter: Option<Sender<String>>,
+    /// A finished subagent's workspace closes instead of taking the done
+    /// mark (`OPTCHAT_SUBAGENT_ON_FINISH=close`).
+    sub_close_on_finish: bool,
     /// The previous turn's view, to measure how much of it stayed (cache).
     prev_view: Option<String>,
     /// When the current settle wait and turn began.
@@ -398,8 +481,15 @@ impl Brain {
             last_agent_send: None,
             fatal: None,
             stop_wanted: false,
+            owner_stopped: false,
             interrupt: Arc::new(crate::turn::Interrupt::new()),
-            marker_refused: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            steering: None,
+            steer_seq: 0,
+            draft_failed: false,
+            marker_refused: crate::prompt::MarkLatch::default(),
+            ttl_refused: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            prewarm_ttl: None,
+            ttl_stale: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             chief,
             turn_remote: false,
             turn_ask: false,
@@ -410,6 +500,8 @@ impl Brain {
             noticed: HashSet::new(),
             trace: crate::trace::Trace::off(),
             workspaces: None,
+            sub_starter: None,
+            sub_close_on_finish: false,
             prev_view: None,
             settle_clock: None,
             settle_status: None,
@@ -421,6 +513,8 @@ impl Brain {
             mux_pending: HashMap::new(),
         };
         brain.save();
+        // The compactor's first nodes take the turns' TTL too.
+        brain.turn_cache_ttl();
         brain
     }
 
@@ -449,6 +543,17 @@ impl Brain {
 
     pub fn set_workspaces(&mut self, workspaces: Option<Arc<dyn crate::workspaces::Workspaces>>) {
         self.workspaces = workspaces;
+    }
+
+    /// Finished subagents' workspaces close (true) or stay with the done
+    /// mark (false, the default).
+    pub fn set_sub_close_on_finish(&mut self, close: bool) {
+        self.sub_close_on_finish = close;
+    }
+
+    /// Where queued subagents are started when a slot frees.
+    pub fn set_sub_starter(&mut self, starter: Option<Sender<String>>) {
+        self.sub_starter = starter;
     }
 
     /// Renames subagents' workspaces when they finish (workspaces.rs).
@@ -480,7 +585,9 @@ impl Brain {
     }
 
     pub fn is_idle(&self) -> bool {
-        self.phase == Phase::Idle && self.queue.is_empty()
+        self.phase == Phase::Idle
+            && !self.queue.iter().any(Queued::wakes)
+            && self.steering.is_none()
     }
 
     /// When the outbox timer fires, if armed.
@@ -537,8 +644,11 @@ impl Brain {
                 let blocks = self.boundary(&key);
                 let _ = reply.send(blocks);
             }
-            Input::TurnEnded { key, outcome } => self.turn_ended(&key, outcome),
+            Input::Draft(draft) => self.turn_draft(&draft),
+            Input::Steered { id, result } => self.steered(id, result),
+            Input::TurnEnded { key, outcome } => self.turn_ended(&key, *outcome),
             Input::Notice { key, text } => self.notice(key, text),
+            Input::CompactorStatus(status) => self.compactor_status(status),
             Input::SpawnRegister { tasks, reply } => {
                 let plan = self.register_spawn(&tasks);
                 let _ = reply.send(plan);
@@ -551,6 +661,10 @@ impl Brain {
             Input::SubagentWorkspace { id, key, name } => self.sub_workspace(&id, key, name),
             Input::SubagentFailed { id, error } => self.sub_failed(&id, &error),
             Input::SubagentAnswer { id, answer } => self.sub_answer(&id, &answer),
+            Input::SubSession { id, reply } => {
+                let session = self.state.sub(&id).and_then(|(_, s)| s.session_id.clone());
+                let _ = reply.send(session);
+            }
             Input::Tell { id, message, reply } => {
                 let answer = self.tell(&id, &message);
                 let _ = reply.send(answer);
@@ -565,6 +679,12 @@ impl Brain {
                 let _ = reply.send(self.spawn_policy().map(str::to_owned));
             }
             Input::Described { image, description } => self.described(&image, description),
+            Input::Engine { request, reply } => {
+                let _ = reply.send(self.engine_control(request));
+            }
+            Input::Stop { reply } => {
+                let _ = reply.send(self.owner_stop());
+            }
         }
     }
 
@@ -605,6 +725,58 @@ impl Brain {
         (self.log)(&text);
         self.notices.push((key, text));
         self.post_notices();
+    }
+
+    /// cx-1hpt: one failure notice in the conversation at a time, across
+    /// host starts (the state file keeps it); a good probe retracts it.
+    fn compactor_status(&mut self, status: Result<(), String>) {
+        match status {
+            Err(text) => {
+                if self.state.compactor_notice.is_some() {
+                    (self.log)(&text);
+                    return;
+                }
+                let key = format!("notice:optchat:compactor:{}", now_ms());
+                self.state.compactor_notice = Some(crate::state::PostedNotice {
+                    key: key.clone(),
+                    message_id: None,
+                });
+                self.save();
+                self.notice(key, text);
+            }
+            Ok(()) => {
+                let Some(posted) = self.state.compactor_notice.take() else {
+                    return;
+                };
+                // Not sent yet: it never shows.
+                self.notices.retain(|(k, _)| *k != posted.key);
+                self.state
+                    .outbox
+                    .retain(|e| e.idempotency_key != posted.key || e.attempted);
+                match (posted.message_id, self.state.conversation.clone()) {
+                    (Some(id), Some(conversation)) => {
+                        (self.log)("the memory compactor works again; its notice is retracted");
+                        self.state.outbox.push(op_entry(
+                            conversation,
+                            &format!("{}:retract", posted.key),
+                            Op::MessageRetract { message_id: id },
+                        ));
+                    }
+                    _ => (self.log)("the memory compactor works again"),
+                }
+                self.save();
+                self.flush_outbox();
+            }
+        }
+    }
+
+    /// The owner confirmed the message sent under `key`.
+    pub(super) fn sent(&mut self, key: &str, message_id: &str) {
+        if let Some(posted) = self.state.compactor_notice.as_mut()
+            && posted.key == key
+        {
+            posted.message_id = Some(message_id.to_owned());
+        }
     }
 
     /// Moves waiting notices into the outbox once the conversation is known.
@@ -651,10 +823,24 @@ impl Brain {
     /// (an approved shell command reaches the host the same way). Turning
     /// it off is always allowed.
     pub fn set_setting(&mut self, key: &str, value: &str) -> Result<String, String> {
-        use crate::chief_settings::{REMOTE_AUTO_APPROVE, parse_bool};
+        use crate::chief_settings::{CACHE_TTL, REMOTE_AUTO_APPROVE, parse_bool, parse_ttl};
+        if key == CACHE_TTL {
+            // From the next turn on (the native engine: the next host start).
+            let ttl = parse_ttl(value)?;
+            let mut next = self.chief;
+            next.cache_ttl = Some(ttl);
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            self.ttl_refused
+                .store(false, std::sync::atomic::Ordering::SeqCst);
+            self.turn_cache_ttl();
+            (self.log)(&format!("setting {key} = {}", ttl.as_str()));
+            return Ok(format!("{key} = {}", ttl.as_str()));
+        }
         if key != REMOTE_AUTO_APPROVE {
             return Err(format!(
-                "unknown setting {key:?} (known: {REMOTE_AUTO_APPROVE})"
+                "unknown setting {key:?} (known: {REMOTE_AUTO_APPROVE}, {CACHE_TTL})"
             ));
         }
         let on = parse_bool(value)?;
@@ -705,13 +891,15 @@ impl Brain {
         // tool calls; on acpmux that is a stop like a human message's.
         let human = matches!(source, Source::Message { .. } | Source::Spawn(_));
         let same = self.phase == Phase::Running && self.turn_side() == conversation;
-        self.queue.push_back(Queued {
+        let item = Queued {
             text,
             source,
             images,
             conversation,
-        });
-        if human && same {
+        };
+        let wakes = item.wakes();
+        self.queue.push_back(item);
+        if human && same && wakes {
             self.interrupt_for_newer();
         }
         self.maybe_start_turn();
@@ -755,6 +943,19 @@ fn reply_key_at(first: u64, stamp: &str) -> String {
 
 /// A turn reply: `message.send` whose client_msg_id is the turn key, so a
 /// retry never posts twice.
+/// An outbox entry for `op` under `key`.
+fn op_entry(conversation: String, key: &str, op: Op) -> OutboxEntry {
+    OutboxEntry {
+        conversation,
+        idempotency_key: key.to_owned(),
+        op,
+        rate_retried: false,
+        not_before: None,
+        attempted: false,
+        rate_attempts: 0,
+    }
+}
+
 fn reply_entry(conversation: String, key: &str, text: &str) -> OutboxEntry {
     let text = if text.len() > REPLY_BYTES {
         let mut cut = REPLY_BYTES;

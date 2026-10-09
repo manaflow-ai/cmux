@@ -49,4 +49,41 @@ import WebKit
         #expect(target.runs == 1)
         #expect(!web.hasRecentUserGesture())
     }
+
+    @Test func aChoiceInASubmenuOfThePagesContextMenuIsAUserActivation() throws {
+        let web = PageWKWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let menu = NSMenu()
+        web.willOpenMenu(menu, with: try Self.rightClick())
+        let parent = NSMenuItem(title: "Copy", action: nil, keyEquivalent: "")
+        let submenu = NSMenu()
+        let target = Target()
+        submenu.addItem(Self.item(target))
+        parent.submenu = submenu
+        menu.addItem(parent)
+        submenu.performActionForItem(at: 0)
+        #expect(target.runs == 1)
+        #expect(web.hasRecentUserGesture())
+    }
+
+    /// A pooled view rebound to another page (or parked for the next claim) starts with no
+    /// activation: the new document cannot use a click the person made in the old one.
+    @Test func aRetargetedPooledViewForgetsTheOldPagesActivation() throws {
+        let host = try #require(PageWebView(pooledHost: .settings))
+        defer { host.close() }
+        let web = try #require(host.webKitView as? PageWKWebView)
+        web.noteUserEvent(try Self.rightClick())
+        #expect(host.router.hasUserGesture?() == true)
+        #expect(host.retarget(descriptor: .history, routes: []))
+        #expect(!web.hasRecentUserGesture())
+        #expect(host.router.hasUserGesture?() == false)
+    }
+
+    @Test func aPooledViewParkedForTheNextClaimForgetsTheActivation() async throws {
+        let host = try #require(PageWebView(pooledHost: .settings))
+        defer { host.close() }
+        let web = try #require(host.webKitView as? PageWKWebView)
+        web.noteUserEvent(try Self.rightClick())
+        await host.resetPooledPage()
+        #expect(!web.hasRecentUserGesture())
+    }
 }

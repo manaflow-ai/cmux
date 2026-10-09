@@ -121,6 +121,42 @@ pub fn block_cuts(text: &str) -> Vec<usize> {
     cuts
 }
 
+/// Blocks the API looks back from a cache mark for an earlier entry: a mark
+/// more than this many blocks past the last request's mark finds nothing,
+/// and the request writes the whole prefix again.
+pub const LOOKBACK_BLOCKS: usize = 20;
+
+/// How many blocks a turn's mark may move past the last turn's mark: inside
+/// `LOOKBACK_BLOCKS`, with room for the blocks Claude Code adds.
+pub const MARK_REACH: usize = 16;
+
+/// The piece of `block_pieces(view)` that carries the request's one mark, or
+/// None when the view has no whole block. It is the last whole block, unless
+/// `prev` (the view's text up to and including the last request's marked
+/// piece) is still a prefix of `view` ending on a block cut and the last
+/// whole block lies more than `MARK_REACH` pieces past it: then the mark
+/// goes `MARK_REACH` pieces past it, so this request reads the last one's
+/// entry and writes the next one in reach. A turn that adds hundreds of view
+/// lines (a long tool run) then costs the new lines once, not the whole view.
+pub fn mark_piece(view: &str, prev: Option<&str>) -> Option<usize> {
+    let pieces = block_pieces(view);
+    let last = pieces.len().checked_sub(2)?;
+    let Some(prev) = prev.filter(|p| !p.is_empty() && view.starts_with(p)) else {
+        return Some(last);
+    };
+    let mut end = 0;
+    for (k, piece) in pieces[..=last].iter().enumerate() {
+        end += piece.len();
+        if end == prev.len() {
+            return Some(last.min(k + MARK_REACH));
+        }
+        if end > prev.len() {
+            break;
+        }
+    }
+    Some(last)
+}
+
 /// `text` cut at its `block_cuts`: every piece but the last is a whole
 /// block (the first with the header), the last holds the rest and the
 /// closing tag. The mark goes on the second to last piece, when there is one.

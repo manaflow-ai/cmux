@@ -63,6 +63,7 @@ import { useFolderTrustAsk } from "./useFolderTrustAsk";
 import { heldPrompts } from "./heldPrompt";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import { DiffPanel } from "./DiffPanel";
+import { Inspector, type ExportOutcome } from "./Inspector";
 import { SummaryButton } from "./summary/SummaryButton";
 import { turnCounts, turnDisplay } from "./changes/turnCheckpoint";
 import { TurnCountsContext, type TurnCountsFor } from "./changes/TurnCountsContext";
@@ -80,9 +81,11 @@ import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
 import { SessionRowsContext } from "./turnChanges/sessionRows";
 import { TurnActionsContext, type TurnActions } from "./conversation/turnActions";
-import { DATE, PREVIEW, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
+import { DATE, PREVIEW, RENDER, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
 import { PreviewCard } from "./conversation/PreviewCard";
-import { canFork, messageMenuTarget, setMessageMenuSource } from "./conversation/messageMenu";
+import { canFork, latestForkSeq, messageMenuTarget, setMessageMenuSource } from "./conversation/messageMenu";
+import { RenderCard, canRender } from "./conversation/RenderCard";
+import { renderCall } from "./conversation/renderCall";
 import { DateLine } from "./conversation/DateLine";
 import { SHORTCUT_ACTIONS, ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
 import { FALLBACK_LINK_SCHEME, revealTurnWhenShown, setLinkScheme } from "./links";
@@ -109,7 +112,7 @@ import { LiveChatChoice } from "./LiveChatChoice";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
 import type { HandoffReviewInput } from "./handoff/review";
-import { mergedCommands } from "./cmuxCommands";
+import { continueTargets, mergedCommands, resolveHarnessTarget } from "./cmuxCommands";
 import { importedPrompt, parseImportedSession } from "./importSession";
 import { useCheckpoints } from "./checkpoints/controller";
 import { PermissionPanel } from "./permissions/Panel";
@@ -136,6 +139,8 @@ declare global {
   interface Window {
     cmuxAcpmuxBridge?: {
       receive(snapshot: AcpmuxSnapshot): void;
+      /** Sets or toggles the inspector and returns its next visibility. */
+      toggleInspector(open?: boolean): boolean;
       applyTheme(theme: Record<string, unknown>): void;
       applyCustomization(customization: {
         themeCSS?: string;
@@ -199,6 +204,15 @@ function cachedSnapshot(): AcpmuxSnapshot {
 }
 
 /// A page action: the connected client's (chat actions run against acpmux), else the native host.
+/** Saves the inspector's export through the host's save panel (`pane.saveLog`): true is saved, false a cancelled panel. A host without it, or one that refuses the log, leaves the inspector to copy it. */
+export async function saveLogNatively(text: string, suggestedName: string): Promise<ExportOutcome> {
+  try {
+    return (await callNative<boolean>("pane.saveLog", { text, suggestedName })) === true ? "saved" : "cancelled";
+  } catch {
+    return "unavailable";
+  }
+}
+
 function callNative<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
   const direct = window.cmuxAcpmuxActions?.[method];
   if (direct) return direct(params) as Promise<T>;
@@ -315,6 +329,15 @@ const PreviewRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.text === b.row.text,
 );
+/// An ended turn's render call, live (conversation/RenderCard.tsx).
+const RenderRow = memo(
+  function RenderRow({ row }: RowProps) {
+    const tool = row.items?.[0]?.tool;
+    const call = tool && canRender() ? renderCall(tool) : undefined;
+    return call ? <RenderCard call={call} /> : null;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
 
 const SummaryRow = memo(
   function SummaryRow({ row }: RowProps) {
@@ -376,6 +399,7 @@ const defaultRegistry: NativeRegistry = {
   [THINKING]: ThinkingRow,
   [WORKING]: WorkingRow,
   [PREVIEW]: PreviewRow,
+  [RENDER]: RenderRow,
   editedFiles: EditedFilesRow,
   turnSummary: SummaryRow,
   notice: NoticeRow,
@@ -965,6 +989,7 @@ function AcpmuxPane() {
   // transcript; a bridge that cannot route an action has nothing to add.
   const connected = snapshot.connection !== "disconnected" && !snapshot.connection.startsWith("connecting");
   const forkable = canFork(snapshot);
+  const forkSeq = latestForkSeq(snapshot.rows);
   // A new chat centers its composer under the hero.
   const handoff = snapshot.handoff?.record;
   const reviewing =
@@ -1033,6 +1058,19 @@ function AcpmuxPane() {
       sessionMoves,
     );
   }, [snapshot.rows, expanded, snapshot.isWorking, snapshot.permissionGroups, chatShellRuns, sessionMoves]);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const inspectorOpener = useRef<HTMLElement | undefined>(undefined);
+  const inspectorOpenRef = useRef(false);
+  const inspectorHiddenSurfaceRef = useRef(false);
+  const closeInspector = useCallback(() => {
+    inspectorOpenRef.current = false;
+    setInspectorOpen(false);
+  }, []);
+  useLayoutEffect(() => {
+    if (inspectorOpen || !inspectorOpener.current) return;
+    inspectorOpener.current.focus();
+    inspectorOpener.current = undefined;
+  }, [inspectorOpen]);
   // The open changes view: a turn of one session, and the control that opened it.
   const [diffView, setDiffView] = useState<{
     sessionId?: string;
@@ -1040,19 +1078,34 @@ function AcpmuxPane() {
     path?: string;
     opener?: HTMLElement;
   }>();
+  const toggleInspector = useCallback((open?: boolean) => {
+    if (inspectorHiddenSurfaceRef.current) {
+      inspectorOpenRef.current = false;
+      setInspectorOpen(false);
+      return false;
+    }
+    const next = typeof open === "boolean" ? open : !inspectorOpenRef.current;
+    inspectorOpenRef.current = next;
+    if (next) {
+      setDiffView(undefined);
+      inspectorOpener.current ??= document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+    }
+    setInspectorOpen(next);
+    return next;
+  }, []);
   const sessionIdRef = useRef(snapshot.sessionId);
   sessionIdRef.current = snapshot.sessionId;
   // A click does not focus a button in WebKit, so the clicked control is the opener, not the focus.
-  const openDiff = useCallback<OpenDiff>(
-    (rowId, path, opener) =>
-      setDiffView({
-        sessionId: sessionIdRef.current,
-        rowId,
-        path,
-        opener: opener ?? (document.activeElement instanceof HTMLElement ? document.activeElement : undefined),
-      }),
-    [],
-  );
+  const openDiff = useCallback<OpenDiff>((rowId, path, opener) => {
+    inspectorOpenRef.current = false;
+    setInspectorOpen(false);
+    setDiffView({
+      sessionId: sessionIdRef.current,
+      rowId,
+      path,
+      opener: opener ?? (document.activeElement instanceof HTMLElement ? document.activeElement : undefined),
+    });
+  }, []);
   // An output in the summary opens the changes of the last turn that wrote it, at that file.
   const openOutput = useCallback(
     (path: string) => {
@@ -1126,13 +1179,14 @@ function AcpmuxPane() {
     () => ({
       ...(forkable && {
         fork: (throughSeq: number) => void callNative("chat.fork", { throughSeq }).catch(() => undefined),
+        forkSeq,
       }),
       ...(connected && {
         retry: (prompt: string) => void callNative("chat.send", { text: prompt }).catch(() => undefined),
       }),
       review: hunkReview,
     }),
-    [forkable, connected, hunkReview],
+    [forkable, forkSeq, connected, hunkReview],
   );
   // Streaming text changes rows on every chunk; only the turn's tool calls change its files.
   const diffActivity = useRef<{ key: string; files: ReturnType<typeof turnFiles> }>(undefined);
@@ -1371,6 +1425,7 @@ function AcpmuxPane() {
       },
     };
     window.cmuxAcpmuxBridge = {
+      toggleInspector,
       command(name) {
         if (name === "createCheckpoint") showCheckpoint.current();
         if (
@@ -1888,19 +1943,15 @@ function AcpmuxPane() {
       delete window.cmuxAcpmuxActions;
       notifyDraftActionsChanged();
     };
-    // Both are stable for the pane's life (a state initializer and the provider's client).
-  }, [harnessSwitch, queryClient]);
+    // These are stable for the pane's life (state, provider client, and a memoized bridge callback).
+  }, [harnessSwitch, queryClient, toggleInspector]);
   const ComposerChips =
     ((window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as
       | React.ComponentType<{ snapshot: AcpmuxSnapshot }>
       | undefined) ?? DefaultComposerChips;
   // The catalog arrives through the query cache, which composerSnapshot carries.
   const header = paneHeader(composerSnapshot, t);
-  const sourceHarness = snapshot.summary?.harness?.split(/[-_]/)[0];
-  const handoffTargets = composerSnapshot.catalog.filter((entry) => {
-    const family = entry.id.split(/[-_]/)[0];
-    return sourceHarness === "claude" ? family === "codex" : sourceHarness === "codex" && family === "claude";
-  });
+  const handoffTargets = continueTargets(composerSnapshot.catalog, snapshot.summary?.harness);
   const canContinue =
     !!snapshot.canHandoff &&
     !!snapshot.handoff?.ready &&
@@ -1922,7 +1973,7 @@ function AcpmuxPane() {
     callNative<{ pinned?: boolean }>("pane.tabState").then((state) => {
       tabPinned.current = state?.pinned === true;
     });
-  const lastForkSeq = [...snapshot.rows].reverse().find((row) => row.seq !== undefined)?.seq;
+  const lastForkSeq = latestForkSeq(snapshot.rows);
   const copyLinkRow = (link: string): ChatMenuItem => ({
     key: "copyLink",
     label: t("chatMenu.copyLink"),
@@ -1933,6 +1984,17 @@ function AcpmuxPane() {
   const chatMenu = (): ChatMenuItem[] => {
     const link = snapshot.sessionId ? sessionLink(snapshot.sessionId) : undefined;
     const chat: ChatMenuItem[] = [
+      {
+        key: "inspector",
+        label: t("inspector.title"),
+        icon: "code",
+        onSelect: () => {
+          inspectorOpener.current = Array.from(
+            document.querySelectorAll<HTMLElement>(".acpmux-header-tools button"),
+          ).find((button) => button.getAttribute("aria-label") === t("chatMenu.open"));
+          toggleInspector(true);
+        },
+      },
       ...(forkable && lastForkSeq !== undefined
         ? [
             {
@@ -2022,6 +2084,13 @@ function AcpmuxPane() {
     ];
   };
   const showNewTab = newTab !== undefined && !snapshot.sessionId && snapshot.rows.length === 0;
+  const inspectorHiddenSurface = quick || showNewTab;
+  inspectorHiddenSurfaceRef.current = inspectorHiddenSurface;
+  useEffect(() => {
+    if (!inspectorHiddenSurface) return;
+    inspectorOpenRef.current = false;
+    setInspectorOpen(false);
+  }, [inspectorHiddenSurface]);
   const importFile = useCallback(async (file: File) => {
     setImportError(undefined);
     try {
@@ -2200,6 +2269,18 @@ function AcpmuxPane() {
         sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
         chips={ComposerChips}
         draft={draft}
+        onCmuxCommand={(command, args) => {
+          if (command.action !== "continue" || !canContinue) return false;
+          if (!args?.trim()) {
+            setContinuing(true);
+            return true;
+          }
+          const target = resolveHarnessTarget(args, handoffTargets);
+          if (!target) return false;
+          setContinuing(false);
+          ignoreFailure(callNative("chat.handoff.prepare", { harness: target.id }));
+          return true;
+        }}
         onSend={(text, chips) => {
           // Until acpmux connects nothing takes a prompt; the composer keeps it.
           if (!window.cmuxAcpmuxActions?.["chat.send"]) return false;
@@ -2368,7 +2449,9 @@ function AcpmuxPane() {
             />
           ) : (
             <>
-              <div className={`acpmux-stage${diffFiles ? " acpmux-reviewing" : ""}`}>
+              <div
+                className={`acpmux-stage${diffFiles ? " acpmux-reviewing" : ""}${inspectorOpen ? " acpmux-inspecting" : ""}`}
+              >
                 <header className="acpmux-header">
                   <ChatHeaderStatus status={header.status} detail={header.detail} />
                   <div className="acpmux-handoff-header-tools">
@@ -2430,6 +2513,14 @@ function AcpmuxPane() {
                   <EmptyState project={projectName(snapshot.summary?.cwd)} />
                 ) : (
                   transcript
+                )}
+                {inspectorOpen && (
+                  <Inspector
+                    snapshot={snapshot}
+                    sessionEvents={() => directClient.current?.sessionEvents() ?? []}
+                    onClose={closeInspector}
+                    onExport={saveLogNatively}
+                  />
                 )}
                 {diffView && diffFiles && (
                   <DiffPanel
