@@ -15,6 +15,8 @@ import {
   type HostLists,
   type AccountsRow,
   type AccountsRun,
+  type AgentsRun,
+  type AgentsState,
   type AccountsState,
   type Diagnostic,
   type Domains,
@@ -26,6 +28,7 @@ import {
 } from "./ops";
 import { rowsByKey, schema } from "./schema";
 import { validate } from "./validate";
+import { MockAgents } from "./mockAgents";
 import { mockThemeColors } from "./mockThemes";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 
@@ -112,6 +115,8 @@ export class MockSettingsProvider {
       "cmux.settings.sound.play": () => ({}),
       "cmux.settings.host.lists": () => this.host,
       "cmux.settings.accounts.state": () => this.accounts,
+      "cmux.settings.agents.state": () => this.agents.state,
+      "cmux.settings.agents.run": (params) => this.agents.run(params as unknown as AgentsRun),
       "cmux.settings.theme.set": (params) => {
         const { level, spec } = params as { level: string; spec: string | null };
         const theme = this.host.theme!;
@@ -165,6 +170,8 @@ export class MockSettingsProvider {
       "cmux.settings.host.lists",
       "cmux.settings.accounts.state",
       "cmux.settings.accounts.run",
+      "cmux.settings.agents.state",
+      "cmux.settings.agents.run",
       "cmux.settings.theme.set",
       "cmux.settings.theme.colors",
       "cmux.settings.theme.accepts",
@@ -190,6 +197,11 @@ export class MockSettingsProvider {
     session.provide("cmux.page.command", (ctx) => this.track(this.commands, ctx));
     session.provide("cmux.settings.host.changed", (ctx) => this.track(this.hostChanged, ctx));
     session.provide("cmux.settings.accounts.changed", (ctx) => this.track(this.accountsChanged, ctx));
+    session.provide("cmux.settings.agents.changed", (ctx) => {
+      const listener = (state: AgentsState) => ctx.emit(state);
+      this.agents.listeners.add(listener);
+      ctx.signal.addEventListener("abort", () => this.agents.listeners.delete(listener));
+    });
   }
 
   /** What the cmux picker returns for Add Folder… (tests set it). */
@@ -224,6 +236,8 @@ export class MockSettingsProvider {
   };
   private readonly hostChanged = new Set<EventSourceContext>();
   private readonly accountsChanged = new Set<EventSourceContext>();
+  /** Settings > Agents (cmux.settings.agents.*); tests set `agents.state.manages` and rows. */
+  readonly agents = new MockAgents();
 
   /** The Accounts part as the app serves it (texts already localized). */
   accounts: AccountsState = {

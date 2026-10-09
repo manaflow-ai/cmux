@@ -27,6 +27,8 @@ import {
   wireError,
   type AccountsRun,
   type AccountsState,
+  type AgentsRun,
+  type AgentsState,
   type Domains,
   type HostLists,
   type ListRow,
@@ -104,7 +106,7 @@ export function composeState(ui: UiState, cache: CacheView): SettingsState {
   };
 }
 
-type Reply<R> = { ok: true; value: R } | { ok: false; error: WireError };
+export type Reply<R> = { ok: true; value: R } | { ok: false; error: WireError };
 
 export class SettingsStore {
   readonly queryClient: QueryClient;
@@ -258,6 +260,28 @@ export class SettingsStore {
     await this.refreshAccounts();
     if (!reply.ok) return reply.error.message;
     return reply.value.error ?? null;
+  }
+
+  /** Settings > Agents' state; null when the host has no Agents part. */
+  async agentsState(): Promise<AgentsState | null> {
+    const reply = await this.request("cmux.settings.agents.state", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** One Agents gesture; the error says why the host or the daemon refused. */
+  async runAgents(run: AgentsRun): Promise<Reply<unknown>> {
+    return this.request("cmux.settings.agents.run", run);
+  }
+
+  /** Live Agents state while the card is shown (the host watches acpmux only then). */
+  async watchAgents(onState: (state: AgentsState) => void): Promise<() => void> {
+    try {
+      return await this.client.subscribe<AgentsState>("cmux.settings.agents.changed", (state) => {
+        if (!this.disposed) onState(state);
+      });
+    } catch {
+      return () => {};
+    }
   }
 
   /** Runs one of the page's catalog actions (`target` is `kind:id`), then re-reads the lists. */
