@@ -232,6 +232,14 @@ mod tests {
         );
     }
 
+    /// `--tools` with a list of built-in names: the session offers only
+    /// those, so a built-in Claude Code adds later is not offered.
+    #[test]
+    fn tools_with_a_list_of_builtin_names_pass() {
+        assert_eq!(claude(&["--tools", "Bash,Read,Edit,Write,WebFetch,WebSearch,ToolSearch"]), Ok(()));
+        assert_eq!(claude(&["--tools", "Read"]), Ok(()));
+    }
+
     #[test]
     fn the_allowlisted_words_pass() {
         assert_eq!(claude(&[]), Ok(()));
@@ -264,7 +272,11 @@ mod tests {
         refuses_setting_sources_equals_project: ["--setting-sources=project"];
         refuses_disable_slash_commands_equals: ["--disable-slash-commands=true"];
         refuses_a_bare_word: ["hello"];
-        refuses_tools_with_a_value: ["--tools", "Bash"];
+        refuses_tools_with_a_rule: ["--tools", "Bash(rm:*)"];
+        refuses_tools_with_an_mcp_tool: ["--tools", "mcp__x__y"];
+        refuses_tools_with_a_space: ["--tools", "Bash, Read"];
+        refuses_tools_with_an_empty_name: ["--tools", "Bash,,Read"];
+        refuses_tools_with_a_wildcard: ["--tools", "*"];
         refuses_tools_without_a_value: ["--tools"];
         refuses_tools_equals_empty: ["--tools="];
         refuses_tools_equals_value: ["--tools=Bash"];
