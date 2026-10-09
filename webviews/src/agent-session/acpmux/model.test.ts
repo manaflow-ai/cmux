@@ -6,6 +6,7 @@ import {
   layoutConversation,
   markdownBlocks,
   measuredText,
+  headerTone,
   paneHeader,
   visibleLayoutRange,
   visibleRowRange,
@@ -257,4 +258,14 @@ describe("streaming row estimate", () => {
     layoutConversation([row(long + "tail grows", 2)], 600, cache);
     expect(cache.get("r")!.lexedLength).toBeLessThan(200);
   });
+});
+
+// Round 1 (UI tournament): the header status tells a retry from a lost or failed connection by tone.
+test("the connection decides the header tone: retrying warns, lost or failed is an error, quiet has none", () => {
+  expect(headerTone("connecting: connection refused")).toBe("warning");
+  expect(headerTone("reconnecting")).toBe("warning");
+  expect(headerTone("disconnected")).toBe("error");
+  expect(headerTone("error: exited")).toBe("error");
+  expect(headerTone("fork failed")).toBe("error");
+  expect(headerTone("connected")).toBeUndefined();
 });

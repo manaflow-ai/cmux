@@ -1,7 +1,7 @@
 import { Icon } from "../icons/Icon";
 
 /** The slot stays in place; the problem label cannot resize it or move the header tools. */
-export function ChatHeaderStatus({ status, detail }: { status: string; detail?: string }) {
+export function ChatHeaderStatus({ status, detail }: { status: string; detail?: string; tone?: "warning" | "error" }) {
   return (
     <div className="acpmux-header-status-slot">
       {status && (

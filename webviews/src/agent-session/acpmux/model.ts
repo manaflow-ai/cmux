@@ -558,6 +558,11 @@ import { agentName } from "./agents";
 import { type Translate, translate } from "./i18n";
 import { lastBlockBoundary } from "./conversation/incrementalMarkdown";
 
+/// The header status's tone for a connection: a retry warns, a lost or failed connection is an error.
+export function headerTone(_connection: string): "warning" | "error" | undefined {
+  return undefined;
+}
+
 /// The pane's fallback accessible name and problem-only header status.
 export function paneHeader(
   snapshot: AcpmuxSnapshot,

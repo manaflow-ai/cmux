@@ -117,8 +117,11 @@ test("Changes shows the last turn's counts and toggles the changes view", async 
   const changes = container.querySelector<HTMLButtonElement>(".acpmux-header-changes")!;
   expect(changes.disabled).toBe(false);
   expect(changes.getAttribute("aria-pressed")).toBe("true");
-  expect(changes.textContent).not.toContain("+85");
-  expect(changes.textContent).not.toContain("-14");
+  // Round 1 (UI tournament): the counts are readable at a glance, not only to a screen reader; the visible
+  // copy is hidden from assistive tech because the label already carries it.
+  const counts = changes.querySelector<HTMLElement>(".acpmux-header-changes-counts")!;
+  expect(counts.getAttribute("aria-hidden")).toBe("true");
+  expect(counts.textContent).toBe("+85\u2212" + "14");
   expect(changes.getAttribute("aria-label")).toBe("Changes: +85 -14");
   expect(changes.title).toBe("Changes");
   await act(async () => changes.click());
