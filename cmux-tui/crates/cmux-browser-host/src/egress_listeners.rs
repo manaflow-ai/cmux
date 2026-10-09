@@ -1,25 +1,31 @@
 //! Which processes listen on a loopback address (macOS), for the egress
-//! service check (crate::egress_services), without spawning a process:
+//! service check (crate::egress_services), without spawning a process. Two
+//! sources, each matched by address AND port (a listener counts only when
+//! its address covers the target: the same address, or the wildcard of its
+//! family; a dual-stack IPv6 wildcard covers IPv4 too):
 //!
-//! - `net.inet.tcp.pcblist64` (sysctl) lists every TCP socket of every user
-//!   with its local address, port, state and owner uid. Only a LISTEN socket
-//!   whose address covers the target counts: the same address, or the
-//!   wildcard of its family (a dual-stack IPv6 wildcard covers IPv4 too).
-//! - A covering listener of another user refuses: this host cannot inspect
-//!   its process (fail closed).
-//! - This user's covering listeners: libproc finds the processes that hold
-//!   them (`proc_listpids` for the uid, `PROC_PIDLISTFDS`,
-//!   `PROC_PIDFDSOCKETINFO`), `proc_pidpath` their executables; a cmux
-//!   service, Chrome or another Chromium-based browser refuses, and so does a
-//!   listener whose holder cannot be found or read.
-//! - No covering listener: allowed before a dial (nobody listens; the dial
-//!   fails by itself), refused after a connect (a listener exists that the
-//!   table did not show).
+//! - libproc gives this user's LISTEN sockets with their holders
+//!   (`proc_listpids` for the effective uid, `PROC_PIDLISTFDS`,
+//!   `PROC_PIDFDSOCKETINFO`, `proc_pidpath`). A covering listener held by a
+//!   cmux service, Chrome or another Chromium-based browser refuses, and so
+//!   does one whose holder cannot be read.
+//! - `net.inet.tcp.pcblist64` (sysctl) gives TCP sockets of every user. The
+//!   kernel can filter it to the caller's own sockets (a sandboxed or
+//!   app-launched process sees one record of many), so it only adds
+//!   refusals: a covering listener of another user refuses (this host
+//!   cannot inspect its process), and so does a covering listener of this
+//!   user that libproc does not find.
+//! - No covering listener: allowed before a dial (nobody listens, or only a
+//!   listener the table hides; the dial fails by itself or connects), and
+//!   refused after a connect (a listener exists that neither source showed).
+//!
+//! Any libproc error other than an exited process (`ESRCH`, `EBADF`) makes
+//! the sweep unreadable, and the caller refuses (fail closed).
 //!
 //! The struct offsets are `offsetof` values from the SDK headers
 //! (`netinet/tcp_var.h` `xtcpcb64`, `sys/proc_info.h` `socket_fdinfo`),
-//! measured equal on macOS 26.5 and 27.0.1; a live-table test checks them on
-//! the running OS.
+//! measured equal on macOS 26.5 and 27.0.1; a table of another layout is
+//! unreadable, and a live test checks the offsets on the running OS.
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
@@ -58,10 +64,12 @@ pub(crate) struct Listener {
     pub(crate) v4_too: bool,
 }
 
-/// The executables of the processes that hold a listener.
-pub(crate) enum Holders {
-    Found(Vec<String>),
-    Unreadable,
+/// A LISTEN socket of this user and the executable of a process that holds
+/// it (`None`: unreadable).
+#[derive(Clone, Debug)]
+pub(crate) struct Held {
+    pub(crate) listener: Listener,
+    pub(crate) exe: Option<String>,
 }
 
 fn u32_at(data: &[u8], at: usize) -> Option<u32> {
@@ -81,37 +89,38 @@ fn local_addr(vflag: u8, laddr: &[u8]) -> Option<IpAddr> {
 }
 
 /// The LISTEN sockets in a `net.inet.tcp.pcblist64` answer: an `xinpgen`
-/// header, `xtcpcb64` records, an `xinpgen` trailer.
-pub(crate) fn parse_pcblist64(data: &[u8]) -> Vec<Listener> {
-    let mut out = Vec::new();
-    let mut at = match u32_at(data, 0) {
-        Some(len) => len as usize,
-        None => return out,
-    };
-    while let Some(len) = u32_at(data, at).map(|len| len as usize) {
-        if len <= XINPGEN_SIZE || at + len > data.len() || len < XTCPCB64_SIZE {
-            break;
-        }
-        let record = &data[at..at + len];
-        let state = u32_at(record, XT_STATE).map(|s| s as i32);
-        let vflag = record[XT_VFLAG];
-        if state == Some(TCPS_LISTEN)
-            && let Some(addr) = local_addr(vflag, &record[XT_LADDR..XT_LADDR + 16])
-            && let Some(uid) = u32_at(record, XT_UID)
-        {
-            let flags = u32_at(record, XT_FLAGS).unwrap_or(0) as i32;
-            let dual =
-                vflag & INP_IPV6 != 0 && (vflag & INP_IPV4 != 0 || flags & IN6P_IPV6_V6ONLY == 0);
-            out.push(Listener {
-                addr,
-                port: u16::from_be_bytes([record[XT_LPORT], record[XT_LPORT + 1]]),
-                uid,
-                v4_too: dual && addr.is_unspecified(),
-            });
-        }
-        at += len;
+/// header, `xtcpcb64` records, an `xinpgen` trailer. `None` when the layout
+/// is not the measured one.
+pub(crate) fn parse_pcblist64(data: &[u8]) -> Option<Vec<Listener>> {
+    let trailer = data.len().checked_sub(XINPGEN_SIZE)?;
+    if u32_at(data, 0)? as usize != XINPGEN_SIZE || u32_at(data, trailer)? as usize != XINPGEN_SIZE
+    {
+        return None;
     }
-    out
+    let mut out = Vec::new();
+    let mut at = XINPGEN_SIZE;
+    while at < trailer {
+        if u32_at(data, at)? as usize != XTCPCB64_SIZE || at + XTCPCB64_SIZE > trailer {
+            return None;
+        }
+        let record = &data[at..at + XTCPCB64_SIZE];
+        at += XTCPCB64_SIZE;
+        let vflag = record[XT_VFLAG];
+        if u32_at(record, XT_STATE)? as i32 != TCPS_LISTEN {
+            continue;
+        }
+        let Some(addr) = local_addr(vflag, &record[XT_LADDR..XT_LADDR + 16]) else { continue };
+        let flags = u32_at(record, XT_FLAGS)? as i32;
+        let dual =
+            vflag & INP_IPV6 != 0 && (vflag & INP_IPV4 != 0 || flags & IN6P_IPV6_V6ONLY == 0);
+        out.push(Listener {
+            addr,
+            port: u16::from_be_bytes([record[XT_LPORT], record[XT_LPORT + 1]]),
+            uid: u32_at(record, XT_UID)?,
+            v4_too: dual && addr.is_unspecified(),
+        });
+    }
+    Some(out)
 }
 
 /// Whether a connection to `target` can reach `listener`.
@@ -128,48 +137,44 @@ fn covers(listener: &Listener, target: SocketAddr) -> bool {
     }
 }
 
-/// Why `target` is refused, or `None` (see the module docs).
+/// Why `target` is refused, or `None` (see the module docs). `table` comes
+/// from pcblist64 (maybe filtered), `own` from libproc.
 pub(crate) fn verdict(
     target: SocketAddr,
-    listeners: &[Listener],
+    table: &[Listener],
+    own: &[Held],
     own_uid: u32,
     connected: bool,
-    holders: impl Fn(&Listener) -> Holders,
 ) -> Option<String> {
-    let covering: Vec<&Listener> = listeners.iter().filter(|l| covers(l, target)).collect();
-    if covering.is_empty() {
-        return connected
-            .then(|| format!("loopback {target} is held by a socket this host cannot see"));
-    }
-    if let Some(other) = covering.iter().find(|l| l.uid != own_uid) {
+    if let Some(other) = table.iter().find(|l| l.uid != own_uid && covers(l, target)) {
         return Some(format!(
             "loopback {target} is held by a process of uid {}, which this host cannot inspect",
             other.uid
         ));
     }
-    for listener in covering {
-        let Holders::Found(paths) = holders(listener) else {
+    let mine: Vec<&Held> = own.iter().filter(|h| covers(&h.listener, target)).collect();
+    for held in &mine {
+        let Some(path) = &held.exe else {
             return Some(format!("the holder of loopback {target} cannot be read"));
         };
-        if paths.is_empty() {
-            return Some(format!(
-                "the process that listens on loopback {target} cannot be identified"
-            ));
-        }
-        for path in &paths {
-            let name = path.rsplit('/').next().unwrap_or(path);
-            if crate::egress_services::is_service_name(name)
-                || crate::egress_services::is_app_service_name(name)
-            {
-                return Some(format!("loopback {target} is the cmux service {name}"));
-            }
+        let name = path.rsplit('/').next().unwrap_or(path);
+        if crate::egress_services::is_service_name(name)
+            || crate::egress_services::is_app_service_name(name)
+        {
+            return Some(format!("loopback {target} is the cmux service {name}"));
         }
     }
-    None
+    if !mine.is_empty() {
+        return None;
+    }
+    if table.iter().any(|l| covers(l, target)) {
+        return Some(format!("the process that listens on loopback {target} cannot be identified"));
+    }
+    connected.then(|| format!("loopback {target} is held by a socket this host cannot see"))
 }
 
-/// Every LISTEN socket on this Mac (`net.inet.tcp.pcblist64`); `None` when
-/// the table cannot be read.
+/// The LISTEN sockets in `net.inet.tcp.pcblist64` (maybe filtered to the
+/// caller's own); `None` when the table cannot be read.
 #[cfg(target_os = "macos")]
 pub(crate) fn system_listeners() -> Option<Vec<Listener>> {
     let name = c"net.inet.tcp.pcblist64";
@@ -203,7 +208,7 @@ pub(crate) fn system_listeners() -> Option<Vec<Listener>> {
         };
         if read == 0 {
             buffer.truncate(filled);
-            return Some(parse_pcblist64(&buffer));
+            return parse_pcblist64(&buffer);
         }
         if std::io::Error::last_os_error().raw_os_error() != Some(libc::ENOMEM) {
             return None;
@@ -212,24 +217,35 @@ pub(crate) fn system_listeners() -> Option<Vec<Listener>> {
     None
 }
 
-/// The executables of this user's processes that hold `listener`.
+/// An exited process or a closed descriptor: skipped, not an error.
 #[cfg(target_os = "macos")]
-pub(crate) fn system_holders(listener: &Listener) -> Holders {
-    let Some(pids) = pids_of(listener.uid) else { return Holders::Unreadable };
-    let mut paths = Vec::new();
-    for pid in pids {
-        // A process that exited meanwhile lists nothing.
-        let Some(fds) = socket_fds(pid) else { continue };
-        if fds.into_iter().any(|fd| holds(pid, fd, listener)) {
-            match crate::egress_services::executable_path(pid) {
-                Some(path) => paths.push(path),
-                None => return Holders::Unreadable,
-            }
-        }
-    }
-    Holders::Found(paths)
+fn gone() -> bool {
+    matches!(std::io::Error::last_os_error().raw_os_error(), Some(libc::ESRCH | libc::EBADF))
 }
 
+/// This user's LISTEN sockets and their holders (libproc); `None` when the
+/// sweep cannot be read.
+#[cfg(target_os = "macos")]
+pub(crate) fn system_own_listeners(uid: u32) -> Option<Vec<Held>> {
+    let mut out = Vec::new();
+    for pid in pids_of(uid)? {
+        let mut found = Vec::new();
+        for fd in socket_fds(pid)? {
+            if let Some(mut listener) = listening(pid, fd)? {
+                listener.uid = uid;
+                found.push(listener);
+            }
+        }
+        if found.is_empty() {
+            continue;
+        }
+        let exe = crate::egress_services::executable_path(pid);
+        out.extend(found.into_iter().map(|listener| Held { listener, exe: exe.clone() }));
+    }
+    Some(out)
+}
+
+/// The pids of `uid`'s processes; grows the buffer until it is not full.
 #[cfg(target_os = "macos")]
 fn pids_of(uid: u32) -> Option<Vec<i32>> {
     const PROC_UID_ONLY: u32 = 4;
@@ -238,18 +254,28 @@ fn pids_of(uid: u32) -> Option<Vec<i32>> {
     if bytes <= 0 {
         return None;
     }
-    let mut pids = vec![0i32; bytes as usize / 4 + 64];
-    let size = (pids.len() * 4) as libc::c_int;
-    // SAFETY: the buffer is writable for `size` bytes, which is passed.
-    let filled = unsafe { libc::proc_listpids(PROC_UID_ONLY, uid, pids.as_mut_ptr().cast(), size) };
-    if filled <= 0 {
-        return None;
+    let mut room = bytes as usize / 4 + 64;
+    for _ in 0..4 {
+        let mut pids = vec![0i32; room];
+        let size = (pids.len() * 4) as libc::c_int;
+        // SAFETY: the buffer is writable for `size` bytes, which is passed.
+        let filled =
+            unsafe { libc::proc_listpids(PROC_UID_ONLY, uid, pids.as_mut_ptr().cast(), size) };
+        if filled <= 0 {
+            return None;
+        }
+        if filled < size {
+            pids.truncate(filled as usize / 4);
+            pids.retain(|pid| *pid > 0);
+            return Some(pids);
+        }
+        room *= 2;
     }
-    pids.truncate(filled as usize / 4);
-    pids.retain(|pid| *pid > 0);
-    Some(pids)
+    None
 }
 
+/// The socket descriptors of `pid` (empty when it exited); `None` on any
+/// other error. Grows the buffer until it is not full.
 #[cfg(target_os = "macos")]
 fn socket_fds(pid: i32) -> Option<Vec<i32>> {
     const PROX_FDTYPE_SOCKET: u32 = 2;
@@ -257,31 +283,38 @@ fn socket_fds(pid: i32) -> Option<Vec<i32>> {
     let bytes =
         unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDLISTFDS, 0, std::ptr::null_mut(), 0) };
     if bytes <= 0 {
-        return None;
+        return gone().then(Vec::new);
     }
     let size = size_of::<libc::proc_fdinfo>();
-    let mut fds =
-        vec![libc::proc_fdinfo { proc_fd: 0, proc_fdtype: 0 }; bytes as usize / size + 16];
-    let room = (fds.len() * size) as libc::c_int;
-    // SAFETY: the buffer is writable for `room` bytes, which is passed.
-    let filled =
-        unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDLISTFDS, 0, fds.as_mut_ptr().cast(), room) };
-    if filled <= 0 {
-        return None;
+    let mut count = bytes as usize / size + 16;
+    for _ in 0..4 {
+        let mut fds = vec![libc::proc_fdinfo { proc_fd: 0, proc_fdtype: 0 }; count];
+        let room = (fds.len() * size) as libc::c_int;
+        // SAFETY: the buffer is writable for `room` bytes, which is passed.
+        let filled = unsafe {
+            libc::proc_pidinfo(pid, libc::PROC_PIDLISTFDS, 0, fds.as_mut_ptr().cast(), room)
+        };
+        if filled <= 0 {
+            return gone().then(Vec::new);
+        }
+        if filled < room {
+            fds.truncate(filled as usize / size);
+            return Some(
+                fds.into_iter()
+                    .filter(|fd| fd.proc_fdtype == PROX_FDTYPE_SOCKET)
+                    .map(|fd| fd.proc_fd)
+                    .collect(),
+            );
+        }
+        count *= 2;
     }
-    fds.truncate(filled as usize / size);
-    Some(
-        fds.into_iter()
-            .filter(|fd| fd.proc_fdtype == PROX_FDTYPE_SOCKET)
-            .map(|fd| fd.proc_fd)
-            .collect(),
-    )
+    None
 }
 
-/// Whether socket `fd` of `pid` is a TCP LISTEN socket on the listener's
-/// address and port.
+/// Socket `fd` of `pid` as a TCP LISTEN socket (`Some(None)`: another kind
+/// of socket, or closed meanwhile); `None` on any other error.
 #[cfg(target_os = "macos")]
-fn holds(pid: i32, fd: i32, listener: &Listener) -> bool {
+fn listening(pid: i32, fd: i32) -> Option<Option<Listener>> {
     const PROC_PIDFDSOCKETINFO: libc::c_int = 3;
     const SOCKINFO_TCP: u32 = 2;
     const TSI_S_LISTEN: u32 = 1;
@@ -296,13 +329,28 @@ fn holds(pid: i32, fd: i32, listener: &Listener) -> bool {
             SFI_SIZE as libc::c_int,
         )
     };
-    if filled as usize != SFI_SIZE || u32_at(&info, SFI_KIND) != Some(SOCKINFO_TCP) {
-        return false;
+    if filled <= 0 {
+        return gone().then_some(None);
     }
-    let port = u16::from_be_bytes([info[SFI_LPORT], info[SFI_LPORT + 1]]);
-    u32_at(&info, SFI_STATE) == Some(TSI_S_LISTEN)
-        && port == listener.port
-        && local_addr(info[SFI_VFLAG], &info[SFI_LADDR..SFI_LADDR + 16]) == Some(listener.addr)
+    if filled as usize != SFI_SIZE {
+        return None;
+    }
+    if u32_at(&info, SFI_KIND) != Some(SOCKINFO_TCP)
+        || u32_at(&info, SFI_STATE) != Some(TSI_S_LISTEN)
+    {
+        return Some(None);
+    }
+    let vflag = info[SFI_VFLAG];
+    let Some(addr) = local_addr(vflag, &info[SFI_LADDR..SFI_LADDR + 16]) else {
+        return Some(None);
+    };
+    Some(Some(Listener {
+        addr,
+        port: u16::from_be_bytes([info[SFI_LPORT], info[SFI_LPORT + 1]]),
+        uid: 0,
+        // A dual-stack socket carries both vflags.
+        v4_too: addr.is_unspecified() && vflag & INP_IPV6 != 0 && vflag & INP_IPV4 != 0,
+    }))
 }
 
 #[cfg(test)]

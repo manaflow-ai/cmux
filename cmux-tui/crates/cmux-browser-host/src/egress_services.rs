@@ -96,18 +96,15 @@ pub(crate) fn is_app_service_name(name: &str) -> bool {
 /// (crate::egress_listeners).
 #[cfg(target_os = "macos")]
 fn service_refusal(addr: SocketAddr, connected: bool) -> Option<String> {
-    let Some(listeners) = crate::egress_listeners::system_listeners() else {
-        return Some(format!("loopback {addr} cannot be checked: the socket table is unreadable"));
+    use crate::egress_listeners::{system_listeners, system_own_listeners, verdict};
+    // SAFETY: geteuid has no preconditions.
+    let own_uid = unsafe { libc::geteuid() };
+    let (Some(table), Some(own)) = (system_listeners(), system_own_listeners(own_uid)) else {
+        return Some(format!(
+            "loopback {addr} cannot be checked: the socket tables are unreadable"
+        ));
     };
-    // SAFETY: getuid has no preconditions.
-    let own_uid = unsafe { libc::getuid() };
-    crate::egress_listeners::verdict(
-        addr,
-        &listeners,
-        own_uid,
-        connected,
-        crate::egress_listeners::system_holders,
-    )
+    verdict(addr, &table, &own, own_uid, connected)
 }
 
 #[cfg(target_os = "macos")]

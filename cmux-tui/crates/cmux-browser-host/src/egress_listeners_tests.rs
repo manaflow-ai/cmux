@@ -84,10 +84,10 @@ fn own_listeners_are_checked_by_executable() {
 }
 
 fn xinpgen(count: u32) -> Vec<u8> {
-    let mut gen = vec![0u8; XINPGEN_SIZE];
-    gen[0..4].copy_from_slice(&(XINPGEN_SIZE as u32).to_le_bytes());
-    gen[4..8].copy_from_slice(&count.to_le_bytes());
-    gen
+    let mut header = vec![0u8; XINPGEN_SIZE];
+    header[0..4].copy_from_slice(&(XINPGEN_SIZE as u32).to_le_bytes());
+    header[4..8].copy_from_slice(&count.to_le_bytes());
+    header
 }
 
 /// One `xtcpcb64` record at the offsets measured on macOS 26.5 and 27.0.1.
@@ -132,7 +132,12 @@ fn pcblist64_records_parse() {
         listeners.iter().map(|l| (l.addr, l.port, l.uid, l.v4_too)).collect();
     assert_eq!(
         got,
-        [(loop4, 5173, 501, false), (any6, 5173, 501, false), (any6, 5173, 501, true), (loop4, 5173, 501, false)]
+        [
+            (loop4, 5173, 501, false),
+            (any6, 5173, 501, false),
+            (any6, 5173, 501, true),
+            (loop4, 5173, 501, false)
+        ]
     );
 }
 
@@ -171,6 +176,22 @@ fn the_live_sources_find_a_listener_and_its_holder() {
     let me = std::env::current_exe().unwrap();
     let name = me.file_name().unwrap().to_str().unwrap();
     assert!(exe.ends_with(&format!("/{name}")), "{exe} is not {name}");
+}
+
+/// A dual-stack IPv6 wildcard listener (what Node binds by default) is
+/// found with IPv4 coverage, so its dev server is reachable on 127.0.0.1.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_live_dual_stack_listener_covers_ipv4() {
+    let socket = std::net::TcpListener::bind("[::]:0").unwrap();
+    let port = socket.local_addr().unwrap().port();
+    // SAFETY: geteuid has no preconditions.
+    let own = system_own_listeners(unsafe { libc::geteuid() }).expect("libproc readable");
+    let mine: Vec<&Held> = own.iter().filter(|h| h.listener.port == port).collect();
+    assert_eq!(mine.len(), 1, "{mine:?}");
+    assert!(mine[0].listener.v4_too, "{mine:?}");
+    let check = crate::egress_services::system_connected_check();
+    assert_eq!(check(SocketAddr::from((Ipv4Addr::LOCALHOST, port))), None);
 }
 
 /// Timing proof (run with --ignored --nocapture): one full check of a real
