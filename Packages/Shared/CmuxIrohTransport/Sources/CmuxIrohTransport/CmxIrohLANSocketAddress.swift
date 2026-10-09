@@ -27,24 +27,20 @@ public struct CmxIrohLANSocketAddress: Equatable, Hashable, Sendable {
         let host: String
         let portText: String
         if value.hasPrefix("[") {
-            guard let closing = value.firstIndex(of: "]"),
-                  value.index(after: closing) < value.endIndex,
-                  value[value.index(after: closing)] == ":" else {
+            guard let bracketed = Substring(value).bracketedHost, bracketed.rest.hasPrefix(":") else {
                 throw CmxIrohLANDiscoveryError.invalidSocketAddress
             }
-            host = String(value[value.index(after: value.startIndex)..<closing])
-            portText = String(value[value.index(closing, offsetBy: 2)...])
+            host = String(bracketed.host)
+            portText = String(bracketed.rest.dropFirst())
         } else {
-            guard let separator = value.lastIndex(of: ":"),
-                  !value[..<separator].contains(":") else {
+            guard let split = Substring(value).splitAtLastColon, !split.head.contains(":") else {
                 throw CmxIrohLANDiscoveryError.invalidSocketAddress
             }
-            host = String(value[..<separator])
-            portText = String(value[value.index(after: separator)...])
+            host = String(split.head)
+            portText = String(split.tail)
         }
-        guard !portText.isEmpty,
-              portText.utf8.allSatisfy({ (48 ... 57).contains($0) }),
-              let portValue = UInt16(portText),
+        // UInt16(_: String) is nil past 65_535; the round trip refuses "+1" and "01".
+        guard let portValue = UInt16(portText),
               portValue != 0,
               String(portValue) == portText else {
             throw CmxIrohLANDiscoveryError.invalidSocketAddress

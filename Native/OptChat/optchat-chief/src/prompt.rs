@@ -479,10 +479,11 @@ mod tests {
     }
 
     #[test]
-    fn the_turn_prompt_is_two_blocks() {
+    fn the_turn_prompt_is_the_header_the_rest_and_the_messages() {
         let blocks = turn_blocks("<chat>\n</chat>", &["one".into(), "two".into()]);
-        assert_eq!(blocks.len(), 2);
-        assert_eq!(blocks[0]["text"], "<chat>\n</chat>");
-        assert_eq!(blocks[1]["text"], "one\n\ntwo");
+        assert_eq!(blocks.len(), 3);
+        assert_eq!(blocks[0]["text"], "<chat>\n");
+        assert_eq!(blocks[1]["text"], "</chat>");
+        assert_eq!(blocks[2]["text"], "one\n\ntwo");
     }
 }

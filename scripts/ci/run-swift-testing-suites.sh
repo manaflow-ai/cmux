@@ -107,6 +107,18 @@ run_suite() {
   local execution="$evidence_dir/suite-$index.execution.log"
   local suite_status=0 started=$SECONDS
   attempt_suite "$suite" "$execution" "$@" || suite_status=$?
+  # --ignore-lock skips the scratch lock, but `swift test --skip-build` still
+  # opens .build/build.db (SQLite); when another suite's process holds it,
+  # SwiftPM gives up before any test runs ("database is locked", then "no tests
+  # found"). That is contention, not a result: try again, at most 3 times.
+  local locked_retries=0
+  while [ "$suite_status" -ne 0 ] && [ "$locked_retries" -lt 3 ] \
+    && grep -Fq 'unable to attach DB' "$execution" && grep -Fq 'database is locked' "$execution"; do
+    locked_retries=$((locked_retries + 1))
+    echo "SwiftPM build database was locked by another suite; retrying $suite ($locked_retries/3)." | "$@"
+    suite_status=0
+    attempt_suite "$suite" "$execution" "$@" || suite_status=$?
+  done
   if [ "$suite_status" -eq 124 ]; then
     echo "Swift test suite timed out; retrying $suite once." | "$@"
     suite_status=0

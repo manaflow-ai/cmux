@@ -9,7 +9,7 @@ import CmuxNextWakeups
 /// (content can move under a still pointer, and tracking areas then send
 /// nothing), dismissals, suppressions and removed targets. Nothing polls:
 /// the only timer is a one-shot `DemandTimer`, armed only in a pending,
-/// grace or pinned phase; the event monitor for dismissals exists only
+/// leaving, grace or pinned phase; the event monitor for dismissals exists only
 /// while a card is pending or shown.
 @MainActor
 public final class HoverCardCoordinator {

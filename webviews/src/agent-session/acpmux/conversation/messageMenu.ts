@@ -1,15 +1,29 @@
 // The agent pane's native context menu (CmuxNextAgentPane AgentPaneContextMenu) acts on the
 // message under the pointer: on `contextmenu`, before WebKit asks the host for its menu, the page
-// reports that message (its text, an agent reply's Markdown, and its turn's fork point) to the
-// host's `cmuxAgentContextMenu` handler, or null when the pointer is not on a message. The host
-// uses one report for one menu.
-import { lexer, type Token } from "marked";
+// reports that message (its text, an agent reply's Markdown, its turn's fork point, Retry and its
+// links) and the selected transcript text under the pointer to the host's `cmuxAgentContextMenu`
+// handler, or null when there is neither. On an image that opens on click (`data-open-image`) the
+// report adds `openImage`, and the menu's Open Image clicks it (`openReportedImage`). The host uses
+// one report for one menu.
+import { lexer, type Token, walkTokens } from "marked";
 import { turnRows } from "../diff";
 import type { AcpmuxSnapshot } from "../model";
 
 export const MESSAGE_MENU_HANDLER = "cmuxAgentContextMenu";
 
-export type MessageMenuTarget = { text: string; markdown?: string; forkSeq?: number };
+export type MessageMenuTarget = {
+  text: string;
+  markdown?: string;
+  forkSeq?: number;
+  /// A prompt that was not sent: its row, for Retry (`chat.retryPrompt`).
+  retryRowId?: string;
+  /// The message's web links and images, each once, for Open Link.
+  links?: string[];
+};
+
+/// What the page reports on `contextmenu`: the message under the pointer, and the selected
+/// transcript text when the pointer is inside it (Quote in Reply, Search the Web...).
+export type MessageMenuReport = Partial<MessageMenuTarget> & { selection?: string; openImage?: true };
 
 /// Whether a turn can be forked now: acpmux serves forks, the pane is connected, no turn is
 /// running and the chat is on this computer (acpmux refuses the rest). The turn footer's Fork
@@ -41,8 +55,25 @@ export function messageMenuTarget(snapshot: AcpmuxSnapshot, rowId: string): Mess
     ? turnRows(snapshot.rows, id).find((candidate) => candidate.kind === "turnSummary")?.seq
     : undefined;
   const forkSeq = turnSeq !== undefined && turnSeq === latestForkSeq(snapshot.rows) ? turnSeq : undefined;
-  const base = row.kind === "user" ? { text: row.text } : { text: plainText(row.text), markdown: row.text };
-  return forkSeq === undefined ? base : { ...base, forkSeq };
+  const target: MessageMenuTarget =
+    row.kind === "user" ? { text: row.text } : { text: plainText(row.text), markdown: row.text };
+  if (forkSeq !== undefined) target.forkSeq = forkSeq;
+  if (row.kind === "user" && row.failed) target.retryRowId = row.id;
+  const links = webLinks(row.text);
+  if (links.length > 0) target.links = links;
+  return target;
+}
+
+/// The http(s) links and images in a message's Markdown (bare URLs too), each once, in reading
+/// order. Anything else (javascript:, file:, relative paths) is not offered.
+export function webLinks(markdown: string): string[] {
+  const links: string[] = [];
+  void walkTokens(lexer(markdown), (token) => {
+    if (token.type !== "link" && token.type !== "image") return;
+    const href = String(token.href);
+    if (/^https?:\/\//i.test(href) && !links.includes(href)) links.push(href);
+  });
+  return links;
 }
 
 /// Markdown as a person reads it: the words, code and links' text without the syntax, one block
@@ -114,6 +145,16 @@ export function setMessageMenuSource(next: MessageSource | undefined) {
 
 type Handler = { postMessage(body: unknown): void };
 
+let reportedImage: HTMLElement | undefined;
+
+/// Open Image: opens the image the last report named as its click does; false when it named none.
+export function openReportedImage(): boolean {
+  const image = reportedImage;
+  reportedImage = undefined;
+  image?.click();
+  return Boolean(image);
+}
+
 /// Reports the message under the pointer on every `contextmenu` in `doc` (capture, so a row that
 /// stops the event still reports). Returns the remover.
 export function installMessageMenuReporter(
@@ -125,8 +166,26 @@ export function installMessageMenuReporter(
   const report = (event: Event) => {
     const target = event.target as Element | null;
     const rowId = target?.closest?.("[data-row-id]")?.getAttribute("data-row-id");
-    handler()?.postMessage((rowId && source?.(rowId)) || null);
+    const message = (rowId && source?.(rowId)) || undefined;
+    reportedImage = target?.closest?.<HTMLElement>("[data-open-image]") ?? undefined;
+    const selection = selectionAt(doc, target);
+    const body: MessageMenuReport | null =
+      message || selection || reportedImage
+        ? { ...message, ...(selection ? { selection } : {}), ...(reportedImage ? { openImage: true as const } : {}) }
+        : null;
+    handler()?.postMessage(body);
   };
   doc.addEventListener("contextmenu", report, true);
   return () => doc.removeEventListener("contextmenu", report, true);
+}
+
+/// The selected transcript text when the right-click is inside the selection; nothing for a
+/// collapsed or blank selection, a right-click elsewhere, or text in the composer (an editable
+/// field, whose own Cut, Copy and Paste the menu keeps).
+function selectionAt(doc: Document, target: Element | null): string | undefined {
+  const selection = doc.getSelection();
+  if (!target || !selection || selection.isCollapsed || selection.rangeCount === 0) return undefined;
+  if (target.closest?.('[contenteditable]:not([contenteditable="false"]), textarea, input')) return undefined;
+  if (!selection.getRangeAt(0).intersectsNode(target)) return undefined;
+  return selection.toString().trim() || undefined;
 }

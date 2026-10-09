@@ -23,6 +23,26 @@ nonisolated enum TabSettingsSchema {
         )
     }
 
+    /// `tabs.newTabTemplate`: which New Tab page template shows (the page's dots also set it).
+    static func newTabTemplate(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(
+            NewTabTemplate.configPath, section: .general, group: group,
+            title: SettingsText.keyed("settings.tabs.newTabTemplate", "New Tab Template"),
+            help: SettingsText.keyed("settings.tabs.newTabTemplate.help",
+                                     "The layout of the New Tab page. Terminal skips the page and opens a terminal. The dots at the bottom of the page also change it."),
+            kind: .choice([
+                SettingChoice(NewTabTemplate.default.rawValue, SettingsText.keyed("settings.choice.newTabTemplateDefault", "Default")),
+                SettingChoice(NewTabTemplate.composer.rawValue, SettingsText.keyed("settings.choice.newTabTemplateComposer", "Composer")),
+                SettingChoice(NewTabTemplate.threads.rawValue, SettingsText.keyed("settings.choice.newTabTemplateThreads", "Threads")),
+                SettingChoice(NewTabTemplate.console.rawValue, SettingsText.keyed("settings.choice.newTabTemplateConsole", "Console")),
+                SettingChoice(NewTabTemplate.classic.rawValue, SettingsText.keyed("settings.choice.newTabTemplateClassic", "Classic")),
+                SettingChoice(NewTabTemplate.terminal.rawValue, SettingsText.keyed("settings.choice.newTabTemplateTerminal", "Terminal")),
+            ]),
+            default: .string(NewTabTemplate.fallback.rawValue),
+            keywords: ["new tab", "template", "layout", "page", "terminal", "classic", "composer", "threads", "console"]
+        )
+    }
+
     /// `newTerminal.opensWorkspace`: whether New Terminal creates a workspace
     /// in the current space instead of a tab in the focused workspace.
     static func newTerminalOpensWorkspace(group: SettingText) -> SettingDescriptor {

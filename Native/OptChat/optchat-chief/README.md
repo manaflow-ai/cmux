@@ -30,23 +30,23 @@ Two engines run a turn (`OPTCHAT_CHIEF_ENGINE`):
   AskUserQuestion, EnterPlanMode and ExitPlanMode: acpmux keeps those for a
   human under every policy, and nobody answers them in a turn.
 
-A human message sent while a turn works interrupts it at once, on both
-engines, even mid-thinking and even when it only says "thanks" (decision
-2026-10-04); a tool call already running finishes first. The native engine
-drops the streaming step at its next streamed event (its thinking and its
-unfinished text are not logged or resent), logs the message as `user` and
-calls the model again with it, after the running tool's result when there is
-one. The acpmux engine waits until no tool call of the turn is running
-(Claude Code's interrupt would abort it), then sends `session/cancel`, again
-every second until the turn ends (a cancel that reaches acpmux before the
-prompt is lost); the next fresh turn answers with the view of everything the
-stopped turn did. That turn waits for settle like any turn: section 6 (no
-call sees an unsummarized line) makes it wait until the stopped turn's steps
-and the new message have their level-0 lines, usually a few node builds.
-Text the stopped turn had streamed before the interrupt is logged as `talk`
-on the acpmux engine (acpmux does not say whether a reply was finished) and
-dropped on the native engine. MASTER says this instead of "reach you between
-tool calls".
+A message sent while a turn works never stops it, on any engine (decision
+2026-10-09, parity with the reference client; it replaces the 2026-10-04
+stop). On the acpmux engine the brain steers the message into the running
+session (`brain/steer.rs`): acpmux's Claude Code adapter writes it to
+claude's stdin, where Claude Code reads it at its next tool boundary
+(`--replay-user-messages` confirms it), and codex-acp takes it as a steer;
+the turn's one reply answers it too, and it is logged as `user` once the
+harness read it. When the turn cannot take it (its session has not started,
+an item of another conversation is ahead, or acpmux refuses the steer), the
+message waits at the head of the queue and the next turn starts the moment
+this one ends. The native engine delivers it after the next tool results,
+or the next turn takes it. Messages that arrive while a turn waits for
+settle go into that same call. A pending approval is denied by a newer
+human message, so the turn reaches its next tool boundary. Subagent reports
+follow the same rule. Only chief.stop stops a turn: the runner waits until
+no tool call runs, then sends `session/cancel` every second until the turn
+ends, and the end posts what the turn said and "(turn stopped)".
 
 ## Pure Rust over ACP
 
@@ -676,8 +676,16 @@ so it would make 5 on the session's second request, which the API refuses.
 So a turn or a compactor node that carries our mark runs with
 `DISABLE_PROMPT_CACHING=1` in its directory's settings env: Claude Code
 places none, every request of the session reads up to our mark, and a
-turn's tool steps send their own tail uncached. A turn or node too small
-for a mark keeps Claude Code's own. Subagents never carry our mark: their
+turn's tool steps send their own tail uncached. The `<chat>` header is its
+own block, so a view with no whole 4-line block marks the header and every
+turn and node carries our mark (early turns read 93-94% instead of 86-87%,
+measured). The trade-off, measured on a 30 KB view through `sr`
+(2026-10-08): our mark wins 11x on a one-request turn and 20% at 12 tool
+steps with tiny outputs; Claude Code's own rolling marks win only past
+about 400 output tokens per step at 12 steps (32% cheaper at about 1k).
+Claude Code reads the setting at process start, so a turn cannot switch
+after its first step, and 11 of 13 real turns made 1-2 requests: every
+turn keeps our mark, and tool-heavy work goes to subagents. Subagents never carry our mark: their
 sessions are long, and Claude Code's own marks cache them step by step.
 
 `turn.start` records the marked piece and the TTL (`layout.mark`,
@@ -953,7 +961,7 @@ the turn wins until it ends.
   Mac user or their own paired device) answers the oldest request, with the
   allow-once or reject-once option (never "always"), and is logged; it is not
   a new message and does not interrupt the turn. Any other new message denies
-  the pending requests so the turn can stop and the next one answers.
+  the pending requests so the turn reaches its next tool boundary and reads it.
 - Every answer goes to the trace (`optchat/traces/YYYY-MM-DD.jsonl`, event
   `approval`: turn, permission, tool, decision, option, approver, install,
   delivered); the approver is the answering participant (`user_local` or
@@ -1070,7 +1078,7 @@ compactions 98.1% of their prefix (spec: 98.6% and 96.2%). What differs:
   starting "[id] " (the spec's `work`): old nodes say `talk:` forever, and
   an older binary refuses an unknown kind. The prompt names both.
 - **System prompt.** No paragraph on computers (no device tools), no
-  `zoom("Name")`; the mid-turn line says a message interrupts at once.
+  `zoom("Name")`; the mid-turn line says messages arrive between tool calls.
 - **view.json** is the `memory/checkpoint` state row of the SQLite store,
   written after every message.
 - **Single-flight** releases waiting calls at the writer's response start
@@ -1091,14 +1099,10 @@ compactions 98.1% of their prefix (spec: 98.6% and 96.2%). What differs:
 - **acpmux engine: cache marker.** Claude Code places 3 of the 4
   breakpoints, so a turn adds one, on the last whole 4-line block; codex
   has only automatic prefix caching (see Harnesses and cache layout).
-- **Messages during a turn (section 7, MASTER).** The spec delivers them at
-  the next tool boundary; here a human message interrupts at once (see the
-  top of this file), and MASTER's line says so. On the acpmux engine the
-  interrupted turn ends and a fresh one starts. Children's reports do not
-  interrupt: the native engine delivers them between tool calls, the acpmux
-  engine at the next turn. The brain-host contract has no user cancel, so
-  neither engine can cancel a turn or the compactor wait on request; a turn
-  past its limit is stopped.
+- **Messages during a turn (section 7, MASTER).** Delivered at the next tool
+  boundary, as the spec says (see the top of this file); a turn that cannot
+  take one is never stopped for it, and the next turn answers. A turn past
+  its limit is stopped, and chief.stop stops a turn on request.
 - **cmux routing.** Every turn, the native bash tool, the acpmux daemon the
   host starts and each child's preset carry `CMUX_TUI_SOCKET` and
   `CMUX_MUX_SOCKET` set to the app's daemon (`CMUX_APP_DAEMON_SOCKET`, else
