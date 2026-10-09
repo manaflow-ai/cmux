@@ -12,7 +12,7 @@ import Testing
     /// signal instead of yields: a busy test run holds the main actor long
     /// enough that 500 yields passed the time limit.
     static func firstPageRead(_ store: HomeStore, _ id: ConversationID) async {
-        while let load = store.loads[id] { await load.value }
+        while let load = store.pager.runningLoad(id) { await load.value }
     }
 
     @Test func aTabClosedBeforeItsOpenRanLeavesTheConversationClosed() async {
