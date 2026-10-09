@@ -10,6 +10,7 @@ import WebKit
 /// - Select All acts only inside the focused field, never over the whole page.
 /// Swipe navigation and link previews are off in ``PageWebView``. Third-party pages in browser tabs
 /// use their own views and are not affected.
+@MainActor
 final class PageWKWebView: WKWebView {
     var onUserEvent: (() -> Void)?
     private var menuActionObserver: NSObjectProtocol?
@@ -34,13 +35,15 @@ final class PageWKWebView: WKWebView {
         menuActionObserver = NotificationCenter.default.addObserver(
             forName: NSMenu.willSendActionNotification, object: nil, queue: .main
         ) { [weak self] notification in
+            // A synchronous callback records activation before AppKit invokes the menu action.
             // main-proof: NotificationCenter delivers this block on the main operation queue.
-            let menu = notification.object as? NSMenu
-            Task { @MainActor [weak self] in self?.menuWillSendAction(menu) }
+            MainActor.assumeIsolated {
+                self?.menuWillSendAction(notification.object as? NSMenu)
+            }
         }
     }
 
-    deinit {
+    isolated deinit {
         if let menuActionObserver { NotificationCenter.default.removeObserver(menuActionObserver) }
     }
 
