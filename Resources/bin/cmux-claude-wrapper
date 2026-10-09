@@ -1426,7 +1426,7 @@ cmux_claude_sideload_flags_disabled_uncached() {
                 # how this macOS version escapes backslashes in a whole-domain
                 # dump. Command substitution still strips trailing newlines.
                 [[ "$flag_value" == "1;" ]] && return 0
-                if [[ "$flag_value" == "$quoted_one"*"$quoted_end" ]]; then
+                if [[ "$flag_value" == "$quoted_one"*"$quoted_end" && "$flag_value" == *\\* ]]; then
                     local per_key_value
                     per_key_value="$("$defaults_bin" read "$plist_domain" disableSideloadFlags 2>/dev/null)" || per_key_value=""
                     [[ "$per_key_value" == "1" ]] && return 0
