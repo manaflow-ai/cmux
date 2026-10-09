@@ -212,7 +212,7 @@ import Testing
     /// runs against `check_frame`) against ``AgentPaneTransport/checkOne(_:_:)``.
     @Test func fullCheckOrder() throws {
         let all = try Self.cases("check.json")
-        #expect(all.count == 42, "check.json: the full order's 42 cases")
+        #expect(all.count == 43, "check.json: the full order's 43 cases")
         for c in all {
             let name = c["name"] as? String ?? "?"
             let state = try #require(c["state"] as? [String: Any])

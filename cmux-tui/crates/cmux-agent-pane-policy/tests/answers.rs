@@ -65,13 +65,14 @@ fn answers_are_bounded_and_codex_values_hold_one_key() {
     assert!(refused("q", json!({"name": "x".repeat(4097)})));
     assert!(!refused("q", json!({"name": vec!["a"; 64]})));
     assert!(refused("q", json!({"name": vec!["a"; 65]})));
-    let half = "x".repeat(2048);
-    assert!(!refused("q", json!({"name": [half.as_str(), half.as_str()]})));
-    assert!(
-        refused("q", json!({"name": [half.as_str(), half.as_str(), "x"]})),
-        "a list counts together"
-    );
-    assert!(refused("q", json!({"name": {"answers": [half.as_str(), half.as_str(), "x"]}})));
+    // The bound is per string: 64 strings of 4096 bytes each pass, in a list
+    // and in Codex's {answers: [string]}; one string of 4097 bytes is refused.
+    let full = "x".repeat(4096);
+    let over = "x".repeat(4097);
+    assert!(!refused("q", json!({"name": vec![full.as_str(); 64]})), "per string, not together");
+    assert!(!refused("q", json!({"name": {"answers": vec![full.as_str(); 64]}})));
+    assert!(refused("q", json!({"name": ["a", over.as_str()]})));
+    assert!(refused("q", json!({"name": {"answers": ["a", over.as_str()]}})));
     assert!(refused("q", json!({"name": {"answers": ["a"], "junk": "x"}})));
     assert!(refused("q", json!({"name": {"answers": [1]}})));
     assert!(refused("q", json!({"name": 3})));

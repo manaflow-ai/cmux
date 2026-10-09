@@ -115,7 +115,7 @@ fn facts_json(facts: &cmux_agent_pane_policy::Facts) -> Value {
 #[test]
 fn full_check_order() {
     let all = cases("check.json");
-    assert_eq!(all.as_array().unwrap().len(), 42, "check.json: the full order's 42 cases");
+    assert_eq!(all.as_array().unwrap().len(), 43, "check.json: the full order's 43 cases");
     for c in all.as_array().unwrap() {
         let s = &c["state"];
         let modes: Option<BTreeSet<String>> = s["mode_fields"]
