@@ -44,6 +44,69 @@ pub(super) fn mux_state_root(state_root: &Path) -> PathBuf {
     state_root.join("workspace")
 }
 
+/// The mux owner socket `ensure_daemon` uses: `explicit` (or
+/// `CMUX_MUX_SOCKET`) when set; else, for a session with its own state root,
+/// a socket in that state, because the default per-session socket may be
+/// served by an owner of the default state root; else `None` (derived).
+/// The first start of such a session imports its default-root registry once.
+pub(super) fn socket_for(
+    explicit: Option<&Path>,
+    session: &str,
+    state_root: Option<&Path>,
+    session_state: &Path,
+) -> anyhow::Result<Option<PathBuf>> {
+    if let Some(socket) = explicit {
+        return Ok(Some(socket.to_path_buf()));
+    }
+    if let Some(socket) = std::env::var_os("CMUX_MUX_SOCKET") {
+        return Ok(Some(socket.into()));
+    }
+    let Some(state_root) = state_root else { return Ok(None) };
+    import_default_root_session(session, state_root);
+    daemon_mux_socket_path(session_state).map(Some)
+}
+
+/// Before an explicit `--state-dir` reached the mux owner, the owner kept
+/// this link's workspaces in the default state root. The first start with an
+/// empty `<state-dir>/workspace` copies that registry once (cx-0b8z). A
+/// failed import is logged and the owner starts on its own store.
+fn import_default_root_session(session: &str, state_root: &Path) {
+    use cmux_tui_core::session_state_import::{SessionStateImport, import_default_root_session};
+    let Some(default_root) = cmux_tui_core::platform::workspace_state_dir() else { return };
+    let target = mux_state_root(state_root);
+    match import_default_root_session(&default_root, &target, session) {
+        Ok(SessionStateImport::Imported { from, to }) => {
+            let (from, to) = (from.display(), to.display());
+            eprintln!("cmux-tui: imported session registry {from} into {to}");
+        }
+        Ok(SessionStateImport::Skipped) => {}
+        Err(error) => eprintln!("cmux-tui: default-root session import failed: {error:#}"),
+    }
+}
+
+/// The mux owner socket of a session that keeps its state in `state`
+/// (`daemon_paths`): beside its link socket, or in the same private runtime
+/// directory when that path is too long. It depends on the state directory,
+/// so a mux owner of another state root never answers for this one (cx-0b8z).
+#[cfg(unix)]
+pub(super) fn daemon_mux_socket_path(state: &Path) -> anyhow::Result<PathBuf> {
+    let beside = state.join("mux.sock");
+    if crate::remote_runtime::unix_socket_path_fits(&beside) {
+        return Ok(beside);
+    }
+    let (link, _) = crate::remote_runtime::daemon_runtime_socket_paths(state)?;
+    let name = link
+        .file_name()
+        .and_then(|name| name.to_str())
+        .and_then(|name| name.strip_suffix("-l.sock"))
+        .ok_or_else(|| anyhow!("remote daemon runtime socket name is unexpected"))?;
+    let mux = link.with_file_name(format!("{name}-m.sock"));
+    if !crate::remote_runtime::unix_socket_path_fits(&mux) {
+        return Err(anyhow!("remote daemon runtime socket path is too long for this platform"));
+    }
+    Ok(mux)
+}
+
 /// The refusal for an explicit `--mux-socket` whose daemon does not answer.
 pub(super) fn not_running(mux_socket: &Path) -> anyhow::Error {
     anyhow!(

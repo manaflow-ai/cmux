@@ -53,7 +53,7 @@ use crate::remote_runtime::{
 };
 use crate::session::{RemoteSession, Session};
 mod remote_link_mux;
-use remote_link_mux::mux_owner_args;
+use remote_link_mux::{mux_owner_args, socket_for};
 
 const DEFAULT_STARTUP_TIMEOUT: Duration = Duration::from_secs(90);
 const WIREGUARD_HUB_START_TIMEOUT: Duration = Duration::from_secs(10);
@@ -2416,16 +2416,7 @@ fn ensure_daemon(
     // exec'ing a "(deleted)" path, and daemon/client builds never skew.
     let executable = cmux_tui_core::platform::self_exe_for_spawn()?;
     let log_path = session_state.join("daemon.log");
-    let explicit_mux_socket = mux_socket_override
-        .map(Path::to_path_buf)
-        .or_else(|| std::env::var_os("CMUX_MUX_SOCKET").map(PathBuf::from));
-    // A session with its own state root has its own mux owner: the default
-    // per-session socket may be served by an owner of the default state root.
-    let explicit_mux_socket = match (explicit_mux_socket, state_root) {
-        (Some(socket), _) => Some(socket),
-        (None, Some(_)) => Some(crate::remote_runtime::daemon_mux_socket_path(session_state)?),
-        (None, None) => None,
-    };
+    let explicit_mux_socket = socket_for(mux_socket_override, session, state_root, session_state)?;
     let mux_socket_is_derived = explicit_mux_socket.is_none();
     let attach_only = mux_socket_override.is_some();
     let mux_socket = explicit_mux_socket
@@ -2441,9 +2432,6 @@ fn ensure_daemon(
         }
         let log = open_private_daemon_file(&log_path, true)
             .with_context(|| format!("could not open daemon log {}", log_path.display()))?;
-        if let Some(state_root) = state_root {
-            import_default_root_session(session, state_root, &log);
-        }
         let mut mux_owner = Command::new(&executable);
         mux_owner
             .args(mux_owner_args(session, &mux_socket, mux_socket_is_derived, state_root))
@@ -2477,24 +2465,6 @@ fn ensure_daemon(
     configure_detached_process(&mut command);
     let mut child = command.spawn().context("could not start remote daemon")?;
     wait_for_detached_socket(&mut child, link, Duration::from_secs(20), "remote daemon", &log_path)
-}
-
-/// Before an explicit `--state-dir` reached the mux owner, the owner kept
-/// this link's workspaces in the default state root. The first start with an
-/// empty `<state-dir>/workspace` copies that registry once (cx-0b8z). A
-/// failed import is logged and the owner starts on its own store.
-fn import_default_root_session(session: &str, state_root: &Path, mut log: &fs::File) {
-    use cmux_tui_core::session_state_import::{SessionStateImport, import_default_root_session};
-    let Some(default_root) = cmux_tui_core::platform::workspace_state_dir() else { return };
-    let target = remote_link_mux::mux_state_root(state_root);
-    let line = match import_default_root_session(&default_root, &target, session) {
-        Ok(SessionStateImport::Imported { from, to }) => {
-            format!("imported session registry {} into {}", from.display(), to.display())
-        }
-        Ok(SessionStateImport::Skipped) => return,
-        Err(error) => format!("default-root session import failed: {error:#}"),
-    };
-    let _ = writeln!(log, "cmux-tui: {line}");
 }
 
 /// Connect to a socket this daemon's own user serves. The daemon only starts

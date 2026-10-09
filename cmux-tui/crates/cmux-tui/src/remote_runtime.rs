@@ -1702,7 +1702,7 @@ fn validate_client_socket_directory(
 }
 
 #[cfg(unix)]
-fn unix_socket_path_fits(path: &Path) -> bool {
+pub(crate) fn unix_socket_path_fits(path: &Path) -> bool {
     use std::os::unix::ffi::OsStrExt;
 
     let capacity = unsafe { std::mem::zeroed::<libc::sockaddr_un>() }.sun_path.len();
@@ -1942,31 +1942,8 @@ pub fn daemon_paths(
     Ok((state, link, admin))
 }
 
-/// The mux owner socket of a session that keeps its state in `state`
-/// (`daemon_paths`): beside its link socket, or in the same private runtime
-/// directory when that path is too long. It depends on the state directory,
-/// so a mux owner of another state root never answers for this one (cx-0b8z).
 #[cfg(unix)]
-pub fn daemon_mux_socket_path(state: &Path) -> anyhow::Result<PathBuf> {
-    let beside = state.join("mux.sock");
-    if unix_socket_path_fits(&beside) {
-        return Ok(beside);
-    }
-    let (link, _) = daemon_runtime_socket_paths(state)?;
-    let name = link
-        .file_name()
-        .and_then(|name| name.to_str())
-        .and_then(|name| name.strip_suffix("-l.sock"))
-        .ok_or_else(|| anyhow!("remote daemon runtime socket name is unexpected"))?;
-    let mux = link.with_file_name(format!("{name}-m.sock"));
-    if !unix_socket_path_fits(&mux) {
-        return Err(anyhow!("remote daemon runtime socket path is too long for this platform"));
-    }
-    Ok(mux)
-}
-
-#[cfg(unix)]
-fn daemon_runtime_socket_paths(state: &Path) -> anyhow::Result<(PathBuf, PathBuf)> {
+pub(crate) fn daemon_runtime_socket_paths(state: &Path) -> anyhow::Result<(PathBuf, PathBuf)> {
     let runtime = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from);
     daemon_runtime_socket_paths_in(state, runtime.as_deref(), Path::new("/tmp"))
 }

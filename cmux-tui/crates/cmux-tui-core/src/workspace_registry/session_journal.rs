@@ -550,19 +550,11 @@ pub(crate) fn create_session_journal_schema(transaction: &Transaction<'_>) -> an
 }
 
 fn ensure_session_journal_content_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
-    let columns = {
-        let mut statement = transaction.prepare("PRAGMA table_info(session_journal)")?;
-        statement
-            .query_map([], |row| row.get::<_, String>(1))?
-            .collect::<Result<HashSet<_>, _>>()?
-    };
+    let columns = super::journal_extensions::table_columns(transaction, "session_journal")?;
     if !columns.contains("content") {
         transaction.execute("ALTER TABLE session_journal ADD COLUMN content BLOB", [])?;
     }
-    // Every append writes `actor`, and an upgrade can append (the v9
-    // migration record) before the open-time ledger pass runs (cx-0b8z).
-    // `ADD COLUMN` keeps every row, its sequence and the AUTOINCREMENT
-    // high-water mark, so external journal cursors stay valid.
+    // Appends write it before the ledger pass; ADD COLUMN keeps rows and sequences (cx-0b8z).
     if !columns.contains("actor") {
         transaction.execute("ALTER TABLE session_journal ADD COLUMN actor TEXT", [])?;
     }
