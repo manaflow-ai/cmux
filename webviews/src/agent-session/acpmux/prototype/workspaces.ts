@@ -146,7 +146,9 @@ export function closeTab(stack: Stack, workspaceId: string, tabId: string): Clos
         ...stack,
         workspaces: stack.workspaces.map((candidate) => (candidate.id === workspaceId ? nextWorkspace : candidate)),
       },
-      ...(workspaceIsActive && tabIsActive ? { focus: { workspaceId, tabId: successor.id } } : {}),
+      ...(workspaceIsActive
+        ? { focus: { workspaceId, tabId: tabIsActive ? successor.id : workspace.activeTabId } }
+        : {}),
     };
   }
 

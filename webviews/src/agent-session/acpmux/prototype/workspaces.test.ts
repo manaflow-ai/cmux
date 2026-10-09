@@ -64,10 +64,10 @@ describe("workspace stack prototype", () => {
     expect(left.focus).toEqual({ workspaceId: "ws-uploader", tabId: "b-uploader" });
   });
 
-  test("closing an inactive tab preserves the active tab and focus", () => {
+  test("closing an inactive tab preserves the active tab and restores its focus", () => {
     const result = closeTab(seedStack, "ws-uploader", "b-uploader");
     expect(result.closed).toBe(true);
-    expect(result.focus).toBeUndefined();
+    expect(result.focus).toEqual({ workspaceId: "ws-uploader", tabId: "agent-mock-session" });
     expect(result.stack.activeId).toBe("ws-uploader");
     expect(result.stack.workspaces[0]!.activeTabId).toBe("agent-mock-session");
     expect(result.stack.workspaces[0]!.tabs.map((tab) => tab.id)).toEqual(["agent-mock-session", "t-uploader"]);

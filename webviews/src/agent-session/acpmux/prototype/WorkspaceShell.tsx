@@ -28,6 +28,7 @@ import {
   effectiveBrowserProfile,
   openFromHistoryInSpaces,
   openMini,
+  miniTargetExists,
   promoteMini,
   seedSpaces,
   stepSpace,
@@ -152,16 +153,13 @@ export function WorkspaceShell() {
       const result = closeTab(stack, workspaceId, tabId);
       if (!result.closed) return;
       if (result.focus) focusAfterClose.current = result.focus;
-      if (
-        mini?.spaceId === space.id &&
-        mini.workspaceId === workspaceId &&
-        !result.stack.workspaces.some((workspace) => workspace.id === workspaceId)
-      ) {
+      const nextSpaces = withStack(spaces, result.stack);
+      if (mini && !miniTargetExists(nextSpaces, mini)) {
         setMini(undefined);
       }
-      showSpaces(withStack(spaces, result.stack));
+      showSpaces(nextSpaces);
     },
-    [mini, space.id, spaces, stack, showSpaces],
+    [mini, spaces, stack, showSpaces],
   );
 
   useEffect(() => {
