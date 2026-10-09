@@ -190,5 +190,6 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         remote_origin: d.remote,
         session_env: Default::default(),
         harness_roots: vec![],
+        composer_draft: None,
     }
 }
