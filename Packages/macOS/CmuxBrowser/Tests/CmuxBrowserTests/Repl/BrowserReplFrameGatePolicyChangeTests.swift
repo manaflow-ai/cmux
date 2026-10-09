@@ -72,14 +72,16 @@ struct BrowserReplFrameGatePolicyChangeTests {
         let gate = BrowserReplFrameGateTests.gate()
         let frame = try #require(page.frame(host: "allowed.test"))
         gate.frameTree = { webView in
-            // The session narrows its policy while the gate reads the tree.
-            gate.policy = BrowserReplFrameGateTests.gate(prohibiting: "cmux-test://allowed.test").policy
+            // The session sets its policy again while the gate reads the
+            // tree (one the reach check alone would not refuse: the checks
+            // before judged the frames under the old one).
+            gate.policy = BrowserReplFrameGateTests.gate(prohibiting: "cmux-test://other.test").policy
             return await BrowserReplFrame.readTree(of: webView)
         }
         let error = await BrowserReplFrameGateTests.error {
             try await gate.callAsyncJavaScript("window.__cmuxDispatched = true; return 1", arguments: [:], in: page.webView, frame: frame, contentWorld: .page)
         }
-        #expect(error != nil, "a script checked under the old policy was handed on")
+        #expect(error?.code == "stale", "a script checked under the old policy was handed on: \(String(describing: error))")
         #expect(try await page.run("return typeof window.__cmuxDispatched", in: frame) as? String == "undefined", "the script ran after the policy blocked its frame")
     }
 
