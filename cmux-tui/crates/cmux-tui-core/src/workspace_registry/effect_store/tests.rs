@@ -344,6 +344,7 @@ fn effect_patch_commits_topology_event_and_receipt_together() {
             &patch,
             &result,
             &deltas,
+            false,
         )
         .unwrap();
     assert_eq!(commit.revision, 1);

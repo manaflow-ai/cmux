@@ -4,9 +4,10 @@
 
 use std::time::Instant;
 
+use super::scoped_projection::{LiveTreeInput, check_scope_containment, tab_row_unchanged};
 use super::*;
 use crate::diagnostics::ProjectionSpans;
-use crate::workspace_registry::{RegistryTerminal, ResourceTopologySnapshot};
+use crate::workspace_registry::RegistryTerminal;
 
 impl Mux {
     /// Project the complete live tree into one durable patch while the caller
@@ -18,6 +19,19 @@ impl Mux {
         state: &mut State,
         result: Value,
     ) -> anyhow::Result<ResourceEffectProjection> {
+        let (projection, spans) = self.full_projection_spans(registry, state, result)?;
+        registry.resource_projection_stats().projected(spans);
+        Ok(projection)
+    }
+
+    /// The full projection and its spans, not yet recorded (a cross-check
+    /// runs it beside a scoped projection).
+    pub(super) fn full_projection_spans(
+        &self,
+        registry: &WorkspaceRegistry,
+        state: &mut State,
+        result: Value,
+    ) -> anyhow::Result<(ResourceEffectProjection, ProjectionSpans)> {
         let started = Instant::now();
         let before = registry.resource_topology_snapshot()?;
         let terminal_records = registry
@@ -35,28 +49,43 @@ impl Mux {
         ensure_split_public_ids(state)?;
         let terminal_tab_order = ordered_terminal_tab_ids(state)?;
         let index = started.elapsed().saturating_sub(read);
-        let projection =
-            self.project_live_tree(&before, &terminal_records, state, &terminal_tab_order, result)?;
-        registry.resource_projection_stats().projected(ProjectionSpans {
+        let terminals = |host: &str| -> anyhow::Result<Option<RegistryTerminal>> {
+            Ok(terminal_records.get(host).cloned())
+        };
+        let tab_order = |_: &State, id: &TerminalPublicId| -> anyhow::Result<Vec<TabPublicId>> {
+            Ok(terminal_tab_order.get(id).cloned().unwrap_or_default())
+        };
+        let stored_live = |_: &str, _: &str| -> anyhow::Result<bool> { Ok(false) };
+        let input = LiveTreeInput {
+            before: &before,
+            scope: None,
+            terminals: &terminals,
+            tab_order: &tab_order,
+            stored_live: &stored_live,
+            active_terminal_hosts: None,
+        };
+        let projection = self.project_live_tree(&input, state, result)?;
+        let spans = ProjectionSpans {
             read,
             index,
             diff: started.elapsed().saturating_sub(read + index),
             changes: projection.patch.changes.len(),
             scoped: false,
-        });
-        Ok(projection)
+        };
+        Ok((projection, spans))
     }
 
     /// Diff the live tree (with its resource indexes current) against the
-    /// stored topology `before` and its terminal records.
-    fn project_live_tree(
+    /// stored topology `input.before`. With a scope, only the scoped
+    /// workspaces' subtrees are walked and `before` holds only theirs; a
+    /// change that crosses the scope fails with [`ScopeEscaped`].
+    pub(super) fn project_live_tree(
         &self,
-        before: &ResourceTopologySnapshot,
-        terminal_records: &HashMap<String, RegistryTerminal>,
+        input: &LiveTreeInput<'_>,
         state: &State,
-        terminal_tab_order: &HashMap<TerminalPublicId, Vec<TabPublicId>>,
         result: Value,
     ) -> anyhow::Result<ResourceEffectProjection> {
+        let (before, scope) = (input.before, input.scope);
         let before_browsers = before
             .browsers
             .iter()
@@ -72,6 +101,14 @@ impl Mux {
             .iter()
             .map(|pane| (pane.public_id.clone(), pane.creation_ordinal))
             .collect::<HashMap<_, _>>();
+        let before_panes =
+            before.panes.iter().map(|pane| (&pane.public_id, pane)).collect::<HashMap<_, _>>();
+        // Rows every published screen value is built from, skipped tabs too.
+        let (mut screen_panes, mut screen_tabs) = (Vec::new(), Vec::new());
+        // Scoped walks emit a terminal at its first changed placement, and
+        // keep the public keys of rows they hold unchanged live.
+        let mut emitted_terminals = HashSet::new();
+        let mut unchanged_keys = HashSet::<(String, String)>::new();
         let mut live_workspaces = HashSet::new();
         let mut live_screens = HashSet::new();
         let mut live_panes = HashSet::new();
@@ -109,6 +146,9 @@ impl Mux {
                     "focused":workspace_index == state.active_workspace,
                 }),
             ));
+            if scope.is_some_and(|scope| !scope.contains(&workspace.public_id)) {
+                continue;
+            }
             let screen_ids =
                 workspace.screens.iter().map(|screen| screen.public_id.clone()).collect::<Vec<_>>();
             changes.push(ResourceChange::SetScreenOrder {
@@ -140,13 +180,18 @@ impl Mux {
                         .and_then(|slot| state.resource_indexes.tab_ids.get(slot).cloned());
                     let creation_ordinal =
                         before_pane_ordinals.get(&pane.public_id).copied().unwrap_or(pane.id);
-                    changes.push(ResourceChange::UpsertPane(RegistryPane {
+                    let pane_row = RegistryPane {
                         public_id: pane.public_id.clone(),
                         screen_id: screen.public_id.clone(),
                         name: pane.name.clone(),
                         active_tab,
                         creation_ordinal,
-                    }));
+                    };
+                    let before_pane = before_panes.get(&pane.public_id).copied();
+                    if input.active_terminal_hosts.is_none() || before_pane != Some(&pane_row) {
+                        changes.push(ResourceChange::UpsertPane(pane_row.clone()));
+                    }
+                    screen_panes.push(pane_row);
                     public.push((
                         "pane",
                         pane.public_id.to_string(),
@@ -171,12 +216,16 @@ impl Mux {
                         let before_tab = before_tabs.get(&identity.tab_id);
                         live_tabs.insert(identity.tab_id.clone());
                         tab_order.push(identity.tab_id.clone());
+                        let terminal_change_at = changes.len();
                         let (browser_url, terminal_id, first_terminal_placement) = match &identity
                             .content_id
                         {
                             ContentPublicId::Terminal(terminal_id) => {
-                                let first_terminal_placement =
-                                    live_terminals.insert(terminal_id.clone());
+                                let live = live_terminals.insert(terminal_id.clone());
+                                let first_terminal_placement = match scope {
+                                    None => live,
+                                    Some(_) => emitted_terminals.insert(terminal_id.clone()),
+                                };
                                 let runtime = state.terminal_catalog.get(terminal_id).or(surface);
                                 let host_id = runtime
                                     .and_then(|surface| {
@@ -186,9 +235,7 @@ impl Mux {
                                     .or_else(|| before_tab.and_then(|tab| tab.terminal_id.clone()))
                                     .context("terminal view omitted its durable host identity")?;
                                 if first_terminal_placement {
-                                    let terminal = terminal_records
-                                        .get(&host_id)
-                                        .cloned()
+                                    let terminal = (input.terminals)(&host_id)?
                                         .context("terminal view has no durable host")?;
                                     changes.push(ResourceChange::UpsertTerminal {
                                         public_id: terminal_id.clone(),
@@ -267,6 +314,22 @@ impl Mux {
                             browser_url,
                             terminal_id,
                         };
+                        screen_tabs.push(tab.clone());
+                        if tab_row_unchanged(input, &tab, before_tab, before_pane, pane.active_tab)
+                        {
+                            // Stored as is, and its public values did not
+                            // change: a scoped walk restates neither.
+                            if first_terminal_placement {
+                                changes.truncate(terminal_change_at);
+                                if let ContentPublicId::Terminal(id) = &tab.content_id {
+                                    emitted_terminals.remove(id);
+                                }
+                            }
+                            unchanged_keys.insert(("tab".into(), tab.public_id.to_string()));
+                            unchanged_keys
+                                .insert(("terminal".into(), tab.content_id.as_str().to_string()));
+                            continue;
+                        }
                         changes.push(ResourceChange::UpsertTab(tab.clone()));
                         public.push((
                             "tab",
@@ -276,16 +339,15 @@ impl Mux {
                         match &tab.content_id {
                             ContentPublicId::Terminal(id) if first_terminal_placement => {
                                 let runtime = state.terminal_catalog.get(id).or(surface);
-                                let durable = tab
-                                    .terminal_id
-                                    .as_deref()
-                                    .and_then(|host| terminal_records.get(host))
-                                    .context("terminal view has no durable host")?;
-                                let tab_ids =
-                                    terminal_tab_order.get(id).cloned().unwrap_or_default();
+                                let durable = match tab.terminal_id.as_deref() {
+                                    Some(host) => (input.terminals)(host)?,
+                                    None => None,
+                                }
+                                .context("terminal view has no durable host")?;
+                                let tab_ids = (input.tab_order)(state, id)?;
                                 let value = public_terminal_snapshot(
                                     id,
-                                    durable,
+                                    &durable,
                                     runtime.map(std::sync::Arc::as_ref),
                                     tab_ids,
                                 )?;
@@ -364,7 +426,19 @@ impl Mux {
                 }
             }
         }
-        for (terminal_id, surface) in &state.terminal_catalog {
+        if scope.is_some() {
+            check_scope_containment(input, state, &live_screens, &live_panes, &live_tabs)?;
+            self.publish_out_of_scope_content(
+                input,
+                state,
+                &mut live_terminals,
+                &live_browsers,
+                &mut changes,
+                &mut public,
+            )?;
+        }
+        let catalog = if scope.is_some() { None } else { Some(&state.terminal_catalog) };
+        for (terminal_id, surface) in catalog.into_iter().flatten() {
             // An app terminal is published by its first view (`app_terminals.rs`).
             if !live_terminals.insert(terminal_id.clone())
                 || self.is_unregistered_app_terminal(surface.id)
@@ -374,9 +448,7 @@ impl Mux {
             let host = self
                 .resource_terminal_host_identity(surface)
                 .context("catalog terminal omitted its durable host identity")?;
-            let terminal = terminal_records
-                .get(&host.terminal_id)
-                .cloned()
+            let terminal = (input.terminals)(&host.terminal_id)?
                 .context("catalog terminal has no durable host")?;
             // The one builder for published terminal records: a terminal with
             // no tab (kept or detached) still carries its `lifecycle`.
@@ -445,11 +517,12 @@ impl Mux {
             }
         }
 
-        screens.publish(&mut public, &changes)?;
+        screens.publish(&mut public, &screen_panes, &screen_tabs)?;
         let mut deltas = Vec::new();
         let live_keys = public
             .iter()
             .map(|(kind, id, _)| ((*kind).to_string(), id.clone()))
+            .chain(unchanged_keys)
             .collect::<HashSet<_>>();
         for (kind, id, value) in public {
             let sequence = deltas.len();
@@ -495,6 +568,7 @@ impl Mux {
             patch: ResourcePatch { changes },
             changes: Value::Array(deltas),
             result,
+            restates_all: scope.is_none(),
         })
     }
 
