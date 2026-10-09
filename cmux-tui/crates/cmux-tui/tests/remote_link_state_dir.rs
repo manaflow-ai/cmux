@@ -69,12 +69,7 @@ impl Fixture {
 
 impl Drop for Fixture {
     fn drop(&mut self) {
-        let _ = self
-            .command()
-            .args(["remote", "stop", "--session", &self.session, "--state-dir"])
-            .arg(self.remote_state())
-            .stdin(Stdio::null())
-            .output();
+        self.stop_daemons();
         let _ = self
             .command()
             .args(["server", "stop", "--json", "--session", &self.session])
