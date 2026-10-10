@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import CMUXAgentLaunch
+import CmuxSettings
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -1024,6 +1025,56 @@ struct FeedCoordinatorTests {
         }
         guard case .expired = status else {
             Issue.record("the superseded permission card must stop being actionable")
+            return
+        }
+    }
+
+    @Test(arguments: [WorkstreamEvent.HookEventName.permissionRequest, .askUserQuestion, .exitPlanMode])
+    @MainActor
+    func openCodeSessionEndRetiresWaitersWithoutNotifications(hook: WorkstreamEvent.HookEventName) throws {
+        let setting = NotificationsCatalogSection().agentPermissionPrompt
+        let previousSetting = UserDefaults.standard.object(forKey: setting.userDefaultsKey)
+        setting.set(false, in: .standard)
+        defer { UserDefaults.standard.set(previousSetting, forKey: setting.userDefaultsKey) }
+
+        let coordinator = FeedCoordinator.shared
+        let store = WorkstreamStore(ringCapacity: 10)
+        coordinator.install(store: store)
+        let requestID = UUID().uuidString
+        let sessionID = "opencode-\(UUID().uuidString)"
+        let request = WorkstreamEvent(
+            sessionId: sessionID, hookEventName: hook, source: "opencode",
+            requestId: requestID, ppid: Int(ProcessInfo.processInfo.processIdentifier),
+            extraFieldsJSON: #"{"_hook_sent_at_ms":2000}"#
+        )
+        let registration = try #require(coordinator.waiterRegistry.register(
+            requestID: requestID, event: request, waitUntilResolved: true
+        ))
+        defer {
+            _ = coordinator.waiterRegistry.finish(registration)
+            coordinator.waiterRegistry.cleanupStored(requestID: requestID, groupID: registration.groupID)
+        }
+        let item = try #require(coordinator.ingestRevalidatedOnMainActor(request))
+        coordinator.waiterRegistry.accepted(registration, event: request, item: item)
+
+        // Tool/turn progress is not proof that an OpenCode form was answered.
+        for (session, event) in [(sessionID, WorkstreamEvent.HookEventName.stop), ("opencode-other", .sessionEnd)] {
+            _ = coordinator.ingestRevalidatedOnMainActor(WorkstreamEvent(
+                sessionId: session, hookEventName: event, source: "opencode",
+                extraFieldsJSON: #"{"_hook_sent_at_ms":3000}"#
+            ))
+        }
+        #expect(coordinator.isAwaitingDecision(requestId: requestID))
+
+        _ = coordinator.ingestRevalidatedOnMainActor(WorkstreamEvent(
+            sessionId: sessionID, hookEventName: .sessionEnd, source: "opencode",
+            extraFieldsJSON: #"{"_hook_sent_at_ms":4000}"#
+        ))
+        #expect(registration.semaphore.wait(timeout: .now()) == .success)
+        #expect(!coordinator.isAwaitingDecision(requestId: requestID))
+        #expect(store.items.first { $0.id == item.id }?.status == .expired)
+        guard case .unavailable = coordinator.waiterRegistry.finish(registration).outcome.result else {
+            Issue.record("session end must dismiss the app waiter without a notification correlation key")
             return
         }
     }
