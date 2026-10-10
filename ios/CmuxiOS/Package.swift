@@ -479,6 +479,7 @@ let package = Package(
             dependencies: [
                 "CmuxiOSSFTPCore",
                 "CmuxiOSSSHCore",
+                "CmuxiOSShell",
                 "CmuxiOSFeatureKit",
                 "CmuxiOSDesign",
                 "CmuxiOSTerminal",

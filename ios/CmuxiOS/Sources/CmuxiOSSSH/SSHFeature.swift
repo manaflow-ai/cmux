@@ -81,6 +81,20 @@ public final class SSHFeature {
         presenter.present(hosting, animated: true)
     }
 
+    /// Presents B4's direct-address form. Direct records must stay direct when
+    /// edited; routing them through `HostEditorModel` would silently turn a
+    /// pinned Noise endpoint into an SSH host.
+    func showDirectEditor(record: HostRecord?, from presenter: UIViewController) {
+        let draft = record.flatMap(DirectAddressDraft.init(record:)) ?? DirectAddressDraft()
+        let model = DirectAddressFormModel(store: hosts, draft: draft, editing: record?.id)
+        let hosting = UIHostingController(rootView: NavigationStack {
+            DirectAddressFormView(model: model) { [weak presenter] in
+                presenter?.dismiss(animated: true)
+            }
+        })
+        presenter.present(hosting, animated: true)
+    }
+
     func showImport(records: [HostRecord], from presenter: UIViewController) {
         let model = SSHConfigImportModel(hosts: hosts, existing: records)
         let hosting = UIHostingController(rootView: NavigationStack { SSHConfigImportView(model: model) })
