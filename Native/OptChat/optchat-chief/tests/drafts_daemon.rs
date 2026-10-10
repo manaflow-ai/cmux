@@ -32,13 +32,18 @@ fn bin() -> PathBuf {
 /// One JSON-lines request on a fresh connection; its `data`.
 fn request(socket: &Path, body: Value) -> Value {
     let stream = UnixStream::connect(socket).unwrap();
-    stream.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(20)))
+        .unwrap();
     let mut writer = stream.try_clone().unwrap();
     writeln!(writer, "{body}").unwrap();
     let mut reader = BufReader::new(stream);
     loop {
         let mut line = String::new();
-        assert!(reader.read_line(&mut line).unwrap() > 0, "the daemon closed: {body}");
+        assert!(
+            reader.read_line(&mut line).unwrap() > 0,
+            "the daemon closed: {body}"
+        );
         let value: Value = serde_json::from_str(&line).unwrap();
         if value["id"] == body["id"] {
             assert_eq!(value["ok"], true, "{body} failed: {value}");
@@ -55,7 +60,10 @@ struct Daemon {
 
 impl Daemon {
     fn start() -> Daemon {
-        let dir = tempfile::Builder::new().prefix("odr").tempdir_in("/tmp").unwrap();
+        let dir = tempfile::Builder::new()
+            .prefix("odr")
+            .tempdir_in("/tmp")
+            .unwrap();
         let socket = dir.path().join("d.sock");
         let status = self::cli(dir.path())
             .arg("--socket")
@@ -98,7 +106,14 @@ fn follow(daemon: &Daemon, conversation: &str) -> (Child, Arc<Mutex<Vec<(Instant
     let mut child = cli(daemon.dir.path())
         .arg("--socket")
         .arg(&daemon.socket)
-        .args(["--jsonl", "conversation", conversation, "events", "--tail", "0"])
+        .args([
+            "--jsonl",
+            "conversation",
+            conversation,
+            "events",
+            "--tail",
+            "0",
+        ])
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
@@ -119,7 +134,10 @@ fn follow(daemon: &Daemon, conversation: &str) -> (Child, Arc<Mutex<Vec<(Instant
 fn streaming_turn() -> Script {
     Box::new(|_, _| {
         let chunk = |text: &str| {
-            update("agent_message_chunk", json!({"content": {"type": "text", "text": text}}))
+            update(
+                "agent_message_chunk",
+                json!({"content": {"type": "text", "text": text}}),
+            )
         };
         vec![
             json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
@@ -172,8 +190,13 @@ fn the_reply_streams_to_the_conversation_before_it_is_posted() {
         }),
         Arc::new(|_: &str| {}),
     );
-    let up = events_rx.recv_timeout(Duration::from_secs(30)).expect("the link came up");
-    assert!(matches!(up, DaemonEvent::Up { .. }), "the first link event is Up");
+    let up = events_rx
+        .recv_timeout(Duration::from_secs(30))
+        .expect("the link came up");
+    assert!(
+        matches!(up, DaemonEvent::Up { .. }),
+        "the first link event is Up"
+    );
     h.brain.step(Input::from(up));
     let tx = h.tx.clone();
     std::thread::spawn(move || {
@@ -194,12 +217,15 @@ fn the_reply_streams_to_the_conversation_before_it_is_posted() {
                       "parts": [{"type": "text", "text": "stream please"}]}}),
     );
     // The brain hears the message over the link, runs the turn and posts.
-    let is_reply = |v: &Value| {
-        v.pointer("/item/message/author").and_then(Value::as_str) == Some("agent_mux")
-    };
+    let is_reply =
+        |v: &Value| v.pointer("/item/message/author").and_then(Value::as_str) == Some("agent_mux");
     let deadline = Instant::now() + Duration::from_secs(30);
     while !lines.lock().unwrap().iter().any(|(_, v)| is_reply(v)) {
-        assert!(Instant::now() < deadline, "no reply on the stream: {:?}", lines.lock().unwrap());
+        assert!(
+            Instant::now() < deadline,
+            "no reply on the stream: {:?}",
+            lines.lock().unwrap()
+        );
         if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(50)) {
             h.brain.step(input);
         }

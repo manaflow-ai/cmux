@@ -202,16 +202,49 @@ fn draft(
     principal: &str,
 ) -> Result<Value, ResourceError> {
     let operation = Operation::ConversationDraft;
-    if !principal.starts_with("agent_") {
-        return Err(refused(
-            operation,
-            "not_agent",
-            "only a bound agent participant publishes drafts",
-        ));
+    let fields = Value::Object(request.fields.clone());
+    let published =
+        publish_draft(mux, conversation, principal, &fields).map_err(|refusal| match refusal {
+            DraftRefused::NotAgent => {
+                refused(operation, "not_agent", "only a bound agent participant publishes drafts")
+            }
+            DraftRefused::Owner(error) => owner_error(operation, conversation, "", error),
+            DraftRefused::Gate(reason) => refused(operation, reason, reason),
+        })?;
+    Ok(publish_result(conversation, mux, published))
+}
+
+/// Why a draft was not published.
+pub(super) enum DraftRefused {
+    NotAgent,
+    Owner(anyhow::Error),
+    Gate(&'static str),
+}
+
+impl DraftRefused {
+    pub(super) fn reason(&self) -> String {
+        match self {
+            Self::NotAgent => "not_agent".into(),
+            Self::Owner(error) => error.to_string(),
+            Self::Gate(reason) => (*reason).into(),
+        }
     }
-    let fields = &Value::Object(request.fields.clone());
+}
+
+/// The one draft path of `conversation.draft` and the v1 `conversation-draft`:
+/// an agent participant of `conversation`, the replay and rate gate, then the
+/// `conversation.events` item. `Ok(false)`: a replay.
+pub(super) fn publish_draft(
+    mux: &Mux,
+    conversation: &str,
+    principal: &str,
+    fields: &Value,
+) -> Result<bool, DraftRefused> {
+    if !principal.starts_with("agent_") {
+        return Err(DraftRefused::NotAgent);
+    }
     mux.with_conversations(|store| store.check_typing(conversation, principal))
-        .map_err(|error| owner_error(operation, conversation, "", error))?;
+        .map_err(DraftRefused::Owner)?;
     let turn = fields["turn"].as_str().unwrap_or_default();
     let seq = fields["seq"].as_u64().unwrap_or(0);
     let fresh = fields["fresh"].as_bool().unwrap_or(false);
@@ -224,11 +257,9 @@ fn draft(
         fresh,
         text_bytes: text.len(),
     };
-    let admitted = mux.admit_conversation_draft(draft, Instant::now());
-    let published = match admitted {
-        Ok(published) => published,
-        Err(refusal) => return Err(refused(operation, refusal.reason(), refusal.reason())),
-    };
+    let published = mux
+        .admit_conversation_draft(draft, Instant::now())
+        .map_err(|refusal| DraftRefused::Gate(refusal.reason()))?;
     if published {
         let mut item = json!({
             "type": "draft",
@@ -253,7 +284,7 @@ fn draft(
             item,
         })));
     }
-    Ok(publish_result(conversation, mux, published))
+    Ok(published)
 }
 
 /// The mutation result of an ephemeral publish: the conversation's rev is

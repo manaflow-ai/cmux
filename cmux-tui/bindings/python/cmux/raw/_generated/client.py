@@ -168,6 +168,9 @@ class GeneratedClientMixin:
     def conversation_create(self, idempotency_key: str, participants: Union[JsonValue, None], title: str, *, actor: Union[str, None, MissingType] = MISSING) -> ConversationCreateResult:
         return self._invoke_command('conversation-create', ConversationCreateRequest(idempotency_key=idempotency_key, participants=participants, title=title, actor=actor))
 
+    def conversation_draft(self, conversation: str, done: bool, fresh: bool, kind: str, segment: int, seq: int, text: str, turn: str, *, harness: Union[str, None, MissingType] = MISSING, truncated: Union[bool, None, MissingType] = MISSING) -> ConversationDraftResult:
+        return self._invoke_command('conversation-draft', ConversationDraftRequest(conversation=conversation, done=done, fresh=fresh, kind=kind, segment=segment, seq=seq, text=text, turn=turn, harness=harness, truncated=truncated))
+
     def conversation_history(self, before_seq: int, conversation: str, limit: int) -> ConversationHistoryResult:
         return self._invoke_command('conversation-history', ConversationHistoryRequest(before_seq=before_seq, conversation=conversation, limit=limit))
 
@@ -800,6 +803,7 @@ GeneratedClientMixin.conversation_attachment_read.__cmux_command__ = COMMANDS['c
 GeneratedClientMixin.conversation_attachment_upload.__cmux_command__ = COMMANDS['conversation-attachment-upload']
 GeneratedClientMixin.conversation_bind.__cmux_command__ = COMMANDS['conversation-bind']
 GeneratedClientMixin.conversation_create.__cmux_command__ = COMMANDS['conversation-create']
+GeneratedClientMixin.conversation_draft.__cmux_command__ = COMMANDS['conversation-draft']
 GeneratedClientMixin.conversation_history.__cmux_command__ = COMMANDS['conversation-history']
 GeneratedClientMixin.conversation_import.__cmux_command__ = COMMANDS['conversation-import']
 GeneratedClientMixin.conversation_list.__cmux_command__ = COMMANDS['conversation-list']

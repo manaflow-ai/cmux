@@ -244,6 +244,8 @@ MODEL_BY_PATH = {
     'commands/conversation-bind/result': models.ConversationBindResult,
     'commands/conversation-create/request': models.ConversationCreateRequest,
     'commands/conversation-create/result': models.ConversationCreateResult,
+    'commands/conversation-draft/request': models.ConversationDraftRequest,
+    'commands/conversation-draft/result': models.ConversationDraftResult,
     'commands/conversation-history/request': models.ConversationHistoryRequest,
     'commands/conversation-history/result': models.ConversationHistoryResult,
     'commands/conversation-import/request': models.ConversationImportRequest,

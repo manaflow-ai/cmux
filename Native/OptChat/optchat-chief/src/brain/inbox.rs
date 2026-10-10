@@ -278,6 +278,12 @@ impl Brain {
                 (self.log)(&format!("typing {on}: binding lost; reconnecting"));
                 self.drop_daemon();
             }
+            Err(OpError::Rejected(reason)) if reason == "typing_unsupported" => {
+                if !self.typing_unsupported {
+                    self.typing_unsupported = true;
+                    (self.log)("this conversation owner takes no typing indicator");
+                }
+            }
             Err(OpError::Rejected(reason)) => (self.log)(&format!("typing {on} refused: {reason}")),
             Err(OpError::Transport(e)) => {
                 (self.log)(&format!("typing {on}: {e}"));

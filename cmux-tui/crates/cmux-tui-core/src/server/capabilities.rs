@@ -106,6 +106,7 @@ pub(super) fn advertised_capabilities(
         crate::mux::feed_local::FEED_LOCAL_OWNER_CAPABILITY,
         conversations::LOCAL_CONVERSATIONS_CAPABILITY,
         conversations::CONVERSATION_SEARCH_CAPABILITY,
+        conversations::CONVERSATION_DRAFT_CAPABILITY,
         crate::conversation_store::attachments::LOCAL_ATTACHMENTS_CAPABILITY,
         SCREEN_METADATA_CAPABILITY,
         SCREEN_GROUPS_CAPABILITY,

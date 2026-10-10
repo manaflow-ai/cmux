@@ -2444,6 +2444,27 @@ class ConversationCreateResult:
 
 
 @dataclass(frozen=True)
+class ConversationDraftRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-draft/request'
+    conversation: str
+    done: bool
+    fresh: bool
+    kind: str
+    segment: int
+    seq: int
+    text: str
+    turn: str
+    harness: Union[str, None, MissingType] = field(default=MISSING)
+    truncated: Union[bool, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ConversationDraftResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-draft/result'
+    published: bool
+
+
+@dataclass(frozen=True)
 class ConversationHistoryRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/conversation-history/request'
     before_seq: int
@@ -5305,6 +5326,8 @@ __all__ = [
     'ConversationBindResult',
     'ConversationCreateRequest',
     'ConversationCreateResult',
+    'ConversationDraftRequest',
+    'ConversationDraftResult',
     'ConversationHistoryRequest',
     'ConversationHistoryResult',
     'ConversationImportRequest',

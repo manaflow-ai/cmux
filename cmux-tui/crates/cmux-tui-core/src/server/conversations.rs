@@ -25,6 +25,9 @@ use crate::conversation_store::{
 pub const LOCAL_CONVERSATIONS_CAPABILITY: &str = "local-conversations-v1";
 /// `conversation-search` on the local conversation owner.
 pub const CONVERSATION_SEARCH_CAPABILITY: &str = "conversation-search-v1";
+/// `conversation-draft`: the v1 command of `conversation.draft` for a bound
+/// agent connection (the Chief brain's link).
+pub const CONVERSATION_DRAFT_CAPABILITY: &str = "conversation-draft-v1";
 
 /// `conversation-create`: a retry with the same `idempotency_key` and request
 /// returns the conversation it created.
@@ -80,6 +83,23 @@ pub(super) struct TypingParams {
     #[serde(default)]
     pub(super) actor: Option<String>,
     pub(super) on: bool,
+}
+
+/// `conversation-draft`: a draft of the bound agent's running reply.
+#[derive(Deserialize)]
+pub(super) struct DraftParams {
+    conversation: String,
+    turn: String,
+    segment: u64,
+    seq: u64,
+    kind: String,
+    text: String,
+    fresh: bool,
+    done: bool,
+    #[serde(default)]
+    truncated: Option<bool>,
+    #[serde(default)]
+    harness: Option<String>,
 }
 
 /// `conversation-bind`: become agent `participant` for the rest of the
@@ -322,6 +342,38 @@ pub(super) fn typing(mux: &Mux, client: u64, params: TypingParams) -> anyhow::Re
     let actor = resolve_actor(mux, client, actor)?;
     publish_typing(mux, &conversation, &actor, on)?;
     Ok(json!({}))
+}
+
+/// The same admission and `conversation.events` item as the
+/// `conversation.draft` operation (conversation_resource.rs), for the
+/// connection's principal.
+pub(super) fn draft(mux: &Mux, client: u64, params: DraftParams) -> anyhow::Result<Value> {
+    require_local(mux, client)?;
+    let principal = mux.conversation_principal(client);
+    anyhow::ensure!(params.turn.len() <= 128 && !params.turn.is_empty(), "bad request: turn");
+    anyhow::ensure!(params.text.len() <= 65536, "bad request: text");
+    anyhow::ensure!(matches!(params.kind.as_str(), "talk" | "thought"), "bad request: kind");
+    anyhow::ensure!(
+        params.harness.as_ref().is_none_or(|harness| harness.len() <= 64),
+        "bad request: harness"
+    );
+    let mut fields = json!({
+        "turn": params.turn, "segment": params.segment, "seq": params.seq,
+        "kind": params.kind, "text": params.text, "fresh": params.fresh, "done": params.done,
+    });
+    if let Some(truncated) = params.truncated {
+        fields["truncated"] = json!(truncated);
+    }
+    if let Some(harness) = params.harness {
+        fields["harness"] = json!(harness);
+    }
+    let published =
+        super::conversation_resource::publish_draft(mux, &params.conversation, &principal, &fields)
+            .map_err(|refusal| match refusal {
+                super::conversation_resource::DraftRefused::Owner(error) => error,
+                other => anyhow::anyhow!("draft refused: {}", other.reason()),
+            })?;
+    Ok(json!({"published": published}))
 }
 
 /// Validate and publish a typing indicator of `actor`. Never stored.

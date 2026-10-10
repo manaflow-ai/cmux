@@ -407,6 +407,8 @@ pub struct Brain {
     steer_seq: u64,
     /// A draft could not be published (logged once).
     draft_failed: bool,
+    /// The owner said once that it takes no typing indicator (cloud).
+    typing_unsupported: bool,
     after_turn: Option<TurnHook>,
     /// Notices waiting for the conversation to be known.
     notices: Vec<(String, String)>,
@@ -518,6 +520,7 @@ impl Brain {
             steering: Vec::new(),
             steer_seq: 0,
             draft_failed: false,
+            typing_unsupported: false,
             marker_refused: crate::prompt::MarkLatch::default(),
             ttl_refused: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             prewarm_ttl: None,

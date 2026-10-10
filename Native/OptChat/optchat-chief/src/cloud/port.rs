@@ -82,8 +82,14 @@ impl<R: Rpc> ConversationPort for CloudPort<R> {
         }))
     }
 
+    /// The cloud owner has no typing indicator yet: said, not swallowed.
     fn typing(&mut self, _conversation: &str, _on: bool) -> Result<(), OpError> {
-        Ok(())
+        Err(OpError::Rejected("typing_unsupported".into()))
+    }
+
+    /// The cloud owner has no draft operation yet: said, not swallowed.
+    fn draft(&mut self, _conversation: &str, _draft: &crate::draft::Draft) -> Result<(), OpError> {
+        Err(OpError::Rejected("drafts_unsupported".into()))
     }
 
     fn mux_ack(&mut self, conversation: &str, seq: u64) -> Result<(), OpError> {
