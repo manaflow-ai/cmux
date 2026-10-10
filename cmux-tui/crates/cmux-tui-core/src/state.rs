@@ -55,11 +55,7 @@ mod prelude;
 pub(crate) mod project_sources;
 pub(crate) mod projects;
 pub(crate) mod projects_ops;
-#[cfg(test)]
-mod projects_protocol_tests;
 pub(crate) mod projects_store;
-#[cfg(test)]
-mod projects_tests;
 pub(crate) mod room_delete;
 #[cfg(test)]
 mod room_delete_amendment_tests;

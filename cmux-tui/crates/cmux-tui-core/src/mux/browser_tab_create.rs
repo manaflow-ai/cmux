@@ -226,7 +226,7 @@ impl Mux {
             let workspace_public_id = WorkspacePublicId::random()?;
             let mut registry = self.workspace_registry.lock().unwrap();
             let delta = {
-                let mut state = self.state.lock().unwrap();
+                let mut state = self.lock_state_pinned(&registry).unwrap();
                 let name = Self::default_workspace_name(&state);
                 let index = state.workspaces.len();
                 let mut desired = self.registry_projection(&state);

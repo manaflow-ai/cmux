@@ -589,7 +589,7 @@ impl Mux {
             anyhow::bail!("terminal host exited during adoption");
         }
         let mut registry = self.workspace_registry.lock().unwrap();
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.lock_state_pinned(&registry).unwrap();
         let terminal = registry
             .terminal_record(terminal_id)?
             .ok_or_else(|| anyhow::anyhow!("terminal disappeared during adoption"))?;

@@ -17,19 +17,31 @@ pub(crate) use super::super::unix::PtyCustody;
 pub(crate) use super::super::unix::launch_terminal_host_from;
 pub(crate) use super::super::unix::remove_released as remove_released_pty_lock;
 pub(crate) use super::super::unix::serve_pty_custody;
+pub(crate) use super::super::unix::{HostChild, adopt_launch, host_signals};
 mod barrier_sync;
 mod lease;
+mod listener;
 mod process;
 mod pty_readiness;
 mod waker;
 pub(crate) use crate::terminal_loss_log::remove_signals as remove_terminal_loss_signals;
 pub(crate) use barrier_sync::{barrier_sync, barrier_sync_dir};
 pub(crate) use lease::*;
+pub(crate) use listener::HostListener;
 pub(crate) use process::{
     kill_process_group, process_definitely_absent as process_definitely_gone,
 };
 pub(crate) use pty_readiness::wait_for_pty_readable_or_forced_drain;
 pub(crate) use waker::AcceptWaker;
+
+/// The PTY master descriptor the reader polls.
+pub(crate) type PtyPollHandle = std::os::fd::RawFd;
+
+pub(crate) fn pty_poll_handle(master: &dyn cmux_pty::MasterPty) -> anyhow::Result<PtyPollHandle> {
+    use anyhow::Context;
+
+    master.as_raw_fd().context("open terminal-host PTY poll fd")
+}
 
 /// The session id of an adopted (non-child) process.
 pub(crate) type SessionId = libc::pid_t;
