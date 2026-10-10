@@ -156,6 +156,20 @@ An error count does not measure work. All Mutex/Atomic errors go away with one
 shim type that has the same API, and all `Observations` errors go away with one
 helper. The Observation errors at 13 do not have a shim of that kind.
 
+## Exact measurement at floor 14 (2026-10-10, all modules)
+
+`scripts/measure/macos-floor.sh 14 14 15` on the fleet (cmux-ci step
+9046e5f9450defe5ec9d2056, aws-m4pro-2, feat-cmux-next 1fbb4b2d8662, after
+CmuxNextCompat landed but before the App/AgentPane import swap). Pass 1 built
+every module; pass 2 checked all 70 modules. 620 unique errors at 14, 155 at
+15:
+
+| family | errors at 14 | owner (bead) |
+| --- | --- | --- |
+| `Observations` + its `next()` | 308 | Observations helper (cx-s6wi.4) |
+| `Mutex`/`Atomic` in App, AgentPane, Settings | 291 | import swap 44ab4c25733f; ManagedKeyGuard.swift waits for the settings slot (cx-s6wi.3) |
+| other APIs (cursor `columnResize`/`rowResize` 5, `NSAnimationContext.animate` 2, `ASWebAuthenticationSession.Callback` 3, `NSMenuItem.subtitle` 1, `controlSize .extraLarge` 1, `onScrollGeometryChange` 1, `.rotate` symbol effect 2) | 21 | cx-s6wi.7 |
+
 ## Static inventory (Sources, 3,866 Swift files, 346k lines, feat-cmux-next a541ca5b5e8)
 
 | API family | needs | files | uses | main modules |
