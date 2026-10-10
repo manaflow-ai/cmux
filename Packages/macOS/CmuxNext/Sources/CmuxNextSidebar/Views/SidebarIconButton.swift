@@ -26,6 +26,9 @@ final class SidebarIconButton: NSButton {
     /// The label point size the icon sits beside, read at layout time so density changes apply live.
     private let pointSize: () -> CGFloat
     private var renderedSize: CGFloat = 0
+    /// An SF Symbol drawn through the pack (`NSImage.icon(symbol:)`) for a glyph
+    /// the pack has no name for, such as the group editor's emoji button.
+    private var symbol: String?
 
     init(icon: IconName, pointSize: @escaping () -> CGFloat = { Metrics.smallIconSize }, label: String) {
         self.icon = icon
@@ -45,6 +48,13 @@ final class SidebarIconButton: NSButton {
         hover.followPointer(onChange: { [weak self] in self?.needsDisplay = true })
     }
 
+    convenience init(symbol: String, pointSize: @escaping () -> CGFloat = { Metrics.smallIconSize }, label: String) {
+        self.init(icon: IconName(symbol), pointSize: pointSize, label: label)
+        self.symbol = symbol
+        renderedSize = 0
+        renderIcon()
+    }
+
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
@@ -54,7 +64,8 @@ final class SidebarIconButton: NSButton {
         let size = pointSize()
         guard size != renderedSize else { return }
         renderedSize = size
-        let image = NSImage.icon(icon, size: .iconRowSize(forLabelPointSize: size))
+        let side = CGFloat.iconRowSize(forLabelPointSize: size)
+        let image = symbol.map { NSImage.icon(symbol: $0, size: side) } ?? NSImage.icon(icon, size: side)
         image.accessibilityDescription = label
         self.image = image
     }
