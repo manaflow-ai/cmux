@@ -90,20 +90,24 @@ final class ChatsOpenCoordinator {
     func openInTerminal(_ key: String) { open(key, inTerminal: true) }
 
     func open(_ key: String, inTerminal: Bool = false) {
-        guard let services, let environment = QuitAgents.environment(services) else { return }
+        let timing = ChatOpenTiming(key: key)
+        guard let services, let environment = QuitAgents.environment(services) else { return timing.end("no_environment") }
         Task { [weak self] in
-            guard let self else { return }
+            guard let self else { return timing.end("released") }
             do {
-                guard let plan = try await environment.chatOpenPlan(key: key) else { return }
-                await dispatch(plan, key: key, environment: environment, inTerminal: inTerminal)
+                guard let plan = try await environment.chatOpenPlan(key: key) else { return timing.end("no_plan") }
+                timing.mark("plan")
+                await dispatch(plan, key: key, environment: environment, inTerminal: inTerminal, timing: timing)
             } catch {
+                timing.end("plan_failed")
                 services.refusalHUD.show(error.localizedDescription, in: services.windows.active?.window ?? NSApp.keyWindow)
             }
         }
     }
 
-    private func dispatch(_ plan: AcpmuxChatOpenPlan, key: String, environment: AcpmuxEnvironment, inTerminal: Bool = false) async {
-        guard let services else { return }
+    private func dispatch(_ plan: AcpmuxChatOpenPlan, key: String, environment: AcpmuxEnvironment, inTerminal: Bool = false,
+                          timing: ChatOpenTiming? = nil) async {
+        guard let services else { timing?.end("released"); return }
         let chat = services.chatsFeed?.chats.first { $0.id == key }
         let title = chat?.title
         let subject = ChatOpenSubject(title: title, harness: chat?.harness, sessionID: chat?.sessionID, cwd: chat?.cwd)
@@ -111,29 +115,35 @@ final class ChatsOpenCoordinator {
         case .needsFolder(let reason):
             // The chat opens (in its new workspace) and says why it has no folder, with Choose
             // Folder there (cx-nn3e.1), never a bare Open panel.
-            createWorkspace(WorkspaceSpawn(name: title), seed: AgentPaneSeed(folderNeeded: AgentPaneFolderNeeded(chat: key, reason: reason)))
+            createWorkspace(WorkspaceSpawn(name: title), seed: AgentPaneSeed(folderNeeded: AgentPaneFolderNeeded(chat: key, reason: reason)),
+                            timing: timing, route: "needs_folder")
         case .reveal(let tab):
-            _ = services.revealTab(tab)
+            let shown = services.revealTab(tab)
+            timing?.end(shown ? "reveal" : "reveal_failed")
         case .newWorkspace(let name, let cwd, let seed, let command, let env):
-            createWorkspace(WorkspaceSpawn(cwd: cwd, name: name, command: command, env: env), seed: seed)
+            createWorkspace(WorkspaceSpawn(cwd: cwd, name: name, command: command, env: env), seed: seed,
+                            timing: timing, route: seed == nil ? "terminal" : "workspace")
         case .readOnly(let path):
-            guard let pane = services.windows.active?.focusedPane else { return }
+            guard let pane = services.windows.active?.focusedPane else { timing?.end("read_only_no_pane"); return }
             _ = services.viewers.markdownPages.open(URL(fileURLWithPath: path), in: pane, focus: true, userChose: false)
+            timing?.end("read_only")
         }
     }
 
     /// A new workspace in the active window whose first tab is `seed`'s chat (or `spawn`'s
     /// command); it shows there and takes focus.
-    private func createWorkspace(_ spawn: WorkspaceSpawn, seed: AgentPaneSeed?) {
-        guard let services else { return }
+    private func createWorkspace(_ spawn: WorkspaceSpawn, seed: AgentPaneSeed?, timing: ChatOpenTiming? = nil, route: String = "workspace") {
+        guard let services else { timing?.end("released"); return }
         var spawn = spawn
         spawn.firstChat = seed
         let windowID = services.windows.active?.state.id
         services.registry.track(Task { @MainActor in
             do {
                 _ = try await services.windows.createWorkspace(spawn, into: windowID)
+                timing?.end(route)
                 return nil
             } catch {
+                timing?.end("workspace_failed")
                 return ActionWorkFailure("open chat", error)
             }
         })

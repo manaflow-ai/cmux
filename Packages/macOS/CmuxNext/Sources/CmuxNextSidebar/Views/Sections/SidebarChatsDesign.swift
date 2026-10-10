@@ -5,18 +5,18 @@ public import Foundation
 /// Lawrence tries the three minimal gallery designs in a tagged build and votes; then the picker
 /// and the two losers are deleted.
 public nonisolated enum SidebarChatsDesign: String, Sendable, CaseIterable, Hashable, TunableChoice {
-    /// The harness glyph, then the title.
+    /// The harness mark, then the title. Every design leads with the mark (cx-tr0w).
     case quiet
-    /// The title, then a faint age on the right; no glyph.
+    /// The mark, the title, then a faint age on the right.
     case age
-    /// The title · its project; no glyph.
+    /// The mark, then the title · its project.
     case project
 
     public var tunableTitle: String {
         switch self {
         case .quiet: "Quiet (glyph + title)"
-        case .age: "Age (title + age)"
-        case .project: "Project (title · project)"
+        case .age: "Age (glyph + title + age)"
+        case .project: "Project (glyph + title · project)"
         }
     }
 

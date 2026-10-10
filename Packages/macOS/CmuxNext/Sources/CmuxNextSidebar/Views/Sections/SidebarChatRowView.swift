@@ -2,10 +2,13 @@ import AppKit
 import CmuxNextDesign
 
 /// One All chats row in the picked design (``SidebarChatsDesign``): the shared item row (press,
-/// hover fill, menu) with the glyph only in Quiet and a faint trailing text in Age and Project.
+/// hover fill, menu) led by its harness mark in every design (Leo 2026-10-10, cx-tr0w), with a
+/// faint trailing text in Age and Project.
 final class SidebarChatRowView: SidebarItemRowView {
     let meta = NSTextField(labelWithString: "")
     private(set) var design = SidebarChatsDesign.age
+    /// The chat this row shows (`debug.sidebar_rows`).
+    private(set) var row: SidebarChatsView.Row?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -20,6 +23,7 @@ final class SidebarChatRowView: SidebarItemRowView {
 
     func configure(_ row: SidebarChatsView.Row, design: SidebarChatsDesign, now: Date) {
         self.design = design
+        self.row = row
         configure(SidebarItemInfo(title: row.title, symbol: "bubble.left", icon: .agentChat, brand: row.brand), style: .builtIn)
         let text = design.meta(updatedAt: row.updatedAt, folder: row.folder, now: now)
         meta.stringValue = text.map { design == .project ? "· " + $0 : $0 } ?? ""
@@ -28,13 +32,18 @@ final class SidebarChatRowView: SidebarItemRowView {
         needsLayout = true
     }
 
+    /// A click anywhere on the row is the row's: a hit on its title or mark went to that label,
+    /// which the table refuses as first responder, so the table took the mouse down and the
+    /// chat never opened (cx-tr0w).
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard !isHidden, frame.contains(point) else { return nil }
+        return self
+    }
+
     override func layout() {
         super.layout()
-        icon.isHidden = design != .quiet
-        let textX = design == .quiet ? title.frame.minX : icon.frame.minX
+        icon.isHidden = false
         var titleFrame = title.frame
-        titleFrame.size.width = max(0, titleFrame.maxX - textX)
-        titleFrame.origin.x = textX
         guard !meta.isHidden else { title.frame = titleFrame; return }
         let size = meta.intrinsicContentSize
         // The cell's size includes the field's insets: the text's width alone clips it ("2...").

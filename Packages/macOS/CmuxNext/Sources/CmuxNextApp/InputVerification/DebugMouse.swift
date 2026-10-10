@@ -118,7 +118,21 @@ enum DebugMouse {
             "window": .string(controller.state.id),
             "x": .number(point.x), "y": .number(point.y),
             "posted": .number(Double(posted.count)),
+            "hit": .array(hitChain(at: baseLocation(point, in: window), in: window).map(JSONValue.string)),
         ])
+    }
+
+    /// The view a click at `point` (window base coordinates) reaches and its ancestors, innermost
+    /// first: names what takes a click a proof expected elsewhere (cx-tr0w).
+    private static func hitChain(at point: NSPoint, in window: NSWindow) -> [String] {
+        guard let frame = window.contentView?.superview else { return [] }
+        var view = frame.hitTest(frame.convert(point, from: nil))
+        var chain: [String] = []
+        while let current = view, chain.count < 8 {
+            chain.append(String(describing: type(of: current)))
+            view = current.superview
+        }
+        return chain
     }
 
     /// Top-left window-local point from `x`,`y` or the center of `pane`.

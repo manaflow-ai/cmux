@@ -79,6 +79,8 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
     /// The open height the person dragged to (`SidebarChatsView+Resize`), nil for one third.
     var customShare: CGFloat?
     let divider = SidebarSectionDivider()
+    /// The line that sets All chats apart as its own section (cx-tiwv), open or minimized.
+    let topLine = HairlineView()
     var dragStartHeight: CGFloat = 0
     /// Open (the list shows, a third of the sidebar tall) or minimized to its header row, the
     /// default (Lawrence 2026-10-09). Kept per Mac.
@@ -145,6 +147,7 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
         for control in [titleLabel, search, searchButton, filterButton, groupButton] as [NSView] { header.addSubview(control) }
         addSubview(header)
         addSubview(scroll)
+        addSubview(topLine)
         installDivider()
         applyHeaderReveal(animated: false)
         update([], enabled: true, ready: true)
@@ -335,6 +338,7 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
         let y = (top - controlHeight) / 2
         header.frame = NSRect(x: 0, y: 0, width: bounds.width, height: top)
         divider.frame = NSRect(x: 0, y: 0, width: bounds.width, height: Metrics.space2)
+        topLine.frame = NSRect(x: 0, y: 0, width: bounds.width, height: Metrics.lineWidth(Metrics.dividerThickness))
         // Trailing icon buttons (group, filter, search), then the title or the open search field.
         let searching = isSearchOpen || !search.stringValue.isEmpty
         var x = bounds.width - Metrics.space2
