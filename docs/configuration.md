@@ -149,10 +149,26 @@ Which of Cmd-T and Cmd-N opens a tab and which opens a workspace.
 }
 ```
 
-- `false` (default): Cmd-T follows the focus. In a pane with a tab strip (a terminal, a browser tab, the New Tab page) it opens a tab there. On an agent chat, or in a pane without a tab strip, it opens a workspace in the current group. Cmd-N opens a workspace.
+- `false` (default): Cmd-T follows the focused pane's tab bar (`tabs.tabBar`). In a pane that shows it (a terminal, a browser tab, the New Tab page) it opens a tab there. In a pane that hides it (an agent chat alone in its column, by default) it opens a workspace in the current group. Cmd-N opens a workspace.
 - `true`: Cmd-T always opens a workspace in the current group and Cmd-N always opens a tab.
 
 Both open the New Tab page. The strip's + button always opens a tab. A key you bind yourself in `shortcuts.bindings` for `newTab` or `newTab.default` wins over the swap. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.swapCmdTAndCmdN true`.
+
+## `tabs.tabBar`
+
+Whether a pane shows its horizontal tab bar, by what the pane holds. A workspace is a vertical tab in the sidebar, and a pane's tab bar holds tabs inside it.
+
+```json
+{
+  "tabs": { "tabBar": { "terminal": "auto", "browser": "auto", "agent": "always" } }
+}
+```
+
+- `terminal`: panes with terminals, or a mix of kinds. `browser`: panes with only browser tabs. `agent`: panes with only agent chats. New Tab pages count as neither.
+- `"auto"` (default): terminal and browser panes show the tab bar. An agent chat alone in its column, or in the chat dock, hides it until the pane holds two tabs.
+- `"always"` shows it, and `"never"` hides it.
+
+**Show Tab Bar** in the command palette or a pane's right-click menu shows or hides one pane's tab bar, whatever its kind's value. Cmd-T follows the tab bar: it opens a tab in a pane that shows it, and a new workspace from one that hides it. **New Horizontal Tab** (no default key) turns the focused pane's tab bar on and opens a tab there.
 
 ## `tabs.newTabTemplate`
 
