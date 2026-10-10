@@ -8,6 +8,8 @@ final class FileExplorerHeaderView: NSView {
     private let retryButton = NSButton()
     private var retry: (() -> Void)?
     private let pathLabel = NSTextField(labelWithString: "")
+    private var pathTrailingToRetryConstraint: NSLayoutConstraint?
+    private var pathTrailingToEdgeConstraint: NSLayoutConstraint?
     private var heightConstraint: NSLayoutConstraint?
     private var displayPath = ""
     private var quickSearchQuery: String?
@@ -46,6 +48,11 @@ final class FileExplorerHeaderView: NSView {
         let heightConstraint = heightAnchor.constraint(equalToConstant: RightSidebarChromeMetrics.secondaryBarHeight)
         self.heightConstraint = heightConstraint
 
+        let pathTrailingToRetryConstraint = pathLabel.trailingAnchor.constraint(equalTo: retryButton.leadingAnchor, constant: -8)
+        let pathTrailingToEdgeConstraint = pathLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8)
+        self.pathTrailingToRetryConstraint = pathTrailingToRetryConstraint
+        self.pathTrailingToEdgeConstraint = pathTrailingToEdgeConstraint
+
         NSLayoutConstraint.activate([
             heightConstraint,
 
@@ -56,11 +63,12 @@ final class FileExplorerHeaderView: NSView {
 
             pathLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: RightSidebarChromeMetrics.contentIconTextSpacing),
             pathLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            pathLabel.trailingAnchor.constraint(equalTo: retryButton.leadingAnchor, constant: -8),
             retryButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
             retryButton.centerYAnchor.constraint(equalTo: centerYAnchor),
             retryButton.widthAnchor.constraint(equalToConstant: 18),
         ])
+        pathTrailingToRetryConstraint.isActive = false
+        pathTrailingToEdgeConstraint.isActive = true
         applyHeaderState()
     }
 
@@ -74,6 +82,8 @@ final class FileExplorerHeaderView: NSView {
     func update(displayPath: String, retry: (() -> Void)? = nil) {
         self.retry = retry
         retryButton.isHidden = retry == nil
+        pathTrailingToRetryConstraint?.isActive = retry != nil
+        pathTrailingToEdgeConstraint?.isActive = retry == nil
         guard self.displayPath != displayPath else { return }
         self.displayPath = displayPath
         applyHeaderState()
