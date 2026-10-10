@@ -143,7 +143,7 @@ enum GlobalSearchDocuments {
             title: title,
             location: location,
             // The row's label: which agent, in place of a generic kind name.
-            anchor: source.agentKind.displayName,
+            anchor: source.agentKind.globalSearchDisplayName,
             text: text
         )
     }

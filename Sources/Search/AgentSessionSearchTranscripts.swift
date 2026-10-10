@@ -1,15 +1,16 @@
 import CmuxAgentChat
-import Dispatch
 import Foundation
 
 /// A live agent session as Global Search indexes it.
-struct AgentSessionSearchSource: Sendable, Equatable {
+struct AgentSessionSearchSource: Sendable {
     /// Where the session's transcript is.
-    enum Transcript: Sendable, Equatable {
+    enum Transcript: Sendable {
         /// A path the resolver vouched for (`boundedTranscriptPath`).
         case path(String)
         /// A Codex rollout still to be found, off the main actor.
         case codexRollout(CodexRolloutLookup)
+        /// A live record whose transcript path is resolved off the main actor.
+        case lookup(AgentSessionTranscriptLookup)
     }
 
     let sessionID: String
@@ -38,39 +39,63 @@ protocol AgentSessionTranscriptStore: Sendable {
 /// Owns one incremental transcript reader per indexed agent session.
 ///
 /// The actor only bookkeeps readers and revisions. The blocking file reads
-/// and parsing run on a dedicated utility queue, never on the main actor or
-/// a cooperative-pool thread (the same split `AgentUsageSampler` uses).
+/// and parsing run in detached utility tasks, never on the main actor.
 actor AgentSessionSearchTranscripts: AgentSessionTranscriptStore {
     private var readers: [String: AgentSessionSearchTranscript] = [:]
     private var revisions: [String: Int] = [:]
-    private var readsInFlight: Set<String> = []
+    /// Shared read tasks keep overlapping palette refreshes from falling back
+    /// to scrollback while the first transcript read is still in progress.
+    private var readsInFlight: [String: Task<Int?, Never>] = [:]
+    /// A prune increments the generation so an in-flight read cannot restore
+    /// a reader that is no longer represented by an indexed panel.
+    private var readerGenerations: [String: UInt64] = [:]
     private var nextRevision = 1
-    private let readQueue = DispatchQueue(
-        label: "com.cmux.global-search.agent-transcript-reads",
-        qos: .utility
-    )
+    private let codexRolloutPaths = CodexRolloutPathIndex()
 
-    /// Finds the session's transcript and reads its new bytes, both on the
-    /// read queue.
+    /// Finds the session's transcript and reads its new bytes off-actor.
     ///
-    /// A refresh that finds the same session already being read returns the
-    /// revision of the text read so far instead of reading twice.
+    /// A refresh that finds the same session already being read awaits that
+    /// read instead of returning an empty result and indexing scrollback.
     ///
     /// - Returns: A revision that changes whenever the session's text changes
     ///   (unique across sessions), or nil while the transcript has no text or
     ///   can't be found.
     func refreshedRevision(for source: AgentSessionSearchSource) async -> Int? {
         let sessionID = source.sessionID
-        guard !readsInFlight.contains(sessionID) else { return currentRevision(forSessionID: sessionID) }
+        if let task = readsInFlight[sessionID] {
+            return await task.value
+        }
 
-        readsInFlight.insert(sessionID)
-        defer { readsInFlight.remove(sessionID) }
         let existing = readers[sessionID]
-        let readQueue = self.readQueue
-        let read = await withCheckedContinuation { (continuation: CheckedContinuation<Read?, Never>) in
-            readQueue.async {
-                continuation.resume(returning: Self.readTranscript(source, existing: existing))
-            }
+        let generation = readerGenerations[sessionID, default: 0]
+        let codexRolloutPaths = self.codexRolloutPaths
+        let task = Task { [weak self] () -> Int? in
+            let read = await Task.detached(priority: .utility) {
+                await Self.readTranscript(
+                    source,
+                    existing: existing,
+                    codexRolloutPaths: codexRolloutPaths
+                )
+            }.value
+            guard let self else { return nil }
+            return await self.finishRead(
+                read,
+                sessionID: sessionID,
+                generation: generation
+            )
+        }
+        readsInFlight[sessionID] = task
+        return await task.value
+    }
+
+    private func finishRead(
+        _ read: Read?,
+        sessionID: String,
+        generation: UInt64
+    ) -> Int? {
+        defer { readsInFlight[sessionID] = nil }
+        guard readerGenerations[sessionID, default: 0] == generation else {
+            return nil
         }
         guard let read else {
             readers[sessionID] = nil
@@ -91,10 +116,18 @@ actor AgentSessionSearchTranscripts: AgentSessionTranscriptStore {
         let changed: Bool
     }
 
-    /// Resolves the transcript and reads what it gained. Blocking; runs on
-    /// the read queue.
-    private static func readTranscript(_ source: AgentSessionSearchSource, existing: AgentSessionSearchTranscript?) -> Read? {
-        guard let path = transcriptPath(for: source, cachedPath: existing?.path) else { return nil }
+    /// Resolves the transcript and reads what it gained in a detached utility
+    /// task. The actor never performs blocking file I/O.
+    private static func readTranscript(
+        _ source: AgentSessionSearchSource,
+        existing: AgentSessionSearchTranscript?,
+        codexRolloutPaths: CodexRolloutPathIndex
+    ) async -> Read? {
+        guard let path = await transcriptPath(
+            for: source,
+            cachedPath: existing?.path,
+            codexRolloutPaths: codexRolloutPaths
+        ) else { return nil }
         var reusable = existing
         if reusable?.path != path || reusable?.agentKind != source.agentKind {
             reusable = nil
@@ -116,6 +149,29 @@ actor AgentSessionSearchTranscripts: AgentSessionTranscriptStore {
                 return cachedPath
             }
             return lookup.livePath()
+        case .lookup(let lookup):
+            if let cachedPath, FileManager.default.fileExists(atPath: cachedPath) {
+                return cachedPath
+            }
+            return lookup.path()
+        }
+    }
+
+    private static func transcriptPath(
+        for source: AgentSessionSearchSource,
+        cachedPath: String?,
+        codexRolloutPaths: CodexRolloutPathIndex
+    ) async -> String? {
+        if let cachedPath, FileManager.default.fileExists(atPath: cachedPath) {
+            return cachedPath
+        }
+        switch source.transcript {
+        case .path(let path):
+            return path
+        case .codexRollout(let lookup):
+            return await codexRolloutPaths.path(for: lookup)
+        case .lookup(let lookup):
+            return await codexRolloutPaths.path(for: lookup)
         }
     }
 
@@ -127,6 +183,12 @@ actor AgentSessionSearchTranscripts: AgentSessionTranscriptStore {
 
     /// Drops readers for sessions no longer indexed.
     func retainOnly(sessionIDs: Set<String>) {
+        let knownSessionIDs = Set(readers.keys)
+            .union(revisions.keys)
+            .union(readsInFlight.keys)
+        for sessionID in knownSessionIDs where !sessionIDs.contains(sessionID) {
+            readerGenerations[sessionID, default: 0] &+= 1
+        }
         readers = readers.filter { sessionIDs.contains($0.key) }
         revisions = revisions.filter { sessionIDs.contains($0.key) }
     }
@@ -134,5 +196,85 @@ actor AgentSessionSearchTranscripts: AgentSessionTranscriptStore {
     private func currentRevision(forSessionID sessionID: String) -> Int? {
         guard let reader = readers[sessionID], !reader.text.isEmpty else { return nil }
         return revisions[sessionID]
+    }
+}
+
+/// Caches the bounded Codex rollout-directory scan for one search refresh
+/// service. Directory contents are rebuilt when their modification date
+/// changes, so a newly-created rollout remains discoverable without rescanning
+/// the same directory once per pane.
+actor CodexRolloutPathIndex {
+    private struct DirectoryEntry {
+        let modificationDate: Date
+        let pathsBySessionSuffix: [String: String]
+    }
+
+    private var entries: [String: DirectoryEntry] = [:]
+
+    /// Resolves a rollout path using the live process first, then the cached
+    /// today/yesterday directory indexes.
+    func path(for lookup: CodexRolloutLookup, now: Date = Date()) -> String? {
+        if let open = lookup.openProcessPath() {
+            return open
+        }
+        let sessionIDs = lookup.sessionIDs.map { $0.lowercased() }
+        for directory in lookup.rolloutDirectories(now: now) {
+            let index = directoryIndex(for: directory)
+            for sessionID in sessionIDs {
+                if let path = index.pathsBySessionSuffix[sessionID] {
+                    return path
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Resolves the conventional path for a live record, keeping the
+    /// resolver's recorded/Claude checks on this off-main lookup path.
+    func path(for lookup: AgentSessionTranscriptLookup, now: Date = Date()) -> String? {
+        if let path = lookup.resolver.boundedTranscriptPath(for: lookup.record) {
+            return path
+        }
+        guard lookup.record.agentKind == .codex else { return nil }
+        return path(
+            for: CodexRolloutLookup(record: lookup.record, codexHome: lookup.resolver.codexConfigRoot),
+            now: now
+        )
+    }
+
+    private func directoryIndex(for directory: URL) -> DirectoryEntry {
+        let path = directory.path
+        let modificationDate = (try? FileManager.default.attributesOfItem(atPath: path)[.modificationDate] as? Date)
+        if let modificationDate, let cached = entries[path], cached.modificationDate == modificationDate {
+            return cached
+        }
+
+        var pathsBySessionSuffix: [String: String] = [:]
+        if let names = try? FileManager.default.contentsOfDirectory(atPath: path) {
+            for name in names where name.lowercased().hasSuffix(".jsonl") {
+                let stem = String(name.dropLast(6)).lowercased()
+                var index = stem.startIndex
+                while index < stem.endIndex {
+                    if stem[index] == "-" {
+                        let suffixStart = stem.index(after: index)
+                        if suffixStart < stem.endIndex {
+                            pathsBySessionSuffix[String(stem[suffixStart...])] = directory
+                                .appendingPathComponent(name)
+                                .path
+                        }
+                    }
+                    index = stem.index(after: index)
+                }
+            }
+        }
+
+        let entry = DirectoryEntry(
+            modificationDate: modificationDate ?? .distantPast,
+            pathsBySessionSuffix: pathsBySessionSuffix
+        )
+        if modificationDate != nil {
+            entries[path] = entry
+        }
+        return entry
     }
 }

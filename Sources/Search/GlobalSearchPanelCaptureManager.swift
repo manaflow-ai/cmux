@@ -391,10 +391,16 @@ final class GlobalSearchPanelCaptureManager {
     }
 
     private func purgeAgentSessionDocument(forPanelID panelID: UUID, index: SearchIndex) async {
-        guard agentSessionIndexStates.removeValue(forKey: panelID) != nil else { return }
+        guard let state = agentSessionIndexStates[panelID] else { return }
         let documentID = SearchIndexDocument.panelStableID(panelID: panelID, kind: .agentSession)
         do {
             try await index.deleteDocument(id: documentID)
+            // The index is the source of truth for whether the session document
+            // is gone. Keep the state so a failed delete is retried next time;
+            // do not clear a newer session state that arrived while awaiting.
+            if agentSessionIndexStates[panelID] == state {
+                agentSessionIndexStates[panelID] = nil
+            }
         } catch {
 #if DEBUG
             cmuxDebugLog("globalSearch.agentSession.purge failed panel=\(panelID.uuidString.prefix(5)) error=\(error.localizedDescription)")

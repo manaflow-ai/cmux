@@ -2009,11 +2009,14 @@ class TerminalController {
                 "path": parts[1],
             ])
         case "debug.global_search.query":
-            let query = (request.params["query"] as? String) ?? ""
-            return v2AsyncResultCall(id: request.id, timeoutSeconds: 60) {
-                let result = await GlobalSearchCoordinator.shared.debugQuery(query)
-                return .ok(GlobalSearchCoordinator.debugQueryPayload(result))
-            }
+            // The socket connection's async dispatcher owns this command so a
+            // long transcript refresh never parks a worker thread behind a
+            // semaphore. Keep the synchronous compatibility lane explicit.
+            return v2Error(
+                id: request.id,
+                code: "invalid_dispatch",
+                message: "debug.global_search.query requires asynchronous socket dispatch"
+            )
         case "debug.mobile.transport.disconnect":
             let selectedConnectionID: UUID?
             if let rawConnectionID = request.params["connection_id"] {
