@@ -1,5 +1,5 @@
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// Fixes a mistyped top-level domain in text the user typed into the
 /// address bar or the palette (`example.con` loads `example.com`), with

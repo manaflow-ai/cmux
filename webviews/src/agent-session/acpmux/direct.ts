@@ -1598,6 +1598,11 @@ export class AcpmuxDirectClient {
     this.wire.sent(text, "session/cancel");
     this.socket.send(text);
   }
+  /// Withdraws a queued prompt before its turn starts; `removed` is false once it started.
+  async removeQueued(promptId: string): Promise<{ removed: boolean }> {
+    if (!this.selectedSessionId) return { removed: false };
+    return this.request("_acpmux/queue_remove", { sessionId: this.selectedSessionId, promptId });
+  }
   /// Answers a permission: `optionId` picks an option (absent cancels the request), and
   /// `answers` carries a question's harness-shaped answers (question/model.ts `reply`).
   async permission(permissionId: string, optionId?: string, answers?: Record<string, unknown>): Promise<void> {
