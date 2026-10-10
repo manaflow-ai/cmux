@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "baffdd379fca8b70386603cf6245b1f842ee60061859daecd52effc85eeed00c";
+pub const ir_sha256 = "b39f0c8f7124f43c7c7b90a8b5caf4df127b57bfe6298f64ad66037bacbeac6f";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1169,6 +1169,15 @@ pub const PaneNeighborResult = struct {
 /// A pane named by its numeric id or its public pane_ id.
 pub const PaneRef = wire.Value;
 
+pub const PaneSurfaceResult = struct {
+    pane_id: wire.Field([]const u8) = .absent,
+    replayed: wire.Field(bool) = .absent,
+    surface: Id,
+    tab_id: wire.Field([]const u8) = .absent,
+    terminal_id: wire.Field([]const u8) = .absent,
+    terminal_incarnation: wire.Field([]const u8) = .absent,
+};
+
 pub const PingResult = struct {
     build_commit: wire.Field([]const u8) = .absent,
     ghostty_commit: wire.Field([]const u8) = .absent,
@@ -1546,10 +1555,20 @@ pub const ServerStatsResult = struct {
     resource_projection: ?ServerStatsResourceProjection = null,
     schema: u32,
     uptime_ms: u64,
+    write_path: ?ServerStatsWritePath = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "resource_projection",
+        "write_path",
     };
+};
+
+pub const ServerStatsWritePath = struct {
+    effect_intent_batches: u64,
+    effect_intent_failures: u64,
+    effect_intents: u64,
+    request_effect_commits: u64,
+    writer_registry_locks: u64,
 };
 
 pub const ServerStatsWriterPhase = enum {
@@ -5839,8 +5858,10 @@ pub const NewPaneRequest = struct {
     env: wire.Field(wire.Map([]const u8)) = .absent,
     keep: ?bool = null,
     pane: Id,
+    pane_id: wire.Field([]const u8) = .absent,
     rows: wire.Field(u16) = .absent,
     shell_args: wire.Field([]const []const u8) = .absent,
+    tab_id: wire.Field([]const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
@@ -5848,7 +5869,7 @@ pub const NewPaneRequest = struct {
     };
 };
 
-pub const NewPaneResult = SurfaceResult;
+pub const NewPaneResult = PaneSurfaceResult;
 
 pub fn newPane(client: anytype, request: NewPaneRequest) !wire.Decoded(NewPaneResult) {
     return client.callTyped(
@@ -5862,7 +5883,9 @@ pub fn newPane(client: anytype, request: NewPaneRequest) !wire.Decoded(NewPaneRe
                 .{ .name = "cwd", .since = 12, .capability = "terminal-placement-env-v1" },
                 .{ .name = "env", .since = 12, .capability = "terminal-placement-env-v1" },
                 .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
+                .{ .name = "pane_id", .since = 12, .capability = "split-client-keys-v1" },
                 .{ .name = "shell_args", .since = 12, .capability = "terminal-shell-args-v1" },
+                .{ .name = "tab_id", .since = 12, .capability = "split-client-keys-v1" },
                 .{ .name = "terminal_id", .since = 12, .capability = "terminal-placement-env-v1" },
             },
         },
@@ -5877,8 +5900,10 @@ pub const NewPaneRightRequest = struct {
     keep: ?bool = null,
     kind: wire.Field(PaneKind) = .absent,
     pane: Id,
+    pane_id: wire.Field([]const u8) = .absent,
     rows: wire.Field(u16) = .absent,
     shell_args: wire.Field([]const []const u8) = .absent,
+    tab_id: wire.Field([]const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
     url: wire.Field([]const u8) = .absent,
     width: wire.Field(f32) = .absent,
@@ -5888,7 +5913,7 @@ pub const NewPaneRightRequest = struct {
     };
 };
 
-pub const NewPaneRightResult = SurfaceResult;
+pub const NewPaneRightResult = PaneSurfaceResult;
 
 pub fn newPaneRight(client: anytype, request: NewPaneRightRequest) !wire.Decoded(NewPaneRightResult) {
     return client.callTyped(
@@ -5903,7 +5928,9 @@ pub fn newPaneRight(client: anytype, request: NewPaneRightRequest) !wire.Decoded
                 .{ .name = "env", .since = 12, .capability = "terminal-placement-env-v1" },
                 .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
                 .{ .name = "kind", .since = 12, .capability = "pane-browser-kind-v1" },
+                .{ .name = "pane_id", .since = 12, .capability = "split-client-keys-v1" },
                 .{ .name = "shell_args", .since = 12, .capability = "terminal-shell-args-v1" },
+                .{ .name = "tab_id", .since = 12, .capability = "split-client-keys-v1" },
                 .{ .name = "terminal_id", .since = 12, .capability = "terminal-placement-env-v1" },
                 .{ .name = "url", .since = 12, .capability = "pane-browser-kind-v1" },
             },
@@ -7533,8 +7560,10 @@ pub const SplitRequest = struct {
     keep: ?bool = null,
     kind: wire.Field(PaneKind) = .absent,
     pane: Id,
+    pane_id: wire.Field([]const u8) = .absent,
     rows: wire.Field(u16) = .absent,
     shell_args: wire.Field([]const []const u8) = .absent,
+    tab_id: wire.Field([]const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
     url: wire.Field([]const u8) = .absent,
 
@@ -7543,7 +7572,7 @@ pub const SplitRequest = struct {
     };
 };
 
-pub const SplitResult = SurfaceResult;
+pub const SplitResult = PaneSurfaceResult;
 
 pub fn split(client: anytype, request: SplitRequest) !wire.Decoded(SplitResult) {
     return client.callTyped(
@@ -7558,7 +7587,9 @@ pub fn split(client: anytype, request: SplitRequest) !wire.Decoded(SplitResult) 
                 .{ .name = "env", .since = 12, .capability = "terminal-env-v1" },
                 .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
                 .{ .name = "kind", .since = 12, .capability = "pane-browser-kind-v1" },
+                .{ .name = "pane_id", .since = 12, .capability = "split-client-keys-v1" },
                 .{ .name = "shell_args", .since = 12, .capability = "terminal-shell-args-v1" },
+                .{ .name = "tab_id", .since = 12, .capability = "split-client-keys-v1" },
                 .{ .name = "terminal_id", .since = 12, .capability = "terminal-placement-env-v1" },
                 .{ .name = "url", .since = 12, .capability = "pane-browser-kind-v1" },
             },

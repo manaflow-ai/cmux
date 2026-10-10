@@ -5,6 +5,48 @@
 use super::*;
 
 wire_errors! {
+    /// The error codes invite.accept declares.
+    InviteAcceptError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        InviteExpired = "invite_expired",
+        InviteNotPending = "invite_not_pending",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
+        UnknownInvite = "unknown_invite",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Approve (default) or decline a join that waits for approval (pending_approval).
+    InviteApproveJoinOp {
+        name: "invite.approve_join",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: InviteApproveJoinParams,
+        result: HomeConversationCommit,
+        error: InviteApproveJoinError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct InviteApproveJoinParams {
+    pub conversation: ConversationId,
+    pub invite_id: InviteId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approve: Option<bool>,
+}
+
+wire_errors! {
     /// The error codes invite.approve_join declares.
     InviteApproveJoinError {
         Archived = "archived",
@@ -850,50 +892,6 @@ wire_errors! {
         AuthUnauthenticated = "auth.unauthenticated",
         IdempotencyConflict = "idempotency.conflict",
         RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Add a tapback or emoji reaction to a message part (one per author, part and kind).
-    ReactionAddOp {
-        name: "reaction.add",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConversationDO",
-        risk: "mutate-shared",
-        principals: [Session, Install],
-        params: ReactionAddParams,
-        result: HomeConversationCommit,
-        error: ReactionAddError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ReactionAddParams {
-    pub conversation: ConversationId,
-    pub message_id: MessageId,
-    pub part_index: i64,
-    pub reaction: HomeReactionKind,
-}
-
-wire_errors! {
-    /// The error codes reaction.add declares.
-    ReactionAddError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        DuplicateReaction = "duplicate_reaction",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        InvalidPartIndex = "invalid_part_index",
-        InvalidReaction = "invalid_reaction",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        OwnerUnreachable = "owner.unreachable",
-        Retracted = "retracted",
-        UnknownConversation = "unknown_conversation",
-        UnknownMessage = "unknown_message",
         ValidationInvalid = "validation.invalid",
     }
 }

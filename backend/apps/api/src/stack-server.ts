@@ -21,13 +21,14 @@ export interface StackServer {
   /**
    * Every member Stack lists for the team now ("team_gone" for TEAM_NOT_FOUND), with each member's
    * team permission ids (GET /team-permissions?team_id&recursive=true, so contained permissions
-   * count; cx-3bi.4). Stack does not page these lists today.
+   * count; cx-3bi.4). A member without an entry there is read alone (user_id) once; zero permissions is
+   * an empty list (cx-6wc8). Stack does not page these lists today.
    */
   listTeamMembers(teamId: string): Promise<ReadonlyArray<StackMember & { user_id: string }> | "team_gone">
   /**
    * The membership now: the member's profile and permissions, null when not a member
    * (TEAM_MEMBERSHIP_NOT_FOUND, or USER_NOT_FOUND for a deleted user; both checked live
-   * 2026-10-08), "team_gone" for TEAM_NOT_FOUND.
+   * 2026-10-08), "team_gone" for TEAM_NOT_FOUND. A member who holds no permission has an empty list.
    */
   getTeamMember(teamId: string, userId: string): Promise<StackMember | null | "team_gone">
   /** Removes the membership in Stack (DELETE /team-memberships/{team}/{user}); "absent" when it was not there. */
@@ -114,12 +115,21 @@ export const stackServer = (env: Env, http: (r: Request) => Promise<Response> = 
         if (typeof next !== "string" || !next) {
           const perms = await permissions(teamId)
           if (perms === "team_gone") return "team_gone"
-          // Every Stack member holds at least team_member: a listed member without an entry is a truncated answer (re-review P3).
-          return out.map((m) => {
-            const held = perms.get(normal(m.user_id))
-            if (!held?.length) throw new Error("stack GET team permissions: a listed member has none")
-            return { ...m, permissions: held }
-          })
+          // A listed member without an entry is either a truncated team-wide answer or a member who holds no
+          // permission (a project whose default member permission set is empty; cx-6wc8). The team-wide list cannot
+          // tell them apart, so that member's own permissions are read once: an owner a truncated list left out keeps
+          // their permissions, zero permissions gives role member, and a failed read throws (the delivery retries).
+          // Eight reads at a time, so a large team of permissionless members still answers within Svix's wait.
+          const missing = out.filter((m) => !perms.get(normal(m.user_id))?.length)
+          for (let i = 0; i < missing.length; i += 8) {
+            const batch = missing.slice(i, i + 8)
+            const direct = await Promise.all(batch.map((m) => permissions(teamId, m.user_id)))
+            for (const [j, d] of direct.entries()) {
+              if (d === "team_gone") return "team_gone"
+              perms.set(normal(batch[j]!.user_id), d.get(normal(batch[j]!.user_id)) ?? [])
+            }
+          }
+          return out.map((m) => ({ ...m, permissions: perms.get(normal(m.user_id)) ?? [] }))
         }
         cursor = next
       }
@@ -131,9 +141,8 @@ export const stackServer = (env: Env, http: (r: Request) => Promise<Response> = 
       const name = typeof r.display_name === "string" && r.display_name ? r.display_name : typeof r.user?.display_name === "string" ? r.user.display_name : null
       const perms = await permissions(teamId, userId)
       if (perms === "team_gone") return "team_gone"
-      const held = perms.get(normal(userId))
-      if (!held?.length) throw new Error("stack GET team permissions: the member has none")
-      return { display_name: name, permissions: held }
+      // This read names the member, so an answer without entries means they hold no permission: role member (cx-6wc8).
+      return { display_name: name, permissions: perms.get(normal(userId)) ?? [] }
     },
     removeTeamMember: async (teamId, userId) => {
       const res = await http(new Request(`${API}/team-memberships/${encodeURIComponent(teamId)}/${encodeURIComponent(userId)}`, { method: "DELETE", headers, body: "{}", signal: AbortSignal.timeout(10_000) }))

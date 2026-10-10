@@ -61,7 +61,10 @@ enum CloudHandlers {
     static func run(_ label: String, _ context: AppActionContext, _ work: @escaping @MainActor () async throws -> Void) {
         let logger = context.services.cloud.logger
         Task {
-            do { try await work() } catch {
+            do { try await work() } catch CloudMachineCreateFlow.Failure.declined {
+                // The person said no in the confirmation: nothing to report.
+                logger.info("\(label, privacy: .public): declined")
+            } catch {
                 logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
                 CloudPresenter.failure(error, in: window(context))
             }

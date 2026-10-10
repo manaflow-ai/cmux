@@ -94,9 +94,17 @@ enum PaneHandlers {
         let intent = content?.beginFocusIntent()
         let command = PaneSplitCommand(pane: handle, direction: daemonDirection,
                                        options: SpawnOptions(cwd: cwd, workspace: workspace, keep: keep), swapTowards: swapTowards)
+        // Cmd+D on a daemon with client keys: the new pane shows and takes focus in this frame
+        // (plans/cmux-next/remote-state-ownership.md S3); otherwise after the reply.
+        let provisional = command.isOptimistic(on: daemon) ? ProvisionalPane() : nil
+        if let provisional { content?.expectFocus(on: provisional.surface, generation: intent) }
         ctx.registry.track(Task {
             do {
-                let created = try await command.send(on: daemon)
+                let created = if let provisional {
+                    try await command.sendIntended(on: daemon, provisional: provisional)
+                } else {
+                    try await command.send(on: daemon)
+                }
                 content?.expectFocus(on: created.surface, generation: intent)
                 content?.layoutModel.applySplitSizing(sizing)
                 return nil

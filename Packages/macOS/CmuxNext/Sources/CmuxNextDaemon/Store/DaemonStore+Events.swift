@@ -234,7 +234,8 @@ extension DaemonStore {
 
         case .sessionState(let item): session.apply(item, to: workspaces); return .none
         case .bookmarksChanged, .conversationChanged, .conversationTyping, .cloudConversations,
-             .terminalClipboardRead, .terminalClipboardReadCancelled, .unknown(AppServerEvent.eventName, _):
+             .terminalClipboardRead, .terminalClipboardReadCancelled, .unknown(AppServerEvent.eventName, _),
+             .unknown(AppsProviderCall.eventName, _), .unknown(AppsProviderCancel.eventName, _):
             sideEvents.deliver(event)
             return .none
 

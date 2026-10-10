@@ -4,6 +4,120 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// Page a team's enrolled hosts by host id (keyset: pass next_cursor as cursor).
+    TeamHostsListOp {
+        name: "team.hosts.list",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:TeamDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: TeamHostsListParams,
+        result: TeamHostsListResult,
+        error: TeamHostsListError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamHostsListParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team: Option<TeamId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamHostsListResult {
+    pub team: TeamId,
+    pub hosts: Vec<Host>,
+    pub host_count: WireNumber,
+    pub next_cursor: Option<String>,
+    pub revision: String,
+}
+
+wire_errors! {
+    /// The error codes team.hosts.list declares.
+    TeamHostsListError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// Release the SSO or MDM lock on the team's integration policy (owners and admins; audited). The team policy then applies again.
+    TeamIntegrationReleaseLockOp {
+        name: "team.integration.release_lock",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-shared",
+        principals: [Session],
+        params: TeamIntegrationReleaseLockParams,
+        result: TeamIntegrationReleaseLockResult,
+        error: TeamIntegrationReleaseLockError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamIntegrationReleaseLockParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+wire_enum! {
+    TeamIntegrationReleaseLockResultReleased {
+        Sso = "sso",
+        Mdm = "mdm",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamIntegrationReleaseLockResult {
+    pub released: TeamIntegrationReleaseLockResultReleased,
+}
+
+wire_errors! {
+    /// The error codes team.integration.release_lock declares.
+    TeamIntegrationReleaseLockError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Page a team's members by user id (keyset: pass next_cursor as cursor), optionally one role.
+    TeamMembersListOp {
+        name: "team.members.list",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:TeamDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: TeamMembersListParams,
+        result: TeamMembersListResult,
+        error: TeamMembersListError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamMembersListParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team: Option<TeamId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<TeamRole>,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamMembersListResult {
     pub team: TeamId,
@@ -789,115 +903,4 @@ pub struct TeamVmSshCertChallengeResult {
     pub sign: Value,
     pub message: String,
     pub expires_at: i64,
-}
-
-wire_errors! {
-    /// The error codes team_vm.ssh_cert.challenge declares.
-    TeamVmSshCertChallengeError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerUnreachable = "owner.unreachable",
-        RevisionConflict = "revision.conflict",
-        TeamVmSshCaNotConfigured = "team_vm.ssh_ca_not_configured",
-        TeamVmSshClassRefused = "team_vm.ssh_class_refused",
-        TeamVmSshKeyInvalid = "team_vm.ssh_key_invalid",
-        TeamVmSshPresenceRefused = "team_vm.ssh_presence_refused",
-        TeamVmSshRateLimited = "team_vm.ssh_rate_limited",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Revoke unexpired team VM SSH certificates by serial, user or install; the revocation list (KRL) lists them at once. Members revoke their own certificates; owners and admins revoke anyone's.
-    TeamVmSshCertRevokeOp {
-        name: "team_vm.ssh_cert.revoke",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "mutate-shared",
-        principals: [Session, Install],
-        params: TeamVmSshCertRevokeParams,
-        result: TeamVmSshCertRevokeResult,
-        error: TeamVmSshCertRevokeError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmSshCertRevokeParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub serial: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub user: Option<UserId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub install: Option<InstallId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reason: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmSshCertRevokeResult {
-    pub revoked: Vec<i64>,
-    pub krl_version: i64,
-}
-
-wire_errors! {
-    /// The error codes team_vm.ssh_cert.revoke declares.
-    TeamVmSshCertRevokeError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerUnreachable = "owner.unreachable",
-        RevisionConflict = "revision.conflict",
-        TeamVmSshCaNotConfigured = "team_vm.ssh_ca_not_configured",
-        TeamVmSshRevocationsFull = "team_vm.ssh_revocations_full",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Show the team VM: its state, epoch and active wake leases.
-    TeamVmStatusOp {
-        name: "team_vm.status",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:TeamVmDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: TeamVmStatusParams,
-        result: TeamVmView,
-        error: TeamVmStatusError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmStatusParams {}
-
-wire_errors! {
-    /// The error codes team_vm.status declares.
-    TeamVmStatusError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// Accept the risk of a team VM tainted by a member removal and keep using it: members get certificates again and the VM's install may bind. Owners and admins only, in a person's session; names the tainted epoch; audited.
-    TeamVmTaintAcceptOp {
-        name: "team_vm.taint.accept",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "destructive",
-        principals: [Session],
-        params: TeamVmTaintAcceptParams,
-        result: TeamVmTaintAcceptResult,
-        error: TeamVmTaintAcceptError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmTaintAcceptParams {
-    pub epoch: i64,
-    pub users: Vec<String>,
 }

@@ -50,6 +50,16 @@ pub mod codes {
     pub const NO_SNAPSHOT_CONFIGURED: &str = "cmux.cloud.no_snapshot_configured";
     /// `cloud.rate_limited`: the team's create or delete budget is spent.
     pub const RATE_LIMITED: &str = "cmux.cloud.rate_limited";
+    /// `approval.pending`: an install's money or destructive op waits for
+    /// the person's approval in the feed; `details.request` names it. Retry
+    /// with the SAME key after the approval.
+    pub const APPROVAL_PENDING: &str = "cmux.cloud.approval_pending";
+    /// `approval.denied`: the person denied the request.
+    pub const APPROVAL_DENIED: &str = "cmux.cloud.approval_denied";
+    /// `approval.expired`: no answer in time; ask again with a new key.
+    pub const APPROVAL_EXPIRED: &str = "cmux.cloud.approval_expired";
+    /// `approval.too_many_pending`: too many requests wait (retryable).
+    pub const APPROVAL_TOO_MANY_PENDING: &str = "cmux.cloud.approval_too_many_pending";
     pub const UNSUPPORTED: &str = "cmux.cloud.unsupported";
     pub const UPSTREAM: &str = "cmux.cloud.upstream_error";
     pub const BAD_RESPONSE: &str = "cmux.cloud.bad_response";
@@ -100,6 +110,10 @@ const WIRE_CODES: &[(&str, &str)] = &[
     ("cloud.machine.busy", codes::MACHINE_BUSY),
     ("cloud.size.grow_only", codes::SIZE_GROW_ONLY),
     ("cloud.link.install_refused", codes::LINK_INSTALL_REFUSED),
+    ("approval.pending", codes::APPROVAL_PENDING),
+    ("approval.denied", codes::APPROVAL_DENIED),
+    ("approval.expired", codes::APPROVAL_EXPIRED),
+    ("approval.too_many_pending", codes::APPROVAL_TOO_MANY_PENDING),
 ];
 
 /// A typed op failure.

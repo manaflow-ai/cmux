@@ -762,6 +762,33 @@ export type RunId = string
 
 export type RunState = "queued" | "running" | "sleeping" | "waiting" | "succeeded" | "failed" | "cancelled" | "skipped" | "dead"
 
+export type RunWithBody = {
+  readonly id: RunId
+  readonly automation: AutomationId
+  readonly automation_version: number
+  readonly owner: TeamId
+  readonly trigger: {
+    readonly id: TriggerId | null
+    readonly type: string
+    readonly scheduled_at?: number
+    readonly delivery_id?: string
+    readonly parent_run?: RunId
+    readonly root_run?: RunId
+    readonly depth?: number
+  }
+  readonly state: RunState
+  readonly step: number
+  readonly created_at: number
+  readonly started_at: number | null
+  readonly finished_at: number | null
+  readonly error: RunError | null
+  readonly outcome: {
+    readonly goal_met: boolean
+    readonly summary?: string
+  } | null
+  readonly body: Body
+}
+
 export type ServerCapability = string
 
 /** A Cloud machine snapshot. */
@@ -1188,12 +1215,17 @@ export interface CloudOps {
     }
     readonly result: Automation
   }
-  /** List the automations of the caller's team. */
+  /** List the automations of the caller's team, oldest first, with their bodies. Without params the first page holds every automation (at most 100); page with limit and cursor (keyset: pass next_cursor). */
   readonly "automation.list": {
-    readonly params: Readonly<Record<string, never>>
+    readonly params: {
+      readonly cursor?: string
+      readonly limit?: number
+    }
     readonly result: {
       readonly owner: TeamId | null
       readonly automations: ReadonlyArray<Automation>
+      readonly automation_count?: number | "Infinity" | "-Infinity" | "NaN"
+      readonly next_cursor?: string | null
       readonly revision: string
     }
   }
@@ -1368,7 +1400,7 @@ export interface CloudOps {
     }
     readonly result: CloudConnectInfo
   }
-  /** Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used}, cloud.size.locked. A same-key retry never makes a second machine. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
+  /** Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used}, cloud.size.locked. A same-key retry never makes a second machine. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first. */
   readonly "cloud.machine.create": {
     readonly params: {
       readonly name?: string
@@ -1380,7 +1412,7 @@ export interface CloudOps {
       readonly machine: CloudMachine
     }
   }
-  /** Delete a machine and its disk. A provider 404 is success, and the tombstone answers {deleted: true} for 30 days, also to a new key. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
+  /** Delete a machine and its disk. A provider 404 is success, and the tombstone answers {deleted: true} for 30 days, also to a new key. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first. */
   readonly "cloud.machine.delete": {
     readonly params: {
       readonly machine: MachineId
@@ -1451,7 +1483,7 @@ export interface CloudOps {
       readonly machine: CloudMachine
     }
   }
-  /** Grow a machine: vCPU, memory and disk only go up (cloud.size.grow_only {size}); vCPU and memory grow on a running or paused machine (on resume), the disk only on a running one (cloud.machine.not_running {machine, state}); within the plan (cloud.size.locked {plan, ...}). One change at a time (cloud.machine.busy). The answer carries the target size; a final provider failure restores the old size with the error. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
+  /** Grow a machine: vCPU, memory and disk only go up (cloud.size.grow_only {size}); vCPU and memory grow on a running or paused machine (on resume), the disk only on a running one (cloud.machine.not_running {machine, state}); within the plan (cloud.size.locked {plan, ...}). One change at a time (cloud.machine.busy). The answer carries the target size; a final provider failure restores the old size with the error. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first. */
   readonly "cloud.machine.resize": {
     readonly params: {
       readonly machine: MachineId
@@ -1511,7 +1543,7 @@ export interface CloudOps {
       readonly stream: string
     }
   }
-  /** Take a snapshot of a running or paused, bound machine (else cloud.machine.not_running {machine, state}): answers status creating; cloud.snapshot.upsert brings ready (or failed). It counts against the plan's saved limit (max_saved): cloud.quota.exceeded {limit, used, resource: saved}. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
+  /** Take a snapshot of a running or paused, bound machine (else cloud.machine.not_running {machine, state}): answers status creating; cloud.snapshot.upsert brings ready (or failed). It counts against the plan's saved limit (max_saved): cloud.quota.exceeded {limit, used, resource: saved}. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first. */
   readonly "cloud.snapshot.create": {
     readonly params: {
       readonly machine: MachineId
@@ -1521,7 +1553,7 @@ export interface CloudOps {
       readonly snapshot: CloudSnapshot
     }
   }
-  /** Delete a snapshot (its provider snapshot under the recorded name only); cloud.snapshot.removed follows. A snapshot still being taken answers cloud.machine.busy. A signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
+  /** Delete a snapshot (its provider snapshot under the recorded name only); cloud.snapshot.removed follows. A snapshot still being taken answers cloud.machine.busy. A signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first. */
   readonly "cloud.snapshot.delete": {
     readonly params: {
       readonly snapshot: SnapshotId
@@ -1539,7 +1571,7 @@ export interface CloudOps {
       readonly snapshots: ReadonlyArray<CloudSnapshot>
     }
   }
-  /** Create a new machine booted from a ready snapshot (plan checks as create; a fresh bind like any create). A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
+  /** Create a new machine booted from a ready snapshot (plan checks as create; a fresh bind like any create). A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first. */
   readonly "cloud.snapshot.restore": {
     readonly params: {
       readonly snapshot: SnapshotId
@@ -2538,6 +2570,27 @@ export interface CloudOps {
     }
     readonly result: HomeConversationCommit
   }
+  /** Read one kept run with the body of the automation version that fired it. */
+  readonly "run.get": {
+    readonly params: {
+      readonly run: RunId
+    }
+    readonly result: RunWithBody
+  }
+  /** Page the kept runs newest first (every active run and the last 200 finished ones), optionally of one automation and one state (keyset: pass next_cursor as cursor; new runs never shift later pages). */
+  readonly "run.list": {
+    readonly params: {
+      readonly automation?: AutomationId
+      readonly state?: RunState
+      readonly cursor?: string
+      readonly limit?: number
+    }
+    readonly result: {
+      readonly runs: ReadonlyArray<Run>
+      readonly next_cursor: string | null
+      readonly revision: string
+    }
+  }
   /** Approve a pairing code: register the server's install key under you and add the server to the team directory. */
   readonly "server.pair.approve": {
     readonly params: {
@@ -3262,6 +3315,8 @@ export const cloudOpMeta = {
   "reaction.add": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "reaction.remove": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-own" },
   "read_cursor.set": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-own" },
+  "run.get": { class: "read", owner: "cloud:SchedulerDO", risk: "read" },
+  "run.list": { class: "read", owner: "cloud:SchedulerDO", risk: "read" },
   "server.pair.approve": { class: "mutation", owner: "cloud:PairingDO", risk: "mutate-shared" },
   "server.pair.preview": { class: "read", owner: "cloud:PairingDO", risk: "read" },
   "server.revoke": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },

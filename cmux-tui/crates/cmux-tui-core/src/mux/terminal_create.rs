@@ -159,6 +159,7 @@ impl Mux {
             expected_generation: expected_generation.map(str::to_string),
             expected_revision,
             on_exit: on_exit.unwrap_or_default(),
+            tab_id: None,
             env,
         };
         let (placement, surface, created_path) = self.create_terminal_in_workspace_impl(
