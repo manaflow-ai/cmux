@@ -218,8 +218,11 @@ struct MemoryPressureStateTrackerTests {
         #expect(DarwinMemoryPressureCoalitionSampler.coalitionABIIsSupported(
             operatingSystemMajorVersion: 26
         ))
-        #expect(!DarwinMemoryPressureCoalitionSampler.coalitionABIIsSupported(
+        #expect(DarwinMemoryPressureCoalitionSampler.coalitionABIIsSupported(
             operatingSystemMajorVersion: 27
+        ))
+        #expect(!DarwinMemoryPressureCoalitionSampler.coalitionABIIsSupported(
+            operatingSystemMajorVersion: 28
         ))
     }
 
