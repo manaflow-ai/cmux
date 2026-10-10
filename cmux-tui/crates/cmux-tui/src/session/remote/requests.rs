@@ -202,11 +202,6 @@ impl RemoteSession {
         self.request_no_wait(json!({"cmd": "send", "surface": surface, "bytes": encoded}))
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub(crate) fn interactive_write_metrics(&self) -> InteractiveWriteMetricsSnapshot {
-        self.interactive_writer.metrics()
-    }
-
     pub fn clear_history_classified(&self, surface: SurfaceId) -> Result<(), ClearHistoryFailure> {
         self.clear_history_request_classified(surface, None)
     }

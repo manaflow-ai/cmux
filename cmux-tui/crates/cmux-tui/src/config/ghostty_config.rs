@@ -40,23 +40,6 @@ pub(super) enum GhosttyHelperDefaults {
 }
 
 #[cfg(test)]
-pub(super) fn ghostty_defaults_from_sources(
-    config_paths: Vec<PathBuf>,
-    theme_dirs: Vec<PathBuf>,
-    helper_defaults: GhosttyHelperDefaults,
-) -> DefaultColors {
-    match helper_defaults {
-        GhosttyHelperDefaults::Resolved(defaults) => defaults.colors,
-        GhosttyHelperDefaults::Unavailable => {
-            parse_ghostty_application_defaults_from_paths(config_paths, theme_dirs)
-                .map(|defaults| defaults.colors)
-                .unwrap_or_else(|| GhosttyApplicationDefaults::default().colors)
-        }
-        GhosttyHelperDefaults::TimedOut => GhosttyApplicationDefaults::default().colors,
-    }
-}
-
-#[cfg(test)]
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum ScrollbackConfigOutcome {
     Missing,
@@ -164,47 +147,6 @@ pub(super) fn resolve_ghostty_application_defaults(mut defaults: DefaultColors) 
     defaults
 }
 
-#[cfg(test)]
-pub(super) fn resolved_ghostty_defaults_from_with(
-    installations: &[platform::GhosttyInstallation],
-    mut resolve: impl FnMut(&platform::GhosttyInstallation) -> Option<String>,
-) -> Option<DefaultColors> {
-    installations.iter().find_map(|installation| {
-        let text = resolve(installation)?;
-        let defaults = parse_resolved_ghostty_defaults(&text);
-        // `+show-config` serializes Ghostty's effective application defaults,
-        // including both colors. An executable that exits successfully but
-        // emits no resolved config (for example a packaging stub) is not a
-        // usable resolver and must not suppress later pinned candidates.
-        (defaults.fg.is_some() && defaults.bg.is_some()).then_some(defaults)
-    })
-}
-
-#[cfg(all(test, unix))]
-pub(super) fn ghostty_show_config_command(installation: &platform::GhosttyInstallation) -> Command {
-    let mut command = Command::new(&installation.binary);
-    command
-        .args(["+show-config", "--no-pager"])
-        .env_remove("GHOSTTY_RESOURCES_DIR")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null());
-    if let Some(resources_dir) = installation.resources_dir.as_deref() {
-        command.env("GHOSTTY_RESOURCES_DIR", resources_dir);
-    }
-    command
-}
-
-/// Parse the subset of Ghostty's `key = value` config used by cmux-tui.
-///
-/// When the Ghostty executable is unavailable, a theme is only accepted if
-/// its file can be read. This preserves Ghostty's fail-soft behavior: keep
-/// looking after unreadable theme entries, then stop after the first theme
-/// that resolves successfully.
-#[cfg(test)]
-pub(crate) fn parse_ghostty_defaults(text: &str) -> DefaultColors {
-    parse_ghostty_defaults_with_theme_dirs(text, &platform::ghostty_theme_dirs())
-}
-
 pub(super) fn parse_ghostty_application_defaults_from_paths(
     config_paths: Vec<PathBuf>,
     theme_dirs: Vec<PathBuf>,
@@ -284,52 +226,6 @@ pub(super) enum GhosttyConfigParseOutcome {
     TimedOut,
 }
 
-#[cfg(test)]
-pub(super) fn parse_ghostty_defaults_with_theme_dirs(
-    text: &str,
-    theme_dirs: &[PathBuf],
-) -> DefaultColors {
-    let mut theme_candidates = Vec::new();
-    let parsed = parse_ghostty_config_text(text, None, &mut theme_candidates);
-    resolve_parsed_ghostty_defaults(theme_candidates, theme_dirs, parsed.overrides, None)
-}
-
-#[cfg(test)]
-pub(super) fn parse_ghostty_defaults_from_path(
-    path: &Path,
-    theme_dirs: &[PathBuf],
-) -> Option<DefaultColors> {
-    match parse_ghostty_defaults_from_path_result(path, theme_dirs) {
-        GhosttyConfigParseOutcome::Parsed(defaults) => Some(*defaults),
-        GhosttyConfigParseOutcome::Partial(_)
-        | GhosttyConfigParseOutcome::Missing
-        | GhosttyConfigParseOutcome::TimedOut => None,
-    }
-}
-
-#[cfg(test)]
-pub(super) fn parse_ghostty_defaults_from_path_result(
-    path: &Path,
-    theme_dirs: &[PathBuf],
-) -> GhosttyConfigParseOutcome {
-    let deadline_at = ghostty_config_deadline_from_now(GHOSTTY_CONFIG_PARSE_DEADLINE);
-    parse_ghostty_defaults_from_path_result_until(path, theme_dirs, Some(deadline_at))
-}
-
-#[cfg(test)]
-pub(super) fn parse_ghostty_defaults_from_path_result_until(
-    path: &Path,
-    theme_dirs: &[PathBuf],
-    deadline_at: Option<Instant>,
-) -> GhosttyConfigParseOutcome {
-    parse_ghostty_defaults_from_path_result_until_with_scrollback(
-        path,
-        theme_dirs,
-        deadline_at,
-        None,
-    )
-}
-
 pub(super) fn parse_ghostty_defaults_from_path_result_until_with_scrollback(
     path: &Path,
     theme_dirs: &[PathBuf],
@@ -383,28 +279,6 @@ pub(super) const GHOSTTY_DESKTOP_APPEARANCE_DEADLINE: Duration = Duration::from_
 pub(super) struct PendingGhosttyConfig {
     path: PathBuf,
     depth: usize,
-}
-
-#[cfg(test)]
-pub(super) fn parse_ghostty_config_file_with_deadline(
-    path: &Path,
-    theme_candidates: &mut Vec<GhosttyThemeCandidate>,
-    deadline: Duration,
-) -> GhosttyConfigParseOutcome {
-    parse_ghostty_config_file_until(
-        path,
-        theme_candidates,
-        Some(ghostty_config_deadline_from_now(deadline)),
-    )
-}
-
-#[cfg(test)]
-pub(super) fn parse_ghostty_config_file_until(
-    path: &Path,
-    theme_candidates: &mut Vec<GhosttyThemeCandidate>,
-    deadline_at: Option<Instant>,
-) -> GhosttyConfigParseOutcome {
-    parse_ghostty_config_file_until_with_scrollback(path, theme_candidates, deadline_at, None)
 }
 
 pub(super) fn parse_ghostty_config_file_until_with_scrollback(

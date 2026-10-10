@@ -188,8 +188,6 @@ pub use action_catalog::action_definitions;
 use action_catalog::*;
 pub use browser::{Browser, apply_browser_to_surface_options};
 pub use file_io::config_path;
-#[cfg(test)]
-use file_io::*;
 pub(crate) use file_io::{
     read_bounded_utf8_file, read_config_text, write_agent_plugin, write_sidebar_plugin,
 };
@@ -200,10 +198,6 @@ use ghostty_theme_mode::*;
 use keys::*;
 pub use keys::{Chord, Keys};
 pub use load::load;
-#[cfg(test)]
-use load::*;
-#[cfg(test)]
-use machines::*;
 pub use machines::{
     MachineConfig, MachineCreationSourceConfig, MachineProviderConfig, MachineTargetConfig,
 };

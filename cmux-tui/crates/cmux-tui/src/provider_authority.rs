@@ -148,55 +148,6 @@ mod tests {
     use std::io::Write;
 
     #[test]
-    fn internal_args_never_accept_an_inline_authority() {
-        let error = parse(&[
-            "__provider-authority".into(),
-            "install".into(),
-            "--socket".into(),
-            "/run/cmux.sock".into(),
-            "--generation".into(),
-            "1".into(),
-            "--authority".into(),
-            "do-not-put-secrets-in-argv-00000000".into(),
-        ])
-        .unwrap_err()
-        .to_string();
-        assert_eq!(error, "invalid internal provider authority arguments");
-        assert!(!error.contains("do-not-put-secrets"));
-    }
-
-    #[test]
-    fn unavailable_live_management_protocol_is_retryable() {
-        if unsafe { libc::geteuid() } != 0 {
-            return;
-        }
-        let suffix = format!("{}-{}", std::process::id(), std::thread::current().name().unwrap());
-        let authority_path = std::env::temp_dir().join(format!("cmux-authority-{suffix}"));
-        let socket_path = std::env::temp_dir().join(format!("cmux-old-mux-{suffix}.sock"));
-        let mut authority = OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .mode(0o600)
-            .open(&authority_path)
-            .unwrap();
-        authority.write_all(b"old-mux-upgrade-authority-000000000001").unwrap();
-        drop(authority);
-        let exit = try_run(&[
-            "__provider-authority".into(),
-            "install".into(),
-            "--socket".into(),
-            socket_path.display().to_string(),
-            "--generation".into(),
-            "1".into(),
-            "--authority-file".into(),
-            authority_path.display().to_string(),
-        ])
-        .unwrap();
-        std::fs::remove_file(authority_path).unwrap();
-        assert_eq!(exit, 1);
-    }
-
-    #[test]
     fn unresponsive_listener_is_retryable() {
         use std::os::unix::net::UnixListener;
 

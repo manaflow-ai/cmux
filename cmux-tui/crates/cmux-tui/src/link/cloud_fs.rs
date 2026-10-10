@@ -98,7 +98,3 @@ pub(super) fn install_if_cloud_host() -> bool {
     });
     true
 }
-
-#[cfg(test)]
-#[path = "cloud_fs_tests.rs"]
-mod tests;

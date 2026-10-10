@@ -8,21 +8,6 @@ use std::time::{Duration, Instant};
 
 use super::{PLUGIN_BUILD_TIMEOUT, PluginManifest};
 
-#[cfg(test)]
-pub(super) fn is_sensitive_env_name(name: &str) -> bool {
-    let name = name.to_ascii_uppercase();
-    name.contains("TOKEN")
-        || name.contains("PASSWORD")
-        || name.contains("SECRET")
-        || name.contains("PRIVATE_KEY")
-        || name.contains("ACCESS_KEY")
-        || name.contains("AUTH_SOCK")
-        || name == "DOCKER_AUTH_CONFIG"
-        || name == "API_KEY"
-        || name.ends_with("_API_KEY")
-        || name == "AUTHORIZATION"
-}
-
 pub(super) fn is_safe_plugin_build_env_name(name: &str) -> bool {
     matches!(
         name,
