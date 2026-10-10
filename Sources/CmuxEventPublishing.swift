@@ -1,7 +1,57 @@
 import Foundation
 import CMUXAgentLaunch
+import CmuxSidebar
 
 extension CmuxEventBus {
+    /// Publishes one OSC 7501 change together with the terminal's current
+    /// records. Consumers can apply a report or clear without polling the
+    /// sidebar projection.
+    func publishProgramStatusChanged(
+        workspaceId: UUID,
+        surfaceId: UUID,
+        report: ProgramStatusReport,
+        store: ProgramStatusRecordStore
+    ) {
+        let addressedID = report.id ?? ""
+        let change = report.state == .clear ? "clear" : report.event.rawValue
+        let addressedRecord: [String: Any]? = {
+            guard report.event == .report, report.state != .clear,
+                  let record = store.record(id: addressedID) else { return nil }
+            return Self.programStatusRecordPayload(record, effectiveApp: store.effectiveApp(for: record))
+        }()
+        publish(
+            name: "program_status.changed",
+            category: "terminal",
+            source: "terminal.program_status",
+            workspaceId: workspaceId.uuidString,
+            surfaceId: surfaceId.uuidString,
+            payload: [
+                "event": change,
+                "id": report.id ?? NSNull(),
+                "record": addressedRecord ?? NSNull(),
+                "records": store.records.map { record in
+                    Self.programStatusRecordPayload(record, effectiveApp: store.effectiveApp(for: record))
+                }
+            ]
+        )
+    }
+
+    private static func programStatusRecordPayload(
+        _ record: ProgramStatusRecord,
+        effectiveApp: String?
+    ) -> [String: Any] {
+        [
+            "id": record.id,
+            "state": record.state.rawValue,
+            "kind": record.kind.rawValue,
+            "progress": record.progress ?? NSNull(),
+            "app": effectiveApp ?? NSNull(),
+            "title": record.title ?? NSNull(),
+            "msg": record.message ?? NSNull(),
+            "updated_seq": record.updateOrder
+        ]
+    }
+
     func publishWorkspaceCreated(
         workspaceId: UUID,
         title: String,

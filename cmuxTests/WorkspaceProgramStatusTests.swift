@@ -98,6 +98,64 @@ struct WorkspaceProgramStatusTests {
         #expect(workspace.statusEntries[Workspace.programStatusKey] == nil)
     }
 
+    @Test func programStatusChangesReachTheMacEventStream() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        CmuxEventBus.shared.resetForTesting()
+        defer { CmuxEventBus.shared.resetForTesting() }
+
+        workspace.applyProgramStatus(
+            ProgramStatusReport(state: .done, id: "lint", app: "cargo"),
+            panelId: panelId
+        )
+        workspace.applyProgramStatus(
+            ProgramStatusReport(state: .working, id: "build", app: "cargo"),
+            panelId: panelId
+        )
+        workspace.applyProgramStatus(
+            ProgramStatusReport(event: .promptStart, state: .idle),
+            panelId: panelId
+        )
+        CmuxEventBus.shared.flushEventLogForTesting()
+
+        let events = CmuxEventBus.shared.retainedSnapshot().filter {
+            $0["name"] as? String == "program_status.changed"
+        }
+        #expect(events.count == 3)
+        let promptPayload = try #require(events.last?["payload"] as? [String: Any])
+        #expect(promptPayload["event"] as? String == "prompt_start")
+        let records = try #require(promptPayload["records"] as? [[String: Any]])
+        #expect(records.map { $0["id"] as? String } == ["lint"])
+    }
+
+    @Test func programStatusClearReachesTheMacEventStream() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        CmuxEventBus.shared.resetForTesting()
+        defer { CmuxEventBus.shared.resetForTesting() }
+
+        workspace.applyProgramStatus(
+            ProgramStatusReport(state: .working, id: "build", app: "cargo"),
+            panelId: panelId
+        )
+        workspace.applyProgramStatus(
+            ProgramStatusReport(state: .clear, id: "build"),
+            panelId: panelId
+        )
+        CmuxEventBus.shared.flushEventLogForTesting()
+
+        let events = CmuxEventBus.shared.retainedSnapshot().filter {
+            $0["name"] as? String == "program_status.changed"
+        }
+        #expect(events.count == 2)
+        let clearPayload = try #require(events.last?["payload"] as? [String: Any])
+        #expect(clearPayload["event"] as? String == "clear")
+        #expect(clearPayload["id"] as? String == "build")
+        #expect(clearPayload["record"] is NSNull)
+        let records = try #require(clearPayload["records"] as? [[String: Any]])
+        #expect(records.isEmpty)
+    }
+
     @Test func movedPaneKeepsItsProgramStatusRecords() throws {
         let source = Workspace()
         let destination = Workspace()

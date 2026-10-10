@@ -1,7 +1,7 @@
 # cmux Events
 
 cmux exposes a reconnectable event stream for local tools that need to observe
-workspace, pane, surface, notification, browser, Feed, and agent-hook activity.
+workspace, pane, surface, terminal, notification, browser, Feed, and agent-hook activity.
 
 The same events are appended to `~/.cmuxterm/events.jsonl` as newline-delimited
 JSON. The live stream is delivered over the existing cmux socket. Clients call
@@ -334,6 +334,19 @@ Sidebar metadata:
 | `sidebar.log.appended` | Sidebar log entry appended. |
 | `sidebar.log.cleared` | Sidebar log cleared. |
 | `sidebar.reset` | Sidebar context reset. |
+
+Terminal program status:
+
+| Name | Trigger |
+| --- | --- |
+| `program_status.changed` | An OSC 7501 report, clear, or prompt-start changed a terminal's records. The event includes the addressed record and the full current record list. |
+
+The `program_status.changed` payload has `event` (`report`, `clear`, or
+`prompt_start`), `id` (the addressed record id, or `null`), `record` (the
+updated record, or `null` for clear and prompt-start), and `records` (the
+terminal's current records). Each record includes `id`, `state`, `kind`,
+`progress`, `app`, `title`, `msg`, and `updated_seq`. Subscribe with
+`--category terminal` or `--name program_status.changed`.
 
 Notifications:
 

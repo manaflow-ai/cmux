@@ -10,7 +10,15 @@ extension Workspace {
         // reported program status have nothing to drop. A clear has nothing to remove either.
         if report.event == .promptStart || report.state == .clear,
            programStatusStoresByPanelId[panelId] == nil { return }
+        let previous = programStatusStoresByPanelId[panelId]
         updateProgramStatusStore(panelId: panelId) { $0.apply(report) }
+        guard let store = programStatusStoresByPanelId[panelId], store != previous else { return }
+        CmuxEventBus.shared.publishProgramStatusChanged(
+            workspaceId: id,
+            surfaceId: panelId,
+            report: report,
+            store: store
+        )
     }
 
     func dropTransientProgramStatus(panelId: UUID) {
