@@ -69,11 +69,13 @@ export function filterBrowseItems(
   query: string,
   kind: BrowseKind = "all",
 ): BrowseItem[] {
-  return browseItems(entries).filter(
-    (item) =>
-      browseMatches(item, query) &&
-      (kind === "all" || (kind === "motion" ? browseHasMotion(item.entry) : !browseHasMotion(item.entry))),
-  ).map((item) => ({ ...item, variant: browseMatchedVariant(item, query) ?? item.variant }));
+  return browseItems(entries)
+    .filter(
+      (item) =>
+        browseMatches(item, query) &&
+        (kind === "all" || (kind === "motion" ? browseHasMotion(item.entry) : !browseHasMotion(item.entry))),
+    )
+    .map((item) => ({ ...item, variant: browseMatchedVariant(item, query) ?? item.variant }));
 }
 
 /** A card's external frame link keeps the same env and tunables as its embedded stage. */
