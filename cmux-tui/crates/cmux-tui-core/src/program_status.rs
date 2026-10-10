@@ -287,11 +287,11 @@ impl ProgramStatusRecords {
     /// The claim is made while holding the records lock. A second publisher
     /// therefore observes the same revision as in flight and does not emit a
     /// duplicate journal record or notification.
-    pub(crate) fn claim_pending_change(&mut self) -> Option<(u64, Value)> {
+    pub(crate) fn claim_pending_change(&mut self, running: bool) -> Option<(u64, Value)> {
         if self.revision == self.published || self.claimed.is_some() {
             return None;
         }
-        let change = self.last_change_json()?;
+        let change = self.last_change_json(running)?;
         let revision = self.revision;
         self.claimed = Some(revision);
         Some((revision, change))
@@ -313,7 +313,7 @@ impl ProgramStatusRecords {
     /// socket resource keeps its existing terminal snapshot shape; hooks need
     /// an explicit record identity so a clear is not confused with a generic
     /// empty snapshot.
-    pub(crate) fn last_change_json(&self) -> Option<Value> {
+    pub(crate) fn last_change_json(&self, running: bool) -> Option<Value> {
         let change = self.last_change.as_ref()?;
         let (event, id, record) = match change {
             ProgramStatusChange::Report { id, record } => {
@@ -326,7 +326,7 @@ impl ProgramStatusRecords {
             "event": event,
             "id": id,
             "record": record,
-            "records": self.to_json(true).unwrap_or_else(|| Value::Array(Vec::new())),
+            "records": self.to_json(running).unwrap_or_else(|| Value::Array(Vec::new())),
         }))
     }
 }

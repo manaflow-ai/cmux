@@ -115,7 +115,7 @@ fn an_exited_terminal_shows_only_done_and_error() {
 fn hook_envelope_hides_transient_records_for_exit_snapshot() {
     let mut records = ProgramStatusRecords::default();
     records.apply(report("running", ProgramStatusState::Working), 0);
-    let change = records.last_change_json().unwrap();
+    let change = records.last_change_json(false).unwrap();
     assert_eq!(
         change["records"],
         records.to_json(false).unwrap_or_else(|| json!([])),
@@ -181,40 +181,40 @@ fn shown_text_drops_invisible_formatting_and_caps_length() {
 #[test]
 fn each_visible_change_stays_pending_until_published() {
     let mut records = ProgramStatusRecords::default();
-    assert!(records.claim_pending_change().is_none());
+    assert!(records.claim_pending_change(true).is_none());
     records.apply(report("", ProgramStatusState::Working), 0);
-    let revision = records.claim_pending_change().unwrap().0;
-    assert!(records.claim_pending_change().is_none(), "a claimed change cannot publish twice");
+    let revision = records.claim_pending_change(true).unwrap().0;
+    assert!(records.claim_pending_change(true).is_none(), "a claimed change cannot publish twice");
     records.finish_change_publication(revision, false);
-    let retry = records.claim_pending_change().unwrap().0;
+    let retry = records.claim_pending_change(true).unwrap().0;
     records.finish_change_publication(retry, true);
-    assert!(records.claim_pending_change().is_none());
+    assert!(records.claim_pending_change(true).is_none());
     // Nothing to end and nothing to clear: no change.
     records.apply(report("missing", ProgramStatusState::Clear), 0);
     records.apply(report("", ProgramStatusState::Done), 0);
-    let revision = records.claim_pending_change().unwrap().0;
+    let revision = records.claim_pending_change(true).unwrap().0;
     records.finish_change_publication(revision, true);
     records.apply(ProgramStatusEvent::PromptStart, 0);
-    assert!(records.claim_pending_change().is_none());
+    assert!(records.claim_pending_change(true).is_none());
 }
 
 #[test]
 fn a_new_change_during_publication_stays_pending_after_the_claimed_commit() {
     let mut records = ProgramStatusRecords::default();
     records.apply(report("", ProgramStatusState::Working), 0);
-    let first = records.claim_pending_change().unwrap().0;
+    let first = records.claim_pending_change(true).unwrap().0;
     records.apply(report("", ProgramStatusState::Done), 1);
     assert!(
-        records.claim_pending_change().is_none(),
+        records.claim_pending_change(true).is_none(),
         "a newer revision must wait for the in-flight publication"
     );
     records.finish_change_publication(first, true);
-    let second = records.claim_pending_change().unwrap();
+    let second = records.claim_pending_change(true).unwrap();
     assert_ne!(second.0, first);
     assert_eq!(second.1["event"], "report");
     assert_eq!(second.1["record"]["state"], "done");
     records.finish_change_publication(second.0, true);
-    assert!(records.claim_pending_change().is_none());
+    assert!(records.claim_pending_change(true).is_none());
 }
 
 fn report_with_app(id: &str, state: ProgramStatusState, app: &str) -> ProgramStatusEvent {

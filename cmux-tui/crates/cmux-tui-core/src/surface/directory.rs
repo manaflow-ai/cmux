@@ -53,10 +53,13 @@ impl Surface {
             (metadata.take_progress_change().is_some(), metadata.program_status())
         };
         loop {
+            // Once the PTY has recorded an exit, transient records are no
+            // longer part of the hook envelope, matching the public snapshot.
+            let running = pty.terminal_end().is_none();
             let (status_revision, status_change) = {
                 let mut records = records.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 records
-                    .claim_pending_change()
+                    .claim_pending_change(running)
                     .map_or((None, None), |(revision, change)| (Some(revision), Some(change)))
             };
             #[cfg(test)]
