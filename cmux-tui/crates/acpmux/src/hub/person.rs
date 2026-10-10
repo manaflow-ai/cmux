@@ -225,10 +225,10 @@ pub fn person_proof(key: &str, transport: &str, nonce: &str, connection: &str) -
 pub fn new_nonce() -> String {
     use std::io::Read;
     let mut bytes = [0u8; 32];
-    // crash-allow: no randomness means no safe challenge; the daemon cannot serve.
+    // No randomness means no safe challenge: the daemon cannot serve.
     std::fs::File::open("/dev/urandom")
         .and_then(|mut f| f.read_exact(&mut bytes))
-        .expect("read /dev/urandom for a connection nonce");
+        .expect("read /dev/urandom for a connection nonce"); // crash-allow: no randomness, no safe challenge
     cmux_local_auth::frontend_proof::hex(&bytes)
 }
 
