@@ -15540,9 +15540,8 @@ struct SidebarFooterButtons: View {
             if shows(.update), let updateActionsHost = AppDelegate.shared {
                 UpdatePill(model: updateViewModel, accent: cmuxAccent.color, actions: updateActionsHost)
             }
-            SidebarJumpToUnreadButton(presentationMode: presentationMode)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .sidebarJumpToUnreadBar(presentationMode: presentationMode)
         .task(id: billingPlanRefreshID) {
             guard let flow = accountFlow, flow.isAuthenticated else { return }
             await flow.refreshBillingPlan()

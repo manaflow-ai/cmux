@@ -2,19 +2,20 @@ import AppKit
 import Combine
 import SwiftUI
 
-/// What the footer's Jump to Latest Unread button shows for a given unread
-/// state and configured shortcut. Kept separate from the view so the title,
-/// tooltip and enablement rules are testable without hosting SwiftUI.
+/// What the sidebar's Jump to Unread bar shows for a given unread count and
+/// configured shortcut. Kept separate from the view so the label, tooltip and
+/// visibility rules are testable without hosting SwiftUI.
 struct SidebarJumpToUnreadButtonPresentation: Equatable {
-    /// An arrow that hops, so the button reads as "jump", not "download".
-    static let systemName = "arrowshape.bounce.right"
+    /// A turn arrow reads as "go there"; straight down arrows read as download.
+    static let systemName = "arrow.turn.down.right"
     static let maxShownCount = 99
 
-    let title: String
+    let label: String
     let helpText: String
-    let isEnabled: Bool
-    /// The unread count shown beside the icon, nil when nothing is unread.
+    /// The badge text, nil when nothing is unread (the bar is hidden then).
     let countText: String?
+
+    var isVisible: Bool { countText != nil }
 
     static func resolve(
         unreadCount: Int,
@@ -23,9 +24,8 @@ struct SidebarJumpToUnreadButtonPresentation: Equatable {
         let action = KeyboardShortcutSettings.Action.jumpToUnread
         let title = action.label
         return SidebarJumpToUnreadButtonPresentation(
-            title: title,
+            label: String(localized: "sidebar.jumpToUnread.button", defaultValue: "Jump to Unread"),
             helpText: shortcut.isUnbound ? title : action.tooltip(title, shortcut: shortcut),
-            isEnabled: unreadCount > 0,
             countText: unreadCount > 0
                 ? (unreadCount > maxShownCount ? "\(maxShownCount)+" : "\(unreadCount)")
                 : nil
@@ -33,22 +33,27 @@ struct SidebarJumpToUnreadButtonPresentation: Equatable {
     }
 }
 
-/// Sidebar-footer button for Jump to Latest Unread, pinned to the trailing
-/// edge of the footer row. It runs `AppDelegate.jumpToLatestUnread()`, the same
-/// path as the Notifications menu item, the command palette and the configured
-/// shortcut, and is enabled under the same rule as that menu item.
+extension View {
+    /// Stacks the Jump to Unread bar above the footer's button row.
+    func sidebarJumpToUnreadBar(presentationMode: WorkspacePresentationModeSettings.Mode) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            SidebarJumpToUnreadButton(presentationMode: presentationMode)
+            frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+/// Full-width "Jump to Unread" button above the sidebar footer: the on-screen
+/// ⇧⌘U. It runs `AppDelegate.jumpToLatestUnread()`, the same path as the
+/// Notifications menu item, the command palette and the configured shortcut,
+/// and only exists while something is unread.
 ///
 /// Unread state is observed here rather than in `SidebarFooterButtons`: the
 /// store's menu snapshot is reduced to a deduplicated unread count, so
-/// notification churn re-renders only this button, and only when the count
+/// notification churn re-renders only this view, and only when the count
 /// changes.
-///
-/// The button is never `.disabled`: macOS shows no tooltip on a disabled
-/// control, so with nothing unread it is only dimmed and its action does
-/// nothing.
 struct SidebarJumpToUnreadButton: View {
-    private let buttonSize = SidebarFooterButtonMetrics.buttonSize
-    private let iconSize: CGFloat = 12
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
 
     let presentationMode: WorkspacePresentationModeSettings.Mode
 
@@ -71,51 +76,84 @@ struct SidebarJumpToUnreadButton: View {
     }
 
     var body: some View {
-        if SidebarFooterPresentationPolicy.isVisible(.jumpToUnread, presentationMode: presentationMode) {
-            button
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .onReceive(
-                    TerminalNotificationStore.shared.$notificationMenuSnapshot
-                        .map(\.unreadCount)
-                        .removeDuplicates()
-                ) { count in
-                    if unreadCount != count {
-                        unreadCount = count
-                    }
-                }
+        let resolved = presentation
+        Group {
+            if SidebarFooterPresentationPolicy.isVisible(.jumpToUnread, presentationMode: presentationMode),
+               resolved.isVisible {
+                button(resolved)
+            }
+        }
+        .onReceive(
+            TerminalNotificationStore.shared.$notificationMenuSnapshot
+                .map(\.unreadCount)
+                .removeDuplicates()
+        ) { count in
+            if unreadCount != count {
+                unreadCount = count
+            }
         }
     }
 
-    private var button: some View {
-        let resolved = presentation
-        let tint = Color(nsColor: resolved.isEnabled ? .secondaryLabelColor : .tertiaryLabelColor)
-        return Button {
-            guard resolved.isEnabled else { return }
+    private func button(_ resolved: SidebarJumpToUnreadButtonPresentation) -> some View {
+        Button {
             AppDelegate.shared?.jumpToLatestUnread()
         } label: {
-            HStack(spacing: 3) {
+            HStack(spacing: 6) {
                 CmuxSystemSymbolImage(
                     systemName: SidebarJumpToUnreadButtonPresentation.systemName,
-                    pointSize: iconSize,
+                    pointSize: 11,
                     weight: .medium,
-                    tint: tint
+                    tint: Color(nsColor: .secondaryLabelColor)
                 )
+                Text(resolved.label)
+                    .cmuxFont(size: 12)
+                    .foregroundStyle(Color(nsColor: .labelColor))
+                    .lineLimit(1)
+                Spacer(minLength: 4)
                 if let countText = resolved.countText {
                     Text(countText)
-                        .font(.system(size: 11, weight: .medium).monospacedDigit())
-                        .foregroundStyle(tint)
-                        .lineLimit(1)
-                        .fixedSize()
+                        .cmuxFont(size: 9, weight: .semibold)
+                        .monospacedDigit()
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 4)
+                        .frame(minWidth: 16, minHeight: 16)
+                        .background(Capsule().fill(cmuxAccent.color))
                 }
             }
-            .padding(.horizontal, resolved.countText == nil ? 0 : 5)
-            .frame(minWidth: buttonSize, minHeight: buttonSize, maxHeight: buttonSize, alignment: .center)
+            .padding(.leading, 10)
+            .padding(.trailing, 4)
+            .frame(maxWidth: .infinity, minHeight: 24, maxHeight: 24)
+            .contentShape(Capsule())
         }
-        .buttonStyle(SidebarFooterIconButtonStyle())
+        .buttonStyle(SidebarJumpToUnreadBarButtonStyle())
         .accessibilityElement(children: .ignore)
         .safeHelp(resolved.helpText)
-        .accessibilityLabel(resolved.title)
+        .accessibilityLabel(resolved.label)
         .accessibilityValue(resolved.countText ?? "")
         .accessibilityIdentifier("SidebarJumpToUnreadButton")
+    }
+}
+
+/// Bordered capsule with the footer buttons' hover and press feedback.
+private struct SidebarJumpToUnreadBarButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        SidebarJumpToUnreadBarButtonBody(configuration: configuration)
+    }
+}
+
+private struct SidebarJumpToUnreadBarButtonBody: View {
+    let configuration: SidebarJumpToUnreadBarButtonStyle.Configuration
+    @State private var isHovered = false
+
+    private var fillOpacity: Double {
+        if configuration.isPressed { return 0.16 }
+        return isHovered ? 0.12 : 0.08
+    }
+
+    var body: some View {
+        configuration.label
+            .background(Capsule().fill(Color.primary.opacity(fillOpacity)))
+            .overlay(Capsule().strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5))
+            .onHover { isHovered = $0 }
     }
 }

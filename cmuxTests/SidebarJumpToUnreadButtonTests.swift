@@ -21,7 +21,7 @@ struct SidebarJumpToUnreadButtonTests {
     }
 
     @Test
-    func buttonIsEnabledAndCountedOnlyWhileSomethingIsUnread() {
+    func barShowsOnlyWhileSomethingIsUnread() {
         let shortcut = KeyboardShortcutSettings.Action.jumpToUnread.defaultShortcut
 
         let unread = SidebarJumpToUnreadButtonPresentation.resolve(
@@ -33,12 +33,11 @@ struct SidebarJumpToUnreadButtonTests {
             shortcut: shortcut
         )
 
-        #expect(unread.isEnabled)
-        #expect(!allRead.isEnabled)
+        #expect(unread.isVisible)
+        #expect(!allRead.isVisible)
         #expect(unread.countText == "3")
         #expect(allRead.countText == nil)
-        #expect(unread.title == title)
-        #expect(allRead.title == title)
+        #expect(unread.label == "Jump to Unread")
     }
 
     @Test
