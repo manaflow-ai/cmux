@@ -49,9 +49,15 @@ fn is_fence(line: &str) -> bool {
 /// most [`MAX_PARTS`] parts: when the cards would make more, the last URL
 /// lines stay text. No card at all gives the text unchanged as one part.
 pub fn text_parts(text: &str) -> Vec<Part> {
+    text_parts_where(text, |_| true)
+}
+
+/// [`text_parts`] where only a URL line that `allow` takes becomes a card;
+/// the other URL lines stay text.
+pub fn text_parts_where(text: &str, allow: impl Fn(&str) -> bool) -> Vec<Part> {
     let mut budget = MAX_PARTS;
     loop {
-        let (parts, cards) = split_with(text, budget);
+        let (parts, cards) = split_with(text, budget, &allow);
         if parts.len() <= MAX_PARTS || cards == 0 {
             return parts;
         }
@@ -60,7 +66,7 @@ pub fn text_parts(text: &str) -> Vec<Part> {
 }
 
 /// The split with at most `budget` cards, and how many it made.
-fn split_with(text: &str, budget: usize) -> (Vec<Part>, usize) {
+fn split_with(text: &str, budget: usize, allow: &dyn Fn(&str) -> bool) -> (Vec<Part>, usize) {
     let mut parts = Vec::new();
     let mut pending: Vec<&str> = Vec::new();
     let mut cards = 0;
@@ -81,7 +87,7 @@ fn split_with(text: &str, budget: usize) -> (Vec<Part>, usize) {
             fenced = !fenced;
         }
         match sole_url(line) {
-            Some(url) if !fenced && cards < budget => {
+            Some(url) if !fenced && cards < budget && allow(url) => {
                 flush(&mut pending, &mut parts);
                 parts.push(Part::LinkPreview {
                     url: url.to_owned(),

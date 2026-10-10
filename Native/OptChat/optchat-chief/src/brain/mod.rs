@@ -184,11 +184,11 @@ pub enum Input {
         name: String,
         reply: Sender<serde_json::Value>,
     },
-    /// The link previews of reply `key` (its part index, the preview); a
-    /// card missing here keeps its URL only.
+    /// The link previews of reply `key` (its part index, the preview with
+    /// its picture uploaded); a card missing here keeps its URL only.
     Previews {
         key: String,
-        fetched: Vec<(usize, crate::link_preview::Fetched)>,
+        fetched: Vec<(usize, crate::link_preview::Filled)>,
     },
 }
 
@@ -1013,6 +1013,7 @@ fn op_entry(conversation: String, key: &str, op: Op) -> OutboxEntry {
         attempted: false,
         rate_attempts: 0,
         previews_until: None,
+        plain_text: None,
     }
 }
 
@@ -1045,6 +1046,7 @@ fn reply_entry(conversation: String, key: &str, text: &str) -> OutboxEntry {
         attempted: false,
         rate_attempts: 0,
         previews_until: None,
+        plain_text: None,
     }
 }
 

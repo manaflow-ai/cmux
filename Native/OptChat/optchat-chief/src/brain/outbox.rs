@@ -114,6 +114,24 @@ impl Brain {
                         "error: the owner refused op {key} as a reused key with different content ({reason}); the message was not posted"
                     ))
                 }
+                Err(OpError::Rejected(reason)) if self.state.outbox[0].plain_text.is_some() => {
+                    // The owner refused the link cards (an older or stricter
+                    // owner): the reply goes as its original text, unchanged,
+                    // under a new key, since the refused key is spent.
+                    let head = &mut self.state.outbox[0];
+                    let text = head.plain_text.take().unwrap_or_default();
+                    let fallback = super::reply_entry(
+                        head.conversation.clone(),
+                        &format!("{key}:text"),
+                        &text,
+                    );
+                    *head = fallback;
+                    self.save();
+                    (self.log)(&format!(
+                        "op {key}: the owner refused its link cards ({reason}); sending the text"
+                    ));
+                    continue;
+                }
                 Err(OpError::Rejected(reason)) => {
                     (self.log)(&format!("dropping rejected op {key}: {reason}"))
                 }

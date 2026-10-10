@@ -4,6 +4,7 @@
 //! Transparent pixels go on white, as a card shows them.
 
 use std::io::Cursor;
+use std::time::Instant;
 
 use cmux_conversation::MAX_PREVIEW_IMAGE_BYTES;
 use image::imageops::FilterType;
@@ -20,8 +21,16 @@ pub struct Picture {
 /// Longest side and quality of each try, largest first.
 const TRIES: [(u32, u8); 5] = [(1200, 82), (900, 78), (600, 74), (400, 68), (300, 60)];
 
-/// `bytes` as a preview JPEG, or None when they are not a readable image.
-pub fn to_jpeg(bytes: &[u8]) -> Option<Picture> {
+/// Widest and tallest image decoded: a page's card image is far smaller,
+/// and the cap keeps a decompression bomb from reaching the allocator.
+pub const MAX_SIDE: u32 = 4096;
+/// Most memory the decoder may take.
+pub const MAX_ALLOC: u64 = 64 * 1024 * 1024;
+
+/// `bytes` as a preview JPEG, or None when they are not a readable image
+/// within [`MAX_SIDE`] and [`MAX_ALLOC`], or `deadline` passes first (it is
+/// checked before the decode and before each encode try).
+pub fn to_jpeg(bytes: &[u8], deadline: Instant) -> Option<Picture> {
     let mut reader = ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
         .ok()?;
@@ -32,39 +41,55 @@ pub fn to_jpeg(bytes: &[u8]) -> Option<Picture> {
         return None;
     }
     let mut limits = Limits::default();
-    limits.max_image_width = Some(12_000);
-    limits.max_image_height = Some(12_000);
-    limits.max_alloc = Some(256 * 1024 * 1024);
+    limits.max_image_width = Some(MAX_SIDE);
+    limits.max_image_height = Some(MAX_SIDE);
+    limits.max_alloc = Some(MAX_ALLOC);
     reader.limits(limits);
+    if Instant::now() >= deadline {
+        return None;
+    }
     let image = reader.decode().ok()?;
     let rgb = on_white(&image);
+    drop(image);
     for (side, quality) in TRIES {
-        let scaled = if rgb.width().max(rgb.height()) > side {
-            DynamicImage::ImageRgb8(rgb.clone())
-                .resize(side, side, FilterType::Triangle)
-                .to_rgb8()
+        if Instant::now() >= deadline {
+            return None;
+        }
+        // Scaled from the one decoded image each time; never copied whole.
+        let scaled;
+        let shown: &RgbImage = if rgb.width().max(rgb.height()) > side {
+            let (width, height) = fit(rgb.width(), rgb.height(), side);
+            scaled = image::imageops::resize(&rgb, width, height, FilterType::Triangle);
+            &scaled
         } else {
-            rgb.clone()
+            &rgb
         };
         let mut jpeg = Vec::new();
         let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, quality);
         encoder
             .encode(
-                scaled.as_raw(),
-                scaled.width(),
-                scaled.height(),
+                shown.as_raw(),
+                shown.width(),
+                shown.height(),
                 image::ExtendedColorType::Rgb8,
             )
             .ok()?;
         if !jpeg.is_empty() && jpeg.len() as u64 <= MAX_PREVIEW_IMAGE_BYTES {
             return Some(Picture {
                 jpeg,
-                width: scaled.width(),
-                height: scaled.height(),
+                width: shown.width(),
+                height: shown.height(),
             });
         }
     }
     None
+}
+
+/// `width` x `height` scaled to fit a `side` square, aspect kept, at least 1.
+fn fit(width: u32, height: u32, side: u32) -> (u32, u32) {
+    let longest = width.max(height).max(1) as u64;
+    let scale = |v: u32| ((v as u64 * side as u64 / longest) as u32).max(1);
+    (scale(width), scale(height))
 }
 
 /// The image as RGB, transparent pixels blended onto white.

@@ -237,6 +237,11 @@ pub struct OutboxEntry {
     /// without a preview carries its URL only).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub previews_until: Option<u64>,
+    /// A reply split into link cards keeps its original text here: when the
+    /// owner refuses the cards, that text goes instead, unchanged, under a
+    /// new key (a reply is never dropped).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plain_text: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -686,6 +691,7 @@ mod tests {
             attempted: false,
             rate_attempts: 0,
             previews_until: None,
+            plain_text: None,
         });
         file.save(&state).unwrap();
         assert_eq!(file.load(), state);

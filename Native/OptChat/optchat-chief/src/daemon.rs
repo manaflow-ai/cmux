@@ -85,6 +85,23 @@ pub trait ConversationPort: Send {
         Err(OpError::Rejected("mux_unsupported".into()))
     }
 
+    /// Whether the owner advertised `capability` at connect (`identify`).
+    fn supports(&self, _capability: &str) -> bool {
+        false
+    }
+    /// An uploader of preview pictures for another thread (its own
+    /// connection, bound as the same agent), so an upload never blocks the
+    /// brain. None: this owner takes no uploads from the chief.
+    fn image_uploader(&self) -> Option<Box<dyn ImageUploader>> {
+        None
+    }
+}
+
+/// `link_preview` parts on the local conversation owner.
+pub const LINK_PREVIEW_CAPABILITY: &str = "link-preview-v1";
+
+/// Uploads preview pictures as attachment records, off the brain thread.
+pub trait ImageUploader: Send {
     /// Uploads `bytes` (an image of `mime_type`, at most one 4 MiB chunk) as
     /// an attachment record of `conversation` that this connection's agent
     /// may send (`conversation-attachment-upload`: begin, chunk, commit).
@@ -97,9 +114,101 @@ pub trait ConversationPort: Send {
         name: &str,
         width: u32,
         height: u32,
-    ) -> Result<DerivedImage, OpError> {
-        let _ = (conversation, bytes, mime_type, name, width, height);
-        Err(OpError::Rejected("attachments_unsupported".into()))
+    ) -> Result<DerivedImage, OpError>;
+}
+
+/// The upload steps of [`ImageUploader::upload_image`] on `client`.
+#[allow(clippy::too_many_arguments)]
+fn upload_with(
+    client: &mut Client,
+    conversation: &str,
+    bytes: &[u8],
+    mime_type: &str,
+    name: &str,
+    width: u32,
+    height: u32,
+) -> Result<DerivedImage, OpError> {
+    use base64::Engine;
+    use sha2::Digest;
+    let hash: String = sha2::Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    let image = DerivedImage {
+        hash: hash.clone(),
+        mime_type: mime_type.to_owned(),
+        byte_count: bytes.len() as u64,
+    };
+    let step = |op: &str| ConversationAttachmentUploadRequest {
+        op: op.into(),
+        byte_count: Optional::Missing,
+        conversation: Optional::Missing,
+        data: Optional::Missing,
+        duration_ms: Optional::Missing,
+        height: Optional::Missing,
+        mime_type: Optional::Missing,
+        name: Optional::Missing,
+        offset: Optional::Missing,
+        piece: Optional::Missing,
+        poster: Optional::Missing,
+        preview: Optional::Missing,
+        sha256: Optional::Missing,
+        upload: Optional::Missing,
+        width: Optional::Missing,
+    };
+    let stored = |result: &ConversationAttachmentUploadResult| -> Option<Result<(), OpError>> {
+        let Optional::Value(stored) = &result.stored else {
+            return None;
+        };
+        Some(
+            if stored.hash == image.hash
+                && stored.mime_type == image.mime_type
+                && stored.byte_count == image.byte_count
+            {
+                Ok(())
+            } else {
+                Err(OpError::Rejected("attachment_mismatch".into()))
+            },
+        )
+    };
+    let begin = client
+        .conversation_attachment_upload(ConversationAttachmentUploadRequest {
+            conversation: Optional::Value(conversation.into()),
+            sha256: Optional::Value(hash),
+            byte_count: Optional::Value(image.byte_count),
+            mime_type: Optional::Value(mime_type.into()),
+            name: Optional::Value(name.into()),
+            width: Optional::Value(width),
+            height: Optional::Value(height),
+            ..step("begin")
+        })
+        .map_err(sdk_error)?;
+    if let Some(done) = stored(&begin) {
+        return done.map(|()| image);
+    }
+    let Optional::Value(upload) = begin.upload else {
+        return Err(OpError::Transport(
+            "upload begin without an upload id".into(),
+        ));
+    };
+    client
+        .conversation_attachment_upload(ConversationAttachmentUploadRequest {
+            upload: Optional::Value(upload.clone()),
+            piece: Optional::Value("original".into()),
+            offset: Optional::Value(0),
+            data: Optional::Value(base64::engine::general_purpose::STANDARD.encode(bytes)),
+            ..step("chunk")
+        })
+        .map_err(sdk_error)?;
+    let commit = client
+        .conversation_attachment_upload(ConversationAttachmentUploadRequest {
+            upload: Optional::Value(upload),
+            ..step("commit")
+        })
+        .map_err(sdk_error)?;
+    match stored(&commit) {
+        Some(done) => done.map(|()| image),
+        None => Err(OpError::Transport("upload commit without a record".into())),
     }
 }
 
@@ -206,6 +315,48 @@ fn rewire<S: serde::Serialize, T: serde::de::DeserializeOwned>(
 /// The port over a cmux-sdk connection.
 pub struct SdkConversations {
     client: Client,
+    /// What the owner advertised at connect.
+    capabilities: Vec<String>,
+    /// How to open an uploader's own connection.
+    config: LinkConfig,
+}
+
+/// A preview picture uploader with its own connection, opened and bound as
+/// the chief's agent for each upload (a rare, off-thread event).
+pub struct SdkUploader {
+    config: LinkConfig,
+}
+
+impl ImageUploader for SdkUploader {
+    fn upload_image(
+        &mut self,
+        conversation: &str,
+        bytes: &[u8],
+        mime_type: &str,
+        name: &str,
+        width: u32,
+        height: u32,
+    ) -> Result<DerivedImage, OpError> {
+        let sdk = ClientConfig::from_socket_path(&self.config.socket);
+        let mut client = Client::connect(sdk).map_err(sdk_error)?;
+        let token = read_token(self.config.token_file.as_deref())
+            .ok_or_else(|| OpError::Transport("MUX_AGENT_TOKEN_FILE is missing or empty".into()))?;
+        client
+            .conversation_bind(ConversationBindRequest {
+                participant: AGENT_MUX.into(),
+                token,
+            })
+            .map_err(sdk_error)?;
+        upload_with(
+            &mut client,
+            conversation,
+            bytes,
+            mime_type,
+            name,
+            width,
+            height,
+        )
+    }
 }
 
 impl ConversationPort for SdkConversations {
@@ -283,101 +434,6 @@ impl ConversationPort for SdkConversations {
         Ok(data.data)
     }
 
-    fn upload_image(
-        &mut self,
-        conversation: &str,
-        bytes: &[u8],
-        mime_type: &str,
-        name: &str,
-        width: u32,
-        height: u32,
-    ) -> Result<DerivedImage, OpError> {
-        use base64::Engine;
-        use sha2::Digest;
-        let hash: String = sha2::Sha256::digest(bytes)
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect();
-        let image = DerivedImage {
-            hash: hash.clone(),
-            mime_type: mime_type.to_owned(),
-            byte_count: bytes.len() as u64,
-        };
-        let step = |op: &str| ConversationAttachmentUploadRequest {
-            op: op.into(),
-            byte_count: Optional::Missing,
-            conversation: Optional::Missing,
-            data: Optional::Missing,
-            duration_ms: Optional::Missing,
-            height: Optional::Missing,
-            mime_type: Optional::Missing,
-            name: Optional::Missing,
-            offset: Optional::Missing,
-            piece: Optional::Missing,
-            poster: Optional::Missing,
-            preview: Optional::Missing,
-            sha256: Optional::Missing,
-            upload: Optional::Missing,
-            width: Optional::Missing,
-        };
-        let stored = |result: &ConversationAttachmentUploadResult| -> Option<Result<(), OpError>> {
-            let Optional::Value(stored) = &result.stored else {
-                return None;
-            };
-            Some(
-                if stored.hash == image.hash
-                    && stored.mime_type == image.mime_type
-                    && stored.byte_count == image.byte_count
-                {
-                    Ok(())
-                } else {
-                    Err(OpError::Rejected("attachment_mismatch".into()))
-                },
-            )
-        };
-        let begin = self
-            .client
-            .conversation_attachment_upload(ConversationAttachmentUploadRequest {
-                conversation: Optional::Value(conversation.into()),
-                sha256: Optional::Value(hash),
-                byte_count: Optional::Value(image.byte_count),
-                mime_type: Optional::Value(mime_type.into()),
-                name: Optional::Value(name.into()),
-                width: Optional::Value(width),
-                height: Optional::Value(height),
-                ..step("begin")
-            })
-            .map_err(sdk_error)?;
-        if let Some(done) = stored(&begin) {
-            return done.map(|()| image);
-        }
-        let Optional::Value(upload) = begin.upload else {
-            return Err(OpError::Transport(
-                "upload begin without an upload id".into(),
-            ));
-        };
-        self.client
-            .conversation_attachment_upload(ConversationAttachmentUploadRequest {
-                upload: Optional::Value(upload.clone()),
-                piece: Optional::Value("original".into()),
-                offset: Optional::Value(0),
-                data: Optional::Value(base64::engine::general_purpose::STANDARD.encode(bytes)),
-                ..step("chunk")
-            })
-            .map_err(sdk_error)?;
-        let commit = self
-            .client
-            .conversation_attachment_upload(ConversationAttachmentUploadRequest {
-                upload: Optional::Value(upload),
-                ..step("commit")
-            })
-            .map_err(sdk_error)?;
-        match stored(&commit) {
-            Some(done) => done.map(|()| image),
-            None => Err(OpError::Transport("upload commit without a record".into())),
-        }
-    }
-
     fn typing(&mut self, conversation: &str, on: bool) -> Result<(), OpError> {
         self.client
             .conversation_typing(ConversationTypingRequest {
@@ -387,6 +443,16 @@ impl ConversationPort for SdkConversations {
             })
             .map(|_| ())
             .map_err(sdk_error)
+    }
+
+    fn supports(&self, capability: &str) -> bool {
+        self.capabilities.iter().any(|c| c == capability)
+    }
+
+    fn image_uploader(&self) -> Option<Box<dyn ImageUploader>> {
+        Some(Box::new(SdkUploader {
+            config: self.config.clone(),
+        }))
     }
 }
 
@@ -428,7 +494,11 @@ pub fn select_chief(conversations: Vec<Summary>) -> Option<Summary> {
         .min_by(|a, b| (&a.created_at, &a.id).cmp(&(&b.created_at, &b.id)))
 }
 
-fn connect(config: &LinkConfig) -> Result<(Client, Summary, cmux::raw::Stream), ConnectError> {
+/// A connected, bound link: the client, its conversation, its event stream
+/// and the owner's capabilities.
+type Connected = (Client, Summary, cmux::raw::Stream, Vec<String>);
+
+fn connect(config: &LinkConfig) -> Result<Connected, ConnectError> {
     let other = |e: SdkError| ConnectError::Other(e.to_string());
     let sdk = ClientConfig::from_socket_path(&config.socket);
     let mut client = Client::connect(sdk.clone()).map_err(other)?;
@@ -438,10 +508,14 @@ fn connect(config: &LinkConfig) -> Result<(Client, Summary, cmux::raw::Stream), 
     identify.insert("cmd".into(), Value::String("identify".into()));
     let identity = client.request_raw(identify).map_err(other)?;
     let data = identity.get("data").cloned().unwrap_or(Value::Null);
-    let capable = data
+    let capabilities: Vec<String> = data
         .get("capabilities")
         .and_then(Value::as_array)
-        .is_some_and(|caps| caps.iter().any(|c| c.as_str() == Some(CAPABILITY)));
+        .into_iter()
+        .flatten()
+        .filter_map(|c| c.as_str().map(str::to_owned))
+        .collect();
+    let capable = capabilities.iter().any(|c| c == CAPABILITY);
     if !capable {
         let text = |k: &str| {
             data.get(k)
@@ -504,7 +578,7 @@ fn connect(config: &LinkConfig) -> Result<(Client, Summary, cmux::raw::Stream), 
             tree_events: Optional::Value(SubscribeRequestTreeEvents::Deltas),
         })
         .map_err(other)?;
-    Ok((client, summary, stream))
+    Ok((client, summary, stream, capabilities))
 }
 
 /// Runs the daemon connection loop on its own thread.
@@ -521,14 +595,18 @@ pub fn spawn_link(
             loop {
                 let started = Instant::now();
                 match connect(&config) {
-                    Ok((client, conversation, mut stream)) => {
+                    Ok((client, conversation, mut stream, capabilities)) => {
                         log(&format!(
                             "daemon connected; conversation {}",
                             conversation.id
                         ));
                         let closer = stream.closer();
                         sink(DaemonEvent::Up {
-                            port: Box::new(SdkConversations { client }),
+                            port: Box::new(SdkConversations {
+                                client,
+                                capabilities,
+                                config: config.clone(),
+                            }),
                             conversation,
                             reconnect: Box::new(move || closer.close()),
                         });

@@ -1326,6 +1326,14 @@ lines around a card make no text part (MessagesLab's rule). A URL line inside
 a fenced code block stays code. At most 16 parts: later URL lines then stay
 text.
 
+Only a URL a person wrote verbatim in one of the conversation's last 200
+messages (its text or its own link card) becomes a card; a URL only the
+agent wrote stays text and is never fetched, so a model cannot be talked
+into making the host request an address of its choosing. Cards go only to
+an owner that advertises `link-preview-v1`; an owner that still refuses them
+gets the reply's original text, unchanged, under a new key (`:text`), so a
+reply is never dropped.
+
 The reply enters the outbox at once, held while one thread fetches every
 card concurrently, 8 s at most per URL (`src/link_preview`). The fetch goes
 through the guard of MessagesLab's LinkGuard: http(s) on the default port
@@ -1333,15 +1341,19 @@ only, no credentials, no `localhost`, `.local`, `.internal`, `.lan`,
 `.home.arpa`, `.intranet`, `.corp` or single-label names, and every resolved
 address public (no loopback, private, CGNAT, link-local, ULA, multicast,
 documentation, benchmark or reserved address, IPv4-mapped, compatible, NAT64
-and 6to4 forms included). The HTTP client's resolver IS that check, so it
+and 6to4 forms included; IPv4-translated `::ffff:0:0/96`, local-use NAT64
+`64:ff9b:1::/48` and Teredo `2001::/32` refused outright; a name lookup
+takes 3 s at most). The HTTP client's resolver IS that check, so it
 connects only to the addresses checked (no DNS-rebinding gap). At most 5
 redirects, each checked again, never https to http; no proxy and no cookies;
 HTML up to 512 KB, stopping at `</head>`; an image up to 5 MB. The title is
 `og:title`, `twitter:title` or `<title>` without a leading or trailing
 `og:site_name`; the site is the page's host without `www.`; the image
-(`og:image`, `og:image:url`, `twitter:image`) becomes a JPEG of at most
+(`og:image`, `og:image:url`, `twitter:image`), decoded only up to 4096 px a
+side and 64 MB of memory and before the deadline, becomes a JPEG of at most
 512,000 bytes, uploaded as an attachment record of the conversation
-(`conversation-attachment-upload`) and named by the card. A failed fetch
+(`conversation-attachment-upload`, on its own connection from the preview
+thread, never the brain's) and named by the card. A failed fetch
 leaves the card with its URL only. The hold ends when the previews arrive or
 after 12 s (`OutboxEntry::previews_until`), also after a restart, so a reply
 never waits longer. The cloud conversation source has no upload yet: its

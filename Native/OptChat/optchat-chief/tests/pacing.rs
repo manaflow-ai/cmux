@@ -27,6 +27,7 @@ fn send(conversation: &str, key: &str, text: &str) -> OutboxEntry {
         attempted: false,
         rate_attempts: 0,
         previews_until: None,
+        plain_text: None,
     }
 }
 

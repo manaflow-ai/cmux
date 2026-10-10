@@ -13,7 +13,9 @@
 //!   loopback, private, CGNAT 100.64/10, link-local, unique-local,
 //!   multicast, unspecified, broadcast, benchmark, documentation or
 //!   reserved, including the IPv4-mapped, IPv4-compatible, NAT64 and 6to4
-//!   IPv6 forms). The connection goes only to the addresses checked (the
+//!   IPv6 forms; IPv4-translated ::ffff:0:0/96, local-use NAT64
+//!   64:ff9b:1::/48 and Teredo 2001::/32 are refused outright). The
+//!   connection goes only to the addresses checked (the
 //!   HTTP client's resolver is this check), so DNS rebinding between the
 //!   check and the connect cannot reach a private address; TLS still
 //!   verifies the name.
@@ -136,10 +138,7 @@ pub fn resolve_public(host: &str, port: u16) -> Result<Vec<SocketAddr>, Refusal>
         public_or_refused(ip)?;
         return Ok(vec![SocketAddr::new(ip, port)]);
     }
-    let addrs: Vec<SocketAddr> = (bare, port)
-        .to_socket_addrs()
-        .map_err(|_| Refusal::Resolve(bare.to_owned()))?
-        .collect();
+    let addrs = lookup(bare, port)?;
     if addrs.is_empty() {
         return Err(Refusal::Resolve(bare.to_owned()));
     }
@@ -147,6 +146,31 @@ pub fn resolve_public(host: &str, port: u16) -> Result<Vec<SocketAddr>, Refusal>
         return Err(Refusal::Address(bad.ip().to_string()));
     }
     Ok(addrs)
+}
+
+/// Longest name lookup: the system resolver has no timeout of its own.
+pub const DNS_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// The addresses of `host` at `port`, by [`DNS_TIMEOUT`]. The lookup runs on
+/// its own thread; one that outlives the timeout ends on its own and its
+/// answer is dropped.
+fn lookup(host: &str, port: u16) -> Result<Vec<SocketAddr>, Refusal> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let name = host.to_owned();
+    std::thread::Builder::new()
+        .name("optchat-link-dns".into())
+        .spawn(move || {
+            let answer = (name.as_str(), port)
+                .to_socket_addrs()
+                .map(|addrs| addrs.collect::<Vec<_>>());
+            let _ = tx.send(answer);
+        })
+        .map_err(|_| Refusal::Resolve(host.to_owned()))?;
+    match rx.recv_timeout(DNS_TIMEOUT) {
+        Ok(Ok(addrs)) => Ok(addrs),
+        Ok(Err(_)) => Err(Refusal::Resolve(host.to_owned())),
+        Err(_) => Err(Refusal::Timeout),
+    }
 }
 
 pub fn is_public_ip(ip: IpAddr) -> bool {
@@ -185,6 +209,15 @@ fn is_public_v6(a: Ipv6Addr) -> bool {
     }
     if b[..12].iter().all(|&x| x == 0) {
         return is_public_v4(v4(12)); // ::a.b.c.d (compatible)
+    }
+    if b[..8].iter().all(|&x| x == 0) && b[8] == 0xff && b[9] == 0xff && b[10] == 0 && b[11] == 0 {
+        return false; // ::ffff:0:0/96 IPv4-translated (SIIT)
+    }
+    if b[..6] == [0x00, 0x64, 0xff, 0x9b, 0x00, 0x01] {
+        return false; // 64:ff9b:1::/48 local-use NAT64
+    }
+    if b[..4] == [0x20, 0x01, 0x00, 0x00] {
+        return false; // 2001::/32 Teredo
     }
     if b[..4] == [0x00, 0x64, 0xff, 0x9b] && b[4..12].iter().all(|&x| x == 0) {
         return is_public_v4(v4(12)); // NAT64 64:ff9b::/96
