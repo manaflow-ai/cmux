@@ -10,6 +10,7 @@ import CmuxNextBrowser
 /// | --- | --- |
 /// | zoom | `browserZoomReset` |
 /// | Favorites | `bookmark.manager` |
+/// | Downloads | `browser.downloads.show`, the downloads menu (`BrowserDownloadsMenu`) |
 /// | design mode | `toggleBrowserDesignMode` |
 /// | profile | `browser.profile.choose`, a menu of `browserProfile.moveTab` per profile |
 /// | theme | a menu of `browserTheme` system, light, dark |
@@ -22,6 +23,7 @@ enum BrowserToolbarHandlers {
         switch button {
         case .zoom: "browserZoomReset"
         case .favorites: "bookmark.manager"
+        case .downloads: "browser.downloads.show"
         case .designMode: "toggleBrowserDesignMode"
         case .profile: "browser.profile.choose"
         case .theme: "browserTheme"
@@ -41,6 +43,11 @@ enum BrowserToolbarHandlers {
             let entry = try context.page(invocation)
             entry.chrome.toolbarButtons.present(profileMenu(for: entry, services: context.services), from: .profile)
         })
+        registry.bind("browser.downloads.show", run: { invocation in
+            let entry = try context.page(invocation)
+            let menu = BrowserDownloadsMenu.menu(context.services.cache.pageRequests.downloads, target: tabTarget(entry), registry: registry)
+            entry.chrome.toolbarButtons.present(menu, from: .downloads)
+        })
         registry.bind("browser.overflow.menu", run: { invocation in
             let entry = try context.page(invocation)
             entry.chrome.toolbarButtons.present(overflowMenu(for: entry, registry: registry), from: .overflow)
@@ -56,10 +63,11 @@ enum BrowserToolbarHandlers {
             press(button, entry: entry, registry: services.registry)
         }
         buttons.shortcutHint = { [weak services] button in
-            guard [.zoom, .favorites, .designMode, .devTools].contains(button) else { return nil }
+            guard [.zoom, .favorites, .downloads, .designMode, .devTools].contains(button) else { return nil }
             return services?.registry.shortcutDisplay(for: actionID(for: button))
         }
         buttons.profileName = profileName(forTab: key, services: services)
+        buttons.downloads = { [weak services] in services?.cache.pageRequests.downloads.toolbarSummary ?? BrowserToolbarDownloads() }
     }
 
     static func press(_ button: BrowserToolbarButton, entry: BrowserEntry, registry: ActionRegistry) {
@@ -129,7 +137,7 @@ enum BrowserToolbarHandlers {
     /// The More menu, Edge's three-dot menu (cx-6qwm): the collapsed
     /// buttons' actions first, then new tab and windows, zoom and full
     /// screen, the browser's own pages (bookmarks, history, tab groups,
-    /// downloads, extensions, passwords, clearing data), page tools (split,
+    /// the Downloads menu, extensions, passwords, clearing data), page tools (split,
     /// screenshot, find), more tools, then Settings and Help. Every row is a
     /// catalog action; one the tab cannot run drops out. No print row: no
     /// engine exposes printing yet.
@@ -141,8 +149,8 @@ enum BrowserToolbarHandlers {
             case .devTools: entries.append(.action("toggleBrowserDeveloperTools"))
             case .profile: entries.append(.action("browser.profile.choose"))
             case .theme: entries.append(.choices("browserTheme"))
-            // Zoom and Bookmark Manager are rows of their own below.
-            case .zoom, .favorites, .overflow: break
+            // Zoom, Bookmark Manager and Downloads are rows of their own below.
+            case .zoom, .favorites, .downloads, .overflow: break
             }
         }
         if !entries.isEmpty { entries.append(.separator) }
@@ -151,7 +159,7 @@ enum BrowserToolbarHandlers {
             .action("browserZoomOut"), .action("browserZoomIn"), .action("browserZoomReset"), .action("toggleFullScreen"), .separator,
             .action("bookmark.manager"), .action("browserShowHistory"),
             .folder(.group, [.action("tabGroup.create"), .action("tabGroup.addTab")]),
-            .action("browser.downloads.showFolder"), .action("browser.extensions.manage"), .action("passwords.open"),
+            .action("browser.downloads.show"), .action("browser.extensions.manage"), .action("passwords.open"),
             .action("history.clear"), .separator,
             .action("splitBrowserRight"), .action("browserScreenshotPage"), .action("browserScreenshotSection"), .action("find"), .separator,
             .folder(.tools, [
