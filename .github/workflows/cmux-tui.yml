@@ -499,6 +499,10 @@ jobs:
           # key; PRs restore the default-branch cache and cannot seed one for
           # another PR.
           shared-key: cmux-tui-${{ matrix.os }}
+          # Workspace crate outputs are only restored for the exact workspace
+          # source tree; Cargo's environment hash alone does not include .rs
+          # contents.
+          key: cmux-tui-source-${{ hashFiles('cmux-tui/**/*.rs', 'cmux-tui/**/Cargo.toml', 'cmux-tui/Cargo.lock') }}
           cache-all-crates: true
           cache-workspace-crates: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
