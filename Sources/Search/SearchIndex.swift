@@ -413,12 +413,13 @@ actor SearchIndex {
     }
 
     /// Query words that hold punctuation between letters or digits ("4+4",
-    /// "api.ts"), lowercased: the snippet looks for these whole before
-    /// falling back to their tokens.
+    /// "api.ts"), lowercased and without punctuation around them ("(4+4),"
+    /// looks for "4+4"): the snippet looks for these whole before falling
+    /// back to their tokens.
     static func queryPhrases(for rawQuery: String) -> [String] {
         rawQuery
             .split(whereSeparator: \.isWhitespace)
-            .map { $0.lowercased() }
+            .map { $0.trimmingCharacters(in: CharacterSet.alphanumerics.inverted).lowercased() }
             .filter { queryTokens(for: $0).count > 1 }
     }
 
