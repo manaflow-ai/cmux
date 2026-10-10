@@ -43,7 +43,7 @@ final class HomeVideo {
         guard let demo = controller?.demo else { return }
         var cells: [String: RowCell] = [:]
         for case let cell as RowCell in demo.collection.visibleCells where !cell.isHidden {
-            if let spec = cell.spec, case let .part(p) = spec.kind { cells[Self.key(p.ref)] = cell }
+            if let spec = cell.spec, case let .part(p) = spec.kind { cells.updateValue(cell, forKey: Self.key(p.ref)) } // crash program: dictionary write
         }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -68,7 +68,7 @@ final class HomeVideo {
             mask.frame = CGRect(origin: .zero, size: body.size)
             layer.mask = mask
             let badge = badges[key] ?? Self.makeBadge()
-            badges[key] = badge
+            badges.updateValue(badge, forKey: key) // // crash program: dictionary write
             if badge.superlayer !== cell.layer { cell.layer.addSublayer(badge) }
             badge.position = CGPoint(x: body.midX, y: body.midY)
             let state = playback.state(key)

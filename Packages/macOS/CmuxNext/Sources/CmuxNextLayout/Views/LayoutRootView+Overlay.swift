@@ -71,7 +71,7 @@ extension LayoutRootView {
     /// click-catching panel above a page.
     public func setDividerHovered(_ id: String, _ hovered: Bool) {
         guard let active = model.activeScreenID else { return }
-        screenViews[active]?.setDividerHovered(id, hovered)
+        screenViews[active]?.refreshDividerHover()
     }
 
     private func reportInteractiveRects() {

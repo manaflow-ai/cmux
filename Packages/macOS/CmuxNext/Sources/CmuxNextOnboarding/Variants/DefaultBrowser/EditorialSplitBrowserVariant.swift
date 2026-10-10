@@ -33,11 +33,10 @@ final class EditorialSplitBrowserBody: BrowserClaimView {
     private let wellCaption = OnboardingLabel.make(BrowserVariantStrings.opensLinksNow, font: OnboardingMetrics.captionFont,
                                                    color: Palette.textTertiary)
     private let wellName = OnboardingLabel.make(font: .systemFont(ofSize: 22, weight: .semibold))
-    private var button: NSButton!
+    private lazy var button: NSButton = OnboardingControl.button(OnboardingStrings.makeDefaultBrowser, target: self, action: #selector(requestClaim))  // no IUO (crash program)
 
     override init(model: DefaultAppsStepModel) {
         super.init(model: model)
-        button = OnboardingControl.button(OnboardingStrings.makeDefaultBrowser, target: self, action: #selector(requestClaim))
         let column = NSStackView(views: [title, sentence, button, note])
         column.orientation = .vertical
         column.alignment = .leading

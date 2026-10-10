@@ -1,6 +1,7 @@
 // Dev server entry (vite.config.acpmux-pane.mjs): the bundled pane inlines
 // these stylesheets (scripts/cmux-next/build-agent-pane-web.sh); here Vite
 // serves them with hot reload.
+import "../../ui/popupSurface.css";
 import "../shared/styles.css";
 import "./styles.css";
 import "katex/dist/katex.min.css";
@@ -10,6 +11,7 @@ import "./previewCard/previewCard.css";
 import "./changes/changes.css";
 import "./turnChanges/turnChanges.css";
 import "./summary/summary.css";
+import "./subagents/subagents.css";
 import "./header/header.css";
 import "./composerControls.css";
 import "./composerStates.css";

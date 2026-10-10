@@ -208,6 +208,28 @@ fn tab_pin_zoom_and_update() {
 }
 
 #[test]
+fn tab_update_sets_and_clears_the_user_icon() {
+    // The icon is the daemon's field on every tab kind: no tab read first.
+    let set = plan(&["tab", TAB, "update", "--icon", "star.fill"]);
+    assert!(set.resolve.is_empty());
+    assert_eq!(
+        sent(&["tab", TAB, "update", "--icon", "star.fill"]),
+        ("tab.update".into(), json!({"tab": TAB, "icon": "star.fill"}))
+    );
+    assert_eq!(
+        sent(&["tab", TAB, "update", "--clear-icon"]),
+        ("tab.update".into(), json!({"tab": TAB, "icon": null}))
+    );
+    assert!(
+        rejects(&["tab", TAB, "update", "--icon", "x", "--clear-icon"]).contains("--clear-icon")
+    );
+    // A browser tab's page zoom is an app action, so one request never
+    // carries both.
+    assert!(rejects(&["tab", TAB, "update", "--icon", "x", "--zoom", "1"]).contains("not both"));
+    assert!(rejects(&["tab", TAB, "update", "--clear-icon", "--clear-zoom"]).contains("not both"));
+}
+
+#[test]
 fn tab_groups_use_v2_operations_with_name_lookups() {
     let created = plan(&[
         "tab",

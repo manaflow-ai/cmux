@@ -117,6 +117,19 @@ pub enum Part {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         preview: Option<DerivedImage>,
     },
+    /// A question an agent asks a person (question.rs). Only agents post
+    /// it; only `question.answer` moves it out of pending, except the
+    /// author's edit that cancels it.
+    Question(crate::question::Question),
+}
+
+impl Part {
+    /// Whether a message with this part is a counted turn for the loop guard
+    /// (budget.rs): text, or a question (an agent asking is a turn). Work
+    /// cards and attachments neither count nor reset the count.
+    pub fn counts_as_turn(&self) -> bool {
+        matches!(self, Self::Text { .. } | Self::Question(_))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -237,6 +250,9 @@ pub enum Op {
     ParticipantsAdd { participant: Participant },
     #[serde(rename = "title.set")]
     TitleSet { title: String },
+    /// A person answers the question part at `part_index`.
+    #[serde(rename = "question.answer")]
+    QuestionAnswer { message_id: String, part_index: u32, answer: crate::question::QuestionAnswer },
 }
 
 impl Op {
@@ -246,7 +262,8 @@ impl Op {
             Self::MessageEdit { message_id, .. }
             | Self::MessageRetract { message_id }
             | Self::ReactionAdd { message_id, .. }
-            | Self::ReactionRemove { message_id, .. } => Some(message_id),
+            | Self::ReactionRemove { message_id, .. }
+            | Self::QuestionAnswer { message_id, .. } => Some(message_id),
             Self::MessageSend { .. }
             | Self::ReadCursorSet { .. }
             | Self::ParticipantsAdd { .. }

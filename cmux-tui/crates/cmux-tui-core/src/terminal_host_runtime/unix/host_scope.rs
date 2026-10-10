@@ -6,7 +6,7 @@
 //! `systemctl stop` or `restart` of the unit therefore ended every terminal.
 //! With `CMUX_TUI_HOST_SCOPES=systemd` (set by the Cloud supervisor, never a
 //! default) the daemon moves each new host into its own transient scope
-//! `cmux-terminal-host-<pid>.scope` in `cmux-terminal-hosts.slice`, right
+//! `cmux-terminal-host-<pid>.scope` in `cmuxhosts.slice`, right
 //! after it starts the host process and before the host gets a terminal. A
 //! unit stop then leaves the hosts running for the next daemon to adopt; a
 //! machine shutdown still stops every scope (systemd, PID 1, sends `SIGTERM`,
@@ -20,6 +20,10 @@
 //! failed move is reported once and the host keeps running in the daemon's
 //! unit, as before.
 
+#[cfg(target_os = "linux")]
+#[path = "host_scope_watch.rs"]
+mod watch;
+
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -27,7 +31,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 pub(crate) const HOST_SCOPES_ENV: &str = "CMUX_TUI_HOST_SCOPES";
 const HOST_SCOPES_SYSTEMD: &str = "systemd";
 /// The slice every host scope joins.
-pub(crate) const HOST_SLICE: &str = "cmux-terminal-hosts.slice";
+/// Dash-free: systemd reads dashes in a slice name as nesting.
+pub(crate) const HOST_SLICE: &str = "cmuxhosts.slice";
+/// How long `place_host` waits for the move to show in the host's cgroup.
+const PLACEMENT_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
 
 static REPORTED_FAILURE: AtomicBool = AtomicBool::new(false);
 
@@ -96,9 +103,30 @@ pub(crate) fn place_host(pid: u32) {
         sudo
     };
     command.args(busctl_args(pid)).stdin(Stdio::null()).stdout(Stdio::null());
+    // Arm the cgroup watches before the request, so the move's events
+    // cannot be missed (host_scope_watch.rs).
+    #[cfg(target_os = "linux")]
+    let watch = watch::PlacementWatch::new(
+        std::path::Path::new("/sys/fs/cgroup"),
+        HOST_SLICE,
+        &scope_unit(pid),
+    );
     let result = command.stderr(Stdio::piped()).output();
     let failure = match result {
-        Ok(output) if output.status.success() => return,
+        Ok(output) if output.status.success() => {
+            // StartTransientUnit only queues the job. The host must not get
+            // Launch (and fork its shell) before the move is done, or the
+            // shell stays in the daemon unit. Bounded; fail open.
+            #[cfg(target_os = "linux")]
+            let waited = watch.and_then(|watch| watch.wait(PLACEMENT_WAIT));
+            #[cfg(not(target_os = "linux"))]
+            let waited: Result<(), &str> = Ok(());
+            let cgroup = std::fs::read_to_string(format!("/proc/{pid}/cgroup")).unwrap_or_default();
+            if cgroup_names_scope(&cgroup, pid) {
+                return;
+            }
+            format!("the scope did not take the host within {PLACEMENT_WAIT:?} ({waited:?})")
+        }
         Ok(output) => {
             format!("{}: {}", output.status, String::from_utf8_lossy(&output.stderr).trim())
         }
@@ -113,9 +141,28 @@ pub(crate) fn place_host(pid: u32) {
     }
 }
 
+/// Whether `/proc/<pid>/cgroup` text places `pid` in its own scope.
+fn cgroup_names_scope(cgroup: &str, pid: u32) -> bool {
+    let scope = format!("/{}", scope_unit(pid));
+    cgroup.lines().any(|line| line.trim_end().ends_with(&scope))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The move is complete only when the host's own cgroup names its scope:
+    /// the host forks the shell right after Launch, and a shell forked
+    /// before the move stays in the daemon unit (cx-6so.49 Cloud proof:
+    /// a `systemctl restart` then killed it after the 90 s stop timeout).
+    #[test]
+    fn a_host_counts_as_placed_only_when_its_cgroup_names_its_scope() {
+        let placed = "0::/cmuxhosts.slice/cmux-terminal-host-4242.scope\n";
+        assert!(cgroup_names_scope(placed, 4242));
+        assert!(!cgroup_names_scope(placed, 424));
+        assert!(!cgroup_names_scope("0::/system.slice/cmux-tui-daemon.service\n", 4242));
+        assert_eq!(HOST_SLICE, "cmuxhosts.slice", "a dash in a slice name nests slices");
+    }
 
     #[test]
     fn scope_request_names_the_host_pid_and_the_host_slice() {
@@ -128,7 +175,7 @@ mod tests {
             "{joined}"
         );
         assert!(joined.contains("PIDs au 1 4242"), "{joined}");
-        assert!(joined.contains("Slice s cmux-terminal-hosts.slice"), "{joined}");
+        assert!(joined.contains(&format!("Slice s {HOST_SLICE}")), "{joined}");
         assert!(joined.ends_with("CollectMode s inactive-or-failed 0"), "{joined}");
     }
 

@@ -68,6 +68,7 @@ extension CEFTab {
             emit(.close)
         case .navigationReroute(_, let url, _):
             if let url = URL(string: url) { emit(.rerouteStore(url)) }
+        case .localFileHandoff(_, let url): if let url = URL(string: url) { emit(.openLocalFile(url)) }
         case .keyUnhandled(_, let keyCode, let shift):
             if keyCode == 0x1B {
                 emit(.unhandledEscape)
@@ -100,7 +101,7 @@ extension CEFTab {
     private func loadFavicon(_ url: URL?) {
         faviconTask?.cancel()
         // A machine store's loopback icon is the machine's: never fetched from this Mac.
-        guard let url, BrowserFaviconPolicy.appMayFetch(url, remoteStore: BrowserFaviconPolicy.isRemoteStore(machineStore)) else {
+        guard let url, url.isAppFetchableFavicon(remoteStore: machineStore != nil) else {
             favicon = nil
             return
         }

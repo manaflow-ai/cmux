@@ -25,15 +25,19 @@ extension ServerReachService {
             binary: binary,
             local: { ServerReachService.thisMac() },
             linkPeers: { await ServerReachService.readLinkPeers(binary: cli) },
-            cli: cli)
+            cli: cli,
+            linkSetupFile: cli.map { _ in
+                ServerReachPlan.defaultLinkSetupFile(environment: ProcessInfo.processInfo.environment, home: NSHomeDirectory())
+            })
     }
 }
 
 extension ServerMenuBarController {
     /// The App's menu bar item: this Mac's server status plus cloud pairing as the signed-in user.
     static func app(services: AppServices) -> ServerMenuBarController {
-        ServerMenuBarController(makeSource: { [unowned services] in
-            CloudPairingSource.app(feed: services.feed, auth: services.cloud.auth,
+        ServerMenuBarController(makeSource: { [weak services] in
+            guard let services else { return nil }
+            return CloudPairingSource.app(feed: services.feed, auth: services.cloud.auth,
                                    chiefPlaced: { [weak services] in services?.home.refreshChiefTab() })
         })
     }

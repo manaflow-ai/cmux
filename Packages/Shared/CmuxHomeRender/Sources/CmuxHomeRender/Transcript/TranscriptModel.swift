@@ -26,29 +26,27 @@ final class TranscriptModel {
     func set(_ specs: [RowSpec], at t: Double, ghosts: Bool) {
         let newKeys = Set(specs.map(\.key))
         let old = rows.filter { !$0.ghost }
-        var oldIndex: [String: Int] = [:]
-        oldIndex.reserveCapacity(old.count)
-        for (i, r) in old.enumerated() { oldIndex[r.spec.key] = i }
+        var oldRows: [String: Row] = [:]
+        oldRows.reserveCapacity(old.count)
+        for r in old { oldRows[r.spec.key] = r }
         var result: [Row] = []
         result.reserveCapacity(specs.count + 4)
-        var oi = 0
+        var pending = ArraySlice(old)
         for spec in specs {
-            while oi < old.count, !newKeys.contains(old[oi].spec.key) {
-                if ghosts { var g = old[oi]; g.removedAt = t; result.append(g) }
-                oi += 1
+            while let head = pending.first, !newKeys.contains(head.spec.key) {
+                if ghosts { var g = head; g.removedAt = t; result.append(g) }
+                pending.removeFirst()
             }
-            if oi < old.count, old[oi].spec.key == spec.key { oi += 1 }
-            if let j = oldIndex[spec.key] {
-                var r = old[j]
+            if pending.first?.spec.key == spec.key { pending.removeFirst() }
+            if var r = oldRows[spec.key] {
                 r.spec = spec
                 result.append(r)
             } else {
                 result.append(Row(spec: spec, removedAt: nil, insertedAt: t))
             }
         }
-        while oi < old.count {
-            if ghosts, !newKeys.contains(old[oi].spec.key) { var g = old[oi]; g.removedAt = t; result.append(g) }
-            oi += 1
+        while let head = pending.popFirst() {
+            if ghosts, !newKeys.contains(head.spec.key) { var g = head; g.removedAt = t; result.append(g) }
         }
         // Ghosts that are still fading keep fading (at the end when their place is gone).
         let present = Set(result.map(\.spec.key))
@@ -68,23 +66,31 @@ final class TranscriptModel {
     }
 
     private func rebuild() {
-        offsets = [CGFloat](repeating: 0, count: rows.count + 1)
-        index = [:]
+        var offsets: [CGFloat] = []
+        offsets.reserveCapacity(rows.count + 1)
+        var index: [String: Int] = [:]
         index.reserveCapacity(rows.count)
         var y: CGFloat = 0
         for (i, r) in rows.enumerated() {
-            offsets[i] = y
+            offsets.append(y)
             if !r.ghost { y += r.spec.total }
-            index[r.spec.key] = i
+            index.updateValue(i, forKey: r.spec.key)
         }
-        offsets[rows.count] = y
+        offsets.append(y)
+        self.offsets = offsets
+        self.index = index
     }
 
     /// Content top of row i relative to the first slot (bottom aligned in its
     /// slot; a ghost keeps its content below its zero-height slot).
+    /// A stale index (outside the rows) gives 0 and logs a fault once.
     func contentTop(_ i: Int) -> CGFloat {
-        let r = rows[i]
-        return r.ghost ? offsets[i] + r.spec.gap : offsets[i + 1] - r.spec.height
+        Self.contentTop(i, rows: rows, offsets: offsets) ?? 0
+    }
+
+    nonisolated fileprivate static func contentTop(_ i: Int, rows: [Row], offsets: [CGFloat]) -> CGFloat? {
+        guard let r = rows[checked: i], let top = offsets[checked: i], let bottom = offsets[checked: i + 1] else { return nil }
+        return r.ghost ? top + r.spec.gap : bottom - r.spec.height
     }
 
     /// Rows whose content may intersect [lo, hi] (relative to the first slot).
@@ -99,7 +105,8 @@ final class TranscriptModel {
         var lo = 0, hi = rows.count
         while lo < hi {
             let mid = (lo + hi) / 2
-            if offsets[mid + 1] < y { lo = mid + 1 } else { hi = mid }
+            // mid + 1 <= rows.count < offsets.count; a missing offset ends the search at mid.
+            if (offsets[checked: mid + 1] ?? .infinity) < y { lo = mid + 1 } else { hi = mid }
         }
         return lo
     }
@@ -112,8 +119,7 @@ final class TranscriptModel {
 
         func contentTop(_ key: String) -> CGFloat? {
             guard let i = index[key] else { return nil }
-            let r = rows[i]
-            return r.ghost ? offsets[i] + r.spec.gap : offsets[i + 1] - r.spec.height
+            return TranscriptModel.contentTop(i, rows: rows, offsets: offsets)
         }
     }
 

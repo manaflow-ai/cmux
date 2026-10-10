@@ -20,7 +20,7 @@ Status: phase 1 design landed, phase 2 in progress, app platform lead, 2026-10-0
 | `cmux-tui/crates/cmux-app-host/generated/` | `cmux-app.d.ts`, `cmux-global.js`, `scopes.json` (checked in; CI checks they match the catalogs) | generated |
 | `cmux-tui/crates/cmux-app-host/src/` (later) | Rust crate: supervisor + QuickJS host (rquickjs), built and tested on the Blacksmith testbox only | app platform lead, with the cmux-tui owners |
 | `samples/apps/<name>/` | sample apps: `github-prs` (section), `running-agents` (section), `agent-status` (status item) | app platform lead |
-| `Packages/macOS/CmuxNext/Sources/CmuxNextApps/` | Swift: manifest model, installed-app registry (mirror), scene store + native renderer, prototype JSC engine, App Store window, section provider for the sidebar | app platform lead |
+| `Packages/macOS/CmuxNext/Sources/CmuxNextApps/` | Swift: manifest model, installed-app registry (mirror), scene store + native renderer, prototype JSC engine, App Store view, section provider for the sidebar | app platform lead |
 | `backend/packages/protocol/src/ops-apps.ts`, `backend/apps/api/src/domains/app.ts`, `backend/db/migrations/0002_app_store.sql`, dashboard `routes/apps*.tsx` | store backend (spec section 11) and web store | app platform lead, reviewed by the backend lead |
 
 The Swift module syncs the runtime and generated files from `cmux-tui/crates/cmux-app-host/` into its resources with `scripts/cmux-next/sync-app-runtime.sh` (`--check` in the gate).
@@ -29,8 +29,8 @@ The Swift module syncs the runtime and generated files from `cmux-tui/crates/cmu
 
 | Action / op | Palette | CLI | Right-click | MCP | Notes |
 | --- | --- | --- | --- | --- | --- |
-| `appStore.show` | App Store | `cmux apps store` exempt `guiOnly` | sidebar background > Options | follows CLI (exempt) | opens the App Store window (tab kind `app_store` later) |
-| `appStore.showInstalled` | Installed Apps | exempt `guiOnly` | — | — | App Store window, Installed tab |
+| `appStore.show` | App Store | `cmux apps store` exempt `guiOnly` | sidebar background > Options | follows CLI (exempt) | opens the App Store as a top page or tab of the active window; with no window it waits for one (S22: never a window of its own) |
+| `appStore.showInstalled` | Installed Apps | exempt `guiOnly` | — | — | App Store, Installed tab |
 | `app.search`, `app.info`, `app.list` | via App Store page | `cmux apps search|info|list --json` | — | default | cloud reads (spec section 11) |
 | `app.install`, `app.update`, `app.remove` | App Store buttons | `cmux apps install|update|remove [--wait]` | Installed row menu | default (approval when the actor is an agent) | cloud mutations; the local supervisor follows |
 | `app.reload`, `app.disable`, `app.enable`, `app.logs` | per app ("Reload GitHub PRs") | `cmux apps reload|disable|enable|logs` | Installed row, app section header | default (logs) / opt_in | local supervisor |

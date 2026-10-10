@@ -95,7 +95,7 @@ public final class BrowserFaviconLoader: BrowserFaviconLoading {
         let width = max(1, Int((CGFloat(best.width) * scale).rounded()))
         let height = max(1, Int((CGFloat(best.height) * scale).rounded()))
         guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
-                                      space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                      space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         context.interpolationQuality = .high
         context.draw(best, in: CGRect(x: 0, y: 0, width: width, height: height))

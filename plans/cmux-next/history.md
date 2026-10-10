@@ -132,9 +132,9 @@ the standard browser chords, cmux's workspace keys, and Ghostty's split resize
 bindings. Rejected: Cmd-[ / Cmd-] (page history), Ctrl-Cmd-[ / ] (workspaces),
 and Ctrl-Opt-arrows (Rectangle's defaults).
 
-Cmd-[ / Cmd-] act only in a browser context (user 2026-09-30, "consistency
-is most important for keyboard shortcuts"). In a terminal or any other
-context they do nothing: cmux consumes them, so neither Ghostty's
+Cmd-[ / Cmd-] act only in a browser context or on a page with its own
+history (4.2b) (user 2026-09-30, "consistency is most important for
+keyboard shortcuts"). In a terminal or any other context they do nothing: cmux consumes them, so neither Ghostty's
 `super+[` keybind nor the shell gets them (focus.md section 5).
 
 Rules:
@@ -180,6 +180,42 @@ Rules:
 Mouse: the side buttons (button 4 and 5) and the two-finger swipe follow the
 same split, page history over a page and location history elsewhere
 (follow-up; needs `debug.mouse` coverage first).
+
+### 4.2b One Back: page history first, then the trail (Leo 2026-10-06)
+
+"I should be able to go back to New Tab after jumping into a chat." Back and
+Forward have one model with two levels:
+
+1. Page level. Each tab, and each top page (App Store, an app page), has a
+   browser-like history of what it showed (`PageHistory`). These are
+   navigations inside the tab:
+   - App Store: Discover, Installed, a search, each opened listing.
+   - New Tab: opening a chat from it (a recent chat, or a prompt sent from
+     the location bar). Back shows New Tab again in the same tab; the chat
+     keeps running and stays in Chats and Recents; Forward returns to it.
+   - Settings: each section.
+   A browser tab's page history is 4.1.
+2. Trail level. When the shown page has no older (newer) entry, Back
+   (Forward) walks the location trail (4.2, 4.2a), like VS Code's Go Back:
+   a cross-tab or cross-workspace jump is history only at this level. On a
+   top page at its first entry, Back returns to the workspace the window
+   showed before the page.
+
+Inside an agent chat there is no page history: scrolling and turns are not
+navigations. Back leaves the chat to what the tab showed before it (New
+Tab), else falls to the trail; with neither it is disabled.
+
+Every entry point runs the same two actions, `focusHistoryBack` and
+`focusHistoryForward`: the titlebar arrows, Ctrl-- / Ctrl-Shift--, Cmd-[ /
+Cmd-] on a page with page history (a browser page keeps `browserBack`), the
+mouse side buttons and a swipe over a page, and a page's own crumb ("<
+Discover"). The arrows are enabled exactly when one level has somewhere to
+go, and re-read on every page navigation, focus settle and top page
+switch. Nothing is shown when there is nowhere to go.
+
+Adoption: App Store (this design's first adopter), then New Tab to chat and
+Settings sections. The `surface` scope (4.2a) still walks only the focused
+surface.
 
 ### 4.2a Scope of Back / Forward (R69, titlebar-area spec section 2)
 

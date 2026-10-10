@@ -7,6 +7,7 @@
 // borders draw lines (appearance.borders lines), as by default.
 import type { DiffViewerAppearance, DiffViewerTheme } from "../../appearance";
 import type { GhosttyTheme } from "./ghostty";
+import { appThemeVariables, type AppTheme } from "../../theme/appTheme";
 import {
   css,
   deriveTokens,
@@ -36,8 +37,12 @@ export function themeInput(theme: GhosttyTheme): ThemeInput {
 
 export const themeTokens = (theme: GhosttyTheme): ThemeTokens => deriveTokens(themeInput(theme));
 
-/** WebTheme(tokens).payload: `{variables, colorScheme, scrollers}`. */
-export function webThemePayload(tokens: ThemeTokens): {
+/** WebTheme(tokens).payload: `{variables, colorScheme, scrollers}`; with `app`, also the app
+ * theme's `--cmux-app-*` tokens (WebTheme sends them from CmuxTheme's AppTheme, the same contract). */
+export function webThemePayload(
+  tokens: ThemeTokens,
+  app?: AppTheme,
+): {
   variables: Record<string, string>;
   colorScheme: "dark" | "light";
   scrollers: "overlay" | "legacy";
@@ -54,6 +59,7 @@ export function webThemePayload(tokens: ThemeTokens): {
       "--cmux-separator": css(tokens.separator),
       "--cmux-hover": css(tokens.hoverFill),
       "--cmux-selection": css(tokens.selectionFill),
+      ...(app ? appThemeVariables(app) : {}),
     },
     colorScheme: tokens.isDark ? "dark" : "light",
     scrollers: "overlay",

@@ -21,14 +21,26 @@ enum RealBinary {
     /// `cmux-tui/target/hosted/tree/<key>/cmux-tui` (`pin-cmux-tui.sh path`),
     /// fetched when missing; nil when the tree is not published yet, the
     /// checkout's cmux-tui is dirty, or the fetch failed (offline).
+    /// `CMUX_NEXT_TUI_TREE_PATH` is that `path` output, resolved once by the
+    /// suite runner (scripts/ci/run-swift-testing-suites.sh): `path` starts
+    /// about 60 git processes (7-10 s), once per suite process otherwise.
     static let sameTree: URL? = {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        if let resolved = ProcessInfo.processInfo.environment[treePathKey], !resolved.isEmpty {
+            // The runner already fetched once; an unpublished tree is not
+            // fetched again by every suite process (20-50 s each).
+            return FileManager.default.isExecutableFile(atPath: resolved) ? URL(fileURLWithPath: resolved) : nil
+        }
         guard let path = pinScript(root: root, ["path"], capture: true), !path.isEmpty else { return nil }
         let binary = URL(fileURLWithPath: path)
         if !FileManager.default.isExecutableFile(atPath: binary.path) { _ = pinScript(root: root, ["fetch"], capture: false) }
         return FileManager.default.isExecutableFile(atPath: binary.path) ? binary : nil
     }()
+
+    /// The runner's resolved `pin-cmux-tui.sh path`, a test-only input
+    /// (unlike `CMUX_NEXT_TUI_BIN`, which the app's launcher also reads).
+    static let treePathKey = "CMUX_NEXT_TUI_TREE_PATH"
 
     /// Runs `pin-cmux-tui.sh <arguments>` (public URLs, no credentials).
     /// A test run never waits for an unpublished tree unless
@@ -106,7 +118,11 @@ struct IntegrationTests {
         )
         let ensured = try await launcher.ensure()
         #expect(ensured.session == session)
-        let connection = DaemonConnection(endpointProvider: launcher.endpointProvider)
+        // No terminal environment, as in BranchDaemonHarness: the default
+        // provider waits up to 5 s for the runner's login-shell capture.
+        // finderLaunchedDaemonGivesTerminalsTheLoginPath covers that provider.
+        let connection = DaemonConnection(
+            configuration: .init(terminalEnvironment: nil), endpointProvider: launcher.endpointProvider)
         do {
             let identity = try await connection.start()
             #expect(identity.session == session)

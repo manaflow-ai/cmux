@@ -26,6 +26,10 @@ final class ServerMachineSession {
     var autoConnect = true
     @ObservationIgnored private var started = false
 
+    /// Runs when an overlay connection ends (EOF or heartbeat), so the
+    /// route is re-resolved at once (a crashed link falls back).
+    @ObservationIgnored var onOverlayEnded: (@MainActor () -> Void)?
+
     /// The app's own bundled `cmux` (overlay route bridge), nil when missing.
     @ObservationIgnored private let cli: URL?
 
@@ -83,7 +87,7 @@ final class ServerMachineSession {
             let bridge = DaemonBridge(executable: cli.path, arguments: reach.dialArguments(linkSocket: linkSocket))
             daemon.start(remote: { linkSocket }, bridge: bridge, admit: { identity in
                 try CloudAppLinks.checkNotLocal(remote: identity, local: localIdentity())
-            })
+            }, onEnd: { [weak self] in self?.onOverlayEnded?() })
         }
     }
 

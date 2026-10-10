@@ -12,18 +12,21 @@ enum QuitFactsReader {
 
     static func read(_ services: AppServices) async -> QuitFacts {
         let local = services.machines.local
-        let windows = services.windows!
-        var kept: [SurfaceID] = []
-        var incognito: [SurfaceID] = []
+        let windows = services.windows
+        var keptSurfaces: [SurfaceID] = []
+        var incognitoSurfaces: [SurfaceID] = []
         var seen = Set<String>()
         for workspace in local.store.workspaces {
             let isIncognito = windows.isIncognito(workspace: workspace.id)
             for tab in workspace.screens.flatMap(\.panes).flatMap(\.tabs) where tab.kind == .pty && !tab.dead {
                 let identity = tab.terminalID.map { "t:\($0.rawValue)" } ?? "s:\(tab.surface.rawValue)"
                 guard seen.insert(identity).inserted else { continue }
-                if isIncognito { incognito.append(tab.surface) } else { kept.append(tab.surface) }
+                if isIncognito { incognitoSurfaces.append(tab.surface) } else { keptSurfaces.append(tab.surface) }
             }
         }
+        // Immutable copies: the `async let` reads below capture them, and a captured
+        // `var` is shared mutable state across the child tasks (a TSan build refuses it).
+        let kept = keptSurfaces, incognito = incognitoSurfaces
         let remote = !services.machines.remoteDaemons.isEmpty
         // The agent census runs beside the terminal reads, under the same deadline.
         async let agents = QuitAgents.facts(QuitAgents.environment(services))

@@ -96,6 +96,24 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+# Crash program phase 3 (plans/cmux-next/crash-elimination.md section 7):
+# CMUX_SWIFT_SANITIZE=address|thread|undefined builds and tests under that
+# sanitizer, in its own scratch folder so it never mixes with a normal build.
+case "${CMUX_SWIFT_SANITIZE:-}" in
+  ""|address|thread|undefined) ;;
+  *) echo "package-test-lane.sh: CMUX_SWIFT_SANITIZE must be address, thread or undefined (got '$CMUX_SWIFT_SANITIZE')" >&2; exit 2 ;;
+esac
+
+# A sanitizer runtime adds a C personality routine, and the Rust static libraries the app
+# links bring their own: ld's compact unwind encodes at most three ("Too many personality
+# routines", CmuxNext under thread, 2026-10-09). The test binary keeps DWARF unwind instead.
+sanitize_link_flags=(-Xlinker -no_compact_unwind)
+
+# CMUX_SWIFT_TEST_DEBUG_INFO (dwarf|none): debug info of the test builds; the
+# builds and the test runs below share it (scripts/ci/swift-test-debug-info.sh).
+# shellcheck source=scripts/ci/swift-test-debug-info.sh
+source "$(dirname "${BASH_SOURCE[0]}")/swift-test-debug-info.sh" || exit 2
+
 lane_script="${BASH_SOURCE[0]}"
 work="${RUNNER_TEMP:-}"
 if [ -z "$work" ]; then
@@ -287,7 +305,11 @@ package_args() {
     echo "package '$pkg' not found: give a name under Packages/*/ or a Packages/<group>/<name> path with a Package.swift"
     return 1
   fi
-  swift_test_args=(--package-path "$pkgdir")
+  swift_test_args=(--package-path "$pkgdir" ${swift_test_debug_info_args[@]+"${swift_test_debug_info_args[@]}"})
+  if [ -n "${CMUX_SWIFT_SANITIZE:-}" ]; then
+    swift_test_args+=(--sanitize="$CMUX_SWIFT_SANITIZE" --scratch-path "$pkgdir/.build-sanitize-$CMUX_SWIFT_SANITIZE"
+      "${sanitize_link_flags[@]}")
+  fi
 }
 
 # One package's build. It exits non-zero when the package is not found or its
@@ -400,6 +422,9 @@ run_package_tests() {
   # or hung package cannot hide the results of the packages after it.
   # test_package returns the package's status instead of exiting; every
   # package gets a summary row, and the summary at the end fails the lane.
+  if grep -Eqx 'CmuxNext|Packages/macOS/CmuxNext/?' "$selected"; then
+    ensure_web_bundles
+  fi
   prebuild_packages
   run_default_package_test() {
     # Blacksmith macOS runners intermittently abort a package's
@@ -496,6 +521,14 @@ run_package_tests() {
   fi
 }
 
+# The cmux-next package tests read the web bundles, which are build output since cx-vn5:
+# make them current before a CmuxNext build (scripts/ci/ensure-web-bundles.sh).
+ensure_web_bundles() {
+  echo "::group::cmux-next web bundles"
+  bash scripts/ci/ensure-web-bundles.sh
+  echo "::endgroup::"
+}
+
 run_suite() {
   select_xcode
   echo "Xcode: $DEVELOPER_DIR"
@@ -504,12 +537,21 @@ run_suite() {
   fi
   # CMUX_SWIFT_SUITE_CONFIGURATION=release builds the suites optimized (measurements of what the
   # user runs); @testable imports then need -enable-testing. The default stays debug.
-  local configuration=(-c "${CMUX_SWIFT_SUITE_CONFIGURATION:-debug}")
+  local configuration=(-c "${CMUX_SWIFT_SUITE_CONFIGURATION:-debug}" ${swift_test_debug_info_args[@]+"${swift_test_debug_info_args[@]}"})
   # Release keeps DEBUG defined, so test helpers behind #if DEBUG still build; the code is optimized.
   # The Xcode 26.6 optimizer crashes in CopyPropagation on CmuxNextSettingsTests (signal 6), so a
   # release suite build turns that one SIL pass off.
   if [ "${CMUX_SWIFT_SUITE_CONFIGURATION:-debug}" = release ]; then
     configuration+=(-Xswiftc -enable-testing -Xswiftc -DDEBUG -Xswiftc -Xllvm -Xswiftc -sil-disable-pass=copy-propagation)
+  fi
+  # CMUX_SWIFT_SANITIZE (crash program phase 3): the suites build and run under the sanitizer in
+  # its own scratch folder; the group line names it, so a sanitizer step's log shows it ran.
+  if [ -n "${CMUX_SWIFT_SANITIZE:-}" ]; then
+    configuration+=(--sanitize="$CMUX_SWIFT_SANITIZE" --scratch-path "$suite_package/.build-sanitize-$CMUX_SWIFT_SANITIZE"
+      "${sanitize_link_flags[@]}")
+  fi
+  if [ "$suite_package" = Packages/macOS/CmuxNext ]; then
+    ensure_web_bundles
   fi
   echo "::group::swift build --build-tests ${configuration[*]} $suite_package"
   swift build --build-tests "${configuration[@]}" --package-path "$suite_package" < /dev/null

@@ -6,6 +6,9 @@ import { PlanetScaleOwnership } from "./ownership/planetscale";
 import { RELAY_TOKEN_AUDIENCE, RELAY_TOKEN_ISSUER, RelayIssuer } from "./relay";
 export type Environment = Cloudflare.Env & {
   DASHBOARD_ALLOWED_ORIGINS?: string;
+  /** Optional: the production Stack project requires no publishable key, and a
+   * revoked key is refused (cx-44j.48). Unset sends no header. */
+  STACK_PUBLISHABLE_KEY?: string;
   /** Local tooling may provide this alias; deployments normalize it to DATABASE_URL. */
   PLANETSCALE_DATABASE_URL?: string;
   AXIOM_TOKEN?: string; AXIOM_DATASET?: string; AXIOM_INGEST_URL?: string;

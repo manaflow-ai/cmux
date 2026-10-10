@@ -112,6 +112,21 @@ WEBVIEW = (
     "scripts/build-webviews-app.sh", "scripts/check-webviews-react-compiler.mjs",
 )
 
+# The web bundles are build output since cx-vn5 (scripts/cmux-next/build-web-bundles.sh
+# runs before every package build). A change to what they are built from is a
+# change to the targets that ship them: their tests read the built pages, as they
+# read the committed copies before.
+BUNDLE_INPUTS = (
+    "webviews/src/*", "webviews/scripts/*", "webviews/package.json", "webviews/bun.lock",
+    "webviews/reactCompiler.mjs", "webviews/vite.config.ts", "schemas/settings/*",
+    "Resources/markdown-viewer/marked.min.js",
+    "scripts/build-webviews-app.sh", "scripts/check-webviews-bun-version.sh",
+    "scripts/cmux-next/build-agent-pane-web.sh", "scripts/cmux-next/build-pages-web.sh",
+    "scripts/cmux-next/build-agent-activity-web.sh", "scripts/cmux-next/build-palette-ranker.sh",
+    "scripts/cmux-next/build-optchat-inspector-web.sh",
+    "scripts/cmux-next/build-web-bundles.sh", "scripts/cmux-next/web-bundle-key.py",
+)
+BUNDLE_TARGETS = ("CmuxNextAgentPane", "CmuxNextPages", "CmuxNextAgentActivity", "CmuxNextPalette")
 # Committed web bundles that ci-web rebuilds and compares (`--check`) on every pull request,
 # and that the app takes as a `.copy` resource: a change to them needs no compile.
 CHECKED_WEB_BUNDLES = (
@@ -273,6 +288,12 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str]) -
         if any(matches(path, prefix) for prefix in SWIFT_JOB_INPUTS):
             result.swift = True
             result.reasons.append(f"{path} is a swift test job script")
+
+        if any(fnmatch.fnmatch(path, pattern) for pattern in BUNDLE_INPUTS):
+            shipped = {name for name in BUNDLE_TARGETS if name in graph["targets"]}
+            changed_targets |= shipped
+            result.native = True
+            result.reasons.append(f"{path} is built into the web bundles of {', '.join(sorted(shipped))}")
 
         owner = owning_target(graph, path)
         if owner is not None:

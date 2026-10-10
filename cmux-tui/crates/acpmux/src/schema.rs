@@ -18,6 +18,7 @@ mod tests {
             method::MUX_STATUS,
             method::MUX_SESSIONS,
             method::MUX_WEB_MODES,
+            method::MUX_WEB_TOKEN_ROTATE,
             method::MUX_HARNESSES,
             method::MUX_RELOAD_CONFIG,
             method::MUX_DEFAULTS,
@@ -50,6 +51,13 @@ mod tests {
             method::ACP_TRUST_GET,
             method::ACP_TRUST_SET,
             method::MUX_HARNESS_ENABLE,
+            method::MUX_HARNESS_ADD,
+            method::MUX_HARNESS_REMOVE,
+            method::MUX_HARNESS_RESTORE,
+            method::MUX_HARNESS_DOCTOR,
+            method::MUX_REGISTRY,
+            crate::catalog::RPC_GET,
+            crate::catalog::RPC_REFRESH,
         ] {
             assert!(methods.contains_key(m), "schema is missing method {m}");
         }
@@ -63,6 +71,7 @@ mod tests {
             method::MUX_PERMISSION_PENDING,
             method::MUX_PROMPT_ACCEPTED,
             method::MUX_HARNESSES_CHANGED,
+            crate::catalog::EVENT_CHANGED,
         ] {
             assert!(notes.contains_key(n), "schema is missing notification {n}");
         }
