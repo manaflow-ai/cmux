@@ -248,15 +248,19 @@ final class AgentTabStore {
         // A Chief subagent runs on this Mac too, in the Chief home's acpmux.
         let local = kind != .remote
         guard let paneHost = kind == .local ? (localSessionHost ?? host) : kind == .chief ? chiefPaneHost : remoteHost(key) else { return nil }
+        let seed = local ? (seeds.removeValue(forKey: key) ?? firstChatSeed(of: key, in: store)) : nil
         // A tab this run did not open and that has no chat yet is a New Tab page the store
-        // restored after a relaunch: it opens as the page again, not as an empty chat.
-        if local, newTabPages[key] == nil, tabStores[key] == nil, (sessions[key] ?? record.session) == nil, !linkedSessions.contains(key) {
+        // restored after a relaunch: it opens as the page again, not as an empty chat. A seeded
+        // tab is a chat this run opened (New Agent Chat's workspace, listed by the tree before
+        // new-conversation-tab replied): it stays the chat, never the page (cx-vurv).
+        if local, seed == nil, newTabPages[key] == nil, tabStores[key] == nil, (sessions[key] ?? record.session) == nil,
+           !linkedSessions.contains(key) {
             newTabPages[key] = firstPageNewTab?(nil)
         }
         let model = AgentPaneModel(
             host: paneHost,
             sessionId: sessions[key] ?? record.session,
-            seed: local ? (seeds.removeValue(forKey: key) ?? firstChatSeed(of: key, in: store)) : nil,
+            seed: seed,
             newTab: local ? newTabPages[key]?.page : nil,
             allowsTabConversion: local
         )
