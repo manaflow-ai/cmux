@@ -364,7 +364,12 @@ with:
   `agents[j]` always has `id`, `kind` (`claude`/`codex`/raw source), `name`
   (display name), `status` (`idle`|`working`|`needs_input`|`ended`), and
   `lastActivityAt` (epoch); when available it adds `sinceEpoch` (when the
-  current working/needs-input state began), `title` (first user prompt),
+  current working/needs-input state began), `lifecycle` (the hosting pane's
+  agent lifecycle as the built-in sidebar shows it: `unknown`, `running`,
+  `background_work_pending`, `needs_input` or `idle`; an agent error also
+  reads `needs_input`; omitted for ended sessions and panes without a
+  lifecycle; unlike `status`, it tells a finished turn with pending
+  background work apart from a truly idle one), `title` (first user prompt),
   `panelId` (the hosting terminal's `tabs[k].id`), `surfaceId` (the hosting
   tab's `tabs[k].surfaceId`, accepted by `surface.focus`), `directory`,
   `transcriptPath`, `pid`, and `children` (nested subagent runs under the

@@ -19,6 +19,11 @@ public struct CustomSidebarAgentSnapshot: Sendable, Equatable {
     /// The live state's wire name: "idle" | "working" | "needs_input" |
     /// "ended" (`agents[j].status`).
     public let status: String
+    /// The hosting panel's agent-lifecycle phase as the built-in sidebar sees
+    /// it: "unknown" | "running" | "background_work_pending" |
+    /// "needs_input" | "idle" (`agents[j].lifecycle`). `nil` when the panel
+    /// has no lifecycle for this agent or the session has ended.
+    public let lifecycle: String?
     /// When the current working/needs-input state began; `nil` for idle and
     /// ended (`agents[j].sinceEpoch`).
     public let stateSince: Date?
@@ -57,12 +62,14 @@ public struct CustomSidebarAgentSnapshot: Sendable, Equatable {
         workingDirectory: String?,
         transcriptPath: String?,
         pid: Int?,
-        children: [CustomSidebarAgentChildSnapshot] = []
+        children: [CustomSidebarAgentChildSnapshot] = [],
+        lifecycle: String? = nil
     ) {
         self.sessionId = sessionId
         self.kind = kind
         self.name = name
         self.status = status
+        self.lifecycle = lifecycle
         self.stateSince = stateSince
         self.lastActivityAt = lastActivityAt
         self.title = title
