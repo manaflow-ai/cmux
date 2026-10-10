@@ -86,6 +86,8 @@ import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
 import { SessionRowsContext } from "./turnChanges/sessionRows";
 import { TurnActionsContext, type TurnActions } from "./conversation/turnActions";
+import { clearFindHighlights, paintFindHighlights, useChatFind, type ChatFind } from "./conversation/chatFind";
+import { ChatFindBar } from "./conversation/ChatFindBar";
 import { DATE, PREVIEW, RENDER, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
 import { Copy } from "./conversation/icons";
 import { PreviewCard } from "./conversation/PreviewCard";
@@ -109,6 +111,7 @@ import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { sessionLink } from "./links";
 import { ChatHeaderStatus } from "./header/ChatHeaderStatus";
 import { ChatHeaderTools, HEADER_ACTIONS, type ChatMenuItem } from "./header/ChatHeaderTools";
+import { configureQuickActions, type QuickActionMode } from "./header/quickActions";
 import { archiveRow } from "./header/archiveRow";
 import { sideChatRow } from "./header/sideChatRow";
 import { Thinking } from "./conversation/Thinking";
@@ -678,6 +681,7 @@ export function VirtualTranscript({
   registry = defaultRegistry,
   canLoadOlder = false,
   githubRepository,
+  find,
 }: {
   rows: AcpmuxRow[];
   sessionId?: string;
@@ -687,6 +691,8 @@ export function VirtualTranscript({
   registry?: NativeRegistry;
   canLoadOlder?: boolean;
   githubRepository?: string;
+  /// Find in Chat (chatFind.ts): its bar, the query to highlight and the match to bring into view.
+  find?: ChatFind;
 }) {
   const t = useT();
   // Debug measurement (acpmuxPerf): off until the first debug call.
@@ -1065,6 +1071,34 @@ export function VirtualTranscript({
     [renderRate],
   );
   useEffect(() => () => pacing.stop(), [pacing]);
+  // Find in Chat: a new current match scrolls its row in (it may not be mounted), then, once its
+  // text is drawn, the match itself; every commit repaints the highlights over the mounted rows.
+  const findQuery = find?.open ? find.query : "";
+  const findTarget = find?.matches[find.active];
+  const revealing = useRef<string | undefined>(undefined);
+  const targetKey = findTarget && findQuery ? `${findTarget.rowId}:${findTarget.occurrence}:${findQuery}` : undefined;
+  useLayoutEffect(() => {
+    revealing.current = targetKey;
+    const node = ref.current;
+    if (!node || !findTarget || !targetKey) return;
+    const top = layout.tops[findTarget.rowIndex];
+    const bottom = top + layout.heights[findTarget.rowIndex];
+    if (top >= node.scrollTop && bottom <= node.scrollTop + node.clientHeight) return;
+    node.scrollTop = Math.max(0, top - node.clientHeight / 3);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new target scrolls, not a layout change
+  }, [targetKey]);
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    if (!findQuery) return clearFindHighlights();
+    const current = paintFindHighlights(node, findQuery, findTarget);
+    if (!current || revealing.current !== targetKey) return;
+    revealing.current = undefined;
+    const box = current.getBoundingClientRect();
+    const view = node.getBoundingClientRect();
+    if (box.top < view.top || box.bottom > view.bottom) node.scrollTop += box.top - view.top - node.clientHeight / 3;
+  });
+  useEffect(() => clearFindHighlights, []);
   const onScroll = (event: React.UIEvent<HTMLDivElement>) => {
     pacing.scrolled();
     const next = event.currentTarget.scrollTop;
@@ -1082,6 +1116,7 @@ export function VirtualTranscript({
         viewportHeight={height}
         width={width}
       />
+      {find?.open && <ChatFindBar find={find} />}
       <div className="acpmux-spacer" style={{ height: layout.totalHeight }}>
         <div ref={thread} className="acpmux-thread">
           {rows.slice(range.first, range.last).map((row, index) => {
@@ -1428,6 +1463,10 @@ function AcpmuxPane() {
     chatShellRuns,
     sessionMoves,
   ]);
+  // Find in Chat over the transcript; the page actions read it through `findRef`.
+  const find = useChatFind(transcriptRows);
+  const findRef = useRef(find);
+  findRef.current = find;
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const inspectorOpener = useRef<HTMLElement | undefined>(undefined);
   const inspectorOpenRef = useRef(false);
@@ -1840,6 +1879,11 @@ function AcpmuxPane() {
       toggleInspector,
       command(name) {
         if (name === "createCheckpoint") showCheckpoint.current();
+        // Find, Find Next, Find Previous and Hide Find on an agent pane (the app's Edit menu, Cmd-F).
+        if (name === "find") findRef.current.show();
+        if (name === "findNext") findRef.current.next();
+        if (name === "findPrevious") findRef.current.previous();
+        if (name === "hideFind") findRef.current.hide();
         // Switch Model… (Ctrl-Cmd-M): the model picker opens on the path every opener uses, which
         // ends with the keyboard in its search field.
         if (name === "openModelPicker") openPicker(translate(PICKER_LABELS.model));
@@ -1913,6 +1957,7 @@ function AcpmuxPane() {
         }
         if (customization.layout) {
           configureDictation(customization.layout);
+          configureQuickActions(customization.layout);
           window.cmuxAcpmuxRegistry?.configure(customization.layout);
         }
       },
@@ -2246,6 +2291,11 @@ function AcpmuxPane() {
             composerHandle.current?.focus();
           },
           "chat.history": () => client.loadOlder(),
+          // Find in Chat (the app's Find commands on an agent pane).
+          "chat.find": async ({ text }) => findRef.current.show(typeof text === "string" ? text : undefined),
+          "chat.findNext": async () => findRef.current.next(),
+          "chat.findPrevious": async () => findRef.current.previous(),
+          "chat.hideFind": async () => findRef.current.hide(),
           // Composer drafts belong to the daemon session so every host can restore them.
           "chat.readDraft": ({ sessionId }) => client.readDraft(String(sessionId)),
           "chat.writeDraft": ({ sessionId, text }) => client.writeDraft(String(sessionId), String(text ?? "")),
@@ -2429,8 +2479,9 @@ function AcpmuxPane() {
     handoffTargets.length > 0;
   const ignoreFailure = (result: Promise<unknown>) => void result.catch(() => undefined);
   // The header's tools and "..." menu run app actions on this chat's tab.
-  const runHeaderAction = (id: string, cwd?: string) =>
-    ignoreFailure(callNative("pane.action", cwd ? { id, cwd } : { id }));
+  // A quick action names its mode; the App toggles the split it opened (header/quickActions.ts).
+  const runHeaderAction = (id: string, cwd?: string, mode?: QuickActionMode) =>
+    ignoreFailure(callNative("pane.action", { id, ...(cwd ? { cwd } : {}), ...(mode ? { mode } : {}) }));
   // A remote or cloud chat's folder is not on this Mac; its terminal opens in the pane's folder.
   const summary = snapshot.summary;
   const localCwd =
@@ -2640,6 +2691,7 @@ function AcpmuxPane() {
             <SessionRowsContext.Provider value={snapshot.rows}>
               <VirtualTranscript
                 rows={transcriptRows}
+                find={quick ? undefined : find}
                 sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
                 canLoadOlder={snapshot.canLoadOlder}
                 expanded={expanded}
@@ -3050,8 +3102,8 @@ function AcpmuxPane() {
                     )}
                     <ChatHeaderTools
                       tabTools={!quick}
-                      onTerminal={() => runHeaderAction(HEADER_ACTIONS.terminal, localCwd)}
-                      onBrowser={() => runHeaderAction(HEADER_ACTIONS.browser)}
+                      onTerminal={(mode) => runHeaderAction(HEADER_ACTIONS.terminal, localCwd, mode)}
+                      onBrowser={(mode) => runHeaderAction(HEADER_ACTIONS.browser, undefined, mode)}
                       summary={
                         <SummaryButton
                           // Another chat closes its summary and gallery, as it does the image viewer.
