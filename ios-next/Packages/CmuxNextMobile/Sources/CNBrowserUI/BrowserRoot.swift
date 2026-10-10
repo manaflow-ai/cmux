@@ -233,6 +233,9 @@ struct BrowserScreen: View {
             model.open(tabId: id)
         }
         .onChange(of: model.thumbnails) { _, _ in if overviewVisible { captureOverviewImages() } }
+        #if DEBUG
+        .task(id: model.activeFrame != nil) { await debugPinchScript() }
+        #endif
         .onAppear {
             zoomDriver.onSettle = { phase in
                 if phase == .page {
@@ -511,6 +514,37 @@ struct BrowserScreen: View {
     }
 
     // MARK: Pinch
+
+    #if DEBUG
+    /// DEBUG (`CMUX_NEXT_BROWSER_PINCH=page|card|page-cancel`): a scripted
+    /// two-finger pinch for recordings (AXe has no multitouch). Feeds the same
+    /// handlers as the recognizers: scale over ~0.35 s, then release.
+    private func debugPinchScript() async {
+        guard model.activeFrame != nil, let mode = ProcessInfo.processInfo.environment["CMUX_NEXT_BROWSER_PINCH"] else { return }
+        try? await Task.sleep(for: .seconds(3))  // test script pacing only
+        let steps = 21
+        let page = mode.hasPrefix("page")
+        let end: CGFloat = mode == "page-cancel" ? 0.85 : (page ? 0.55 : 2.1)
+        if !page {
+            openOverview()
+            try? await Task.sleep(for: .seconds(1.5))
+        }
+        var last: CGFloat = 1
+        for i in 1...steps {
+            let t = CGFloat(i) / CGFloat(steps)
+            let scale = 1 + (end - 1) * t * t * (3 - 2 * t)
+            let v = (scale - last) * 60
+            last = scale
+            if page { pagePinch(.changed, scale: scale, velocity: v) } else if let id = model.tabs.last?.id {
+                cardPinch(id, .changed, scale: scale, velocity: v)
+            }
+            try? await Task.sleep(for: .milliseconds(16))
+        }
+        if page { pagePinch(.ended, scale: last, velocity: 0) } else if let id = model.tabs.last?.id {
+            cardPinch(id, .ended, scale: last, velocity: 0)
+        }
+    }
+    #endif
 
     /// Pinch-in on the page (the surface hands it over once the remote page
     /// is at its minimum zoom): the page shrinks into its card with the

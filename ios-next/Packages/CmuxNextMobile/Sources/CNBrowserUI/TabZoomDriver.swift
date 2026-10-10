@@ -13,6 +13,15 @@ final class TabZoomDriver {
     @ObservationIgnored var onSettle: ((TabZoomState.Phase) -> Void)?
     @ObservationIgnored private var link: CADisplayLink?
     @ObservationIgnored private var lastTimestamp: CFTimeInterval?
+    #if DEBUG
+    /// DEBUG (`CMUX_NEXT_BROWSER_REVERSE_MS=<ms>`): reverse a zoom toward the
+    /// grid this long after it starts, like a second tap, for frame-exact
+    /// comparison with the reversal reference recording.
+    @ObservationIgnored private let debugReverseAfter: Double? =
+        ProcessInfo.processInfo.environment["CMUX_NEXT_BROWSER_REVERSE_MS"].flatMap(Double.init).map { $0 / 1000 }
+    @ObservationIgnored private var debugElapsed: Double = 0
+    @ObservationIgnored private var debugReversed = false
+    #endif
     @ObservationIgnored private lazy var proxy = DisplayLinkProxy { [weak self] link in self?.tick(link) }
 
     func go(toOverview: Bool) { mutate { $0.go(toOverview: toOverview) } }
@@ -43,6 +52,10 @@ final class TabZoomDriver {
 
     private func startLink() {
         guard link == nil else { return }
+        #if DEBUG
+        debugElapsed = 0
+        if state.headingToOverview { debugReversed = false }
+        #endif
         let l = CADisplayLink(target: proxy, selector: #selector(DisplayLinkProxy.fire(_:)))
         l.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
         l.add(to: .main, forMode: .common)
@@ -62,6 +75,15 @@ final class TabZoomDriver {
         let now = link.targetTimestamp
         let dt = lastTimestamp.map { now - $0 } ?? (link.targetTimestamp - link.timestamp)
         lastTimestamp = now
+        #if DEBUG
+        if let after = debugReverseAfter, state.headingToOverview, !debugReversed {
+            debugElapsed += dt
+            if debugElapsed >= after {
+                debugReversed = true
+                state.go(toOverview: false)
+            }
+        }
+        #endif
         let settled = state.step(dt)
         if settled || state.phase != .animating {
             stopLink()
