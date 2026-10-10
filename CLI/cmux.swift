@@ -305,6 +305,20 @@ private struct CodexMonitorLeaseRecord: Codable {
 
 final class ClaudeHookSessionStore {
     private typealias CursorPendingShellApproval = ClaudeHookSessionRecord.PendingCursorShellApproval
+
+    /// Describes the pane still owned by a session before an accepted move.
+    struct AuthoritativeSessionStartResult {
+        /// The pane the session owned before this SessionStart, when still authoritative.
+        struct PreviousOwnedSurface {
+            let workspaceId: String
+            let surfaceId: String
+        }
+
+        /// Whether the incoming SessionStart established an authoritative owner.
+        let accepted: Bool
+        /// The prior surface when this session moved away from its live owner.
+        let previousOwnedSurface: PreviousOwnedSurface?
+    }
     typealias CursorShellApprovalResolution = (
         matched: Bool,
         hasRemaining: Bool,
@@ -1505,7 +1519,6 @@ final class ClaudeHookSessionStore {
     /// allows replacement or the incoming process is demonstrably newer. This
     /// keeps /clear as an ordering barrier without treating a launch-time
     /// `--resume` argument as identity.
-    @discardableResult
     func upsertAuthoritativeClaudeSessionStart(
         sessionId: String,
         source: String?,
@@ -1517,12 +1530,12 @@ final class ClaudeHookSessionStore {
         launchCommand: AgentHookLaunchCommandRecord? = nil,
         hookEventName: String? = nil,
         turnId: String? = nil
-    ) throws -> Bool {
+    ) throws -> AuthoritativeSessionStartResult {
         let normalizedSessionId = normalizeSessionId(sessionId)
         guard !normalizedSessionId.isEmpty,
               let normalizedWorkspaceId = normalizeOptional(workspaceId),
               let normalizedSurfaceId = normalizeOptional(surfaceId) else {
-            return false
+            return AuthoritativeSessionStartResult(accepted: false, previousOwnedSurface: nil)
         }
         return try withLockedState { state in
             let active = state.activeSessionsBySurface[normalizedSurfaceId]
@@ -1540,7 +1553,19 @@ final class ClaudeHookSessionStore {
                 || existing == nil
                 || acceptsReplacement
                 || incomingProcessIsNewer
-            guard accepted else { return false }
+            guard accepted else {
+                return AuthoritativeSessionStartResult(accepted: false, previousOwnedSurface: nil)
+            }
+
+            let previousOwnedSurface: AuthoritativeSessionStartResult.PreviousOwnedSurface? =
+                existing.flatMap { prior in
+                    guard let priorSurfaceId = normalizeOptional(prior.surfaceId),
+                          priorSurfaceId != normalizedSurfaceId,
+                          state.activeSessionsBySurface[priorSurfaceId]?.sessionId == normalizedSessionId else {
+                        return nil
+                    }
+                    return .init(workspaceId: prior.workspaceId, surfaceId: priorSurfaceId)
+                }
 
             let now = Date().timeIntervalSince1970
             // Installing a new authoritative owner retires the previous
@@ -1633,7 +1658,10 @@ final class ClaudeHookSessionStore {
             )
             state.activeSessionsByWorkspace[normalizedWorkspaceId] = activeRecord
             state.activeSessionsBySurface[normalizedSurfaceId] = activeRecord
-            return true
+            return AuthoritativeSessionStartResult(
+                accepted: true,
+                previousOwnedSurface: previousOwnedSurface
+            )
         }
     }
 
@@ -29612,7 +29640,6 @@ struct CMUXCLI {
             )
             let isClearSessionStart = isClaudeClearSessionStart(parsedInput)
             let sessionStartSource = parsedInput.object?["source"] as? String
-            let priorSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
             let canReplaceStoppedSession = shouldReplaceStoppedClaudeSession(
                 sessionStore: sessionStore,
                 parsedInput: parsedInput,
@@ -29621,9 +29648,9 @@ struct CMUXCLI {
                 telemetry: telemetry
             )
             let shouldPromoteActiveSession = !isForkSessionLaunch && (isClearSessionStart || canReplaceStoppedSession)
-            let acceptedSessionId: String? = parsedInput.sessionId.flatMap { sessionId in
+            let sessionStartResult: ClaudeHookSessionStore.AuthoritativeSessionStartResult? = parsedInput.sessionId.flatMap { sessionId in
                 guard sessionId != forkParentSessionId else { return nil }
-                let accepted = (try? sessionStore.upsertAuthoritativeClaudeSessionStart(
+                return try? sessionStore.upsertAuthoritativeClaudeSessionStart(
                     sessionId: sessionId,
                     source: sessionStartSource,
                     workspaceId: workspaceId,
@@ -29634,9 +29661,9 @@ struct CMUXCLI {
                     launchCommand: launchCommand,
                     hookEventName: reportedHookEventName(from: parsedInput) ?? "SessionStart",
                     turnId: parsedInput.turnId
-                )) == true
-                return accepted ? sessionId : nil
+                )
             }
+            let acceptedSessionId = sessionStartResult?.accepted == true ? parsedInput.sessionId : nil
             guard isForkSessionLaunch || acceptedSessionId != nil else {
                 telemetry.breadcrumb("claude-hook.session-start.stale")
                 printClaudeHookAck()
@@ -29647,18 +29674,17 @@ struct CMUXCLI {
                 // previous turn's summary before any notification hook can
                 // reuse its StopFailure text for the recovered session. The
                 // accepted upsert clears these fields in the same transaction.
-                if let priorSession,
-                   priorSession.workspaceId != workspaceId || priorSession.surfaceId != surfaceId {
+                if let priorSurface = sessionStartResult?.previousOwnedSurface {
                     // A moved session leaves a physical notification/status
                     // behind on its old pane; retire that pane explicitly.
                     _ = try? sendV1Command(
-                        "clear_notifications --tab=\(priorSession.workspaceId) --panel=\(priorSession.surfaceId)",
+                        "clear_notifications --tab=\(priorSurface.workspaceId) --panel=\(priorSurface.surfaceId)",
                         client: client
                     )
                     try? setClaudeStatus(
                         client: client,
-                        workspaceId: priorSession.workspaceId,
-                        surfaceId: priorSession.surfaceId,
+                        workspaceId: priorSurface.workspaceId,
+                        surfaceId: priorSurface.surfaceId,
                         value: String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle"),
                         icon: "pause.circle.fill",
                         color: "#8E8E93"
@@ -29723,7 +29749,7 @@ struct CMUXCLI {
                     client: client,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    value: "Idle",
+                    value: String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle"),
                     icon: "pause.circle.fill",
                     color: "#8E8E93",
                     pid: claudePid

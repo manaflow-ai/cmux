@@ -159,6 +159,52 @@ struct AgentNotificationReconcilerTests {
         #expect(replacement.invalidatedCorrelationKeys.isEmpty)
     }
 
+    @Test func messagePublishedMoveReturnsOriginInvalidationAndCommitsDestination() throws {
+        var reconciler = AgentNotificationReconciler()
+        let origin = UUID().uuidString
+        let destination = UUID().uuidString
+        let error = reconciler.apply(
+            event(1, .errorReported, source: "claude", session: "old", surfaceID: origin)
+        )
+        let errorIdentity = try #require(error.identity)
+
+        let moved = reconciler.apply(
+            event(2, .messagePublished, source: "claude", session: "old", request: "push",
+                  surfaceID: destination)
+        )
+        #expect(moved.disposition == .accepted)
+        #expect(moved.invalidatedCorrelationKeys == [errorIdentity])
+
+        let replacement = reconciler.apply(
+            event(3, .sessionStarted, source: "claude", session: "new", notify: false,
+                  surfaceID: destination)
+        )
+        #expect(replacement.disposition == .observation)
+        #expect(replacement.invalidatedCorrelationKeys.isEmpty)
+        #expect(
+            reconciler.apply(
+                event(4, .errorReported, source: "claude", session: "old", surfaceID: destination)
+            ).disposition == .stale
+        )
+    }
+
+    @Test func idleObservedMoveReturnsOriginInvalidation() throws {
+        var reconciler = AgentNotificationReconciler()
+        let origin = UUID().uuidString
+        let destination = UUID().uuidString
+        let error = reconciler.apply(
+            event(1, .errorReported, source: "claude", session: "old", surfaceID: origin)
+        )
+        let errorIdentity = try #require(error.identity)
+
+        let moved = reconciler.apply(
+            event(2, .idleObserved, source: "claude", session: "old", notify: false,
+                  surfaceID: destination)
+        )
+        #expect(moved.disposition == .delayed)
+        #expect(moved.invalidatedCorrelationKeys == [errorIdentity])
+    }
+
     @Test func contextPersistsAndIdempotentAppendRejectsChangedEvidence() throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: url) }

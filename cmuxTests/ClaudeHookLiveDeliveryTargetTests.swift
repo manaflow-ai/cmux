@@ -374,6 +374,59 @@ struct ClaudeHookLiveDeliveryTargetTests {
         #expect(secondActive["sessionId"] as? String == secondSessionId)
     }
 
+    /// A superseded session may resume on another pane later. Its historical
+    /// pane is no longer owned by that session, so recovery must not clear the
+    /// replacement owner's status or notifications there.
+    @Test func resumedSupersededSessionDoesNotClearReplacementPane() throws {
+        let context = try Harness.makeContext(name: "superseded-session-resume")
+        defer { context.cleanup() }
+        let firstSessionId = "superseded-first-session"
+        let replacementSessionId = "superseded-replacement-session"
+
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [Self.liveWorkspaceId: [Self.liveSurfaceId, Self.otherSurfaceId]],
+            pidTarget: nil
+        )
+
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
+        environment["CMUX_SURFACE_ID"] = Self.liveSurfaceId
+        assertSuccessfulHook(Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(firstSessionId)","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        ))
+        assertSuccessfulHook(Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(replacementSessionId)","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        ))
+
+        let commandCountBeforeResume = context.state.snapshot().count
+        environment["CMUX_SURFACE_ID"] = Self.otherSurfaceId
+        assertSuccessfulHook(Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(firstSessionId)","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        ))
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+
+        let resumeCommands = Array(context.state.snapshot().dropFirst(commandCountBeforeResume))
+        #expect(
+            !resumeCommands.contains { command in
+                command.contains("clear_notifications --tab=\(Self.liveWorkspaceId) --panel=\(Self.liveSurfaceId)")
+                    || (command.contains("set_status claude_code Idle")
+                        && command.contains("--tab=\(Self.liveWorkspaceId)")
+                        && command.contains("--panel=\(Self.liveSurfaceId)"))
+            },
+            "Resuming a superseded session must not clear the replacement pane; saw \(resumeCommands)"
+        )
+    }
+
     /// A SessionStart without pid, explicit surface, caller tty, or an existing
     /// session record has no proof of ownership. The workspace's focused pane is
     /// only a UI fallback and must never receive another process's identity.

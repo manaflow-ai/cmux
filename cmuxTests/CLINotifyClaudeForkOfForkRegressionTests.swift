@@ -46,6 +46,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(start.timedOut, start.stderr)
         XCTAssertEqual(start.status, 0, start.stderr)
 
+        let afterStart = try readForkOfForkHookSession(sessionId, context: context)
+        XCTAssertNil(afterStart["lastSubtitle"])
+        XCTAssertNil(afterStart["lastBody"])
+        XCTAssertNil(afterStart["lastNotificationStatus"])
+        XCTAssertEqual(afterStart["runtimeStatus"] as? String, "idle")
+        XCTAssertNil(afterStart["hadPendingBackgroundWorkAtStop"])
+
         let notification = runForkOfForkHook(
             context: context,
             arguments: ["hooks", "claude", "notification"],

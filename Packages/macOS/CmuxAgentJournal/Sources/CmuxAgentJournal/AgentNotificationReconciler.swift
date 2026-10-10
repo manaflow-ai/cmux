@@ -94,7 +94,7 @@ public struct AgentNotificationReconciler: Sendable {
             // attached to this pane. Release their delivered notifications
             // through the same correlation-key path as attention resolution.
             let indexedKeys = sessionKeysBySurfaceAndAgent[boundaryKey, default: []]
-            for key in indexedKeys.sorted() where key != sessionKey {
+            for key in indexedKeys where key != sessionKey {
                 guard var candidate = sessions[key] else { continue }
                 boundaryInvalidations.append(contentsOf: candidate.delivered.values)
                 candidate.delivered.removeAll()
@@ -127,7 +127,10 @@ public struct AgentNotificationReconciler: Sendable {
         session.surfaceID = draft.surfaceId
         session.agentKey = draft.agentKey
         let context = draft.attention
-        if draft.kind == .stateChanged, draft.declaredPhase == nil { return .init(.observation) }
+        if draft.kind == .stateChanged, draft.declaredPhase == nil {
+            storeSession(session, for: sessionKey, indexKey: boundaryKey)
+            return .init(.observation, invalidatedCorrelationKeys: boundaryInvalidations)
+        }
         let incomingTurn = context?.turnIdentity
         if [.approvalRequested, .questionRequested, .planReviewRequested].contains(draft.kind),
            let request = context?.requestIdentity, session.resolvedRequests.contains(request) {
@@ -234,10 +237,20 @@ public struct AgentNotificationReconciler: Sendable {
             return .init(.stale)
         }
         if draft.kind == .messagePublished {
-            guard !session.ended else { return .init(.stale) }
-            guard context?.notification != nil else { return .init(.observation) }
+            guard !session.ended else {
+                return .init(.stale, invalidatedCorrelationKeys: boundaryInvalidations)
+            }
+            guard context?.notification != nil else {
+                storeSession(session, for: sessionKey, indexKey: boundaryKey)
+                return .init(.observation, invalidatedCorrelationKeys: boundaryInvalidations)
+            }
             let key = context?.requestIdentity ?? context?.eventIdentity ?? draft.eventId
-            return .init(.accepted, identity: Self.key([sessionKey, "message", key]))
+            storeSession(session, for: sessionKey, indexKey: boundaryKey)
+            return .init(
+                .accepted,
+                identity: Self.key([sessionKey, "message", key]),
+                invalidatedCorrelationKeys: boundaryInvalidations
+            )
         }
         if (draft.kind == .turnCompleted || draft.kind == .idleObserved), let incomingTurn,
            let nativeTurn = session.nativeTurn, incomingTurn != nativeTurn {
@@ -250,13 +263,24 @@ public struct AgentNotificationReconciler: Sendable {
         if draft.kind == .idleObserved {
             guard !draft.pendingWork, session.attentionIdentities.isEmpty, session.children.isEmpty,
                   session.phase == .idle || session.phase == .unknown,
-                  !session.ended else { return .init(.delayed, projectsLifecycle: false) }
+                  !session.ended else {
+                // Even a delayed idle observation commits a pane move so the
+                // origin receipt invalidations cannot be lost on this early exit.
+                storeSession(session, for: sessionKey, indexKey: boundaryKey)
+                return .init(
+                    .delayed,
+                    invalidatedCorrelationKeys: boundaryInvalidations,
+                    projectsLifecycle: false
+                )
+            }
             session.phase = .idle
             session.rootStopped = true
             session.occurredAtMs = max(session.occurredAtMs, draft.occurredAtMs)
             session.sequence = max(session.sequence, event.sequence)
             storeSession(session, for: sessionKey, indexKey: boundaryKey)
-            guard context?.notification != nil else { return .init(.observation) }
+            guard context?.notification != nil else {
+                return .init(.observation, invalidatedCorrelationKeys: boundaryInvalidations)
+            }
             // A structured idle reminder is a distinct presentation from the
             // completion that settled the turn. Keep the legacy completion
             // identity for generic idle observations, but admit one reminder
@@ -283,8 +307,12 @@ public struct AgentNotificationReconciler: Sendable {
                 session.completionIdentity = identity
             }
             storeSession(session, for: sessionKey, indexKey: boundaryKey)
-            return .init(.accepted, identity: identity,
-                projectsLifecycle: context?.notification?.category != "idle-reminder")
+            return .init(
+                .accepted,
+                identity: identity,
+                invalidatedCorrelationKeys: boundaryInvalidations,
+                projectsLifecycle: context?.notification?.category != "idle-reminder"
+            )
         }
         if draft.kind == .turnStarted, let incomingTurn, incomingTurn == session.turn,
            session.phase == .needsInput || session.phase == .idle { return .init(.stale) }
