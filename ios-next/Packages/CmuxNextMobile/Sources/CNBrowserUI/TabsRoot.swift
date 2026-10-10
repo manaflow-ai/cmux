@@ -1,14 +1,17 @@
 #if os(iOS)
 public import CNTransport
+import CNAgentUI
 import CNCore
 import CNTerminalUI
 public import SwiftUI
 import UIKit
 
-/// The Mac's browser tabs and terminals in one Safari-style tab grid: the
-/// same grid, zoom, pinch, swipe and toolbar as `BrowserRoot`, with terminal
-/// cards (live thumbnails), live terminals zoomed from their cards, and an
-/// All · Browser · Terminals filter.
+/// The Mac's panes on a canvas that scrolls both ways (its workspaces and
+/// splits, `layout.v1`), each pane showing its focused tab: browser tabs,
+/// terminals and agents open from their panes with the same zoom, pinch,
+/// swipe and toolbar as `BrowserRoot`. Press and hold a pane to pick one of
+/// its tabs. Without the Mac's layout it is a tab grid of browser tabs and
+/// terminals.
 public struct TabsRoot: View {
     let connection: HostConnection
     @State private var tabs: TabsModel
@@ -33,7 +36,8 @@ public struct TabsRoot: View {
             terminalFontStep: { step in
                 guard let id = tabs.activeTerminal?.id else { return }
                 terminals.handle(id).stepFontSize(by: Double(step))
-            })
+            },
+            agentContent: { id in AnyView(AgentChatView(connection: connection, sessionId: id)) })
             .onChange(of: tabs.terminals.map(\.id)) { _, ids in terminals.retain(ids) }
             .onDisappear { terminals.thumbnails.stopAll() }
     }
@@ -62,9 +66,11 @@ final class TerminalTabs {
     }
 
     func showCards(_ ids: [String]) {
-        let width = UIScreen.main.bounds.width
-        let cardWidth = ((width - 48) / 2).rounded(.down)
-        thumbnails.show(ids, cardSize: CGSize(width: cardWidth, height: cardWidth * 249.3 / 177))
+        // Page proportions: cards and panes show the page scaled to their
+        // width, so the text fills a tall pane too.
+        let screen = UIScreen.main.bounds.size
+        let cardWidth = ((screen.width - 48) / 2).rounded(.down)
+        thumbnails.show(ids, cardSize: CGSize(width: cardWidth, height: (cardWidth * screen.height / max(1, screen.width)).rounded()))
     }
 
     /// Drops handles and thumbnails of terminals that are gone.

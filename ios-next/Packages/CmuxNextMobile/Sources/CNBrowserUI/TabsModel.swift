@@ -9,19 +9,29 @@ import UIKit
 enum TabItem: Identifiable, Hashable {
     case browser(BrowserTab)
     case terminal(Terminal)
+    /// An agent session (Mac layout tab).
+    case agent(id: String, title: String, preview: String?)
+    /// A Mac tab the phone cannot open live (a CEF browser pane, a
+    /// conversation, an unknown kind): shown as a placeholder.
+    case macOnly(LayoutTab)
 
     static let terminalPrefix = "term:"
+    static let agentPrefix = "agent:"
+    static let macPrefix = "mac:"
 
     /// Grid key. Browser tabs keep their tab id (the browser screen's own
-    /// keys); terminals are prefixed so the two id spaces never collide.
+    /// keys); the others are prefixed so the id spaces never collide.
     var id: String {
         switch self {
         case .browser(let t): t.id
         case .terminal(let t): Self.terminalPrefix + t.id
+        case .agent(let id, _, _): Self.agentPrefix + id
+        case .macOnly(let t): Self.macPrefix + t.id
         }
     }
 
     var isTerminal: Bool { if case .terminal = self { true } else { false } }
+    var isBrowser: Bool { if case .browser = self { true } else { false } }
     var browserTab: BrowserTab? { if case .browser(let t) = self { t } else { nil } }
     var terminal: Terminal? { if case .terminal(let t) = self { t } else { nil } }
 
@@ -29,11 +39,26 @@ enum TabItem: Identifiable, Hashable {
         switch self {
         case .browser(let t): t.title.isEmpty ? t.displayHost : t.title
         case .terminal(let t): t.title.isEmpty ? "Terminal" : t.title
+        case .agent(_, let title, _): title.isEmpty ? "Agent" : title
+        case .macOnly(let t): t.title.isEmpty ? (t.url ?? "Tab") : t.title
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .browser: "globe"
+        case .terminal: "apple.terminal"
+        case .agent: "sparkles"
+        case .macOnly(let t): t.kind == .browser ? "globe" : "macwindow"
         }
     }
 
     static func terminalId(fromKey key: String) -> String? {
         key.hasPrefix(terminalPrefix) ? String(key.dropFirst(terminalPrefix.count)) : nil
+    }
+
+    static func isBrowserKey(_ key: String) -> Bool {
+        !key.hasPrefix(terminalPrefix) && !key.hasPrefix(agentPrefix) && !key.hasPrefix(macPrefix)
     }
 }
 
@@ -49,8 +74,14 @@ final class TabsModel {
     private(set) var terminals: [Terminal] = []
     /// Item keys in grid order.
     private(set) var order: [String] = []
-    /// The selected terminal's key; nil while a browser tab is selected.
+    /// The selected non-browser item's key (terminal, agent, Mac-only);
+    /// nil while a browser tab is selected.
     private(set) var activeTerminalKey: String?
+    /// The Mac's workspaces and panes (`layout.v1`); nil without it.
+    private(set) var layout: MacLayout?
+    private(set) var agentSessions: [AgentSession] = []
+    /// Whether the host serves the Mac's own browser tabs (`browser.mac.v1`).
+    var browserAccess: BrowserMacStatus?
     private(set) var terminalThumbnails: [String: UIImage] = [:]
     var notice: String? {
         get { browser.notice }
@@ -70,39 +101,18 @@ final class TabsModel {
 
     // MARK: Items
 
-    /// Which kinds the grid shows (the tabs screen's All · Browser · Terminals).
-    enum Filter: String, CaseIterable, Sendable {
-        case all, browser, terminals
-        var title: String {
-            switch self {
-            case .all: "All"
-            case .browser: "Browser"
-            case .terminals: "Terminals"
-            }
-        }
-    }
-
-    private static let filterKey = "cmuxNext.tabs.filter"
-    /// Remembered per device.
-    var filter: Filter = Filter(rawValue: UserDefaults.standard.string(forKey: TabsModel.filterKey) ?? "") ?? .all {
-        didSet { UserDefaults.standard.set(filter.rawValue, forKey: Self.filterKey) }
-    }
-
-    /// The grid's cards: every item, narrowed by `filter`.
+    /// The cards in order. With the Mac's layout: each pane's focused tab,
+    /// panes in layout order (what the toolbar swipe walks through);
+    /// otherwise the grid's items.
     var items: [TabItem] {
-        guard includesTerminals, filter != .all else { return allItems }
-        return allItems.filter { $0.isTerminal == (filter == .terminals) }
-    }
-
-    func count(_ f: Filter) -> Int {
-        switch f {
-        case .all: allItems.count
-        case .browser: browser.tabs.count
-        case .terminals: includesTerminals ? terminals.count : 0
+        if includesTerminals, let layout {
+            var seen = Set<String>()
+            return layout.workspaces.flatMap(\.panes).compactMap { $0.focusedTab.map(item(for:)) }.filter { seen.insert($0.id).inserted }
         }
+        return allItems
     }
 
-    /// Every item in grid order, ignoring the filter.
+    /// Browser tabs and terminals in grid order.
     var allItems: [TabItem] {
         var byKey: [String: TabItem] = [:]
         for t in browser.tabs { byKey[t.id] = .browser(t) }
@@ -115,12 +125,76 @@ final class TabsModel {
     }
 
     var activeKey: String? { activeTerminalKey ?? browser.activeTabId }
-    var activeItem: TabItem? { allItems.first { $0.id == activeKey } }
+    var activeItem: TabItem? { activeKey.flatMap(item) }
     var activeIndex: Int? { items.firstIndex { $0.id == activeKey } }
     var activeTerminal: Terminal? { activeItem?.terminal }
     var loaded: Bool { browser.loaded }
 
-    func item(_ key: String) -> TabItem? { allItems.first { $0.id == key } }
+    func item(_ key: String) -> TabItem? {
+        if let i = allItems.first(where: { $0.id == key }) { return i }
+        for ws in layout?.workspaces ?? [] { for p in ws.panes { for t in p.tabs where itemKey(t) == key { return item(for: t) } } }
+        return nil
+    }
+
+    // MARK: Mac layout
+
+    /// The item a layout tab shows.
+    func item(for tab: LayoutTab) -> TabItem {
+        switch tab.kind {
+        case .terminal:
+            if let id = tab.refId, let t = terminals.first(where: { $0.id == id }) { return .terminal(t) }
+        case .browser:
+            if tab.streamable, let id = tab.refId, let t = browser.tabs.first(where: { $0.id == id }) { return .browser(t) }
+        case .agent:
+            if let id = tab.refId {
+                let s = agentSessions.first { $0.id == id }
+                return .agent(id: id, title: s?.title ?? tab.title, preview: s?.preview)
+            }
+        default:
+            break
+        }
+        return .macOnly(tab)
+    }
+
+    func itemKey(_ tab: LayoutTab) -> String { item(for: tab).id }
+
+    /// The pane that shows `key`, preferring a pane where it is focused.
+    func pane(showing key: String) -> LayoutPane? {
+        let panes = layout?.workspaces.flatMap(\.panes) ?? []
+        return panes.first { p in p.focusedTab.map(itemKey) == key } ?? panes.first { p in p.tabs.contains { itemKey($0) == key } }
+    }
+
+    /// A new layout snapshot. An open Mac-only tab that became live (browser
+    /// access turned on) switches to its live page.
+    func applyLayout(_ l: MacLayout) {
+        layout = l
+        promoteMacTab()
+    }
+
+    private func promoteMacTab() {
+        guard let l = layout, let key = activeTerminalKey, key.hasPrefix(TabItem.macPrefix) else { return }
+        let tabId = String(key.dropFirst(TabItem.macPrefix.count))
+        if let tab = l.workspaces.flatMap(\.panes).flatMap(\.tabs).first(where: { $0.id == tabId }) {
+            let now = itemKey(tab)
+            if now != key { select(now) }
+        } else {
+            activeTerminalKey = nil
+        }
+    }
+
+    /// Focuses `tab` in its pane on the Mac (and here at once).
+    func focus(paneId: String, tab: LayoutTab) {
+        if var l = layout {
+            for w in l.workspaces.indices {
+                for p in l.workspaces[w].panes.indices where l.workspaces[w].panes[p].id == paneId {
+                    l.workspaces[w].panes[p].focusedTabId = tab.id
+                    for t in l.workspaces[w].panes[p].tabs.indices { l.workspaces[w].panes[p].tabs[t].focused = l.workspaces[w].panes[p].tabs[t].id == tab.id }
+                }
+            }
+            layout = l
+        }
+        Task { try? await connection.client?.focusLayoutTab(paneId: paneId, tabId: tab.id) }
+    }
 
     /// Appends keys the order has not seen, keeping the existing order.
     private func syncOrder(initial: Bool = false) {
@@ -143,6 +217,10 @@ final class TabsModel {
         await browser.reload()
         if includesTerminals, let client = connection.client {
             if let list = try? await client.listTerminals() { terminals = list }
+            let caps = connection.hostInfo
+            if caps?.supports(.layout) ?? false { layout = try? await client.layout() }
+            if caps?.supports(.agent) ?? true, let sessions = try? await client.listAgentSessions() { agentSessions = sessions }
+            if caps?.supports(.browserMac) ?? false { browserAccess = try? await client.browserMacStatus() }
         }
         syncOrder(initial: true)
         if let key = activeTerminalKey, item(key) == nil { activeTerminalKey = nil }
@@ -156,10 +234,13 @@ final class TabsModel {
             if let i = terminals.firstIndex(where: { $0.id == t.id }) { terminals[i] = t } else { terminals.append(t) }
         case .terminalExited(let id, _):
             if let i = terminals.firstIndex(where: { $0.id == id }) { terminals[i].running = false }
+        case .agentSession(let a):
+            if let i = agentSessions.firstIndex(where: { $0.id == a.id }) { agentSessions[i] = a } else { agentSessions.append(a) }
         default:
             break
         }
         syncOrder()
+        promoteMacTab()
         if let key = activeTerminalKey, item(key) == nil { activeTerminalKey = nil }
     }
 
@@ -168,7 +249,7 @@ final class TabsModel {
     /// Shows `key`. Selecting a terminal stops the browser stream; selecting
     /// a browser tab attaches it again.
     func select(_ key: String) {
-        if TabItem.terminalId(fromKey: key) != nil {
+        if !TabItem.isBrowserKey(key) {
             guard activeTerminalKey != key else { return }
             activeTerminalKey = key
             browser.detachAll()
@@ -242,24 +323,25 @@ final class TabsModel {
 
     /// A drawer row asked for `key` (browser tab id, or a terminal key).
     func open(key: String) {
-        if TabItem.terminalId(fromKey: key) != nil { select(key) } else { activeTerminalKey = nil; browser.open(tabId: key) }
+        if !TabItem.isBrowserKey(key) { select(key) } else { activeTerminalKey = nil; browser.open(tabId: key) }
     }
 
     // MARK: Cards
 
     func requestThumbnail(_ key: String) {
-        guard TabItem.terminalId(fromKey: key) == nil else { return }
+        guard TabItem.isBrowserKey(key) else { return }
         browser.requestThumbnail(key)
     }
 
     func showsStartPage(_ key: String?) -> Bool {
         guard let key else { return true }
-        if TabItem.terminalId(fromKey: key) != nil { return false }
+        if !TabItem.isBrowserKey(key) { return false }
         return browser.showsStartPage(key)
     }
 
     func cardImage(_ key: String) -> UIImage? {
         if let id = TabItem.terminalId(fromKey: key) { return terminalImage?(id) ?? terminalThumbnails[key] }
+        if !TabItem.isBrowserKey(key) { return nil }
         return browser.cardImage(key)
     }
 

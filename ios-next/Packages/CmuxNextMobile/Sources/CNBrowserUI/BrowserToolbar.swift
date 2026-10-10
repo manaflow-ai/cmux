@@ -50,10 +50,9 @@ struct ToolbarLayout {
 struct BrowserToolbar: View {
     @Bindable var chrome: BrowserChromeState
     var tab: BrowserTab?
-    /// A terminal tab: the capsule shows its title and `host ~/cwd`; no
-    /// back/forward, no reload, no address editing.
-    var terminal: Terminal? = nil
-    var terminalHost: String = ""
+    /// A terminal, agent or Mac-only tab: the capsule shows its title and a
+    /// subtitle (`host ~/cwd`); no back/forward, no reload, no address editing.
+    var local: LocalPageTitle? = nil
     var showsStartPage: Bool
     var size: CGSize
     var safeBottom: CGFloat
@@ -82,7 +81,7 @@ struct BrowserToolbar: View {
     var body: some View {
         let layout = ToolbarLayout.make(size: size, safeBottom: safeBottom, keyboard: keyboard, bar: chrome.bar,
                                         editing: chrome.editing, splitBack: splitBack, labelWidth: labelWidth,
-                                        noBack: terminal != nil)
+                                        noBack: local != nil)
         let sideOpacity: Double = chrome.sidesVisible && !chrome.editing ? 1 : 0
         // Separate glass shapes (no container): a container renders its
         // shapes together and ignores per-shape opacity, which the side
@@ -90,10 +89,10 @@ struct BrowserToolbar: View {
         ZStack(alignment: .topLeading) {
             backButton(layout.back)
                 .scaleEffect(collapsed ? 0.8 : 1)
-                .opacity(terminal == nil ? sideOpacity : 0)
+                .opacity(local == nil ? sideOpacity : 0)
                 .position(x: layout.back.midX, y: layout.back.midY)
-                .allowsHitTesting(sideOpacity > 0 && terminal == nil)
-                .accessibilityHidden(sideOpacity == 0 || terminal != nil)
+                .allowsHitTesting(sideOpacity > 0 && local == nil)
+                .accessibilityHidden(sideOpacity == 0 || local != nil)
             capsule(layout.capsule)
                 .position(x: layout.capsule.midX, y: layout.capsule.midY)
             rightButton(layout.right)
@@ -117,7 +116,7 @@ struct BrowserToolbar: View {
     }
 
     private var labelText: String {
-        if let terminal { return terminal.title.isEmpty ? "Terminal" : terminal.title }
+        if let local { return local.title }
         guard let tab, !showsStartPage else { return "Search or enter website" }
         return tab.searchQuery ?? tab.displayHost
     }
@@ -207,8 +206,8 @@ struct BrowserToolbar: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityLabel("Page Menu")
 
-            if let terminal {
-                terminalLabel(terminal, r)
+            if let local {
+                localLabel(local, r)
             } else if !chrome.editing {
                 label(r)
             } else {
@@ -245,9 +244,9 @@ struct BrowserToolbar: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(style.colors.label)
-            .opacity(showsStartPage || terminal != nil ? 0 : glyphOpacity)
-            .allowsHitTesting(!collapsed && !chrome.editing && !showsStartPage && terminal == nil)
-            .accessibilityHidden(collapsed || chrome.editing || showsStartPage || terminal != nil)
+            .opacity(showsStartPage || local != nil ? 0 : glyphOpacity)
+            .allowsHitTesting(!collapsed && !chrome.editing && !showsStartPage && local == nil)
+            .accessibilityHidden(collapsed || chrome.editing || showsStartPage || local != nil)
             .frame(maxWidth: .infinity, alignment: .trailing)
             .accessibilityLabel(tab?.loading == true ? "Stop" : "Reload")
         }
@@ -285,20 +284,18 @@ struct BrowserToolbar: View {
         .accessibilityElement(children: .contain)
     }
 
-    /// Terminal title over `host ~/cwd`; collapses to the title like the URL.
-    @ViewBuilder private func terminalLabel(_ t: Terminal, _ r: CGRect) -> some View {
-        let cwd = t.cwd.isEmpty ? "" : t.cwd
-        let subtitle = terminalHost.isEmpty ? cwd : (cwd.isEmpty ? terminalHost : "\(terminalHost) \(cwd)")
+    /// Title over a subtitle (`host ~/cwd` for terminals); collapses to the title like the URL.
+    @ViewBuilder private func localLabel(_ t: LocalPageTitle, _ r: CGRect) -> some View {
         Button {
             if collapsed { chrome.expand(tap: true) } else { onMenu() }
         } label: {
             VStack(spacing: 0) {
-                Text(t.title.isEmpty ? "Terminal" : t.title)
+                Text(t.title)
                     .font(.system(size: collapsed ? 13 : 15, weight: .semibold))
                     .lineLimit(1)
-                if !collapsed, !subtitle.isEmpty {
-                    Text(subtitle)
-                        .font(.system(size: 11, weight: .regular).monospaced())
+                if !collapsed, !t.subtitle.isEmpty {
+                    Text(t.subtitle)
+                        .font(t.monospaced ? .system(size: 11).monospaced() : .system(size: 11))
                         .foregroundStyle(style.colors.secondaryLabel)
                         .lineLimit(1)
                         .truncationMode(.head)
@@ -309,7 +306,7 @@ struct BrowserToolbar: View {
             .contentShape(.rect)
         }
         .buttonStyle(GlassContentButtonStyle())
-        .accessibilityLabel("Terminal, \(t.title), \(subtitle)")
+        .accessibilityLabel("\(t.title), \(t.subtitle)")
     }
 
     @ViewBuilder private func label(_ r: CGRect) -> some View {
@@ -373,6 +370,13 @@ struct BrowserToolbar: View {
             }
         }
     }
+}
+
+/// The capsule's title for a page that is not a browser tab.
+struct LocalPageTitle: Equatable {
+    var title: String
+    var subtitle: String
+    var monospaced = false
 }
 
 /// Glass buttons highlight through the interactive glass itself; the

@@ -30,6 +30,8 @@ struct TabsScreenHost: View {
     let connection: HostConnection
     var terminalContent: (String, CGSize?) -> AnyView = { _, _ in AnyView(Color.black) }
     var terminalFontStep: (Int) -> Void = { _ in }
+    /// Live agent session content (the tabs root wires the agent module).
+    var agentContent: (String) -> AnyView = { _ in AnyView(Color.clear) }
 
     private var model: BrowserModel { tabs.browser }
 
@@ -44,7 +46,8 @@ struct TabsScreenHost: View {
                     BrowserScreen(tabs: tabs, size: full.size, safeTop: outer.safeAreaInsets.top,
                                   safeBottom: outer.safeAreaInsets.bottom,
                                   keyboard: kb > outer.safeAreaInsets.bottom + 1 ? kb : 0,
-                                  terminalContent: terminalContent, terminalFontStep: terminalFontStep)
+                                  terminalContent: terminalContent, agentContent: agentContent,
+                                  terminalFontStep: terminalFontStep)
                 }
                 .ignoresSafeArea()
             }
@@ -62,6 +65,18 @@ struct TabsScreenHost: View {
         .task {
             for await event in connection.events(topic: HostTopic.browserDetached.rawValue) {
                 if let detached = try? event.decode(BrowserDetachedEvent.self) { model.handleDetached(detached) }
+            }
+        }
+        .task {
+            guard tabs.includesTerminals else { return }
+            for await event in connection.events(topic: HostTopic.layoutChanged.rawValue) {
+                if let changed = try? event.decode(LayoutResult.self) { tabs.applyLayout(changed.layout) }
+            }
+        }
+        .task {
+            guard tabs.includesTerminals else { return }
+            for await event in connection.events(topic: HostTopic.browserMacStatus.rawValue) {
+                if let status = try? event.decode(BrowserMacStatus.self) { tabs.browserAccess = status }
             }
         }
         .onDisappear { model.detachAll() }
@@ -117,6 +132,16 @@ struct BrowserScreen: View {
     /// Card images, captured when the overview opens so the hidden grid does
     /// not re-render on every live frame.
     @State private var overviewImages: [String: UIImage] = [:]
+    /// Pane canvas (Mac layout): the pane the zoom flies to or from.
+    @State private var zoomPaneId: String?
+    /// The zoom's card end while it is not a pane (a picker card).
+    @State private var zoomCardOverride: CGRect?
+    @State private var canvasOrigin: CGPoint?
+    @State private var canvasScroll: CGPoint = .zero
+    @State private var canvasPosition = ScrollPosition(point: .zero)
+    /// Press-and-hold tab picker over the canvas.
+    @State private var picker: PaneTabPickerState?
+    @State private var pickerShown: Double = 0
     @Environment(\.cnLeadingBarItem) private var leadingItem
     @Environment(\.cnShellRoute) private var shellRoute
     @Environment(\.displayScale) private var displayScale
@@ -125,10 +150,20 @@ struct BrowserScreen: View {
     private var motion: BrowserMotion { style.motion }
     private var fullRect: CGRect { CGRect(origin: .zero, size: size) }
 
-    private var displaced: Bool { tabs.activeTerminal == nil && model.displacedTabId != nil && model.displacedTabId == model.activeTabId }
+    private var displaced: Bool { tabs.activeTerminalKey == nil && model.displacedTabId != nil && model.displacedTabId == model.activeTabId }
 
     /// Live terminal content for a terminal tab (from the tabs root).
     var terminalContent: (String, CGSize?) -> AnyView = { _, _ in AnyView(Color.black) }
+    /// Live agent session content for an agent tab (from the tabs root).
+    var agentContent: (String) -> AnyView = { _ in AnyView(Color.clear) }
+
+    /// The overview is the Mac's panes (layout.v1) instead of a tab grid.
+    private var canvasMode: Bool { tabs.includesTerminals && tabs.layout != nil }
+
+    private var canvasGeometry: PaneCanvasLayout {
+        guard let layout = tabs.layout else { return PaneCanvasLayout() }
+        return PaneCanvasLayout(layout: layout, width: size.width, top: safeTop + 56, bottom: overviewLayout.barRect.height + safeBottom + 40)
+    }
 
     private var showsStartPage: Bool { creatingTab || tabs.showsStartPage(tabs.activeKey) }
 
@@ -161,6 +196,8 @@ struct BrowserScreen: View {
     /// scroll position), or the layout at the last known offset before the
     /// grid has reported.
     private func zoomEndpoint() -> CGRect {
+        if let zoomCardOverride { return zoomCardOverride }
+        if canvasMode { return paneEndpoint() }
         let index: Int
         if zoomTabId == Self.newTabMarker {
             index = tabs.items.count
@@ -171,10 +208,39 @@ struct BrowserScreen: View {
         return grid.zoomEndpoint(index, contentOrigin: gridContentOrigin, fallbackOffset: overviewScroll)
     }
 
+    /// The zooming tab's pane on screen: its canvas frame through the
+    /// canvas's reported content origin (or the last known scroll offset).
+    /// A tab in no pane zooms to a centered card.
+    private func paneEndpoint() -> CGRect {
+        let geometry = canvasGeometry
+        if let id = zoomPaneId ?? zoomTabId.flatMap({ tabs.pane(showing: $0)?.id }), let f = geometry.paneFrame(id) {
+            let origin = canvasOrigin ?? CGPoint(x: -canvasScroll.x, y: -canvasScroll.y)
+            return f.offsetBy(dx: origin.x, dy: origin.y)
+        }
+        let w = size.width * 0.5
+        return CGRect(x: (size.width - w) / 2, y: (size.height - w * size.height / max(1, size.width)) / 2,
+                      width: w, height: w * size.height / max(1, size.width))
+    }
+
+    private var activeLocalTitle: LocalPageTitle? {
+        switch tabs.activeItem {
+        case .terminal(let t)?:
+            let host = tabs.connection.hostInfo?.hostName ?? ""
+            let cwd = t.cwd.isEmpty ? host : (host.isEmpty ? t.cwd : "\(host)  \(t.cwd)")
+            return LocalPageTitle(title: t.title.isEmpty ? "Terminal" : t.title, subtitle: cwd, monospaced: true)
+        case .agent(_, let title, _)?:
+            return LocalPageTitle(title: title.isEmpty ? "Agent" : title, subtitle: "Agent")
+        case .macOnly(let t)?:
+            return LocalPageTitle(title: t.title.isEmpty ? "Untitled" : t.title, subtitle: t.url.flatMap { URL(string: $0)?.host() } ?? "On your Mac")
+        default:
+            return nil
+        }
+    }
+
     var body: some View {
         let layout = ToolbarLayout.make(size: size, safeBottom: safeBottom, keyboard: keyboard, bar: chrome.bar,
                                         editing: chrome.editing, splitBack: model.activeTab?.canGoForward == true, labelWidth: 69,
-                                        noBack: tabs.activeTerminal != nil)
+                                        noBack: tabs.activeTerminalKey != nil)
         ZStack(alignment: .topLeading) {
             pageLayer
                 .frame(width: size.width, height: size.height)
@@ -186,7 +252,29 @@ struct BrowserScreen: View {
 
             // Kept mounted (hidden) so opening it does not pay for building
             // the grid on the first animation frame.
-            if tabs.loaded {
+            if tabs.loaded, canvasMode {
+                PaneCanvas(tabs: tabs, geometry: canvasGeometry, size: size, safeTop: safeTop, shown: overviewShown,
+                           detailsOpacity: overviewDetails,
+                           hiddenPaneId: picker.map(\.paneId) ?? (zoomState.phase == .overview ? nil : zoomPaneId),
+                           interactive: zoomState.gridInteractive && picker == nil,
+                           position: $canvasPosition, scroll: $canvasScroll,
+                           leadingItem: leadingItem,
+                           onTap: { openPane($0) },
+                           onHold: { paneHold($0, $1) },
+                           onNewTab: newTabFromOverview,
+                           onNewTerminal: { newTerminalFromOverview() },
+                           onDone: { closeOverview(selecting: tabs.activeKey) },
+                           onContentOrigin: { origin in if canvasOrigin != origin { canvasOrigin = origin } })
+                    .blur(radius: 14 * pickerShown)
+                    .opacity(overviewVisible ? 1 : 0)
+                    .allowsHitTesting(overviewVisible)
+                    .accessibilityHidden(!zoomState.gridInteractive || picker != nil)
+                if let picker {
+                    PaneTabPicker(tabsModel: tabs, state: picker, shown: pickerShown, size: size, safeTop: safeTop,
+                                  onTapCard: { openFromPicker($0) }, onDismiss: dismissPicker,
+                                  onDrag: { pickerDrag($0, predicted: $1, base: $2) })
+                }
+            } else if tabs.loaded {
                 TabOverview(tabs: tabs, images: overviewImages, layout: overviewLayout, shown: overviewShown, detailsOpacity: overviewDetails,
                             hiddenTabId: zoomState.phase == .overview ? nil : zoomTabId,
                             gridInteractive: zoomState.gridInteractive,
@@ -213,7 +301,12 @@ struct BrowserScreen: View {
                 let g = zoomGeometry()
                 let content = zoomContent()
                 Group {
-                    if content.terminal, let id = zoomTabId.flatMap(TabItem.terminalId(fromKey:)) {
+                    if let item = zoomTabId.flatMap(tabs.item), case .macOnly(let t) = item {
+                        localPageScaled(MacOnlyPage(tab: t, status: tabs.browserAccess, hostName: hostName, safeTop: safeTop, safeBottom: safeBottom), g.rect)
+                    } else if let item = zoomTabId.flatMap(tabs.item), case .agent(let id, _, _) = item {
+                        // The live session laid out at full page size, scaled to the rect.
+                        localPageScaled(agentContent(id).padding(.bottom, safeBottom + 64).background(Color.cn(\.elevated)), g.rect)
+                    } else if content.terminal, let id = zoomTabId.flatMap(TabItem.terminalId(fromKey:)) {
                         // The live terminal laid out at full page size, scaled to the rect.
                         let scale = size.width > 0 ? max(0.01, g.rect.width / size.width) : 1
                         terminalContent(id, CGSize(width: size.width, height: size.height - safeTop - safeBottom - 64))
@@ -243,8 +336,7 @@ struct BrowserScreen: View {
                     .allowsHitTesting(false)
             }
 
-            BrowserToolbar(chrome: chrome, tab: model.activeTab, terminal: tabs.activeTerminal,
-                           terminalHost: tabs.connection.hostInfo?.hostName ?? "",
+            BrowserToolbar(chrome: chrome, tab: model.activeTab, local: activeLocalTitle,
                            showsStartPage: showsStartPage, size: size, safeBottom: safeBottom,
                            keyboard: keyboard,
                            onBack: model.goBack, onForward: model.goForward, onReload: model.reloadOrStop,
@@ -324,26 +416,62 @@ struct BrowserScreen: View {
         .onChange(of: model.thumbnails) { _, _ in if overviewVisible { captureOverviewImages() } }
         #if DEBUG
         .task(id: model.activeFrame != nil) { await debugPinchScript() }
+        .task(id: tabs.layout != nil) { await debugHoldScript() }
         #endif
         .onChange(of: size.width, initial: true) { _, w in zoomDriver.span = Double(w - overviewLayout.cardWidth) }
+        // The reversal jump is in points of the zoom's span: on the canvas
+        // the span is the zooming pane's.
+        .onChange(of: zoomPaneId) { _, id in
+            guard canvasMode, id != nil else { return }
+            zoomDriver.span = Double(max(1, size.width - paneEndpoint().width))
+        }
         .onAppear {
             zoomDriver.onSettle = { phase in
                 if phase == .page {
                     zoomTabId = nil
+                    zoomPaneId = nil
+                    zoomCardOverride = nil
                     chrome.expand(tap: true)
                 }
             }
         }
         .onChange(of: tabs.items.isEmpty) { _, empty in
             // Closing the last tab opens a fresh start page, as Safari does.
-            if empty, tabs.loaded, !overviewVisible { Task { await tabs.newBrowserTab() } }
+            if empty, tabs.loaded, !canvasMode, !overviewVisible { Task { await tabs.newBrowserTab() } }
         }
     }
 
     // MARK: Page
 
+    private var hostName: String { tabs.connection.hostInfo?.hostName ?? "" }
+
+    /// A local page (agent, Mac-only) laid out at full size, scaled into `rect`.
+    private func localPageScaled(_ page: some View, _ rect: CGRect) -> some View {
+        let scale = size.width > 0 ? max(0.01, rect.width / size.width) : 1
+        return page
+            .frame(width: size.width, height: size.height, alignment: .top)
+            .scaleEffect(scale, anchor: .topLeading)
+            .frame(width: max(1, rect.width), height: max(1, rect.height), alignment: .topLeading)
+            .clipped()
+    }
+
     @ViewBuilder private var pageLayer: some View {
-        if let terminal = tabs.activeTerminal, !chrome.swiping {
+        if case .macOnly(let t)? = tabs.activeItem, !chrome.swiping {
+            if zoomState.phase == .page {
+                MacOnlyPage(tab: t, status: tabs.browserAccess, hostName: hostName, safeTop: safeTop, safeBottom: safeBottom)
+            } else {
+                style.colors.startBackground
+            }
+        } else if case .agent(let id, _, _)? = tabs.activeItem, !chrome.swiping {
+            if zoomState.phase == .page {
+                agentContent(id)
+                    .padding(.bottom, safeBottom + 64)
+                    .frame(width: size.width, height: size.height)
+                    .background(Color.cn(\.elevated))
+            } else {
+                Color.cn(\.elevated)
+            }
+        } else if let terminal = tabs.activeTerminal, !chrome.swiping {
             // A terminal tab: its live terminal fills the page (the terminal
             // module's embeddable view), under the same floating toolbar.
             // While a zoom runs the overlay draws it instead (one view per
@@ -519,6 +647,20 @@ struct BrowserScreen: View {
                 ],
             ]
         }
+        if case .macOnly(let t)? = tabs.activeItem {
+            let url = t.url.flatMap { URL(string: $0) }
+            return [[
+                PageMenuItem(title: "Share", symbol: "square.and.arrow.up", enabled: url != nil, action: menuAction {
+                    if let url { ShareSheetPresenter().share(url) }
+                }),
+                PageMenuItem(title: "Copy URL", symbol: "doc.on.doc", enabled: url != nil, action: menuAction {
+                    UIPasteboard.general.string = t.url
+                }),
+            ]]
+        }
+        if case .agent? = tabs.activeItem {
+            return [[PageMenuItem(title: "Show All Panes", symbol: "square.grid.2x2", action: menuAction(openOverview))]]
+        }
         let tab = model.activeTab
         let desktop = model.isDesktop(model.activeTabId)
         return [
@@ -578,6 +720,10 @@ struct BrowserScreen: View {
         chrome.pageKeyboard = false
         tabs.refreshThumbnails()
         captureOverviewImages()
+        if canvasMode {
+            revealZoomPane()
+            return
+        }
         // Safari: before the page shrinks into its card, the grid jumps (no
         // animation) so the card is fully on screen (OverviewLayout.offset(revealing:from:)).
         let grid = OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: count)
@@ -593,9 +739,8 @@ struct BrowserScreen: View {
 
     /// Tabs button: page -> grid, or reverse a zoom that is heading to the page.
     private func openOverview() {
+        zoomCardOverride = nil
         if zoomState.phase == .page {
-            // The active tab must be in the grid to zoom into its card.
-            if let key = tabs.activeKey, !tabs.items.contains(where: { $0.id == key }) { tabs.filter = .all }
             zoomTabId = tabs.activeKey
             prepareOverview(revealing: tabs.activeIndex ?? 0, count: tabs.items.count)
         }
@@ -618,8 +763,127 @@ struct BrowserScreen: View {
             }
             if tabId != tabs.activeKey { tabs.select(tabId) }
             zoomTabId = tabId
+            if canvasMode { zoomPaneId = tabs.pane(showing: tabId)?.id }
         }
         zoomDriver.go(toOverview: false)
+    }
+
+    // MARK: Pane canvas
+
+    /// Before the page shrinks into its pane, the canvas jumps (no
+    /// animation) so the pane is fully on screen.
+    private func revealZoomPane() {
+        zoomPaneId = zoomTabId.flatMap { tabs.pane(showing: $0)?.id }
+        guard let id = zoomPaneId else { return }
+        let bar = overviewLayout.barRect
+        let target = canvasGeometry.offset(revealing: id, from: canvasScroll, viewport: size,
+                                           topInset: safeTop + 56, bottomInset: size.height - bar.minY + 12)
+        if abs(target.x - canvasScroll.x) > 0.5 || abs(target.y - canvasScroll.y) > 0.5 {
+            var t = Transaction()
+            t.disablesAnimations = true
+            withTransaction(t) { canvasPosition = ScrollPosition(point: target) }
+            canvasScroll = target
+            canvasOrigin = nil
+        }
+    }
+
+    /// Tap on a pane: open its focused tab.
+    private func openPane(_ paneId: String) {
+        guard zoomState.phase == .overview, picker == nil,
+              let pane = tabs.layout?.workspaces.flatMap(\.panes).first(where: { $0.id == paneId }),
+              let tab = pane.focusedTab else { return }
+        let key = tabs.itemKey(tab)
+        if key != tabs.activeKey { tabs.select(key) }
+        zoomTabId = key
+        zoomPaneId = paneId
+        zoomCardOverride = nil
+        zoomDriver.go(toOverview: false)
+    }
+
+    private var pickerSpring: Animation { motion.resolve(.spring(response: ZoomSpring.toOverview.response, dampingFraction: ZoomSpring.toOverview.damping)) }
+
+    /// Press and hold on a pane: its tabs open as a paged list; sliding
+    /// without lifting scrubs, lifting after a slide opens that tab.
+    private func paneHold(_ paneId: String, _ phase: PaneHoldPhase) {
+        switch phase {
+        case .began:
+            guard zoomState.phase == .overview, picker == nil,
+                  let pane = tabs.layout?.workspaces.flatMap(\.panes).first(where: { $0.id == paneId }), !pane.tabs.isEmpty,
+                  let frame = canvasGeometry.paneFrame(paneId) else { return }
+            let origin = canvasOrigin ?? CGPoint(x: -canvasScroll.x, y: -canvasScroll.y)
+            let start = pane.tabs.firstIndex { $0.id == pane.focusedTab?.id } ?? 0
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            for t in pane.tabs { tabs.requestThumbnail(tabs.itemKey(t)) }
+            tabs.showTerminalCards?(pane.tabs.compactMap { tabs.item(for: $0).terminal?.id })
+            picker = PaneTabPickerState(paneId: paneId, tabs: pane.tabs, paneFrame: frame.offsetBy(dx: origin.x, dy: origin.y),
+                                        position: CGFloat(start), startIndex: start)
+            withAnimation(pickerSpring) { pickerShown = 1 }
+        case .moved(let dx):
+            guard var p = picker, p.holding, p.paneId == paneId else { return }
+            if abs(dx) > PaneTabPickerState.slop { p.moved = true }
+            let before = p.index
+            p.position = PaneTabPickerState.position(base: p.startIndex, dx: dx, pitch: PaneTabPickerState.scrubPitch, count: p.tabs.count)
+            if p.index != before { UISelectionFeedbackGenerator().selectionChanged() }
+            picker = p
+        case .ended:
+            guard var p = picker, p.holding, p.paneId == paneId else { return }
+            if p.moved {
+                openFromPicker(p.index)
+            } else {
+                // Lifted without sliding: the list stays to swipe and tap.
+                p.holding = false
+                picker = p
+                withAnimation(pickerSpring) { picker?.position = CGFloat(p.index) }
+            }
+        }
+    }
+
+    /// Swipes on the list once the finger lifted (1:1, snapping to a tab).
+    private func pickerDrag(_ dx: CGFloat, predicted: CGFloat?, base: Int) {
+        guard var p = picker, !p.holding, !p.launched else { return }
+        let pitch = PaneTabPickerLayout(size: size, safeTop: safeTop).pitch
+        let before = p.index
+        if let predicted {
+            let target = (CGFloat(base) - predicted / pitch).rounded()
+            let index = Int(min(CGFloat(p.tabs.count - 1), max(0, min(CGFloat(base + 1), max(CGFloat(base - 1), target)))))
+            if index != before { UISelectionFeedbackGenerator().selectionChanged() }
+            withAnimation(pickerSpring) { picker?.position = CGFloat(index) }
+            return
+        }
+        p.position = PaneTabPickerState.position(base: base, dx: dx, pitch: pitch, count: p.tabs.count)
+        if p.index != before { UISelectionFeedbackGenerator().selectionChanged() }
+        picker = p
+    }
+
+    /// Picking a tab selects it on the Mac and opens it: the zoom grows from
+    /// its card in the list.
+    private func openFromPicker(_ index: Int) {
+        guard var p = picker, !p.launched, p.tabs.indices.contains(index) else { return }
+        let tab = p.tabs[index]
+        let layout = PaneTabPickerLayout(size: size, safeTop: safeTop)
+        let rect = layout.card(index, position: p.position, shown: CGFloat(min(1, max(0, pickerShown))), pane: p.paneFrame)
+        tabs.focus(paneId: p.paneId, tab: tab)
+        let key = tabs.itemKey(tab)
+        if key != tabs.activeKey { tabs.select(key) }
+        if let item = tabs.item(key), item.isBrowser || item.isTerminal { tabs.requestThumbnail(key) }
+        zoomTabId = key
+        zoomPaneId = p.paneId
+        zoomCardOverride = rect
+        p.launched = true
+        picker = p
+        zoomDriver.start(from: 1, toOverview: false)
+        withAnimation(pickerSpring) { pickerShown = 0 } completion: {
+            if picker?.launched == true { picker = nil }
+        }
+    }
+
+    /// Tap outside the list: the cards fold back into the pane.
+    private func dismissPicker() {
+        guard picker?.launched == false else { return }
+        picker?.holding = false
+        withAnimation(pickerSpring) { pickerShown = 0 } completion: {
+            if pickerShown == 0 { picker = nil }
+        }
     }
 
     /// (+): the new tab's start page grows from the grid slot its card will
@@ -734,7 +998,7 @@ struct BrowserScreen: View {
             let atMinimumZoom = showsStartPage || (model.activeFrame?.pageScale ?? 1) <= 1.02
             let moving = session.movementStart.map { sample.time - $0 } ?? 0
             if sample.scale <= ZoomPinchSession.engageIn, atMinimumZoom || moving <= ZoomPinchSession.decisionWindow {
-                if let key = tabs.activeKey, !tabs.items.contains(where: { $0.id == key }) { tabs.filter = .all }
+                zoomCardOverride = nil
                 zoomTabId = tabs.activeKey
                 prepareOverview(revealing: tabs.activeIndex ?? 0, count: tabs.items.count)
                 engage()
@@ -787,6 +1051,17 @@ struct BrowserScreen: View {
 
     /// The tab whose card is under `point` (screen coordinates).
     private func cardTab(at point: CGPoint) -> String? {
+        if canvasMode {
+            guard picker == nil, let layout = tabs.layout else { return nil }
+            let origin = canvasOrigin ?? CGPoint(x: -canvasScroll.x, y: -canvasScroll.y)
+            for pane in layout.workspaces.flatMap(\.panes) {
+                guard let f = canvasGeometry.paneFrame(pane.id), f.offsetBy(dx: origin.x, dy: origin.y).contains(point),
+                      let tab = pane.focusedTab else { continue }
+                zoomPaneId = pane.id
+                return tabs.itemKey(tab)
+            }
+            return nil
+        }
         let grid = overviewLayout
         for (i, tab) in tabs.items.enumerated()
         where grid.zoomEndpoint(i, contentOrigin: gridContentOrigin, fallbackOffset: overviewScroll).contains(point) {
@@ -800,6 +1075,39 @@ struct BrowserScreen: View {
     /// two-finger pinch path (scale and centroid over time) through
     /// `handlePinch` on the display clock, and draws the synthetic fingers so
     /// recordings show the rect against them (AXe has no multitouch).
+    /// DEBUG (`CMUX_NEXT_BROWSER_HOLD=<paneId>[:<dx>]`): opens the canvas,
+    /// then replays press-and-hold on the pane, a slide of `dx` points
+    /// (default -150) and the lift through `paneHold` on the display clock,
+    /// drawing the finger (AXe cannot hold and move).
+    private func debugHoldScript() async {
+        guard canvasMode, let spec = ProcessInfo.processInfo.environment["CMUX_NEXT_BROWSER_HOLD"] else { return }
+        let parts = spec.split(separator: ":")
+        let paneId = String(parts[0])
+        let travel = parts.count > 1 ? CGFloat(Double(parts[1]) ?? -150) : -150
+        try? await Task.sleep(for: .seconds(3))  // recording lead-in (test script only)
+        openOverview()
+        try? await Task.sleep(for: .seconds(1.5))
+        guard let frame = canvasGeometry.paneFrame(paneId) else { return }
+        let origin = canvasOrigin ?? .zero
+        let down = CGPoint(x: frame.midX + origin.x, y: frame.midY + origin.y)
+        let clock = DisplayClock()
+        var t0: CFTimeInterval?
+        var began = false
+        for await now in clock.ticks() {
+            let start = t0 ?? now
+            t0 = start
+            let t = now - start
+            let slide = min(1, max(0, (t - 0.7) / 0.9))
+            let dx = travel * CGFloat(slide * slide * (3 - 2 * slide))
+            debugFingers = [CGPoint(x: down.x + dx, y: down.y)]
+            if t >= 0.35, !began { began = true; paneHold(paneId, .began) }
+            if began, t < 1.9 { paneHold(paneId, .moved(dx)) }
+            if t >= 1.9 { paneHold(paneId, .ended(dx)); break }
+        }
+        clock.stop()
+        debugFingers = []
+    }
+
     private func debugPinchScript() async {
         guard model.activeFrame != nil || showsStartPage,
               let mode = ProcessInfo.processInfo.environment["CMUX_NEXT_BROWSER_PINCH"] else { return }

@@ -163,7 +163,6 @@ struct TabOverview: View {
     var onContentOrigin: (CGPoint) -> Void = { _ in }
 
     private let style = BrowserStyle.shared
-    @Namespace private var filterSpace
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -222,36 +221,6 @@ struct TabOverview: View {
         .frame(width: layout.size.width, height: layout.size.height)
     }
 
-    /// All · Browser · Terminals: one glass capsule with a glass pill under
-    /// the selected segment (Safari's tab-group switcher), at the top.
-    private var filterControl: some View {
-        HStack(spacing: 0) {
-            ForEach(TabsModel.Filter.allCases, id: \.self) { f in
-                Button {
-                    withAnimation(BrowserStyle.shared.motion.resolve(BrowserStyle.shared.motion.reflow)) { tabs.filter = f }
-                } label: {
-                    Text(f.title)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(tabs.filter == f ? style.colors.label : style.colors.secondaryLabel)
-                        .padding(.horizontal, 12)
-                        .frame(height: 32)
-                        .background {
-                            if tabs.filter == f {
-                                Capsule().fill(style.colors.label.opacity(0.1))
-                                    .matchedGeometryEffect(id: "filter.selection", in: filterSpace)
-                            }
-                        }
-                        .contentShape(.capsule)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("\(f.title), \(tabs.count(f))")
-                .accessibilityAddTraits(tabs.filter == f ? .isSelected : [])
-            }
-        }
-        .padding(3)
-        .glassEffect(.regular, in: .capsule)
-    }
-
     private var topControls: some View {
         let y = layout.safeTop + 4 + style.metrics.overviewTopControl / 2
         return ZStack(alignment: .topLeading) {
@@ -262,10 +231,6 @@ struct TabOverview: View {
                     .buttonStyle(ShellCircleButtonStyle(diameter: style.metrics.overviewTopControl))
                     .glassEffect(.regular, in: .circle)
                     .position(x: 20 + 18, y: y)
-            }
-            if tabs.includesTerminals {
-                filterControl
-                    .position(x: layout.size.width / 2, y: y)
             }
             Menu {
                 Button("Close All Tabs", systemImage: "xmark", role: .destructive, action: onCloseAll)
