@@ -11,6 +11,9 @@
 #     catalogs (webviews/scripts/pages/gen-strings.mjs; with --strings);
 #   - SDK wire layers: every language binding's generated files from
 #     cmux-tui/spec/sdk-schema.json (cmux-tui/bindings/codegen/generate.py; with --sdk);
+#   - the docs shortcuts: web/data/cmux-shortcuts.generated.json from the
+#     committed action catalog export (web/scripts/export-docs-shortcuts.ts;
+#     with --docs-shortcuts);
 #   - cmux-tui tree inputs: reports each embed check_cmux_tui_tree_inputs.py
 #     finds missing (the fix edits a workflow file, which GITHUB_TOKEN cannot push);
 #   - the app FFI pin: reports a stale pin (Package.swift is frozen; the
@@ -20,21 +23,22 @@
 # Prints one line per change ("fixed: ..."), skip ("skipped (frozen): ...") or
 # repair left to a person ("left: ...").
 #
-# Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--no-fmt] REPO
+# Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--docs-shortcuts] [--no-fmt] REPO
 set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-generated="" package_dump="" strings=0 sdk=0 fmt=1
+generated="" package_dump="" strings=0 sdk=0 docs_shortcuts=0 fmt=1
 while (( $# > 1 )); do
   case "$1" in
     --generated) generated="$2"; shift 2 ;;
     --package-dump) package_dump="$2"; shift 2 ;;
     --strings) strings=1; shift ;;
     --sdk) sdk=1; shift ;;
+    --docs-shortcuts) docs_shortcuts=1; shift ;;
     --no-fmt) fmt=0; shift ;;
-    *) echo "usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--no-fmt] REPO" >&2; exit 2 ;;
+    *) echo "usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--docs-shortcuts] [--no-fmt] REPO" >&2; exit 2 ;;
   esac
 done
-repo="$(cd "${1:?usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--no-fmt] REPO}" && pwd)"
+repo="$(cd "${1:?usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--docs-shortcuts] [--no-fmt] REPO}" && pwd)"
 frozen_list="$script_dir/base-autofix-frozen.txt"
 
 frozen() { # repository-relative path -> 0 when frozen; a "!" line exempts a path
@@ -105,6 +109,21 @@ if (( sdk )) && [[ -f "$repo/cmux-tui/bindings/codegen/generate.py" ]]; then
         echo "fixed: regenerated $rel"
       fi
     done <<<"$changed"
+  fi
+fi
+
+# 1e. The docs shortcuts copy of the catalog export.
+shortcuts=web/data/cmux-shortcuts.generated.json
+if (( docs_shortcuts )) && [[ -f "$repo/web/scripts/export-docs-shortcuts.ts" ]]; then
+  before="$(cksum < "$repo/$shortcuts" 2>/dev/null || true)"
+  (cd "$repo" && bun web/scripts/export-docs-shortcuts.ts >/dev/null)
+  if [[ "$before" != "$(cksum < "$repo/$shortcuts")" ]]; then
+    if frozen "$shortcuts"; then
+      git -C "$repo" checkout --quiet -- "$shortcuts"
+      echo "skipped (frozen): $shortcuts (stale; bun web/scripts/export-docs-shortcuts.ts)"
+    else
+      echo "fixed: regenerated $shortcuts"
+    fi
   fi
 fi
 
