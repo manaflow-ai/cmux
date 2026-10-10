@@ -180,6 +180,22 @@ struct BrowserWindowPortalRegistryNotificationTests {
         realizeWindowLayout(window)
         contentView.layoutPassCount = 0
 
+        let unrelatedContentView = CountingContentView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 240)
+        )
+        let unrelatedWindow = NSWindow(
+            contentRect: unrelatedContentView.frame,
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        unrelatedWindow.contentView = unrelatedContentView
+        defer { unrelatedWindow.orderOut(nil) }
+        realizeWindowLayout(unrelatedWindow)
+        unrelatedContentView.layoutPassCount = 0
+        unrelatedWindow.orderFrontRegardless()
+        unrelatedContentView.needsLayout = true
+
         let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 180, height: 120))
         contentView.addSubview(anchor)
         let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
@@ -215,6 +231,10 @@ struct BrowserWindowPortalRegistryNotificationTests {
         #expect(
             contentView.layoutPassCount == 1,
             "A browser portal registry notification should drive a Workspace layout follow-up pass"
+        )
+        #expect(
+            unrelatedContentView.layoutPassCount == 0,
+            "A workspace follow-up must not lay out an unrelated visible window"
         )
 
         let layoutCountBeforeNoOpBurst = contentView.layoutPassCount

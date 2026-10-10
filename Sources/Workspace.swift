@@ -12657,11 +12657,14 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             // The owning manager is the common case and gives us an O(1)
             // lookup. Recovery scans are reserved for window replacement or
             // orphaned workspaces whose live owner has not been restored yet.
-            let window = owningTabManager?.window
-                ?? AppDelegate.shared?.mainWindowContainingWorkspace(id)
-                ?? AppDelegate.shared?.tabManagerFor(tabId: id)?.window
-            guard let window,
-                  window.isVisible else { return }
+            let visibleWindow: (NSWindow?) -> NSWindow? = { candidate in
+                guard let candidate, candidate.isVisible else { return nil }
+                return candidate
+            }
+            let window = visibleWindow(owningTabManager?.window)
+                ?? visibleWindow(AppDelegate.shared?.mainWindowContainingWorkspace(id))
+                ?? visibleWindow(AppDelegate.shared?.tabManagerFor(tabId: id)?.window)
+            guard let window else { return }
             window.contentView?.layoutSubtreeIfNeeded()
         }
     }
