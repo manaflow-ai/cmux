@@ -248,6 +248,7 @@ final class SidebarListView: NSView {
         let gapFrame = layout.gapHeight > 0 ? layout.gapY.map { NSRect(x: inset, y: $0, width: max(0, bounds.width - inset * 2), height: layout.gapHeight) } : nil
         decorations.frame = bounds
         decorations.setGap(gapFrame, animated: animate)
+        decorations.setGroupLines(groupLines(layout), animated: animate)
         let moves = {
             for (view, target) in targets {
                 view.animator().frame = target

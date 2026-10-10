@@ -152,6 +152,7 @@ pub(super) struct ReadTarget {
 
 /// The read target of `path` for `folder`; None when it cannot be resolved
 /// (outside).
+#[cfg(unix)]
 pub(super) fn read_target(path: &Path, folder: &Path) -> Option<ReadTarget> {
     use std::os::unix::fs::MetadataExt;
     let real = std::fs::canonicalize(path).ok()?;
@@ -165,10 +166,18 @@ pub(super) fn read_target(path: &Path, folder: &Path) -> Option<ReadTarget> {
         });
     Some(ReadTarget { real, id: (m.dev(), m.ino()), inside })
 }
+/// Windows port: the device, inode and link checks are file IDs there (a
+/// later landing); until then nothing resolves, so every read is outside
+/// (fail closed).
+#[cfg(not(unix))]
+pub(super) fn read_target(_path: &Path, _folder: &Path) -> Option<ReadTarget> {
+    None
+}
 
 /// Open the checked read target: never blocks (a FIFO), only a regular
 /// file, only the very file that was checked (same device and inode), and
 /// one that was inside still has one link.
+#[cfg(unix)]
 pub(super) fn open_read_target(t: &ReadTarget) -> std::io::Result<std::fs::File> {
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
     let file =
@@ -182,11 +191,20 @@ pub(super) fn open_read_target(t: &ReadTarget) -> std::io::Result<std::fs::File>
     }
     Ok(file)
 }
+/// Windows port: see `read_target`; nothing opens (fail closed).
+#[cfg(not(unix))]
+pub(super) fn open_read_target(_t: &ReadTarget) -> std::io::Result<std::fs::File> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "remote reads are not supported on Windows yet",
+    ))
+}
 
 /// Write `content` to the path `write_target` resolved, after approval:
 /// never through a symlink (`O_NOFOLLOW`, and the path still resolves to
 /// itself), only to a regular file with one link, and only to the file the
 /// path names now.
+#[cfg(unix)]
 pub(super) fn write_approved(target: &Path, content: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
@@ -207,6 +225,15 @@ pub(super) fn write_approved(target: &Path, content: &[u8]) -> std::io::Result<(
     }
     file.set_len(0)?;
     file.write_all(content)
+}
+/// Windows port: the no-link, one-link and same-file checks come in a later
+/// landing; nothing is written (fail closed).
+#[cfg(not(unix))]
+pub(super) fn write_approved(_target: &Path, _content: &[u8]) -> std::io::Result<()> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "remote writes are not supported on Windows yet",
+    ))
 }
 
 /// Where an ACP write in a Web turn lands: never through a symlink (an

@@ -601,6 +601,7 @@ pub fn save(home: &Path, body: &[u8]) -> Result<bool, String> {
     if std::fs::read(&path).is_ok_and(|old| old == body) {
         return Ok(false);
     }
+    #[cfg(unix)]
     {
         use std::os::unix::fs::DirBuilderExt;
         std::fs::DirBuilder::new()
@@ -609,6 +610,9 @@ pub fn save(home: &Path, body: &[u8]) -> Result<bool, String> {
             .create(&dir)
             .map_err(|e| e.to_string())?;
     }
+    // Windows port: owner-only is an ACL there (a later landing).
+    #[cfg(not(unix))]
+    std::fs::DirBuilder::new().recursive(true).create(&dir).map_err(|e| e.to_string())?;
     crate::config::write_atomic(&path, body).map_err(|e| e.to_string())?;
     Ok(true)
 }

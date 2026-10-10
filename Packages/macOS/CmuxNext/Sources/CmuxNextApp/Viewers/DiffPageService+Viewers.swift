@@ -1,13 +1,15 @@
 import AppKit
+import CmuxNextDaemon
 
 /// The diff host behind R89's open actions: ``DiffViewerOpening`` is
 /// ``DiffPageService/open(folder:source:in:focus:)``, and the empty state's
 /// `cmux.diff.chooseFolder` asks with the cmux picker instead of the system
 /// panel.
 extension DiffPageService: DiffViewerOpening {
-    func openDiff(directory: String, in pane: PaneController, focus: Bool) async throws {
+    func openDiff(directory: String, in pane: PaneController, focus: Bool,
+                  created: (@MainActor (SurfaceID) -> Void)?) async throws {
         do {
-            try await open(folder: URL(fileURLWithPath: directory, isDirectory: true), in: pane, focus: focus)
+            try await open(folder: URL(fileURLWithPath: directory, isDirectory: true), in: pane, focus: focus, created: created)
         } catch {
             throw ActionFailure(message: DiffPageStrings.notRepository)
         }
