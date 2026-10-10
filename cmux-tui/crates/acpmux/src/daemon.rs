@@ -17,6 +17,9 @@ pub struct DaemonOptions {
     /// Write one JSON readiness line to this file descriptor once the
     /// socket and the listen address are bound, then close it.
     pub ready_fd: Option<i32>,
+    /// `--person-key-fd`: this launch's person key from the app that
+    /// spawned the daemon (`hub/person.rs`); read and closed at once.
+    pub person_key_fd: Option<i32>,
     /// `--allow-dev-origin`: loopback page dev server origins, never saved.
     pub dev_origins: Vec<String>,
     /// `--dev`: a development launch (see `dev_origins_permitted`).
@@ -41,6 +44,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
         }
     }
+    // Before anything is spawned: the key never reaches a child.
+    let person_key = opts.person_key_fd.and_then(read_person_key);
     let login_env = crate::login_env::requested();
     anyhow::ensure!(
         opts.dev_origins.is_empty() || dev_origins_permitted(cfg!(debug_assertions), opts.dev),
@@ -168,6 +173,18 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         });
     }
     let hub = Hub::new(config, store);
+    if let Some(key) = person_key {
+        // A Team-signed daemon takes the key only from the signed app's
+        // `_acpmux/person_enroll`: a same-uid process could restart it with
+        // a key of its own.
+        if cmux_link::app_caller::signed_app_build() {
+            tracing::warn!(
+                "--person-key-fd ignored: a signed daemon enrolls the app by its signature"
+            );
+        } else if let Err(e) = hub.person.install_spawn_key(&key) {
+            tracing::warn!("--person-key-fd: {e}");
+        }
+    }
     // The curated model catalog (`catalog/`): the last good copy now, then a fetch at
     // once and every 6 h. `ACPMUX_CATALOG_FETCH=0` keeps the stored or bundled copy.
     let fetch_catalog = !std::env::var("ACPMUX_CATALOG_FETCH").is_ok_and(|v| v == "0");
@@ -374,6 +391,32 @@ async fn next_signal(stream: Option<&mut tokio::signal::unix::Signal>) {
             stream.recv().await;
         }
         None => std::future::pending::<()>().await,
+    }
+}
+
+/// Read the person key (one line, at most 128 bytes) from an inherited
+/// descriptor and close it. The key is never logged.
+fn read_person_key(fd: i32) -> Option<String> {
+    use std::io::Read;
+    use std::os::fd::FromRawFd;
+    if fd <= 2 {
+        tracing::warn!("--person-key-fd {fd}: not a stdio descriptor");
+        return None;
+    }
+    // SAFETY: the launcher passed this descriptor for us to read and close;
+    // `File` owns and closes it here.
+    let f = unsafe { std::fs::File::from_raw_fd(fd) };
+    let mut buf = Vec::with_capacity(80);
+    if let Err(e) = f.take(128).read_to_end(&mut buf) {
+        tracing::warn!("--person-key-fd {fd}: {e}");
+        return None;
+    }
+    let key = String::from_utf8(buf).ok()?.trim().to_owned();
+    if crate::hub::person::valid_key(&key) {
+        Some(key)
+    } else {
+        tracing::warn!("--person-key-fd {fd}: not a person key");
+        None
     }
 }
 
