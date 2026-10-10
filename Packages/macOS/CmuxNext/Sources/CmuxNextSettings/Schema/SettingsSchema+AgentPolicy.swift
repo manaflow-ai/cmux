@@ -171,6 +171,8 @@ extension SettingsSchema {
         "feed.github.enabled": .network,
         "feed.github.pollIntervalSeconds": .network,
         "browser.remoteLocalhost": .network,
+        // On, any local process can drive every Chromium tab; only the person turns it on.
+        "browser.allowIPhoneAccess": .userOnly,
         // Whether attached photos and videos send their location.
         "home.attachments.keepLocation": .privacy,
         // A reply's file link outside the project, and a reply's web image (D4, D5).

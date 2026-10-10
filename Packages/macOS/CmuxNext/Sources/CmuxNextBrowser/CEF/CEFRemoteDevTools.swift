@@ -16,7 +16,11 @@ import os
 /// Chromium reads its switches once per process, so a change takes effect
 /// after cmux restarts. The status file next to the Chromium data
 /// (`<Application Support>/<bundle id>/devtools.json`, mode 0600) tells the
-/// host which case it is in; it is removed on quit.
+/// host which case it is in; it is removed on quit. While the endpoint is
+/// live it also maps each cmux tab id to its page's DevTools target id
+/// (`targets`), asked of each Chromium browser itself
+/// (`Target.getTargetInfo` on its own in-process session), never guessed
+/// from URLs or titles.
 final class CEFRemoteDevTools {
     static let shared = CEFRemoteDevTools()
 
@@ -31,6 +35,12 @@ final class CEFRemoteDevTools {
     private var startedAt: Date?
     /// Chromium is initialized in this process.
     private var started = false
+    /// DevTools target id of each live Chromium browser, with its cmux tab id.
+    private var targets: [Int32: CEFRemoteDevToolsTarget] = [:]
+    /// Browsers whose target id is being asked for.
+    private var asking: Set<Int32> = []
+    /// Browsers whose target id could not be read (not asked again).
+    private var unmapped: Set<Int32> = []
 
     init(statusFile: URL = CEFRemoteDevTools.defaultStatusFile()) {
         self.statusFile = statusFile
@@ -56,6 +66,48 @@ final class CEFRemoteDevTools {
         return ["remote-debugging-port=\(picked)"]
     }
 
+    /// After the runtime handled `event`: context start, and browsers that
+    /// appeared, moved to another cmux tab, or closed. Nothing happens unless
+    /// the endpoint is live, so with the setting off no DevTools call is made.
+    func observe(_ event: CEFShimEvent, runtime: CEFRuntime) {
+        if case .contextInitialized = event { contextInitialized() }
+        guard requested, port != nil, started, let browser = event.browserID else { return }
+        if case .beforeClose = event {
+            unmapped.remove(browser)
+            if targets.removeValue(forKey: browser) != nil { publish() }
+            return
+        }
+        guard let tab = runtime.tabsByBrowser[browser] else { return }
+        let tabID = tab.id.rawValue
+        if let known = targets[browser] {
+            // The browser now belongs to another cmux tab (adopted, duplicated).
+            if known.tabID != tabID {
+                targets[browser]?.tabID = tabID
+                publish()
+            }
+            return
+        }
+        // A tab Chromium opened is adopted by a pane after its creation
+        // event, so any later event of an unmapped browser asks once.
+        guard !asking.contains(browser), !unmapped.contains(browser) else { return }
+        asking.insert(browser)
+        // task-owner: one bounded in-process DevTools call (CEFRuntime.devToolsTimeout), keyed by browser in `asking`
+        Task { [weak self, weak runtime] in
+            let json = try? await runtime?.devTools(browser, method: "Target.getTargetInfo")
+            guard let self else { return }
+            self.asking.remove(browser)
+            guard let json, let targetID = CEFRemoteDevToolsStatus.targetID(fromTargetInfo: json),
+                  let current = runtime?.tabsByBrowser[browser]?.id.rawValue else {
+                // Never asked again for this browser: a failed call is itself an event.
+                self.unmapped.insert(browser)
+                self.logger.error("devtools.json: no target id for browser \(browser)")
+                return
+            }
+            self.targets[browser] = CEFRemoteDevToolsTarget(tabID: current, targetID: targetID)
+            self.publish()
+        }
+    }
+
     /// Chromium's context is initialized (the endpoint, if any, is starting).
     func contextInitialized() {
         started = true
@@ -68,7 +120,8 @@ final class CEFRemoteDevTools {
     }
 
     var status: CEFRemoteDevToolsStatus {
-        CEFRemoteDevToolsStatus(requested: requested, port: port, started: started, pid: getpid(), startedAt: startedAt)
+        CEFRemoteDevToolsStatus(requested: requested, port: port, started: started, pid: getpid(), startedAt: startedAt,
+                                targets: targets.values.sorted { $0.tabID < $1.tabID })
     }
 
     private func publish() {
@@ -88,6 +141,9 @@ final class CEFRemoteDevTools {
         let fd = socket(AF_INET, SOCK_STREAM, 0)
         guard fd >= 0 else { return nil }
         defer { close(fd) }
+        // Never written to; set anyway so no socket here can raise SIGPIPE.
+        var noSigPipe: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
         var address = sockaddr_in()
         address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
         address.sin_family = sa_family_t(AF_INET)
@@ -108,7 +164,9 @@ final class CEFRemoteDevTools {
 /// - `off`: the setting is off and Chromium has no endpoint.
 /// - `waitingForBrowser`: the setting is on; the endpoint opens when
 ///   Chromium starts (the first Chromium tab).
-/// - `ready`: `port` is the endpoint (`http://127.0.0.1:<port>/json/version`).
+/// - `ready`: `port` is the endpoint (`http://127.0.0.1:<port>/json/version`);
+///   `targets` pairs each mapped cmux tab id (the daemon's `tab_…` id) with
+///   its page's DevTools `targetId` (`/json/list` `id`, `Target.attachToTarget`).
 /// - `restartRequired`: the setting changed after Chromium started; the
 ///   running Chromium keeps its old state until cmux restarts. No port is
 ///   published, and a reader must not use an endpoint it found earlier
@@ -119,6 +177,7 @@ nonisolated struct CEFRemoteDevToolsStatus: Equatable, Sendable {
     var started: Bool
     var pid: Int32
     var startedAt: Date?
+    var targets: [CEFRemoteDevToolsTarget] = []
 
     var state: String {
         switch (requested, port, started) {
@@ -135,8 +194,16 @@ nonisolated struct CEFRemoteDevToolsStatus: Equatable, Sendable {
         if state == "ready", let port {
             object["port"] = Int(port)
             object["startedAt"] = startedAt.map { ISO8601DateFormatter().string(from: $0) }
+            object["targets"] = targets.map { ["tabId": $0.tabID, "targetId": $0.targetID] }
         }
         return try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+    }
+
+    /// `targetInfo.targetId` of a `Target.getTargetInfo` result (bare or wrapped in `result`).
+    static func targetID(fromTargetInfo json: String) -> String? {
+        guard let object = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] else { return nil }
+        let info = (object["targetInfo"] ?? (object["result"] as? [String: Any])?["targetInfo"]) as? [String: Any]
+        return (info?["targetId"] as? String).flatMap { $0.isEmpty ? nil : $0 }
     }
 
     /// Writes `json()` atomically, created with mode 0600 (owner only) so no
@@ -156,6 +223,12 @@ nonisolated struct CEFRemoteDevToolsStatus: Equatable, Sendable {
             throw POSIXError(.EIO)
         }
     }
+}
+
+/// One cmux tab and its page's DevTools target.
+nonisolated struct CEFRemoteDevToolsTarget: Equatable, Sendable {
+    var tabID: String
+    var targetID: String
 }
 
 extension CEFEngine {

@@ -40,6 +40,27 @@ import Testing
         #expect(off["port"] == nil)
     }
 
+    /// Each cmux tab id is paired with the target id its own browser reported, in ready only.
+    @Test func targetsOnlyWhenReady() throws {
+        var ready = status(true, port: 50_000, started: true)
+        ready.targets = [CEFRemoteDevToolsTarget(tabID: "tab_a", targetID: "6F1C")]
+        let object = try object(ready)
+        let targets = try #require(object["targets"] as? [[String: String]])
+        #expect(targets == [["tabId": "tab_a", "targetId": "6F1C"]])
+        var off = ready
+        off.requested = false
+        #expect(try self.object(off)["targets"] == nil)
+    }
+
+    @Test func targetIDFromTargetInfo() {
+        let bare = #"{"targetInfo":{"targetId":"ABC","type":"page","url":"https://example.com"}}"#
+        #expect(CEFRemoteDevToolsStatus.targetID(fromTargetInfo: bare) == "ABC")
+        let wrapped = #"{"id":1,"result":{"targetInfo":{"targetId":"DEF"}}}"#
+        #expect(CEFRemoteDevToolsStatus.targetID(fromTargetInfo: wrapped) == "DEF")
+        #expect(CEFRemoteDevToolsStatus.targetID(fromTargetInfo: #"{"targetInfo":{"targetId":""}}"#) == nil)
+        #expect(CEFRemoteDevToolsStatus.targetID(fromTargetInfo: "not json") == nil)
+    }
+
     @Test func fileIsOwnerOnly() throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "cef-devtools-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
