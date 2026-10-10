@@ -233,6 +233,24 @@ async fn chats_lists_synthetic_roots_with_filters_and_pages() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn settled_history_is_paged_and_filterable() {
+    let h = home("settled");
+    let projects = h.0.join(".claude/projects");
+    write_session(&projects, A, &[user(A, "/work/app", "fix the build")]);
+    write_session(&projects, B, &[user(B, "/work/docs", "write docs")]);
+    let hub = hub();
+    hub.start_chats(sources(&h.0, &[])).await.unwrap();
+    let mut c = Client::new(&hub, Origin::Local);
+
+    let first = c.ok("_acpmux/chat_settled", json!({"limit": 1})).await;
+    assert_eq!(first["settled"], true);
+    assert_eq!(first["chats"].as_array().unwrap().len(), 1);
+    let second = c.ok("_acpmux/chat_settled", json!({"folder": "/work/docs"})).await;
+    assert_eq!(second["settled"], true);
+    assert_eq!(keys(&second), vec![format!("claude-code:{B}")]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn login_env_roots_are_used_and_guarded_roots_refused_unread() {
     let h = home("roots");
     let alt = h.0.join("alt-claude");
@@ -336,6 +354,7 @@ async fn websocket_origins_never_get_chats() {
         let mut c = Client::new(&hub, origin);
         for m in [
             "_acpmux/chats",
+            "_acpmux/chat_settled",
             "_acpmux/chats_watch",
             "_acpmux/chat_roots",
             "_acpmux/chat_roots_record",

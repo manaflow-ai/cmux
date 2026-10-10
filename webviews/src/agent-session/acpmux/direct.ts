@@ -451,6 +451,9 @@ export class AcpmuxDirectClient {
   private firstSeq?: number;
   private lastSeq = 0;
   private turnOpen = false;
+  /// This computer's clock minus the session's (an SSH or Cloud peer stamps events with its own
+  /// clock): the smallest arrival lag of a live event, since delays only make it larger.
+  private clockOffset?: number;
   /// acpmux lists `acp.session.fork` among the operations it serves.
   private canFork = false;
   private handoffSupported = false;
@@ -661,6 +664,7 @@ export class AcpmuxDirectClient {
     this.failedPrompts.clear();
     this.firstSeq = undefined;
     this.lastSeq = 0;
+    this.clockOffset = undefined;
     this.summary = undefined;
     this.usage = undefined;
     this.queue = [];
@@ -726,8 +730,11 @@ export class AcpmuxDirectClient {
       return;
     }
     const notification = message as Notification;
-    if (notification.method === "_acpmux/event") this.apply(notification.params as EventRecord);
-    else if (notification.method === "session/update")
+    if (notification.method === "_acpmux/event") {
+      this.observeClock(notification.params?.sessionId, notification.params?.at);
+      this.apply(notification.params as EventRecord);
+    } else if (notification.method === "session/update") {
+      this.observeClock(notification.params?.sessionId, notification.params?._meta?.acpmux?.at);
       this.apply({
         sessionId: notification.params?.sessionId,
         seq: Number(notification.params?._meta?.acpmux?.seq ?? 0),
@@ -736,7 +743,7 @@ export class AcpmuxDirectClient {
         kind: String(notification.params?.update?.sessionUpdate ?? ""),
         msg: { method: "session/update", params: { update: notification.params?.update } },
       });
-    else if (notification.method === "_acpmux/session_changed") this.sessionChanged(notification.params);
+    } else if (notification.method === "_acpmux/session_changed") this.sessionChanged(notification.params);
     else if (notification.method === "_acpmux/permission_pending") this.applyPermission(notification.params);
     else if (notification.method === "_acpmux/lagged") this.resyncAfterLag(notification.params);
     else if (notification.method === "_acpmux/harnesses_changed") this.onHarnessesChanged?.();
@@ -1052,6 +1059,13 @@ export class AcpmuxDirectClient {
     }
     this.pendingPermission = permission;
     this.emit("permission");
+  }
+
+  /// A live event's stamp, to tell the session's clock from this computer's.
+  private observeClock(sessionId: unknown, at: unknown): void {
+    if (sessionId !== this.selectedSessionId || typeof at !== "number" || !(at > 0)) return;
+    const offset = Date.now() - at;
+    this.clockOffset = this.clockOffset === undefined ? offset : Math.min(this.clockOffset, offset);
   }
 
   private apply(event: EventRecord): void {
@@ -1390,6 +1404,8 @@ export class AcpmuxDirectClient {
       origin: this.origin,
       sessionId: this.selectedSessionId,
       isWorking: this.turnOpen || summary?.status === "running",
+      // Only a peer runs on another clock; this computer's own sessions need no correction.
+      ...(summary?.peer && this.clockOffset !== undefined ? { clockOffsetMs: this.clockOffset } : {}),
       canFork: this.canFork,
       canHandoff: this.handoffSupported,
       handoff: this.handoff.state,
