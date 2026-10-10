@@ -226,4 +226,33 @@ final class CoderouterAccountStore {
     var isRefreshing = false
     var refreshRequest = 0
     @ObservationIgnored let lane = CoderouterCLIOperationLane.shared
+
+    @ObservationIgnored private var scopeChangeObserver: NSObjectProtocol?
+
+    init() {
+        scopeChangeObserver = NotificationCenter.default.addObserver(
+            forName: .cmuxCloudTeamScopeDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.resetForTeamScopeChange()
+            }
+        }
+    }
+
+    deinit {
+        if let scopeChangeObserver {
+            NotificationCenter.default.removeObserver(scopeChangeObserver)
+        }
+    }
+
+    /// Clears retained rows even while the Machines view is unmounted. The
+    /// store owner must invalidate the snapshot before the next scope can be
+    /// rendered, then request a read when the panel mounts again.
+    func resetForTeamScopeChange() {
+        state.resetForTeamScopeChange()
+        isRefreshing = true
+        refreshRequest &+= 1
+    }
 }

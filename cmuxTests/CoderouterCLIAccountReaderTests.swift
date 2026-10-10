@@ -628,6 +628,26 @@ struct CoderouterAccountStateTests {
 @MainActor
 @Suite("CodeRouter sidebar store")
 struct CoderouterAccountStoreTests {
+    @Test("Scope transitions clear retained rows while Machines is unmounted")
+    func scopeTransitionClearsRetainedState() {
+        let store = CoderouterAccountStore()
+        let scope = CoderouterAccountScope(teamID: "team-a", identityID: "user-1")!
+        store.state.select(scope)
+        _ = store.state.apply(
+            accounts: [CloudTreeNode.CoderouterAccount(id: "a1", provider: .codex, label: "a1@example.com", state: "active")],
+            organizationID: "org-team-a",
+            teamScope: .teamOption,
+            for: scope
+        )
+
+        store.resetForTeamScopeChange()
+
+        #expect(store.state.accounts.isEmpty)
+        #expect(store.state.scope == nil)
+        #expect(store.isRefreshing)
+        #expect(store.refreshRequest == 1)
+    }
+
     @Test("Remounted machine panels reuse the CodeRouter state owner")
     func remountedPanelsKeepStore() {
         let store = CoderouterAccountStore()
