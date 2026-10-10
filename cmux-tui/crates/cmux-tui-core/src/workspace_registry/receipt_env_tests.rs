@@ -29,6 +29,7 @@ fn insert_effect(registry: &WorkspaceRegistry, key: &str, state: &str) {
     let secret = if committed { SECRET } else { LIVE };
     registry
         .connection
+        .get()
         .execute(
             "INSERT INTO resource_effect_receipts(
                idempotency_key, operation, fingerprint, intent_json, state,
@@ -47,8 +48,8 @@ fn insert_effect(registry: &WorkspaceRegistry, key: &str, state: &str) {
 }
 
 fn texts(registry: &WorkspaceRegistry, table: &str, key: &str) -> Vec<(String, String, String)> {
-    let mut statement = registry
-        .connection
+    let db = registry.connection.get();
+    let mut statement = db
         .prepare(&format!("SELECT {key}, fingerprint, intent_json FROM {table} ORDER BY {key}"))
         .unwrap();
     statement
@@ -69,6 +70,7 @@ fn reopening_scrubs_env_values_from_stored_receipts() {
     insert_effect(&registry, "effect-pending", "pending");
     registry
         .connection
+        .get()
         .execute(
             "INSERT INTO resource_creation_receipts(
                correlation_key, operation, fingerprint, idempotency_key, intent_json,

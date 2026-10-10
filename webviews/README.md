@@ -12,7 +12,7 @@ The build output goes to `Resources/markdown-viewer/webviews-app`, which the mac
 
 The same build emits `diff-page.html`, the diff viewer of the cmux-next shared page host (`cmux-page://cmux.diff/`, whose root is this output directory). It embeds no config and no CSP meta: it calls `cmux.diff.config` over the cmuxPage bridge (`src/diff/page.ts` lists the ops and streams), and the scheme handler sends the CSP.
 
-It also emits `markdown-page.html`, the markdown editor (`cmux-page://cmux.markdown/`, `src/pages/markdown`). It runs under the strict PageCSP and talks to its host only over the cmuxPage bridge; `src/pages/markdown/host.ts` lists the ops (`cmux.markdown.config`, `.save`, `.openLink`, the `cmux.markdown.changes` stream, the `save` page command) and the resources the host serves (`assetBase` images, `libBase` diagram libraries). Saving is a minimal-change write (`src/pages/markdown/sourceMap.ts`): blocks the user did not edit are written back byte for byte, which `test/markdown-roundtrip.test.ts` checks on a corpus of real repo files. The classic viewer (`Resources/markdown-viewer/shell.html`) is unchanged.
+It also emits `markdown-page.html`, the markdown editor (`cmux-page://cmux.markdown/`, `src/pages/markdown`). It runs under the strict PageCSP and talks to its host only over the cmuxPage bridge; `src/pages/markdown/host.ts` lists the ops (`cmux.markdown.config`, `.save`, `.openLink`, the `cmux.markdown.changes` stream, the `save` page command) and the resources the host serves (`assetBase` images, `libBase` diagram libraries). Saving is a minimal-change write (`src/pages/markdown/sourceMap.ts`): blocks the user did not edit are written back byte for byte. The classic viewer (`Resources/markdown-viewer/shell.html`) is unchanged.
 
 React Compiler is enabled in `vite.config.ts` with the React 19 runtime target. Verify the compiled bundle guard with:
 
@@ -30,7 +30,7 @@ React Compiler is enabled in `vite.config.ts` with the React 19 runtime target. 
 - `/markdown/viewer?file=<path>`: the classic markdown viewer shell (`Resources/markdown-viewer/shell.html`). Saving the file or a shell stylesheet updates the page in place.
 - `/agent-pane/` (and `/agent-pane/prototype.html`): the agent pane, `?mock` for the in-page daemon. See [its README](src/agent-session/acpmux/README.md#dev-server); `bun run dev:agent-pane` still serves the pane alone on 4176.
 
-The hosts are `apply: "serve"` plugins in `dev-server/`, so `vp build` output does not change; `test/dev-server.test.ts` covers their path and request checks. `scripts/agent-pane/dev-slot.sh up N` runs this server on port 4180+N next to a standalone acpmux daemon and prints one URL per surface (sidecar from `$CMUX_DIFF_SIDECAR_BIN`, else the newest built app).
+The hosts are `apply: "serve"` plugins in `dev-server/`, so `vp build` output does not change; `scripts/agent-pane/dev-slot.sh up N` runs this server on port 4180+N next to a standalone acpmux daemon and prints one URL per surface (sidecar from `$CMUX_DIFF_SIDECAR_BIN`, else the newest built app).
 
 Static checks run through Vite+ (`vp check`: Oxlint, Oxfmt and a TypeScript Go type check). The rules and formatting live in `config/vite-plus/check.ts`, shared with `cmux-tui/frontends/web`:
 

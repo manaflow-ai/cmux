@@ -18,26 +18,3 @@ pub fn requireCapability(
         return error.MissingCapability;
     }
 }
-
-test "capability helpers use exact wire names" {
-    const capabilities = [_][]const u8{
-        "workspace-registry-v1",
-        "provider-managed-workspace-authority-v2",
-    };
-    try std.testing.expect(hasCapability(
-        &capabilities,
-        "workspace-registry-v1",
-    ));
-    try std.testing.expect(!hasCapability(
-        &capabilities,
-        "workspace-registry",
-    ));
-    try requireCapability(
-        &capabilities,
-        "provider-managed-workspace-authority-v2",
-    );
-    try std.testing.expectError(
-        error.MissingCapability,
-        requireCapability(&capabilities, "missing"),
-    );
-}

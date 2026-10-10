@@ -1,4 +1,5 @@
 import type { Principal } from "@cmux/ownership"
+import { OwnerUnreachable } from "@cmux/protocol"
 import { emailDomainOf, withLiveSsoTeam } from "./auth.ts"
 import { unclaimableReason } from "./domains/team-domains.ts"
 import type { Env } from "./env.ts"
@@ -152,3 +153,9 @@ export const versionRefusal = (header: string | null, rules: SignInRules): GateR
   rules.minimum_version && !versionAtLeast(header, rules.minimum_version)
     ? { code: "client.too_old", message: `this team requires cmux ${rules.minimum_version} or newer`, minimum_version: rules.minimum_version }
     : undefined
+
+/** The sign-in policy gate could not reach a TeamDO or UserDO (cx-44j.51): logged here, a fixed retryable answer out. */
+export const gateUnreachable = (e: unknown) => {
+  console.error(JSON.stringify({ msg: "sign-in policy unreachable", error: String(e) }))
+  return new OwnerUnreachable({ code: "owner.unreachable", message: "the sign-in policy could not be checked; retry", retryable: true })
+}

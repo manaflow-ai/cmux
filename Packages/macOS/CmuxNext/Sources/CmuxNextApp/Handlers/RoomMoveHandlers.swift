@@ -60,7 +60,7 @@ enum RoomMoveHandlers {
     /// duplicate never shares a running terminal. It is shown in the active
     /// window, which switches to `room`.
     private static func duplicate(_ workspace: WorkspaceModel, into room: ProfileID, _ context: AppActionContext) {
-        let windows = context.services.windows!
+        let windows = context.services.windows
         let directories = terminalDirectories(of: workspace)
         let target = windows.targetWindow(preferring: windows.active?.state.id)
         let spawn = WorkspaceSpawn(cwd: directories.first ?? nil, name: workspace.displayName, profile: room)

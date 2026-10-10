@@ -1,5 +1,6 @@
 import type { RowReader, RowWrite } from "@cmux/ownership"
 import type { Host, TeamMember } from "@cmux/protocol"
+import { roleHas, type TeamGrant } from "./team-roles.ts"
 
 /**
  * TeamDO members and hosts live in rows ((f), DO audit F-1): the head stays small for 10k+ member
@@ -11,8 +12,8 @@ export const TABLE_MEMBER = "member"
 export const TABLE_HOST = "host"
 /** install id -> host id (a server or host enrolled by that install). */
 export const TABLE_HOST_BY_INSTALL = "host_by_install"
-/** Rows subscribers never get in event effects: clients page members and hosts with reads. */
-export const TEAM_PRIVATE_TABLES: ReadonlyArray<string> = [TABLE_MEMBER, TABLE_HOST, TABLE_HOST_BY_INSTALL]
+/** Rows subscribers never get in event effects: clients page members, hosts and audit records (team-audit-rows.ts) with reads. */
+export const TEAM_PRIVATE_TABLES: ReadonlyArray<string> = [TABLE_MEMBER, TABLE_HOST, TABLE_HOST_BY_INSTALL, "audit"]
 
 export type Member = typeof TeamMember.Type
 export type HostRecord = typeof Host.Type
@@ -28,16 +29,19 @@ export const memberOf = (s: LegacyTeamMaps, rows: RowReader | undefined, user: s
 
 export const roleOf = (s: LegacyTeamMaps, rows: RowReader | undefined, user: string | undefined) => memberOf(s, rows, user)?.role
 
+/** Whether `user` holds `grant` in this team now: the member row's role bundle (team-roles.ts), read on every op. */
+export const can = (s: LegacyTeamMaps, rows: RowReader | undefined, user: string | undefined, grant: TeamGrant): boolean => roleHas(roleOf(s, rows, user), grant)
+
 /** Targets one reach check resolves at most (the group size cap, section 4.1); a longer list gets no answer. */
 export const HOME_REACH_MAX_TARGETS = 64
 
 /**
  * Home reach (home-messaging.md section 16.7, home-reach.ts): which of `targets` share this team
- * with `adder`, with their directory names. Only owner, admin and member roles may add people.
+ * with `adder`, with their directory names. Only roles with the team.resources grant may add people.
  */
 export const homeCoMembersOf = (s: LegacyTeamMaps, rows: RowReader | undefined, adder: string, targets: ReadonlyArray<string>): Array<{ user: string; display_name: string }> => {
   if (!Array.isArray(targets) || targets.length > HOME_REACH_MAX_TARGETS) return []
-  if (!["owner", "admin", "member"].includes(roleOf(s, rows, adder) ?? "")) return []
+  if (!can(s, rows, adder, "team.resources")) return []
   return targets.flatMap((user) => {
     const member = user === adder ? undefined : memberOf(s, rows, user)
     return member ? [{ user, display_name: member.display_name }] : []
@@ -72,6 +76,19 @@ export interface RowsWithScan extends RowReader {
 export const listMembers = (s: LegacyTeamMaps, rows: RowsWithScan | undefined, after: string | undefined, limit: number): { items: Array<Member>; next: string | null } =>
   page(Object.values(s.members ?? {}).map((m) => [m.user, m] as const), rows?.scanFrom?.<Member>(TABLE_MEMBER, after, limit + 1) ?? [], after, limit)
 
+/** The owner with the smallest user id (deterministic), or undefined; scans at most `maxPages` pages. */
+export const firstOwner = (s: LegacyTeamMaps, rows: RowsWithScan | undefined, maxPages = 50): string | undefined => {
+  let after: string | undefined
+  for (let i = 0; i < maxPages; i++) {
+    const { items, next } = listMembers(s, rows, after, 200)
+    const owner = items.find((m) => m.role === "owner")
+    if (owner) return owner.user
+    if (!next) return undefined
+    after = next
+  }
+  return undefined
+}
+
 /** One page of hosts by host id (keyset). */
 export const listHosts = (s: LegacyTeamMaps, rows: RowsWithScan | undefined, after: string | undefined, limit: number): { items: Array<HostRecord>; next: string | null } =>
   page(Object.values(s.hosts ?? {}).map((h) => [h.id, h] as const), rows?.scanFrom?.<HostRecord>(TABLE_HOST, after, limit + 1) ?? [], after, limit)
@@ -96,11 +113,16 @@ export const teamIndexItem = (team: { readonly id: string; readonly kind: string
 /**
  * What a member's removal tells the other owners (cx-44j.47): the user's team index entry goes,
  * UserDO revokes the installs bound to the team, and the team's ConnectionDO ends the user's
- * pending integration approvals. Each carries the removal's tx (no coalescing with a later
+ * pending integration approvals, and the team's CloudDO closes the user's sockets there (the
+ * team's socket owners other than TeamDO, which closes its own in the same turn). Each carries the removal's tx (no coalescing with a later
  * re-join) and time `at`: a late delivery touches only what existed at removal.
  */
 export const memberLeftItems = (team: { readonly id: string; readonly kind: string }, user: string, tx: string, at: number) => [
   teamIndexItem(team, user, null, tx),
   { kind: "user.team_left", entity: `team-left:${team.id}:${user}:${tx}`, payload: { team: team.id, at }, target: { class: "UserDO", name: user } },
-  { kind: "connections.member_left", entity: `member-left:${team.id}:${user}:${tx}`, payload: { team: team.id, user, at }, target: { class: "ConnectionDO", name: team.id } }
+  { kind: "connections.member_left", entity: `member-left:${team.id}:${user}:${tx}`, payload: { team: team.id, user, at }, target: { class: "ConnectionDO", name: team.id } },
+  { kind: TEAM_MEMBER_LEFT_SOCKETS, entity: `sockets-left:${team.id}:${user}:${tx}`, payload: { team: team.id, user, at }, target: { class: "CloudDO", name: team.id } }
 ]
+
+/** The item a team-keyed socket owner (CloudDO) gets when a member leaves: it closes that user's sockets. */
+export const TEAM_MEMBER_LEFT_SOCKETS = "team.member_left.sockets"

@@ -31,10 +31,16 @@ enum HomeMapping {
     static func message(_ item: TranscriptItem, aliases: [IdempotencyKey: ID], me: ParticipantID,
                         summary: ConversationSummary?, media: Media = { _ in nil }, links: Links = { _ in nil }) -> Message {
         let (parts, owners) = projectedParts(item, summary: summary, media: media, links: links)
-        return Message(id: id(item, aliases: aliases), senderId: item.author.rawValue, sentAt: Instant.format(item.createdAt),
+        let messageID = id(item, aliases: aliases)
+        // A person's text shows as typed, and so does a part with mentions (their offsets index
+        // the text as written): only an agent's text is Markdown (MessagesLab's opt-in
+        // `Message.format`; plain by default, so a local send is plain before HomeStore has it).
+        let mentions = item.parts.contains { if case let .text(_, m) = $0 { return !m.isEmpty } else { return false } }
+        let format: MessageFormat = isAgent(item.author, summary) && !mentions ? .markdown : .plain
+        return Message(id: messageID, senderId: item.author.rawValue, sentAt: Instant.format(item.createdAt),
                 parts: parts, replyTo: nil, status: status(item, me: me, summary: summary), edits: nil,
                 retractedAt: item.isRetracted ? Instant.format(item.editedAt ?? item.createdAt) : nil,
-                reactions: item.reactions.map { reaction($0, partIndex: projectedIndex($0.partIndex, owners)) })
+                reactions: item.reactions.map { reaction($0, partIndex: projectedIndex($0.partIndex, owners)) }, format: format)
     }
 
     /// The item's parts as MessagesLab shows them, and for each one the
@@ -64,7 +70,7 @@ enum HomeMapping {
 
     /// A MessagesLab part index as the HomeStore part it shows (a tapback's partIndex).
     static func homeIndex(_ projected: Int, _ owners: [Int]) -> Int {
-        owners.indices.contains(projected) ? owners[projected] : projected
+        owners[checked: projected] ?? projected // // crash program: checked (a projected index past the owners keeps its value)
     }
 
     /// One HomeStore part as MessagesLab parts: a text part by Messages'
@@ -137,7 +143,7 @@ enum HomeMapping {
             let host = URL(string: link.url)?.host.map { $0.hasPrefix("www.") ? String($0.dropFirst(4)) : $0 }
             return .link(url: link.url, title: link.title ?? host, siteName: host, image: nil, theme: "dark")
         case .attachment(let ref):
-            return .attachment(attachment(ref, picture: media(ref.hash), progress: progress[ref.hash]))
+            return .attachment(attachment(ref, picture: media(ref.hash), progress: progress.value(for: ref.hash))) // // crash program: dictionary read
         case .location(let place):
             return .location(latitude: place.latitude, longitude: place.longitude, title: place.label, subtitle: nil)
         case .work, .approval, .question:
@@ -211,7 +217,7 @@ enum HomeMapping {
     /// The loaded window's place in the history: (messages before it, total).
     static func window(_ items: [TranscriptItem], summary: ConversationSummary?) -> (start: Int, total: Int) {
         let first = items.first(where: { $0.seq != nil })?.seq ?? 1
-        let start = max(0, Int(first) - 1)
-        return (start, max(start + items.count, Int(summary?.lastSeq ?? 0)))
+        let start = max(0, Int(clamping: first) - 1) // // crash program: a seq past Int.max clamps
+        return (start, max(start + items.count, Int(clamping: summary?.lastSeq ?? 0)))
     }
 }

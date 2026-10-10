@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextProcessEnvironment
+import CmuxNextWakeups
 import GhosttyNextKit
 import os
 import Synchronization
@@ -267,13 +268,16 @@ public final class GhosttyRuntime {
     private func installObservers() {
         let center = NotificationCenter.default
         observers.append(center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
             MainActor.assumeIsolated { self?.setAppFocused(true) }
         })
         observers.append(center.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
             MainActor.assumeIsolated { self?.setAppFocused(false) }
         })
         // Ghostty caches the keyboard layout for key translation.
         observers.append(center.addObserver(forName: NSTextInputContext.keyboardSelectionDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
             MainActor.assumeIsolated {
                 guard let app = self?.app else { return }
                 ghostty_app_keyboard_changed(app)
@@ -281,10 +285,10 @@ public final class GhosttyRuntime {
         })
         if let nsApp = NSApp {
             applyColorScheme(nsApp.effectiveAppearance)
-            appearanceObservation = nsApp.observe(\.effectiveAppearance, options: [.new]) { [weak self] application, _ in
-                MainActor.assumeIsolated {
-                    self?.applyColorScheme(application.effectiveAppearance)
-                }
+            // KVO calls back on the thread that changed the value: inline on
+            // main, a hop from anywhere else.
+            appearanceObservation = nsApp.observe(\.effectiveAppearance, options: [.new]) { @Sendable [weak self] application, _ in
+                MainDelivery().run { self?.applyColorScheme(application.effectiveAppearance) }
             }
         }
     }

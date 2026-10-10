@@ -1,30 +1,35 @@
 # App FFI release: publishing by hand
 
 `.github/workflows/app-ffi-release.yml` builds `CCmuxAppFFI.xcframework` on every
-FFI source push to `feat-cmux-next` and tries to publish it as the prerelease
-`cmux-app-ffi-<full sha>`. The publish job fails loud with "Publish by hand"
-when it cannot create the release:
+FFI source push to `feat-cmux-next` and publishes it as the prerelease
+`cmux-app-ffi-<full sha>`. The publish job runs in the `ffi-release` environment
+(deployment policy: branch `feat-cmux-next` only), which holds the FFI release App
+credentials `CMUX_FFI_RELEASE_APP_ID` and `CMUX_FFI_RELEASE_APP_KEY` (App
+`manaflow-cmux-ffi-release`, id 5246086, installed on this repository only and
+used for nothing else). It mints a token for this repository only,
+with contents:write, and workflows:write only when workflow files changed since
+the last FFI tag. Only the release create uses that token.
 
-- workflow files changed since the last FFI tag (GitHub refuses a
-  `GITHUB_TOKEN` tag over workflow-file changes, run 37272232472, HTTP 403);
+FFI tags `cmux-app-ffi-*` are protected by two repository rulesets:
+
+- 24624526 "cmux-app-ffi tags: admin create only" (creation; admins and the
+  FFI release App bypass). `GITHUB_TOKEN` cannot create these tags (run 37272232472,
+  HTTP 403).
+- 24624527 "cmux-app-ffi tags: immutable" (update and deletion; no bypass, the
+  App included).
+
+The publish job fails loud with "Publish by hand" when it cannot create the
+release:
+
+- the App token cannot be minted (environment secrets missing or wrong);
 - the create returns an error such as HTTP 403;
 - the job finishes without a release (run 37556534995).
 
-The hand publish is the accepted path (coordinator decision 2026-10-07; revisit
-an App token if this happens more than about twice a week). The CI lead runs it,
-never a rebuild. Every check below is required; if one fails, stop and report.
-
-FFI tags `cmux-app-ffi-*` are protected by two repository rulesets that the
-coordinator applies:
-
-- 24624526 "cmux-app-ffi tags: admin create only" (creation; admins bypass).
-- 24624527 "cmux-app-ffi tags: immutable" (update and deletion; no bypass).
-
-The workflow's `GITHUB_TOKEN` therefore cannot create these tags, and the hand
-publish by an admin is the path. A wrong release cannot be fixed by replacing
-it, so verify before `gh release create`. Emergency exit only: an admin deletes
-ruleset 24624527 (the rollback lines are in the coordinator's window log), then
-restores it.
+The hand publish below is then the path. The CI lead runs it, never a rebuild,
+as an admin. Every check below is required; if one fails, stop and report. A
+wrong release cannot be fixed by replacing it, so verify before
+`gh release create`. Emergency exit only: an admin deletes ruleset 24624527
+(the rollback lines are in the coordinator's window log), then restores it.
 
 ## Steps
 

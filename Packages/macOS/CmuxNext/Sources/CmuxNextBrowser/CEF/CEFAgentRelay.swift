@@ -47,6 +47,20 @@ public final class CEFAgentRelay {
     /// True once the Chromium browser exists.
     public var hasBrowser: Bool { tab?.browserID != nil }
 
+    /// No pane shows the tab, nor any other tab of its pane's Chromium window:
+    /// that window is in no app window, so Chromium draws no frame for it
+    /// (screenshots never answer). The App then moves the tab's content
+    /// view into its off-screen render window, which presents the tab there.
+    /// False while a pane shows another tab of the same window: the tab is a
+    /// background tab of a drawn window then, and moving it would take the
+    /// window from that pane.
+    public var needsRenderWindow: Bool {
+        // A tab its pane parked hidden (PaneContentView+Parking) is in the
+        // window but not drawn: a background tab too.
+        guard let tab, !tab.isClosed, tab.contentView.window == nil || tab.contentView.isHiddenOrHasHiddenAncestor else { return false }
+        return tab.host.visibleTab == nil
+    }
+
     /// Creates the Chromium browser of a tab that was never shown, in the
     /// background (the pane host's own creation path; nothing is shown and
     /// focus does not move). Agents drive hidden tabs.

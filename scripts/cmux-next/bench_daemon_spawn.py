@@ -32,6 +32,9 @@ import tempfile
 import threading
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from daemon_teardown import recorded_hosts  # noqa: E402
+
 
 def percentile(values, p):
     if not values:
@@ -120,9 +123,9 @@ class Daemon:
         raise SystemExit("bench: the daemon did not start")
 
     def hosts(self):
-        """Terminal hosts of this daemon (they run the same binary)."""
-        out = subprocess.run(["pgrep", "-f", f"{self.binary} __terminal-host"], capture_output=True, text=True).stdout
-        return {int(pid) for pid in out.split()}
+        """Terminal hosts of this daemon, from its discovery records (a host's
+        command line names no binary path, cx-0tgl LF)."""
+        return recorded_hosts(self.state)
 
     def stop(self):
         try:

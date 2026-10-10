@@ -21,7 +21,7 @@ export const Revision = Schema.String.check(Schema.isPattern(/^[0-9]+$/)).annota
   description: "Decimal per-object revision (the owner's event sequence)."
 })
 export const Origin = Schema.Literals(["user", "cli", "mcp", "script", "remote"]).annotate({ identifier: "Origin" })
-export const InstallKind = Schema.Literals(["mac", "ios", "cli", "daemon", "web", "vm"]).annotate({ identifier: "InstallKind" })
+export const InstallKind = Schema.Literals(["mac", "ios", "cli", "daemon", "web", "vm", "team-vm"]).annotate({ identifier: "InstallKind" })
 export const Platform = Schema.Literals(["macos", "ios", "linux", "windows", "web"]).annotate({ identifier: "Platform" })
 
 /**
@@ -121,9 +121,16 @@ export const Host = Schema.Struct({
   orphaned: Schema.optionalKey(Schema.Struct({ at: Schema.Int, former_owner: UserId }))
 }).annotate({ identifier: "Host" })
 
+/**
+ * A team role (spec H5, H12): a named bundle of default grants that TeamDO checks
+ * (backend/apps/api/src/domains/team-roles.ts). `guest` has no default grants and uses no seat;
+ * `billing` sees only billing and the billing audit entries.
+ */
+export const TeamRole = Schema.Literals(["owner", "admin", "member", "billing", "guest"]).annotate({ identifier: "TeamRole" })
+
 export const TeamMember = Schema.Struct({
   user: UserId,
-  role: Schema.Literals(["owner", "admin", "member"]),
+  role: TeamRole,
   display_name: Schema.String
 }).annotate({ identifier: "TeamMember" })
 
@@ -136,6 +143,7 @@ export const ErrorCode = Schema.Literals([
   "operation.failed",
   "auth.unauthenticated",
   "auth.forbidden",
+  "team.not_member",
   "owner.unreachable",
   "mutation.indeterminate",
   "policy.invalid",

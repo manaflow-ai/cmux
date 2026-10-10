@@ -72,7 +72,13 @@ export function OpenableImage({ src, alt }: { src: string; alt: string }) {
   const image = <img className="cv-img" src={src} alt={alt} loading="lazy" decoding="async" />;
   if (!openImage) return image;
   return (
-    <button type="button" className="cv-img-open" title={alt || t("image.view")} onClick={() => openImage(src, alt)}>
+    <button
+      type="button"
+      className="cv-img-open"
+      data-open-image
+      title={alt || t("image.view")}
+      onClick={() => openImage(src, alt)}
+    >
       {image}
     </button>
   );

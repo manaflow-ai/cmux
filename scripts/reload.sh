@@ -9,6 +9,8 @@ source "$SCRIPT_DIR/lib/mobile-attach.sh"
 source "$SCRIPT_DIR/lib/dev-secrets.sh"
 # shellcheck source=scripts/lib/stop-app-instances.sh
 source "$SCRIPT_DIR/lib/stop-app-instances.sh"
+# shellcheck source=lib/cmux-dev-shim-install
+source "$SCRIPT_DIR/lib/cmux-dev-shim-install"
 
 APP_NAME="cmux DEV"
 BUNDLE_ID="com.cmuxterm.app.debug"
@@ -58,56 +60,6 @@ XCODEBUILD_OUTPUT_VALID=0
 XCODEBUILD_CLEANED_OUTPUTS=0
 CAN_PUBLISH_RELOAD_STATE=1
 RELOAD_PUBLICATION_SKIP_REASON=""
-
-reload_socket_is_live() {
-  local socket_path="$1"
-  [[ -S "$socket_path" ]] || return 1
-  if command -v perl >/dev/null 2>&1; then
-    # A listener with a saturated Unix-socket backlog can leave a blocking
-    # connect() parked forever. Make the probe non-blocking and give the
-    # kernel at most two seconds to complete it. A timeout (or an
-    # indeterminate probe error) is treated as live so stale cleanup never
-    # races a listener that is merely unable to accept right now.
-    perl -MFcntl=:DEFAULT -MSocket -MIO::Select -MErrno=EAGAIN,EWOULDBLOCK,EINPROGRESS,EALREADY,EISCONN,ECONNREFUSED,ENOENT -e '
-      my $path = shift;
-      exit 1 unless -S $path;
-      socket(my $socket, PF_UNIX, SOCK_STREAM, 0) or exit 0;
-      my $flags = fcntl($socket, F_GETFL, 0);
-      defined($flags) && fcntl($socket, F_SETFL, $flags | O_NONBLOCK) or exit 0;
-      if (connect($socket, sockaddr_un($path))) {
-        close($socket);
-        exit 0;
-      }
-      my $connect_error = 0 + $!;
-      unless ($connect_error == EINPROGRESS || $connect_error == EALREADY
-          || $connect_error == EAGAIN || $connect_error == EWOULDBLOCK) {
-        close($socket);
-        exit(($connect_error == ECONNREFUSED || $connect_error == ENOENT) ? 1 : 0);
-      }
-      my $selector = IO::Select->new($socket);
-      my @ready = $selector->can_write(2);
-      unless (@ready) {
-        close($socket);
-        exit 0;
-      }
-      my $error_bytes = getsockopt($socket, SOL_SOCKET, SO_ERROR);
-      unless (defined($error_bytes)) {
-        close($socket);
-        exit 0;
-      }
-      my $socket_error = unpack("i", $error_bytes);
-      close($socket);
-      exit 0 if $socket_error == 0 || $socket_error == EISCONN;
-      exit 1 if $socket_error == ECONNREFUSED || $socket_error == ENOENT;
-      exit 0;
-    ' "$socket_path" >/dev/null 2>&1
-    return $?
-  fi
-  if command -v nc >/dev/null 2>&1 && nc -z -U -w 2 "$socket_path" </dev/null >/dev/null 2>&1; then
-    return 0
-  fi
-  return 1
-}
 
 reload_cleanup_tag_state_with_lock() {
   local socket_path="$1"
@@ -574,153 +526,6 @@ should_skip_ghostty_cli_helper_zig_build() {
   [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]
 }
 
-write_dev_cli_shim() {
-  local target="$1"
-  local fallback_bin="$2"
-  local cli_path_file="${3:-/tmp/cmux-last-cli-path}"
-  local cli_path_file_literal=""
-  local fallback_bin_literal=""
-  local socket_probe_function=""
-  printf -v cli_path_file_literal '%q' "$cli_path_file"
-  printf -v fallback_bin_literal '%q' "$fallback_bin"
-  socket_probe_function="$(declare -f reload_socket_is_live)"
-  socket_probe_function="${socket_probe_function/reload_socket_is_live/socket_is_live}"
-  mkdir -p "$(dirname "$target")"
-  cat > "$target" <<EOF
-#!/usr/bin/env bash
-# cmux dev shim (managed by scripts/reload.sh)
-set -euo pipefail
-
-CLI_PATH_FILE=${cli_path_file_literal}
-SOCKET_ARG=""
-EXPECT_SOCKET_VALUE=0
-HAS_EXPLICIT_SOCKET=0
-for arg in "\$@"; do
-  if [[ "\$EXPECT_SOCKET_VALUE" == "1" ]]; then
-    SOCKET_ARG="\$arg"
-    EXPECT_SOCKET_VALUE=0
-    HAS_EXPLICIT_SOCKET=1
-    continue
-  fi
-  case "\$arg" in
-    --socket)
-      EXPECT_SOCKET_VALUE=1
-      HAS_EXPLICIT_SOCKET=1
-      ;;
-    --socket=*)
-      SOCKET_ARG="\${arg#--socket=}"
-      HAS_EXPLICIT_SOCKET=1
-      ;;
-  esac
-done
-
-${socket_probe_function}
-
-cli_bundle_for_path() {
-  local cli_path="\$1"
-  local bundle_path=""
-  bundle_path="\$(cd "\$(dirname "\$cli_path")/../../.." 2>/dev/null && pwd -P)" || return 1
-  [[ "\$bundle_path" == *.app && -f "\$bundle_path/Contents/Info.plist" ]] || return 1
-  printf '%s\\n' "\$bundle_path"
-}
-
-bundle_socket_path() {
-  local bundle_path="\$1"
-  local socket_path=""
-  if [[ -x /usr/libexec/PlistBuddy ]]; then
-    socket_path="\$(/usr/libexec/PlistBuddy -c 'Print :LSEnvironment:CMUX_SOCKET_PATH' "\$bundle_path/Contents/Info.plist" 2>/dev/null || true)"
-  fi
-  if [[ -n "\$socket_path" ]]; then
-    printf '%s\\n' "\$socket_path"
-    return 0
-  fi
-
-  local app_name="\${bundle_path##*/}"
-  app_name="\${app_name%.app}"
-  if [[ "\$app_name" == "cmux DEV "* ]]; then
-    local tag="\${app_name#cmux DEV }"
-    [[ "\$tag" =~ ^[A-Za-z0-9_-]+\$ ]] || return 1
-    printf '/tmp/cmux-debug-%s.sock\\n' "\$tag"
-    return 0
-  fi
-  return 1
-}
-
-live_cli_bundle() {
-  local cli_path="\$1"
-  [[ -f "\$cli_path" && -x "\$cli_path" && "\$cli_path" != "\$0" ]] || return 1
-  local bundle_path=""
-  bundle_path="\$(cli_bundle_for_path "\$cli_path")" || return 1
-  local socket_path=""
-  socket_path="\$(bundle_socket_path "\$bundle_path")" || return 1
-  socket_is_live "\$socket_path" || return 1
-  printf '%s\\n' "\$bundle_path"
-}
-
-if [[ -n "\${CMUX_SOCKET_PATH:-}" || -n "\${CMUX_SOCKET:-}" ]]; then
-  HAS_EXPLICIT_SOCKET=1
-fi
-if [[ -n "\$SOCKET_ARG" ]]; then
-  SOCKET_NAME="\$(basename "\$SOCKET_ARG")"
-  if [[ "\$SOCKET_NAME" == cmux-debug-*.sock ]]; then
-    TAG="\${SOCKET_NAME#cmux-debug-}"
-    TAG="\${TAG%.sock}"
-    if [[ "\$TAG" =~ ^[A-Za-z0-9_-]+$ ]]; then
-      # reload.sh links /tmp/cmux-<tag> to the DerivedData it built the tag into,
-      # which is not the per-tag default when tags share one.
-      TAG_CLI_SUFFIX="cmux DEV \$TAG.app/Contents/Resources/bin/cmux"
-      for TAG_CLI in "/tmp/cmux-\$TAG"/Build/Products/{Debug,Release}/"\$TAG_CLI_SUFFIX" \
-        "\$HOME/Library/Developer/Xcode/DerivedData/cmux-\$TAG"/Build/Products/{Debug,Release}/"\$TAG_CLI_SUFFIX"; do
-        # /tmp is shared, so only trust a CLI this user owns.
-        [[ -O "\$TAG_CLI" ]] || continue
-        if live_cli_bundle "\$TAG_CLI" >/dev/null; then
-          if [[ "\$HAS_EXPLICIT_SOCKET" == "0" ]] || socket_is_live "\$SOCKET_ARG"; then
-            exec "\$TAG_CLI" "\$@"
-          fi
-        fi
-      done
-    fi
-  fi
-fi
-if [[ -n "\${CMUX_BUNDLED_CLI_PATH:-}" ]] && [[ -f "\$CMUX_BUNDLED_CLI_PATH" ]] && [[ -x "\$CMUX_BUNDLED_CLI_PATH" ]] && [[ "\$CMUX_BUNDLED_CLI_PATH" != "\$0" ]]; then
-  # Inherited terminal identity is authoritative when the caller explicitly
-  # supplied a socket. For ambient calls, validate liveness only when the
-  # bundle carries reload-managed socket metadata; ordinary installed bundles
-  # delegate directly to their own CLI.
-  BUNDLED_APP_PATH=""
-  BUNDLED_SOCKET_PATH=""
-  if [[ "\$HAS_EXPLICIT_SOCKET" == "1" ]]; then
-    exec "\$CMUX_BUNDLED_CLI_PATH" "\$@"
-  elif BUNDLED_APP_PATH="\$(cli_bundle_for_path "\$CMUX_BUNDLED_CLI_PATH" 2>/dev/null)" &&
-       BUNDLED_SOCKET_PATH="\$(bundle_socket_path "\$BUNDLED_APP_PATH" 2>/dev/null)"; then
-    if socket_is_live "\$BUNDLED_SOCKET_PATH"; then
-      exec "\$CMUX_BUNDLED_CLI_PATH" "\$@"
-    fi
-  else
-    # Stable, nightly, staging, and other installed bundles need not carry the
-    # reload-managed socket metadata. Preserve their inherited CLI identity.
-    exec "\$CMUX_BUNDLED_CLI_PATH" "\$@"
-  fi
-fi
-
-CLI_PATH_OWNER="\$(stat -f '%u' "\$CLI_PATH_FILE" 2>/dev/null || stat -c '%u' "\$CLI_PATH_FILE" 2>/dev/null || echo -1)"
-if [[ "\$HAS_EXPLICIT_SOCKET" == "0" && -r "\$CLI_PATH_FILE" ]] && [[ ! -L "\$CLI_PATH_FILE" ]] && [[ "\$CLI_PATH_OWNER" == "\$(id -u)" ]]; then
-  CLI_PATH="\$(cat "\$CLI_PATH_FILE" 2>/dev/null || true)"
-  if live_cli_bundle "\$CLI_PATH" >/dev/null; then
-    exec "\$CLI_PATH" "\$@"
-  fi
-fi
-
-if [[ -x ${fallback_bin_literal} ]]; then
-  exec ${fallback_bin_literal} "\$@"
-fi
-
-echo "error: no reload-selected dev cmux CLI found. Run ./scripts/reload.sh --tag <name> first." >&2
-exit 1
-EOF
-  chmod +x "$target"
-}
-
 select_cmux_shim_target() {
   local app_cli_dir="/Applications/cmux.app/Contents/Resources/bin"
   local marker="cmux dev shim (managed by scripts/reload.sh)"
@@ -803,6 +608,12 @@ publish_reload_cli_path() {
     return 0
   fi
 
+  # Legacy pointer (plans/cmux-next/version-skew.md step 7). The app writes
+  # ~/Library/Application Support/cmux/last-app-cli at launch, and the dev
+  # shim and cleanup-dev-builds.sh read that first. This writer stays for one
+  # release only because readers outside this repo still read /tmp: the
+  # cmuxterm-hq Tag Opener, local-build-guards and keep-devs.sh, plus app
+  # builds older than the app pointer. Remove it once those read last-app-cli.
   reload_write_cli_pointer "/tmp/cmux-last-cli-path" "$cli_path" || return 1
   publish_reload_cli_links "$cli_path"
 }
@@ -880,7 +691,7 @@ reload_write_discovery_file() {
   [[ ! -L "$target" ]] || return 1
   if [[ -e "$target" ]]; then
     local owner=""
-    owner="$(stat -f '%u' "$target" 2>/dev/null || stat -c '%u' "$target" 2>/dev/null || echo -1)"
+    owner="$(stat -c '%u' "$target" 2>/dev/null || stat -f '%u' "$target" 2>/dev/null || echo -1)"
     [[ "$owner" == "$(id -u)" ]] || return 1
   fi
   mkdir -p "$directory" || return 1
@@ -1490,6 +1301,16 @@ fi
 if [[ -n "${CMUX_NEXT_TUI_BIN:-}" ]]; then
   echo "==> cmux-next: bundling cmux-tui from CMUX_NEXT_TUI_BIN=$CMUX_NEXT_TUI_BIN"
 else
+  # An nx-remote build of a tree no artifacts run published (a newer push
+  # replaces a pending run on a busy branch, and uncommitted edits are never
+  # published) builds the client set here instead of waiting up to 45 min; the
+  # bundle then takes it as CMUX_TUI_CLIENT_LOCAL. Fleet builds already pass it.
+  if [[ -n "${NX_JOB_ID:-}" && -z "${CMUX_TUI_CLIENT_LOCAL:-}" && -x "$PWD/scripts/cmux-next/build-cmux-tui-client.sh" ]] &&
+    ! "$PWD/scripts/cmux-next/pin-cmux-tui.sh" probe 2>/dev/null | grep -q ': ready ('; then
+    CMUX_TUI_CLIENT_LOCAL="$("$PWD/scripts/cmux-next/build-cmux-tui-client.sh" --print-path)" || exit 1
+    export CMUX_TUI_CLIENT_LOCAL
+    echo "==> cmux-next: bundling the cmux-tui client set built on this host, $CMUX_TUI_CLIENT_LOCAL"
+  fi
   "$PWD/scripts/cmux-next/pin-cmux-tui.sh" fetch || exit 1
 fi
 
@@ -1503,22 +1324,22 @@ if [[ "$BUILD_CONFIGURATION" == "Release" ]]; then
   export CMUX_NEXT_OPTCHAT_CHIEF_ARCHS="${CMUX_NEXT_OPTCHAT_CHIEF_ARCHS:-arm64 x86_64}"
 fi
 
-# cmux-next's agent pane starts the acpmux daemon from Resources/bin. CI and
-# reload-build provision CMUX_NEXT_ACPMUX_BIN from the in-tree source; a
-# tagged reload outside CI may reuse that commit-addressed cache, but never runs
-# Cargo on the developer machine.
+# cmux-next's agent pane starts the acpmux daemon from Resources/bin. A miss
+# builds it on a build host (CI, fleet, nx-remote: build-acpmux.sh
+# --check-build-allowed decides); a developer machine reuses the
+# commit-addressed cache but never runs Cargo.
 if [[ -n "${CMUX_NEXT_ACPMUX_BIN:-}" ]]; then
   echo "==> cmux-next: bundling acpmux from CMUX_NEXT_ACPMUX_BIN=$CMUX_NEXT_ACPMUX_BIN"
 elif [[ -x "$PWD/scripts/cmux-next/build-acpmux.sh" ]]; then
   if acpmux_cached="$("$PWD/scripts/cmux-next/build-acpmux.sh" --cached-only --print-path 2>/dev/null)"; then
     export CMUX_NEXT_ACPMUX_BIN="$acpmux_cached"
     echo "==> cmux-next: bundling cached acpmux from $CMUX_NEXT_ACPMUX_BIN"
-  elif [[ "${GITHUB_ACTIONS:-false}" == "true" || "${CI:-}" == "true" || -n "${CMUX_FLEET_BUILD_TAG:-}" ]]; then
-    "$PWD/scripts/cmux-next/build-acpmux.sh"
+  elif "$PWD/scripts/cmux-next/build-acpmux.sh" --check-build-allowed; then
+    "$PWD/scripts/cmux-next/build-acpmux.sh" || exit 1
     export CMUX_NEXT_ACPMUX_BIN="$("$PWD/scripts/cmux-next/build-acpmux.sh" --cached-only --print-path)"
-    echo "==> cmux-next: bundling fleet-built acpmux from $CMUX_NEXT_ACPMUX_BIN"
+    echo "==> cmux-next: bundling acpmux built on this host from $CMUX_NEXT_ACPMUX_BIN"
   else
-    echo "error: no cached acpmux for this checkout; provision it on CI/fleet or set CMUX_NEXT_ACPMUX_BIN" >&2
+    echo "error: no cached acpmux for this checkout, and this machine never runs Cargo; build through nx-remote or the fleet, or set CMUX_NEXT_ACPMUX_BIN" >&2
     exit 1
   fi
 fi
@@ -1530,8 +1351,8 @@ fi
 if [[ -z "${CMUX_NEXT_OPTCHAT_CHIEF_BIN:-}" && -x "$PWD/scripts/cmux-next/build-optchat-chief.sh" ]]; then
   if optchat_cached="$("$PWD/scripts/cmux-next/build-optchat-chief.sh" --cached-only --print-path 2>/dev/null)"; then
     export CMUX_NEXT_OPTCHAT_CHIEF_BIN="$optchat_cached"
-  elif [[ "${GITHUB_ACTIONS:-false}" == "true" || "${CI:-}" == "true" || -n "${CMUX_FLEET_BUILD_TAG:-}" ]]; then
-    "$PWD/scripts/cmux-next/build-optchat-chief.sh"
+  elif "$PWD/scripts/cmux-next/build-optchat-chief.sh" --check-build-allowed; then
+    "$PWD/scripts/cmux-next/build-optchat-chief.sh" || exit 1
     export CMUX_NEXT_OPTCHAT_CHIEF_BIN="$("$PWD/scripts/cmux-next/build-optchat-chief.sh" --cached-only --print-path)"
     export CMUX_NEXT_REQUIRE_OPTCHAT_CHIEF=1
   fi

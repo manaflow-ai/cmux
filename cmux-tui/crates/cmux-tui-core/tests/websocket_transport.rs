@@ -1,3 +1,4 @@
+use cmux_tui_core::Actor;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{Shutdown, SocketAddr, TcpStream};
 use std::path::PathBuf;
@@ -261,7 +262,15 @@ fn websocket_pairing_is_approved_by_the_tui_and_credential_reconnects() {
 fn websocket_streams_subscribe_and_attach_and_survives_unclean_disconnect() {
     let mux = Mux::new("ws-streams", SurfaceOptions::default());
     let surface = mux
-        .run_command_surface(vec!["/bin/cat".to_string()], None, true, None, None, Some((80, 24)))
+        .run_command_surface_as(
+            &Actor::Daemon,
+            vec!["/bin/cat".to_string()],
+            None,
+            true,
+            None,
+            None,
+            Some((80, 24)),
+        )
         .unwrap()
         .surface;
     let server = server::serve_websocket(
@@ -321,7 +330,15 @@ fn websocket_streams_subscribe_and_attach_and_survives_unclean_disconnect() {
 fn websocket_render_attach_carries_large_rgba_state_and_stays_connected() {
     let mux = Mux::new("ws-large-render", SurfaceOptions::default());
     let surface = mux
-        .run_command_surface(vec!["/bin/cat".to_string()], None, true, None, None, Some((80, 24)))
+        .run_command_surface_as(
+            &Actor::Daemon,
+            vec!["/bin/cat".to_string()],
+            None,
+            true,
+            None,
+            None,
+            Some((80, 24)),
+        )
         .unwrap()
         .surface;
     mux.surface(surface)
@@ -424,7 +441,15 @@ fn websocket_subscriber_receives_cross_connection_event_without_poll_delay() {
 fn clients_list_identify_resize_and_detach_across_transports() {
     let mux = Mux::new("client-presence", SurfaceOptions::default());
     let surface = mux
-        .run_command_surface(vec!["/bin/cat".to_string()], None, true, None, None, Some((80, 24)))
+        .run_command_surface_as(
+            &Actor::Daemon,
+            vec!["/bin/cat".to_string()],
+            None,
+            true,
+            None,
+            None,
+            Some((80, 24)),
+        )
         .unwrap()
         .surface;
     let socket_path = unique_socket("client-presence");

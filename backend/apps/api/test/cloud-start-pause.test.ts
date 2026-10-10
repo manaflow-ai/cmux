@@ -46,11 +46,12 @@ describe("pause and start", { timeout: 60_000 }, () => {
     expect(await x.stub.mintLinkToken(x.team, installOf(x.p), { host, services: ["ssh"] })).toMatchObject({ ok: false, code: "cloud.machine.paused", details: { machine, state: "paused" } })
   })
 
-  it("pause and start need a signed-in person (money ops): an install is refused", async () => {
+  it("pause and start refuse agents and installs whose grant lacks mutate-shared (cx-wb5.65)", async () => {
     const x = person()
     await ensureUser(x)
     const { machine } = await createdAndBound(x)
-    expect(reply(await x.stub.submit(x.team, installOf(x.p), frame("cloud.machine.pause", { machine })))).toMatchObject({ t: "reject", code: "auth.forbidden" })
+    expect(reply(await x.stub.submit(x.team, { ...installOf(x.p), agent: "agent_00000000000000000001" }, frame("cloud.machine.pause", { machine })))).toMatchObject({ t: "reject", code: "auth.forbidden" })
+    expect(reply(await x.stub.submit(x.team, installOf(x.p, ["read", "mutate-own"]), frame("cloud.machine.pause", { machine })))).toMatchObject({ t: "reject", code: "auth.forbidden" })
   })
 
   it("a call that failed after the VM changed settles from the VM's real state (review P2)", async () => {

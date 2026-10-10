@@ -19,6 +19,12 @@ extension AgentPaneModel {
         AgentPaneReply.failure(code: error.rawValue, message: transportFailedMessage, details: nil, retryable: nil, origin: "native")
     }
 
+    /// `transport.gestureRelease` forgets the gesture tickets; `transport.close` closes its connection.
+    func endTransport(closing connection: Int?) -> [String: Any] {
+        if let connection { transport.close(connection: connection) } else { transport.gestures.clearTickets() }
+        return AgentPaneReply.success()
+    }
+
     static func unsupported(_ method: String) -> [String: Any] {
         AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: \(method)")
     }

@@ -164,6 +164,10 @@ impl Inspector {
         if events.iter().any(|e| e["ev"] == "turn.unmarked") {
             start["layout"]["marker"] = json!(false);
         }
+        // A turn whose route refused the 1-hour TTL ran again at 5 minutes.
+        if events.iter().any(|e| e["ev"] == "turn.ttl_refused") {
+            start["layout"]["ttl"] = json!("5m");
+        }
         let prompt = turn_prompt(&self.chat, &start, &self.system_text);
         let mut out = turns::prompt_json(&prompt, &start);
         self.decorate(&mut out, &prompt);

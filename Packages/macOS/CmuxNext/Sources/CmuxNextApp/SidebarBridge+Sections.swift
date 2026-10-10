@@ -91,8 +91,8 @@ extension SidebarBridge {
                         DesignSettings.shared.sidebarSections.showChats, SidebarWorkspaceItems.workspaceInfos(service.document, refs: refs))
             }) {
                 guard let self else { return }
+                // `model.layout` is written with the rows it projects (SidebarBridge.show).
                 let visibleLayout = layout.chatsLayout(enabled: showChats)
-                if model.layout != visibleLayout { model.layout = visibleLayout }
                 self.chatsMount.show(showChats, services: self.services)
                 let infos = Self.itemInfo(for: visibleLayout, registered: { registry.action(for: $0) != nil },
                                           unread: unread,
@@ -144,11 +144,11 @@ extension SidebarBridge {
 
     /// A layout change from this sidebar (a drag, an inline edit): sent to
     /// the layout owner; a refusal shows in the refusal HUD.
-    /// The right-click menu of a section: Hide only on an app section.
+    /// The right-click menu of a section: Hide only on an app section, Hide
+    /// Section only on Recents (`SidebarHiddenSections`).
     func layoutSectionMenu(_ id: LayoutSectionID) -> NSMenu? {
         let isApp = model.layout.section(id)?.owningAppID != nil
-        let menus = ContextMenuCatalog.shared
-        let entries = isApp ? menus.entries(for: .sidebarSection) : menus.entries(for: .sidebarSection, removing: ["sidebar.item.hideApp"])
+        let entries = ContextMenuCatalog.shared.entries(for: .sidebarSection, removing: SidebarHiddenSections.headerMenuRemovals(id, isApp: isApp))
         return services.registry.makeContextMenu(for: .sidebarSection, target: ActionTargetRef(kind: .sidebarSection, id: id.rawValue),
                                                  entries: entries)
     }

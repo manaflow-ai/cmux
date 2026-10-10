@@ -69,8 +69,8 @@ printf -v TRUSTED_HOOKS_CONFIG 'git config core.hooksPath %q' "$TRUSTED_HOOK_DIR
 warn_manual_wiring() {
     local hooks_dir="$1"
     {
-        echo "To run cmux's tracked pre-commit checks (pbxproj normalization, test"
-        echo "registration) alongside your hooks, add this line to $hooks_dir/pre-commit"
+        echo "To run cmux's tracked pre-commit checks (formatting, pbxproj normalization,"
+        echo "test registration) alongside your hooks, add this line to $hooks_dir/pre-commit"
         echo "(create it with a #!/bin/sh line and chmod +x if it does not exist):"
         echo ""
         echo "    $TRUSTED_PRE_COMMIT"

@@ -148,6 +148,11 @@ function byRecency(sessions: AcpmuxSessionEntry[]): AcpmuxSessionEntry[] {
   return [...sessions].sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0));
 }
 
+/** A stable newest-first view for ungrouped sidebar sections. */
+export function sortByRecency(sessions: AcpmuxSessionEntry[]): AcpmuxSessionEntry[] {
+  return byRecency(sessions);
+}
+
 /** Sessions under one header per folder (a cloud-only folder per machine). Groups follow their most recent session; sessions stay newest first. */
 export function groupByProject(
   sessions: AcpmuxSessionEntry[],

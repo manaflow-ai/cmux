@@ -28,7 +28,7 @@ const ADOPTED_PTY_FD: libc::c_int = 3;
 
 /// The PTY and session an adopting host serves.
 #[derive(Debug)]
-pub(super) struct AdoptSpec {
+pub(crate) struct AdoptSpec {
     fd: RawFd,
     child_pid: u32,
     session_id: u32,
@@ -124,7 +124,7 @@ fn parse_fd(text: &str) -> Option<RawFd> {
 }
 
 /// The adopted PTY descriptor of the hidden host's arguments, if any.
-pub(super) fn adopt_pty_fd(args: &[String]) -> anyhow::Result<Option<RawFd>> {
+pub(crate) fn adopt_pty_fd(args: &[String]) -> anyhow::Result<Option<RawFd>> {
     match args {
         [mode] if mode == "--bootstrap-stdio" => Ok(None),
         [mode, flag, fd] if mode == "--bootstrap-stdio" && flag == ADOPT_PTY_FD_FLAG => {
@@ -146,13 +146,13 @@ pub(super) fn adopt_pty_fd_from_process_args() -> Option<RawFd> {
 
 /// Both `Launch` (with its optional respawn seed, cx-6so.49 L2) and
 /// `LaunchAdopt` may carry a seed blob on top of the launch budget.
-pub(super) fn max_payload(_adopt_fd: Option<RawFd>) -> usize {
+pub(crate) fn max_payload(_adopt_fd: Option<RawFd>) -> usize {
     MAX_LAUNCH_ADOPT_PAYLOAD
 }
 
 /// Decode the private-pipe launch frame. An adopting host takes the
 /// incarnation it adopts in place of the one `Bootstrap` drew.
-pub(super) fn decode(
+pub(crate) fn decode(
     frame: &Frame,
     adopt_fd: Option<RawFd>,
     bootstrapped: &mut crate::terminal_host::BootstrappedHost,
@@ -180,7 +180,7 @@ pub(super) fn decode(
 /// Take the incarnation's PTY ownership lock, then start the runtime on a
 /// new child or on the adopted session. The lock is held for the process
 /// lifetime; failing to take it is a launch failure.
-pub(super) fn start(
+pub(crate) fn start(
     launch: &HostLaunch,
     adopt: Option<AdoptSpec>,
     bootstrapped: &crate::terminal_host::BootstrappedHost,
@@ -214,13 +214,7 @@ fn spawn_adopted_runtime(
     let cell_pixels = (launch.cell_pixels.0.max(1), launch.cell_pixels.1.max(1));
     master.resize(pty_size(launch.cols, launch.rows, cell_pixels)?)?;
     crate::debug_spans::mark("host.pty_adopted");
-    host_start::start_host_runtime(
-        launch,
-        bootstrapped,
-        master,
-        HostChild::Adopted(child),
-        &spec.seed,
-    )
+    start_host_runtime(launch, bootstrapped, master, HostChild::Adopted(child), &spec.seed)
 }
 
 /// What a replacement host adopts and how it presents the terminal.
@@ -247,35 +241,46 @@ pub struct TerminalHostAdoption<'a> {
 }
 
 fn spawn_adopting_host(
-    binary: PathBuf,
+    binary: Option<PathBuf>,
     master: RawFd,
 ) -> anyhow::Result<(SpawnedHostProcess, ChildStdinPair)> {
-    let mut command = Command::new(binary);
-    command
-        .args(["__terminal-host", "--bootstrap-stdio", ADOPT_PTY_FD_FLAG])
-        .arg(ADOPTED_PTY_FD.to_string())
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null());
-    // SAFETY: setsid, setrlimit, dup2 and fcntl are async-signal-safe and touch no Rust
-    // state in the post-fork child. The master stays open in the child until
-    // exec; dup2 clears close-on-exec on the copy at the fixed descriptor.
-    unsafe {
-        command.pre_exec(move || {
-            if libc::setsid() < 0 {
-                return Err(std_io::Error::last_os_error());
-            }
-            // The host and the shell it owns get the limit cmux started with.
-            cmux_pty::restore_open_file_limit_in_child()?;
-            let placed = if master == ADOPTED_PTY_FD {
-                libc::fcntl(master, libc::F_SETFD, 0)
-            } else {
-                libc::dup2(master, ADOPTED_PTY_FD)
-            };
-            if placed < 0 { Err(std_io::Error::last_os_error()) } else { Ok(()) }
-        });
+    let configure = |command: &mut Command| {
+        command
+            .args(["__terminal-host", "--bootstrap-stdio", ADOPT_PTY_FD_FLAG])
+            .arg(ADOPTED_PTY_FD.to_string())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        // SAFETY: setsid, setrlimit, dup2 and fcntl are async-signal-safe and touch no Rust
+        // state in the post-fork child. The master stays open in the child until
+        // exec; dup2 clears close-on-exec on the copy at the fixed descriptor.
+        unsafe {
+            command.pre_exec(move || {
+                if libc::setsid() < 0 {
+                    return Err(std_io::Error::last_os_error());
+                }
+                // The host and the shell it owns get the limit cmux started with.
+                cmux_pty::restore_open_file_limit_in_child()?;
+                let placed = if master == ADOPTED_PTY_FD {
+                    libc::fcntl(master, libc::F_SETFD, 0)
+                } else {
+                    libc::dup2(master, ADOPTED_PTY_FD)
+                };
+                if placed < 0 { Err(std_io::Error::last_os_error()) } else { Ok(()) }
+            });
+        }
+    };
+    // A test's binary as given; otherwise the host executable without a path
+    // in its command line (host_exe.rs, cx-0tgl LF).
+    let child = match binary {
+        Some(binary) => {
+            let mut command = Command::new(binary);
+            configure(&mut command);
+            command.spawn()
+        }
+        None => crate::host_exe::spawn_host(configure),
     }
-    let child = command.spawn().context("spawn adopting terminal-host process")?;
+    .context("spawn adopting terminal-host process")?;
     let mut process = SpawnedHostProcess { child: Some(child) };
     host_scope::place_host(process.child_mut().id());
     let stdin = process.child_mut().stdin.take().context("open terminal-host bootstrap stdin")?;
@@ -351,13 +356,8 @@ pub fn launch_terminal_host_adopting(
         seed: adoption.seed.to_vec(),
     };
     let payload = launch.encode()?;
-    let binary = match adoption.host_binary {
-        Some(binary) => binary,
-        None => crate::platform::self_exe_for_spawn()
-            .context("resolve cmux-tui terminal-host binary")?,
-    };
     let (process, (mut stdin, mut stdout)) =
-        spawn_adopting_host(binary, adoption.custody.master.as_raw_fd())?;
+        spawn_adopting_host(adoption.host_binary, adoption.custody.master.as_raw_fd())?;
     let host_pid = process.child.as_ref().map_or(0, std::process::Child::id);
 
     let bootstrap = HostBootstrap {

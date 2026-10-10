@@ -50,12 +50,21 @@ struct DiagnosticLocalization: Sendable {
     /// whose package resources have moved. Keep the lookup optional so
     /// diagnostics fall back to their supplied English defaults instead of
     /// turning startup telemetry into a process-wide fatal error.
+    ///
+    /// The roots are the ones the synthesized accessor searches: the app's
+    /// resources, the bundle that holds this module (a framework), the app
+    /// bundle itself, and the directory that contains this module's bundle.
+    /// Under `swift test` the resource bundle sits beside the `.xctest`
+    /// bundle, so without that last root every localized string fell back to
+    /// English there.
     private static let packageResourceBundle: Bundle? = {
         let bundleName = "CMUXMobileCore_CMUXMobileCore"
+        let moduleBundle = Bundle(for: BundleFinder.self)
         let resourceRoots = [
             Bundle.main.resourceURL,
-            Bundle(for: BundleFinder.self).resourceURL,
+            moduleBundle.resourceURL,
             Bundle.main.bundleURL,
+            moduleBundle.bundleURL.deletingLastPathComponent(),
         ]
         for root in resourceRoots {
             guard let root else { continue }

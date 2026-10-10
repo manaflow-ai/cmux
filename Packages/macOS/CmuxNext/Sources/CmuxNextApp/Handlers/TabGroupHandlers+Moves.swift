@@ -10,6 +10,8 @@ extension TabGroupHandlers {
         bind("tabGroup.moveRight") { reorder($0, forward: true, ctx) }
         bind("tabGroup.moveToNewSplit") { invocation in
             guard let (group, pane) = group(invocation, ctx) else { return }
+            // The chat dock never splits (ChatDockRules), from any entrypoint.
+            guard !ChatDockRules.isChatDock(pane, services: ctx.services) else { return ctx.refuse(RefusalStrings.chatDockCannotSplit) }
             let edge: PaneEdge = switch invocation["direction"]?.stringValue {
             case "left": .left
             case "up": .top
@@ -34,7 +36,10 @@ extension TabGroupHandlers {
                 return ctx.refuse(RefusalStrings.incognitoMismatch)
             }
             let screen = workspace.screens.first
-            guard let target = screen?.defaultPane.flatMap({ screen?.pane($0) }) ?? screen?.panes.first
+            // The default pane, unless it is the chat dock (a group is never chats): then the first other pane.
+            let preferred = screen?.defaultPane.flatMap({ screen?.pane($0) })
+                .flatMap { ChatDockRules.isChatDock($0, services: ctx.services) ? nil : $0 }
+            guard let target = preferred ?? ChatDockRules.workspaceDropPane(screen, services: ctx.services)
                 ?? ctx.refuse(RefusalStrings.workspaceHasNoPane(workspace.id)) else { return }
             // Workspaces never mix machines: a workspace on another machine is refused.
             guard TabGroupMoves.owner(of: group, target: target, services: ctx.services) != nil else {
@@ -61,7 +66,7 @@ extension TabGroupHandlers {
 
     private static func moveToNewWorkspace(_ invocation: ActionInvocation, newWindow: Bool, _ ctx: AppActionContext) {
         guard let (group, pane) = group(invocation, ctx), connection(for: pane, ctx) != nil else { return }
-        let windows = ctx.services.windows!
+        let windows = ctx.services.windows
         let origin = windows.moveOrigin(of: ctx.services.workspaceID(of: pane))
         Task {
             guard let key = await TabGroupMoves.toNewWorkspace(group, workspaceGroup: nil, index: nil, services: ctx.services,

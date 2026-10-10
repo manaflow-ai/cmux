@@ -95,8 +95,8 @@ fi
 # commit it does not reach is older than <sha> or off the branch.
 git fetch -q --no-tags --depth="$((window * 4))" origin refs/heads/feat-cmux-next 2>/dev/null \
   || echo "warning: could not fetch feat-cmux-next; considering only local commits" >&2
-runs="$(gh api --paginate --slurp \
-  "repos/$repo/actions/workflows/cmux-next.yml/runs?event=push&branch=feat-cmux-next&per_page=$window")"
+# One page holds the window (at most 99): paginating walked every push run ever made.
+runs="$(gh api "repos/$repo/actions/workflows/cmux-next.yml/runs?event=push&branch=feat-cmux-next&per_page=$window")"
 while read -r run_id run_sha; do
   [[ "$run_id" =~ ^[0-9]+$ && "$run_sha" =~ ^[0-9a-f]{40}$ ]] || continue
   if [[ "$run_sha" != "$sha" ]]; then
@@ -121,7 +121,8 @@ sys.exit(0 if ok else 1)
 done < <(python3 -c '
 import json, sys
 seen = set()
-for page in json.loads(sys.stdin.read()):
+data = json.loads(sys.stdin.read())
+for page in data if isinstance(data, list) else [data]:
     for run in page.get("workflow_runs", []):
         sha = run.get("head_sha")
         if run.get("head_branch") == "feat-cmux-next" and run.get("event") == "push" and sha not in seen:
