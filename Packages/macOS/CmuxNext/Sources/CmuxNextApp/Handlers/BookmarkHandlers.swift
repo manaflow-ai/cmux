@@ -146,20 +146,28 @@ enum BookmarkHandlers {
     }
 
     /// Every web page tab of the window into a new folder (Bookmark All Tabs), as Chrome
-    /// bookmarks a window's tabs: every pane of every screen it shows, in layout order.
+    /// bookmarks a window's tabs: every pane of every screen it shows, in layout order,
+    /// session-local pages included. A tab keeps its browser profile, so each profile gets
+    /// its own folder; an explicit `profile` takes only that profile's tabs.
     private static func addAllTabs(_ invocation: ActionInvocation, _ context: AppActionContext, _ resolver: BookmarkResolver) throws {
         let services = context.services
         guard let pane = context.paneController(invocation) else { return }
-        let window = pane.workspace?.focusTopology().panes.flatMap(\.tabs).compactMap { services.locateTab($0.id)?.0 }
-        let pages = (window ?? pane.pane.tabs).compactMap { tab -> BookmarkDraft? in
-            guard tab.kind == .browser, let url = (services.cache.existingBrowser(tab.id)?.tab.state.url ?? tab.url.flatMap(URL.init(string:))),
-                  BookmarkService.canBookmark(url) else { return nil }
-            return .bookmark(services.cache.existingBrowser(tab.id)?.tab.state.title ?? tab.title, url)
+        let only = invocation["profile"] == nil ? nil : resolver.profile(invocation)
+        var folders: [(profile: String, pages: [BookmarkDraft])] = []
+        for (id, model) in pane.workspace?.tabsInLayoutOrder() ?? pane.pane.tabs.map({ (id: $0.id, model: Optional($0)) }) {
+            let page = services.cache.existingBrowser(id)?.tab
+            guard model.map({ $0.kind == .browser }) ?? (page != nil),
+                  let url = page?.state.url ?? model?.url.flatMap(URL.init(string:)), BookmarkService.canBookmark(url) else { continue }
+            let profile = services.bookmarks.profile(ofTab: id)
+            guard only.map({ $0 == profile }) ?? true else { continue }
+            let draft = BookmarkDraft.bookmark(page?.state.title ?? model?.title ?? url.absoluteString, url)
+            if let index = folders.firstIndex(where: { $0.profile == profile }) { folders[index].pages.append(draft) } else { folders.append((profile, [draft])) }
         }
-        guard !pages.isEmpty else { throw ActionFailure(message: BookmarkAppStrings.noTabs) }
-        let profile = resolver.profile(invocation)
+        guard !folders.isEmpty else { throw ActionFailure(message: BookmarkAppStrings.noTabs) }
         let name = invocation["name"]?.stringValue ?? BookmarkAppStrings.allTabsFolder
-        try apply(services, .importDrafts(parent: services.bookmarks.defaultFolder(profile: profile), index: nil, sourceKey: nil,
-                                          replace: false, drafts: [.folder(name, pages)]), profile)
+        for folder in folders {
+            try apply(services, .importDrafts(parent: services.bookmarks.defaultFolder(profile: folder.profile), index: nil, sourceKey: nil,
+                                              replace: false, drafts: [.folder(name, folder.pages)]), folder.profile)
+        }
     }
 }
