@@ -27,7 +27,8 @@ extension MobileHostIrxRuntime {
     ) async throws -> DeviceIrxClientContext {
         guard DevicesFeature.isEnabled else { throw DeviceLinkError.notConnected }
         await activationTask?.value
-        guard Self.isDeviceClientScopeCurrent(
+        guard accountDirectoryEnabled == AccountMacDirectoryFeature.isEnabled(),
+              Self.isDeviceClientScopeCurrent(
                   currentSession: auth?.authenticatedSessionIdentity, resolvedTeamID: auth?.resolvedTeamID,
                   identity: identity, teamID: teamID,
                   accountDirectoryEnabled: accountDirectoryEnabled),
@@ -39,6 +40,7 @@ extension MobileHostIrxRuntime {
             allowsDirectPaths: Self.pathMode == .automatic,
             isCurrent: { @MainActor [weak self] in
                 self?.generationToken == generation && DevicesFeature.isEnabled
+                    && accountDirectoryEnabled == AccountMacDirectoryFeature.isEnabled()
                     && Self.isDeviceClientScopeCurrent(
                         currentSession: self?.auth?.authenticatedSessionIdentity,
                         resolvedTeamID: self?.auth?.resolvedTeamID,
