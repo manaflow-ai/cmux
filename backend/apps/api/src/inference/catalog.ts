@@ -8,7 +8,7 @@
  * provider-reported cost when the provider sends one, else the card.
  */
 
-export const PROVIDERS = ["openrouter", "vercel", "workers-ai", "deepseek", "deepinfra", "bedrock"] as const
+export const PROVIDERS = ["openrouter", "vercel", "workers-ai", "fireworks", "baseten", "deepinfra"] as const
 export type ProviderId = (typeof PROVIDERS)[number]
 
 /** Budget lines of the spend guard: one per provider, plus the free tier's own line. */
@@ -64,21 +64,24 @@ export const MODELS: ReadonlyArray<ModelEntry> = [
     routes: [
       { provider: "openrouter", id: "openai/gpt-oss-120b" },
       { provider: "vercel", id: "openai/gpt-oss-120b" },
-      { provider: "workers-ai", id: "@cf/openai/gpt-oss-120b" },
-      { provider: "bedrock", id: "openai.gpt-oss-120b-1:0" }
+      { provider: "deepinfra", id: "openai/gpt-oss-120b" },
+      { provider: "fireworks", id: "accounts/fireworks/models/gpt-oss-120b" },
+      { provider: "baseten", id: "openai/gpt-oss-120b" },
+      { provider: "workers-ai", id: "@cf/openai/gpt-oss-120b" }
     ]
   },
   {
     id: "deepseek/deepseek-v4-pro",
     name: "DeepSeek V4 Pro",
-    card: { input: 1.0, output: 2.0 },
+    card: { input: 1.5, output: 3.0 },
     context: 1_000_000,
     maxOutput: 65_536,
     defaultMaxTokens: 16_384,
     tools: true,
     routes: [
       { provider: "openrouter", id: "deepseek/deepseek-v4-pro" },
-      { provider: "vercel", id: "deepseek/deepseek-v4-pro" }
+      { provider: "vercel", id: "deepseek/deepseek-v4-pro" },
+      { provider: "deepinfra", id: "deepseek-ai/DeepSeek-V4-Pro" }
     ]
   },
   {
@@ -104,7 +107,8 @@ export const MODELS: ReadonlyArray<ModelEntry> = [
     tools: true,
     routes: [
       { provider: "openrouter", id: "moonshotai/kimi-k2.7-code" },
-      { provider: "vercel", id: "moonshotai/kimi-k2.7-code" }
+      { provider: "vercel", id: "moonshotai/kimi-k2.7-code" },
+      { provider: "deepinfra", id: "moonshotai/Kimi-K2.7-Code" }
     ]
   },
   {
@@ -130,7 +134,8 @@ export const MODELS: ReadonlyArray<ModelEntry> = [
     tools: true,
     routes: [
       { provider: "openrouter", id: "minimax/minimax-m3" },
-      { provider: "vercel", id: "minimax/minimax-m3" }
+      { provider: "vercel", id: "minimax/minimax-m3" },
+      { provider: "deepinfra", id: "MiniMaxAI/MiniMax-M3" }
     ]
   },
   {
@@ -144,6 +149,7 @@ export const MODELS: ReadonlyArray<ModelEntry> = [
     routes: [
       { provider: "workers-ai", id: "@cf/meta/llama-4-scout-17b-16e-instruct" },
       { provider: "vercel", id: "meta/llama-4-scout" },
+      { provider: "deepinfra", id: "meta-llama/Llama-4-Scout-17B-16E-Instruct" },
       { provider: "openrouter", id: "meta-llama/llama-4-scout" }
     ]
   }
