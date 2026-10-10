@@ -70,6 +70,9 @@ final class HomeProjection: @preconcurrency ChatIntents {
     private var olderRequested = false
     private var reportedRead: Seq = 0
     private var stopped = false
+    /// Return was pressed while only the cache knew this conversation: the
+    /// send goes once the owner confirms it (`refresh`).
+    private var sendWhenConfirmed = false
     /// Rebuilds and applied (changed) updates, for tests.
     private(set) var rebuilds = 0
     private(set) var appliedUpdates = 0
@@ -107,6 +110,10 @@ final class HomeProjection: @preconcurrency ChatIntents {
     // MARK: HomeStore -> projection
 
     private func refresh() {
+        if sendWhenConfirmed, homeStore.isConfirmed(conversation) {
+            sendWhenConfirmed = false
+            send()
+        }
         apply(items: homeStore.transcript(for: conversation), summary: homeStore.summary(conversation),
               typing: homeStore.typing[conversation] ?? [], hasOlder: homeStore.hasOlderMessages(in: conversation))
     }
@@ -250,6 +257,14 @@ final class HomeProjection: @preconcurrency ChatIntents {
         let text = draft.text.trimmingCharacters(in: .whitespacesAndNewlines)
         let attachments = draft.attachments.compactMap { drafts[$0.id] }
         guard !text.isEmpty || !attachments.isEmpty else { return noteSend("refused: empty_draft") }
+        // Only the cache knows this conversation so far: the owner has not
+        // answered since launch, and a Chief home made again at the same path
+        // has other conversations (cx-ebm.55). The text stays; Home shows the
+        // owner's conversation (and carries the text there) once it answers.
+        if homeStore.summary(conversation) != nil, !homeStore.isConfirmed(conversation) {
+            sendWhenConfirmed = true
+            return noteSend("waiting_for_owner: sends once the owner confirms this conversation")
+        }
         let key = IdempotencyKey.make()
         linkPreviews?.allowSend(text)
         // The paths that used to drop a send without a word (cx-ebm.55), one line each,

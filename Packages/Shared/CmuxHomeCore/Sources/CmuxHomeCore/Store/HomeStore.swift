@@ -192,6 +192,15 @@ public final class HomeStore {
     public var isOnline: Bool { connection == .online && !stopped }
 
     public func summary(_ id: ConversationID) -> ConversationSummary? { mirror.conversations[id] }
+    /// The owner's own inbox lists the conversations now: not the cache's copy
+    /// from before the owner answered, not one behind a failed refetch.
+    public var isInboxCurrent: Bool { !mirror.isStale(.inbox) }
+    /// The owner confirmed `id` this session: its current inbox lists it, or
+    /// an event or page of it arrived. A conversation only the cache knows is
+    /// not confirmed: its Chief home may have been made again (cx-ebm.55).
+    public func isConfirmed(_ id: ConversationID) -> Bool {
+        mirror.conversations[id] != nil && (isInboxCurrent || mirror.revision(of: .conversation(id)) > 0)
+    }
 
     public func transcript(for id: ConversationID) -> [TranscriptItem] {
         guard let me = me?.id else { return [] }

@@ -120,10 +120,9 @@ final class TopHomePageView: NSView {
                 guard let self else { return }
                 rows = Self.visible(all, archivedChiefs: archived, me: store.me?.id)
                 list.update(sidebar.model())
-                // A shown conversation the owner no longer lists (the cache's
-                // conversation of a Chief home that was made again: cx-ebm.55)
-                // gives way to the live Chief, so a send never goes to it.
-                if !showsListed, let first = defaultConversation(rows: rows, home: home) { show(first) }
+                if shown == nil, let first = defaultConversation(rows: rows, home: home) { show(first) }
+                // The cache's conversation of a Chief home made again (cx-ebm.55).
+                if shownIsGone(store), let chief = Self.chief(home) { replaceGone(with: ConversationID(chief), store: store) }
             }
         }
         // task-owner: lives as long as this view; event-driven (Observation). The chief placed
@@ -132,7 +131,11 @@ final class TopHomePageView: NSView {
             var previous = Self.chief(home)
             for await chief in ObservationStream({ Self.chief(home) }) {
                 guard let self, let chief, chief != previous else { continue }
-                if !showsListed || shown?.rawValue == previous { show(ConversationID(chief)) }
+                if shownIsGone(home.homeStore) {
+                    replaceGone(with: ConversationID(chief), store: home.homeStore)
+                } else if shown == nil || shown?.rawValue == previous {
+                    show(ConversationID(chief))
+                }
                 previous = chief
             }
         }
@@ -173,10 +176,23 @@ final class TopHomePageView: NSView {
         return HomeChiefSource.choose(local: local?.id, localHasHistory: (local?.lastSeq ?? 0) > 0, placed: home.cloudChief)
     }
 
-    /// A conversation shows and the inbox lists it.
-    private var showsListed: Bool {
+    /// The shown conversation is one the owner's own inbox does not have:
+    /// the cache's conversation of a Chief home made again at the same path
+    /// (cx-ebm.55). Decided only on the owner's inbox, never the cache's copy.
+    private func shownIsGone(_ store: HomeStore) -> Bool {
         guard let shown else { return false }
-        return rows.contains { $0.id == shown }
+        return store.isInboxCurrent && store.summary(shown) == nil
+    }
+
+    /// Shows the live Chief instead of a gone conversation; the text the user
+    /// typed there goes with it, so nothing typed is lost.
+    private func replaceGone(with chief: ConversationID, store: HomeStore) {
+        guard let gone = shown, gone != chief, store.summary(chief) != nil else { return }
+        if let text = store.draft(for: gone), !text.isEmpty, (store.draft(for: chief) ?? "").isEmpty {
+            store.setDraft(text, for: chief)
+        }
+        store.setDraft("", for: gone)
+        show(chief)
     }
 
     /// Shows `id` in the transcript column and selects it in the list.
