@@ -227,11 +227,18 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
         Task { [weak self] in
             _ = try? await task.value
             guard let self else { return }
-            if self.loopbackForwardStarts[key] == task {
-                self.loopbackForwardStarts[key] = nil
-            }
+            await self.clearLoopbackForwardStart(task, for: key)
         }
         return try await awaitSharedForwardStart(task)
+    }
+
+    private func clearLoopbackForwardStart(
+        _ task: Task<UInt16, Error>,
+        for key: LoopbackForwardKey
+    ) {
+        if loopbackForwardStarts[key] == task {
+            loopbackForwardStarts[key] = nil
+        }
     }
 
     /// Waits for a keyed forward without allowing one canceled waiter to cancel
