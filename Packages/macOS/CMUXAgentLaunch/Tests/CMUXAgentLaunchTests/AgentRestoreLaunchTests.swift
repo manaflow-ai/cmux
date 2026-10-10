@@ -141,6 +141,17 @@ import Testing
         #expect(invocation.arguments.contains("-lc") == false)
     }
 
+    @Test(arguments: [AgentRestoreRequestMode.resumeAgent, .relaunchAgent, .forkAgent])
+    func ompManagedContinuationCannotFallBackToLegacyShell(mode: AgentRestoreRequestMode) {
+        #expect(!AgentRestorePlanner.allowsLegacyFallback(kind: "omp", mode: mode))
+        #expect(AgentRestorePlanner.allowsLegacyFallback(kind: "pi", mode: mode))
+    }
+
+    @Test func ompDirectCommandRetainsLegacyReplay() {
+        #expect(AgentRestorePlanner.allowsLegacyFallback(kind: "omp", mode: .direct))
+        #expect(!AgentRestorePlanner.allowsLegacyFallback(kind: " OMP ", mode: nil))
+    }
+
     @Test func structuredOmpRestoreKeepsCompiledBinaryExecutablePath() throws {
         try assertOmpRestoreKeepsExecutablePath("/Applications/omp/bin/omp")
     }

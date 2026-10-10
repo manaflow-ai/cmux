@@ -51,6 +51,19 @@ public struct AgentRestorePlanner: Sendable {
         )
     }
 
+    /// Whether a missing structured plan may fall back to a legacy shell command.
+    ///
+    /// OMP's executable must stay pinned through managed restore and fork. A
+    /// legacy command cannot establish that after structured planning failed.
+    /// Explicit direct command replays retain their existing behavior.
+    /// - Parameters:
+    ///   - kind: The persisted agent kind.
+    ///   - mode: The requested operation, or nil for an unrecognized legacy mode.
+    /// - Returns: Whether the caller may use its legacy compatibility command.
+    public static func allowsLegacyFallback(kind: String, mode: AgentRestoreRequestMode?) -> Bool {
+        kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "omp" || mode == .direct
+    }
+
     /// Produces the final direct process invocation for a persisted restore or fork request.
     ///
     /// - Parameters:

@@ -338,14 +338,18 @@ def verify_restore_rejects_legacy_downgrade(cli_path: str, root: Path) -> None:
     executable = root / "restore-bin" / "omp"
     executable.parent.mkdir()
     make_executable(executable, "#!/bin/sh\nprintf executed > " + shlex.quote(str(marker)) + "\n")
-    for mode, arguments in [("resumeAgent", None), ("resumeAgent", []),
-                            ("resumeAgent", ["omp", "--model", "sonnet"]), ("direct", None)]:
+    cases = [(verb, "resumeAgent", arguments) for verb in ("restore", "fork")
+             for arguments in (None, [], ["omp", "--model", "sonnet"])]
+    cases.append(("restore", "direct", None))
+    for verb, mode, arguments in cases:
         record = {"kind": "omp", "mode": mode, "checkpoint_id": session_id,
                   "source": "agent-hook", "working_directory": str(root), "environment": {},
                   "legacy_command": "PATH=" + shlex.quote(str(executable.parent)) + " omp --session " + session_id}
+        record["legacy_fork_command"] = record["legacy_command"]
         if arguments is not None:
             record["launch_command"] = {"launcher": "omp", "arguments": arguments}
             record["prepared_arguments"] = ["omp", "--session", session_id]
+            record["fork_arguments"] = ["omp", "--session", session_id, "--fork"]
         socket_path = Path("/tmp") / f"cmux-omp-restore-{os.getpid()}-{time.monotonic_ns()}.sock"
         env = os.environ.copy()
         env.update(CMUX_SOCKET_PATH=str(socket_path), CMUX_CLI_SENTRY_DISABLED="1",
@@ -354,15 +358,15 @@ def verify_restore_rejects_legacy_downgrade(cli_path: str, root: Path) -> None:
             env.pop(key, None)
         marker.unlink(missing_ok=True)
         with MockCmuxSocket(socket_path, workspace_id, surface_id, record):
-            result = subprocess.run([cli_path, "restore", "--surface", surface_id, "omp", session_id],
+            result = subprocess.run([cli_path, verb, "--surface", surface_id, "omp", session_id],
                                     env=env, text=True, capture_output=True, timeout=15)
         if mode == "direct":
             assert result.returncode == 0 and marker.exists(), result.stderr
         else:
             assert result.returncode != 0 and not marker.exists(), (
-                f"unresolved OMP restore executed legacy fallback: argv={arguments!r}, "
+                f"unresolved OMP {verb} executed legacy fallback: argv={arguments!r}, "
                 f"status={result.returncode}, stderr={result.stderr}")
-            assert "saved restore data is not compatible" in result.stderr, result.stderr
+            assert "not compatible" in result.stderr, result.stderr
     print("PASS: managed OMP legacy fallback fails closed; explicit direct commands still run")
 
 
