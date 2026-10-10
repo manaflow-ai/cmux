@@ -103,7 +103,8 @@ final class DaemonService {
             retryWake = prestart.wake
         } else {
             do {
-                launcher = try DaemonLauncher.forApp(tag: launch.tag, terminalEnvironment: terminalEnvironment)
+                launcher = try DaemonLauncher.forApp(tag: launch.tag, terminalEnvironment: terminalEnvironment,
+                                                daemonEnvironment: AppsService.daemonEnvironment)
             } catch {
                 noteStartupFailure((error as? DaemonError) ?? .launchFailed(String(describing: error)))
                 return
