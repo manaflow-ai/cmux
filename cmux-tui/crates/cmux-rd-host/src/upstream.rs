@@ -43,6 +43,16 @@ impl UpstreamSink for NoSink {
     fn close(&mut self, _stream: u16) {}
 }
 
+/// FNV-1a over the bytes of every frame of a stream, in frame order: the bench
+/// reports the same value for the frames it sent, so a run proves that the
+/// host received each sent frame once, whole and in order.
+pub fn fnv1a(hash: u64, bytes: &[u8]) -> u64 {
+    bytes.iter().fold(hash, |h, &b| (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3))
+}
+
+/// The FNV-1a start value.
+pub const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+
 /// The caps a host with `sink` adds to its welcome offer.
 pub fn offered_caps(sink: &dyn UpstreamSink) -> Vec<&'static str> {
     if [StreamKind::UpAudio, StreamKind::UpVideo].into_iter().any(|k| sink.accepts(k)) {
