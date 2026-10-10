@@ -1101,7 +1101,9 @@ pre.cv-math-source {
 .acpmux-image-viewer {
   position: fixed;
   inset: 0;
-  z-index: 20;
+  z-index: var(--layer-modal);
+  width: auto;
+  margin-inline: 0;
   display: flex;
   flex-direction: column;
   background: color-mix(in srgb, var(--agent-page-bg) 94%, transparent);
@@ -1113,7 +1115,7 @@ pre.cv-math-source {
 .acpmux-image-viewer-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 20;
+  z-index: var(--layer-overlay);
 }
 .acpmux-image-viewer-body {
   position: relative;

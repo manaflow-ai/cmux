@@ -48,6 +48,7 @@
 :where(.ui-backdrop) {
   position: fixed;
   inset: 0;
+  z-index: var(--layer-overlay);
   background: var(--cmux-scrim, rgb(0 0 0 / 12%));
 }
 :where(.ui-dialog) {
@@ -56,6 +57,7 @@
   inset-inline: 0;
   margin-inline: auto;
   width: min(560px, calc(100vw - 32px));
+  z-index: var(--layer-modal);
   outline: none;
 }
 
