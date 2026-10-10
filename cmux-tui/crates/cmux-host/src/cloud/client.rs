@@ -8,7 +8,8 @@ use serde_json::{Value, json};
 
 use super::sender::{Answer, OpRequest};
 use super::wire::{
-    BIND_FILE, BOUND_FILE, VM_KIND_FILE, Bound, DaemonInfo, INSTALL_KEY_FILE, WG_KEY_FILE, parse_bind_file,
+    BIND_FILE, BOUND_FILE, Bound, DaemonInfo, INSTALL_KEY_FILE, VM_KIND_FILE, WG_KEY_FILE,
+    parse_bind_file,
 };
 
 /// One JSON POST: `(status, body)`, or a transport error.
