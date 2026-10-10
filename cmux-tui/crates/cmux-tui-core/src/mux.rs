@@ -20302,8 +20302,7 @@ mod tests {
                 payload_schema: serde_json::json!({"type":"object"}),
             }],
         };
-        mux.put_journal_producer(&manifest, "test", "maintenance-manifest")
-            .unwrap();
+        mux.put_journal_producer(&manifest, "test", "maintenance-manifest").unwrap();
         for index in 0..1_100 {
             let ingress = crate::JournalIngress {
                 producer_id: manifest.producer_id.clone(),
@@ -20321,9 +20320,7 @@ mod tests {
                 .unwrap();
         }
 
-        let checkpoint = mux
-            .create_journal_checkpoint("test", "maintenance-checkpoint")
-            .unwrap();
+        let checkpoint = mux.create_journal_checkpoint("test", "maintenance-checkpoint").unwrap();
         let first_seal = mux
             .seal_journal_segments(
                 checkpoint.checkpoint.source_sequence,
