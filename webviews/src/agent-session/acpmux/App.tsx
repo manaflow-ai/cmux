@@ -109,6 +109,7 @@ import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { sessionLink } from "./links";
 import { ChatHeaderStatus } from "./header/ChatHeaderStatus";
 import { ChatHeaderTools, HEADER_ACTIONS, type ChatMenuItem } from "./header/ChatHeaderTools";
+import { archiveRow } from "./header/archiveRow";
 import { Thinking } from "./conversation/Thinking";
 import { WorkingFor } from "./conversation/WorkingFor";
 import { HostError } from "./HostError";
@@ -235,6 +236,12 @@ function callNative<T>(method: string, params: Record<string, unknown> = {}): Pr
   if (direct) return direct(params) as Promise<T>;
   return postNative<T>(method, params);
 }
+
+/// Withdraws a queued prompt before its turn starts; false when it already started.
+const removeQueued = (promptId: string) =>
+  callNative<{ removed?: boolean } | null>("chat.queue.remove", { promptId }).then(
+    (result) => result?.removed === true,
+  );
 
 /// Asks the host to show the Quick Composer's chat in a window.
 const postOpenInWindow = (sessionId: string) =>
@@ -2163,6 +2170,7 @@ function AcpmuxPane() {
               typeof accepted === "function" ? (accepted as () => void) : undefined,
             ),
           "chat.cancel": () => client.cancel(),
+          "chat.queue.remove": ({ promptId }) => client.removeQueued(String(promptId)),
           "chat.permission": ({ permissionId, optionId, answers }) =>
             client.permission(
               String(permissionId),
@@ -2423,6 +2431,15 @@ function AcpmuxPane() {
   const localCwd =
     summary && !summary.peer && !(summary.host && summary.hostKind !== "local") ? summary.cwd : undefined;
   const tabPinned = useRef(false);
+  const archive = archiveRow(
+    {
+      sessionId: snapshot.sessionId,
+      archived: snapshot.sessions.some((session) => session.sessionId === snapshot.sessionId && session.archived),
+      local: localCwd !== undefined,
+    },
+    (archived) => ignoreFailure(callNative("chat.archive", { archived })),
+    t,
+  );
   const readTabState = () =>
     callNative<{ pinned?: boolean }>("pane.tabState").then((state) => {
       tabPinned.current = state?.pinned === true;
@@ -2503,6 +2520,7 @@ function AcpmuxPane() {
         shortcutAction: HEADER_ACTIONS.pin,
         onSelect: () => runHeaderAction(HEADER_ACTIONS.pin),
       },
+      ...(archive ? [archive] : []),
       ...(chat.length ? (["separator", ...chat] as ChatMenuItem[]) : []),
       ...(link ? (["separator", copyLinkRow(link)] as ChatMenuItem[]) : []),
       "separator",
@@ -2817,6 +2835,13 @@ function AcpmuxPane() {
             return held;
           }}
           onStop={() => void callNative("chat.cancel")}
+          onQueueRemove={removeQueued}
+          onQueueEdit={(entry) =>
+            removeQueued(entry.id).then((removed) => {
+              if (removed) composerHandle.current?.restore(entry.prompt, []);
+              return removed;
+            })
+          }
           onProject={chooseProject}
           // SSH… opens Connect to Machine; cmux Cloud… opens New Cloud Machine (Lawrence 2026-10-06).
           onConnect={(kind) =>

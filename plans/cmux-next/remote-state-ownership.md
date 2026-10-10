@@ -353,6 +353,20 @@ once, in order, in the new pane in 6 of 6 runs (`read-screen`). B1 (one frame) i
 this harness: its snapshot publish and socket round trips add frames. Screenshot UNVERIFIED: the
 GUI host has no Screen Recording permission for the ssh session (`screencapture` refused).
 
+Lost keys after Cmd+D (cx-wb5.76, 2026-10-10). A later 8-run proof lost the end of a line once,
+so the fast path went off (7a5d727148b8). An interleaved comparison (two tagged apps on one host,
+fast path on and off, Cmd+D and New Terminal Tab, attach journal per run) showed the same cause
+on every path: keys reached another terminal. The new view's journal had fewer input bytes than
+typed, and the rest went to the old pane's terminal. Old path: the topology echo shows the new
+pane before the reply arms its focus. Fast path: the swap to the daemon's pane remounts the view,
+and the responder falls back to the old pane for a few keys. New Terminal Tab has the old path's
+gap. The daemon and the shell keep typeahead (raw pty and daemon-only runs: 0 losses in about
+240). Fix: `CreationInputCoordinator` (KeyRouter). From the moment a split or New Terminal Tab
+is handled, the window's key-downs wait in order. When the creation resolved (reply or failure;
+the request timeout is the only bound), its focus landed or was replaced, and the focused
+terminal's view is the first responder, they run again through `NSApplication.sendEvent`. This
+does not depend on the daemon. Proof: `scripts/cmux-next/typeahead-compare.py`.
+
 ### 3.2 Terminal attach channel
 
 One long-lived attach channel per daemon connection (multiplexed attaches on the control link, or a

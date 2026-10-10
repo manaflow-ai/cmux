@@ -120,8 +120,8 @@ enum TerminalHostActionRoute {
 
     private static func gotoTab(_ target: TerminalHostAction.TabTarget) -> Route {
         switch target {
-        case .previous: Route(id: "prevSurface")
-        case .next: Route(id: "nextSurface")
+        case .previous: Route(id: "navigate.previous")
+        case .next: Route(id: "navigate.next")
         // selectSurfaceByNumber treats 9 as "last".
         case .last: Route(id: "selectSurfaceByNumber", arguments: ["index": .int(9)])
         case .index(let number): Route(id: "selectSurfaceByNumber", arguments: ["index": .int(max(1, number))])
