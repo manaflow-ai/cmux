@@ -1,7 +1,7 @@
 import Synchronization
 
 /// What one main-actor drain of a ``MainActorLineBatch`` delivers.
-public struct MainActorLineDrain<Value: Sendable>: Sendable {
+public nonisolated struct MainActorLineDrain<Value: Sendable>: Sendable {
     /// The decoded lines since the last drain, in arrival order.
     public var values: [Value]
     /// Lines were dropped because the batch hit its limit: the receiver's
@@ -22,7 +22,7 @@ public struct MainActorLineDrain<Value: Sendable>: Sendable {
 /// the receiver resyncs instead. Close travels in the same channel, after
 /// the last value, so a drain never runs after the receiver saw the close.
 public nonisolated final class MainActorLineBatch<Value: Sendable>: Sendable {
-    private struct State {
+    private nonisolated struct State {
         var values: [Value] = []
         var overflowed = false
         var closed = false

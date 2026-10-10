@@ -121,7 +121,7 @@ final class ChatsFeed {
             }
         }
         // Dropped lines (a full batch) leave the mirror incomplete, like a lag: fetch a fresh page.
-        if lagged || drain.overflowed { requestList() }
+        if lagged || drain.overflowed, !drain.closed { requestList() }
         if changed { publish() }
         if drain.closed { lost(connection) }
     }
