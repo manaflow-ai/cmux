@@ -98,11 +98,29 @@ pub struct ToolTrace {
 
 /// One model request of the turn (Claude Code's raw assistant lines of one
 /// message id), with the token use it reported.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Request {
     pub id: String,
     pub model: Option<String>,
     pub usage: Usage,
+    /// From what started the request (the prompt, or the tool result Claude
+    /// Code answers) to the model's `message_start`, in ms of acpmux's event
+    /// times. None: the start or the stream was not seen.
+    pub headers_ms: Option<u64>,
+    /// From the same start to the request's first content delta: its time
+    /// to first token.
+    pub ttft_ms: Option<u64>,
+}
+
+/// The model stream of the request in flight (Claude Code's
+/// `stream_event` lines, `--include-partial-messages`).
+#[derive(Debug, Default)]
+struct Stream {
+    id: String,
+    headers_ms: Option<u64>,
+    ttft_ms: Option<u64>,
+    /// When the request started (event time, ms).
+    start: Option<u64>,
 }
 
 #[derive(Debug, Default)]
@@ -123,11 +141,23 @@ pub struct TurnFold {
     tools: HashMap<String, Tool>,
     /// The last finished reply: what the turn posts.
     last_talk: Option<String>,
+    /// Answers Claude Code finished (`result`) before a steered message
+    /// made it go on in the same prompt: the post holds them first.
+    answered: Vec<String>,
     ended: Option<Ended>,
     /// The last raw Claude Code line came from one of its own subagents
     /// (Task/Agent): the translated updates that follow it are that
     /// subagent's steps, which stay out of the log (section 9).
     in_subagent: bool,
+    /// The event time of what started the next model request: the last
+    /// line sent to the harness, or the last tool result Claude Code read.
+    request_start: Option<u64>,
+    /// The request streaming now.
+    stream: Option<Stream>,
+    /// The reply segment the talk buffer belongs to (drafts, `draft.rs`).
+    segment: u64,
+    /// Segments finished since the drafts last took them: (segment, text).
+    closed: Vec<(u64, String)>,
 }
 
 impl TurnFold {
@@ -180,8 +210,14 @@ impl TurnFold {
     }
 
     /// The turn's final assistant text: its last finished reply.
-    pub fn final_text(&self) -> Option<&str> {
-        self.last_talk.as_deref()
+    pub fn final_text(&self) -> Option<String> {
+        let parts: Vec<&str> = self
+            .answered
+            .iter()
+            .map(String::as_str)
+            .chain(self.last_talk.as_deref())
+            .collect();
+        (!parts.is_empty()).then(|| parts.join("\n\n"))
     }
 
     /// Folds one event; events at or below the last seq are replays.
@@ -200,12 +236,30 @@ impl TurnFold {
             return out;
         }
         let update = event.msg.get("params").and_then(|p| p.get("update"));
+        // Anything sent to the harness (the prompt, a permission answer)
+        // starts its next request.
+        if event.dir == "out" && event.at.is_some() {
+            self.request_start = event.at;
+        }
         if event.kind.starts_with("claude.") {
             // Claude Code's raw stream-json line; acpmux records it just before
             // the updates it translates into, and its translator ignores
             // `parent_tool_use_id`, so this is where a subagent's steps show.
             self.in_subagent =
                 matches!(event.msg.get("parent_tool_use_id"), Some(Value::String(_)));
+            if !self.in_subagent && event.dir != "out" {
+                self.time_request(event);
+            }
+            // Claude Code finished an answer; with a steered message it goes
+            // on in this prompt, and the next answer is posted after it.
+            if !self.in_subagent && event.kind.starts_with("claude.result") {
+                let mut out = Vec::new();
+                self.finish_talk(&mut out);
+                if let Some(text) = self.last_talk.take() {
+                    self.answered.push(text);
+                }
+                return out;
+            }
             if event.kind == "claude.assistant" && !self.in_subagent {
                 let message = event.msg.get("message");
                 let usage = message.and_then(|m| m.get("usage")).and_then(Usage::parse);
@@ -226,7 +280,16 @@ impl TurnFold {
                     // message, each with the message's usage so far.
                     match self.requests.last_mut() {
                         Some(last) if !id.is_empty() && last.id == id => last.usage = usage,
-                        _ => self.requests.push(Request { id, model, usage }),
+                        _ => {
+                            let stream = self.stream.take_if(|s| s.id == id).unwrap_or_default();
+                            self.requests.push(Request {
+                                id,
+                                model,
+                                usage,
+                                headers_ms: stream.headers_ms,
+                                ttft_ms: stream.ttft_ms,
+                            });
+                        }
                     }
                 }
             }
@@ -280,6 +343,49 @@ impl TurnFold {
         out
     }
 
+    /// The time to first token of the turn's main requests, from Claude
+    /// Code's raw lines: a tool result it reads (`user`) starts the next
+    /// request, `message_start` is the answer, the first content delta its
+    /// first token.
+    fn time_request(&mut self, event: &AcpmuxEvent) {
+        let Some(at) = event.at else { return };
+        match event.kind.as_str() {
+            // A tool result Claude Code read; its echo of a user line it
+            // read (`isReplay`) is not a start: the line went out earlier.
+            "claude.user" if event.msg.get("isReplay") != Some(&Value::Bool(true)) => {
+                self.request_start = Some(at)
+            }
+            "claude.stream_event" => {
+                let ev = event.msg.get("event");
+                match ev.and_then(|e| e.get("type")).and_then(Value::as_str) {
+                    Some("message_start") => {
+                        let id = ev
+                            .and_then(|e| e.pointer("/message/id"))
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_owned();
+                        let start = self.request_start;
+                        self.stream = Some(Stream {
+                            id,
+                            headers_ms: start.map(|s| at.saturating_sub(s)),
+                            ttft_ms: None,
+                            start,
+                        });
+                    }
+                    Some("content_block_delta") => {
+                        if let Some(stream) = self.stream.as_mut()
+                            && stream.ttft_ms.is_none()
+                        {
+                            stream.ttft_ms = stream.start.map(|s| at.saturating_sub(s));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+    }
+
     /// The turn is over without a `turn_end` (the prompt failed or the
     /// connection was lost): what is pending becomes final.
     pub fn finish(&mut self, error: Option<String>) -> Vec<Entry> {
@@ -291,10 +397,21 @@ impl TurnFold {
         out
     }
 
+    /// The reply segments finished since the last call, then the open one
+    /// (its index and its text so far), for the drafts.
+    pub fn take_segments(&mut self) -> (Vec<(u64, String)>, (u64, &str)) {
+        (
+            std::mem::take(&mut self.closed),
+            (self.segment, self.talk.as_str()),
+        )
+    }
+
     fn finish_talk(&mut self, out: &mut Vec<Entry>) {
-        let text = std::mem::take(&mut self.talk);
-        let text = text.trim();
+        let raw = std::mem::take(&mut self.talk);
+        let text = raw.trim();
         if !text.is_empty() {
+            self.closed.push((self.segment, raw.clone()));
+            self.segment += 1;
             out.push(Entry {
                 kind: Kind::Talk,
                 text: text.to_owned(),
@@ -532,7 +649,7 @@ mod tests {
                 (Kind::Talk, "It is empty."),
             ]
         );
-        assert_eq!(fold.final_text(), Some("It is empty."));
+        assert_eq!(fold.final_text().as_deref(), Some("It is empty."));
         assert_eq!(fold.ended(), Some(&Ended { error: None }));
         // A replay of the same events changes nothing.
         for e in &events {
@@ -667,7 +784,7 @@ mod tests {
                 (Kind::Talk, "Found it."),
             ]
         );
-        assert_eq!(fold.final_text(), Some("Found it."));
+        assert_eq!(fold.final_text().as_deref(), Some("Found it."));
     }
 
     /// Audit round 2: a turn that stops early (refusal, max_tokens,

@@ -82,7 +82,8 @@ extension MobileMacVersionCompatibility {
                       && Int($0) != nil
               })
         else { return nil }
-        var values = parts.map { Int($0)! }
+        // The guard above proved every part parses, so nothing is dropped here.
+        var values = parts.compactMap { Int($0) }
         while values.count < 3 { values.append(0) }
         return values
     }

@@ -52,6 +52,21 @@ pub(super) fn check_reply(
     }
 }
 
+/// The normalized items of Claude-shaped `questions` (`{question, header?,
+/// options: [{label, description?, preview?}], multiSelect?}`), answered by
+/// question text: the shape Grok's `x.ai/ask_user_question` also uses.
+pub(super) fn items_by_text(questions: &[Value]) -> Vec<Value> {
+    questions.iter().enumerate().filter_map(|(index, q)| item(q, index, false)).collect()
+}
+
+/// The normalized items of Codex-shaped `questions` (`{id, question,
+/// options: [{label, description?}], multiSelect?, isOther?}`), answered by
+/// item id with `{answers: [labels]}`: the shape Cursor's
+/// `cursor/ask_question` maps onto.
+pub(super) fn items_by_id(questions: &[Value]) -> Vec<Value> {
+    questions.iter().enumerate().filter_map(|(index, q)| item(q, index, true)).collect()
+}
+
 /// Adds `toolCall._meta.acpmux.question` when the tool input holds
 /// questions and no writer added one yet.
 pub(super) fn normalize(request: &mut Value) {

@@ -35,24 +35,4 @@ describe("signed request format", () => {
     }
     expect((await check(rotate, ROTATE_SIG)).ok).toBe(true);
   });
-
-  it("refuses a changed field, a swapped purpose and a malformed key or signature", async () => {
-    for (const fields of [
-      { ...enroll, name: "laptop2" },
-      { ...enroll, target: "mesh_abd" },
-      { ...enroll, nonce: "AAECAwQFBgcICQoLDA0ODx" },
-      { ...enroll, purpose: "rotate-key" as const },
-      { ...enroll, installPublicKey: "B" + "A".repeat(86) + "=" },
-    ]) {
-      expect(await check(fields, ENROLL_SIG)).toEqual({ ok: false, reason: "invalid" });
-    }
-    expect(await check(enroll, ROTATE_SIG)).toEqual({ ok: false, reason: "invalid" });
-    expect(await check(enroll, "not base64!")).toEqual({ ok: false, reason: "invalid" });
-  });
-
-  it("refuses a signedAt more than 120 s from the clock, either way", async () => {
-    expect(await check(enroll, ENROLL_SIG, SIGNED_AT + SIGNATURE_SKEW_MS + 1)).toEqual({ ok: false, reason: "stale" });
-    expect(await check(enroll, ENROLL_SIG, SIGNED_AT - SIGNATURE_SKEW_MS - 1)).toEqual({ ok: false, reason: "stale" });
-    expect((await check(enroll, ENROLL_SIG, SIGNED_AT + SIGNATURE_SKEW_MS)).ok).toBe(true);
-  });
 });

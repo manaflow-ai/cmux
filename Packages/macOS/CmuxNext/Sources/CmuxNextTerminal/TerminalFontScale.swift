@@ -1,4 +1,5 @@
 import Foundation
+import CmuxNextWakeups
 import GhosttyNextKit
 
 // Font size as a scale of the configured `font-size`, so a terminal's zoom
@@ -62,11 +63,13 @@ public struct TerminalFontScale {
 }
 
 /// `ghostty_font_size_action_cb`: runs synchronously on the surface's GUI
-/// (main) thread after Ghostty changed the font size.
+/// thread after Ghostty changed the font size. ghostty.h names no thread
+/// beyond that, so the handler runs inline on main and hops from any other
+/// thread instead of trapping.
 nonisolated func ghosttyFontSizeAction(_ userdata: UnsafeMutableRawPointer?, _ action: ghostty_font_size_action_e,
                                        _ previous: Float, _ current: Float, _ previousAdjusted: Bool, _ currentAdjusted: Bool) {
     guard let bridge = SurfaceBridge.from(userdata) else { return }
-    MainActor.assumeIsolated {
+    MainDelivery().run {
         bridge.onFontScaleChange?(TerminalFontScale.scale(points: Double(current), adjusted: currentAdjusted,
                                                        base: GhosttyRuntime.shared.configuredFontSize))
     }

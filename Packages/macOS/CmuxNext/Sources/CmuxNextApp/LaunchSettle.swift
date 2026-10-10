@@ -53,7 +53,7 @@ final class LaunchSettle {
             DebugTimings.markLaunch("first_terminal_content_applied")
             // Ghostty presents on its own layer in this commit.
             CATransaction.setCompletionBlock {
-                MainActor.assumeIsolated {
+                MainActor.assumeIsolated { // main-proof: CATransaction.h: the completion block is called on the main thread
                     DebugTimings.markLaunch("first_terminal_frame")
                     self?.reveal.markReady(.pane)
                     self?.settle()

@@ -9,7 +9,7 @@ import CmuxNextWakeups
 /// (content can move under a still pointer, and tracking areas then send
 /// nothing), dismissals, suppressions and removed targets. Nothing polls:
 /// the only timer is a one-shot `DemandTimer`, armed only in a pending,
-/// grace or pinned phase; the event monitor for dismissals exists only
+/// leaving, grace or pinned phase; the event monitor for dismissals exists only
 /// while a card is pending or shown.
 @MainActor
 public final class HoverCardCoordinator {
@@ -57,15 +57,15 @@ public final class HoverCardCoordinator {
         guard observers.isEmpty else { return }
         let center = NotificationCenter.default
         observers.append(center.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { if !WindowPlacement.noActivate { self?.dismiss(.appDeactivated) } }
+            MainActor.assumeIsolated { if !WindowPlacement.noActivate { self?.dismiss(.appDeactivated) } } // main-proof: observer on queue: .main
         })
         observers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.dismiss(.windowResignedKey) }
+            MainActor.assumeIsolated { self?.dismiss(.windowResignedKey) } // main-proof: observer on queue: .main
         })
         for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
                 let number = (note.object as? NSWindow)?.windowNumber
-                MainActor.assumeIsolated { self?.windowGeometryChanged(number) }
+                MainActor.assumeIsolated { self?.windowGeometryChanged(number) } // main-proof: observer on queue: .main
             })
         }
     }

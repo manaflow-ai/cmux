@@ -242,15 +242,17 @@ fn a_busy_main_conversation_cannot_starve_a_side_wake() {
     h.add_side(SIDE, BOB);
     h.post_side(SIDE, BOB, "side question");
     h.wake(&[(SIDE, 1)]);
-    // A newer main message stops the main turn (same conversation) ...
+    // A newer main message never stops the main turn (decision 2026-10-09;
+    // this fake session does not steer, so it waits) ...
     h.say("user_local", "m2");
-    h.agents.wait_cancels(1);
-    // ... but the side item is the head now: it runs next.
+    assert_eq!(cancels(&h), 0);
+    h.agents.release();
+    // ... and the side item, queued first, is the head: it runs next.
     step_until(&mut h, "the second turn starts", |h| prompts(h) == 2);
     assert!(texts(&h)[1].contains("side question"), "{:?}", texts(&h));
     // More main messages while the side turn runs wait behind it.
     h.say("user_local", "m3");
-    assert_eq!(cancels(&h), 1, "main messages never stop the side turn");
+    assert_eq!(cancels(&h), 0, "messages never stop a turn");
     h.agents.release();
     h.agents.release();
     settle_all(&mut h);
@@ -258,7 +260,7 @@ fn a_busy_main_conversation_cannot_starve_a_side_wake() {
     assert_eq!(last.len(), 3, "{last:?}");
     assert_eq!(last[2], "m2\n\nm3");
     assert_eq!(side_texts(&h, SIDE), vec!["answer 1"]);
-    assert_eq!(main_sends(&h), vec!["answer 2"]);
+    assert_eq!(main_sends(&h), vec!["answer 0", "answer 2"]);
 }
 
 const DEVICE: &str = "remote_inst_1";

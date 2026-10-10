@@ -52,6 +52,22 @@ const committed = (res: { frames: ReadonlyArray<OwnerFrame> }) => {
 }
 
 /**
+ * A member whose removal is stuck (a deleted Stack team, team-stack-sync.ts): every live team SSH
+ * certificate they hold goes on the KRL now, without waiting for the row to go (cx-3bi.43 review P3).
+ * Returns the number of serials revoked.
+ */
+export const revokeMemberCertsNow = (deps: Pick<CleanupDeps, "sql" | "now" | "submitSystem">, user: string): number => {
+  ensureSshTables(deps.sql)
+  const now = deps.now()
+  const serials = deps.sql
+    .exec<{ serial: number; valid_before: number; generation: number }>(`SELECT serial, valid_before, generation FROM ssh_certs WHERE user = ? AND valid_before > ?`, user, now - KRL_GRACE_MS)
+    .toArray()
+    .map((r) => ({ serial: r.serial, valid_before: r.valid_before, generation: r.generation }))
+  if (serials.length > 0) committed(deps.submitSystem("team_vm.ssh_certs_revoked", { serials, by: `system:member_stuck:${user}`, admin: true, system: true, reason: "member removal stuck" }, `member-stuck-certs:${user}:${setTag(serials)}`))
+  return serials.length
+}
+
+/**
  * After team.member.remove (cx-44j.49), in the same turn and again from the alarm until done:
  * every live team SSH certificate the member got before the removal goes on the KRL at once (any
  * install, bound or not; issuance already refuses non-members), then their hosts are marked

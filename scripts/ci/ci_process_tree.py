@@ -71,9 +71,12 @@ def terminate(
     # Capture the tree first: once the leader dies its children are reparented
     # and can no longer be found from it.
     strays = [pid for pid, _ in (tree if tree is not None else process_tree(process.pid))]
+    # macOS refuses killpg with EPERM once the reaped leader's group holds only
+    # exiting members (cmux-lawrence-2, 2026-10-09): the group is as good as
+    # gone, and the strays below are still signalled one by one.
     try:
         os.killpg(process.pid, first_signal)
-    except ProcessLookupError:
+    except (ProcessLookupError, PermissionError):
         pass
     for pid in strays:
         signal_pid(pid, first_signal)
@@ -83,7 +86,7 @@ def terminate(
         pass
     try:
         os.killpg(process.pid, signal.SIGKILL)
-    except ProcessLookupError:
+    except (ProcessLookupError, PermissionError):
         pass
     for pid in strays:
         signal_pid(pid, signal.SIGKILL)

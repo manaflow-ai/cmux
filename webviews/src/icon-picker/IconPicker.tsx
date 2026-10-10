@@ -191,6 +191,7 @@ export function IconPicker({
   );
 
   return (
+    // oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- Delegates keys from the focusable controls inside; the container is not a control.
     <div className="icon-picker" aria-label={t("iconPicker.title")} onKeyDown={onKeyDown}>
       <div className="icon-picker-top">
         <button

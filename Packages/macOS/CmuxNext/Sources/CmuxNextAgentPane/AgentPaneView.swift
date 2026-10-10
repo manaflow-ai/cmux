@@ -41,6 +41,8 @@ public final class AgentPaneView: NSView {
     public var previewFeatures = false {
         didSet { if previewFeatures != oldValue { applyPreviewFeatures() } }
     }
+    /// The newest device chats (acpmux chat index) for the New Tab cards (``AgentPaneDeviceChat``).
+    public var deviceChats: [AgentPaneDeviceChat] = [] { didSet { if deviceChats != oldValue { AgentPaneDeviceChat.push(deviceChats, to: self) } } }
     /// `agentPane.editedFiles.*`: pushed like ``previewFeatures``.
     public var editedFiles = AgentPaneEditedFilesSetting.fallback {
         didSet { if editedFiles != oldValue { applyEditedFiles() } }
@@ -70,15 +72,17 @@ public final class AgentPaneView: NSView {
     private var gestureMonitor: Any?
     /// Paces the transport's pushes (stopped when the pane closes).
     var transportPacer: AgentPaneFramePacer?
-    /// The message the page reported under the pointer for the next context menu, and where the
-    /// menu's copies go (tests record them instead).
+    /// The message and the selected transcript text the page reported under the pointer for the
+    /// next context menu, and where the menu's copies go (tests record them instead).
     var messageMenuTarget: AgentPaneMessageTarget?
+    var menuSelection: String?
     var copyText: @MainActor (String) -> Void = { text in
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
     }
     /// The pane's first frame until its page paints (`AgentPaneView+Loading`).
     let loadingView = AgentPaneLoadingView()
+    public private(set) lazy var topBar = AgentPaneTopBar(pane: self) // the App's omnibar row over a New Tab page (cx-e2aa)
     /// The process pool every agent page shares (R81: fonts are listed once per pool).
     private static let processPool = WKProcessPool()
 
@@ -108,7 +112,7 @@ public final class AgentPaneView: NSView {
         let webView: WKWebView
         if pageHost, case .bundled(let index) = source {
             let provider = AgentPageProvider { [weak model] _ in model }
-            guard let page = Self.makePage(root: index.deletingLastPathComponent(), provider: provider, renderRate: renderRate)
+            guard let page = AgentPanePageHost.makePage(root: index.deletingLastPathComponent(), provider: provider, renderRate: renderRate)
             else { return nil }
             self.page = page
             pageEvents = provider
@@ -179,7 +183,7 @@ public final class AgentPaneView: NSView {
         gestureMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
             // AppKit calls a local monitor on the main thread; anywhere else, no gesture (fail closed).
             guard Thread.isMainThread else { return event }
-            // crash-allow: guarded by Thread.isMainThread above, so it cannot trap; the decision must read the window's focus and the web view's bounds at event time, before AppKit dispatches the event, which a hop would read too late
+            // main-proof: guarded by Thread.isMainThread above (AppKit calls local monitors on main; the decision must read focus and bounds before dispatch, so no hop)
             MainActor.assumeIsolated { self?.monitored(event) }
             return event
         }
@@ -188,6 +192,7 @@ public final class AgentPaneView: NSView {
         if page == nil {
             navigation.view = self
             webView.navigationDelegate = navigation
+            webView.uiDelegate = PageOpenPanel.shared
             addSubview(webView)
             source.load(into: webView)
         }
@@ -214,11 +219,11 @@ public final class AgentPaneView: NSView {
         // Reduce Motion is not observable through Observation.
         reduceMotionObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.applyTheme() }
+            MainActor.assumeIsolated { self?.applyTheme() } // main-proof: observer on queue: .main
         }
         reduceMotionOverrideObserver = NotificationCenter.default.addObserver(
             forName: Motion.reduceMotionDidChange, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.applyTheme() }
+            MainActor.assumeIsolated { self?.applyTheme() } // main-proof: observer on queue: .main
         }
     }
 
@@ -242,8 +247,8 @@ public final class AgentPaneView: NSView {
 
     public override func layout() {
         super.layout()
-        if let page { page.frame = bounds } else { webView.frame = bounds }
-        if loadingView.superview === self { loadingView.frame = bounds }
+        if let page { page.frame = topBar.contentFrame(in: bounds) } else { webView.frame = topBar.contentFrame(in: bounds) }
+        if loadingView.superview === self { loadingView.frame = topBar.contentFrame(in: bounds) }
     }
 
     /// WebKit's feature that renders a page at the display-rate divisor

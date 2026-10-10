@@ -5,14 +5,36 @@ import { POLICY_HISTORY_LIMIT, policyAt } from "./domains/team-policy.ts"
 import { accountsView, sshCaView } from "./domains/team-ssh.ts"
 import type { ReadResult } from "./owner-do.ts"
 import { listHosts, listMembers, memberOf, type Member, type RowsWithScan } from "./domains/team-members.ts"
+import { ROLES, roleHas, type TeamGrant } from "./domains/team-roles.ts"
+import { noOwnerOf, seatsOf } from "./domains/team-stack.ts"
+import { auditPage } from "./domains/team-audit-rows.ts"
 
 const DIRECTORY_PAGE = 200
+
+/** The grant each read needs (team-roles.ts); team_vm.accounts also admits the team VM's install (checked in its case). */
+const READ_GRANTS: Readonly<Record<string, TeamGrant>> = {
+  "team.directory": "team.resources",
+  // The policy a member's devices follow (review P3-5): no default grant for guests or billing.
+  "team.policy.get": "team.resources",
+  "team.device.policy": "team.resources",
+  "team.members.list": "team.resources",
+  "team.hosts.list": "team.resources",
+  "team.policy.history": "team.manage",
+  "team.enrollment_token.list": "team.manage",
+  "sso.connection.list": "team.manage",
+  "domain.list": "team.manage",
+  "team.device.compliance": "team.manage",
+  "team.audit.list": "audit.read_billing"
+}
 
 /** TeamDO reads (members only; admin reads for owners and admins). Pure over the team state. */
 export const teamRead = (state: TeamState, op: string, params: unknown, principal: Principal, rows?: RowsWithScan): ReadResult => {
   const member = memberOf(state, rows, principal.user)
   if (!member) return { ok: false, code: "auth.forbidden", message: "not a member of this team" }
   const p = (params ?? {}) as { version?: unknown; limit?: unknown }
+  // Grants, never role names (team-roles.ts): only the public CA (team_vm.ssh_ca) needs none.
+  const needs = READ_GRANTS[op]
+  if (needs && !roleHas(member.role, needs)) return { ok: false, code: "auth.forbidden", message: `the ${member.role} role may not read ${op}` }
   switch (op) {
     case "team.directory":
       // The first page of each list (old clients); team.members.list and team.hosts.list page the rest.
@@ -21,7 +43,7 @@ export const teamRead = (state: TeamState, op: string, params: unknown, principa
       const q = params as { cursor?: unknown; limit?: unknown; role?: unknown } | null
       const limit = typeof q?.limit === "number" && Number.isInteger(q.limit) ? Math.min(Math.max(q.limit, 1), DIRECTORY_PAGE) : DIRECTORY_PAGE
       const cursor = typeof q?.cursor === "string" && q.cursor.length <= 128 ? q.cursor : undefined
-      const role = q?.role === "owner" || q?.role === "admin" || q?.role === "member" ? q.role : undefined
+      const role = ROLES.find((r) => r === q?.role)
       // A role filter scans forward in bounded steps, so a page is never empty while matches remain.
       const out: Array<Member> = []
       let after = cursor
@@ -34,7 +56,7 @@ export const teamRead = (state: TeamState, op: string, params: unknown, principa
         after = next
       }
       const last = out.at(-1)?.user
-      return { ok: true, value: { team: state.team?.id, members: out, member_count: state.member_count ?? out.length, next_cursor: out.length < limit && next === null ? null : (last ?? next) }, revision: "" }
+      return { ok: true, value: { team: state.team?.id, members: out, member_count: state.member_count ?? out.length, seat_count: seatsOf(state), no_owner: noOwnerOf(state), next_cursor: out.length < limit && next === null ? null : (last ?? next) }, revision: "" }
     }
     case "team.hosts.list": {
       const q = params as { cursor?: unknown; limit?: unknown } | null
@@ -50,12 +72,10 @@ export const teamRead = (state: TeamState, op: string, params: unknown, principa
       return { ok: true, value: { team: state.team?.id, policy, integration_managed_by: state.integration_managed_by ?? null }, revision: "" }
     }
     case "team.policy.history": {
-      if (member.role !== "owner" && member.role !== "admin") return { ok: false, code: "auth.forbidden", message: "only team owners and admins may read policy history" }
       const limit = typeof p.limit === "number" && Number.isInteger(p.limit) ? Math.min(Math.max(p.limit, 1), POLICY_HISTORY_LIMIT) : 20
       return { ok: true, value: { team: state.team?.id, versions: (state.policy_history ?? []).slice(0, limit) }, revision: "" }
     }
     case "team.enrollment_token.list": {
-      if (member.role !== "owner" && member.role !== "admin") return { ok: false, code: "auth.forbidden", message: "only team owners and admins may list enrollment tokens" }
       return {
         ok: true,
         value: { team: state.team?.id, tokens: Object.values(state.enrollment_tokens ?? {}).map(publicToken), devices: Object.values(state.managed_devices ?? {}) },
@@ -63,15 +83,12 @@ export const teamRead = (state: TeamState, op: string, params: unknown, principa
       }
     }
     case "sso.connection.list": {
-      if (member.role !== "owner" && member.role !== "admin") return { ok: false, code: "auth.forbidden", message: "only team owners and admins may list SSO connections" }
       return { ok: true, value: { team: state.team?.id, connections: Object.values(state.sso_connections ?? {}) }, revision: "" }
     }
     case "domain.list": {
-      if (member.role !== "owner" && member.role !== "admin") return { ok: false, code: "auth.forbidden", message: "only team owners and admins may list domains" }
       return { ok: true, value: { team: state.team?.id, domains: Object.values(state.domains ?? {}) }, revision: "" }
     }
     case "team.device.compliance": {
-      if (member.role !== "owner" && member.role !== "admin") return { ok: false, code: "auth.forbidden", message: "only team owners and admins may read device compliance" }
       return { ok: true, value: { team: state.team?.id, ...complianceFor(state) }, revision: "" }
     }
     case "team.device.policy": {
@@ -84,11 +101,35 @@ export const teamRead = (state: TeamState, op: string, params: unknown, principa
     case "team_vm.accounts": {
       // The VM's reconciler (its own install) and the team's owners and admins; nobody else (deny by default).
       const teamVm = principal.kind === "install" && principal.install_kind === "team-vm"
-      const admin = principal.kind === "session" && (member.role === "owner" || member.role === "admin")
+      const admin = principal.kind === "session" && roleHas(member.role, "team.manage")
       if (!teamVm && !admin) return { ok: false, code: "auth.forbidden", message: "only the team VM and the team's owners and admins may read its Linux accounts" }
       return { ok: true, value: accountsView(state.team?.id ?? "", state, (user) => memberOf(state, rows, user) !== undefined), revision: String(state.vm_next_uid ?? 0) }
+    }
+    case "team.audit.list": {
+      // Session only (the op's principals); billing reads only billing records (spec H12 b).
+      const q = params as { before?: unknown; limit?: unknown } | null
+      const limit = typeof q?.limit === "number" && Number.isInteger(q.limit) ? Math.min(Math.max(q.limit, 1), DIRECTORY_PAGE) : 50
+      const before = typeof q?.before === "number" && Number.isInteger(q.before) ? q.before : undefined
+      const page = auditPage(rows, before, limit, roleHas(member.role, "audit.read") ? undefined : "billing")
+      return { ok: true, value: { team: state.team?.id, ...page }, revision: String(state.audit_count ?? 0) }
     }
     default:
       return { ok: false, code: "validation.invalid", message: `unknown read ${op}` }
   }
   }
+
+/**
+ * cx-n3fb: the team VM's own install reads `team_vm.accounts` only while it is the install TeamVmDO
+ * bound for the current epoch (`current`); an older epoch's install, another install or a team
+ * without a VM record is refused. An unreachable TeamVmDO fails closed. Null: the read may answer.
+ */
+export const teamVmAccountsFence = async (current: () => Promise<string | null>, principal: Principal, op: string): Promise<ReadResult | null> => {
+  if (op !== "team_vm.accounts" || principal.kind !== "install" || principal.install_kind !== "team-vm") return null
+  let install: string | null
+  try {
+    install = await current()
+  } catch {
+    return { ok: false, code: "owner.unreachable", message: "the team VM record did not answer; try again" }
+  }
+  return install !== null && install === principal.install ? null : { ok: false, code: "team_vm.stale_epoch", message: "this install is not the team VM's install for the current epoch" }
+}

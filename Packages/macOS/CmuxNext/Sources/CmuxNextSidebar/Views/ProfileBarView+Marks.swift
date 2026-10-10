@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import os
 
 // The marks of the space switcher (cx-5k3r): each space's icon, emoji or
 // initial in its color, the compact dots, and the "+".
@@ -67,7 +68,23 @@ extension ProfileBarView {
     // theme-scoped: called only from drawMarks(), inside performWithTheme
     func profileColor(_ profile: SidebarProfile, active: Bool) -> NSColor {
         let base = profile.color?.swatch ?? Palette.textPrimary
-        return base.blended(withFraction: active ? 0.05 : 0.2, of: Palette.stripStep) ?? base
+        return Self.markColor(base: base, step: Palette.stripStep, active: active)
+    }
+
+    /// A mark's color: the strip step (`Palette.stripStep`, design-tokens.json theme.stripStep) painted
+    /// over `base`, at full strength for the other spaces and a quarter for the current one. The result
+    /// is opaque and composited in sRGB, as the token is defined: `NSColor.blended` mixes in its own color
+    /// space and also blends alpha, which left the mark see-through.
+    static func markColor(base: NSColor, step: NSColor, active: Bool) -> NSColor {
+        guard let step = step.usingColorSpace(.sRGB), let base = base.usingColorSpace(.sRGB) else { return base }
+        let strength = step.alphaComponent * (active ? 0.25 : 1)
+        func over(_ under: CGFloat, _ top: CGFloat) -> CGFloat { under * (1 - strength) + top * strength }
+        return NSColor(
+            srgbRed: over(base.redComponent, step.redComponent),
+            green: over(base.greenComponent, step.greenComponent),
+            blue: over(base.blueComponent, step.blueComponent),
+            alpha: 1
+        )
     }
 
     // theme-scoped: called only from drawMarks() inside performWithTheme
@@ -97,10 +114,17 @@ nonisolated final class ProfileDotElement: NSAccessibilityElement {
         setAccessibilityFrameInParentSpace(frame)
     }
 
+    /// Faults from a press that arrives off the main thread.
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "sidebar.accessibility")
+
     override func accessibilityPerformPress() -> Bool {
-        // AppKit calls accessibility actions on the main thread.
+        // AppKit calls accessibility actions on the main thread; anywhere else, refuse.
+        guard Thread.isMainThread else {
+            Self.logger.fault("profile dot press off the main thread; refused")
+            return false
+        }
         let onPress = onPress
-        MainActor.assumeIsolated { onPress() }
+        MainActor.assumeIsolated { onPress() } // main-proof: guarded by Thread.isMainThread above
         return true
     }
 }

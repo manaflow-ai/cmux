@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploys the Worker to $TARGET (preview or staging) and installs its secrets.
+# Deploys the Worker to $TARGET (preview, staging or production) and installs its secrets.
 # CI only. First it ensures the Hyperdrive config cmux-vm-$TARGET from
 # CMUX_VM_DATABASE_URL (create if missing, else rewrite its origin: idempotent),
 # then resolves its id by name, so no id is committed. Secret values travel to
@@ -9,8 +9,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 case "${TARGET:-}" in
-  preview | staging) ;;
-  *) echo "::error::TARGET must be preview or staging"; exit 1 ;;
+  preview | staging | production) ;;
+  *) echo "::error::TARGET must be preview, staging or production"; exit 1 ;;
 esac
 
 missing=()
@@ -43,7 +43,9 @@ jq -n \
   --arg upstream "$CMUX_VM_UPSTREAM_API_KEY" \
   --arg project "$CMUX_VM_STACK_PROJECT_ID" \
   --arg server "$CMUX_VM_STACK_SECRET_SERVER_KEY" \
-  '{UPSTREAM_API_KEY: $upstream, STACK_PROJECT_ID: $project, STACK_SECRET_SERVER_KEY: $server}' > "$secrets"
+  --arg service_keys "${CMUX_VM_SERVICE_KEYS:-}" \
+  '{UPSTREAM_API_KEY: $upstream, STACK_PROJECT_ID: $project, STACK_SECRET_SERVER_KEY: $server}
+   + (if $service_keys == "" then {} else {CMUX_VM_SERVICE_KEYS: $service_keys} end)' > "$secrets"
 
 # Until the secrets land the Worker answers 503 "not configured" (src/index.ts).
 bunx wrangler deploy --config wrangler.generated.json --env "$TARGET"

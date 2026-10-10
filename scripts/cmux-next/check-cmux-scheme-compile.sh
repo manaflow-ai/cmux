@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Compile the cmux app scheme (cmux.xcodeproj: the app host and every local
-# package it links, CmuxControlSocket among them) in Debug for arm64, the way
-# a tagged dev build compiles it, without signing, CEF or the zig CLI.
+# package it links, CmuxControlSocket among them) for arm64, without signing,
+# CEF or the zig CLI. The default remains the Debug cmux DEV build used by
+# dogfood; CMUX_NEXT_CONFIGURATION and the product overrides are used by the
+# separate Release cmux NEXT DEV channel.
 #
 # Why: the cmux-next package checks build CmuxNext only. A merge from main
 # once re-added files to CmuxControlSocket that extend types this branch had
@@ -29,6 +31,15 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/fleet-only.sh"
 cmux_next_require_fleet check-cmux-scheme-compile.sh "xcodebuild" "cmux app scheme compile (Debug)"
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+configuration="${CMUX_NEXT_CONFIGURATION:-Debug}"
+product_name="${CMUX_NEXT_PRODUCT_NAME:-}"
+bundle_id="${CMUX_NEXT_BUNDLE_ID:-}"
+code_sign_entitlements="${CMUX_NEXT_CODE_SIGN_ENTITLEMENTS:-}"
+auth_callback_scheme="${CMUX_NEXT_AUTH_CALLBACK_SCHEME:-}"
+case "$configuration" in
+  Debug|Release) ;;
+  *) echo "check-cmux-scheme-compile: unsupported configuration '$configuration'" >&2; exit 2 ;;
+esac
 kept_path=0
 if [[ -n "${1:-}" ]]; then
   derived_data="$1"
@@ -46,12 +57,19 @@ else
   trap 'rm -f "$log"; rm -rf -- "$derived_data"' EXIT
 fi
 build() {
+  xcode_args=(
+    -project cmux.xcodeproj -scheme cmux -configuration "$configuration"
+    -destination 'platform=macOS,arch=arm64'
+    -derivedDataPath "$derived_data"
+    ONLY_ACTIVE_ARCH=YES COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO
+  )
+  [[ -n "$product_name" ]] && xcode_args+=("PRODUCT_NAME=$product_name")
+  [[ -n "$bundle_id" ]] && xcode_args+=("PRODUCT_BUNDLE_IDENTIFIER=$bundle_id")
+  [[ -n "$code_sign_entitlements" ]] && xcode_args+=("CODE_SIGN_ENTITLEMENTS=$code_sign_entitlements")
+  [[ -n "$auth_callback_scheme" ]] && xcode_args+=("CMUX_AUTH_CALLBACK_SCHEME=$auth_callback_scheme")
   CMUX_NEXT_SKIP_CEF=1 CMUX_SKIP_ZIG_BUILD=1 \
     "$repo_root/scripts/ci/run-xcodebuild-with-diagnostics.sh" -- \
-    xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
-    -destination 'platform=macOS,arch=arm64' \
-    -derivedDataPath "$derived_data" \
-    ONLY_ACTIVE_ARCH=YES COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO \
+    xcodebuild "${xcode_args[@]}" \
     build 2>&1 | tee "$log"
   return "${PIPESTATUS[0]}"
 }

@@ -25,7 +25,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// Permission use of the current document (Page Info).
     @ObservationIgnored public let pageInfoActivity = PageInfoActivity()
     /// Chrome's automatic-downloads rule for this page (CEFTab+Prompts).
-    @ObservationIgnored lazy var automaticDownloads = makeAutomaticDownloadGate()
+    @ObservationIgnored public internal(set) lazy var automaticDownloads = makeAutomaticDownloadGate()
 
     /// Chromium browser identifier once created.
     @ObservationIgnored public private(set) var browserID: Int32?
@@ -333,16 +333,17 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         if focused { grantFocus(browserID) } else { runtime.shim?.setFocus(browserID, 0) }
     }
 
-    /// Hides the page window (and a docked DevTools) at once, or shows it.
-    /// Nothing here awaits: the page is hidden before this returns, so a
-    /// later show can never be undone by a completion of this hide (the
-    /// old implementation hid the page after awaiting a screenshot, and
-    /// that late hide could land on a page shown again meanwhile).
+    /// Shows the page window (and a docked DevTools) at once, or hides it by
+    /// the end of this run-loop turn, before the frame commits. Nothing here
+    /// awaits: the hide reads the host's state when it runs, so a later show
+    /// can never be undone by it (an older hide that awaited a screenshot
+    /// could land on a page shown again meanwhile).
     public func setContentVisible(_ visible: Bool) {
         host.lifecycleTrace.record(id, "visible(\(visible)) was=\(!isOccluded) shown=\(host.visibleTab === self)")
         guard visible == isOccluded else { return }
         isOccluded = !visible
-        if host.visibleTab === self { host.hostView.isHidden = !visible }
+        // Show at once; a hide waits for the end of the turn (CEFPaneHost.setNeedsHostVisibility).
+        if host.visibleTab === self { if visible { host.hostView.isHidden = false } else { host.setNeedsHostVisibility() } }
         devToolsController.views?.host.isHidden = !visible
     }
 
@@ -350,11 +351,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// when the tab's content view enters a window).
     var isContentHidden: Bool { isOccluded }
 
-    public func snapshot() async throws -> CGImage {
-        guard let browserID, !isClosed else { throw BrowserTabError.snapshotUnavailable }
-        let json = try await runtime.devTools(browserID, method: "Page.captureScreenshot", params: ["format": "png"])
-        return try CEFDevToolsResult.screenshot(json)
-    }
+    public func snapshot() async throws -> CGImage { try await CEFThumbnail.capture(self, CEFThumbnail.png) }
+    public func thumbnail() async throws -> CGImage { try await CEFThumbnail.capture(self, CEFThumbnail.params) }
 
     public func setZoom(_ zoom: Double) {
         machine.apply(.zoomChanged(zoom))
@@ -363,7 +361,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     public func exitContentFullscreen() {
         guard state.isContentFullscreen else { return }
-        Task { _ = try? await evaluate("document.exitFullscreen && document.exitFullscreen()") }
+        Task { [runtime] in _ = try? await evaluate("document.exitFullscreen && document.exitFullscreen()"); withExtendedLifetime(runtime) {} }
     }
 
     public func showDevTools() { performDevTools(.show) }

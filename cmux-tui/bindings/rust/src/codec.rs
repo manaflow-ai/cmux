@@ -435,7 +435,12 @@ fn connect_unix_with_poll_checks(
     {
         return Err(connect_error(socket_path, std::io::Error::last_os_error()));
     }
-    Ok(UnixStream::from(descriptor))
+    let stream = UnixStream::from(descriptor);
+    // The server must run as this user before anything is written (the
+    // daemon applies the same rule to the sockets it connects to).
+    // SAFETY: geteuid has no preconditions.
+    require_peer_uid(&stream, unsafe { libc::geteuid() }, socket_path)?;
+    Ok(stream)
 }
 
 #[cfg(unix)]
@@ -591,6 +596,62 @@ fn wait_for_connect_with_poll_checks(
     }
 }
 
+/// Refuses a connected session socket whose server runs as another user
+/// than this process (`expected_uid`, normally the effective uid): the same
+/// rule the daemon applies to its own client connections (cmux-tui-core
+/// `platform::require_unix_peer_uid`). Called before anything is written.
+#[cfg(unix)]
+pub(crate) fn require_peer_uid(
+    stream: &UnixStream,
+    expected_uid: u32,
+    socket_path: &Path,
+) -> Result<()> {
+    let peer = peer_uid(stream.as_raw_fd()).map_err(|error| connect_error(socket_path, error))?;
+    if peer == expected_uid {
+        return Ok(());
+    }
+    Err(CmuxError::ConnectionIo {
+        message: format!(
+            "refused session socket {}: its server runs as another user (uid {peer}, expected uid {expected_uid})",
+            socket_path.display()
+        ),
+        kind: std::io::ErrorKind::PermissionDenied,
+    })
+}
+
+/// The uid of the process at the other end of a connected Unix socket.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn peer_uid(descriptor: libc::c_int) -> std::io::Result<u32> {
+    // SAFETY: ucred is plain data and all-zero is a valid value.
+    let mut credentials = unsafe { zeroed::<libc::ucred>() };
+    let mut length = size_of::<libc::ucred>() as libc::socklen_t;
+    // SAFETY: both out-pointers are valid for writes of the lengths passed.
+    let result = unsafe {
+        libc::getsockopt(
+            descriptor,
+            libc::SOL_SOCKET,
+            libc::SO_PEERCRED,
+            (&raw mut credentials).cast(),
+            &mut length,
+        )
+    };
+    if result != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(credentials.uid)
+}
+
+/// The uid of the process at the other end of a connected Unix socket.
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]
+fn peer_uid(descriptor: libc::c_int) -> std::io::Result<u32> {
+    let (mut uid, mut gid) = (0 as libc::uid_t, 0 as libc::gid_t);
+    // SAFETY: both out-pointers are valid for writes.
+    if unsafe { libc::getpeereid(descriptor, &mut uid, &mut gid) } != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(uid)
+}
+
 /// Windows: the shared transport's deadline connect, which also refuses a
 /// socket file owned by another user (`local_socket`).
 #[cfg(windows)]
@@ -675,6 +736,39 @@ mod tests {
         );
         let listener = UnixListener::bind(&path.0).unwrap();
         (path, listener)
+    }
+
+    /// A server of this process's own user passes; a server whose uid is
+    /// not the expected one is refused before anything is written.
+    #[test]
+    fn a_server_of_another_user_is_refused() {
+        // SAFETY: geteuid has no preconditions.
+        let me = unsafe { libc::geteuid() };
+        let (client, _server) = UnixStream::pair().unwrap();
+        let path = Path::new("/tmp/cmux-peer-uid-test.sock");
+        assert!(require_peer_uid(&client, me, path).is_ok());
+        let other = me.wrapping_add(1);
+        match require_peer_uid(&client, other, path) {
+            Err(CmuxError::ConnectionIo { message, kind }) => {
+                assert_eq!(kind, std::io::ErrorKind::PermissionDenied);
+                assert!(message.contains("another user") && message.contains(&other.to_string()));
+            }
+            result => panic!("another user's server must be refused: {result:?}"),
+        }
+    }
+
+    /// The deadline connect checks the server's user: a listener of this
+    /// process's user is accepted.
+    #[test]
+    fn connect_checks_the_servers_user() {
+        let id = NEXT_SOCKET_ID.fetch_add(1, Ordering::Relaxed);
+        let path = SocketPath(std::path::PathBuf::from(format!(
+            "/tmp/cmux-sdk-peer-uid-{}-{id}.sock",
+            std::process::id()
+        )));
+        let _ = std::fs::remove_file(&path.0);
+        let _listener = UnixListener::bind(&path.0).unwrap();
+        assert!(connect_unix_with_timeout(&path.0, Duration::from_secs(1)).is_ok());
     }
 
     fn pair(limit: usize) -> (JsonLineConnection, UnixStream) {

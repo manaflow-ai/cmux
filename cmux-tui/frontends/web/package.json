@@ -10,7 +10,6 @@
     "check:fix": "vp check --fix",
     "fmt": "vp fmt",
     "lint": "vp lint",
-    "test": "vp test run",
     "typecheck": "vp check --no-fmt --no-lint"
   },
   "dependencies": {

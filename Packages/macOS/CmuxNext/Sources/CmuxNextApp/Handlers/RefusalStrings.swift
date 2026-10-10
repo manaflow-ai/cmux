@@ -112,6 +112,12 @@ nonisolated enum RefusalStrings {
     /// call sites and logs only and is never shown.
     static func needsAppCapability(_ feature: String) -> String { notInThisVersion }
     static func notShownInAnyWindow(_ target: String) -> String { format("handlers.refusal.notShownInAnyWindow", "%@ is not shown in any window", target) }
+    /// A split of the agent chat dock, which is a docked region, not a split pane.
+    static var chatDockCannotSplit: String { text("handlers.refusal.chatDockCannotSplit", "The agent chat can't be split.") }
+    /// A terminal, browser or tab group moved into the agent chat dock.
+    static var chatDockTakesOnlyChats: String {
+        text("handlers.refusal.chatDockTakesOnlyChats", "The agent chat column holds only agent chats.")
+    }
     static var notEnoughRoomToSplit: String { text("handlers.refusal.notEnoughRoomToSplit", "not enough room to split this pane") }
     static var focusedPaneHasNoTab: String { text("handlers.refusal.focusedPaneHasNoTab", "the focused pane has no tab") }
     static func noTab(_ id: String) -> String { format("handlers.refusal.noTab", "no tab %@", id) }

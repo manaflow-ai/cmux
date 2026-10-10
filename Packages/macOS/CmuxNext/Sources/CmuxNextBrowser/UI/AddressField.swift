@@ -16,6 +16,19 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
         set {}
     }
 
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        // A URL field. Without a content type, AppKit's AutoFill heuristic
+        // treats the focused field as a possible one-time-code field and
+        // asks the ViewBridge service for a code list, synchronously on the
+        // main thread; with no console session (headless test hosts) that
+        // call blocks for seconds to minutes.
+        contentType = .URL
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
     var editor: OmnibarFieldEditor? { currentEditor() as? OmnibarFieldEditor }
     private var isForwardingRightMouse = false
     /// The last written style, so a theme change can recolor the text.
@@ -141,7 +154,7 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
     // MARK: Paste and Go
 
     /// The field editor's context menu (the field is its delegate).
-    @objc func textView(_ textView: NSTextView, menu: NSMenu, for event: NSEvent, at charIndex: Int) -> NSMenu? {
+    @objc(textView:menu:forEvent:atIndex:) func textView(_ textView: NSTextView, menu: NSMenu, for event: NSEvent, at charIndex: Int) -> NSMenu? {
         guard let title = pasteAndGoTitle?() else { return menu }
         let item = NSMenuItem(title: title, action: #selector(performPasteAndGo(_:)), keyEquivalent: "")
         item.target = self
