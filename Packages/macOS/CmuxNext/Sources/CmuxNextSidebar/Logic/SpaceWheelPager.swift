@@ -1,23 +1,25 @@
 import Foundation
 
 /// A mouse wheel over the spaces pages them like a paged scroll view: one
-/// notch moves one space, and a held or free-spinning wheel keeps paging at
-/// most once per `interval` (a reverse notch pages at once). A horizontal
-/// wheel (tilt, or Shift with a vertical wheel) always pages; a vertical one
-/// pages only where it cannot scroll anything else (`pagesVertically`).
-/// Deltas follow the content like a trackpad's: content moving left or up
-/// shows the next space.
+/// roll moves one space. A free-spinning or smooth-scrolling wheel sends a
+/// roll as a burst of line events (6 to 48, at most 100 ms apart, recorded
+/// 2026-10-09), so the burst pages once: the next page needs `quietGap`
+/// without a wheel event that way, and a roll the other way pages at once.
+/// A horizontal wheel (tilt, or Shift with a vertical wheel) pages; a
+/// vertical one pages only where nothing scrolls vertically
+/// (`pagesVertically`). Deltas follow the system's scroll direction, like
+/// every scroll view: content moving left or up shows the next space.
 nonisolated struct SpaceWheelPager: Equatable, Sendable {
     enum Outcome: Equatable, Sendable {
-        /// Not a paging wheel: scroll the list as usual.
+        /// Not a paging wheel: scroll as usual.
         case pass
-        /// A paging wheel inside `interval` of the last page: swallow it.
+        /// The rest of a roll that already paged: swallow it.
         case hold
         /// Page by -1 (previous space) or +1 (next space).
         case page(Int)
     }
 
-    static let interval: TimeInterval = 0.25
+    static let quietGap: TimeInterval = 0.15
 
     private var last: Step?
     private struct Step: Equatable, Sendable {
@@ -31,8 +33,8 @@ nonisolated struct SpaceWheelPager: Equatable, Sendable {
         let delta = horizontal ? deltaX : deltaY
         guard delta != 0 else { return .hold }
         let direction = delta > 0 ? -1 : 1
-        if let last, last.direction == direction, time - last.time >= 0, time - last.time < Self.interval { return .hold }
+        let sameRoll = last.map { $0.direction == direction && time - $0.time >= 0 && time - $0.time < Self.quietGap } ?? false
         last = Step(time: time, direction: direction)
-        return .page(direction)
+        return sameRoll ? .hold : .page(direction)
     }
 }

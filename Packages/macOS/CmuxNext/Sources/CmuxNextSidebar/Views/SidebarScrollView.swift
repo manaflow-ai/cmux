@@ -2,9 +2,9 @@ import AppKit
 
 /// The sidebar list's scroll view. A two-finger horizontal trackpad swipe
 /// over it switches profiles instead of scrolling; vertical scrolling
-/// is unchanged. One switch per gesture (`ProfileSwipeTracker`). A mouse
-/// wheel pages the spaces too (`SpaceWheelPager`): always sideways, and
-/// up or down while every row fits.
+/// is unchanged. One switch per gesture (`ProfileSwipeTracker`). A sideways
+/// mouse wheel (tilt, or Shift) pages the spaces too, one per roll
+/// (`SpaceWheelPager`); up or down always scrolls the list.
 final class SidebarScrollView: NSScrollView {
     /// Called with -1 (previous) or +1 (next) once per qualifying swipe.
     var onHorizontalSwipe: ((Int) -> Void)?
@@ -17,16 +17,10 @@ final class SidebarScrollView: NSScrollView {
     private var wheel = SpaceWheelPager()
     private var paging = false
 
-    /// Every row fits: a vertical wheel has nothing to scroll, so it pages.
-    var rowsFit: Bool {
-        guard let documentView else { return true }
-        return documentView.frame.height <= contentView.bounds.height + 0.5
-    }
-
     override func scrollWheel(with event: NSEvent) {
         guard event.hasPreciseScrollingDeltas, let phase = Self.phase(of: event) else {
             if let onWheelPage, !event.hasPreciseScrollingDeltas {
-                switch wheel.feed(deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY, time: event.timestamp, pagesVertically: rowsFit) {
+                switch wheel.feed(deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY, time: event.timestamp, pagesVertically: false) {
                 case .pass: break
                 case .hold: return
                 case .page(let step): return onWheelPage(step)
