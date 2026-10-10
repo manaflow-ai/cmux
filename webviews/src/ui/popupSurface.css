@@ -42,6 +42,23 @@
   backdrop-filter: var(--ui-popup-blur);
 }
 
+/* The shipped agent pane loads this shared surface sheet without ui.css. Keep modal layers here
+   too, so a dialog portals above the pane instead of becoming a flow child that pushes its
+   transcript and composer when it opens. */
+:where(.ui-backdrop) {
+  position: fixed;
+  inset: 0;
+  background: var(--cmux-scrim, rgb(0 0 0 / 12%));
+}
+:where(.ui-dialog) {
+  position: fixed;
+  inset-block-start: 12vh;
+  inset-inline: 0;
+  margin-inline: auto;
+  width: min(560px, calc(100vw - 32px));
+  outline: none;
+}
+
 @media (prefers-reduced-transparency: reduce) {
   :where(.ui-popup) {
     background-color: var(--ui-popup-bg, var(--ui-surface, Canvas));

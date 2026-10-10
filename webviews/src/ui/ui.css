@@ -244,21 +244,6 @@
   opacity: 0.4;
 }
 
-.ui-backdrop {
-  position: fixed;
-  inset: 0;
-  background: var(--cmux-scrim, rgb(0 0 0 / 12%));
-}
-
-.ui-dialog {
-  position: fixed;
-  inset-block-start: 12vh;
-  inset-inline: 0;
-  margin-inline: auto;
-  width: min(560px, calc(100vw - 32px));
-  outline: none;
-}
-
 .ui-sheet {
   inset-block-start: auto;
   inset-block-end: 0;
