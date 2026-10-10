@@ -176,6 +176,8 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::PaletteUsageGet
         | ResourceOperation::PaletteUsageRecord
         | ResourceOperation::PaletteUsageImport
+        | ResourceOperation::PaletteUsageHide
+        | ResourceOperation::PaletteUsageForget
         | ResourceOperation::WorkspaceStatusList
         | ResourceOperation::WorkspaceStatusSet
         | ResourceOperation::WorkspaceStatusClear
