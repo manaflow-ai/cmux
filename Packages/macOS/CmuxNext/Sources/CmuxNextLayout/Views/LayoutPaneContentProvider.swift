@@ -61,37 +61,13 @@ final class LayoutViewContext {
         self.model = model
         self.provider = provider
         self.scrollbarClock = scrollbarClock
-        hoverPointer = { window in Self.systemPointer(in: window) }
+        // The shared pointer source (`PointerHover`, CmuxNextDesign): the
+        // real pointer while the window is key and visible, `debug.mouse`'s
+        // synthesized pointer in DEBUG builds (it also passes the topmost check).
+        hoverPointer = { window in PointerHover.pointer(in: window, requireKey: true) }
         hoverReachesWindow = { [weak self] window in
-            Self.isTopmost(window, passThrough: self?.hoverPassThroughWindows() ?? [])
+            PointerHover.isTopmost(window, passThrough: self?.hoverPassThroughWindows() ?? [])
         }
-    }
-
-    #if DEBUG
-    /// DEBUG: the pointer `debug.mouse` synthesized per window, in window
-    /// coordinates; `.some(nil)` is a pointer outside the window.
-    @MainActor static var debugPointers: [ObjectIdentifier: NSPoint?] = [:]
-    #endif
-
-    /// The real pointer in `window`'s coordinates while the window is key and
-    /// visible (`debug.mouse`'s synthesized pointer in DEBUG builds).
-    @MainActor static func systemPointer(in window: NSWindow) -> NSPoint? {
-        #if DEBUG
-        // `debug.mouse` drives a still real pointer: its synthesized pointer wins.
-        if let synthetic = debugPointers[ObjectIdentifier(window)] { return synthetic }
-        #endif
-        guard window.isKeyWindow, window.isVisible else { return nil }
-        return window.mouseLocationOutsideOfEventStream
-    }
-
-    /// The topmost window under the real pointer is `window` or a
-    /// pass-through panel.
-    @MainActor static func isTopmost(_ window: NSWindow, passThrough: Set<Int>) -> Bool {
-        #if DEBUG
-        if debugPointers[ObjectIdentifier(window)] != nil { return true }
-        #endif
-        let top = NSWindow.windowNumber(at: NSEvent.mouseLocation, belowWindowWithWindowNumber: 0)
-        return top == window.windowNumber || passThrough.contains(top)
     }
 
     var style: LayoutStyle { model.style }

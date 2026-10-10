@@ -6,7 +6,7 @@
 use crate::data::{GestureRule, policy};
 use crate::frame::contains;
 use serde_json::{Map, Value};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::Mutex;
 
 /// Whether `object` (a page frame the allowlist passed) grants and needs a
@@ -36,9 +36,17 @@ pub fn needs_gesture(object: &Map<String, Value>, is_deny: impl Fn(&str, &str) -
 /// `permission_request` event the daemon recorded (`dir` "mux") in an
 /// `_acpmux/event`, or in `result.events` of a reply to a history request.
 /// An option seen with two kinds counts as allow.
+///
+/// A request whose `request.toolCall._meta.acpmux.question` (the daemon's
+/// normalized question) is an object is a question; its items' ids and
+/// prompts are the keys its `answers` may use ([`Self::question_keys`]). A
+/// permission seen once without a question is no question.
 #[derive(Default)]
 pub struct PermissionOptions {
     denies: Mutex<HashMap<String, HashMap<String, bool>>>,
+    /// permissionId -> the item ids and prompts of its question; None once a
+    /// request without a question was seen for it.
+    questions: Mutex<HashMap<String, Option<BTreeSet<String>>>>,
 }
 
 impl PermissionOptions {
@@ -49,17 +57,21 @@ impl PermissionOptions {
     /// Records the options in a parsed daemon frame; `reply_to` is the
     /// request a reply answers.
     pub fn observe(&self, object: &Map<String, Value>, reply_to: Option<&str>) {
+        type Asked = Vec<(String, Option<BTreeSet<String>>)>;
         let mut found: Vec<(String, String, bool)> = Vec::new();
-        fn request(record: Option<&Map<String, Value>>, found: &mut Vec<(String, String, bool)>) {
+        let mut asked: Asked = Vec::new();
+        fn request(
+            record: Option<&Map<String, Value>>,
+            found: &mut Vec<(String, String, bool)>,
+            asked: &mut Asked,
+        ) {
             let Some(record) = record else { return };
             let Some(permission) = record.get("permissionId").and_then(Value::as_str) else {
                 return;
             };
-            let Some(options) = record
-                .get("request")
-                .and_then(Value::as_object)
-                .and_then(|r| r.get("options"))
-                .and_then(Value::as_array)
+            let request = record.get("request").and_then(Value::as_object);
+            asked.push((permission.to_owned(), request.and_then(question_keys)));
+            let Some(options) = request.and_then(|r| r.get("options")).and_then(Value::as_array)
             else {
                 return;
             };
@@ -73,20 +85,24 @@ impl PermissionOptions {
                 found.push((permission.to_owned(), id.to_owned(), kind.starts_with("reject")));
             }
         }
-        fn event(value: Option<&Value>, found: &mut Vec<(String, String, bool)>) {
+        fn event(
+            value: Option<&Value>,
+            found: &mut Vec<(String, String, bool)>,
+            asked: &mut Asked,
+        ) {
             let Some(event) = value.and_then(Value::as_object) else { return };
             if event.get("kind").and_then(Value::as_str) != Some("permission_request")
                 || event.get("dir").and_then(Value::as_str) != Some("mux")
             {
                 return;
             }
-            request(event.get("msg").and_then(Value::as_object), found);
+            request(event.get("msg").and_then(Value::as_object), found, asked);
         }
         match object.get("method").and_then(Value::as_str) {
             Some("_acpmux/permission_pending") => {
-                request(object.get("params").and_then(Value::as_object), &mut found);
+                request(object.get("params").and_then(Value::as_object), &mut found, &mut asked);
             }
-            Some("_acpmux/event") => event(object.get("params"), &mut found),
+            Some("_acpmux/event") => event(object.get("params"), &mut found, &mut asked),
             None => {
                 let Some(method) = reply_to else { return };
                 if !contains(&policy().history_replies, method) {
@@ -101,10 +117,19 @@ impl PermissionOptions {
                     return;
                 };
                 for e in events {
-                    event(Some(e), &mut found);
+                    event(Some(e), &mut found, &mut asked);
                 }
             }
             Some(_) => return,
+        }
+        if !asked.is_empty() {
+            let mut questions =
+                self.questions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            for (permission, keys) in asked {
+                let before = questions.get(&permission).cloned().unwrap_or(Some(BTreeSet::new()));
+                let merged = before.and_then(|old| keys.map(|new| &old | &new));
+                questions.insert(permission, merged);
+            }
         }
         if found.is_empty() {
             return;
@@ -117,9 +142,33 @@ impl PermissionOptions {
         }
     }
 
+    /// The keys `answers` may use for `permission`: its question's item ids
+    /// and prompts; None when the pane never saw it as a question (a tool
+    /// permission, or an unknown one).
+    pub fn question_keys(&self, permission: &str) -> Option<BTreeSet<String>> {
+        let questions = self.questions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        questions.get(permission).cloned().flatten()
+    }
+
     /// True only when `option` is a known deny of `permission`.
     pub fn is_deny(&self, permission: &str, option: &str) -> bool {
         let denies = self.denies.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         denies.get(permission).and_then(|o| o.get(option)).copied() == Some(true)
     }
+}
+
+/// The item ids and prompts of `request.toolCall._meta.acpmux.question`,
+/// when it is an object.
+fn question_keys(request: &Map<String, Value>) -> Option<BTreeSet<String>> {
+    let question = request.get("toolCall")?.get("_meta")?.get("acpmux")?.get("question")?;
+    let question = question.as_object()?;
+    let mut keys = BTreeSet::new();
+    for item in question.get("items").and_then(Value::as_array).into_iter().flatten() {
+        for key in ["id", "prompt"] {
+            if let Some(value) = item.get(key).and_then(Value::as_str) {
+                keys.insert(value.to_owned());
+            }
+        }
+    }
+    Some(keys)
 }

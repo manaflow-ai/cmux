@@ -48,11 +48,11 @@ fn optional_text(
 
 impl WorkspaceRegistry {
     pub fn personal_snapshot(&self) -> anyhow::Result<PersonalSnapshot> {
-        read_snapshot(&self.connection)
+        read_snapshot(&self.connection.get())
     }
 
     pub fn personal_revision(&self) -> anyhow::Result<u64> {
-        super::personal_store::personal_revision(&self.connection)
+        super::personal_store::personal_revision(&self.connection.get())
     }
 
     /// Create a room at `index` (default last). The same id and name again
@@ -714,6 +714,36 @@ impl WorkspaceRegistry {
         Ok((group, changed))
     }
 
+    /// Move the existing personal row of a qualified workspace to `index` of
+    /// the personal order (past the end: last). Groups keep their slot among
+    /// the other workspaces (mixed order). Writes no journal record: the
+    /// caller's commit states the change.
+    pub(crate) fn move_personal_row_in(
+        tx: &Transaction<'_>,
+        session: &str,
+        key: &str,
+        index: usize,
+    ) -> anyhow::Result<()> {
+        let slots = mixed_order::group_slots(tx, Some((session, key)))?;
+        let rows = read_workspaces(tx)?;
+        let mut order = rows
+            .iter()
+            .map(|row| (row.session_id.clone(), row.workspace_key.clone()))
+            .collect::<Vec<_>>();
+        let Some(old) = order.iter().position(|(s, k)| s == session && k == key) else {
+            anyhow::bail!("no personal row for {session}/{key}");
+        };
+        let moved = order.remove(old);
+        order.insert(index.min(order.len()), moved);
+        for (position, (s, k)) in order.iter().enumerate() {
+            tx.execute(
+                "UPDATE personal_workspaces SET position = ?3 WHERE session_id = ?1 AND workspace_key = ?2",
+                params![s, k, i64::try_from(position)?],
+            )?;
+        }
+        mixed_order::restore_group_slots(tx, &slots, Some((session, key)))
+    }
+
     /// Create or update the personal row of a qualified workspace. `index`
     /// is its final position in the personal order (absent on create:
     /// last). The daemon does not check that a group belongs to the room
@@ -767,24 +797,7 @@ impl WorkspaceRegistry {
             )?;
         }
         if let Some(index) = update.index {
-            // Groups keep their slot among the other workspaces (mixed order).
-            let slots = mixed_order::group_slots(tx, Some((session, key)))?;
-            let rows = read_workspaces(tx)?;
-            let mut order = rows
-                .iter()
-                .map(|row| (row.session_id.clone(), row.workspace_key.clone()))
-                .collect::<Vec<_>>();
-            let old =
-                order.iter().position(|(s, k)| s == session && k == key).unwrap_or(order.len() - 1);
-            let moved = order.remove(old);
-            order.insert(index.min(order.len()), moved);
-            for (position, (s, k)) in order.iter().enumerate() {
-                tx.execute(
-                    "UPDATE personal_workspaces SET position = ?3 WHERE session_id = ?1 AND workspace_key = ?2",
-                    params![s, k, i64::try_from(position)?],
-                )?;
-            }
-            mixed_order::restore_group_slots(tx, &slots, Some((session, key)))?;
+            Self::move_personal_row_in(tx, session, key, index)?;
         }
         crate::state::home_store::require_home_first(tx)?;
         let after = find(&read_workspaces(tx)?)
@@ -807,7 +820,8 @@ impl WorkspaceRegistry {
         &mut self,
         input: ProfileInput,
     ) -> anyhow::Result<(PersonalProfile, bool)> {
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         let output = Self::create_profile_in(&tx, input)?;
         tx.commit()?;
         Ok(output)
@@ -818,7 +832,8 @@ impl WorkspaceRegistry {
         id: &str,
         update: ProfileUpdate,
     ) -> anyhow::Result<(PersonalProfile, bool)> {
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         let output = Self::update_profile_in(&tx, id, update)?;
         tx.commit()?;
         Ok(output)
@@ -829,7 +844,8 @@ impl WorkspaceRegistry {
         id: &str,
         index: usize,
     ) -> anyhow::Result<(PersonalProfile, bool)> {
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         let output = Self::move_profile_in(&tx, id, index)?;
         tx.commit()?;
         Ok(output)
@@ -840,7 +856,8 @@ impl WorkspaceRegistry {
         id: &str,
         move_to: Option<&str>,
     ) -> anyhow::Result<ProfileDeletion> {
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         let output = Self::delete_profile_in(&tx, id, move_to)?;
         tx.commit()?;
         Ok(output)
@@ -851,7 +868,8 @@ impl WorkspaceRegistry {
         id: &str,
         sessions: &[String],
     ) -> anyhow::Result<(PersonalProfile, bool)> {
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         let output = Self::set_profile_follows_in(&tx, id, sessions)?;
         tx.commit()?;
         Ok(output)
@@ -863,14 +881,16 @@ impl WorkspaceRegistry {
         key: &str,
         profile: &str,
     ) -> anyhow::Result<bool> {
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         let output = Self::pin_workspace_in(&tx, session, key, profile)?;
         tx.commit()?;
         Ok(output)
     }
 
     pub fn unpin_workspace(&mut self, session: &str, key: &str) -> anyhow::Result<bool> {
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         let output = Self::unpin_workspace_in(&tx, session, key)?;
         tx.commit()?;
         Ok(output)
@@ -885,7 +905,8 @@ impl WorkspaceRegistry {
         capabilities: Option<&Value>,
         follow_with: Option<&str>,
     ) -> anyhow::Result<(PersonalSession, bool)> {
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         let output = Self::put_session_in(
             &tx,
             session,
@@ -900,7 +921,8 @@ impl WorkspaceRegistry {
     }
 
     pub fn forget_session(&mut self, session: &str, force: bool) -> anyhow::Result<bool> {
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         let output = Self::forget_session_in(&tx, session, force)?;
         tx.commit()?;
         Ok(output)
@@ -915,7 +937,8 @@ impl WorkspaceRegistry {
         collapsed: bool,
         index: Option<usize>,
     ) -> anyhow::Result<(PersonalGroup, bool)> {
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         let output =
             Self::create_personal_group_in(&tx, id, profile, name, color, collapsed, index)?;
         tx.commit()?;
@@ -930,7 +953,8 @@ impl WorkspaceRegistry {
         collapsed: Option<bool>,
         profile: Option<&str>,
     ) -> anyhow::Result<(PersonalGroup, bool)> {
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         let output = Self::update_personal_group_in(&tx, id, name, color, collapsed, profile)?;
         tx.commit()?;
         Ok(output)
@@ -941,7 +965,8 @@ impl WorkspaceRegistry {
         id: &str,
         index: usize,
     ) -> anyhow::Result<(PersonalGroup, bool)> {
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         let output = Self::move_personal_group_in(&tx, id, index)?;
         tx.commit()?;
         Ok(output)
@@ -953,7 +978,8 @@ impl WorkspaceRegistry {
         key: &str,
         update: PersonalWorkspaceUpdate,
     ) -> anyhow::Result<(PersonalWorkspace, bool)> {
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         let output = Self::set_personal_workspace_in(&tx, session, key, update)?;
         tx.commit()?;
         Ok(output)
@@ -965,7 +991,8 @@ impl WorkspaceRegistry {
         groups: &[(String, String, Option<String>, bool)],
         workspaces: &[(String, Option<String>)],
     ) -> anyhow::Result<bool> {
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         let output = Self::import_session_organization_in(&tx, session, groups, workspaces)?;
         tx.commit()?;
         Ok(output)

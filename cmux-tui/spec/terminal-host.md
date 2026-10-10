@@ -131,7 +131,7 @@ indexes are fatal.
 | 10 | `Pwd` | host to client | `READ` | UTF-8 cwd; empty means cleared |
 | 11 | `Bell` | host to client | `READ` | empty |
 | 12 | `Exit` | host to client | `READ` | versioned process outcome |
-| 13 | `ResyncRequired` | host to client | `READ` | empty or attach-gap layout |
+| 13 | `ResyncRequired` | host to client | `READ` | empty, attach-gap layout, or four little-endian `u64` Kitty limits |
 | 14 | `Launch` | parent to host | private pipe | launch layout |
 | 15 | `Capability` | host to client | response | 32-byte token |
 | 16 | `ResizeAck` | host to client | response | `cols:u16, rows:u16, result_flags:u32` |
@@ -212,6 +212,9 @@ seed:optional blob
 to its own parser before it reads the PTY and never writes to the PTY, as for
 `LaunchAdopt`. An owner sends it when it respawns a terminal whose shell was lost
 with its host (cx-6so.49 L2): the new shell starts below the previous screen.
+It also sends it when Reopen Closed starts a terminal that a close archived
+(ARCHIVE-1): the new shell starts below the archived screen and one line that
+names the program the close stopped.
 A host that predates the field rejects a seeded `Launch`; owners only seed
 hosts they start from their own binary.
 
@@ -495,6 +498,22 @@ reason:u8`; reason `0` is a retention gap and reason `1` is subscriber queue
 overflow. All fields are little-endian and clients must reconnect for either
 reason.
 
+A Kitty quota change (`SetKittyGraphicsLimits`) publishes `ResyncRequired` on
+the smart stream at the source position where the host applied the new
+limits. When that change evicted no stored image or placement on either
+screen (the host's Kitty image generation is unchanged) and no Kitty upload
+was being assembled, the payload is the four new limits in the
+`KittyGraphicsLimitsAck` layout (32 bytes); otherwise it is empty. A smart
+client that receives the 32-byte payload may instead apply the same limits to
+its own parser at that sequence and continue the stream; it must reconnect if
+its own parser then evicts anything. A client that does not apply it
+reconnects as for an empty payload. Clients must treat any `ResyncRequired`
+payload they do not understand as an empty one (reconnect); this keeps
+older and newer daemons and hosts compatible in both directions. The owner
+daemon applies it, so a quota
+rebalance across many terminals (the daemon's process image budget is split
+by a power-of-two terminal capacity) does not reconnect every host.
+
 The host publishes
 `Exit` only after the final `Output`. It uses the normal live sequence,
 `request_id:0`, and frame flags zero. `Exit` ends live process output but does
@@ -601,10 +620,19 @@ tap. A host `Snapshot` preserves renderable terminal state across daemon
 replacement, and the exit sidecar preserves the final process outcome, but the
 host does not currently retain an acknowledged raw-output spool. Bytes emitted
 while no daemon tap exists can therefore be recovered visually from a snapshot
-but cannot be reconstructed as exact historical `terminal.output` records. The
-mux commits a replacement checkpoint after it applies such a reconnect snapshot
-and before it accepts the new live boundary. Restoration starts from that
-durable terminal state, but consumers must not claim byte-exact output history
+but cannot be reconstructed as exact historical `terminal.output` records.
+After the mux applies such a reconnect snapshot (also after a live host's
+`ResyncRequired`), and before it accepts output from the new live boundary, it
+appends a required `terminal.output.gap` record with reason `host_reconnect` to
+that terminal's journal lane. This is O(1) per reconnect. A journal retention
+worker then commits one checkpoint that covers every terminal that reconnected
+since the last one, including terminals that ended meanwhile: once the
+reconnect wave has had no new reconnect for one second (at most ten seconds
+after its first), and at most one per 30 s interval. No such capture starts
+while `shutdown-daemon` is ending terminals, and a daemon that is shutting
+down or handing off its hosts captures none, so those gaps stay in the tail
+until a later checkpoint. A restore from an older checkpoint reports the
+gap as unsupported until a later checkpoint exists. Consumers must not claim byte-exact output history
 across an unplanned no-tap interval until a durable host spool exists.
 
 ## Version compatibility

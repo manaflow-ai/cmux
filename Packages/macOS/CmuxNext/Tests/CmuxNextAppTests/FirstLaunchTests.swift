@@ -1,6 +1,9 @@
 import AppKit
+import CmuxNextActions
 @testable import CmuxNextApp
+import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextSettings
 import Foundation
 import Testing
 
@@ -54,7 +57,10 @@ struct FirstLaunchTests {
         let launcher = DaemonLauncher(
             configuration: .init(binary: binary, session: session, stateDirectory: root.appendingPathComponent("state")),
             environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
-        let services = ActionBindingCoverageTests.boundServices()
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        AppActions.bind(services)
+        services.palette.bindRegistryActions()
         services.windows.ordersWindowsIn = false
         services.daemon.start {
             DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: launcher.endpointProvider)

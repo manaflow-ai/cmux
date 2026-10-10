@@ -1,15 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Combobox } from "../../ui/Combobox";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator } from "../../ui/Menu";
-import { Popover } from "../../ui/Popover";
+import { Popover, type UiVirtualAnchor } from "../../ui/Popover";
 import type { AcpmuxSnapshot } from "./model";
 import { ChevronIcon } from "./ComposerPickers";
 import type { Project } from "./ProjectChooser";
 import { ProjectBadge } from "./ProjectBadge";
-import { projectLabel } from "./sessionList";
+import { isAgentHome, projectLabel } from "./sessionList";
 import { translate as t } from "./i18n";
 import { registerPicker } from "./pickerOpeners";
-import { usePopoverTrigger } from "./popoverTrigger";
+import { usePopoverTrigger } from "../../ui/popoverTrigger";
 
 export const CONTEXT_LABELS = {
   computer: "composer.computer",
@@ -18,6 +18,7 @@ export const CONTEXT_LABELS = {
   chooseComputer: "composer.chooseComputer",
   chooseFolder: "composer.chooseFolder",
   chooseFolderMenu: "composer.chooseFolderMenu",
+  folderSearch: "composer.folderSearch",
   cloud: "composer.cloud",
   connectSSH: "composer.connectSSH",
   connectCloud: "composer.connectCloud",
@@ -41,6 +42,7 @@ export function ComposerContext({
   localName,
   movedTo,
   onMove,
+  onBrowseFolder,
   busy = false,
   onConnect,
 }: {
@@ -56,6 +58,8 @@ export function ComposerContext({
   /// The folder a started chat moved to.
   movedTo?: string;
   onMove?(cwd: string): void;
+  /// A started chat's Choose folder…: the host's folder panel, then the chat moves there.
+  onBrowseFolder?(): Promise<string | undefined>;
   /// A turn runs: the folder holds still.
   busy?: boolean;
   /// A new chat's Computer menu ends with SSH… and cmux Cloud…, which open the host's
@@ -80,11 +84,15 @@ export function ComposerContext({
     const seen = new Set(projects.map((project) => project.id));
     return [...projects, ...known.filter((folder) => !seen.has(folder.id))];
   }, [summary, sessions, selectedComputer, projectChoices]);
+  const summaryFolder = summary?.cwd && computerId(summary) === selectedComputer ? summary.cwd : undefined;
+  // A chat in its private agent-home folder has no project yet: the row offers a folder instead.
   const currentFolder =
     started && movedTo
       ? movedTo
-      : summary?.cwd && computerId(summary) === selectedComputer
-        ? normalizeCwd(summary.cwd)
+      : summaryFolder
+        ? isAgentHome(summaryFolder)
+          ? undefined
+          : normalizeCwd(summaryFolder)
         : projectChoices
           ? undefined
           : folders[0]?.id;
@@ -93,10 +101,18 @@ export function ComposerContext({
   const readOnly = started || onProject === undefined;
   const moves = started && onMove !== undefined && !busy;
   const branch = summary?.branch;
+  // A started chat's Choose folder…: the host's folder panel, then the move (dogfood 09).
+  const browseMove = onBrowseFolder
+    ? () => {
+        void onBrowseFolder().then((cwd) => {
+          if (cwd && cwd !== currentFolder) onMove?.(cwd);
+        });
+      }
+    : undefined;
   return (
     <div className="acpmux-composer-context" data-readonly={readOnly ? "true" : undefined}>
       <div className="acpmux-location-leading">
-        {!readOnly && selectedComputer === "local" && projectChoices ? (
+        {readOnly && !moves && !currentFolder ? null : !readOnly && selectedComputer === "local" && projectChoices ? (
           <FolderMenu
             label={t(CONTEXT_LABELS.folder)}
             menu="Location"
@@ -115,6 +131,7 @@ export function ComposerContext({
             disabled={readOnly && !moves}
             icon={<FolderIcon />}
             allowPath
+            onBrowse={moves ? browseMove : undefined}
             onPick={(cwd) => {
               if (moves) {
                 if (cwd !== currentFolder) onMove?.(cwd);
@@ -153,13 +170,14 @@ export function ComposerContext({
 
 function BranchPicker({ branch }: { branch: string }) {
   const [open, setOpen] = useState(false);
+  const [control, anchor] = useControlAnchor();
   return (
-    <span className="acpmux-location-picker" title={branch}>
+    <span ref={control} className="acpmux-location-picker" title={branch}>
       <Menu open={open} onOpenChange={setOpen}>
         <MenuButton className="acpmux-location-button" label={t("changes.scope.branch")}>
           <LocationFace icon={<BranchIcon />} value={branch} chevron />
         </MenuButton>
-        <MenuPopup side="top" className="acpmux-menu acpmux-location-menu" align="end">
+        <MenuPopup side="top" anchor={anchor} className="acpmux-menu acpmux-location-menu" align="end">
           <MenuRadioGroup value={branch} onValueChange={() => undefined}>
             <MenuRadioItem value={branch} disabled className="acpmux-menu-item">
               <span className="acpmux-menu-text">
@@ -234,7 +252,8 @@ function availableFolders(summary: Summary | undefined, sessions: Session[], com
   const folders: Location[] = [];
   const add = (cwd?: string) => {
     const id = normalizeCwd(cwd);
-    if (!id || seen.has(id)) return;
+    // A private agent-home folder is never offered by its id.
+    if (!id || seen.has(id) || isAgentHome(id)) return;
     seen.add(id);
     folders.push({ id, label: projectLabel(id), detail: id });
   };
@@ -283,6 +302,24 @@ function FolderIcon() {
   );
 }
 
+/// The location menus open next to their control: on its top side, the way the model menu opens
+/// above its chip (Lawrence 2026-10-08: "popover is not next to the button"; this replaces
+/// cx-yrgh's anchor at the card's top edge, which left the card's height between the two). With too
+/// little room above, the positioner flips the menu under the row.
+function useControlAnchor() {
+  const control = useRef<HTMLSpanElement>(null);
+  const anchor = useMemo<UiVirtualAnchor>(
+    () => ({
+      getBoundingClientRect: () => control.current?.getBoundingClientRect() ?? new DOMRect(),
+      get contextElement() {
+        return control.current ?? undefined;
+      },
+    }),
+    [],
+  );
+  return [control, anchor] as const;
+}
+
 /// Automation opens a location menu by its stable name (`openPicker`: "Computer", "Location"),
 /// as a click does: the focus leaves the prompt, then the menu opens. A label (a started chat)
 /// registers nothing.
@@ -318,15 +355,16 @@ function FolderMenu({
   onBrowse?(): void;
 }) {
   const [open, setOpen] = useState(false);
+  const [control, anchor] = useControlAnchor();
   useLocationOpener(menu, () => setOpen(true));
   const value = current ? projectLabel(current) : t(CONTEXT_LABELS.chooseFolder);
   return (
-    <span className="acpmux-location-picker" title={current}>
+    <span ref={control} className="acpmux-location-picker" title={current}>
       <Menu open={open} onOpenChange={setOpen}>
         <MenuButton className="acpmux-location-button" label={label}>
           <LocationFace icon={<FolderIcon />} value={value} chevron />
         </MenuButton>
-        <MenuPopup side="top" className="acpmux-menu acpmux-location-menu" align="end">
+        <MenuPopup side="top" anchor={anchor} className="acpmux-menu acpmux-location-menu" align="start">
           {folders.length > 0 && (
             <>
               <div className="acpmux-location-folders">
@@ -382,6 +420,7 @@ function LocationPicker({
   disabled,
   icon,
   allowPath = false,
+  onBrowse,
   extras,
   onPick,
 }: {
@@ -394,13 +433,15 @@ function LocationPicker({
   disabled: boolean;
   icon?: React.ReactNode;
   allowPath?: boolean;
+  /// The folder popover's last row, Choose folder…: the host's folder panel.
+  onBrowse?(): void;
   /// Rows after the choices that run something instead of picking (the connect flows).
   extras?: { id: string; label: string; onSelect(): void }[];
   onPick(id: string): void;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const trigger = useRef<HTMLButtonElement>(null);
+  const [control, anchor] = useControlAnchor();
   const press = usePopoverTrigger(open, setOpen);
   useLocationOpener(disabled ? undefined : menu, () => setOpen(true));
   const shown = useMemo(() => {
@@ -429,12 +470,12 @@ function LocationPicker({
   const button = <LocationFace icon={icon} value={value} chevron />;
   if (!allowPath)
     return (
-      <span className="acpmux-location-picker">
+      <span ref={control} className="acpmux-location-picker">
         <Menu open={open} onOpenChange={setOpen}>
           <MenuButton className="acpmux-location-button" label={label}>
             {button}
           </MenuButton>
-          <MenuPopup className="acpmux-menu acpmux-location-menu" align="start">
+          <MenuPopup side="top" anchor={anchor} className="acpmux-menu acpmux-location-menu" align="start">
             <MenuRadioGroup value={selected ?? ""} onValueChange={pick}>
               {options.map((option) => (
                 <MenuRadioItem key={option.id} value={option.id} className="acpmux-menu-item">
@@ -467,9 +508,8 @@ function LocationPicker({
   const suggestions = shown.map((option) => option.id);
   if (typedPath && !suggestions.includes(typedPath)) suggestions.push(typedPath);
   return (
-    <span className="acpmux-location-picker" title={selected}>
+    <span ref={control} className="acpmux-location-picker" title={selected}>
       <button
-        ref={trigger}
         type="button"
         className="acpmux-location-button"
         aria-label={label}
@@ -485,7 +525,7 @@ function LocationPicker({
           setOpen(next);
           if (!next) setQuery("");
         }}
-        anchor={open ? trigger.current : null}
+        anchor={open ? anchor : null}
         label={label}
         className="acpmux-menu acpmux-location-menu"
         side="top"
@@ -496,9 +536,10 @@ function LocationPicker({
           onSubmit={(path) => (path ? pick(path) : setOpen(false))}
           onCancel={() => setOpen(false)}
           label={label}
-          placeholder={value}
-          inputClassName="acpmux-location-search"
-          itemClassName="acpmux-menu-item"
+          placeholder={t(CONTEXT_LABELS.folderSearch)}
+          inputClassName="acpmux-location-search block h-8 w-full min-w-60 appearance-none border-0 bg-transparent px-2 font-[inherit] text-fg outline-none placeholder:text-muted"
+          listClassName="m-0 list-none border-t-[0.5px] border-edge p-0 pt-1 [&:not([hidden])]:mt-1"
+          itemClassName="acpmux-menu-item cursor-default rounded-lg data-[highlighted]:bg-hover"
           renderItem={(path) => {
             const folder = options.find((option) => option.id === path);
             return (
@@ -510,6 +551,24 @@ function LocationPicker({
           }}
           inline
         />
+        {onBrowse && (
+          <>
+            <hr className="ui-separator" />
+            <button
+              type="button"
+              className="acpmux-menu-item acpmux-location-choose"
+              // The field keeps the keyboard: its blur closes the picker before the click.
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                setOpen(false);
+                setQuery("");
+                onBrowse();
+              }}
+            >
+              {t(CONTEXT_LABELS.chooseFolderMenu)}
+            </button>
+          </>
+        )}
       </Popover>
     </span>
   );

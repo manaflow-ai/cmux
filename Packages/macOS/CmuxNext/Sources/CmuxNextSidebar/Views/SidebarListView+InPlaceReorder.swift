@@ -15,7 +15,8 @@ extension SidebarListView {
         case .ontoWorkspace?: drag?.lastPosition
         default: nil
         }
-        guard let drag, let position = shownPosition else {
+        // Held over the band: the list without the dragged rows (the pin drop's outcome, cx-odqn).
+        guard let drag, drag.pinTarget == nil, let position = shownPosition else {
             return SidebarLayout.make(sections: model.sections, metrics: metrics, options: options(includeGap: true))
         }
         var sections = model.sections
@@ -24,7 +25,7 @@ extension SidebarListView {
         case let .group(group): SidebarEdits.apply(.reorderGroup(group, index: position.index), to: &sections)
         }
         var o = options(includeGap: false)
-        o.excludedWorkspaces = []
+        o.excludedWorkspaces = leaving
         o.excludedGroup = nil
         var layout = SidebarLayout.make(sections: sections, metrics: metrics, options: o)
         // The slot is where DropResolver maps display y back to base y

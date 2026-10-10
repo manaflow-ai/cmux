@@ -151,9 +151,9 @@ def test_valgrind_runner_keeps_binary_and_test_safety_guards() -> None:
     assert 'require_exact_test()' in job
     assert 'pending_wrap_replay_preserves_cursor_with_origin_mode' in job
     for test_name in (
-        "config::tests::load_uses_file_ghostty_defaults_without_invoking_external_resolver",
-        "config::tests::ghostty_file_reader_enforces_byte_limit_during_read",
-        "config::tests::ghostty_config_helper_output_reader_enforces_byte_limit",
+        "config::tests::ghostty_config_files::load_uses_file_ghostty_defaults_without_invoking_external_resolver",
+        "config::tests::ghostty_config_files::ghostty_file_reader_enforces_byte_limit_during_read",
+        "config::tests::ghostty_helper::ghostty_config_helper_output_reader_enforces_byte_limit",
     ):
         assert test_name in job
 
@@ -198,18 +198,11 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert "pull_request_target" in triggers
     pr_trigger = triggers["pull_request_target"]
     assert pr_trigger.get("branches") == ["feat-cmux-next"]
+    # The filter is the tree key's input list (checked item by item in
+    # test_cmux_tui_tree_key_inputs_are_the_pr_trigger_paths); here only
+    # that it starts with the cmux-tui sources.
     paths = pr_trigger.get("paths")
-    assert paths == [
-        "cmux-tui/**",
-        "ghostty",
-        "ghostty-next",
-        "scripts/cmux-next/build-layout-reducer-ffi.sh",
-        "scripts/ci/cmux-tui-darwin-builder",
-        "scripts/ci/macos-cross.sh",
-        "scripts/ci/macos_stubs.py",
-        "scripts/ci/macho_weaken.py",
-        "scripts/ci/macos-stubs/**",
-    ]
+    assert paths and paths[0] == "cmux-tui/**"
     push_trigger = triggers["push"]
     assert push_trigger.get("branches") == ["main", "feat-cmux-next", "cmux-tui-pin-*"]
     assert "paths" not in push_trigger
@@ -245,7 +238,8 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert "trusted helper" in publisher
     assert "already published with a different binary" not in publisher
     assert "for attempt in 1 2 3" in daemon
-    assert "cargo test --workspace --locked cmux_next_" in daemon
+    assert 'cargo test "${members[@]}" --locked cmux_next_' in daemon
+    assert "scripts/ci/cmux-next-daemon-test-packages.sh" in daemon
 
     # A run cannot rerun itself while it is in progress (403 "This workflow
     # is already running"); cmux-tui-artifacts-retry.yml retries completed

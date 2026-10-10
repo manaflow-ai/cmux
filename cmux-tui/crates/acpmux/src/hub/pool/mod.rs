@@ -588,6 +588,7 @@ impl Hub {
             // The pooled process started a fresh conversation: unstored
             // until its first turn ends.
             m.claude_unstored = true;
+            m.claude_profile = Some(m.harness.clone());
             drop(m);
             self.write_mode_state(
                 session,

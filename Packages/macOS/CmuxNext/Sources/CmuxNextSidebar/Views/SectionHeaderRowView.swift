@@ -17,6 +17,8 @@ final class SectionHeaderRowView: SidebarRowView {
     private enum StatusTone { case success, attention, quiet, danger }
     private var statusTone: StatusTone?
     private var collapsed = false
+    /// No workspaces: nothing to fold, so hover shows no chevron (cx-odqn).
+    private var isEmpty = false
     var onAdd: (() -> Void)?
 
     required init(key: SidebarRowKey) {
@@ -34,17 +36,19 @@ final class SectionHeaderRowView: SidebarRowView {
         var kind: SidebarSection.Kind
         var titlesProjects: Bool
         var collapsed: Bool
+        var isEmpty: Bool
         var fontSize: CGFloat
         var iconSize: CGFloat
     }
 
     func configure(_ section: SidebarSection, row: SidebarRow) {
         let content = Content(
-            kind: section.kind, titlesProjects: row.titlesProjects, collapsed: row.isCollapsed,
+            kind: section.kind, titlesProjects: row.titlesProjects, collapsed: row.isCollapsed, isEmpty: section.nodes.isEmpty,
             fontSize: SidebarStyle.headerFont.pointSize, iconSize: Metrics.smallIconSize
         )
         guard needsConfigure(content) else { return }
         collapsed = row.isCollapsed
+        isEmpty = content.isEmpty
         let symbol: IconName
         var title: String
         switch section.kind {
@@ -66,7 +70,7 @@ final class SectionHeaderRowView: SidebarRowView {
             case (_, .connected), (_, .updateAvailable): statusTone = .success
             case (_, .connecting), (_, .installing), (_, .installRequired): statusTone = .attention
             case (_, .offline): statusTone = .quiet
-            case (_, .updateRequired), (_, .authFailed), (_, .unreachable): statusTone = .danger
+            case (_, .updateRequired), (_, .authFailed), (_, .unreachable), (_, .failed): statusTone = .danger
             }
             var label = machine.name
             switch machine.status {
@@ -79,6 +83,7 @@ final class SectionHeaderRowView: SidebarRowView {
             case .installing: label += ", " + Strings.statusInstalling
             case .authFailed: label += ", " + Strings.statusAuthFailed
             case .unreachable: label += ", " + Strings.statusUnreachable
+            case .failed: label += ", " + Strings.statusFailed
             }
             badgeText = switch machine.status {
             case .updateAvailable: Strings.statusUpdateAvailable
@@ -87,6 +92,7 @@ final class SectionHeaderRowView: SidebarRowView {
             case .installing: Strings.statusInstalling
             case .authFailed: Strings.statusAuthFailed
             case .unreachable: Strings.statusUnreachable
+            case .failed: Strings.statusFailed
             default: nil
             }
             toolTip = machine.detail
@@ -162,7 +168,7 @@ final class SectionHeaderRowView: SidebarRowView {
             addButton.frame = NSRect(x: trailing - control, y: (b.height - control) / 2, width: control, height: control)
             trailing -= control + Metrics.space1
         }
-        chevron.isHidden = !(isHovered || collapsed)
+        chevron.isHidden = !((isHovered && !isEmpty) || collapsed)
         let chevronSide = Metrics.smallIconSize
         chevron.frame = NSRect(x: trailing - chevronSide, y: (b.height - chevronSide) / 2, width: chevronSide, height: chevronSide)
         trailing -= chevronSide + Metrics.space2
@@ -188,6 +194,8 @@ final class SectionHeaderRowView: SidebarRowView {
     }
 
     var nameFrame: NSRect { name.frame }
+    /// Whether the fold chevron shows (tests).
+    var showsChevron: Bool { !chevron.isHidden }
 }
 
 // MARK: - Empty section drop zone

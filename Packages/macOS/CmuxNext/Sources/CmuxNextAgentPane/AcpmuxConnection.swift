@@ -9,6 +9,11 @@ public import Foundation
 ///   once that frame is sent; nil when the file is missing or unreadable, so the pane connects
 ///   as remote-origin.
 public nonisolated struct AcpmuxConnection: Sendable, Equatable {
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.url == rhs.url && lhs.dashboardToken == rhs.dashboardToken && lhs.localAppToken == rhs.localAppToken
+            && lhs.socketPath == rhs.socketPath && lhs.remote === rhs.remote
+    }
+
     /// The origin the daemon accepts for the bundled pane (`server/local_app.rs`).
     public static let paneOrigin = "cmux-agent://pane"
 
@@ -18,6 +23,8 @@ public nonisolated struct AcpmuxConnection: Sendable, Equatable {
     public var localAppToken: String?
     /// The daemon's unix socket, for the host's own read-only questions (`_acpmux/web_modes`).
     public var socketPath: String?
+    /// Set for a chat on another machine: the socket is this route's wire, not ``url``.
+    public var remote: AgentPaneRemoteRoute?
 
     public init(url: URL, dashboardToken: String, localAppToken: String?, socketPath: String? = nil) {
         self.url = url
@@ -43,7 +50,8 @@ public nonisolated struct AcpmuxConnection: Sendable, Equatable {
 
 extension AcpmuxConnection: CustomStringConvertible, CustomDebugStringConvertible {
     public nonisolated var description: String {
-        "AcpmuxConnection(\(url.absoluteString), localApp: \(localAppToken == nil ? "none" : "redacted"))"
+        if let remote { return "AcpmuxConnection(remote: \(remote.machine))" }
+        return "AcpmuxConnection(\(url.absoluteString), localApp: \(localAppToken == nil ? "none" : "redacted"))"
     }
 
     public nonisolated var debugDescription: String { description }

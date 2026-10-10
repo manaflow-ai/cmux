@@ -44,15 +44,15 @@ struct HomeDiff: Equatable {
         // Older page: the new messages before the first shown one.
         var head = 0
         if let first = old.first, let k = new.firstIndex(where: { $0.key == first.key }) { head = k }
-        let page = new[..<head].filter { oldIndex[$0.key] == nil && aliases[$0.key] == nil }
+        let page = new.prefix(head).filter { oldIndex[$0.key] == nil && aliases[$0.key] == nil }
         if !page.isEmpty { d.actions.append(.prependPage(page.map(msg))) }
 
-        let added = new[head...].filter { oldIndex[$0.key] == nil && aliases[$0.key] == nil }
+        let added = new.dropFirst(head).filter { oldIndex[$0.key] == nil && aliases[$0.key] == nil }
         if added.count > bulk { d.rebuild = true; return d }
 
-        for item in new[head...] {
-            if let oi = oldIndex[item.key] {
-                guard changes(from: old[oi], to: item, oldSummary: oldSummary, newSummary: newSummary, me: me, id: id(item), into: &d) else {
+        for item in new.dropFirst(head) { // // crash program: no range subscripts
+            if let oi = oldIndex[item.key], let was = old[checked: oi] {
+                guard changes(from: was, to: item, oldSummary: oldSummary, newSummary: newSummary, me: me, id: id(item), into: &d) else {
                     d.rebuild = true; return d
                 }
             } else if aliases[item.key] != nil {
@@ -74,7 +74,7 @@ struct HomeDiff: Equatable {
     /// change, so only the newest status change is a transition. The older
     /// ones change nothing visible (a rebuild maps every status).
     private mutating func keepNewestStatus() {
-        let statuses = actions.indices.filter { if case .status = actions[$0] { true } else { false } }
+        let statuses = actions.enumerated().filter { if case .status = $0.element { true } else { false } }.map(\.offset) // // crash program: no index math
         for i in statuses.dropLast().reversed() { actions.remove(at: i) }
     }
 
@@ -109,7 +109,7 @@ struct HomeDiff: Equatable {
         let before = Dictionary(old.map { (Slot(author: $0.author, part: $0.partIndex), $0.kind) }, uniquingKeysWith: { _, b in b })
         let after = Dictionary(new.map { (Slot(author: $0.author, part: $0.partIndex), $0.kind) }, uniquingKeysWith: { _, b in b })
         for slot in Set(before.keys).union(after.keys).sorted(by: { ($0.author.rawValue, $0.part) < ($1.author.rawValue, $1.part) }) {
-            let a = before[slot], b = after[slot]
+            let a = before.value(for: slot), b = after.value(for: slot) // // crash program: dictionary reads
             guard a != b else { continue }
             let ref = PartRef(messageId: id, partIndex: HomeMapping.projectedIndex(slot.part, owners))
             if let b { d.actions.append(.react(ref, HomeMapping.kind(b), by: slot.author.rawValue)) }

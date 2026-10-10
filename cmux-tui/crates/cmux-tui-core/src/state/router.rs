@@ -14,12 +14,13 @@ use crate::resource_router::{
     resource_operation_error, validation_error,
 };
 use crate::state::closed_history::ReopenRequest;
+use crate::state::closed_history_delete::DeleteRequest;
 use crate::state::store::StateCommit;
 use crate::state::tab_state_store::TabStateUpdate;
 use crate::state::window_records::WindowRecordChange;
 use crate::state::{
-    closed_history_query, personal_state_store, screen_state_store, sidebar_layout_store,
-    tab_state_store, window_record_store,
+    closed_history_query, palette_usage_store, personal_state_store, projects_store,
+    screen_state_store, sidebar_layout_store, tab_state_store, window_record_store,
 };
 use crate::workspace_registry::{ResourcePatchCommit, WorkspacePresentationUpdate};
 use crate::{Mux, ResourceSelectors, WorkspaceMutation};
@@ -72,11 +73,23 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | Op::ScreenGroupUngroup
             | Op::ClosedList
             | Op::ClosedReopen
+            | Op::ClosedDelete
             | Op::WindowRecordList
             | Op::WindowRecordPut
             | Op::WindowRecordDelete
             | Op::SidebarLayoutGet
             | Op::SidebarLayoutUpdate
+            | Op::ProjectList
+            | Op::ProjectObserve
+            | Op::ProjectAdd
+            | Op::ProjectUpdate
+            | Op::ProjectRemove
+            | Op::ProjectSync
+            | Op::PaletteUsageGet
+            | Op::PaletteUsageRecord
+            | Op::PaletteUsageImport
+            | Op::PaletteUsageHide
+            | Op::PaletteUsageForget
             | Op::WorkspaceEnsureHome
             | Op::WorkspaceStatusList
             | Op::WorkspaceStatusSet
@@ -490,6 +503,40 @@ pub(crate) fn dispatch(
                 .map_err(state_error)?;
             state_result(mux, commit)
         }
+        Op::ClosedDelete => {
+            ensure_session(mux, selectors)?;
+            let members = match fields.get("members").and_then(Value::as_array) {
+                Some(members) => Some(
+                    members
+                        .iter()
+                        .map(|member| {
+                            member.as_u64().and_then(|m| usize::try_from(m).ok()).ok_or_else(|| {
+                                ResourceError::validation_invalid(
+                                    Some("members"),
+                                    "members must be member indexes",
+                                )
+                            })
+                        })
+                        .collect::<Result<Vec<_>, _>>()?,
+                ),
+                None => None,
+            };
+            let delete = DeleteRequest {
+                closed: string(fields, "closed"),
+                all: fields.get("all").and_then(Value::as_bool).unwrap_or(false),
+                members,
+                since_ms: match string(fields, "since_ms") {
+                    Some(since) => Some(since.parse::<i64>().map_err(|_| {
+                        ResourceError::validation_invalid(None, "since_ms must be a decimal")
+                    })?),
+                    None => None,
+                },
+            };
+            let commit = mux
+                .state_delete_closed(&mutation(&request)?, expected_revision(fields)?, &delete)
+                .map_err(state_error)?;
+            state_result(mux, commit)
+        }
         // Window records (personal, one writer per record)
         Op::WindowRecordList => {
             ensure_session(mux, selectors)?;
@@ -526,6 +573,122 @@ pub(crate) fn dispatch(
             let op = fields.get("op").cloned().unwrap_or_default();
             let commit =
                 mux.state_sidebar_layout_update(&mutation(&request)?, &op).map_err(state_error)?;
+            state_result(mux, commit)
+        }
+        // The project list (project-list-v1, plans/cmux-next/projects.md)
+        Op::ProjectList => {
+            ensure_session(mux, selectors)?;
+            let include_hidden =
+                fields.get("include_hidden").and_then(Value::as_bool).unwrap_or(false);
+            let query = string(fields, "query");
+            let limit = index(fields, "limit");
+            read(mux, |connection| {
+                projects_store::list_value(connection, include_hidden, query.as_deref(), limit)
+            })
+        }
+        Op::ProjectObserve => {
+            ensure_session(mux, selectors)?;
+            let source = string(fields, "source").unwrap_or_default();
+            let entries = fields.get("entries").cloned().unwrap_or_else(|| json!([]));
+            let complete = fields.get("complete").and_then(Value::as_bool).unwrap_or(false);
+            let commit = mux
+                .state_project_observe(&mutation(&request)?, &source, &entries, complete)
+                .map_err(state_error)?;
+            state_result(mux, commit)
+        }
+        Op::ProjectAdd => {
+            ensure_session(mux, selectors)?;
+            let path = string(fields, "path").unwrap_or_default();
+            let commit = mux.state_project_add(&mutation(&request)?, &path).map_err(state_error)?;
+            state_result(mux, commit)
+        }
+        Op::ProjectUpdate => {
+            ensure_session(mux, selectors)?;
+            let path = string(fields, "path").unwrap_or_default();
+            let mut edit = fields.clone();
+            edit.remove("path");
+            let commit = mux
+                .state_project_update(&mutation(&request)?, &path, &Value::Object(edit))
+                .map_err(state_error)?;
+            state_result(mux, commit)
+        }
+        Op::ProjectRemove => {
+            ensure_session(mux, selectors)?;
+            let path = string(fields, "path").unwrap_or_default();
+            let commit =
+                mux.state_project_remove(&mutation(&request)?, &path).map_err(state_error)?;
+            state_result(mux, commit)
+        }
+        Op::ProjectSync => {
+            ensure_session(mux, selectors)?;
+            let commit = mux
+                .state_project_sync(
+                    &mutation(&request)?,
+                    &strings(fields, "existing"),
+                    &strings(fields, "gone"),
+                )
+                .map_err(state_error)?;
+            state_result(mux, commit)
+        }
+        // Palette usage history (personal, palette-usage-v1): the daemon is
+        // its one writer; uses are stamped with the daemon's clock.
+        Op::PaletteUsageGet => {
+            ensure_session(mux, selectors)?;
+            read(mux, palette_usage_store::snapshot)
+        }
+        Op::PaletteUsageRecord => {
+            ensure_session(mux, selectors)?;
+            let key = string(fields, "key").unwrap_or_default();
+            let query = string(fields, "query").unwrap_or_default();
+            let commit = mux
+                .state_palette_usage_record(&mutation(&request)?, &key, &query)
+                .map_err(state_error)?;
+            state_result(mux, commit)
+        }
+        Op::PaletteUsageImport => {
+            ensure_session(mux, selectors)?;
+            let source = string(fields, "source").unwrap_or_default();
+            let entries = fields
+                .get("entries")
+                .and_then(Value::as_array)
+                .map(|rows| {
+                    rows.iter()
+                        .filter_map(|row| {
+                            Some((
+                                row.get("key")?.as_str()?.to_string(),
+                                crate::state::palette_usage::Entry {
+                                    score: row.get("score")?.as_f64()?,
+                                    // A decimal string (catalog `decimal`).
+                                    last_used_ms: row
+                                        .get("last_used_ms")?
+                                        .as_str()?
+                                        .parse()
+                                        .ok()?,
+                                },
+                            ))
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            let commit = mux
+                .state_palette_usage_import(&mutation(&request)?, &source, &entries)
+                .map_err(state_error)?;
+            state_result(mux, commit)
+        }
+        Op::PaletteUsageHide => {
+            ensure_session(mux, selectors)?;
+            let key = string(fields, "key").unwrap_or_default();
+            let hidden = fields.get("hidden").and_then(Value::as_bool).unwrap_or(true);
+            let commit = mux
+                .state_palette_usage_hide(&mutation(&request)?, &key, hidden)
+                .map_err(state_error)?;
+            state_result(mux, commit)
+        }
+        Op::PaletteUsageForget => {
+            ensure_session(mux, selectors)?;
+            let key = string(fields, "key").unwrap_or_default();
+            let commit =
+                mux.state_palette_usage_forget(&mutation(&request)?, &key).map_err(state_error)?;
             state_result(mux, commit)
         }
         // workspace-kind-v1: the one home workspace, created by the store.

@@ -80,7 +80,7 @@ extension TabContentCache {
             applyLifecycle(lifecycle.send(.released(key)))
         }
         presenters = presenters.filter { $0.value.value != nil }
-        onPresentationChange?()
+        presentationChanges.notify()
     }
 
     // MARK: Lifecycle effects

@@ -72,20 +72,23 @@ When cmux supervises the process, the scanner copies
 `CMUX_PLUGIN_GENERATION` into each event. This lets the core retire an old
 process generation without removing observations from a replacement process.
 
-The manifests are derived from herdr at manifest snapshot commit
-`2290257acb2085ce6842ba5c7e3ca50c3ba64f02` under Apache-2.0. The adapted
-detector engine follows source reference commit
-`7b675f42af35508eab66ac42fe1598628597a893`. The Claude manifest includes the
-upstream background-shell correction from
-`987b070fbfa187e85009b45cd7e208fc6175ff6a`. The Copilot manifest includes
-the upstream background-agent rule at version `2026.08.29.1` from the pinned
-snapshot. See
+The manifests are byte-identical to herdr's at commit
+`2563803dca97c040beaf3dc3acdcb5a3221b4238` (herdr 0.9.3, Apache-2.0).
+`HERDR_UPSTREAM.toml` pins that revision, the upstream hash of every manifest
+and the upstream engine sources the Rust port follows;
+`scripts/cmux-next/herdr-sync.py` re-vendors, checks and reports drift. See
 `manifests/LICENSE`, `manifests/README.md`, and `ATTRIBUTIONS.md`. The
 Manaflow portions use GPL-3.0-or-later; the package includes that text in `LICENSE`.
 The checked-in `manifests/SHA256SUMS` record is verified before the bundled
 rules compile. It catches accidental edits to vendored bytes. It is not a
 release signature, so an explicit remote update still needs signed catalog
 verification before remote content is trusted.
+
+When job control moves an identified agent out of the foreground (ctrl-z, or
+a command run in front of it), the scanner keeps the agent's identity while
+that exact process (pid plus start time) is alive in the terminal's session,
+and does not read the screen, which belongs to the other job. The row closes
+after the held process exits.
 
 The host gives each plugin generation an owned process boundary. Keep any
 helper processes in the inherited Unix process group, or they may outlive the
