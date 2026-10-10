@@ -30,7 +30,6 @@
     "agent-session/acpmux/FileSearch.tsx#FileSearch",
     "agent-session/acpmux/FolderChoice.tsx#FolderChoice",
     "agent-session/acpmux/HomeLists.tsx#HomeLists",
-    "agent-session/acpmux/HostError.tsx#HostError",
     "agent-session/acpmux/Keycap.tsx#Keycap",
     "agent-session/acpmux/MenuLevel.tsx#MenuLevel",
     "agent-session/acpmux/MenuRow.tsx#MenuRow",
