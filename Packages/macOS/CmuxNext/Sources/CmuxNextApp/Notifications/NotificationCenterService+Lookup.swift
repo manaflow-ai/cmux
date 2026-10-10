@@ -97,44 +97,49 @@ extension NotificationCenterService {
         NSApp.dockTile.badgeLabel = label
     }
 
-    /// The feed bridge over `feed`'s owner calls (nil without a feed service).
-    static func makeFeedBridge(_ feed: FeedService?) -> FeedNotificationBridge? {
-        guard let feed else { return nil }
-        return FeedNotificationBridge(
-            owner: { [weak feed] path, body in
-                guard let feed else { throw FeedServiceError.signedOut }
-                return try await feed.call(path, body)
-            },
-            isSignedIn: { [weak feed] in feed?.isSignedIn ?? false }
-        )
-    }
-
-    /// Posts `notification` to the feed as a notice (local daemon only), as
-    /// far as `feed.mirrorNotifications` allows for its source.
-    func mirrorToFeed(_ notification: DaemonNotification, source: NotificationSource, located: LocatedTab) {
-        guard let feedBridge, let session = services?.daemon.identity?.session, !session.isEmpty,
-              let content = Self.feedContent(notification, source: source, mirror: preferences.feedMirror) else { return }
-        feedBridge.post(.init(
-            notification: notification.notification.rawValue, daemonSession: session,
-            title: content.title, body: content.body, level: notification.level,
-            tab: located.tab.id, workspace: located.workspace.id, label: source.rawValue
-        ))
-    }
-
-    /// What `feed.mirrorNotifications` lets leave the Mac: nil for nothing.
-    /// The tab title is never sent (it can hold a command line).
-    nonisolated static func feedContent(_ notification: DaemonNotification, source: NotificationSource,
-                                        mirror: FeedMirrorPreferences) -> (title: String, body: String)? {
-        switch source {
-        case .terminal:
-            switch mirror.terminal {
-            case .off: return nil
-            case .title: return (notification.title, "")
-            case .full: return (notification.title, notification.body)
-            }
-        default:
-            return mirror.agents ? (notification.title, notification.body) : nil
+    /// The handoff driver over the local daemon and this Mac's install
+    /// principal (`feed.adopt` is an install-only owner op).
+    func makeFeedDriver(_ services: AppServices, principal: FeedInstallPrincipal) -> FeedHandoffDriver {
+        let feed = services.feed
+        let daemon = services.daemon
+        func connection() throws -> DaemonConnection {
+            guard let connection = daemon.connection else { throw DaemonError.notConnected }
+            return connection
         }
+        return FeedHandoffDriver(
+            daemon: .init(
+                serves: { daemon.isLocal && daemon.identity?.supports(DaemonCapabilities.shared.feedLocalOwner) == true },
+                list: { state, unread in
+                    try await connection().request(FeedLocalListRequest(state: state, unread: unread ? true : nil)).items
+                },
+                begin: { try await connection().request(FeedLocalHandoffBeginRequest(item: $0)).item },
+                done: { try await connection().request(FeedLocalHandoffDoneRequest(item: $0, home: $1)).item }),
+            owner: { path, body in try await principal.call(path, body) },
+            isSignedIn: { [weak feed] in feed?.isSignedIn ?? false },
+            installID: { principal.installID },
+            policy: { [weak self] in self?.feedHandoffPolicy() ?? FeedHandoffPolicy(preferences: .init(), mutedWorkspaces: []) },
+            since: Self.handoffSince)
+    }
+
+    /// The first time the driver ran for `install` (ms), kept per Mac: open
+    /// items from before it stay local, so nothing the removed step-1 bridge
+    /// already posted is adopted a second time.
+    static func handoffSince(_ install: String) -> UInt64 {
+        let key = "feed.handoff.since.\(install)"
+        if let stored = UserDefaults.standard.object(forKey: key) as? NSNumber { return stored.uint64Value }
+        let now = UInt64(Date().timeIntervalSince1970 * 1000)
+        UserDefaults.standard.set(NSNumber(value: now), forKey: key)
+        return now
+    }
+
+    /// The handoff rules under the current settings. Muted workspaces are
+    /// matched by durable key and by public id (`ws_…`, an item's context).
+    func feedHandoffPolicy() -> FeedHandoffPolicy {
+        var muted = preferences.mutedWorkspaces
+        for workspace in services?.daemon.store.workspaces ?? [] where muted.contains(workspace.id) {
+            if let resource = workspace.resourceID { muted.insert(resource.rawValue) }
+        }
+        return FeedHandoffPolicy(preferences: preferences, mutedWorkspaces: muted)
     }
 
     static func seconds(_ duration: Duration) -> Double {
