@@ -1,5 +1,5 @@
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// A one-slot hand-off from the decoder to a presenter: latest frame wins.
 /// `post` replaces an undisplayed frame (counted as discarded) and says

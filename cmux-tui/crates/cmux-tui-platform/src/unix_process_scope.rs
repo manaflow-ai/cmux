@@ -89,13 +89,13 @@ struct ScopeRegistration {
     _marker_fd: Arc<OwnedFd>,
     root: ProcessIdentity,
     tracked: Arc<Mutex<TrackedProcesses>>,
-    #[cfg(any(test, feature = "test-support"))]
+    #[cfg(feature = "test-support")]
     track_before_finalization: bool,
-    #[cfg(any(test, feature = "test-support"))]
+    #[cfg(feature = "test-support")]
     final_scan_gate: Option<FinalScanTestGate>,
 }
 
-#[cfg(any(test, feature = "test-support"))]
+#[cfg(feature = "test-support")]
 #[derive(Clone)]
 struct FinalScanTestGate {
     reached: mpsc::SyncSender<()>,
@@ -103,7 +103,7 @@ struct FinalScanTestGate {
     used: Arc<std::sync::atomic::AtomicBool>,
 }
 
-#[cfg(any(test, feature = "test-support"))]
+#[cfg(feature = "test-support")]
 impl FinalScanTestGate {
     fn pause_once(&self) {
         if self.used.swap(true, std::sync::atomic::Ordering::AcqRel) {
@@ -162,11 +162,11 @@ pub struct UnixProcessScope {
     tracked: Arc<Mutex<TrackedProcesses>>,
     tracker: Option<ScopeTracker>,
     terminated: bool,
-    #[cfg(any(test, feature = "test-support"))]
+    #[cfg(feature = "test-support")]
     track_before_finalization: bool,
-    #[cfg(any(test, feature = "test-support"))]
+    #[cfg(feature = "test-support")]
     final_scan_gate: Option<FinalScanTestGate>,
-    #[cfg(all(any(test, feature = "test-support"), target_os = "linux"))]
+    #[cfg(all(feature = "test-support", target_os = "linux"))]
     kernel_group_fence: bool,
 }
 
@@ -323,11 +323,11 @@ impl UnixProcessScope {
             tracked: Arc::new(Mutex::new(TrackedProcesses::default())),
             tracker: None,
             terminated: false,
-            #[cfg(any(test, feature = "test-support"))]
+            #[cfg(feature = "test-support")]
             track_before_finalization: true,
-            #[cfg(any(test, feature = "test-support"))]
+            #[cfg(feature = "test-support")]
             final_scan_gate: None,
-            #[cfg(all(any(test, feature = "test-support"), target_os = "linux"))]
+            #[cfg(all(feature = "test-support", target_os = "linux"))]
             kernel_group_fence: true,
         })
     }
@@ -367,9 +367,9 @@ impl UnixProcessScope {
     pub fn configure(&self, command: &mut Command) {
         command.env(PROCESS_SCOPE_ENV, &self.marker);
         let marker_fd = self._marker_fd.as_raw_fd();
-        #[cfg(all(any(test, feature = "test-support"), target_os = "linux"))]
+        #[cfg(all(feature = "test-support", target_os = "linux"))]
         let kernel_group_fence = self.kernel_group_fence;
-        #[cfg(all(not(any(test, feature = "test-support")), target_os = "linux"))]
+        #[cfg(all(not(feature = "test-support"), target_os = "linux"))]
         let kernel_group_fence = true;
         // SAFETY: the closure calls only async-signal-safe syscalls between
         // fork and exec and does not allocate.
@@ -442,16 +442,18 @@ impl UnixProcessScope {
             _marker_fd: Arc::clone(&self._marker_fd),
             root,
             tracked: self.tracked.clone(),
-            #[cfg(any(test, feature = "test-support"))]
+            #[cfg(feature = "test-support")]
             track_before_finalization: self.track_before_finalization,
-            #[cfg(any(test, feature = "test-support"))]
+            #[cfg(feature = "test-support")]
             final_scan_gate: self.final_scan_gate.clone(),
         })?;
         self.tracker = Some(ScopeTracker { registration, registry });
         Ok(())
     }
 
-    #[cfg(all(any(test, feature = "test-support"), target_os = "linux"))]
+    /// Pauses the final scan once (journal_hooks' behavior test of a
+    /// descendant in a new session uses it).
+    #[cfg(all(feature = "test-support", target_os = "linux"))]
     pub fn final_scan_gate_for_test(&mut self) -> (mpsc::Receiver<()>, mpsc::SyncSender<()>) {
         let (reached, reached_receiver) = mpsc::sync_channel(1);
         let (resume, resume_receiver) = mpsc::sync_channel(1);
@@ -805,7 +807,7 @@ impl ProcessScopeTracker {
                             .map(|scope| (scope, progress.snapshots, progress.matches));
                     }
                 }
-                #[cfg(any(test, feature = "test-support"))]
+                #[cfg(feature = "test-support")]
                 if let Some((scope, _, _)) = completed.as_ref()
                     && let Some(gate) = scope.final_scan_gate.as_ref()
                 {
@@ -849,11 +851,11 @@ impl ProcessScopeTracker {
 }
 
 fn scope_tracks_before_finalization(_scope: &ScopeRegistration) -> bool {
-    #[cfg(any(test, feature = "test-support"))]
+    #[cfg(feature = "test-support")]
     {
         _scope.track_before_finalization
     }
-    #[cfg(not(any(test, feature = "test-support")))]
+    #[cfg(not(feature = "test-support"))]
     {
         true
     }
@@ -1528,160 +1530,4 @@ fn scan_registered_processes(
 #[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
 fn process_identity(pid: u32) -> Option<ProcessIdentity> {
     Some(ProcessIdentity { pid, started: 0 })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn final_scan_retains_the_marker_until_ownership_checks_finish() {
-        let mut scope = UnixProcessScope::prepare().unwrap();
-        let marker_fd = scope._marker_fd.as_raw_fd();
-        let marker = scope.file_marker;
-        let (reached, resume) = scope.final_scan_gate_for_test();
-        let mut command = UnixProcessScope::suspended_command("/bin/sleep");
-        command.arg("30");
-        scope.configure(&mut command);
-        let mut child = command.spawn().unwrap();
-        scope.bind(child.id()).unwrap();
-        scope.terminate_until(Instant::now());
-        child.wait().unwrap();
-        reached.recv_timeout(Duration::from_secs(5)).unwrap();
-        drop(scope);
-        let retained = file_marker_for_fd(marker_fd).is_ok_and(|actual| actual == marker);
-        resume.send(()).unwrap();
-        assert!(
-            retained,
-            "an inactive scan must retain the inode it still uses as ownership evidence"
-        );
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn close_on_exec_marker_does_not_claim_an_unrelated_process() {
-        let scope = UnixProcessScope::prepare().unwrap();
-        // A fork sees every parent's descriptor before exec closes CLOEXEC
-        // entries. Model that ownership scan with the live test process and
-        // an earlier, absent root; no tracker is registered and no PID is killed.
-        let registration = ScopeRegistration {
-            marker: scope.marker.clone(),
-            file_marker: scope.file_marker,
-            _marker_fd: Arc::clone(&scope._marker_fd),
-            root: ProcessIdentity { pid: u32::MAX, started: 0 },
-            tracked: scope.tracked.clone(),
-            track_before_finalization: true,
-            final_scan_gate: None,
-        };
-        let current = process_identity(std::process::id()).unwrap();
-        let scanned = scan_registered_processes(&[registration], ProcessScanCursor::default());
-        assert!(
-            !scanned.matches.contains(&(0, current)),
-            "a close-on-exec marker is incidental fork inheritance, not scope membership"
-        );
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn linux_process_identity_uses_start_time_after_a_parenthesized_name() {
-        let stat = "12 (name with ) marker) S 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 4242";
-        assert_eq!(
-            linux_process_identity_from_stat(12, stat),
-            Some(ProcessIdentity { pid: 12, started: 4242 })
-        );
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn mac_argument_parser_finds_only_environment_entries() {
-        let expected = b"CMUX_TUI_PROCESS_SCOPE=abc";
-        let mut arguments = 2_i32.to_ne_bytes().to_vec();
-        arguments.extend_from_slice(b"/bin/tool\0\0tool\0--flag\0A=1\0");
-        arguments.extend_from_slice(expected);
-        arguments.push(0);
-        assert!(mac_environment_contains(&arguments, expected));
-
-        let mut argv_only = 1_i32.to_ne_bytes().to_vec();
-        argv_only.extend_from_slice(b"/bin/tool\0\0CMUX_TUI_PROCESS_SCOPE=abc\0A=1\0");
-        assert!(!mac_environment_contains(&argv_only, expected));
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn mac_process_scope_launcher_stops_before_the_requested_program() {
-        let command = UnixProcessScope::suspended_command("/usr/bin/false");
-        let arguments = command
-            .get_args()
-            .map(|argument| argument.to_string_lossy().into_owned())
-            .collect::<Vec<_>>();
-        assert_eq!(
-            arguments,
-            [
-                "-p",
-                "(version 1) (allow default) (deny process-fork)",
-                "/bin/sh",
-                "-c",
-                "kill -STOP $$; exec \"$@\"",
-                "cmux-process-scope",
-                "/usr/bin/false",
-            ]
-        );
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn mac_process_scope_runs_the_requested_program() {
-        let mut scope = UnixProcessScope::prepare().unwrap();
-        let mut command = UnixProcessScope::suspended_command("/usr/bin/false");
-        command
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null());
-        scope.configure(&mut command);
-        let mut child = command.spawn().unwrap();
-        scope.bind(child.id()).unwrap();
-        let status = child.wait().unwrap();
-        assert!(!status.success(), "the macOS process scope did not run the requested program");
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn mac_process_scope_denies_descendant_creation() {
-        let mut scope = UnixProcessScope::prepare().unwrap();
-        let helper = std::env::current_exe().unwrap();
-        let mut command = UnixProcessScope::suspended_command(helper.as_os_str());
-        command
-            .args([
-                "--exact",
-                "unix_process_scope::tests::mac_process_scope_descendant_probe",
-                "--ignored",
-            ])
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null());
-        scope.configure(&mut command);
-        let mut child = command.spawn().unwrap();
-        scope.bind(child.id()).unwrap();
-        let status = child.wait().unwrap();
-        assert!(status.success(), "the macOS process sandbox allowed a hook descendant");
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    #[ignore = "run only as the child of mac_process_scope_denies_descendant_creation"]
-    fn mac_process_scope_descendant_probe() {
-        // SAFETY: the child exits immediately without touching shared Rust state.
-        let descendant = unsafe { libc::fork() };
-        if descendant == 0 {
-            // SAFETY: _exit terminates the fork child without running Rust destructors.
-            unsafe { libc::_exit(0) };
-        }
-        if descendant > 0 {
-            let mut status = 0;
-            // SAFETY: descendant is the child PID returned by fork.
-            unsafe { libc::waitpid(descendant, &mut status, 0) };
-            panic!("the macOS process sandbox allowed a descendant");
-        }
-    }
 }

@@ -102,7 +102,13 @@ extension PaneController {
         let workspace = services.workspaceKey(of: pane)
         guard let connection = daemon.connection else { return }
         let intent = self.workspace?.beginFocusIntent()
+        // The window's keys wait until the new terminal has the keyboard (cx-wb5.76); a creation
+        // that types its own text first keeps the keys where they are.
+        let window = self.workspace == nil || text != nil || page != nil ? nil : view.window
+        let keys = services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent)
         services.registry.track(Task { [services] in
+            var landed = false
+            defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
             do {
                 var start = cwd
                 if let agent, let agentCwd = await agent.workingContext()?.cwd, WorkingURL.isDirectory(agentCwd) { start = agentCwd }
@@ -113,6 +119,7 @@ extension PaneController {
                 }
                 selectWhenReported(surface: created.surface)
                 self.workspace?.expectFocus(on: created.surface, generation: intent)
+                landed = true
                 then?(created.surface)
                 return nil
             } catch {
@@ -229,17 +236,19 @@ extension PaneController {
 
     /// A tab's menu, the same wherever it is opened (its strip, its row in
     /// the sidebar): a browser tab drops what does not apply to a page.
-    static func tabMenu(_ id: String, tab: TabModel?, registry: ActionRegistry) -> NSMenu {
+    static func tabMenu(_ id: String, tab: TabModel?, workspaceKind: String?, registry: ActionRegistry) -> NSMenu {
         let target = ActionTargetRef(kind: .tab, id: id)
+        // Home keeps its tabs: no promote entries.
+        let kept = Set(TabPromotion.menuRemovals(kind: workspaceKind))
         guard let tab, tab.kind == .browser else {
             // Hibernation discards a page; a terminal has none.
-            let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: ["hibernateTab", "wakeTab"])
+            let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: kept.union(["hibernateTab", "wakeTab"]))
             return registry.makeContextMenu(for: .tab, target: target, entries: entries)
         }
         // A browser tab offers the engine it is not on.
         let other: ActionID = tab.browserEngine == BrowserEngineTag.cef.rawValue ? "browser.openInChromium" : "browser.openInWebKit"
         // Terminal themes and keep-running do not apply to a page.
-        let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: [other, "terminal.setTheme", "terminal.clearTheme", "terminal.keep"])
+        let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: kept.union([other, "terminal.setTheme", "terminal.clearTheme", "terminal.keep"]))
         return registry.makeContextMenu(for: .tab, target: target, entries: entries, implied: .browserFocused)
     }
 
@@ -248,7 +257,7 @@ extension PaneController {
         switch target {
         case .tab(let id, _):
             select(id)
-            return Self.tabMenu(id.rawValue, tab: tab(id), registry: registry)
+            return Self.tabMenu(id.rawValue, tab: tab(id), workspaceKind: workspace?.workspace.kind, registry: registry)
         case .group(let group), .savedGroup(let group):
             let saved = daemon.store.savedTabGroups.contains { $0.openGroup?.rawValue == group.rawValue }
             return registry.makeContextMenu(for: .tabGroup, target: ActionTargetRef(kind: .tabGroup, id: group.rawValue),

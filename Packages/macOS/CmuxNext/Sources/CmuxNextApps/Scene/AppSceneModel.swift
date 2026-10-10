@@ -1,24 +1,27 @@
 public import Observation
 
-/// Where a rendered scene sends user input: the mount's engine (tap, menu,
-/// move, edit, submit, cancel; ABI `__cmuxAppDispatch`). Taps and menu
-/// picks are user gestures, so the ops they cause carry origin `user`.
+/// Where a rendered scene sends user input: the mount, which forwards it to
+/// the app supervisor (`apps-dispatch` with origin `user`; tap, menu, move,
+/// edit, submit, cancel). The supervisor mints the gesture token.
 @MainActor
 public protocol AppSceneInteraction: AnyObject {
     func dispatch(node: String, event: String, payload: AppJSON)
 }
 
 /// The observable mirror of one mounted contribution, for `AppSceneView`.
-/// Written only by the mount's engine (scene ops); hover and press stay in
-/// the views.
+/// Written only by the supervisor's scene stream for the mount (`apps-scene`);
+/// hover and press stay in the views.
 @MainActor
 @Observable
 public final class AppSceneModel {
     public enum Status: Sendable, Hashable {
         case loading
         case ready
-        /// Render failed, the engine stopped, or a budget was exceeded.
+        /// Render failed, the app host stopped, or a budget was exceeded.
         case failed(String)
+        /// The supervisor is unreachable (the reason says why); the mount
+        /// renders again after the reconnect.
+        case disconnected(String)
     }
 
     public private(set) var scene = AppScene()

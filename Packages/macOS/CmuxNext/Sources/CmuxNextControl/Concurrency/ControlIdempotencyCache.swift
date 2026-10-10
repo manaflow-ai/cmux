@@ -1,5 +1,5 @@
 public import CmuxNextSettings
-import Synchronization
+import CmuxNextCompat
 
 /// Recent `action.run` results by idempotency key (plans/cmux-next/state-ownership.md 4.4).
 ///

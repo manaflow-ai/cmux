@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "1a125d40a1072221e7191839cefa0b173f2c6a3048d5553f02597ce44ec32c57";
+pub const ir_sha256 = "2bf19d19dd792ab6ce12fb52406a3928efe88c839b5e097d4a042d2dcc4158d4";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -774,6 +774,22 @@ pub const GuestUrlOpenResult = struct {
 
 pub const GuestUrlSubscribeResult = struct {
     url_open_ready: bool,
+};
+
+pub const HistorySearchHit = struct {
+    at_ms: i64,
+    highlights: []const HistorySearchRange,
+    key: []const u8,
+    kind: []const u8,
+    position: wire.Nullable(i64),
+    snippet: []const u8,
+    target: []const u8,
+    title: []const u8,
+};
+
+pub const HistorySearchRange = struct {
+    end: u32,
+    start: u32,
 };
 
 pub const Id = u64;
@@ -1555,10 +1571,20 @@ pub const ServerStatsResult = struct {
     resource_projection: ?ServerStatsResourceProjection = null,
     schema: u32,
     uptime_ms: u64,
+    write_path: ?ServerStatsWritePath = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "resource_projection",
+        "write_path",
     };
+};
+
+pub const ServerStatsWritePath = struct {
+    effect_intent_batches: u64,
+    effect_intent_failures: u64,
+    effect_intents: u64,
+    request_effect_commits: u64,
+    writer_registry_locks: u64,
 };
 
 pub const ServerStatsWriterPhase = enum {
@@ -4698,6 +4724,108 @@ pub fn exportLayout(client: anytype, request: ExportLayoutRequest) !wire.Decoded
     );
 }
 
+pub const FeedLocalHandoffAbortRequest = struct {
+    item: []const u8,
+};
+
+pub const FeedLocalHandoffAbortResult = JsonValue;
+
+pub fn feedLocalHandoffAbort(client: anytype, request: FeedLocalHandoffAbortRequest) !wire.Decoded(FeedLocalHandoffAbortResult) {
+    return client.callTyped(
+        FeedLocalHandoffAbortResult,
+        .{
+            .name = "feed-local-handoff-abort",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "feed-local-owner-v1",
+        },
+        request,
+    );
+}
+
+pub const FeedLocalHandoffBeginRequest = struct {
+    item: []const u8,
+};
+
+pub const FeedLocalHandoffBeginResult = JsonValue;
+
+pub fn feedLocalHandoffBegin(client: anytype, request: FeedLocalHandoffBeginRequest) !wire.Decoded(FeedLocalHandoffBeginResult) {
+    return client.callTyped(
+        FeedLocalHandoffBeginResult,
+        .{
+            .name = "feed-local-handoff-begin",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "feed-local-owner-v1",
+        },
+        request,
+    );
+}
+
+pub const FeedLocalHandoffDoneRequest = struct {
+    home: []const u8,
+    item: []const u8,
+};
+
+pub const FeedLocalHandoffDoneResult = JsonValue;
+
+pub fn feedLocalHandoffDone(client: anytype, request: FeedLocalHandoffDoneRequest) !wire.Decoded(FeedLocalHandoffDoneResult) {
+    return client.callTyped(
+        FeedLocalHandoffDoneResult,
+        .{
+            .name = "feed-local-handoff-done",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "feed-local-owner-v1",
+        },
+        request,
+    );
+}
+
+pub const FeedLocalListRequest = struct {
+    state: wire.Field([]const u8) = .absent,
+    terminal_id: wire.Field([]const u8) = .absent,
+    unread: ?bool = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "unread",
+    };
+};
+
+pub const FeedLocalListResult = JsonValue;
+
+pub fn feedLocalList(client: anytype, request: FeedLocalListRequest) !wire.Decoded(FeedLocalListResult) {
+    return client.callTyped(
+        FeedLocalListResult,
+        .{
+            .name = "feed-local-list",
+            .authority = "control",
+            .since = 12,
+            .capability = "feed-local-owner-v1",
+        },
+        request,
+    );
+}
+
+pub const FeedLocalReadRequest = struct {
+    items: []const []const u8,
+};
+
+pub const FeedLocalReadResult = JsonValue;
+
+pub fn feedLocalRead(client: anytype, request: FeedLocalReadRequest) !wire.Decoded(FeedLocalReadResult) {
+    return client.callTyped(
+        FeedLocalReadResult,
+        .{
+            .name = "feed-local-read",
+            .authority = "control",
+            .since = 12,
+            .capability = "feed-local-owner-v1",
+        },
+        request,
+    );
+}
+
 pub const FocusDirectionRequest = struct {
     dir: PaneDirection,
     pane: wire.Field(Id) = .absent,
@@ -4843,6 +4971,34 @@ pub fn getSizeState(client: anytype, request: GetSizeStateRequest) !wire.Decoded
             .authority = "control",
             .since = 12,
             .capability = "shared-sizing-v1",
+        },
+        request,
+    );
+}
+
+pub const HistorySearchRequest = struct {
+    kinds: ?[]const []const u8 = null,
+    limit: wire.Field(u32) = .absent,
+    query: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "kinds",
+    };
+};
+
+pub const HistorySearchResult = struct {
+    hits: []const HistorySearchHit,
+    took_us: u64,
+};
+
+pub fn historySearch(client: anytype, request: HistorySearchRequest) !wire.Decoded(HistorySearchResult) {
+    return client.callTyped(
+        HistorySearchResult,
+        .{
+            .name = "history-search",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "history-search-v1",
         },
         request,
     );
@@ -9477,7 +9633,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 236;
+pub const command_count: usize = 242;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -9559,6 +9715,11 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "detach-attached-view", .authority = "frontend", .since = 10, .capability = "view-attachment-detach-v1", .stream = null },
     .{ .name = "detach-client", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "export-layout", .authority = "control", .since = 6, .capability = null, .stream = null },
+    .{ .name = "feed-local-handoff-abort", .authority = "local-admin", .since = 12, .capability = "feed-local-owner-v1", .stream = null },
+    .{ .name = "feed-local-handoff-begin", .authority = "local-admin", .since = 12, .capability = "feed-local-owner-v1", .stream = null },
+    .{ .name = "feed-local-handoff-done", .authority = "local-admin", .since = 12, .capability = "feed-local-owner-v1", .stream = null },
+    .{ .name = "feed-local-list", .authority = "control", .since = 12, .capability = "feed-local-owner-v1", .stream = null },
+    .{ .name = "feed-local-read", .authority = "control", .since = 12, .capability = "feed-local-owner-v1", .stream = null },
     .{ .name = "focus-direction", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "focus-pane", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "forget-session", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
@@ -9567,6 +9728,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "get-frontend-browser-history", .authority = "control", .since = 12, .capability = "frontend-browser-history-v1", .stream = null },
     .{ .name = "get-frontend-projection", .authority = "control", .since = 7, .capability = null, .stream = null },
     .{ .name = "get-size-state", .authority = "control", .since = 12, .capability = "shared-sizing-v1", .stream = null },
+    .{ .name = "history-search", .authority = "local-admin", .since = 12, .capability = "history-search-v1", .stream = null },
     .{ .name = "identify", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "ids", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "import-bookmarks", .authority = "control", .since = 12, .capability = "bookmarks-v1", .stream = null },

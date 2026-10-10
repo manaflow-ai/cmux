@@ -65,6 +65,7 @@ nonisolated extension ActionSurfaceCatalog {
         "screenGroup.moveToWorkspace", "screenGroup.moveToNewWorkspace", "screenGroup.moveToNewWindow",
         "screenGroup.save", "screenGroup.unsave", "screenGroup.reopenSaved", "screenGroup.deleteSaved",
         "terminal.keep", "clearScreenKeepScrollback", "resetTerminal", "reconnectPane", "resumeCommandSet",
+        "agentPaneZoomIn", "agentPaneZoomOut", "agentPaneZoomReset",
         "resumeCommandClear", "palette.terminalOpenDirectory", "browserReload",
         "browserHardReload", "browser.openInChromium", "browser.openInWebKit", "splitBrowserRight", "splitBrowserDown",
         "palette.browserOpenDefault", "palette.browserClearHistory", 
@@ -216,7 +217,7 @@ nonisolated extension ActionSurfaceCatalog {
             "selectWorkspaceByNumber", "workspace.selectFirst",
             "workspace.selectLast", "workspace.selectLastUsed", "space.next", "space.previous", "space.selectByNumber",
             "focusLeft", "focusRight", "focusUp", "focusDown", "focusPreviousPane", "focusNextPane",
-            "canvasRevealFocusedPane", "nextSurface", "prevSurface", "selectSurfaceByNumber",
+            "canvasRevealFocusedPane", "navigate.next", "navigate.previous", "nextSurface", "prevSurface", "selectSurfaceByNumber",
             "screen.next", "screen.previous", "screen.select", "screen.selectLast", "focusTextBoxInput",
             "focusBrowserAddressBar", "focusLocation", "focusRightSidebar", "vaultFocusSession", "jumpToUnread",
             "markOldestUnreadAndJumpNext", "notificationOpen", "computerUseFocus", "computerUseFocusCallingTerminal",
@@ -292,6 +293,7 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.switchAppChannel",
             // Opens TextEdit on the user's desktop: a person's choice.
             "help.showCrashLogs",
+            "agentPaneZoomIn", "agentPaneZoomOut", "agentPaneZoomReset",
         ],
         .credentials: [
             "palette.auth.signIn", "palette.auth.signOut", "accounts.reauthenticate", "accounts.connect",

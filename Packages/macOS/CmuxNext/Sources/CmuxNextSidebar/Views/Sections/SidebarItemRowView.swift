@@ -2,6 +2,7 @@ import AppKit
 import CmuxAgentBrands
 import CmuxNextDesign
 import CmuxNextIcons
+import Observation
 import QuartzCore
 
 /// One item of a pinned section: a row (built-in or list look) or a tray
@@ -90,6 +91,8 @@ class SidebarItemRowView: NSView {
     private var didDrag = false
     /// The press's modifiers, which the release acts with (Option opens a workspace).
     private var pressModifiers: NSEvent.ModifierFlags = []
+    /// One observation of the Notifications glyph look is registered at a time.
+    private var observesNotificationIcon = false
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
@@ -251,10 +254,32 @@ class SidebarItemRowView: NSView {
     private func glyphImage(side: CGFloat) -> NSImage? {
         if let emoji = info.emoji { return Self.emojiImage(emoji, side: side) }
         if let brand = info.brand, let mark = AgentBrandCatalog.templateImage(brand: brand, size: side) { return mark }
-        if let name = info.icon { return NSImage.icon(name, size: side) }
-        let symbol = NSImage(systemSymbolName: info.symbol, accessibilityDescription: nil)?
+        var glyphIcon = info.icon, symbolName = info.symbol
+        // The Notifications item draws the Debug Settings glyph (`NotificationIconLook`, cx-epgo).
+        if glyphIcon == .notification {
+            let look = observedNotificationIcon()
+            glyphIcon = look.icon
+            symbolName = look.symbol
+        }
+        if let name = glyphIcon { return NSImage.icon(name, size: side) }
+        let symbol = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: side * 0.8, weight: .regular))
         return symbol ?? NSImage.icon(.appGeneric, size: side)
+    }
+
+    /// Reads the Notifications glyph look and lays the row out again once
+    /// when Debug Settings changes it (no polling).
+    private func observedNotificationIcon() -> NotificationIconLook {
+        guard !observesNotificationIcon else { return NotificationIconLook.tunable.value }
+        observesNotificationIcon = true
+        return withObservationTracking {
+            NotificationIconLook.tunable.value
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.observesNotificationIcon = false
+                self?.needsLayout = true
+            }
+        }
     }
 
     /// `emoji` drawn as a text glyph filling a `side` square (in color, not a template).
@@ -273,7 +298,8 @@ class SidebarItemRowView: NSView {
     /// read as different sizes. Nil when the glyph draws nothing.
     private func inkSizedGlyph(centeredIn box: NSRect) -> (NSImage, NSRect)? {
         let nominal = SidebarStyle.kindGlyphSize
-        let glyph = "\(info.emoji ?? "")|\(info.brand.map { "\($0)" } ?? "")|\(info.icon?.rawValue ?? "")|\(info.symbol)"
+        let iconKey = info.icon == .notification ? "\(info.icon?.rawValue ?? "")#\(NotificationIconLook.tunable.value.rawValue)" : info.icon?.rawValue ?? ""
+        let glyph = "\(info.emoji ?? "")|\(info.brand.map { "\($0)" } ?? "")|\(iconKey)|\(info.symbol)"
         guard let probe = glyphImage(side: nominal), let ink = SidebarGlyphInk.shared.box(of: probe, glyph: glyph),
               max(ink.width, ink.height) > 0 else { return nil }
         let scale = window?.backingScaleFactor ?? 2

@@ -64,7 +64,8 @@ impl App {
     /// and screen at restore time) to the server's focus memory. The first
     /// observation after adopting a tree is recorded as the baseline without
     /// sending, so attaching never mutates the server; only later user
-    /// navigation does.
+    /// navigation does, and it acknowledges the newly focused tab
+    /// (app/feed_dismissal.rs).
     pub(super) fn current_client_focus(&self) -> Option<crate::session::ClientFocus> {
         let screen = self.tree.active_screen()?;
         let pane = screen.panes.iter().find(|pane| pane.id == screen.active_pane)?;
@@ -79,6 +80,7 @@ impl App {
             Some(previous) => {
                 self.session.report_focus(Some(previous), focus, self.client_focus_id.as_deref());
                 self.reported_focus = Some(focus);
+                self.acknowledge_focused_tab();
             }
         }
     }

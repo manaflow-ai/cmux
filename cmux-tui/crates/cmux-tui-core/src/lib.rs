@@ -9,6 +9,7 @@
 //! themselves, which is what makes the backend attachable.
 
 mod agent_hooks;
+pub mod agent_message_prompt;
 pub mod agent_view;
 mod apps;
 /// Daemon primitives; the cmux-tui-util crate, re-exported at the old paths.
@@ -29,6 +30,7 @@ mod event_bus;
 #[cfg(unix)]
 pub mod fs_ops;
 mod git_ops;
+pub mod history_search;
 /// The image paste spool; the cmux-tui-image-paste crate, re-exported at the old path.
 #[cfg(unix)]
 use cmux_tui_image_paste::image_paste;
@@ -165,8 +167,9 @@ pub use workspace_registry::{
     JournalIngress, JournalProducer, JournalProducerManifest, JournalReplayPolicy, JournalSegment,
     JournalSensitivity, JournalSubject, PersistentSessionStateReset,
     PersistentSessionStateResetPreview, PersistentSessionStateResetter, ProjectionCommit,
-    RegistryCommit, RegistryEvent, RegistrySnapshot, RegistryWorkspace, SessionJournalPage,
-    SessionJournalRecord, UnsupportedWorkspaceRegistrySchema, WorkspaceMutation, WorkspaceRegistry,
+    RegistryCommit, RegistryEvent, RegistryQuarantined, RegistrySnapshot, RegistryWorkspace,
+    SessionJournalPage, SessionJournalRecord, UnsupportedWorkspaceRegistrySchema,
+    WorkspaceMutation, WorkspaceRegistry,
 };
 
 pub use cmux_remote_protocol::{REMOTE_CLIENT_MESSAGE_MAX_BYTES, REMOTE_SESSION_MESSAGE_MAX_BYTES};

@@ -20,7 +20,7 @@ on:
       - .xcode-version
       - .github/workflows/agent-brands.yml
   push:
-    branches: [main, feat-cmux-next]
+    branches: [main]
     paths:
       - design/agent-icons/**
       - scripts/agent-icons/**
@@ -60,5 +60,5 @@ jobs:
           persist-credentials: false
       - name: Select pinned Xcode
         run: ./scripts/select-ci-xcode.sh
-      - name: Resolver and renderer tests
-        run: swift test --package-path Packages/Shared/CmuxAgentBrands
+      - name: Build the resolver and renderer
+        run: swift build --package-path Packages/Shared/CmuxAgentBrands

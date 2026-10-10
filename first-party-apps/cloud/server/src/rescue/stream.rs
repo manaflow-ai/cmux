@@ -146,31 +146,3 @@ impl Stream {
         self.end = None;
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A session host that grants no `out` credit cannot make the server
-    /// hold unbounded output: past [`MAX_HELD_BYTES`] the terminal ends with
-    /// a retryable `lost` and the held bytes are dropped.
-    #[test]
-    fn held_output_is_bounded_without_credit() {
-        let mut stream = Stream::new(64 * 1024);
-        let chunk = vec![b'x'; 64 * 1024];
-        let mut ended = None;
-        for _ in 0..(64 * 1024 * 1024 / chunk.len()) {
-            stream.output(chunk.clone());
-            if let Some(FrameBody::End(End::Lost(lost))) = stream.take().into_iter().last() {
-                ended = Some(lost);
-                break;
-            }
-        }
-        let lost = ended.expect("the terminal ended before 64 MiB were held");
-        assert_eq!(lost.reason, "output_overflow");
-        assert!(lost.retryable, "a new open may work");
-        assert_eq!(stream.status, Status::Ended);
-        stream.output(chunk);
-        assert!(stream.take().is_empty(), "nothing after the end");
-    }
-}

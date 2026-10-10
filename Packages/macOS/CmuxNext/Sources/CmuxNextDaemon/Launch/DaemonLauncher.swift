@@ -1,6 +1,6 @@
 public import Foundation
 import os
-import Synchronization
+import CmuxNextCompat
 
 /// Locates the bundled cmux-tui binary and runs `cmux-tui --session <S>
 /// --json server ensure`, which returns a running owner or spawns a detached
@@ -111,10 +111,12 @@ public struct DaemonLauncher: Sendable {
     /// The standard app launcher: bundled binary, session from the app's own
     /// tag (never an inherited `CMUX_TAG`), login-shell environment captured
     /// once per launch and remembered for the next (`LoginEnvironmentCache`). `terminalEnvironment` (the app's `CMUX_SOCKET_PATH`,
-    /// `CMUX_BUNDLE_ID`, `CMUX_TAG`) and the bundled `cmux` (`<Resources>/bin` first) reach every shell it spawns.
+    /// `CMUX_BUNDLE_ID`, `CMUX_TAG`) and the bundled `cmux` (`<Resources>/bin` first) reach every shell it spawns;
+    /// `daemonEnvironment` joins only `server ensure`; the daemon still passes it to children (bead cx-e0cs).
     public static func forApp(
         tag: String?,
         terminalEnvironment: [String: String],
+        daemonEnvironment: [String: String] = [:],
         bundle: Bundle = .main,
         processEnvironment: [String: String] = ProcessInfo.processInfo.environment,
         socketMemory: DaemonSocketMemory = DaemonSocketMemory()
@@ -134,8 +136,8 @@ public struct DaemonLauncher: Sendable {
         // A terminal the daemon starts with no caller env gets this env; its
         // shell integration keeps the bundled `cmux` first (cmux-tui `cli_path`).
         let cli = bundle.resourceURL.map { BundledCLIEnvironment(binDirectory: $0.path + "/bin", pathIntegration: nil) }
-        return DaemonLauncher(configuration: configuration, environment: appEnvironment(
-            cache: .shared, base: processEnvironment, overrides: overrides, cli: cli))
+        let environment = appEnvironment(cache: .shared, base: processEnvironment, overrides: overrides, cli: cli)
+        return DaemonLauncher(configuration: configuration, environment: { await environment().merging(daemonEnvironment) { _, owner in owner } })
     }
 
     /// The launcher of a Chief home's conversation owner

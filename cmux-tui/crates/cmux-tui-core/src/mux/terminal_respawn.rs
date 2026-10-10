@@ -9,14 +9,17 @@
 //! loss through `persist_terminal_exit`, which calls
 //! [`Mux::schedule_terminal_respawn`].
 //!
-//! The schedule step runs synchronously: it checks the cause and the crash
-//! loop bound, takes the dead runtime out of the tabs (they stay, surfaceless)
+//! The schedule step runs synchronously: it checks the cause and asks the
+//! supervisor (`terminal_respawn/supervisor.rs`) for the attempt's backoff
+//! delay, takes the dead runtime out of the tabs (they stay, surfaceless)
 //! and marks the terminal [`PendingTerminal::Respawning`], so no tree push
-//! shows the tab dead. A worker then reopens the registry row
-//! (`terminal_respawn_store`), launches a host through the normal launch
-//! path with the previous screen as its seed and one dim marker line, and
-//! commits the new incarnation. A failure records the loss again (a reason
-//! that never respawns) and the tab shows dead, as before L2.
+//! shows the tab dead. A worker waits out the delay, then reopens the
+//! registry row (`terminal_respawn_store`), launches a host through the
+//! normal launch path with the previous screen as its seed and one dim
+//! marker line, and commits the new incarnation. A launch failure records
+//! the loss again as `restart_failed`; a terminal that used up its attempts
+//! ends as `restart_exhausted`. Neither respawns again, and the tab shows
+//! that typed end instead of a generic host loss.
 //!
 //! The launch and seed (`terminal_respawn/launch.rs`) and the pre-fill
 //! (`terminal_respawn/prefill.rs`): an agent resume command or the terminal's
@@ -26,19 +29,18 @@
 pub(super) mod launch;
 #[cfg(unix)]
 mod prefill;
+mod supervisor;
 
-use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
 use super::*;
 #[cfg(unix)]
+use crate::terminal_host_protocol::TerminalExit;
+#[cfg(unix)]
 use crate::terminal_loss_log::Prefilled;
 
-/// At most one respawn per terminal in this window.
-const RESPAWN_SPACING: Duration = Duration::from_secs(60);
-/// At most [`RESPAWN_BURST`] respawns per terminal in this window.
-const RESPAWN_WINDOW: Duration = Duration::from_secs(600);
-const RESPAWN_BURST: usize = 3;
+pub(crate) use supervisor::RespawnGuard;
+
 /// Disables respawn for a daemon (tests that exercise dead tabs).
 const DISABLE_ENV: &str = "CMUX_TUI_TEST_DISABLE_RESPAWN";
 /// Holds a scheduled respawn this long before it starts (tests of a close
@@ -51,29 +53,10 @@ const RESPAWN_REASONS: &[&str] = &[
     "died_without_exit_status",
     "missing_record",
     "incarnation_mismatch",
+    // A signal that ended the shell while the owner shut down (logout, a
+    // daemon stop): the next owner's start sweep respawns it.
+    "session_shutdown",
 ];
-
-/// The crash-loop bound: attempts per terminal, by start time.
-#[derive(Debug, Default)]
-pub(crate) struct RespawnGuard {
-    attempts: HashMap<String, VecDeque<Instant>>,
-}
-
-impl RespawnGuard {
-    /// Record an attempt for `terminal_id` at `now` unless the bound refuses it.
-    pub(crate) fn admit(&mut self, terminal_id: &str, now: Instant) -> bool {
-        let attempts = self.attempts.entry(terminal_id.to_string()).or_default();
-        attempts.retain(|at| now.saturating_duration_since(*at) < RESPAWN_WINDOW);
-        let spaced = attempts
-            .back()
-            .is_none_or(|last| now.saturating_duration_since(*last) >= RESPAWN_SPACING);
-        if !spaced || attempts.len() >= RESPAWN_BURST {
-            return false;
-        }
-        attempts.push_back(now);
-        true
-    }
-}
 
 /// The owner's respawn state.
 #[derive(Debug)]
@@ -81,6 +64,9 @@ pub(crate) struct TerminalRespawns {
     disabled: bool,
     delay: Option<Duration>,
     guard: Mutex<RespawnGuard>,
+    /// Wakes respawn workers that wait out a backoff delay when the owner
+    /// shuts down ([`TerminalRespawns::wake_all`]).
+    wake: (Mutex<()>, Condvar),
     /// Full argv of command terminals this daemon process launched; it is
     /// never persisted, so a later daemon only names the program. Entries go
     /// when their terminal is closed; [`ARGV_LIMIT`] bounds the rest.
@@ -98,7 +84,7 @@ pub(crate) const ARGV_LIMIT: usize = 512;
 #[derive(Debug, Default)]
 struct ArgvMemory {
     by_terminal: HashMap<String, Vec<String>>,
-    order: std::collections::VecDeque<String>,
+    order: VecDeque<String>,
 }
 
 impl ArgvMemory {
@@ -131,7 +117,8 @@ impl TerminalRespawns {
                 .ok()
                 .and_then(|value| value.parse().ok())
                 .map(Duration::from_millis),
-            guard: Mutex::default(),
+            guard: Mutex::new(RespawnGuard::from_env()),
+            wake: (Mutex::new(()), Condvar::new()),
             argv: Mutex::default(),
             seeds: Mutex::default(),
         }
@@ -152,9 +139,10 @@ impl TerminalRespawns {
         self.argv.lock().unwrap_or_else(PoisonError::into_inner).insert(terminal_id, argv);
     }
 
-    /// Forget the argv of a closed terminal.
+    /// Forget the argv and the respawn attempts of a closed terminal.
     pub(crate) fn forget_argv(&self, terminal_id: &str) {
         self.argv.lock().unwrap_or_else(PoisonError::into_inner).remove(terminal_id);
+        self.guard.lock().unwrap_or_else(PoisonError::into_inner).forget(terminal_id);
     }
 
     pub(crate) fn argv(&self, terminal_id: &str) -> Option<Vec<String>> {
@@ -180,6 +168,10 @@ pub(super) struct RespawnPlan {
     pub(super) identity: TabResourceIdentity,
     /// The dead runtime taken out of the tabs, for its geometry and budget.
     pub(super) old_runtime: Option<Arc<Surface>>,
+    /// The supervisor's backoff before this attempt starts.
+    pub(super) delay: Duration,
+    /// The committed host-loss receipt this attempt answers.
+    pub(super) recorded: TerminalExit,
 }
 
 impl Mux {
@@ -198,10 +190,12 @@ impl Mux {
         let Some(mux) = self.exit_settles.owner() else { return };
         let name = format!("terminal-respawn-{terminal_id}");
         let spawned = std::thread::Builder::new().name(name).spawn(move || {
-            if let Some(delay) = mux.terminal_respawns.delay {
-                std::thread::sleep(delay);
+            let delay = plan.delay.max(mux.terminal_respawns.delay.unwrap_or_default());
+            if mux.wait_respawn_backoff(delay) {
+                mux.run_terminal_respawn(plan);
+            } else {
+                mux.abandon_terminal_respawn(&plan.terminal_id);
             }
-            mux.run_terminal_respawn(plan);
         });
         if let Err(error) = spawned {
             eprintln!("cmux-tui: no thread to respawn terminal {terminal_id}: {error}");
@@ -238,29 +232,53 @@ impl Mux {
             return None;
         }
         let old_incarnation = incarnation?.to_string();
-        let public_id = self
-            .workspace_registry
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .terminal_resource_id(terminal_id)
-            .ok()??;
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+        // Act only on the loss this caller saw. A stale caller (the start
+        // sweep, an adoption thread) must not touch a terminal that another
+        // respawn already reopened or that ended in another way meanwhile.
+        let record = registry.terminal_record(terminal_id).ok()??;
+        if record.lifecycle != TerminalLifecycle::Exited
+            || record.incarnation.as_deref() != Some(old_incarnation.as_str())
+            || TerminalEnd::from_receipt(record.exit.as_ref()).exit() != end.exit()
+        {
+            return None;
+        }
+        let public_id = registry.terminal_resource_id(terminal_id).ok()??;
+        let mut state = self.lock_state_pinned(&registry).unwrap_or_else(PoisonError::into_inner);
+        // Kept-layout tabs (`end_terminals` + `keep_layout`, `kept_tabs`)
+        // stay dead on purpose: a frontend starts their new shell.
+        if Self::terminal_tabs_kept_locked(&registry, &state, &public_id).unwrap_or(true) {
+            return None;
+        }
         let content = ContentPublicId::Terminal(public_id.clone());
         let placements = state.placements_of_content(&content).to_vec();
         let slot = *placements.first()?;
         let tab_id = state.resource_indexes.tab_ids.get(&slot)?.clone();
+        let mut pending = self.pending_terminals.lock().unwrap_or_else(PoisonError::into_inner);
+        if pending
+            .values()
+            .any(|(id, marker)| id == terminal_id && *marker == PendingTerminal::Respawning)
+        {
+            return None;
+        }
         let admitted = self
             .terminal_respawns
             .guard
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .admit(terminal_id, Instant::now());
-        if !admitted {
-            eprintln!(
-                "cmux-tui: terminal {terminal_id} lost its host again too soon; it stays ended"
-            );
+        let Some(delay) = admitted else {
+            drop(pending);
+            drop(state);
+            drop(registry);
+            self.end_terminal_respawn_exhausted(terminal_id, end, &public_id);
             return None;
-        }
+        };
+        pending.insert(
+            public_id.as_str().to_string(),
+            (terminal_id.to_string(), PendingTerminal::Respawning),
+        );
+        drop(pending);
         // The tabs stay; only the dead runtime leaves them, so they read as
         // respawning, not dead, until the new runtime takes its place.
         let old_runtime = state.remove_catalog_terminal(&public_id);
@@ -268,10 +286,7 @@ impl Mux {
             state.surfaces.remove(placement);
         }
         drop(state);
-        self.pending_terminals.lock().unwrap_or_else(PoisonError::into_inner).insert(
-            public_id.as_str().to_string(),
-            (terminal_id.to_string(), PendingTerminal::Respawning),
-        );
+        drop(registry);
         Some(RespawnPlan {
             terminal_id: terminal_id.to_string(),
             public_id,
@@ -280,6 +295,8 @@ impl Mux {
             slot,
             identity: TabResourceIdentity::new(tab_id, content),
             old_runtime,
+            delay,
+            recorded: end.exit().clone(),
         })
     }
 
@@ -290,6 +307,7 @@ impl Mux {
         let terminal_id = plan.terminal_id.clone();
         let public_id = plan.public_id.clone();
         let (old_incarnation, cause) = (plan.old_incarnation.clone(), plan.cause.clone());
+        let recorded = plan.recorded.clone();
         let outcome = self.respawn_terminal(plan);
         self.pending_terminals.lock().unwrap_or_else(PoisonError::into_inner).retain(
             |_, (id, pending)| id != &terminal_id || *pending != PendingTerminal::Respawning,
@@ -320,7 +338,14 @@ impl Mux {
             }
             Err(error) => {
                 eprintln!("cmux-tui: terminal {terminal_id} was not respawned: {error:#}");
-                let lost = TerminalEnd::host_lost(format!("respawn-failed: {error:#}"));
+                let lost = TerminalEnd::host_lost(format!(
+                    "{}: {error:#}",
+                    crate::terminal_end::RESPAWN_FAILED_DETAIL
+                ));
+                // A failure before the row reopened leaves the respawnable
+                // receipt: rewrite it, so no later owner retries forever. A
+                // reopened (launching) row takes a normal exit commit.
+                self.rewrite_lost_receipt(&terminal_id, &recorded, lost.exit());
                 if let Err(error) = self.persist_terminal_exit(&terminal_id, None, &lost) {
                     eprintln!("cmux-tui: could not record terminal {terminal_id} end: {error:#}");
                 }
@@ -385,7 +410,13 @@ impl Mux {
         )?;
         let _pending_host_release = PendingTerminalHostRelease(surface.clone());
         let activated = match self.install_respawned_runtime(&plan, &surface) {
-            Ok(true) => surface.activate_hosted_launch_stream().map(drop),
+            Ok(true) => {
+                // Output the lost host read but never delivered is not in
+                // the journal: the new generation starts with a marked gap,
+                // before the new shell's first output can be captured.
+                surface.journal_respawn_gap(self);
+                surface.activate_hosted_launch_stream().map(drop)
+            }
             Ok(false) => {
                 surface.kill();
                 return Ok(None);
@@ -499,19 +530,5 @@ mod tests {
         let memory = respawns.argv.lock().unwrap_or_else(PoisonError::into_inner);
         assert_eq!(memory.by_terminal.len(), ARGV_LIMIT);
         assert_eq!(memory.order.len(), ARGV_LIMIT);
-    }
-
-    #[test]
-    fn the_guard_allows_one_respawn_a_minute_and_three_in_ten_minutes() {
-        let mut guard = RespawnGuard::default();
-        let start = Instant::now();
-        assert!(guard.admit("a", start));
-        assert!(!guard.admit("a", start + Duration::from_secs(59)), "within the spacing");
-        assert!(guard.admit("b", start), "terminals are bounded separately");
-        assert!(guard.admit("a", start + Duration::from_secs(60)));
-        assert!(guard.admit("a", start + Duration::from_secs(120)));
-        assert!(!guard.admit("a", start + Duration::from_secs(180)), "three in ten minutes");
-        assert!(!guard.admit("a", start + Duration::from_secs(599)));
-        assert!(guard.admit("a", start + Duration::from_secs(600)), "the first attempt aged out");
     }
 }
