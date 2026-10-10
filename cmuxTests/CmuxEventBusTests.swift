@@ -418,7 +418,7 @@ final class CmuxEventBusTests: XCTestCase {
                 )
             )
         }
-        let report = ProgramStatusReport(state: .working, id: "record-255", progress: 50)
+        let report = ProgramStatusReport(state: .working, progress: 50, id: "record-255")
         store.apply(report)
 
         bus.publishProgramStatusChanged(
