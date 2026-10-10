@@ -655,10 +655,12 @@ def subagent_link_opens_its_chat():
     time.sleep(3)  # test harness: let the agent pane render its transcript
     snapshot("link-opened")
     url = clicked.get("url") or ""
-    row("subagent link opens its chat", "the Chief's reply links the subagent; a click shows its workspace and chat",
-        f"sub {sub}; link in reply={'](cmux://chief/' in reply}; clicked {url[:90]!r}; pane session {state.get('sessionId')} "
+    row("subagent link opens its chat", "Home shows the subagent as a link; a click shows its workspace and chat",
+        f"sub {sub}; model wrote a link={'](cmux://chief/' in reply}; clicked {url[:90]!r}; pane session {state.get('sessionId')} "
         f"(want {session}); task in pane={'link-probe' in pane_text(state)}",
-        bool(session) and "](cmux://chief/" in reply and url.endswith("/session/" + session)
+        # The model writes the plain id (the memory keeps no URL); the posted reply carries the
+        # link (link_subagents), so the click on this subagent's own link is the proof.
+        bool(session) and url.endswith("/session/" + session)
         and state.get("sessionId") == session and "link-probe" in pane_text(state))
     show_home()
 
