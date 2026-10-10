@@ -271,6 +271,7 @@ function agentPaneHost(): Plugin {
 // The React pages under src/pages/<page>/index.html (scripts/cmux-next/build-pages-web.sh PAGES).
 const DEV_PAGES = [
   "history",
+  "home-channels",
   "apps",
   "coderouter",
   "cloud",

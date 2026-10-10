@@ -40,13 +40,33 @@ final class AgentRecentsSection {
     var contentView: NSView? { view }
     var height: CGFloat { view.preferredHeight }
 
+    /// `AgentBrandCatalog.brand(for:)` per harness: a handful of distinct values. Every row
+    /// ran the full lookup (trim, lowercase, three splits) on every feed change, the hot loop
+    /// of the nightly 3800566557701 hang. Search and the project filter need every row, so
+    /// the rows are not capped; the feed publishes at most once per main-actor turn.
+    private var brands: [String: String?] = [:]
+    private var lastRows: [SidebarChatsView.Row] = []
+    private var lastState: (enabled: Bool, ready: Bool)?
+
     private func refresh() {
         let rows = feed.chats.map { chat in
             SidebarChatsView.Row(id: chat.id, title: chat.title ?? SidebarChatsView.newChatTitle,
-                                 harness: chat.harness, brand: AgentBrandCatalog.brand(for: chat.harness)?.rawValue,
+                                 harness: chat.harness, brand: brand(chat.harness),
                                  folder: chat.cwd, account: chat.accounts.first, updatedAt: chat.updatedAt)
         }
+        // A change outside the shown rows (or a no-op change) redraws and relayouts nothing.
+        guard rows != lastRows || lastState?.enabled != feed.isEnabled || lastState?.ready != feed.isReady else { return }
+        lastRows = rows
+        lastState = (feed.isEnabled, feed.isReady)
         view.update(rows, enabled: feed.isEnabled, ready: feed.isReady)
         onContentChange?()
+    }
+
+    private func brand(_ harness: String) -> String? {
+        if let known = brands[harness] { return known }
+        if brands.count > 256 { brands.removeAll(keepingCapacity: true) }
+        let brand = AgentBrandCatalog.brand(for: harness)?.rawValue
+        brands[harness] = brand
+        return brand
     }
 }

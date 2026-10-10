@@ -40928,127 +40928,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "أفلِت الصور أو الملفات النصية لإرفاقها"
+            "value": "أفلِت الصور أو ملفات PDF أو الملفات النصية لإرفاقها"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ispustite slike ili tekstualne datoteke za prilaganje"
+            "value": "Ispustite slike, PDF datoteke ili tekstualne datoteke za prilaganje"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Slip billeder eller tekstfiler for at vedhæfte"
+            "value": "Slip billeder, PDF-filer eller tekstfiler for at vedhæfte"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bilder oder Textdateien zum Anhängen hierher ziehen"
+            "value": "Bilder, PDF-Dateien oder Textdateien zum Anhängen hierher ziehen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Drop images or text files to attach"
+            "value": "Drop images, PDFs, or text files to attach"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Suelta imágenes o archivos de texto para adjuntarlos"
+            "value": "Suelta imágenes, archivos PDF o archivos de texto para adjuntarlos"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Déposez des images ou des fichiers texte pour les joindre"
+            "value": "Déposez des images, des fichiers PDF ou des fichiers texte pour les joindre"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Trascina qui immagini o file di testo per allegarli"
+            "value": "Trascina qui immagini, file PDF o file di testo per allegarli"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "画像またはテキストファイルをドロップして添付"
+            "value": "画像、PDF、またはテキストファイルをドロップして添付"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ទម្លាក់រូបភាព ឬឯកសារអត្ថបទ ដើម្បីភ្ជាប់"
+            "value": "ទម្លាក់រូបភាព ឯកសារ PDF ឬឯកសារអត្ថបទ ដើម្បីភ្ជាប់"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이미지 또는 텍스트 파일을 끌어다 놓아 첨부"
+            "value": "이미지, PDF 또는 텍스트 파일을 끌어다 놓아 첨부"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Slipp bilder eller tekstfiler for å legge ved"
+            "value": "Slipp bilder, PDF-filer eller tekstfiler for å legge ved"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Upuść obrazy lub pliki tekstowe, aby je załączyć"
+            "value": "Upuść obrazy, pliki PDF lub pliki tekstowe, aby je załączyć"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Solte imagens ou arquivos de texto para anexar"
+            "value": "Solte imagens, arquivos PDF ou arquivos de texto para anexar"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Перетащите изображения или текстовые файлы, чтобы прикрепить"
+            "value": "Перетащите изображения, PDF-файлы или текстовые файлы, чтобы прикрепить"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "วางรูปภาพหรือไฟล์ข้อความเพื่อแนบ"
+            "value": "วางรูปภาพ ไฟล์ PDF หรือไฟล์ข้อความเพื่อแนบ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Eklemek için görselleri veya metin dosyalarını bırakın"
+            "value": "Eklemek için görselleri, PDF dosyalarını veya metin dosyalarını bırakın"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Перетягніть зображення або текстові файли, щоб прикріпити"
+            "value": "Перетягніть зображення, PDF-файли або текстові файли, щоб прикріпити"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Thả hình ảnh hoặc tệp văn bản để đính kèm"
+            "value": "Thả hình ảnh, tệp PDF hoặc tệp văn bản để đính kèm"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "拖入图片或文本文件以附加"
+            "value": "拖入图片、PDF 文件或文本文件以附加"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "拖入圖片或文字檔案以附加"
+            "value": "拖入圖片、PDF 檔案或文字檔案以附加"
           }
         }
       }
@@ -43033,6 +43033,138 @@
         }
       }
     },
+    "composer.sentAsFileForCodex": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أُرسل كملف إلى Codex"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Poslano kao datoteka za Codex"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sendt som fil til Codex"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Als Datei für Codex gesendet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sent as file for Codex"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enviado como archivo para Codex"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Envoyé comme fichier pour Codex"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inviato come file per Codex"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex にファイルとして送信"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានផ្ញើជាឯកសារសម្រាប់ Codex"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex에 파일로 전송됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sendt som fil til Codex"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wysłano jako plik do Codex"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enviado como arquivo para o Codex"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Отправлено как файл для Codex"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ส่งเป็นไฟล์ให้ Codex แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex için dosya olarak gönderildi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Надіслано як файл для Codex"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã gửi dưới dạng tệp cho Codex"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已作为文件发送给 Codex"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已作為檔案傳送給 Codex"
+          }
+        }
+      }
+    },
     "composer.unsupported": {
       "comment": "Agent pane",
       "extractionState": "manual",
@@ -43040,127 +43172,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{name} ليس صورة ولا ملفًا نصيًا"
+            "value": "{name} ليس صورة أو ملف PDF أو ملفًا نصيًا"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{name} nije slika ni tekstualna datoteka"
+            "value": "{name} nije slika, PDF datoteka ni tekstualna datoteka"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{name} er hverken et billede eller en tekstfil"
+            "value": "{name} er hverken et billede, en PDF-fil eller en tekstfil"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{name} ist weder ein Bild noch eine Textdatei"
+            "value": "{name} ist weder ein Bild, eine PDF-Datei noch eine Textdatei"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "{name} is not an image or a text file"
+            "value": "{name} is not an image, PDF, or text file"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{name} no es una imagen ni un archivo de texto"
+            "value": "{name} no es una imagen, un archivo PDF ni un archivo de texto"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{name} n’est ni une image ni un fichier texte"
+            "value": "{name} n’est ni une image, ni un fichier PDF, ni un fichier texte"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{name} non è un’immagine né un file di testo"
+            "value": "{name} non è un’immagine, un file PDF né un file di testo"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{name}は画像でもテキストファイルでもありません"
+            "value": "{name}は画像、PDF、またはテキストファイルではありません"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{name} មិនមែនជារូបភាព ឬឯកសារអត្ថបទទេ"
+            "value": "{name} មិនមែនជារូបភាព ឯកសារ PDF ឬឯកសារអត្ថបទទេ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{name}은(는) 이미지나 텍스트 파일이 아닙니다"
+            "value": "{name}은(는) 이미지, PDF 또는 텍스트 파일이 아닙니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{name} er verken et bilde eller en tekstfil"
+            "value": "{name} er verken et bilde, en PDF-fil eller en tekstfil"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{name} nie jest obrazem ani plikiem tekstowym"
+            "value": "{name} nie jest obrazem, plikiem PDF ani plikiem tekstowym"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{name} não é uma imagem nem um arquivo de texto"
+            "value": "{name} não é uma imagem, um arquivo PDF nem um arquivo de texto"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{name} не является изображением или текстовым файлом"
+            "value": "{name} не является изображением, PDF-файлом или текстовым файлом"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{name} ไม่ใช่รูปภาพหรือไฟล์ข้อความ"
+            "value": "{name} ไม่ใช่รูปภาพ ไฟล์ PDF หรือไฟล์ข้อความ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{name} bir görsel veya metin dosyası değil"
+            "value": "{name} bir görsel, PDF dosyası veya metin dosyası değil"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{name} не є зображенням або текстовим файлом"
+            "value": "{name} не є зображенням, PDF-файлом або текстовим файлом"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{name} không phải là hình ảnh hoặc tệp văn bản"
+            "value": "{name} không phải là hình ảnh, tệp PDF hoặc tệp văn bản"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{name} 不是图片或文本文件"
+            "value": "{name} 不是图片、PDF 文件或文本文件"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{name} 不是圖片或文字檔案"
+            "value": "{name} 不是圖片、PDF 檔案或文字檔案"
           }
         }
       }
@@ -101092,6 +101224,798 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "顯示上下文用量"
+          }
+        }
+      }
+    },
+    "find.close" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "إغلاق"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zatvori"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Luk"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Schließen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cerrar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fermer"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chiudi"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "閉じる"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បិទ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "닫기"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lukk"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zamknij"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fechar"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Закрыть"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ปิด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kapat"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Закрити"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Đóng"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "关闭"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "關閉"
+          }
+        }
+      }
+    },
+    "find.count" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{current} من {total}"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{current} od {total}"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{current} af {total}"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{current} von {total}"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{current} of {total}"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{current} de {total}"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{current} sur {total}"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{current} di {total}"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{current}/{total}"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{current} នៃ {total}"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{current}/{total}"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{current} av {total}"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{current} z {total}"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{current} de {total}"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{current} из {total}"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{current} จาก {total}"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{current}/{total}"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{current} з {total}"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{current} trên {total}"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "第 {current} 项，共 {total} 项"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "第 {current} 項，共 {total} 項"
+          }
+        }
+      }
+    },
+    "find.next" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "التالي"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sljedeće"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Næste"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Weiter"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Next"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Siguiente"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Suivant"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Successivo"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "次へ"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បន្ទាប់"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "다음"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Neste"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Następny"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Próximo"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Далее"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ถัดไป"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sonraki"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Далі"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tiếp"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "下一个"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "下一個"
+          }
+        }
+      }
+    },
+    "find.noResults" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لا توجد نتائج"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nema rezultata"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ingen resultater"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Keine Treffer"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No results"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sin resultados"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Aucun résultat"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nessun risultato"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "一致なし"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "គ្មានលទ្ធផល"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "결과 없음"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ingen treff"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Brak wyników"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nenhum resultado"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Нет совпадений"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ไม่พบผลลัพธ์"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sonuç yok"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Немає збігів"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Không có kết quả"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "无结果"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "無結果"
+          }
+        }
+      }
+    },
+    "find.placeholder" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "البحث في المحادثة"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pronađi u razgovoru"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Find i chat"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Im Chat suchen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Find in Chat"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Buscar en el chat"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rechercher dans la discussion"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Trova nella chat"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "チャット内を検索"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ស្វែងរកក្នុងការជជែក"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "채팅에서 찾기"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Finn i chat"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Znajdź w czacie"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Buscar no chat"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Найти в чате"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ค้นหาในแชท"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sohbette bul"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Знайти в чаті"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tìm trong cuộc trò chuyện"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在聊天中查找"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在聊天中尋找"
+          }
+        }
+      }
+    },
+    "find.previous" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "السابق"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prethodno"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Forrige"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zurück"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Previous"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Anterior"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Précédent"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Precedente"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "前へ"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "មុន"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이전"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Forrige"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Poprzedni"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Anterior"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Назад"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ก่อนหน้า"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Önceki"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Назад"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Trước"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "上一个"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "上一個"
           }
         }
       }

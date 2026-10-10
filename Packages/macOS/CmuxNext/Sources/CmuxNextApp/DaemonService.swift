@@ -351,6 +351,19 @@ final class DaemonService {
         workTracker?(task)
     }
 
+    /// `send` that also hands a failure to `onFailure` (on the main actor),
+    /// with the same ticket and work tracking.
+    func send(_ label: String, onFailure: @escaping @MainActor (ActionWorkFailure) -> Void,
+              _ body: @escaping @Sendable (DaemonConnection) async throws -> Void) {
+        let ticket = openTicket()
+        let task = Task {
+            let failed = await failure(label, ticket: ticket, body)
+            if let failed { onFailure(failed) }
+            return failed
+        }
+        workTracker?(task)
+    }
+
     /// Runs a command; returns nil on success, else the failure (logged).
     func failure(_ label: String, _ body: @Sendable (DaemonConnection) async throws -> Void) async -> ActionWorkFailure? {
         await failure(label, ticket: openTicket(), body)

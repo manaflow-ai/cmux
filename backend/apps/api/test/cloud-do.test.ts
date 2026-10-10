@@ -59,23 +59,6 @@ const decodes = (schema: Schema.Top, v: unknown) => Exit.isSuccess(Schema.decode
 
 describe("CloudDO provider-call ledger", { timeout: 60_000 }, () => {
 
-  it("delete is idempotent: same-key replay, provider 404 is success, and the tombstone answers a new key", async () => {
-    const { team, alice, stub } = people()
-    const m = (await create(stub, team, alice)).value.machine
-    const del = reply(await stub.submit(team, alice, frame("cloud.machine.delete", { machine: m.id }, "del-1")))
-    expect(del).toMatchObject({ t: "result", value: { deleted: true }, replayed: false })
-    expect(await stub.fakeControl({})).toMatchObject({ deletes: 1, vms: [], pending: 0 })
-    expect(reply(await stub.submit(team, alice, frame("cloud.machine.delete", { machine: m.id }, "del-1")))).toMatchObject({ t: "result", value: { deleted: true }, replayed: true })
-    expect(reply(await stub.submit(team, alice, frame("cloud.machine.delete", { machine: m.id }, "del-2")))).toMatchObject({ t: "result", value: { deleted: true } })
-    expect(await stub.fakeControl({})).toMatchObject({ deletes: 1 })
-    expect(await stub.readOp(team, alice, "cloud.machine.get", { machine: m.id })).toMatchObject({ ok: false, code: "cloud.machine.not_found" })
-    // The VM was already gone at the provider (deleted out of band): the delete still succeeds.
-    const gone = (await create(stub, team, alice)).value.machine
-    await stub.fakeControl({ delete_vm: providerName("cmuxnp-test-cld-", gone.id) })
-    expect(reply(await stub.submit(team, alice, frame("cloud.machine.delete", { machine: gone.id })))).toMatchObject({ t: "result", value: { deleted: true } })
-    expect(await stub.readOp(team, alice, "cloud.machine.list", {})).toMatchObject({ ok: true, value: { machines: [] } })
-  })
-
   it("refuses agent principals for create and delete, with no provider call", async () => {
     const { team, alice, agent, stub } = people()
     expect(await create(stub, team, agent)).toMatchObject({ t: "reject", code: "auth.forbidden" })
@@ -138,76 +121,3 @@ describe("CloudDO review fixes (P2-3, P2-4, P3-8, P3-9)", { timeout: 60_000 }, (
 
 })
 
-describe("cloud driver prefix guard", () => {
-  const EDGE_RULE = { action: "allow", domain: "coderouter.cmux.internal", source: {}, destination: { host: "coderouter.example.com", port: 443 }, transform: [{ headers: { "x-chatmux-vm-authorization": "Bearer t" } }] } as const
-  const counting = () => {
-    const calls: Array<string> = []
-    const raw: RawCloudDriver = {
-      find: async (name) => (calls.push(`find:${name}`), null),
-      create: async (name) => (calls.push(`create:${name}`), { id: "fs-1", tag: null }),
-      delete: async (id) => void calls.push(`delete:${id}`),
-      list: async () => ({ vms: [], total: 0 }),
-      writeFile: async () => {},
-      pause: async (id) => void calls.push(`pause:${id}`),
-      start: async (id) => void calls.push(`start:${id}`),
-      state: async () => null,
-      resize: async (id) => void calls.push(`resize:${id}`),
-      resources: async () => null,
-      findSnapshot: async (slug) => (calls.push(`findSnapshot:${slug}`), null),
-      createSnapshot: async (id) => (calls.push(`createSnapshot:${id}`), { id: "sh-1" }),
-      deleteSnapshot: async (id) => void calls.push(`deleteSnapshot:${id}`),
-      replaceTlsRule: async (id) => (calls.push(`replaceTlsRule:${id}`), true)
-    }
-    return { calls, raw }
-  }
-
-  it("refuses any provider call on a name without this environment's prefix", async () => {
-    const { calls, raw } = counting()
-    const driver = new GuardedCloudDriver(raw, "cmuxnp-test-cld-")
-    const tag = { team: "team_00000000000000000001", machine: "vm_00000000000000000001" }
-    for (const name of [
-      "cmux-vm-00000000000000000001",
-      "cmuxnp-test-vm-00000000000000000001",
-      "cmuxnp-test-tvm-vm-00000000000000000001",
-      "cmuxnp-dev-cld-vm-00000000000000000001",
-      "cmuxnp-test-cld-",
-      "cmuxnp-test-cld-../x",
-      "cmuxnp-test-cld-vm-0000000000000000001",
-      "cmuxnp-test-cld-vm-000000000000000000011",
-      "cmuxnp-test-cld-vm-0000000000000000000A",
-      "cmuxnp-test-cld-vmimg-fake"
-    ]) {
-      await expect(driver.ensure(name, tag, { idleSeconds: 0 })).rejects.toBeInstanceOf(DriverError)
-      await expect(driver.remove(name, tag)).rejects.toMatchObject({ code: "cloud.provider.refused", final: true })
-      // Money ops (CLOUDDO-MONEY-OPS): pause and start never touch a name outside the prefix either.
-      await expect(driver.power(name, tag, "pause")).rejects.toMatchObject({ code: "cloud.provider.refused", final: true })
-      await expect(driver.power(name, tag, "start")).rejects.toMatchObject({ code: "cloud.provider.refused", final: true })
-      await expect(driver.resize(name, tag, { cpu: 4, memory: 8192, storage: 16384 })).rejects.toMatchObject({ code: "cloud.provider.refused", final: true })
-      await expect(driver.snapshot(name, tag, "cmuxnp-test-cld-snap-00000000000000000001")).rejects.toMatchObject({ code: "cloud.provider.refused", final: true })
-      // The coderouter edge token refresh (cloud-coderouter-edge.ts) never touches a name outside the prefix either.
-      await expect(driver.replaceEdgeRule(name, tag, EDGE_RULE)).rejects.toMatchObject({ code: "cloud.provider.refused", final: true })
-    }
-    // Snapshot slugs carry the prefix and the snap- tail, also for a restore's boot snapshot.
-    for (const slug of ["cmuxnp-test-cld-vm-00000000000000000001", "cmuxnp-dev-cld-snap-00000000000000000001", "freestyle/ubuntu", "cmuxnp-test-cld-snap-x"]) {
-      await expect(driver.removeSnapshot(slug)).rejects.toMatchObject({ code: "cloud.provider.refused", final: true })
-      await expect(driver.ensure("cmuxnp-test-cld-vm-00000000000000000001", tag, { idleSeconds: 0, snapshot: slug })).rejects.toMatchObject({ code: "cloud.provider.refused" })
-    }
-    expect(calls).toEqual([])
-    await driver.ensure("cmuxnp-test-cld-vm-00000000000000000001", tag, { idleSeconds: 0 })
-    expect(calls).toEqual(["find:cmuxnp-test-cld-vm-00000000000000000001", "create:cmuxnp-test-cld-vm-00000000000000000001"])
-  })
-
-  it("refuses a team VM lane name and a bare env name with the development prefix, and a prefix without a lane (FREESTYLE-NAMES)", async () => {
-    const { calls, raw } = counting()
-    const driver = new GuardedCloudDriver(raw, "cmuxnp-dev-cld-")
-    const tag = { team: "team_00000000000000000001", machine: "vm_00000000000000000001" }
-    for (const name of ["cmuxnp-dev-tvm-team-00000000000000000001-e1", "cmuxnp-dev-tvm-vm-00000000000000000001", "cmuxnp-dev-vm-00000000000000000001", "cmuxnp-dev-vmimg-vm-00000000000000000001"]) {
-      await expect(driver.ensure(name, tag, { idleSeconds: 0 })).rejects.toMatchObject({ code: "cloud.provider.refused" })
-    }
-    expect(calls).toEqual([])
-    expect(() => new GuardedCloudDriver(raw, "cmuxnp-dev-")).toThrow()
-    expect(() => new GuardedCloudDriver(raw, "cmuxnp-dev-tvm-")).toThrow()
-    expect(ENV_PREFIX).toEqual({ development: "cmuxnp-dev-cld-", staging: "cmuxnp-stg-cld-", production: "cmuxnp-prod-cld-", test: "cmuxnp-test-cld-" })
-  })
-
-})

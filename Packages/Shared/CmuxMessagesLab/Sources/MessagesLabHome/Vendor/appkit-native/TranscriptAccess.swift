@@ -116,6 +116,9 @@ final class TranscriptSelection {
     }
 
     var isEmpty: Bool { anchor == nil || anchor == focus }
+    /// cmux: MessagesLab ced183d's NativeScroll asks it (this file stays at bd65bbf): something is
+    /// highlighted, a text selection or a selected bubble.
+    var showsHighlight: Bool { !isEmpty || selectedKey != nil }
 
     // MARK: Selected message (a click on a bubble)
 

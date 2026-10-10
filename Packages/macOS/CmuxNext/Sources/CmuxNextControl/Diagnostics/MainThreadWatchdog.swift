@@ -21,6 +21,15 @@ public final class MainThreadWatchdog: Sendable {
         public var capacity: Int
         public var sampleStacks: Bool
         public var logStalls: Bool
+        /// A stall still running this long is a hang: the watchdog thread
+        /// reports it (``MainThreadWatchdog/onHang``) WHILE it runs, since a
+        /// hang that never ends is never recorded as a stall. Default 2 s.
+        public var hangThreshold: Duration
+        /// At most one hang report per this interval (default 5 min).
+        public var hangReportInterval: Duration
+        /// Debug builds: a hang still running this long fails an assertion
+        /// (default 10 s; nil in release builds).
+        public var hangAssertThreshold: Duration?
 
         /// `CMUX_NEXT_HANG_THRESHOLD_MS` lowers the threshold for a
         /// diagnostic launch (for example 8 to sample one-frame stalls);
@@ -31,15 +40,38 @@ public final class MainThreadWatchdog: Sendable {
         }
 
         public init(threshold: Duration = Configuration.environmentThreshold, capacity: Int = 128, sampleStacks: Bool = true,
-                    logStalls: Bool = ControlService.isDebugBuild) {
+                    logStalls: Bool = ControlService.isDebugBuild, hangThreshold: Duration = .seconds(2),
+                    hangReportInterval: Duration = .seconds(300),
+                    hangAssertThreshold: Duration? = ControlService.isDebugBuild ? .seconds(10) : nil) {
             self.threshold = threshold
             self.capacity = capacity
             self.sampleStacks = sampleStacks
             self.logStalls = logStalls
+            self.hangThreshold = hangThreshold
+            self.hangReportInterval = hangReportInterval
+            self.hangAssertThreshold = hangAssertThreshold
         }
     }
 
+    /// A main-thread hang in progress: how long the main thread has been
+    /// busy so far, and its stack (return addresses, innermost first).
+    public struct Hang: Sendable {
+        public var duration: Duration
+        public var addresses: [UInt]
+    }
+
     public let configuration: Configuration
+    /// Receives each reported hang on the watchdog thread (the app sends it
+    /// to crash reporting). Called at most once per stall and once per
+    /// `hangReportInterval`; it must not wait for the main thread.
+    public var onHang: (@Sendable (Hang) -> Void)? {
+        get { hangSink.withLock { $0 } }
+        set { hangSink.withLock { $0 = newValue } }
+    }
+    private let hangSink = Mutex<(@Sendable (Hang) -> Void)?>(nil)
+    private let hangNanos: UInt64
+    private let hangIntervalNanos: UInt64
+    private let hangAssertNanos: UInt64?
     public let log: HangLog
     /// Busy windows (CPU with no input, animation or output) share the log.
     public let busy: BusyWatchdog
@@ -101,6 +133,9 @@ public final class MainThreadWatchdog: Sendable {
         self.busy = BusyWatchdog(log: log)
         self.thresholdNanos = UInt64(clamping: max(configuration.threshold.wholeMilliseconds, 1)).saturatingMultiplication(1_000_000)
         self.sampleAfterNanos = thresholdNanos / 5 * 3 + thresholdNanos % 5 * 3 / 5
+        self.hangNanos = Self.nanos(configuration.hangThreshold)
+        self.hangIntervalNanos = Self.nanos(configuration.hangReportInterval)
+        self.hangAssertNanos = configuration.hangAssertThreshold.map(Self.nanos)
     }
 
     public var isRunning: Bool { running.load(ordering: .relaxed) }
@@ -213,6 +248,7 @@ public final class MainThreadWatchdog: Sendable {
 
     private func watch(sampler: ThreadStackSampler?) {
         var sampledBeat: UInt64 = .max
+        var hang = HangState()
         while running.load(ordering: .acquiring) {
             if mainAsleep.load(ordering: .acquiring) {
                 watchdogParked.store(true, ordering: .releasing)
@@ -248,10 +284,48 @@ public final class MainThreadWatchdog: Sendable {
                     #endif
                 }
             }
+            checkHang(beat: beat, sampler: sampler, state: &hang)
             // Check again one threshold later (or when the stall ends and the loop sleeps).
             // concurrency-allow: dedicated watchdog thread; bounded wait between stall checks.
             _ = wake.wait(timeout: .now() + .nanoseconds(Int(clamping: thresholdNanos)))
         }
+    }
+
+    /// The watchdog thread's hang bookkeeping.
+    private struct HangState {
+        var reportedBeat: UInt64 = .max
+        var assertedBeat: UInt64 = .max
+        var lastReportNanos: UInt64?
+    }
+
+    /// Reports a stall that has lasted `hangThreshold` (once per stall, at
+    /// most once per `hangReportInterval`), and in debug builds fails an
+    /// assertion past `hangAssertThreshold`. Watchdog thread only.
+    private func checkHang(beat: UInt64, sampler: ThreadStackSampler?, state: inout HangState) {
+        guard beat == beatSequence.load(ordering: .acquiring), !mainAsleep.load(ordering: .acquiring) else { return }
+        let now = uptime()
+        let started = beatNanos.load(ordering: .acquiring)
+        guard now > started else { return }
+        let elapsed = now - started
+        if elapsed >= hangNanos, state.reportedBeat != beat {
+            state.reportedBeat = beat
+            let duration = Duration.nanoseconds(Int64(clamping: elapsed))
+            logger.fault("main thread hang: busy \(duration.fractionalMilliseconds, format: .fixed(precision: 0)) ms and counting")
+            let due = state.lastReportNanos.map { now >= $0 &+ hangIntervalNanos } ?? true
+            if due, let sink = onHang {
+                state.lastReportNanos = now
+                // A fresh sample: the stall sample is from the first threshold, this one from the hang.
+                sink(Hang(duration: duration, addresses: sampler?.sample() ?? []))
+            }
+        }
+        if let hangAssertNanos, elapsed >= hangAssertNanos, state.assertedBeat != beat {
+            state.assertedBeat = beat
+            assertionFailure("main thread hang: busy over \(configuration.hangAssertThreshold ?? .zero); see debug.hangs and the crash report")
+        }
+    }
+
+    private static func nanos(_ duration: Duration) -> UInt64 {
+        UInt64(clamping: max(duration.wholeMilliseconds, 1)).saturatingMultiplication(1_000_000)
     }
 
     static func now() -> UInt64 { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }

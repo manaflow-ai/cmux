@@ -521,7 +521,7 @@ final class MeasureCache: @unchecked Sendable {
     /// The latest exact measurement of each part at any width (estimates).
     private var latest: [PartKey: Value] = [:]
     private let lock = NSLock()
-    private(set) var hits = 0, misses = 0, estimates = 0
+    private(set) var hits = 0, misses = 0, estimates = 0, reuses = 0
 
     /// A part whose content changes in place is a new measurement: text a host
     /// replaces under the same message id (an optimistic send, then the stored
@@ -564,6 +564,15 @@ final class MeasureCache: @unchecked Sendable {
         let pk = PartKey(id: m.id, part: pi, version: version, markdown: m.isMarkdown)
         lock.lock()
         if let v = store[k] { hits += 1; lock.unlock(); return v }
+        // Plain text that no width wrapped and that fits the new column: the same lines at the new
+        // width, exact (no Core Text, no estimate). A divider drag or live resize changes most
+        // short bubbles' widths only in this way.
+        if let old = latest[pk], let v = MeasureCache.sameLayout(old, at: width, part: part) { // cmux: the checked part
+            reuses += 1
+            store[k] = v
+            lock.unlock()
+            return v
+        }
         if estimate, let old = latest[pk] {
             estimates += 1
             lock.unlock()
@@ -586,6 +595,22 @@ final class MeasureCache: @unchecked Sendable {
     }
 
     /// Text keeps its total line length: lines = ceil(sum of line widths / new column).
+    /// `v` (an exact measurement at another width) at `width` when Core Text would lay the part out
+    /// the same way: a plain text part (no markdown) whose every line ends at a hard newline or the
+    /// end of the text (no soft wrap) and whose widest line fits the new column. CTTypesetter breaks
+    /// a paragraph only where it does not fit, so each paragraph is one line again; the bubble size
+    /// follows from the lines alone (Sizing.size). Nil otherwise.
+    static func sameLayout(_ v: Value, at width: CGFloat, part: Part) -> Value? {
+        guard v.markdown == nil, !v.estimated, let tl = v.text, case .text = part else { return nil }
+        guard tl.width <= Metrics(width: width).maxTextWidth else { return nil }
+        let s = tl.text as NSString
+        for l in tl.lines {
+            let end = NSMaxRange(l.range)
+            guard end >= s.length || s.character(at: end) == 0x0A else { return nil }
+        }
+        return Value(size: v.size, text: tl, width: width)
+    }
+
     private static func scale(_ v: Value, to width: CGFloat, part: Part) -> Value {
         if v.markdown != nil {
             // Markdown keeps its height until measured at the new width.
@@ -608,6 +633,18 @@ final class MeasureCache: @unchecked Sendable {
     /// Measure every part of `messages` at `width` (call off the main thread).
     func prefetch(_ messages: [Message], width: CGFloat) {
         for m in messages { for pi in m.parts.indices { _ = size(m, pi, width: width) } }
+    }
+    /// `prefetch` on all cores (interleaved slices); returns when every message is measured.
+    func prefetchParallel(_ messages: [Message], width: CGFloat) {
+        let n = min(messages.count / 4, ProcessInfo.processInfo.activeProcessorCount)
+        guard n > 1 else { return prefetch(messages, width: width) }
+        DispatchQueue.concurrentPerform(iterations: n) { k in
+            for i in stride(from: k, to: messages.count, by: n) {
+                // cmux: checked read (crash ratchet)
+                guard let m = messages[checked: i] else { continue }
+                for pi in m.parts.indices { _ = size(m, pi, width: width) }
+            }
+        }
     }
 
     var count: Int { lock.lock(); defer { lock.unlock() }; return store.count }
@@ -760,6 +797,39 @@ enum RowBuilder {
         return rows
     }
 
+    /// `rows(s, messages: messages, ..., width: width, exact: exact)` from `derived`, the rows that
+    /// the same call made at another width with the same state, time and strings. A width changes
+    /// only the part rows' measurement (size, text layout, markdown, estimate) and every row's
+    /// `width`; keys, gaps, separators, receipts and thread previews do not depend on it. So a
+    /// divider drag or live resize step re-measures the parts and skips the derivation (receipts,
+    /// reply counts, thread previews, day labels) over the loaded window. Nil when a part row
+    /// does not name a loaded message (the caller then derives).
+    static func rewidth(_ derived: [RowSpec], messages: [Message], width: CGFloat, exact: Range<Int>?) -> [RowSpec]? {
+        var out: [RowSpec] = []
+        out.reserveCapacity(derived.count)
+        var idx = 0
+        // cmux: element-wise, no index math (crash ratchet): the same rows in the same order.
+        for row in derived {
+            var row = row
+            row.width = width
+            guard case var .part(p) = row.kind else { out.append(row); continue }
+            // Rows follow message order: the part's message is at or after the previous one.
+            // (dropFirst(idx).first: past the end is the normal miss, not a fault.)
+            while let m = messages.dropFirst(idx).first, m.id != p.ref.messageId { idx += 1 }
+            guard let m = messages.dropFirst(idx).first, p.ref.partIndex < m.parts.count else { return nil }
+            let measured = MeasureCache.shared.size(m, p.ref.partIndex, width: width,
+                                                    estimate: exact.map { !$0.contains(idx) } ?? false)
+            p.size = measured.size
+            p.text = measured.text
+            p.markdown = measured.markdown
+            row.kind = .part(p)
+            row.height = measured.size.height
+            row.estimated = measured.estimated
+            out.append(row)
+        }
+        return out
+    }
+
     /// The message id of a row key ("kind:messageID[:part]"), without allocating.
     static func owner(_ key: String) -> Substring? {
         guard let a = key.firstIndex(of: ":") else { return nil }
@@ -828,7 +898,28 @@ enum Format {
     private static let weekday = formatter("EEEE")
     private static let monthDay = formatter("MMM d")
     private static let monthDayYear = formatter("MMM d, yyyy")
+    /// `day` per date for the day `now` is in: a width change derives every separator row
+    /// again (Calendar work was about 1 % of main in a divider drag). Thread safe.
+    private static let dayLock = NSLock()
+    private static var dayMemo: [Date: String] = [:]
+    private static var dayMemoToday: DateInterval?
+    private static var dayMemoBundle: ObjectIdentifier?
+    /// The calendar day of `now` (day labels depend on `now` only through it).
+    static func dayInterval(_ now: Date) -> DateInterval? { calendar.dateInterval(of: .day, for: now) }
     static func day(_ d: Date, now: Date) -> String {
+        let bundle = ObjectIdentifier(MessagesLabLocalization.bundle)
+        dayLock.lock()
+        if dayMemoBundle == bundle, let today = dayMemoToday, now >= today.start, now < today.end, let s = dayMemo[d] { dayLock.unlock(); return s }
+        dayLock.unlock()
+        let s = dayUncached(d, now: now)
+        let today = calendar.dateInterval(of: .day, for: now)
+        dayLock.lock()
+        if dayMemoToday != today || dayMemoBundle != bundle { dayMemo.removeAll(); dayMemoToday = today; dayMemoBundle = bundle }
+        if dayMemo.count < 4096 { dayMemo[d] = s }
+        dayLock.unlock()
+        return s
+    }
+    private static func dayUncached(_ d: Date, now: Date) -> String {
         let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: d), to: calendar.startOfDay(for: now)).day ?? 0
         if days == 0 { return Strings.today }
         if days == 1 { return Strings.yesterday }

@@ -164,7 +164,8 @@ enum NewTabPage {
             layout: NewTabTunables.layout.value.pageLayout,
             lastAgent: services.newTabChoices.agent,
             home: NSHomeDirectory(), tools: tools(services, targetID: selected?.id),
-            template: services.settings?.snapshot.newTabTemplate?.rawValue
+            template: services.settings?.snapshot.newTabTemplate?.rawValue,
+            templateSwitcher: NewTabTunables.templateSwitcher.value ? true : nil
         )
     }
 
@@ -174,7 +175,8 @@ enum NewTabPage {
         AgentPaneNewTab(
             kind: .agent, hotkeys: newActions.compactMapValues { services.registry.shortcutDisplay(for: $0) },
             layout: NewTabTunables.layout.value.pageLayout, lastAgent: services.newTabChoices.agent, home: NSHomeDirectory(),
-            tools: tools(services), template: services.settings?.snapshot.newTabTemplate?.rawValue
+            tools: tools(services), template: services.settings?.snapshot.newTabTemplate?.rawValue,
+            templateSwitcher: NewTabTunables.templateSwitcher.value ? true : nil
         )
     }
 

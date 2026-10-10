@@ -55,6 +55,9 @@ public final class ThemeScope {
     public func setBackdropSelection(_ selection: BackdropSelection?) {
         guard selectedBackdropSelection != selection else { return }
         selectedBackdropSelection = selection
+        // Settings pick the art before the first window: start decoding it now, so that window
+        // finds it ready.
+        BackdropImageStore.shared.prewarm(selection)
         repaintBackdropArt()
     }
 

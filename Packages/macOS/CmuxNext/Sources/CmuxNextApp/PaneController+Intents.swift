@@ -99,6 +99,9 @@ extension PaneController {
         // From an agent tab, the agent's cwd (#16620), asked when the tab is made.
         let agent = cwd == nil && fromSelectedTab && !daemonResolvesCwd ? selectedAgentView : nil
         let cwd = daemonResolvesCwd ? cwd : cwd ?? selectedTab?.cwd
+        // From another machine's terminal (an SSH tab in a mixed pane), a terminal on that machine (cx-2s5t).
+        if fromSelectedTab, text == nil, page == nil,
+           services.remoteTerminals.openTerminal(besides: selectedTab, in: pane, home: daemon, cwd: cwd) { return }
         let workspace = services.workspaceKey(of: pane)
         guard let connection = daemon.connection else { return }
         let intent = self.workspace?.beginFocusIntent()

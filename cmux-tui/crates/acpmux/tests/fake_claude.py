@@ -75,6 +75,19 @@ for line in sys.stdin:
         content = (msg.get("message") or {}).get("content") or []
         said = "".join(b.get("text", "") for b in content if isinstance(b, dict))
         text = json.dumps(sys.argv[1:])
+        documents = [b for b in content if isinstance(b, dict) and b.get("type") == "document"]
+        if said.strip() == "document-probe":
+            text = json.dumps({
+                "documents": [
+                    {
+                        "type": b.get("type"),
+                        "title": b.get("title"),
+                        "media_type": (b.get("source") or {}).get("media_type"),
+                        "data": (b.get("source") or {}).get("data"),
+                    }
+                    for b in documents
+                ]
+            }, sort_keys=True)
         # "sandbox-probe OUTSIDE PORT": what this process may do, as JSON:
         # write a file at OUTSIDE, connect to 127.0.0.1:PORT, write in its cwd.
         # "keychain-probe": whether this process may query the keychain

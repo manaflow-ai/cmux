@@ -123,7 +123,7 @@ extension NSButton {
     /// A glass button one size up, for screens built around one action.
     static func browserHeroButton(_ title: String, target: AnyObject?, action: Selector) -> NSButton {
         let button = OnboardingControl.button(title, prominent: true, target: target, action: action)
-        button.controlSize = .extraLarge
+        if #available(macOS 26, *) { button.controlSize = .extraLarge } else { button.controlSize = .large }
         button.setContentHuggingPriority(.required, for: .horizontal)
         return button
     }

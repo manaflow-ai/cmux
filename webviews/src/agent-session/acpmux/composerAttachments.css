@@ -73,6 +73,148 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.acpmux-attachment-document {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  grid-template-rows: 1fr;
+  width: min(260px, 72vw);
+  height: 56px;
+  overflow: hidden;
+}
+.acpmux-attachment-document-open {
+  display: block;
+  width: 44px;
+  height: 56px;
+  padding: 0;
+  border: 0;
+  background: var(--agent-surface-strong, var(--agent-control));
+  color: inherit;
+  cursor: zoom-in;
+}
+.acpmux-attachment-document-open:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -2px;
+}
+.acpmux-pdf-sheet {
+  position: relative;
+  display: block;
+  width: 27px;
+  height: 38px;
+  margin: 9px auto;
+  overflow: hidden;
+  border: 0.5px solid color-mix(in srgb, var(--agent-text) 26%, transparent);
+  border-radius: 3px;
+  background: var(--agent-page-bg, white);
+  color: var(--agent-text);
+  box-shadow: 0 1px 2px color-mix(in srgb, black 15%, transparent);
+}
+.acpmux-pdf-sheet.is-large {
+  width: min(210px, 52vw);
+  height: min(280px, 58vh);
+  margin: 0 auto;
+  border-radius: 6px;
+  box-shadow: 0 8px 24px color-mix(in srgb, black 18%, transparent);
+}
+.acpmux-pdf-sheet-fold {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 9px;
+  height: 9px;
+  border-left: 0.5px solid color-mix(in srgb, var(--agent-text) 22%, transparent);
+  border-bottom: 0.5px solid color-mix(in srgb, var(--agent-text) 22%, transparent);
+  background: var(--agent-control);
+}
+.acpmux-pdf-sheet-mark {
+  position: absolute;
+  left: 4px;
+  top: 7px;
+  color: var(--agent-accent, var(--agent-text));
+  font-size: 6px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+.acpmux-pdf-sheet.is-large .acpmux-pdf-sheet-mark {
+  left: 24px;
+  top: 38px;
+  font-size: 24px;
+}
+.acpmux-pdf-sheet-lines {
+  position: absolute;
+  inset: 18px 4px 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.acpmux-pdf-sheet-lines i {
+  display: block;
+  height: 1.5px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--agent-text) 28%, transparent);
+}
+.acpmux-pdf-sheet-lines i:nth-child(2) { width: 82%; }
+.acpmux-pdf-sheet-lines i:nth-child(3) { width: 68%; }
+.acpmux-pdf-sheet-lines i:nth-child(4) { width: 90%; }
+.acpmux-pdf-sheet.is-large .acpmux-pdf-sheet-fold { width: 42px; height: 42px; }
+.acpmux-pdf-sheet.is-large .acpmux-pdf-sheet-lines {
+  inset: 92px 24px 32px;
+  gap: 13px;
+}
+.acpmux-pdf-sheet.is-large .acpmux-pdf-sheet-lines i { height: 4px; }
+.acpmux-pdf-viewer {
+  width: min(520px, calc(100vw - 32px));
+  padding: 0 0 16px;
+  overflow: hidden;
+  border: 0.5px solid var(--agent-border-strong);
+  border-radius: 12px;
+  background: var(--agent-page-bg);
+  color: var(--agent-text);
+  box-shadow: 0 16px 44px color-mix(in srgb, black 28%, transparent);
+}
+.acpmux-pdf-viewer-bar {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  gap: 8px;
+  padding: 0 10px 0 14px;
+  border-bottom: 0.5px solid var(--agent-border);
+}
+.acpmux-pdf-viewer-bar .acpmux-image-viewer-title { flex: 1; min-width: 0; }
+.acpmux-pdf-viewer-preview {
+  display: grid;
+  place-items: center;
+  min-height: 300px;
+  padding: 24px;
+  background: color-mix(in srgb, var(--agent-control) 38%, transparent);
+}
+.acpmux-pdf-viewer-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100% - 32px);
+  margin: 12px 16px 0;
+  padding: 7px 10px;
+  border: 0.5px solid var(--agent-border);
+  border-radius: 7px;
+  color: var(--agent-text);
+  text-decoration: none;
+}
+.acpmux-pdf-viewer-open:hover { background: var(--agent-control-hover); }
+.acpmux-pdf-viewer-open span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acpmux-attachment-document-meta {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: 1fr auto;
+  align-content: center;
+  gap: 2px 6px;
+  padding: 7px 24px 7px 8px;
+  color: var(--agent-text);
+}
+.acpmux-attachment-document-meta > svg { grid-row: 1 / span 2; align-self: center; }
+.acpmux-attachment-document-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acpmux-attachment-document-pages { color: var(--agent-muted); font-size: 11px; }
+.acpmux-attachment-document .acpmux-attachment-remove { top: 20px; }
 .acpmux-composer .acpmux-attachment-remove {
   position: absolute;
   top: 4px;

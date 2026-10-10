@@ -101,6 +101,28 @@ public actor PaletteSearcher {
                     showsRecent: showsRecent, keepsSectionOrder: keepsSectionOrder, ranksPrefixFirst: ranksPrefixFirst)
     }
 
+    /// Ranks the empty query of `entries` (installed in the bridge once per `version`) off the
+    /// main actor. Nil when the caller was cancelled before its turn: a newer request for the same
+    /// rows superseded it, so it ranks nothing.
+    public func rankEmpty(
+        entries: [PaletteSearchEntry],
+        version: Int,
+        sectionOrders: [Int],
+        frecency: FrecencyStore,
+        now: Date,
+        showsRecent: Bool
+    ) -> [PaletteRankedSection]? {
+        defer { endCall() }
+        if Task.isCancelled { return nil }
+        guard let bridge else { return [] }
+        do {
+            return try bridge.rankEmpty(entries: entries, version: version, sectionOrders: sectionOrders,
+                                        frecency: frecency, now: now, showsRecent: showsRecent)
+        } catch {
+            return []
+        }
+    }
+
     private func rank(
         query: String,
         generation: Int,

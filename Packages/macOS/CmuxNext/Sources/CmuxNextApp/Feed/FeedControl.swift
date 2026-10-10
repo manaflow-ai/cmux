@@ -13,7 +13,8 @@ import Foundation
 ///   close the item; replies `{item, timed_out}` with the owner's stored item.
 /// - `feed.cancel {item, reason?, note?}`: the poster withdraws its item
 ///   (`answered_elsewhere` when the user answered in the terminal).
-/// - `debug.feed`: sign-in, connection, mirror counts.
+/// - `debug.feed {match?}`: sign-in, connection, mirror counts; with `match`,
+///   the visible items whose title contains it.
 enum FeedControl {
     static let maxWait = 120
 
@@ -29,9 +30,9 @@ enum FeedControl {
                 guard let feed else { throw ControlError(code: "unavailable", message: "feed is not available") }
                 return try await cancel(feed, call.params)
             }.withDeadline(.fixed(.seconds(20))),
-            .mainActor("debug.feed") { [weak services] _ in
+            .mainActor("debug.feed") { [weak services] call in
                 guard let feed = services?.feed else { return .value(.null) }
-                return .value(debug(feed))
+                return .value(debug(feed, match: call.params["match"]?.stringValue))
             },
         ]
     }
@@ -78,14 +79,23 @@ enum FeedControl {
     }
 
     @MainActor
-    static func debug(_ feed: FeedService) -> JSONValue {
+    static func debug(_ feed: FeedService, match: String? = nil) -> JSONValue {
         let connection: String = switch feed.connection {
         case .connecting: "connecting"
         case .connected: "connected"
         case let .disconnected(reason): "disconnected: \(reason)"
         }
         let items = feed.model.visibleItems
+        // `match`: the owner's items whose title contains the text (the
+        // feed handoff preflight finds its item on FeedDO this way).
+        let matches: JSONValue = match.map { text in
+            .array(items.filter { $0.title.contains(text) }.map { item in
+                .object(["id": .string(item.id), "title": .string(item.title), "state": .string(String(describing: item.state)),
+                         "home": .string(String(describing: item.home)), "poster": .string(String(describing: item.poster))])
+            })
+        } ?? .null
         return .object([
+            "matches": matches,
             "signed_in": .bool(feed.isSignedIn),
             "api": .string(feed.apiBaseURL.absoluteString),
             "connection": .string(connection),

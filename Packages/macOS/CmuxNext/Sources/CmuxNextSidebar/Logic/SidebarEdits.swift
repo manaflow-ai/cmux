@@ -58,6 +58,7 @@ public nonisolated enum SidebarEdits {
                 case (.emoji?, _): break // an emoji keeps its own colors
                 case let (_, color?): ws.icon = .swatch(color)
                 case (.swatch?, nil), (nil, nil): ws.icon = nil
+                case (.favicon?, nil): break // a page's favicon is not the user's to clear
                 }
             }
         case let .setIcon(ids, icon):

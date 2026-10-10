@@ -123,7 +123,7 @@
          container.contentsScale = s
          configureFold(p, layout: layout, scale: s)
          configureDecorations(p, spec: spec, scale: s)
-@@ -334,7 +339,7 @@
+@@ -339,7 +344,7 @@
          guard key != bandKey else { return }
          bandKey = key
          if let img = TiledBody.bandImages[key] { band.contentsScale = s; band.contents = img; return }
@@ -132,7 +132,7 @@
          let font = UIFont.systemFont(ofSize: Fixture.bodyFont.pointSize, weight: .semibold)
          let color = p.outgoing ? Fixture.outgoingText : UIColor(red: 0.27, green: 0.55, blue: 1, alpha: 1)
          let rule = (p.outgoing ? Fixture.outgoingText : Fixture.incomingText).withAlphaComponent(0.25)
-@@ -361,10 +366,10 @@
+@@ -366,10 +371,10 @@
          let screen = max(vis.height, 300)
          let total = layout.totalLines
          if !folded {
@@ -145,7 +145,7 @@
              layout.require(lines: max(0, wantA - 2 * screenLines)..<min(total, wantB + 2 * screenLines))
          }
  
-@@ -384,7 +389,7 @@
+@@ -389,7 +394,7 @@
          var wanted: [(TileCache.Key, CGRect, Bool, Int, CALayer)] = []
          let n = TiledBubble.linesPerTile
          for seg in segments where !seg.lines.isEmpty {
@@ -154,7 +154,7 @@
              let visA = max(seg.lines.lowerBound, segLine(lo)), visB = min(seg.lines.upperBound, segLine(hi) + 1)
              let wantA = max(seg.lines.lowerBound, segLine(lo - screen)), wantB = min(seg.lines.upperBound, segLine(hi + screen) + 1)
              guard wantA < wantB else { continue }
-@@ -409,10 +414,10 @@
+@@ -414,10 +419,10 @@
          // Tiles that left: back to the pool unless a newer key takes their slot (stale pixels stay until it renders).
          var stale: [TileCache.Slot: CALayer] = [:]
          for (k, l) in live where !wantedKeys.contains(k) {
@@ -167,7 +167,7 @@
          stalePixels.formIntersection(wantedKeys)
          CATransaction.begin(); CATransaction.setDisableActions(true)
          var mainTiles = 0
-@@ -423,7 +428,7 @@
+@@ -428,7 +433,7 @@
                  // Still the previous pixels of its slot: the cache (a published tail) or the queue replaces them.
                  if stalePixels.contains(k) {
                      if let img = TileCache.shared.get(k) { l.contents = img; stalePixels.remove(k) }
@@ -176,7 +176,7 @@
                  }
                  continue
              }
-@@ -432,7 +437,7 @@
+@@ -437,7 +442,7 @@
              if l.superlayer !== parent { parent.addSublayer(l) }
              l.frame = r
              l.contentsScale = s
@@ -185,7 +185,7 @@
              if let img = TileCache.shared.get(k) { l.contents = img; continue }
              // A slot that still shows its previous pixels keeps them until the replacement is drawn.
              // A streamed tail block that is not measured yet keeps its old tiles (its new lines are not
-@@ -450,11 +455,11 @@
+@@ -455,11 +460,11 @@
                  let img = TiledBubble.render(bl, chunk: k.chunk, outgoing: k.outgoing, width: r.width, scale: s)
                  RowCell.mainDrawSpent += CACurrentMediaTime() - t0
                  TiledStats.tilesMain += 1
@@ -199,7 +199,7 @@
          }
          for (_, l) in stale { l.contents = nil; l.isHidden = true; pool.append(l) }
          CATransaction.commit()
-@@ -491,9 +496,9 @@
+@@ -496,9 +501,9 @@
              DispatchQueue.main.async { [weak self] in
                  TiledStats.tilesAsync += 1
                  guard k.palette == Fixture.paletteGeneration, k.scale == Fixture.renderScale else { return }
@@ -211,7 +211,7 @@
                  self.stalePixels.remove(k)
                  if let l = self.live[k] {
                      CATransaction.begin(); CATransaction.setDisableActions(true)
-@@ -502,7 +507,7 @@
+@@ -507,7 +512,7 @@
                  }
              }
          }

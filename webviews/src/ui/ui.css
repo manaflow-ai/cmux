@@ -10,7 +10,7 @@
   --ui-hover: var(--cmux-hover, color-mix(in srgb, var(--ui-fg) 6%, transparent));
   --ui-selected: var(--cmux-selection, color-mix(in srgb, var(--ui-fg) 10%, transparent));
   --ui-surface: var(--cmux-elevated-background, Canvas);
-  --ui-ring: var(--cmux-focus-ring, color-mix(in srgb, var(--ui-fg) 55%, transparent));
+  --ui-ring: var(--cmux-focus-ring-color, color-mix(in srgb, var(--cmux-app-focus-ring, var(--ui-fg)) 48%, transparent));
   --ui-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
   font-family: var(--ui-font);
   -webkit-user-select: none;
@@ -28,7 +28,7 @@
 }
 
 :where(.ui-button, .ui-menu-item, .ui-listbox, .ui-crumb):focus-visible {
-  outline: 2px solid var(--ui-ring);
+  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--ui-ring);
   outline-offset: 1px;
 }
 

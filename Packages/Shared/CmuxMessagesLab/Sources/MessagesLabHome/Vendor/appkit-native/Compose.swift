@@ -15,6 +15,15 @@ final class FieldTextView: NSTextView {
     /// `textViewDidChange`, so the draft (and the field height) follows the
     /// composition; NSTextView does not post a text change for it.
     var onMarkedTextChange: () -> Void = {}
+    /// A press in the field (before the text view tracks it): the field glass's press light.
+    var onPress: (NSEvent) -> Void = { _ in }
+    /// The release of that press (the mouse-up that ended the text view's tracking).
+    var onRelease: (NSEvent) -> Void = { _ in }
+    override func mouseDown(with event: NSEvent) {
+        onPress(event)
+        super.mouseDown(with: event)
+        if let up = NSApp.currentEvent, up.type == .leftMouseUp { onRelease(up) }
+    }
 
     /// The inset as given (UITextView's 6.24 pt): AppKit rounds the
     /// container origin to whole points, which put the text 0.24 pt higher
@@ -29,6 +38,14 @@ final class FieldTextView: NSTextView {
         super.didAddSubview(subview)
         (subview as? NSTextInsertionIndicator)?.automaticModeOptions.remove(.showEffectsView)
     }
+    /// The layer's scale is the scale of the window it draws into, or `DisplayScale.current` when
+    /// it has no window (the offscreen harness and captures). AppKit sets it again on each backing
+    /// change and window move, so this runs after AppKit does (and from `ComposeView.rescale`).
+    func applyScale() {
+        let s = window?.backingScaleFactor ?? DisplayScale.current
+        if let l = layer, l.contentsScale != s { l.contentsScale = s }
+    }
+    override func viewDidChangeBackingProperties() { super.viewDidChangeBackingProperties(); applyScale() }
 
     override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
         super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
@@ -164,6 +181,7 @@ final class FieldTextView: NSTextView {
     deinit { keyObservers.forEach { NotificationCenter.default.removeObserver($0) } }
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        applyScale()
         let nc = NotificationCenter.default
         keyObservers.forEach { nc.removeObserver($0) }  // cmux
         keyObservers = []
@@ -215,7 +233,7 @@ final class ComposeTextView {
 /// (catalyst/Sources/Compose.swift: fill, rim, veil and tint over a flying
 /// bubble, the overlay that the window view puts above the morph), so
 /// captures and the differential harness match it. In a live window
-/// (`nativeChrome`) the drawn glass, rim, veil, tint and buttons are hidden:
+/// (`nativeChrome`) the drawn glass, rim, veil and buttons are hidden (the tint stays):
 /// AppKit's NSGlassEffectView field and glass buttons are there instead
 /// (Host.swift), above the morph, and `onFieldResize` hands every field
 /// height change to the window so the glass view's layer gets the same
@@ -259,7 +277,16 @@ final class ComposeView: UIView {
     var onRemoveChip: (ID) -> Void = { _ in }
     /// Live window: AppKit materials replace the drawn glass and buttons.
     var nativeChrome = false {
-        didSet { for l in [glass, rim, veil, tint, buttons.layer] { l.isHidden = nativeChrome } }
+        didSet {
+            // The tint stays: AppKit's glass does not dim a bubble still inside the field after
+            // the send fade, real Messages does (lossless send-typed-take1, 108 ms: blue 208 above
+            // the field top, 172-175 inside it, 20% toward the background, until the bubble leaves
+            // the field). The tint is only on during `tintOverBubble`.
+            for l in [glass, rim, veil, buttons.layer] { l.isHidden = nativeChrome }
+            // The view itself too: a hidden layer's NSView still redraws at every size change.
+            buttons.isHidden = nativeChrome
+            if !nativeChrome { buttons.setNeedsDisplay(); renderGlass() }
+        }
     }
     /// Field height changed in this transaction: (old, new, element, begin).
     var onFieldResize: ((CGFloat, CGFloat, SpringElement, CFTimeInterval) -> Void)?
@@ -404,15 +431,20 @@ final class ComposeView: UIView {
         plusLayer.frame = plusRect
         CATransaction.commit()
         buttons.frame = CGRect(x: 0, y: 995 + dy, width: bounds.width, height: 40)
-        buttons.setNeedsDisplay()
-        renderGlass()
-        renderPlaceholder()
+        // Hidden under AppKit's glass buttons in the live window: no redraw at every width.
+        if !nativeChrome { buttons.setNeedsDisplay() }
+        // The drawn glass is hidden under AppKit's glass in the live window (nativeChrome): it is
+        // drawn when shown, not at every width of a live resize; the placeholder does not depend on
+        // the width (both were about a tenth of each resize frame on main, dogfood 2026-10-08).
+        if !nativeChrome { renderGlass() }
+        if placeholderScale != DisplayScale.current { renderPlaceholder() }
         place(height: fieldHeight)
     }
 
     /// The display scale changed: draw every image again at the new scale.
     func rescale() {
         for l in [glass, placeholderLayer, waveLayer, chipsLayer, caret, textSnapshot, overlay, veil, rim] { l.contentsScale = DisplayScale.current }
+        textView.view.applyScale()
         renderGlass()
         renderPlaceholder()
         renderChips()
@@ -502,7 +534,10 @@ final class ComposeView: UIView {
         veil.contentsScale = fmt.scale
     }
 
+    /// The scale the placeholder and the waveform were drawn at (nil: not drawn).
+    private var placeholderScale: CGFloat?
     private func renderPlaceholder() {
+        placeholderScale = DisplayScale.current
         let fmt = UIGraphicsImageRendererFormat()
         fmt.opaque = false
         let ph = placeholder
@@ -634,7 +669,21 @@ final class ComposeView: UIView {
         let tv = textView.view
         tv.layoutSubtreeIfNeeded()
         let size = tv.bounds.size
-        guard size.width > 0, size.height > 0, let rep = tv.bitmapImageRepForCachingDisplay(in: tv.bounds) else { return }
+        guard size.width > 0, size.height > 0, var rep = tv.bitmapImageRepForCachingDisplay(in: tv.bounds) else { return }
+        // AppKit sizes the cache for the main screen when the view has no window (1x on a Mac
+        // whose main display is 1x); the snapshot is drawn at the scale of the tree it goes into.
+        let scale = tv.window?.backingScaleFactor ?? DisplayScale.current
+        // cmux: no trap on a NaN or huge size (crash ratchet)
+        let wide = CrashGuard.int((size.width * scale).rounded(.up), in: 0...1 << 16), high = CrashGuard.int((size.height * scale).rounded(.up), in: 0...1 << 16)
+        if rep.pixelsWide != wide || rep.pixelsHigh != high,
+           let scaled = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: wide, pixelsHigh: high,
+                                         bitsPerSample: rep.bitsPerSample, samplesPerPixel: rep.samplesPerPixel,
+                                         hasAlpha: rep.hasAlpha, isPlanar: rep.isPlanar, colorSpaceName: rep.colorSpaceName,
+                                         bitmapFormat: rep.bitmapFormat, bytesPerRow: 0, bitsPerPixel: rep.bitsPerPixel)?
+            .retagging(with: rep.colorSpace) {
+            scaled.size = size
+            rep = scaled
+        }
         tv.cacheDisplay(in: tv.bounds, to: rep)
         CATransaction.begin(); CATransaction.setDisableActions(true)
         textSnapshot.contents = rep.cgImage

@@ -258,7 +258,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         sidebar.sidebarView.headerHasWindowControls = sidebarSide == .left
         sidebar.sidebarView.titlebarLeadingReserve = sidebarSide == .left ? fullBandMaxX + Metrics.space2 : Metrics.space3
         if presenceChanged { onToolbarBandPresenceChange?() }
-        layoutTitlebarReveal(rowHeight: rowHeight)
+        layoutTitlebarReveal(rowHeight: rowHeight, fullBandMaxX: fullBandMaxX)
         guard let badge = titlebarBadge else { return }
         badge.isHidden = !showsTitlebarBadge
         guard showsTitlebarBadge else { return }

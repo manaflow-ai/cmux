@@ -512,6 +512,12 @@ fn start(
     // The acpmux daemon this host starts runs the children: pinned too. Its
     // model probes start only the harnesses this Chief can use.
     let mut daemon_env = pinned.clone();
+    // The Chief home whose codex homes acpmux's built-in codex presets use
+    // (acpmux `config/chief_builtins.rs`): in the daemon's own environment.
+    daemon_env.insert(
+        "ACPMUX_CHIEF_MUX_HOME".to_owned(),
+        home.display().to_string(),
+    );
     daemon_env.insert(
         "ACPMUX_PROBE_HARNESSES".to_owned(),
         probe_harnesses(

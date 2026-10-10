@@ -49,6 +49,9 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// The template (`tabs.newTabTemplate`: "default", "composer", "threads", "console",
     /// "classic" or "terminal"); nil follows `layout`. The page validates it.
     public var template: String?
+    /// true shows the template dots (Debug Settings `newTab.templateSwitcher`, cx-7qqu);
+    /// nil hides them until the switcher is styled.
+    public var templateSwitcher: Bool?
     /// The agent last picked.
     public var lastAgent: String?
     /// The home folder, so the field reads `~/path` as a folder.
@@ -64,7 +67,8 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     public init(kind: AgentPaneTabKind, hotkeys: [AgentPaneTabKind: String] = [:], cwd: String? = nil,
                 location: String? = nil, omnibar: AgentPaneOmnibar = AgentPaneOmnibar(), projects: [String] = [],
                 defaultKind: String? = nil, layout: AgentPaneNewTabLayout? = nil,
-                lastAgent: String? = nil, home: String? = nil, tools: [Tool] = [], template: String? = nil) {
+                lastAgent: String? = nil, home: String? = nil, tools: [Tool] = [], template: String? = nil,
+                templateSwitcher: Bool? = nil) {
         self.kind = kind
         self.hotkeys = Dictionary(uniqueKeysWithValues: hotkeys.map { ($0.key.rawValue, $0.value) })
         self.cwd = cwd
@@ -76,6 +80,7 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
         self.defaultKind = defaultKind
         self.layout = layout
         self.template = template
+        self.templateSwitcher = templateSwitcher
         self.lastAgent = lastAgent
         self.home = home
         self.tools = tools

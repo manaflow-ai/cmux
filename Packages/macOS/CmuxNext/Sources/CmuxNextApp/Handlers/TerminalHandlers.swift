@@ -66,9 +66,10 @@ enum TerminalHandlers {
         // next frame and comes back on reattach.
         registry.bind("terminal.clear", invoke: { invocation in
             guard let (tab, _) = ctx.daemonTab(invocation) else { return }
+            if tab.kind == .remoteTerminal { return clearRemoteTerminal(tab, ctx) }
             guard tab.kind == .pty else { return ctx.refuse(RefusalStrings.notATerminal) }
             let surface = tab.surface
-            ctx.send("clear-history") { _ = try await $0.request(ClearHistoryRequest(surface: surface)) }
+            clear(on: ctx.services.activeDaemon, ctx) { _ = try await $0.request(ClearHistoryRequest(surface: surface)) }
         })
         registry.bind("reconnectPane", invoke: { invocation in
             guard let (pane, content) = ctx.visibleContent(invocation) else { return }
@@ -77,6 +78,39 @@ enum TerminalHandlers {
             pane.showSelected()
             pane.focusContent(source: .programmatic)
         })
+    }
+
+    /// Cmd-K on a remote-terminal tab: the terminal's own session clears it
+    /// (by its public id; that session has no tab for it) and this view follows.
+    private static func clearRemoteTerminal(_ tab: TabModel, _ ctx: AppActionContext) {
+        let services = ctx.services
+        guard let ref = tab.remote, let daemon = services.machines.daemon(session: ref.sessionID) else {
+            return ctx.refuse(RemoteStrings.noMachine)
+        }
+        guard let terminal = services.remoteTerminals.resource(for: ref, on: daemon) else {
+            return ctx.refuse(RemoteStrings.machineHasNoTerminal)
+        }
+        clear(on: daemon, ctx) { try await $0.clearTerminalHistory(terminal) }
+    }
+
+    /// Sends a Cmd-K clear. A refusal changes nothing on screen, so it is never
+    /// only logged: it goes to the crash telemetry as a non-fatal failure, which
+    /// keeps a silent no-op Cmd-K visible (cx-6so.55).
+    private static func clear(on daemon: DaemonService, _ ctx: AppActionContext,
+                              _ body: @escaping @Sendable (DaemonConnection) async throws -> Void) {
+        guard daemon.connection != nil else { return ctx.refuse(MiscHandlerStrings.daemonOffline) }
+        let reporter = ctx.services.crashReporting.reporter
+        daemon.send("clear-history", onFailure: { failure in
+            reporter.recordFailure("terminal.clear", message: Self.failureKind(failure.message))
+        }, body)
+    }
+
+    /// The daemon's refusal reason without user content (no paths or screen text).
+    static func failureKind(_ message: String) -> String {
+        let known = ["active terminal input extends into retained history", "safe clear-history boundary",
+                     "does not support clear-history", "terminal host has exited", "terminal process has exited",
+                     "did not acknowledge ClearHistory", "not connected", "timed out"]
+        return known.first { message.contains($0) } ?? "other"
     }
 
     /// `terminal keep [--on false]`: the tab's terminal outlives its last

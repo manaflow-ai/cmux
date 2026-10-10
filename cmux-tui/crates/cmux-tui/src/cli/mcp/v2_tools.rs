@@ -110,6 +110,7 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("palette_usage.hide", PALETTE_USAGE_REASON),
     ("palette_usage.forget", PALETTE_USAGE_REASON),
     ("workspace.ensure_home", HOME_REASON),
+    ("workspace.ensure_app", APP_WORKSPACE_REASON),
     ("workspace.agent_folder.set", AGENT_FOLDER_REASON),
 ];
 
@@ -134,6 +135,8 @@ const PALETTE_USAGE_REASON: &str = "The user's own palette usage history: the ap
 const SIDEBAR_REASON: &str = "TUI sidebar plugin views in the cmux-tui-only scope.";
 const HOME_REASON: &str = "The hosting app creates its one home workspace on connect; the CLI \
      never offers it (workspace-kind-v1).";
+const APP_WORKSPACE_REASON: &str = "The hosting app opens an installed app's one workspace \
+     from its sidebar item (app-screens-v1); agents open apps through the apps tools.";
 const AGENT_FOLDER_REASON: &str = "Where a workspace's agents run: only the user sets it, through \
      the verified app after a gesture (gate A2); an agent never does.";
 

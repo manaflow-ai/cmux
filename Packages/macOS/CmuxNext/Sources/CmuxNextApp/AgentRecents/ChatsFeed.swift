@@ -49,9 +49,39 @@ final class ChatsFeed {
         watchedDirectory = nil
         let connection = AgentActivityLineConnection(path: socket)
         subscription = connection
-        connection.start(send: Self.watchRequest(limit: 5000),
-                         onLine: { [weak self] line in Task { @MainActor in self?.handle(line) } },
-                         onClose: { [weak self] in Task { @MainActor in self?.lost(connection) } })
+        // Lines decode on the socket queue (the first page is megabytes) and reach the main
+        // actor as one batch at a time: a burst of changes is one publish, never a Task per line.
+        connection.start(send: Self.watchRequest(limit: 5000), decode: Message.init(line:)) { [weak self, weak connection] drain in
+            if let connection { self?.apply(drain, from: connection) }
+        }
+    }
+
+    /// One decoded line of the watch.
+    nonisolated enum Message: Sendable {
+        /// A page response: the whole mirror, sorted off the main actor.
+        case page(store: AcpmuxChatsStore, ready: Bool, enabled: Bool)
+        case change(AcpmuxChatsStore.Change)
+        case lagged
+
+        init?(line: Data) {
+            guard let message = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return nil }
+            if let id = (message["id"] as? NSNumber)?.intValue, id == 2 || id >= 3,
+               let result = message["result"] as? [String: Any] {
+                var store = AcpmuxChatsStore()
+                store.reset(result)
+                self = .page(store: store, ready: result["ready"] as? Bool ?? false, enabled: result["enabled"] as? Bool ?? true)
+                return
+            }
+            switch message["method"] as? String {
+            case "_acpmux/chat_changed":
+                guard let change = (message["params"] as? [String: Any]).flatMap(AcpmuxChatsStore.change(from:)) else { return nil }
+                self = .change(change)
+            case "_acpmux/chats_lagged":
+                self = .lagged
+            default:
+                return nil
+            }
+        }
     }
 
     private static func watchRequest(limit: Int) -> Data {
@@ -69,27 +99,31 @@ final class ChatsFeed {
         return payload
     }
 
-    private func handle(_ line: Data) {
-        guard let message = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return }
-        if let id = (message["id"] as? NSNumber)?.intValue, id == 2 || id >= 3,
-           let result = message["result"] as? [String: Any] {
-            isReady = result["ready"] as? Bool ?? false
-            isEnabled = result["enabled"] as? Bool ?? true
-            store.reset(result)
-            backoff.reset()
-            publish()
-            return
+    /// Applies everything since the last drain, then publishes once.
+    private func apply(_ drain: MainActorLineDrain<Message>, from connection: AgentActivityLineConnection) {
+        guard subscription === connection else { return }
+        var changed = false
+        var lagged = false
+        for message in drain.values {
+            switch message {
+            case .page(let page, let ready, let enabled):
+                store = page
+                isReady = ready
+                isEnabled = enabled
+                backoff.reset()
+                lagged = false
+                changed = true
+            case .change(let change):
+                store.apply(change)
+                changed = true
+            case .lagged:
+                lagged = true
+            }
         }
-        switch message["method"] as? String {
-        case "_acpmux/chat_changed":
-            guard let params = message["params"] as? [String: Any] else { return }
-            store.apply(change: params)
-            publish()
-        case "_acpmux/chats_lagged":
-            requestList()
-        default:
-            break
-        }
+        // Dropped lines (a full batch) leave the mirror incomplete, like a lag: fetch a fresh page.
+        if lagged || drain.overflowed, !drain.closed { requestList() }
+        if changed { publish() }
+        if drain.closed { lost(connection) }
     }
 
     private func requestList() {

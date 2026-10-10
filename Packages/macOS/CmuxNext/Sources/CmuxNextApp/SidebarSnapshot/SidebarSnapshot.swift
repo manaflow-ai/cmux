@@ -128,7 +128,8 @@ nonisolated struct SidebarSnapshot: Codable, Hashable, Sendable {
         case let .emoji(text, chip)?:
             icon = "emoji:" + text
             tint = chip?.rawValue
-        case nil: break
+        // A favicon is not saved: the live row brings it back.
+        case .favicon?, nil: break
         }
         return Workspace(id: ws.id.rawValue, machineID: ws.machineID.rawValue, title: ws.title,
                          kind: ws.kind.rawValue, kindBrand: ws.kindBrand, icon: icon, iconTint: tint)

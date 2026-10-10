@@ -138,7 +138,7 @@ extension AgentPaneRequest {
         case "pane.action":
             if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128 {
                 let cwd = (params?["cwd"] as? String).flatMap { $0.hasPrefix("/") ? String($0.prefix(Self.maximumOpenTabText)) : nil }
-                self = .paneAction(id, cwd: cwd)
+                self = .paneAction(id, cwd: cwd, toggle: params?["mode"] as? String == "toggle")
             } else {
                 self = .unsupported(method)
             }

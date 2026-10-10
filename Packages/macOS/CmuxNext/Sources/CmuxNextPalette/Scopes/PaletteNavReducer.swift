@@ -69,9 +69,9 @@ nonisolated public struct PaletteNavReducer: Sendable {
                 pin(&state.levels[top])
             }
             return []
-        case .results(let levelID, let generation, let rows, let replace, let isFinal, let emptyQuerySelection):
+        case .results(let levelID, let generation, let rows, let replace, let isFinal, let emptyQuerySelection, let provisional):
             return accept(&state, levelID: levelID, generation: generation, rows: rows, replace: replace, isFinal: isFinal,
-                          emptyQuerySelection: emptyQuerySelection)
+                          emptyQuerySelection: emptyQuerySelection, provisional: provisional)
         case .refresh:
             let top = state.levels.count - 1
             return [reload(&state.levels[top])]
@@ -106,6 +106,9 @@ nonisolated public struct PaletteNavReducer: Sendable {
     private func push(_ state: inout PaletteNavState, scope: PaletteScopeID, entry: PaletteNavLevel.Entry, query: String,
                       announce: Bool = true) -> [PaletteNavEffect] {
         guard state.levels.count < config.maxDepth else { return [.refused(.depthLimit)] }
+        // Left from its selected row: popping back keeps that row, even if the level showed
+        // provisional rows (a consumed keyword already reset the level on purpose).
+        if case .keyword = entry {} else if let top = state.levels.indices.last { state.levels[top].pendingReset = false }
         let level = PaletteNavLevel(id: state.nextLevelID, scope: scope, entry: entry, query: query)
         state.nextLevelID += 1
         state.levels.append(level)
@@ -187,6 +190,11 @@ nonisolated public struct PaletteNavReducer: Sendable {
             // highlighted row at once).
             state.levels[top].pendingSubmit = true
             return []
+        } else if state.levels[top].pendingReset, state.levels[top].rowsAreCurrent {
+            // Provisional rows (the empty query's stand-in): Return runs the ranked batch's default
+            // row when it lands, unless the user chose a row (that clears the pending reset).
+            state.levels[top].pendingSubmit = true
+            return []
         }
         let level = state.levels[top]
         guard let row = selectedRow(level) else { return [] }
@@ -216,7 +224,8 @@ nonisolated public struct PaletteNavReducer: Sendable {
     // MARK: Results
 
     private func accept(_ state: inout PaletteNavState, levelID: Int, generation: Int, rows: [PaletteNavRow],
-                        replace: Bool, isFinal: Bool, emptyQuerySelection: Int?) -> [PaletteNavEffect] {
+                        replace: Bool, isFinal: Bool, emptyQuerySelection: Int?,
+                        provisional: Bool = false) -> [PaletteNavEffect] {
         guard let index = state.index(ofLevel: levelID), state.levels[index].generation == generation else { return [] }
         var level = state.levels[index]
         if let emptyQuerySelection { level.emptyQuerySelection = max(0, emptyQuerySelection) }
@@ -240,7 +249,8 @@ nonisolated public struct PaletteNavReducer: Sendable {
         }
         if level.pendingReset {
             level.selection = defaultSelection(level)
-            level.pendingReset = false
+            // Stand-in rows: the ranked batch picks the default row again.
+            level.pendingReset = provisional
         } else if level.pendingChoice != nil {
             // A waiting Return's chosen row is still missing.
             if !shown { level.selection = fallback() }
