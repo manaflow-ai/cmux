@@ -166,6 +166,10 @@ export default componentEntry<Props>({
       value: 33,
       reason: "Home rows are direct local buttons and should respond within one display frame.",
     },
+    settleMaxMs: {
+      value: 250,
+      reason: "Activating a home row is a local button interaction and should settle within a quarter second.",
+    },
   },
   load: () => import("./HomeLists").then(({ HomeLists: Component }) => withReceipt(Component)),
   variants: {
