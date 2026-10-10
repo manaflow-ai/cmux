@@ -29,8 +29,14 @@ final class HomeProjection: @preconcurrency ChatIntents {
     var isSendEnabled = true
     /// The host's notice, MessagesLab's system row under the newest message (nil: none).
     var notice: String? {
-        didSet { if notice != oldValue, controller.store != nil { controller.dispatch(.cmuxNotice(notice)) } }
+        didSet { if notice != oldValue, controller.store != nil { controller.dispatch(.cmuxNotice(shownNotice)) } }
     }
+    /// The send's own notice (a held send, text carried from a gone
+    /// conversation: cx-ebm.55); it shows over the host's notice.
+    private var sendNotice: String? {
+        didSet { if sendNotice != oldValue, controller.store != nil { controller.dispatch(.cmuxNotice(shownNotice)) } }
+    }
+    private var shownNotice: String? { sendNotice ?? notice }
     /// The window is key and visible: the read cursor may advance.
     var isVisibleToUser = false { didSet { if isVisibleToUser { reportReadIfNeeded() } } }
     var onSummaryChange: (ConversationSummary?) -> Void = { _ in }
@@ -70,6 +76,9 @@ final class HomeProjection: @preconcurrency ChatIntents {
     private var olderRequested = false
     private var reportedRead: Seq = 0
     private var stopped = false
+    /// Return was pressed while only the cache knew this conversation: the
+    /// send goes once the owner confirms it (`refresh`).
+    private var sendWhenConfirmed = false
     /// Rebuilds and applied (changed) updates, for tests.
     private(set) var rebuilds = 0
     private(set) var appliedUpdates = 0
@@ -107,6 +116,11 @@ final class HomeProjection: @preconcurrency ChatIntents {
     // MARK: HomeStore -> projection
 
     private func refresh() {
+        if sendWhenConfirmed, homeStore.isConfirmed(conversation) {
+            sendWhenConfirmed = false
+            sendNotice = nil
+            send()
+        }
         apply(items: homeStore.transcript(for: conversation), summary: homeStore.summary(conversation),
               typing: homeStore.typing[conversation] ?? [], hasOlder: homeStore.hasOlderMessages(in: conversation))
     }
@@ -118,6 +132,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         withObservationTracking {
             _ = homeStore.transcriptVersion[id, default: 0] // // crash program: a dictionary read the ratchet can type
             _ = homeStore.typing[id, default: []]
+            _ = homeStore.isConfirmed(id) // a send held for the owner goes once it names this conversation
             _ = homeStore.rows
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
@@ -195,7 +210,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
         }
         applyHeader()
         for a in core.typing(store.state, wanted: typing) { controller.dispatch(a) }
-        if notice != nil { controller.dispatch(.cmuxNotice(notice)) }
+        if homeStore.takeCarriedDraft(conversation) { sendNotice = CmuxStrings.chiefRestarted }
+        if shownNotice != nil { controller.dispatch(.cmuxNotice(shownNotice)) }
         refreshAttachments()
         onSummaryChange(summary)
         onRowsChange()
@@ -250,6 +266,17 @@ final class HomeProjection: @preconcurrency ChatIntents {
         let text = draft.text.trimmingCharacters(in: .whitespacesAndNewlines)
         let attachments = draft.attachments.compactMap { drafts[$0.id] }
         guard !text.isEmpty || !attachments.isEmpty else { return noteSend("refused: empty_draft") }
+        // Only the cache knows this conversation so far: the owner has not
+        // answered since launch, and a Chief home made again at the same path
+        // has other conversations (cx-ebm.55). The text stays; Home shows the
+        // owner's conversation (and carries the text there) once it answers.
+        if homeStore.isCacheOnly(conversation) {
+            sendWhenConfirmed = true
+            let chief = homeStore.summary(conversation)?.participants.contains(where: \.isChief) == true
+            sendNotice = chief ? CmuxStrings.waitingForChief : CmuxStrings.waitingToConnect
+            return noteSend("waiting_for_owner: sends once the owner confirms this conversation")
+        }
+        sendNotice = nil
         let key = IdempotencyKey.make()
         linkPreviews?.allowSend(text)
         // The paths that used to drop a send without a word (cx-ebm.55), one line each,

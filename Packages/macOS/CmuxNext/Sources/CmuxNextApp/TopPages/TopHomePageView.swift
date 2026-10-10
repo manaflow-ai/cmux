@@ -121,6 +121,8 @@ final class TopHomePageView: NSView {
                 rows = Self.visible(all, archivedChiefs: archived, me: store.me?.id)
                 list.update(sidebar.model())
                 if shown == nil, let first = defaultConversation(rows: rows, home: home) { show(first) }
+                // The cache's conversation of a Chief home made again (cx-ebm.55).
+                if shownIsGone(store), let chief = Self.chief(home) { replaceGone(with: ConversationID(chief), store: store) }
             }
         }
         // task-owner: lives as long as this view; event-driven (Observation). The chief placed
@@ -129,7 +131,11 @@ final class TopHomePageView: NSView {
             var previous = Self.chief(home)
             for await chief in ObservationStream({ Self.chief(home) }) {
                 guard let self, let chief, chief != previous else { continue }
-                if shown == nil || shown?.rawValue == previous { show(ConversationID(chief)) }
+                if shownIsGone(home.homeStore) {
+                    replaceGone(with: ConversationID(chief), store: home.homeStore)
+                } else if shown == nil || shown?.rawValue == previous {
+                    show(ConversationID(chief))
+                }
                 previous = chief
             }
         }
@@ -168,6 +174,28 @@ final class TopHomePageView: NSView {
     static func chief(_ home: HomeService) -> String? {
         let local = HomeChiefName.select(from: home.conversations)
         return HomeChiefSource.choose(local: local?.id, localHasHistory: (local?.lastSeq ?? 0) > 0, placed: home.cloudChief)
+    }
+
+    /// The shown conversation is one the owner's own inbox does not have:
+    /// the cache's conversation of a Chief home made again at the same path
+    /// (cx-ebm.55). Decided only on the owner's inbox, never the cache's copy.
+    private func shownIsGone(_ store: HomeStore) -> Bool {
+        guard let shown else { return false }
+        return store.isInboxCurrent && store.isCacheOnly(shown)
+    }
+
+    /// Shows the live Chief instead of a gone conversation; the text the user
+    /// typed there goes with it (after the Chief's own draft), so nothing typed is lost.
+    private func replaceGone(with chief: ConversationID, store: HomeStore) {
+        guard let gone = shown, gone != chief, store.summary(chief) != nil else { return }
+        if let text = store.draft(for: gone), !text.isEmpty {
+            let own = store.draft(for: chief) ?? ""
+            store.setDraft(own.isEmpty ? text : own + "\n" + text, for: chief)
+            store.setDraft("", for: gone)
+            // Its view says the Chief restarted and that Return sends the text.
+            store.noteCarriedDraft(to: chief)
+        }
+        show(chief)
     }
 
     /// Shows `id` in the transcript column and selects it in the list.

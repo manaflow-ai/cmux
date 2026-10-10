@@ -29,6 +29,7 @@ extension HomeStore {
         guard let snapshot = cache?.load() else { return }
         viewCache.restore(snapshot) {
             mirror.seed(snapshot)
+            seeded = Set(mirror.conversations.keys)
             me = mirror.me
             for send in snapshot.sends { log.restore(send.intent, failed: send.failed) }
             rebuildRows()
