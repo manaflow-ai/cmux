@@ -114,6 +114,16 @@ struct HostEditorView: View {
                 let saveEnabled = model.canSave
                 Button(model.isNew ? SSHText.add : SSHText.save) { Task { await model.save() } }
                     .disabled(!saveEnabled)
+                    // On iOS 26, a toolbar button can expose its UIKit
+                    // wrapper to UI tests instead of the SwiftUI Button.
+                    // Publish a disabled SwiftUI button as the accessibility
+                    // representation so XCTest sees the wrapper's state.
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityRepresentation {
+                        Button(model.isNew ? SSHText.add : SSHText.save) { Task { await model.save() } }
+                            .disabled(!saveEnabled)
+                            .accessibilityIdentifier("ssh.editor.save")
+                    }
                     .accessibilityIdentifier("ssh.editor.save")
             }
         }
