@@ -3,6 +3,8 @@
 //! A daemon from before the rename serves `edge-docks-v1` but reads the pin
 //! from `sticky`, so it would ignore `dock` and make a plain column. The SDK
 //! refuses the field before it sends the request.
+// Unix sockets and a live Unix daemon; the Windows suite is separate.
+#![cfg(unix)]
 
 use cmux::raw::{
     Client, ClientConfig, ColumnPin, Error, IdentifyRequest, MoveTabToColumnRequest, Optional,

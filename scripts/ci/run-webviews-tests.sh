@@ -9,14 +9,50 @@
 #
 # CMUX_WEB_TEST_FILE_TIMEOUT: seconds one file may run (default 120).
 # CMUX_WEB_TEST_JOBS: files run at once (default: the CPU count).
+#
+# Run from webviews/ (CI, local dev) it tests what is there. Run from anywhere else in the
+# checkout (a cmux-ci step starts at the checkout root) it first makes the web bundles
+# current (scripts/ci/ensure-web-bundles.sh, which also provides the pinned bun), runs
+# `bun install --frozen-lockfile` in webviews/, and then tests webviews/ only.
+#
+# Runs the same way on Linux CI and on a Mac (cmux-lawrence-2, nx-remote jobs): a full
+# single-process `bun test` there fails about 630 tests after one slow test leaves a React
+# act() scope open for every later file. Macs have no coreutils `timeout`, so the worker
+# falls back to gtimeout, then to a perl stand-in with the same exit codes.
 set -euo pipefail
+
+# run_with_timeout SECONDS COMMAND...: exit 124 when SECONDS pass, as `timeout -k 10` does.
+run_with_timeout() {
+  if command -v timeout > /dev/null 2>&1; then
+    timeout -k 10 "$@"
+  elif command -v gtimeout > /dev/null 2>&1; then
+    gtimeout -k 10 "$@"
+  else
+    # The child gets its own process group, so the TERM (and the KILL 10 s later) reach
+    # everything bun started.
+    perl -MPOSIX=WNOHANG -e '
+      my ($seconds, @command) = @ARGV;
+      my $pid = fork;
+      die "fork: $!\n" unless defined $pid;
+      if (!$pid) { setpgrp(0, 0); exec { $command[0] } @command or exit 127; }
+      my ($deadline, $kill_at, $timed_out) = (time + $seconds, 0, 0);
+      until (waitpid($pid, WNOHANG) == $pid) {
+        if (!$timed_out && time >= $deadline) { $timed_out = 1; kill "TERM", -$pid; $kill_at = time + 10; }
+        kill "KILL", -$pid if $timed_out && time >= $kill_at;
+        select(undef, undef, undef, 0.1);
+      }
+      exit 124 if $timed_out;
+      exit(($? & 127) ? 128 + ($? & 127) : $? >> 8);
+    ' "$@"
+  fi
+}
 
 if [ "${1:-}" = --one ]; then
   # Worker: run one file, write its log and status into the results directory.
   file="$2" results="$3" timeout_seconds="$4"
   log="$results/$(printf '%s' "$file" | tr '/' '_').log"
   status=0
-  timeout -k 10 "$timeout_seconds" bun test "./$file" > "$log" 2>&1 < /dev/null || status=$?
+  run_with_timeout "$timeout_seconds" bun test "./$file" > "$log" 2>&1 < /dev/null || status=$?
   case "$status" in
     0) result=PASS ;;
     124 | 137) result=TIMEOUT ;;
@@ -26,6 +62,23 @@ if [ "${1:-}" = --one ]; then
   echo "$result $file"
   exit 0
 fi
+
+self="$(cd "$(dirname "$0")" && pwd -P)/$(basename "$0")"
+case "$(git rev-parse --show-prefix)" in
+  webviews/*) ;;
+  *)
+    cd "$(git rev-parse --show-toplevel)"
+    bash scripts/ci/ensure-web-bundles.sh
+    # ensure-web-bundles.sh puts the pinned bun on its own PATH only: use the same copy.
+    bun_pin="$(python3 -c 'import json; print(json.load(open("webviews/package.json"))["devEngines"]["packageManager"]["version"])')"
+    bun_dir="${CMUX_CI_CACHE_DIR:-$HOME/Library/Caches/cmux-ci}/tools/bun-$bun_pin/bin"
+    if [ "$(bun --version 2>/dev/null || true)" != "$bun_pin" ] && [ -x "$bun_dir/bun" ]; then
+      export PATH="$bun_dir:$PATH"
+    fi
+    cd webviews
+    bun install --frozen-lockfile
+    ;;
+esac
 
 timeout_seconds="${CMUX_WEB_TEST_FILE_TIMEOUT:-120}"
 jobs="${CMUX_WEB_TEST_JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}"
@@ -42,7 +95,7 @@ if [ "$count" -eq 0 ]; then
 fi
 echo "running $count webviews test files, $jobs at a time, ${timeout_seconds}s each"
 : > "$results/summary"
-xargs -0 -P "$jobs" -I{} bash "$0" --one {} "$results" "$timeout_seconds" < "$results/files"
+xargs -0 -P "$jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/files"
 
 failed=0
 while read -r result file log; do

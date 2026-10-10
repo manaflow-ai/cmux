@@ -525,6 +525,1316 @@
         }
       }
     },
+    "remoteBrowser.failure.connectionLost": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The connection to the remote browser host at %@ closed."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أُغلق الاتصال بمضيف المتصفح البعيد على %@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Veza s hostom udaljenog preglednika na %@ je zatvorena."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forbindelsen til værten for fjernbrowseren på %@ blev lukket."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Verbindung zum Remote-Browser-Host unter %@ wurde geschlossen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La conexión con el host del navegador remoto en %@ se cerró."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La connexion à l’hôte du navigateur distant à %@ s’est fermée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La connessione all’host del browser remoto su %@ si è chiusa."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のリモートブラウザホストとの接続が閉じました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការតភ្ជាប់ទៅម៉ាស៊ីនកម្មវិធីរុករកពីចម្ងាយនៅ %@ បានបិទ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@의 원격 브라우저 호스트와의 연결이 닫혔습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilkoblingen til verten for den eksterne nettleseren på %@ ble lukket."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Połączenie z hostem zdalnej przeglądarki pod adresem %@ zostało zamknięte."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A conexão com o host do navegador remoto em %@ foi fechada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Соединение с хостом удалённого браузера по адресу %@ закрыто."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การเชื่อมต่อกับโฮสต์เบราว์เซอร์ระยะไกลที่ %@ ปิดแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ adresindeki uzak tarayıcı ana bilgisayarıyla bağlantı kapandı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "З’єднання з хостом віддаленого браузера за адресою %@ закрито."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kết nối tới máy chủ trình duyệt từ xa tại %@ đã đóng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "与 %@ 上远程浏览器主机的连接已关闭。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "與 %@ 上遠端瀏覽器主機的連線已關閉。"
+          }
+        }
+      }
+    },
+    "remoteBrowser.failure.hostEnded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The remote browser host at %@ ended this tab."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أنهى مضيف المتصفح البعيد على %@ علامة التبويب هذه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Host udaljenog preglednika na %@ završio je ovu karticu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Værten for fjernbrowseren på %@ afsluttede denne fane."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Remote-Browser-Host unter %@ hat diesen Tab beendet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El host del navegador remoto en %@ cerró esta pestaña."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’hôte du navigateur distant à %@ a mis fin à cet onglet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’host del browser remoto su %@ ha chiuso questa scheda."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のリモートブラウザホストがこのタブを終了しました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីនកម្មវិធីរុករកពីចម្ងាយនៅ %@ បានបញ្ចប់ផ្ទាំងនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@의 원격 브라우저 호스트가 이 탭을 종료했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Verten for den eksterne nettleseren på %@ avsluttet denne fanen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Host zdalnej przeglądarki pod adresem %@ zakończył tę kartę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O host do navegador remoto em %@ encerrou esta aba."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Хост удалённого браузера по адресу %@ завершил эту вкладку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โฮสต์เบราว์เซอร์ระยะไกลที่ %@ สิ้นสุดแท็บนี้แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ adresindeki uzak tarayıcı ana bilgisayarı bu sekmeyi sonlandırdı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Хост віддаленого браузера за адресою %@ завершив цю вкладку."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy chủ trình duyệt từ xa tại %@ đã kết thúc thẻ này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 上的远程浏览器主机结束了此标签页。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 上的遠端瀏覽器主機結束了此分頁。"
+          }
+        }
+      }
+    },
+    "remoteBrowser.failure.refused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The remote browser host at %@ refused this tab. It serves only a viewer that has its per-launch secret. Open the tab again with the host's secret file, or use Open Remote Browser Tab (Local Host)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "رفض مضيف المتصفح البعيد على %@ علامة التبويب هذه. فهو يخدم فقط عارضًا يملك السر الخاص بكل تشغيل. افتح علامة التبويب مرة أخرى باستخدام ملف سر المضيف، أو استخدم فتح علامة تبويب متصفح بعيد (مضيف محلي)."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Host udaljenog preglednika na %@ odbio je ovu karticu. Služi samo preglednik koji ima njegovu tajnu za ovo pokretanje. Ponovo otvorite karticu s datotekom tajne hosta ili koristite Otvori karticu udaljenog preglednika (lokalni host)."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Værten for fjernbrowseren på %@ afviste denne fane. Den betjener kun en fremviser, der har dens hemmelighed for denne start. Åbn fanen igen med værtens hemmelighedsfil, eller brug Åbn fjernbrowserfane (lokal vært)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Remote-Browser-Host unter %@ hat diesen Tab abgelehnt. Er bedient nur einen Viewer, der sein Geheimnis für diesen Start kennt. Öffne den Tab erneut mit der Geheimnisdatei des Hosts oder nutze „Remote-Browser-Tab öffnen (lokaler Host)“."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El host del navegador remoto en %@ rechazó esta pestaña. Solo atiende a un visor que tenga su secreto de este inicio. Vuelve a abrir la pestaña con el archivo secreto del host o usa Abrir pestaña de navegador remoto (host local)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’hôte du navigateur distant à %@ a refusé cet onglet. Il ne sert qu’un visualiseur qui possède son secret de lancement. Rouvrez l’onglet avec le fichier secret de l’hôte, ou utilisez Ouvrir un onglet de navigateur distant (hôte local)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’host del browser remoto su %@ ha rifiutato questa scheda. Serve solo un visualizzatore che ha il suo segreto di avvio. Riapri la scheda con il file segreto dell’host oppure usa Apri scheda browser remoto (host locale)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のリモートブラウザホストがこのタブを拒否しました。このホストは起動ごとのシークレットを持つビューアにだけ応答します。ホストのシークレットファイルを指定してタブを開き直すか、「リモートブラウザタブを開く（ローカルホスト）」を使ってください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីនកម្មវិធីរុករកពីចម្ងាយនៅ %@ បានបដិសេធផ្ទាំងនេះ។ វាបម្រើតែកម្មវិធីមើលដែលមានអាថ៌កំបាំងរបស់វាសម្រាប់ការបើកនេះប៉ុណ្ណោះ។ បើកផ្ទាំងម្ដងទៀតជាមួយឯកសារសម្ងាត់របស់ម៉ាស៊ីន ឬប្រើ បើកផ្ទាំងកម្មវិធីរុករកពីចម្ងាយ (ម៉ាស៊ីនមូលដ្ឋាន)។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@의 원격 브라우저 호스트가 이 탭을 거부했습니다. 이 호스트는 실행마다 만드는 비밀 값을 가진 뷰어만 받습니다. 호스트의 비밀 파일로 탭을 다시 열거나 원격 브라우저 탭 열기(로컬 호스트)를 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Verten for den eksterne nettleseren på %@ avviste denne fanen. Den betjener bare en visning som har hemmeligheten for denne oppstarten. Åpne fanen igjen med vertens hemmelighetsfil, eller bruk Åpne ekstern nettleserfane (lokal vert)."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Host zdalnej przeglądarki pod adresem %@ odrzucił tę kartę. Obsługuje tylko przeglądarkę, która zna jego sekret z tego uruchomienia. Otwórz kartę ponownie z plikiem sekretu hosta albo użyj polecenia Otwórz kartę zdalnej przeglądarki (host lokalny)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O host do navegador remoto em %@ recusou esta aba. Ele atende apenas um visualizador que tenha o segredo desta inicialização. Abra a aba de novo com o arquivo secreto do host ou use Abrir aba de navegador remoto (host local)."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Хост удалённого браузера по адресу %@ отклонил эту вкладку. Он обслуживает только клиента, у которого есть секрет текущего запуска. Откройте вкладку снова с файлом секрета хоста или используйте «Открыть вкладку удалённого браузера (локальный хост)»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โฮสต์เบราว์เซอร์ระยะไกลที่ %@ ปฏิเสธแท็บนี้ โฮสต์ให้บริการเฉพาะตัวดูที่มีความลับของการเปิดครั้งนี้ เปิดแท็บอีกครั้งพร้อมไฟล์ความลับของโฮสต์ หรือใช้ เปิดแท็บเบราว์เซอร์ระยะไกล (โฮสต์ในเครื่อง)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ adresindeki uzak tarayıcı ana bilgisayarı bu sekmeyi reddetti. Yalnızca bu başlatmanın gizli değerine sahip bir görüntüleyiciye hizmet verir. Sekmeyi ana bilgisayarın gizli dosyasıyla yeniden açın veya Uzak Tarayıcı Sekmesi Aç (Yerel Ana Bilgisayar) komutunu kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Хост віддаленого браузера за адресою %@ відхилив цю вкладку. Він обслуговує лише клієнта, який має секрет поточного запуску. Відкрийте вкладку знову з файлом секрету хоста або скористайтеся «Відкрити вкладку віддаленого браузера (локальний хост)»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy chủ trình duyệt từ xa tại %@ đã từ chối thẻ này. Máy chủ chỉ phục vụ trình xem có bí mật của lần khởi chạy này. Hãy mở lại thẻ với tệp bí mật của máy chủ, hoặc dùng Mở thẻ trình duyệt từ xa (máy chủ cục bộ)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 上的远程浏览器主机拒绝了此标签页。它只服务持有本次启动密钥的查看器。请用主机的密钥文件重新打开标签页，或使用“打开远程浏览器标签页（本地主机）”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 上的遠端瀏覽器主機拒絕了此分頁。它只服務持有本次啟動密鑰的檢視器。請用主機的密鑰檔案重新開啟分頁，或使用「開啟遠端瀏覽器分頁（本機主機）」。"
+          }
+        }
+      }
+    },
+    "remoteBrowser.failure.refusedSecret": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The remote browser host at %@ refused this tab: the secret is not the host's secret."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "رفض مضيف المتصفح البعيد على %@ علامة التبويب هذه: السر ليس سر المضيف."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Host udaljenog preglednika na %@ odbio je ovu karticu: tajna nije tajna hosta."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Værten for fjernbrowseren på %@ afviste denne fane: hemmeligheden er ikke værtens hemmelighed."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Remote-Browser-Host unter %@ hat diesen Tab abgelehnt: Das Geheimnis ist nicht das Geheimnis des Hosts."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El host del navegador remoto en %@ rechazó esta pestaña: el secreto no es el secreto del host."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’hôte du navigateur distant à %@ a refusé cet onglet : le secret n’est pas celui de l’hôte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’host del browser remoto su %@ ha rifiutato questa scheda: il segreto non è quello dell’host."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のリモートブラウザホストがこのタブを拒否しました: シークレットがホストのシークレットと一致しません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីនកម្មវិធីរុករកពីចម្ងាយនៅ %@ បានបដិសេធផ្ទាំងនេះ៖ អាថ៌កំបាំងមិនមែនជាអាថ៌កំបាំងរបស់ម៉ាស៊ីនទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@의 원격 브라우저 호스트가 이 탭을 거부했습니다: 비밀 값이 호스트의 비밀 값과 다릅니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Verten for den eksterne nettleseren på %@ avviste denne fanen: hemmeligheten er ikke vertens hemmelighet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Host zdalnej przeglądarki pod adresem %@ odrzucił tę kartę: sekret nie jest sekretem hosta."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O host do navegador remoto em %@ recusou esta aba: o segredo não é o segredo do host."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Хост удалённого браузера по адресу %@ отклонил эту вкладку: секрет не совпадает с секретом хоста."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โฮสต์เบราว์เซอร์ระยะไกลที่ %@ ปฏิเสธแท็บนี้: ความลับไม่ตรงกับความลับของโฮสต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ adresindeki uzak tarayıcı ana bilgisayarı bu sekmeyi reddetti: gizli değer ana bilgisayarınki değil."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Хост віддаленого браузера за адресою %@ відхилив цю вкладку: секрет не збігається із секретом хоста."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy chủ trình duyệt từ xa tại %@ đã từ chối thẻ này: bí mật không phải là bí mật của máy chủ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 上的远程浏览器主机拒绝了此标签页：密钥与主机的密钥不符。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 上的遠端瀏覽器主機拒絕了此分頁：密鑰與主機的密鑰不符。"
+          }
+        }
+      }
+    },
+    "remoteBrowser.failure.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not Connected"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "غير متصل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nije povezano"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikke forbundet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nicht verbunden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sin conexión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non connecté"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non connesso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未接続"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនបានភ្ជាប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "연결되지 않음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikke tilkoblet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brak połączenia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não conectado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нет подключения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่ได้เชื่อมต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bağlı değil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не під’єднано"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chưa kết nối"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未连接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未連線"
+          }
+        }
+      }
+    },
+    "remoteBrowser.failure.unreachable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No remote browser host answers at %@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يستجيب أي مضيف متصفح بعيد على %@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nijedan host udaljenog preglednika ne odgovara na %@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen vært for fjernbrowser svarer på %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Unter %@ antwortet kein Remote-Browser-Host."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ningún host de navegador remoto responde en %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucun hôte de navigateur distant ne répond à %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessun host di browser remoto risponde su %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ で応答するリモートブラウザホストがありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានម៉ាស៊ីនកម្មវិធីរុករកពីចម្ងាយឆ្លើយតបនៅ %@ ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@에서 응답하는 원격 브라우저 호스트가 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen vert for ekstern nettleser svarer på %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pod adresem %@ nie odpowiada żaden host zdalnej przeglądarki."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhum host de navegador remoto responde em %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "По адресу %@ не отвечает ни один хост удалённого браузера."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีโฮสต์เบราว์เซอร์ระยะไกลตอบที่ %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ adresinde yanıt veren uzak tarayıcı ana bilgisayarı yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "За адресою %@ не відповідає жоден хост віддаленого браузера."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có máy chủ trình duyệt từ xa nào trả lời tại %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 上没有远程浏览器主机响应。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 上沒有遠端瀏覽器主機回應。"
+          }
+        }
+      }
+    },
+    "remoteBrowser.localHost.exited": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "توقف المضيف قبل أن يصبح جاهزًا. سجله في %@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Host se zaustavio prije nego što je bio spreman. Njegov dnevnik je u %@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Værten stoppede, før den var klar. Dens log ligger i %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Host wurde beendet, bevor er bereit war. Sein Protokoll liegt unter %@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The host stopped before it was ready. Its log is at %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El host se detuvo antes de estar listo. Su registro está en %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’hôte s’est arrêté avant d’être prêt. Son journal se trouve dans %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’host si è arrestato prima di essere pronto. Il suo log è in %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホストは準備が完了する前に終了しました。ログ: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីនបានឈប់មុនពេលរួចរាល់។ កំណត់ហេតុរបស់វានៅ %@។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "호스트가 준비되기 전에 종료되었습니다. 로그 위치: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Verten stoppet før den var klar. Loggen ligger i %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Host zatrzymał się, zanim był gotowy. Jego dziennik jest w %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O host parou antes de ficar pronto. O log está em %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Хост остановился до готовности. Его журнал: %@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โฮสต์หยุดก่อนพร้อมใช้งาน บันทึกอยู่ที่ %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ana bilgisayar hazır olmadan durdu. Günlüğü: %@."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Хост зупинився до готовності. Його журнал: %@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy chủ đã dừng trước khi sẵn sàng. Nhật ký ở %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "主机在就绪前已停止。日志位于 %@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "主機在就緒前已停止。記錄位於 %@。"
+          }
+        }
+      }
+    },
+    "remoteBrowser.localHost.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يبدأ مضيف المتصفح البعيد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Host udaljenog preglednika se nije pokrenuo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fjernbrowserværten startede ikke"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Remote-Browser-Host wurde nicht gestartet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The remote browser host did not start"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El host del navegador remoto no se inició"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’hôte du navigateur distant n’a pas démarré"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’host del browser remoto non si è avviato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートブラウザホストを起動できませんでした"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីនកម្មវិធីរុករកពីចម្ងាយមិនបានចាប់ផ្ដើមទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "원격 브라우저 호스트가 시작되지 않았습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den eksterne nettleserverten startet ikke"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Host zdalnej przeglądarki nie uruchomił się"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O host do navegador remoto não iniciou"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Хост удалённого браузера не запустился"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โฮสต์เบราว์เซอร์ระยะไกลไม่เริ่มทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uzak tarayıcı ana bilgisayarı başlamadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Хост віддаленого браузера не запустився"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy chủ trình duyệt từ xa không khởi động"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "远程浏览器主机未启动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "遠端瀏覽器主機未啟動"
+          }
+        }
+      }
+    },
+    "remoteBrowser.localHost.missing": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يحتوي هذا الإصدار على مضيف المتصفح البعيد. اضبط %@ على تطبيق cmux-remote-browser-host."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ova verzija nema host udaljenog preglednika. Postavite %@ na aplikaciju cmux-remote-browser-host."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne build har ingen fjernbrowservært. Sæt %@ til en cmux-remote-browser-host-app."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Build enthält keinen Remote-Browser-Host. Setze %@ auf eine cmux-remote-browser-host-App."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This build has no remote browser host. Set %@ to a cmux-remote-browser-host app."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta compilación no tiene host de navegador remoto. Define %@ con una app cmux-remote-browser-host."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette version n’a pas d’hôte de navigateur distant. Définissez %@ sur une app cmux-remote-browser-host."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa build non ha un host del browser remoto. Imposta %@ su un’app cmux-remote-browser-host."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このビルドにはリモートブラウザホストがありません。%@ に cmux-remote-browser-host アプリを指定してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំណែនេះមិនមានម៉ាស៊ីនកម្មវិធីរុករកពីចម្ងាយទេ។ កំណត់ %@ ទៅកម្មវិធី cmux-remote-browser-host។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 빌드에는 원격 브라우저 호스트가 없습니다. %@을(를) cmux-remote-browser-host 앱으로 설정하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne versjonen har ingen ekstern nettleservert. Sett %@ til en cmux-remote-browser-host-app."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta kompilacja nie ma hosta zdalnej przeglądarki. Ustaw %@ na aplikację cmux-remote-browser-host."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta build não tem host de navegador remoto. Defina %@ com um app cmux-remote-browser-host."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "В этой сборке нет хоста удалённого браузера. Укажите в %@ приложение cmux-remote-browser-host."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บิลด์นี้ไม่มีโฮสต์เบราว์เซอร์ระยะไกล ตั้งค่า %@ เป็นแอป cmux-remote-browser-host"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu derlemede uzak tarayıcı ana bilgisayarı yok. %@ değerini bir cmux-remote-browser-host uygulamasına ayarlayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "У цій збірці немає хоста віддаленого браузера. Укажіть у %@ застосунок cmux-remote-browser-host."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản dựng này không có máy chủ trình duyệt từ xa. Đặt %@ thành ứng dụng cmux-remote-browser-host."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此版本没有远程浏览器主机。请将 %@ 设置为 cmux-remote-browser-host 应用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此版本沒有遠端瀏覽器主機。請將 %@ 設定為 cmux-remote-browser-host 應用程式。"
+          }
+        }
+      }
+    },
+    "remoteBrowser.localHost.timedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يصبح المضيف جاهزًا خلال %1$d ثانية وتم إيقافه. سجله في %2$@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Host nije bio spreman u roku od %1$d sekundi i zaustavljen je. Njegov dnevnik je u %2$@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Værten blev ikke klar inden for %1$d sekunder og blev stoppet. Dens log ligger i %2$@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Host war nicht innerhalb von %1$d Sekunden bereit und wurde beendet. Sein Protokoll liegt unter %2$@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The host did not get ready within %1$d seconds and was stopped. Its log is at %2$@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El host no estuvo listo en %1$d segundos y se detuvo. Su registro está en %2$@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’hôte n’était pas prêt dans les %1$d secondes et a été arrêté. Son journal se trouve dans %2$@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’host non era pronto entro %1$d secondi ed è stato arrestato. Il suo log è in %2$@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホストが %1$d 秒以内に準備できなかったため停止しました。ログ: %2$@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីនមិនបានរួចរាល់ក្នុង %1$d វិនាទី ហើយត្រូវបានបញ្ឈប់។ កំណត់ហេតុរបស់វានៅ %2$@។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "호스트가 %1$d초 안에 준비되지 않아 중지했습니다. 로그 위치: %2$@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Verten ble ikke klar innen %1$d sekunder og ble stoppet. Loggen ligger i %2$@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Host nie był gotowy w ciągu %1$d s i został zatrzymany. Jego dziennik jest w %2$@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O host não ficou pronto em %1$d segundos e foi parado. O log está em %2$@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Хост не был готов в течение %1$d с и был остановлен. Его журнал: %2$@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โฮสต์ไม่พร้อมภายใน %1$d วินาทีและถูกหยุด บันทึกอยู่ที่ %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ana bilgisayar %1$d saniye içinde hazır olmadı ve durduruldu. Günlüğü: %2$@."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Хост не був готовий протягом %1$d с і його зупинено. Його журнал: %2$@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy chủ không sẵn sàng trong %1$d giây và đã bị dừng. Nhật ký ở %2$@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "主机未在 %1$d 秒内就绪，已停止。日志位于 %2$@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "主機未在 %1$d 秒內就緒，已停止。記錄位於 %2$@。"
+          }
+        }
+      }
+    },
     "remoteBrowser.refusal.address": {
       "extractionState": "manual",
       "localizations": {
@@ -652,6 +1962,792 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "不是本機回送主機位址：%@"
+          }
+        }
+      }
+    },
+    "remoteBrowser.secretFile.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The secret file %@ has no secret on its first line."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يحتوي السطر الأول من ملف السر %@ على سر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Datoteka tajne %@ nema tajnu u prvom redu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hemmelighedsfilen %@ har ingen hemmelighed på første linje."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Geheimnisdatei %@ enthält in der ersten Zeile kein Geheimnis."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El archivo secreto %@ no tiene ningún secreto en su primera línea."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le fichier secret %@ ne contient aucun secret sur sa première ligne."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il file segreto %@ non ha un segreto nella prima riga."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シークレットファイル %@ の 1 行目にシークレットがありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឯកសារសម្ងាត់ %@ គ្មានអាថ៌កំបាំងនៅបន្ទាត់ទីមួយទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "비밀 파일 %@의 첫 줄에 비밀 값이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hemmelighetsfilen %@ har ingen hemmelighet på første linje."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Plik sekretu %@ nie ma sekretu w pierwszym wierszu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O arquivo secreto %@ não tem segredo na primeira linha."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "В первой строке файла секрета %@ нет секрета."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไฟล์ความลับ %@ ไม่มีความลับในบรรทัดแรก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ gizli dosyasının ilk satırında gizli değer yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "У першому рядку файлу секрету %@ немає секрету."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tệp bí mật %@ không có bí mật ở dòng đầu tiên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "密钥文件 %@ 的第一行没有密钥。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "密鑰檔案 %@ 的第一行沒有密鑰。"
+          }
+        }
+      }
+    },
+    "remoteBrowser.secretFile.missing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The secret file %@ does not exist."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ملف السر %@ غير موجود."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Datoteka tajne %@ ne postoji."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hemmelighedsfilen %@ findes ikke."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Geheimnisdatei %@ existiert nicht."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El archivo secreto %@ no existe."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le fichier secret %@ n’existe pas."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il file segreto %@ non esiste."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シークレットファイル %@ がありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឯកសារសម្ងាត់ %@ មិនមានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "비밀 파일 %@이(가) 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hemmelighetsfilen %@ finnes ikke."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Plik sekretu %@ nie istnieje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O arquivo secreto %@ não existe."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Файл секрета %@ не существует."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีไฟล์ความลับ %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ gizli dosyası yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Файл секрету %@ не існує."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tệp bí mật %@ không tồn tại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "密钥文件 %@ 不存在。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "密鑰檔案 %@ 不存在。"
+          }
+        }
+      }
+    },
+    "remoteBrowser.secretFile.notOwned": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The secret file %@ belongs to another user."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ملف السر %@ يخص مستخدمًا آخر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Datoteka tajne %@ pripada drugom korisniku."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hemmelighedsfilen %@ tilhører en anden bruger."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Geheimnisdatei %@ gehört einem anderen Benutzer."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El archivo secreto %@ pertenece a otro usuario."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le fichier secret %@ appartient à un autre utilisateur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il file segreto %@ appartiene a un altro utente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シークレットファイル %@ は別のユーザーのものです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឯកសារសម្ងាត់ %@ ជាកម្មសិទ្ធិរបស់អ្នកប្រើផ្សេង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "비밀 파일 %@은(는) 다른 사용자의 파일입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hemmelighetsfilen %@ tilhører en annen bruker."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Plik sekretu %@ należy do innego użytkownika."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O arquivo secreto %@ pertence a outro usuário."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Файл секрета %@ принадлежит другому пользователю."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไฟล์ความลับ %@ เป็นของผู้ใช้อื่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ gizli dosyası başka bir kullanıcıya ait."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Файл секрету %@ належить іншому користувачу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tệp bí mật %@ thuộc về người dùng khác."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "密钥文件 %@ 属于其他用户。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "密鑰檔案 %@ 屬於其他使用者。"
+          }
+        }
+      }
+    },
+    "remoteBrowser.secretFile.notPrivate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Other users can read the secret file %@. Make it private with chmod 600."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يمكن لمستخدمين آخرين قراءة ملف السر %@. اجعله خاصًا باستخدام chmod 600."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Drugi korisnici mogu čitati datoteku tajne %@. Učinite je privatnom pomoću chmod 600."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Andre brugere kan læse hemmelighedsfilen %@. Gør den privat med chmod 600."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Andere Benutzer können die Geheimnisdatei %@ lesen. Mache sie mit chmod 600 privat."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otros usuarios pueden leer el archivo secreto %@. Hazlo privado con chmod 600."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "D’autres utilisateurs peuvent lire le fichier secret %@. Rendez-le privé avec chmod 600."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Altri utenti possono leggere il file segreto %@. Rendilo privato con chmod 600."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ほかのユーザーがシークレットファイル %@ を読めます。chmod 600 で非公開にしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អ្នកប្រើផ្សេងអាចអានឯកសារសម្ងាត់ %@ បាន។ ធ្វើឱ្យវាឯកជនដោយ chmod 600។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다른 사용자가 비밀 파일 %@을(를) 읽을 수 있습니다. chmod 600으로 비공개로 만드세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Andre brukere kan lese hemmelighetsfilen %@. Gjør den privat med chmod 600."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inni użytkownicy mogą odczytać plik sekretu %@. Ustaw go jako prywatny poleceniem chmod 600."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Outros usuários podem ler o arquivo secreto %@. Torne-o privado com chmod 600."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Другие пользователи могут прочитать файл секрета %@. Сделайте его закрытым командой chmod 600."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ผู้ใช้อื่นอ่านไฟล์ความลับ %@ ได้ ทำให้เป็นส่วนตัวด้วย chmod 600"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diğer kullanıcılar %@ gizli dosyasını okuyabilir. chmod 600 ile özel yapın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Інші користувачі можуть читати файл секрету %@. Зробіть його приватним командою chmod 600."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Người dùng khác có thể đọc tệp bí mật %@. Hãy đặt riêng tư bằng chmod 600."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "其他用户可以读取密钥文件 %@。请用 chmod 600 将其设为私有。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "其他使用者可以讀取密鑰檔案 %@。請用 chmod 600 將其設為私有。"
+          }
+        }
+      }
+    },
+    "remoteBrowser.secretFile.notRegular": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The secret file %@ is not a regular file."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ملف السر %@ ليس ملفًا عاديًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Datoteka tajne %@ nije obična datoteka."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hemmelighedsfilen %@ er ikke en almindelig fil."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Geheimnisdatei %@ ist keine normale Datei."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El archivo secreto %@ no es un archivo normal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le fichier secret %@ n’est pas un fichier ordinaire."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il file segreto %@ non è un file normale."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シークレットファイル %@ は通常のファイルではありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឯកសារសម្ងាត់ %@ មិនមែនជាឯកសារធម្មតាទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "비밀 파일 %@은(는) 일반 파일이 아닙니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hemmelighetsfilen %@ er ikke en vanlig fil."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Plik sekretu %@ nie jest zwykłym plikiem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O arquivo secreto %@ não é um arquivo comum."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Файл секрета %@ не является обычным файлом."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไฟล์ความลับ %@ ไม่ใช่ไฟล์ปกติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ gizli dosyası normal bir dosya değil."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Файл секрету %@ не є звичайним файлом."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tệp bí mật %@ không phải là tệp thông thường."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "密钥文件 %@ 不是普通文件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "密鑰檔案 %@ 不是一般檔案。"
+          }
+        }
+      }
+    },
+    "remoteBrowser.secretFile.unreadable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot read the secret file %@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذرت قراءة ملف السر %@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nije moguće pročitati datoteku tajne %@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kan ikke læse hemmelighedsfilen %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Geheimnisdatei %@ kann nicht gelesen werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se puede leer el archivo secreto %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossible de lire le fichier secret %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile leggere il file segreto %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シークレットファイル %@ を読み取れません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចអានឯកសារសម្ងាត់ %@ បានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "비밀 파일 %@을(를) 읽을 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kan ikke lese hemmelighetsfilen %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie można odczytać pliku sekretu %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não é possível ler o arquivo secreto %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удаётся прочитать файл секрета %@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อ่านไฟล์ความลับ %@ ไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ gizli dosyası okunamıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдається прочитати файл секрету %@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể đọc tệp bí mật %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法读取密钥文件 %@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法讀取密鑰檔案 %@。"
           }
         }
       }

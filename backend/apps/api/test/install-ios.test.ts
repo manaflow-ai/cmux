@@ -1,4 +1,5 @@
 import { env, exports } from "cloudflare:workers"
+import { runInDurableObject as runIn } from "cloudflare:test"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import { derToRawP256 } from "../src/auth.ts"
@@ -9,7 +10,8 @@ import { derToRawP256 } from "../src/auth.ts"
  * carries install_kind "ios". iOS SecKeyCreateSignature (.ecdsaSignatureMessageX962SHA256)
  * returns DER signatures; CryptoKit returns raw r||s. Both are accepted.
  */
-const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string }
+const runInDurableObject = runIn as unknown as <T>(stub: unknown, fn: (instance: any) => Promise<T>) => Promise<T>
+const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; USER_DO: DurableObjectNamespace }
 const worker = (exports as unknown as { default: Fetcher }).default
 const sessionToken = async (sub: string) =>
   new SignJWT({ email: `${sub}@example.com`, email_verified: true, name: sub })
@@ -88,6 +90,38 @@ describe("iPhone install principal (D5)", { timeout: 30_000 }, () => {
     expect(out.json.value.revoked_at).not.toBeNull()
     // The still-unexpired token reads nothing after sign-out.
     expect((await call("/v1/read", token, { op: "install.list", params: {} })).status).toBe(403)
+  })
+
+  /** Registers an iOS install for `sub` and returns its install token (the phone's credential). */
+  const phone = async (sub: string) => {
+    const session = await sessionToken(sub)
+    const user = (await op(session, "user.ensure", {})).json.value.id as string
+    const pair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair
+    const jwk = (await crypto.subtle.exportKey("jwk", pair.publicKey)) as JsonWebKey
+    const install = (await op(session, "install.register", { public_jwk: { kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y }, kind: "ios", name: "x", device_name: "x", platform: "ios" })).json.value.id as string
+    const ch = await call("/v1/auth/challenge", undefined, { user, install })
+    const raw = new Uint8Array(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, pair.privateKey, new TextEncoder().encode(`${ch.json.message_prefix}${ch.json.nonce}`)))
+    const token = (await call("/v1/auth/token", undefined, { user, install, nonce: ch.json.nonce, signature: b64u(raw) })).json.access_token as string
+    return { session, user, install, token }
+  }
+
+  it("a stolen phone token cannot run an execute-class op (L14-1)", async () => {
+    const { token } = await phone("ios-no-execute")
+    const res = await op(token, "automation.run", { automation: "aut_0000000000000000" })
+    expect(res.json.ok).toBe(false)
+    expect(JSON.stringify(res.json)).toContain("grant does not cover execute")
+  })
+
+  it("after install.sign_out the phone's push targets are gone server-side (L14-2)", async () => {
+    const { user, token } = await phone("ios-push-signout")
+    const reg = await op(token, "push.target.register", { token: "ab".repeat(32), topic: "dev.cmux.ios", environment: "development", device_name: "x" })
+    expect(reg.json.ok).toBe(true)
+    const stub = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(user))
+    const stored = async () => runInDurableObject(stub, async (i: any) => Object.keys(i.engine.currentState.push_targets ?? {}).length)
+    expect(await stored()).toBe(1)
+    expect((await op(token, "install.sign_out", {})).json.ok).toBe(true)
+    expect(await stored()).toBe(0)
+    expect(await runInDurableObject(stub, async (i: any) => (await i.pushTargets(user)).length)).toBe(0)
   })
 
   it("a malformed DER signature is refused", async () => {

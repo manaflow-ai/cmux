@@ -23,7 +23,8 @@ public struct AgentQuestionFixture: Sendable, Identifiable {
 
     /// The directory that holds the fixture files.
     public static var directory: URL {
-        Bundle.module.resourceURL!.appendingPathComponent("Fixtures", isDirectory: true) // crash-allow: SwiftPM always bundles the Fixtures resource directory
+        // SwiftPM bundles the Fixtures resource directory; the bundle root stands in rather than a trap.
+        (Bundle.module.resourceURL ?? Bundle.module.bundleURL).appendingPathComponent("Fixtures", isDirectory: true)
     }
 
     public init(name: String) throws {

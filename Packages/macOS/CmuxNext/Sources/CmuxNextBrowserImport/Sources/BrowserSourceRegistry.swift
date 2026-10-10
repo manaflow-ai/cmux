@@ -66,6 +66,10 @@ public struct BrowserSourceRegistry: Sendable, Codable, Equatable {
     /// keeps the checked-in file decodable.
     public static let shared: BrowserSourceRegistry = {
         let empty = BrowserSourceRegistry(schemaVersion: 1, engines: [:], browsers: [])
+        #if CMUX_NO_BROWSER_DATA_IMPORT
+        // The cx-f58x notary test build ships an empty registry and detects no browser.
+        return empty
+        #else
         guard let url = Bundle.module.url(forResource: "browser-sources", withExtension: "json") else {
             Logger(subsystem: "com.cmuxterm.app.next", category: "browser-import").error("browser-sources.json is missing")
             return empty
@@ -77,6 +81,7 @@ public struct BrowserSourceRegistry: Sendable, Codable, Equatable {
                 .error("browser-sources.json: \(String(describing: error), privacy: .public)")
             return empty
         }
+        #endif
     }()
 
     public func row(_ id: String) -> BrowserSourceRow? {
