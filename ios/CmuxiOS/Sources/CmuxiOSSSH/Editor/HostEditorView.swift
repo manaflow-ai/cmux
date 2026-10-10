@@ -1,5 +1,43 @@
 import CmuxiOSFeatureKit
 import SwiftUI
+import UIKit
+
+/// A UIKit toolbar button keeps XCTest's `isEnabled` state aligned with the
+/// SwiftUI form validation. SwiftUI's toolbar accessibility wrapper can stay
+/// enabled even when its Button is disabled on iOS 26.
+private struct HostEditorToolbarButton: UIViewRepresentable {
+    let title: String
+    let isEnabled: Bool
+    let action: () -> Void
+
+    final class Coordinator: NSObject {
+        var action: () -> Void
+
+        init(action: @escaping () -> Void) {
+            self.action = action
+        }
+
+        @objc func pressed(_ sender: UIButton) {
+            action()
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(action: action) }
+
+    func makeUIView(context: Context) -> UIButton {
+        let button = UIButton(type: .system)
+        button.addTarget(context.coordinator, action: #selector(Coordinator.pressed(_:)), for: .touchUpInside)
+        button.accessibilityIdentifier = "ssh.editor.save"
+        return button
+    }
+
+    func updateUIView(_ button: UIButton, context: Context) {
+        button.setTitle(title, for: .normal)
+        button.isEnabled = isEnabled
+        button.accessibilityIdentifier = "ssh.editor.save"
+        context.coordinator.action = action
+    }
+}
 
 /// The add/edit form for an SSH host (low frequency, so SwiftUI).
 struct HostEditorView: View {
@@ -112,19 +150,8 @@ struct HostEditorView: View {
             }
             ToolbarItem(placement: .confirmationAction) {
                 let saveEnabled = model.canSave
-                Button(model.isNew ? SSHText.add : SSHText.save) { Task { await model.save() } }
-                    .disabled(!saveEnabled)
-                    // On iOS 26, a toolbar button can expose its UIKit
-                    // wrapper to UI tests instead of the SwiftUI Button.
-                    // Publish a disabled SwiftUI button as the accessibility
-                    // representation so XCTest sees the wrapper's state.
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityRepresentation {
-                        Button(model.isNew ? SSHText.add : SSHText.save) { Task { await model.save() } }
-                            .disabled(!saveEnabled)
-                            .accessibilityIdentifier("ssh.editor.save")
-                    }
-                    .accessibilityIdentifier("ssh.editor.save")
+                HostEditorToolbarButton(title: model.isNew ? SSHText.add : SSHText.save,
+                                        isEnabled: saveEnabled) { Task { await model.save() } }
             }
         }
         .task { await model.load() }
