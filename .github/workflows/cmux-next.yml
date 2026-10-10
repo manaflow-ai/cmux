@@ -2012,6 +2012,42 @@ jobs:
           # three personality routines (decision 2026-10-05).
           scripts/cmux-next/check-app-personalities.sh "$(find "$derived_data/Build/Products/Debug" -maxdepth 1 -name 'cmux DEV*.app' -print -quit)"
 
+      # A current feat-cmux-next push also produces the Release app consumed by
+      # cmux-next-dev-daily.yml. Keep this separate from the Debug dogfood
+      # product: the daily channel has its own stable identity and must never
+      # replace the existing PR artifact.
+      - name: Compile the cmux NEXT DEV Release app
+        id: compile-cmux-next-dev-release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.push-head-preflight.outputs.current == 'true'
+        env:
+          CMUX_NEXT_CONFIGURATION: Release
+          CMUX_NEXT_PRODUCT_NAME: cmux NEXT DEV
+          CMUX_NEXT_BUNDLE_ID: com.cmuxterm.app.debug.next
+          CMUX_NEXT_CODE_SIGN_ENTITLEMENTS: cmux.next-dev.entitlements
+          CMUX_NEXT_AUTH_CALLBACK_SCHEME: cmux-next-dev
+          CMUX_NEXT_TUI_MODE: tree
+          DEV_DAILY_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          release_derived_data="$RUNNER_TEMP/cmux-next-dev-daily-release"
+          scripts/cmux-next/check-cmux-scheme-compile.sh "$release_derived_data"
+          app="$(find "$release_derived_data/Build/Products/Release" -maxdepth 1 -type d -name 'cmux NEXT DEV.app' -print -quit)"
+          test -d "$app"
+          scripts/cmux-next/check-app-personalities.sh "$app"
+          archive="$RUNNER_TEMP/cmux-next-dev-daily-unsigned-${DEV_DAILY_SHA}.app.zip"
+          /usr/bin/ditto -c -k --keepParent "$app" "$archive"
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the cmux NEXT DEV Release app
+        if: steps.compile-cmux-next-dev-release.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-dev-daily-unsigned-${{ github.sha }}
+          path: ${{ steps.compile-cmux-next-dev-release.outputs.archive }}
+          if-no-files-found: error
+          retention-days: 2
+          compression-level: 0
+
       # Launch-time budget (#17587): warm launches of this build, on a copy
       # named for a tag of its own (its own socket, daemon and state), from an
       # empty profile. Budgets are about 4x a capture Mac's medians, so this
@@ -2036,7 +2072,10 @@ jobs:
       # before it writes the immutable R2 object or comments on the PR.
       - name: Package the trusted cmux-next dogfood artifact
         id: dogfood-artifact
-        if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') && contains(github.event.pull_request.labels.*.name, 'dev-build')) }}
+        # Keep packaging independent of later launch-budget failures. The
+        # app-producing compile is the admission boundary; unrelated checks
+        # and tests are separate jobs and must not suppress this artifact.
+        if: ${{ always() && ((github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') && contains(github.event.pull_request.labels.*.name, 'dev-build'))) }}
         env:
           PR: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -2055,7 +2094,7 @@ jobs:
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
 
       - name: Upload the exact cmux-next app for the trusted publisher
-        if: ${{ steps.dogfood-artifact.outputs.archive != '' }}
+        if: ${{ always() && steps.dogfood-artifact.outputs.archive != '' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ steps.dogfood-artifact.outputs.artifact_name }}
