@@ -94,8 +94,13 @@ final class OmniboxSuggestionPanel {
     }
 
     func highlight(_ index: Int?) {
+        var changed = false
         for (offset, row) in rows.enumerated() {
+            changed = changed || row.isHighlighted != (offset == index)
             row.isHighlighted = offset == index
+        }
+        if changed {
+            NSAccessibility.post(element: content.card, notification: .selectedChildrenChanged)
         }
     }
 
@@ -111,8 +116,20 @@ final class OmniboxSuggestionPanel {
 }
 
 /// Transparent panel content holding the card layer and its shadow.
+final class SuggestionCardListView: NSView {
+    private var accessibilityRows: [SuggestionRowView] = []
+
+    func setAccessibilityRows(_ rows: [SuggestionRowView]) {
+        accessibilityRows = rows
+    }
+
+    override func accessibilitySelectedChildren() -> [Any]? {
+        accessibilityRows.filter { $0.isAccessibilitySelected() }
+    }
+}
+
 final class SuggestionCardView: NSView {
-    let card = NSView()
+    let card = SuggestionCardListView()
     var cardFrame: NSRect = .zero { didSet { needsLayout = true } }
 
     override init(frame: NSRect) {
@@ -158,6 +175,7 @@ final class SuggestionCardView: NSView {
     }
 
     func setAccessibilityRows(_ rows: [SuggestionRowView]) {
+        card.setAccessibilityRows(rows)
         card.setAccessibilityChildren(rows)
         rows.forEach { $0.setAccessibilityParent(card) }
     }
