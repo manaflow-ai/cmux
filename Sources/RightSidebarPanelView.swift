@@ -105,9 +105,6 @@ struct RightSidebarPanelView: View {
     /// would make the two rails fight over one worker process.
     @State private var customSidebarWorkerClient: RenderWorkerClient?
     @State private var managedPolicyRevision = 0
-    /// Keeps CodeRouter state and its serialized CLI lane alive while the
-    /// active mode view is remounted during a sidebar mode switch.
-    @State private var coderouterStore = CoderouterAccountStore()
 
     // track the pending count so the badge updates live when hooks push
     // new items.
@@ -476,7 +473,7 @@ struct RightSidebarPanelView: View {
                     tabManager: tabManager,
                     teamPickerPresentation: fileExplorerState.cloudTeamPickerPresentation,
                     activationCoordinator: cloudActivationCoordinator,
-                    coderouterStore: coderouterStore
+                    coderouterStore: tabManager.coderouterAccountStore
                 )
             case .customSidebar:
                 customSidebarPanel

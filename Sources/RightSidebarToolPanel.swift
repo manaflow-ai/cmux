@@ -10,9 +10,9 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .rightSidebarTool
     let mode: RightSidebarMode
-    /// Keeps CodeRouter state and its serialized CLI lane alive across
-    /// SwiftUI remounts of this tool-panel surface.
-    let coderouterStore: CoderouterAccountStore
+    /// The window-scoped store is shared with the inline Cloud sidebar. Keep a
+    /// fallback for isolated panel construction before workspace attachment.
+    private let coderouterStoreFallback: CoderouterAccountStore
 
     @Published private(set) var focusFlashToken: Int = 0
 
@@ -29,8 +29,13 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     init(workspace: Workspace, mode: RightSidebarMode) {
         self.id = UUID()
         self.mode = mode
-        self.coderouterStore = CoderouterAccountStore()
+        self.coderouterStoreFallback = workspace.owningTabManager?.coderouterAccountStore
+            ?? CoderouterAccountStore()
         reattach(to: workspace)
+    }
+
+    var coderouterStore: CoderouterAccountStore {
+        workspace?.owningTabManager?.coderouterAccountStore ?? coderouterStoreFallback
     }
 
     deinit {
