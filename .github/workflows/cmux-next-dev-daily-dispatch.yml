@@ -22,7 +22,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       actions: write
-      contents: read
+      contents: write
     timeout-minutes: 5
     steps:
       - name: Dispatch the current feat-cmux-next tip when needed
@@ -38,30 +38,66 @@ jobs:
               ref: `heads/${source}`,
             });
             const sha = ref.object.sha;
+            // A workflow_dispatch on feat-cmux-next resolves github.sha when the
+            // run starts, so a merge that lands while the run is queued can make
+            // the requested SHA and checked-out SHA diverge. Pin each snapshot
+            // to its own immutable branch so the tree marker, source artifact,
+            // and workflow_run.head_sha stay on the same commit.
+            const snapshotRef = `cmux-next-dev-${sha}`;
+            let pinned;
+            try {
+              ({ data: pinned } = await github.rest.git.getRef({
+                owner,
+                repo,
+                ref: `heads/${snapshotRef}`,
+              }));
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              try {
+                ({ data: pinned } = await github.rest.git.createRef({
+                  owner,
+                  repo,
+                  ref: `refs/heads/${snapshotRef}`,
+                  sha,
+                }));
+              } catch (createError) {
+                if (createError.status !== 422) throw createError;
+                ({ data: pinned } = await github.rest.git.getRef({
+                  owner,
+                  repo,
+                  ref: `heads/${snapshotRef}`,
+                }));
+              }
+            }
+            if (pinned.object.sha !== sha) {
+              core.setFailed(`snapshot ref ${snapshotRef} points at ${pinned.object.sha}, expected ${sha}`);
+              return;
+            }
             const { data } = await github.rest.actions.listWorkflowRuns({
               owner,
               repo,
               workflow_id: workflow,
               event: 'workflow_dispatch',
-              branch: source,
+              branch: snapshotRef,
               per_page: 100,
             });
+            const isDevRun = (run) =>
+              run.name?.startsWith('cmux NEXT DEV daily ·') ||
+              run.display_title?.startsWith('cmux NEXT DEV daily ·');
             const activeOrSucceeded = data.workflow_runs.some((run) =>
-              run.head_sha === sha && (
-                (run.name?.startsWith('cmux NEXT DEV daily ·') || run.display_title?.startsWith('cmux NEXT DEV daily ·')) &&
-                ['queued', 'requested', 'waiting', 'pending', 'in_progress'].includes(run.status) ||
-                ((run.name?.startsWith('cmux NEXT DEV daily ·') || run.display_title?.startsWith('cmux NEXT DEV daily ·')) && run.status === 'completed' && run.conclusion === 'success')
-              )
+              run.head_sha === sha && isDevRun(run) &&
+              (['queued', 'requested', 'waiting', 'pending', 'in_progress'].includes(run.status) ||
+               (run.status === 'completed' && run.conclusion === 'success'))
             );
             if (activeOrSucceeded) {
-              core.notice(`Dev-daily source run already covers feat-cmux-next ${sha}`);
+              core.notice(`Dev-daily source run already covers feat-cmux-next ${sha} on ${snapshotRef}`);
               return;
             }
             await github.rest.actions.createWorkflowDispatch({
               owner,
               repo,
               workflow_id: workflow,
-              ref: source,
+              ref: snapshotRef,
               inputs: { dev_daily: 'true', dev_daily_sha: sha },
             });
-            core.notice(`Requested cmux NEXT DEV Release build for feat-cmux-next ${sha}`);
+            core.notice(`Requested cmux NEXT DEV Release build for feat-cmux-next ${sha} on ${snapshotRef}`);

@@ -23,8 +23,9 @@ jobs:
   publish:
     if: >-
       github.event.workflow_run.event == 'workflow_dispatch' &&
-      github.event.workflow_run.head_branch == 'feat-cmux-next' &&
       github.event.workflow_run.head_repository.full_name == github.repository &&
+      (github.event.workflow_run.head_branch == 'feat-cmux-next' ||
+       github.event.workflow_run.head_branch == format('cmux-next-dev-{0}', github.event.workflow_run.head_sha)) &&
       github.event.workflow_run.path == '.github/workflows/cmux-next.yml'
     name: Sign and publish cmux NEXT DEV
     environment: release
@@ -43,6 +44,7 @@ jobs:
       # A source run may have unrelated red checks while its app-producing Mac
       # job succeeded. Those independent reds must not suppress this channel.
       SOURCE_APP_PRODUCER_JOBS: |-
+        cmux NEXT DEV Release compile
         cmux app scheme compile (Debug)
         cmux-next Release compile (Xcode 26)
     steps:
