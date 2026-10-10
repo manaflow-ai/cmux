@@ -164,14 +164,72 @@ impl DockMode {
     }
 }
 
+/// What a docked column is for (`dock-column-role-v1`). `AgentChat` is the
+/// agent chat column of cmux next: frontends keep new tools out of it and
+/// restore it as the chat column after a restart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DockRole {
+    AgentChat,
+}
+
+impl DockRole {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "agent_chat" => Some(Self::AgentChat),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::AgentChat => "agent_chat",
+        }
+    }
+}
+
+/// A stored or received role this build does not know reads as no role, so
+/// a later build's role never makes the record unreadable.
+fn lenient_dock_role<'de, D>(deserializer: D) -> Result<Option<DockRole>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value: Option<String> = serde::Deserialize::deserialize(deserializer)?;
+    Ok(value.as_deref().and_then(DockRole::parse))
+}
+
 /// The dock flag of one viewport column, as stored and as sent on the wire
-/// (`{"edge":"left"|"right","mode":"docked"|"overlay"}`).
-/// Unknown members are ignored so a later build may add one without making
-/// this build unable to read the record.
+/// (`{"edge":"left"|"right","mode":"docked"|"overlay","role":"agent_chat","permanent":true}`,
+/// `role` omitted when unset and `permanent` when false). Unknown members are
+/// ignored so a later build may add one without making this build unable to
+/// read the record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ColumnDock {
     pub edge: DockEdge,
     pub mode: DockMode,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient_dock_role"
+    )]
+    pub role: Option<DockRole>,
+    /// `permanent-dock-v1`: the column stays docked on `edge` for every
+    /// client (no undock, other edge, replacement, or a close or move that
+    /// would remove it; see `mux::dock_columns`). Omitted when false, so
+    /// records and clients without the capability read it as before.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub permanent: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
+impl ColumnDock {
+    /// A dock with no role that is not permanent.
+    pub fn new(edge: DockEdge, mode: DockMode) -> Self {
+        Self { edge, mode, role: None, permanent: false }
+    }
 }
 
 /// True when the dock flags satisfy the column invariants: no flag on a

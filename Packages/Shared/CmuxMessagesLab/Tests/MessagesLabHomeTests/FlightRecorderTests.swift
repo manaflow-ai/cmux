@@ -41,10 +41,10 @@ import Testing
         let (window, _, c) = pane()
         defer { window.close() }
         c.host.layoutSubtreeIfNeeded()
-        c.demo.layoutIfNeeded()
-        c.demo.collection.layoutIfNeeded()
-        #expect(!c.demo.collection.visibleCells.isEmpty)
-        #expect(HomeFlightRecorder.coverageGaps(c.demo).isEmpty, "\(HomeFlightRecorder.coverageGaps(c.demo))")
+        c.demo!.layoutIfNeeded()
+        c.demo!.collection.layoutIfNeeded()
+        #expect(!c.demo!.collection.visibleCells.isEmpty)
+        #expect(HomeFlightRecorder.coverageGaps(c.demo!).isEmpty, "\(HomeFlightRecorder.coverageGaps(c.demo!))")
     }
 
     @Test func saveLastSecondsWritesTheRingUnderTheAppsLogFolder() throws {
@@ -63,6 +63,8 @@ import Testing
         #expect(meta?["reason"] as? String == "Save Last 10 Seconds")
         let events = (meta?["events"] as? [[String: Any]] ?? []).compactMap { $0["event"] as? String }
         #expect(events.contains { $0.hasPrefix("receive k7") }, "the engine's actions reach the recorder: \(events)")
+        // The frames are written off main (MessagesLab 995b723): wait up to 2 s for the file.
+        for _ in 0..<200 where !FileManager.default.fileExists(atPath: dir + "/frames.ndjson") { Thread.sleep(forTimeInterval: 0.01) }
         #expect(FileManager.default.fileExists(atPath: dir + "/frames.ndjson"))
         // Captures are a separate opt-in: none were taken.
         let frames = (try? FileManager.default.contentsOfDirectory(atPath: dir + "/frames")) ?? []

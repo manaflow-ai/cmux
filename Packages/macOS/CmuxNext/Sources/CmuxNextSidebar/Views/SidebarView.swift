@@ -28,44 +28,49 @@ public final class SidebarView: NSView {
     var titlebarHeight: CGFloat { titlebarHeightOverride ?? Metrics.titlebarHeight }
     let list: SidebarListView
     let scrollView = SidebarScrollView()
-    /// The one selection highlight (top items, groups and workspaces).
-    let highlight = SidebarSelectionHighlight()
     private(set) lazy var spacePaging = SidebarSpacePaging(host: self)
     /// Hosts the list's scroll view and fades rows out at its top or bottom
     /// while more are hidden there.
-    private var edgeFade: ScrollEdgeFadeView!
+    private lazy var edgeFade = ScrollEdgeFadeView(scrollView: scrollView)  // built in setup (no IUO)
     /// No rubber band while every row fits.
     private var scrollFit: ScrollFitElasticity?
     let profileBar: ProfileBarView
     /// Item sections above and below the workspace list
     /// (plans/cmux-next/sidebar-sections.md); each scrolls inside past its
-    /// share of the height.
+    /// share of the height. The footer section never scrolls: it is pinned
+    /// at the bottom, under the band below (`footerRegion`).
     let aboveRegion = SidebarRegionView(region: .top)
     let belowRegion = SidebarRegionView(region: .bottom)
+    let footerRegion = SidebarRegionView(region: .bottom)
     let aboveScroll = NSScrollView()
     let belowScroll = NSScrollView()
     /// Fade the bands' rows out at an edge while more are hidden there.
-    var aboveFade: ScrollEdgeFadeView!
-    var belowFade: ScrollEdgeFadeView!
+    // Built in the sections setup (no IUOs).
+    lazy var aboveFade = ScrollEdgeFadeView(scrollView: aboveScroll)
+    lazy var belowFade = ScrollEdgeFadeView(scrollView: belowScroll)
     /// The hairline between the top band and the list (quiet look). The
     /// footer has none (SIDEBAR-FOOTER-MINIMAL).
     let aboveLine = CALayer()
     let newButton = SidebarIconButton(symbol: "plus", label: Strings.newWorkspace)
-    let cardStack = SidebarCardStackView()
     /// Pointer over the sidebar (or a tab drag over it): titlebar buttons show.
     var isChromeRevealed = false
+    /// The pointer over the sidebar now (cx-3wu5).
+    private(set) var chromeHover: PointerHover?
     /// Bands minimal mode hides right now (the fade's target, R54).
     var minimalHiddenBands: (top: Bool, bottom: Bool) = (false, false)
-    private var accessories: [SidebarAccessorySlot: NSView] = [:]
+    var accessories: [SidebarAccessorySlot: NSView] = [:]
     let footer = NSView()
-    /// "Update Ready", trailing the footer's line while an update is staged
-    /// (`SidebarModel.updatePill`).
-    let updatePillView = SidebarUpdatePillView()
+    let updateCardView = SidebarUpdateCardView(), updatedCardView = SidebarUpdatedCardView(), noticeCardView = SidebarNoticeCardView()
     /// Where the spaces dots sit (`sidebar.spacesPosition`, R109).
     public var spacesPosition: SpacesPosition = .bottom {
         didSet { if spacesPosition != oldValue { needsLayout = true } }
     }
+    /// `sidebar.spacesVisibility` (cx-5k3r): on hover the strip fades with the other hover chrome.
+    public var spacesVisibility: SpacesVisibilityMode = .hover {
+        didSet { if spacesVisibility != oldValue { profileBar.alphaValue = spacesAlpha(revealed: isChromeRevealed) } }
+    }
     private var observation: Task<Void, Never>?
+    private var clipObservers: [any NSObjectProtocol] = []
     private var lastState: RenderState?
     public init(model: SidebarModel) {
         self.model = model
@@ -75,11 +80,14 @@ public final class SidebarView: NSView {
         buildHierarchy()
         list.reload(animated: false)
         observe()
+        // The chrome reveal follows the pointer and the sidebar's frame (cx-3wu5).
+        chromeHover = PointerHover(self) { [weak self] hovering in self?.setChromeRevealed(hovering) }
     }
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
     isolated deinit {
         observation?.cancel()
+        for token in clipObservers { NotificationCenter.default.removeObserver(token) }
     }
     override public var isFlipped: Bool { true }
     // MARK: Public API
@@ -91,7 +99,8 @@ public final class SidebarView: NSView {
     }
     /// The sidebar's chrome reveal changed (the window's title bar buttons follow).
     public var onChromeRevealChange: ((Bool) -> Void)?
-    /// The update and announcement cards above the spaces dots (R114; the updates lead fills it).
+    /// An optional view above the bottom card slot and the spaces dots (R114 slot; empty since the
+    /// messages to the user moved to the shared notice card).
     public var footerCards: NSView?
     /// A small view in the titlebar row, after the traffic lights (an
     /// incognito window's badge). Nil removes it.
@@ -105,17 +114,6 @@ public final class SidebarView: NSView {
             }
             needsLayout = true
         }
-    }
-
-    /// Installs (or removes, with nil) the view in a footer slot.
-    public func setAccessory(_ view: NSView?, for slot: SidebarAccessorySlot) {
-        accessories[slot]?.removeFromSuperview()
-        accessories[slot] = view
-        if let view {
-            view.translatesAutoresizingMaskIntoConstraints = true
-            footer.addSubview(view)
-        }
-        needsLayout = true
     }
 
     /// Focuses the workspace list for keyboard navigation.
@@ -142,7 +140,7 @@ public final class SidebarView: NSView {
     public var appSections: (any SidebarAppSectionProvider)? {
         didSet {
             appSections?.onContentChange = { [weak self] in self?.needsLayout = true }
-            for region in [aboveRegion, belowRegion] {
+            for region in bandRegions {
                 region.appView = { [weak self] section in section.contribution.flatMap { self?.appSections?.makeView(for: $0) } }
             }
             needsLayout = true
@@ -160,14 +158,20 @@ public final class SidebarView: NSView {
 
     /// Right-click menu for a target. The App fills this from the action
     /// registry (menus are ordered action-ID lists per context); nil means
+    /// The profile menu the footer's profile control opens
+    /// (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2); the App builds it from
+    /// registry actions. Nil opens nothing.
+    public var profileMenuProvider: (() -> NSMenu?)?
+    /// Shows a profile menu over its anchor (tests record it instead).
+    var profileMenuPresenter: @MainActor (NSMenu, NSView?) -> Void = { SidebarView.popUpProfileMenu($0, from: $1) }
+
     /// no context menu.
     public var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)? {
         get { list.contextMenuProvider }
         set {
             list.contextMenuProvider = newValue
             profileBar.contextMenuProvider = newValue
-            aboveRegion.contextMenuProvider = newValue
-            belowRegion.contextMenuProvider = newValue
+            for region in bandRegions { region.contextMenuProvider = newValue }
         }
     }
 
@@ -180,7 +184,6 @@ public final class SidebarView: NSView {
     // MARK: Hierarchy
 
     private func buildHierarchy() {
-        defer { highlight.install(in: self) }
         newButton.onPress = { [weak self] in self?.model.send(.newWorkspace(machine: nil, group: nil)) }
         newButton.alphaValue = 0
         addSubview(newButton)
@@ -194,31 +197,29 @@ public final class SidebarView: NSView {
         scrollView.contentView.drawsBackground = false
         scrollView.documentView = list
         scrollView.contentView.postsBoundsChangedNotifications = true
-        NotificationCenter.default.addObserver(self, selector: #selector(clipBoundsChanged), name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
         scrollView.contentView.postsFrameChangedNotifications = true
-        NotificationCenter.default.addObserver(self, selector: #selector(clipFrameChanged), name: NSView.frameDidChangeNotification, object: scrollView.contentView)
-        NotificationCenter.default.addObserver(self, selector: #selector(scrollerStyleChanged), name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
+        clipObservers = [ // queue: .main: inline for a post on main; a selector into this view trapped off main
+            NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: scrollView.contentView, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.clipBoundsChanged() } }, // main-proof: observer on queue: .main
+            NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: scrollView.contentView, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.syncListSize() } }, // main-proof: observer on queue: .main
+            NotificationCenter.default.addObserver(forName: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.scrollerStyleChanged() } }, // main-proof: observer on queue: .main
+        ]
         scrollView.onHorizontalScroll = { [weak self] phase, dx, time in self?.spacePaging.scroll(phase, deltaX: dx, time: time) }
-        edgeFade = ScrollEdgeFadeView(scrollView: scrollView)
         addSubview(edgeFade)
         scrollFit = ScrollFitElasticity(scrollView: scrollView)
         buildBands()
 
         addSubview(footer)
         footer.addSubview(profileBar)
-        updatePillView.onPress = { [weak self] in self?.model.send(.installUpdate) }
-        addSubview(updatePillView)
+        profileBar.alphaValue = spacesAlpha(revealed: isChromeRevealed)
+        cardSlot.install(in: self)
     }
 
-    @objc private func clipBoundsChanged(_ note: Notification) {
+    private func clipBoundsChanged() {
         list.realizeVisibleRows()
+        PointerHover.refresh(in: window)
     }
 
-    @objc private func clipFrameChanged(_ note: Notification) {
-        syncListSize()
-    }
-
-    @objc private func scrollerStyleChanged(_ note: Notification) {
+    private func scrollerStyleChanged() {
         scrollView.scrollerStyle = SystemScrollers.preferredStyle
         syncListSize()
     }
@@ -253,21 +254,28 @@ public final class SidebarView: NSView {
         profileBar.isHidden = false
         // R109: the dots under the titlebar row, or in the footer.
         let spacesHeight: CGFloat = spacesPosition == .top && showsProfiles ? SidebarStyle.footerHeight : 0
-        let footerHeight: CGFloat = SidebarStyle.footerHeight
-        let cardsHeight = attachFooterCards()
-        // From the bottom up (R112/R114): the Settings band, the dots, the cards.
-        let listFrame = layoutBands(top: y + spacesHeight, footerHeight: footerHeight + cardsHeight)
+        // Amendment 3: at the bottom the dots share the footer band's row
+        // (after the profile control), so the dots row takes no height of
+        // its own unless the band is empty.
+        updateBands()
+        let footerHeight: CGFloat = spacesPosition == .bottom && dotsShareBandRow ? 0 : SidebarStyle.footerHeight
+        let cardsHeight = attachFooterCards(), updateHeight = cardSlot.height
+        // From the bottom up (R112/R114): the pinned footer section (the
+        // profile control, then the dots), the band below the list, the
+        // staged update card (UPDATE-CARD), the cards.
+        let listFrame = layoutBands(top: y + spacesHeight, footerHeight: footerHeight + updateHeight + cardsHeight)
+        if !isChromeRevealed { belowFade.alphaValue = belowRegion.restAlpha(hiddenByMode: minimalHiddenBands.bottom) }
         footer.frame = NSRect(x: 0, y: belowFade.frame.minY - footerHeight, width: b.width, height: footerHeight)
-        footerCards?.frame = NSRect(x: 0, y: footer.frame.minY - cardsHeight, width: b.width, height: cardsHeight)
+        cardSlot.place(above: footer.frame.minY, width: b.width, slotHeight: updateHeight)
+        footerCards?.frame = NSRect(x: 0, y: footer.frame.minY - updateHeight - cardsHeight, width: b.width, height: cardsHeight)
         layoutFooter(visibleSlots)
         placeSpaces(top: y, height: spacesHeight)
-        placeUpdatePill()
         edgeFade.frame = listFrame
         scrollView.tile()
         syncListSize()
-        highlight.refresh(animated: false)
+        // Everything above may have moved under a still pointer (cx-3wu5).
+        PointerHover.refresh(in: window)
     }
-
 
     // MARK: Titlebar row
 
@@ -283,14 +291,7 @@ public final class SidebarView: NSView {
 
     // MARK: Hover reveal
 
-    override public func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        for area in trackingAreas where area.owner === self { removeTrackingArea(area) }
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
-    }
-
-    override public func mouseEntered(with event: NSEvent) { setChromeRevealed(true) }
-    override public func mouseExited(with event: NSEvent) { setChromeRevealed(false) }
+    // The pointer over the sidebar reveals its chrome: `chromeHover`, set up in init.
 
     // MARK: Observation
 
@@ -305,6 +306,7 @@ public final class SidebarView: NSView {
         var filter: String
         var layout: SidebarLayoutDocument
         var itemInfo: [LayoutItemID: SidebarItemInfo]
+        var transientTopItems: [SidebarTransientItem]
         var collapsedSections: Set<LayoutSectionID>
         var look: SectionsLookVariant
         var drawsLines: Bool
@@ -315,7 +317,7 @@ public final class SidebarView: NSView {
         var metrics: SidebarLayoutMetrics
         var fontSize: CGFloat
         var titlebarHeight: CGFloat
-        var updatePill: SidebarUpdatePill?
+        var cards: SidebarBottomCards
     }
 
     private func observe() {
@@ -330,7 +332,8 @@ public final class SidebarView: NSView {
                     activeProfile: model.activeProfileID,
                     filter: model.filterText,
                     layout: model.layout,
-                    itemInfo: model.itemInfo,
+                    itemInfo: model.resolvedItemInfo,
+                    transientTopItems: model.transientTopItems,
                     collapsedSections: model.collapsedLayoutSections,
                     look: SidebarSectionTunables.currentLook,
                     drawsLines: Borders.drawsLines,
@@ -339,7 +342,7 @@ public final class SidebarView: NSView {
                     metrics: .standard,
                     fontSize: Typography.body.pointSize,
                     titlebarHeight: Metrics.titlebarHeight,
-                    updatePill: model.updatePill
+                    cards: SidebarBottomCards(update: model.updateCard, updated: model.updatedCard, notice: model.noticeCard)
                 )
             }) {
                 self?.render(state)
@@ -354,12 +357,12 @@ public final class SidebarView: NSView {
         let profileChanged = lastState?.activeProfile != state.activeProfile
         let profilesChanged = lastState?.profiles != state.profiles || profileChanged
             || lastState?.layout != state.layout || lastState?.itemInfo != state.itemInfo || lastState?.selected != state.selected
+            || lastState?.transientTopItems != state.transientTopItems
             || lastState?.collapsedSections != state.collapsedSections || lastState?.look != state.look
             || lastState?.drawsLines != state.drawsLines || lastState?.preferences != state.preferences || lastState?.suppressedApps != state.suppressedApps
         let listChanged = lastState?.sections != state.sections || lastState?.selection != state.selection
             || lastState?.selected != state.selected || lastState?.filter != state.filter || chromeChanged || profileChanged
-            || lastState?.preferences.showWorkspaceTabs != state.preferences.showWorkspaceTabs
-            || lastState?.preferences.showCounts != state.preferences.showCounts
+            || state.preferences.changesList(from: lastState?.preferences)
         let previous = lastState?.sections
         model.applyListPreferences(state.preferences)
         // Minimal mode or an item's control changed: show or hide the chosen bands now.
@@ -373,10 +376,7 @@ public final class SidebarView: NSView {
                 list.reload(animated: Self.animatesReload(from: previous, to: state.sections))
             }
         }
-        if lastState?.updatePill != state.updatePill {
-            updatePillView.configure(state.updatePill)
-            needsLayout = true
-        }
+        if lastState?.cards != state.cards { cardSlot.show(state.cards); needsLayout = true }
         if chromeChanged || profilesChanged { needsLayout = true }
         lastState = state
     }

@@ -194,3 +194,21 @@ fn an_added_origin_with_a_default_port_matches_what_browsers_send() {
     let ignored = policy.clone().with_origin("not an origin");
     assert_eq!(ignored, policy);
 }
+
+#[test]
+fn keeping_the_host_rule_on_a_wide_bind_admits_only_literals_and_added_names() {
+    let policy = ListenerPolicy::for_bind_keeping_host_rule("0.0.0.0:47811".parse().unwrap())
+        .with_host("mini.tail1234.ts.net");
+    assert_eq!(policy.check(&["sandbox-a:47811"], &[]), Err(Refusal::ForeignHost));
+    assert_eq!(policy.check(&["evil.example:47811"], &[]), Err(Refusal::ForeignHost));
+    assert_eq!(policy.check(&["10.0.0.7:47811"], &[]), Ok(()));
+    assert_eq!(policy.check(&["[fd7a:115c:a1e0::1]:47811"], &[]), Ok(()));
+    assert_eq!(policy.check(&["mini.tail1234.ts.net"], &[]), Ok(()));
+    assert_eq!(policy.check(&["localhost:47811"], &[]), Ok(()));
+    assert_eq!(
+        policy.check(&["10.0.0.7:47811"], &["https://evil.example"]),
+        Err(Refusal::ForeignOrigin)
+    );
+    let loopback = ListenerPolicy::for_bind_keeping_host_rule("127.0.0.1:47811".parse().unwrap());
+    assert_eq!(loopback.check(&["10.0.0.7:47811"], &[]), Err(Refusal::ForeignHost));
+}

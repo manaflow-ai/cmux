@@ -11,7 +11,8 @@ nonisolated extension ContextMenuCatalog {
     public static let exportRenderRules: [String] = [
         "A row shows only when its visible_when holds: every name in requires is true in the effective context (the window's context plus the menu's implied names), debug_only rows need developer tools, and a row whose feature an administrator turned off is left out.",
         "enabled_when can_perform: the row is enabled when its action is bound and its handler allows it for the clicked target; a disabled row may carry a reason as subtitle and tooltip.",
-        "A submenu takes its action's title without a trailing ellipsis; a folder takes its own title. A submenu or folder without a shown row is left out.",
+        "A row with a label shows that label instead of its action's title: menu-only wording (Change Space Icon… for Set Space Icon…); the palette and CLI keep the title.",
+        "A submenu takes its label, else its action's title, without a trailing ellipsis; a folder takes its own title. A submenu or folder without a shown row is left out.",
         "A separator shows only after a shown row and before another shown row: runs collapse to one, and leading and trailing separators drop.",
         "A choices row is a submenu with one item per value in choices.values (then a separator and More… when more_opens_palette). It shows by the same visible_when as every row, and only when its action is bound and enabled (otherwise it is left out, not disabled).",
         "context_menus_not_exported lists the menus built by hand in their views; they are not in context_menus. Whoever adds a new hand-built menu adds it to that list (ContextMenuCatalog.exportHandBuiltMenus).",
@@ -46,14 +47,14 @@ nonisolated extension ContextMenuCatalog {
             guard !entries.isEmpty else { continue }
             menus[context.rawValue] = [
                 "implied": Self.contextNames(ActionRegistry.impliedContext(for: context)),
-                "entries": Self.exportEntries(entries, byID: byID, titles: titles),
+                "entries": Self.exportEntries(entries, byID: byID, titles: titles, labels: labels(for: context)),
             ] as [String: Any]
         }
         return menus
     }
 
     static func exportEntries(_ entries: [ContextMenuEntry], byID: [ActionID: ActionDescriptor],
-                              titles: ActionTitleCatalog) -> [[String: Any]] {
+                              titles: ActionTitleCatalog, labels: [ActionID: String] = [:]) -> [[String: Any]] {
         entries.enumerated().map { order, entry in
             var row: [String: Any] = ["order": order]
             switch entry {
@@ -64,6 +65,8 @@ nonisolated extension ContextMenuCatalog {
                 row["id"] = id.rawValue
                 row["visible_when"] = visibleWhen(byID[id])
                 row["enabled_when"] = "can_perform"
+                // A menu-only title (ContextMenuPlacement.label), English.
+                if let label = labels[id] { row["label"] = label }
                 if case .choices = entry, let (argument, cases) = byID[id]?.arguments.lazy.compactMap(ActionRegistry.menuChoices).first {
                     row["choices"] = [
                         "argument": argument.name,
@@ -75,13 +78,19 @@ nonisolated extension ContextMenuCatalog {
                         },
                         "more_opens_palette": argument.suggestions != nil,
                     ] as [String: Any]
+                } else if case .choices = entry, let descriptor = byID[id],
+                          let argument = descriptor.arguments.first(where: { ActionTargetChoices.kind(of: $0, in: descriptor) != nil }),
+                          let kind = ActionTargetChoices.kind(of: argument, in: descriptor) {
+                    // The objects of that kind, listed by the client (the palette's target list).
+                    row["choices"] = ["argument": argument.name, "target_kind": kind.rawValue] as [String: Any]
                 }
             case .submenu(let id, let children):
                 row["kind"] = "submenu"
                 row["id"] = id.rawValue
                 row["title_from"] = "action"
+                if let label = labels[id] { row["label"] = label }
                 row["visible_when"] = visibleWhen(byID[id])
-                row["children"] = exportEntries(children, byID: byID, titles: titles)
+                row["children"] = exportEntries(children, byID: byID, titles: titles, labels: labels)
             case .folder(let folder, let children):
                 row["kind"] = "folder"
                 row["folder"] = folder.rawValue
@@ -89,7 +98,7 @@ nonisolated extension ContextMenuCatalog {
                 row["title"] = titles.entry(key: key, table: "Localizable")?.english ?? folder.title
                 row["title_key"] = key
                 row["title_table"] = "Localizable"
-                row["children"] = exportEntries(children, byID: byID, titles: titles)
+                row["children"] = exportEntries(children, byID: byID, titles: titles, labels: labels)
             }
             return row
         }

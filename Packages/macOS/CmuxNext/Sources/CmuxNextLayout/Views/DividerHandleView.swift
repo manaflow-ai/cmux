@@ -34,9 +34,14 @@ final class DividerHandleView: NSView {
         didSet { if showsActiveLine != oldValue { applyColors() } }
     }
     var onDrag: ((DragEvent) -> Void)?
+    /// The pointer crossed this handle's tracking area. The screen that owns
+    /// the handles decides hover from the pointer and the current frames
+    /// (`ScreenContentView.refreshDividerHover`); the handle keeps no hover
+    /// of its own, because a layout change can move it under a still pointer.
+    var onPointerChange: (() -> Void)?
 
     private let line = CALayer()
-    private var isHovered = false { didSet { applyColors() } }
+    private(set) var isHovered = false { didSet { if isHovered != oldValue { applyColors() } } }
     private var isDragging = false { didSet { applyColors() } }
     private var trackingArea: NSTrackingArea?
 
@@ -122,12 +127,21 @@ final class DividerHandleView: NSView {
     /// The line's color as drawn now.
     var lineColor: CGColor? { line.backgroundColor }
 
-    /// Hover reported by a click-catching panel above a Chromium page (the
-    /// pointer is over that panel, so this view's tracking area sees nothing).
-    func setForwardedHover(_ hovered: Bool) { isHovered = hovered }
+    /// Set only by the owning screen's hover pass.
+    func setHovered(_ hovered: Bool) { isHovered = hovered }
 
-    override func mouseEntered(with event: NSEvent) { isHovered = true }
-    override func mouseExited(with event: NSEvent) { isHovered = false }
+    override func mouseEntered(with event: NSEvent) { onPointerChange?() }
+    override func mouseExited(with event: NSEvent) { onPointerChange?() }
+
+    /// Leaving the view tree mid-drag: the mouse-up will never arrive here,
+    /// so the drag state ends with the view (the screen ends the gesture).
+    override func viewWillMove(toSuperview newSuperview: NSView?) {
+        super.viewWillMove(toSuperview: newSuperview)
+        if newSuperview == nil {
+            isDragging = false
+            isHovered = false
+        }
+    }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 

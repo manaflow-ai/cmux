@@ -10,7 +10,7 @@ import CmuxNextSettings
 /// every step without synthetic input. Returns the state after the action.
 ///
 /// `action`: `open` (`step`), `state`, `next`, `back`, `skip`, `close`,
-/// `first_task` (`task`: note, chart),
+/// `first_task` (`task`: note, chart), `tab_keys` (`choice`: tabs, spaces),
 /// `toggle_project` (`path`), `add_project` (`path`),
 /// `theme` (`name`, empty for the Ghostty theme), `detect`,
 /// `toggle_profile` (`id`), `toggle_kind` (`kind`), `import`,
@@ -35,13 +35,16 @@ enum DebugOnboarding {
         case "next": model.next()
         case "back": model.back()
         case "skip": model.skipStep()
-        case "close": model.finish(completed: false)
+        // The close button: leaves the first run unfinished. `skip_all` is Escape.
+        case "close": onboarding.controller?.closeWithCloseButton()
+        case "skip_all": model.finish(completed: false)
         case "first_task": if let task = params["task"]?.stringValue.flatMap(FirstTask.init(rawValue:)) { model.firstTask.pick(task) }
         case "toggle_project":
             if let path = params["path"]?.stringValue, let project = model.projects.projects.first(where: { $0.id == path }) {
                 model.projects.toggle(project)
             }
         case "add_project": if let path = params["path"]?.stringValue { model.projects.add(URL(fileURLWithPath: path, isDirectory: true)) }
+        case "tab_keys": if let choice = params["choice"]?.stringValue.flatMap(TabKeysChoice.init(rawValue:)) { model.tabKeys.select(choice) }
         case "theme": model.theme.select(params["name"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 })
         case "detect": model.importer.redetect()
         case "toggle_profile":
@@ -93,7 +96,15 @@ enum DebugOnboarding {
                      "apps": .array(project.apps.map { .string($0.rawValue) }), "selected": .bool(model.projects.isSelected(project))])
         })
         result["projects_scanning"] = .bool(model.projects.isScanning)
+        // Names and ids only: never a chat's title.
+        result["classic_workspaces"] = .array(model.classicSessions.workspaces.map { workspace in
+            .object(["name": .string(workspace.name), "selected": .bool(model.classicSessions.isSelected(workspace))])
+        })
+        result["chats"] = .array(model.chats.chats.map { chat in
+            .object(["id": .string(chat.id), "selected": .bool(model.chats.isSelected(chat))])
+        })
         result["projects_privacy"] = .array(model.projects.privacyFolders.map { .string($0.rawValue) })
+        result["tab_keys"] = model.tabKeys.selected.map { .string($0.rawValue) } ?? .null
         result["theme"] = model.theme.selected.map(JSONValue.string) ?? .null
         result["themes"] = .array(model.theme.choices.map { .string($0.name ?? "") })
         result["import_phase"] = .string(phaseName(model.importer.phase))
@@ -102,6 +113,7 @@ enum DebugOnboarding {
                      "kinds": .array(profile.importableKinds.map { .string($0.rawValue) })])
         })
         result["kinds"] = .array(model.importer.kinds.map(\.rawValue).sorted().map(JSONValue.string))
+        result["merge_target"] = model.importer.mergeTarget.map(JSONValue.string) ?? .null
         if case .finished(let summary) = model.importer.phase {
             let counts = summary.counts
             result["counts"] = .object(["bookmarks": JSONValue(counts.bookmarks), "history": JSONValue(counts.history),

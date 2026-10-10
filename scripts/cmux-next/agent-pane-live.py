@@ -73,6 +73,7 @@ def rpc(method, params=None, timeout=60):
         return {"error": str(error)}
 
 def pane(action, **params):
+    params = {k: v for k, v in params.items() if v is not None}
     result = rpc("debug.agent_pane", dict(params, action=action), timeout=40)
     if isinstance(result, dict) and isinstance(result.get("result"), str):
         try:
@@ -172,6 +173,15 @@ try:
     say("windows", json.dumps(windows)[:2500])
     say("snapshot", json.dumps(snap)[:4000])
     panes = [p for p in sorted(set(re.findall(r"pane_[A-Za-z0-9_-]+", json.dumps(snap)))) if p != "pane_chrome"]
+    if not panes:
+        # A fresh tag state shows a window with no workspace yet: wait for its first pane, else make one.
+        def first_panes():
+            found = [p for p in sorted(set(re.findall(r"pane_[A-Za-z0-9_-]+", json.dumps(rpc("snapshot.get"))))) if p != "pane_chrome"]
+            return found or None
+        panes = wait(first_panes, 20, 0.5)
+        if not panes:
+            say("new workspace", json.dumps(rpc("action.run", {"action": "workspace.newAtBottom", "focus": True}))[:300])
+            panes = wait(first_panes, 30, 0.5) or []
     say("panes", panes)
     PANE = panes[0] if panes else None
     WORK = os.path.join(OUT, "work")
@@ -183,8 +193,35 @@ try:
     say("WORK is a tab cwd:", bool(rooted))
     panes = [p for p in sorted(set(re.findall(r"pane_[A-Za-z0-9_-]+", json.dumps(rpc("snapshot.get"))))) if p != "pane_chrome"]
     say("panes after split", panes, "agent pane", PANE)
+    # Show the workspace that holds the WORK terminal (a fresh window shows none), and use its pane.
+    snap_now = rpc("snapshot.get")
+    for ws in (snap_now.get("topology") or snap_now).get("workspaces", []):
+        for screen in ws.get("screens", []):
+            for p in screen.get("panes", []):
+                for t in p.get("tabs", []):
+                    if t.get("cwd") == WORK:
+                        PANE = p["id"]
+                        WORK_TAB = t["id"]
+                        say("focus WORK tab", t["id"], json.dumps(rpc("action.run", {"action": "tab.focus", "target": f"tab:{t['id']}", "focus": True}))[:200])
     opened = rpc("action.run", {"action": "palette.newAgentChat", "target": f"pane:{PANE}", "focus": True})
     say("open agent chat", json.dumps(opened)[:400])
+    if isinstance(opened, dict) and "error" in opened and "WORK_TAB" in globals():
+        # A pane id from the snapshot may not be the controller's key: target the WORK tab instead,
+        # and let debug.agent_pane find the agent tab itself (pane omitted).
+        opened = rpc("action.run", {"action": "palette.newAgentChat", "target": f"tab:{WORK_TAB}", "focus": True})
+        say("open agent chat by tab", json.dumps(opened)[:300])
+        if not (isinstance(opened, dict) and "error" in opened):
+            PANE = None
+    if isinstance(opened, dict) and "error" in opened:
+        # The first pane of a fresh workspace can be replaced by the split: use a pane that exists now.
+        for candidate in panes:
+            if candidate == PANE:
+                continue
+            opened = rpc("action.run", {"action": "palette.newAgentChat", "target": f"pane:{candidate}", "focus": True})
+            say("open agent chat in", candidate, json.dumps(opened)[:300])
+            if not (isinstance(opened, dict) and "error" in opened):
+                PANE = candidate
+                break
     def state():
         s = pane("chat_state", pane=PANE)
         return s if isinstance(s, dict) and "error" not in s and s.get("connection") else None
@@ -325,6 +362,32 @@ try:
             s2 = state()
             say("PERM after click:", json.dumps(r2)[:500], "still pending:", bool(s2 and (s2.get("permission") or s2.get("permissionGroups"))), "marker:", bool(ok))
         wire_dump("perm")
+        raise SystemExit(0)
+    if STAGE == "question":
+        # A live Claude Code AskUserQuestion answered on the question card by a real click.
+        say("q new_chat", json.dumps(pane("new_chat", pane=PANE, harness="claude")))
+        time.sleep(5)
+        say("q click", json.dumps(click()))
+        time.sleep(0.5)
+        # A fresh folder asks for trust first: answer it with a real click on Trust.
+        say("q trust", json.dumps(pane("click", pane=PANE, selector=".acpmux-trust-ask-action"))[:300])
+        time.sleep(2)
+        say("q click 2", json.dumps(click()))
+        time.sleep(0.5)
+        say("q send", json.dumps(pane("send_prompt", pane=PANE, text=(
+            'Use the AskUserQuestion tool exactly once to ask me which color I prefer, with header "Color" '
+            'and the options "Red" and "Blue". Use no other tool. After my answer, reply with exactly: CHOSE <answer>.'))))
+        ask = wait(lambda: (lambda s_: s_ if s_ and s_.get("permission") else None)(state()), 180, 0.5)
+        say("q ask", json.dumps(ask and ask.get("permission"))[:1500])
+        rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(OUT, "question-pending.png")})
+        if ask:
+            time.sleep(1)
+            say("q answer click", json.dumps(pane("click", pane=PANE, text="Blue"))[:300])
+            done = wait(lambda: "CHOSE" in json.dumps(state() or {}), 180, 1)
+            final = state() or {}
+            say("QUESTION answered:", "CHOSE Blue" in json.dumps(final), "pending after:", bool(final.get("permission")))
+            rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(OUT, "question-answered.png")})
+        wire_dump("question")
         raise SystemExit(0)
     if STAGE == "probe":
         say("probe click", json.dumps(click()))

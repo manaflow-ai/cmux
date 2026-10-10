@@ -13,9 +13,13 @@
 
 use super::*;
 use crate::model::{
-    ColumnDock, DockEdge, DockMode, LayoutColumn, LayoutMutationKey, LayoutResizeOwner,
+    ColumnDock, DockEdge, DockMode, DockRole, LayoutColumn, LayoutMutationKey, LayoutResizeOwner,
     dock_columns_are_consistent, dock_flags_are_consistent,
 };
+
+/// `reason_code` / `error_code` of every refusal that would undock, move,
+/// replace or remove a permanent column (`permanent-dock-v1`).
+pub const PERMANENT_COLUMN_CODE: &str = "dock-column-permanent";
 
 /// Internal journal operation name. It is not a public resource operation:
 /// the command is reachable only through the JSON-lines `set-column-dock`.
@@ -27,10 +31,13 @@ pub enum ColumnDockError {
     ColumnNotFound { pane: PaneId },
     /// The change would leave no scrolling column.
     LastScrollingColumn,
-    /// An `edge` or `mode` value is not one of the documented strings.
+    /// An `edge`, `mode` or `role` value is not one of the documented strings.
     InvalidArgument { field: &'static str, value: String },
     /// The reducer was given a column index outside the screen.
     NoSuchColumn { index: usize },
+    /// `permanent-dock-v1`: the change would undock, move or replace a
+    /// permanent column.
+    PermanentColumn,
     /// The durable commit failed; details are reported as a status event.
     CommitFailed,
 }
@@ -39,6 +46,7 @@ impl ColumnDockError {
     pub const COLUMN_MISSING_CODE: &'static str = ViewportWidthError::COLUMN_MISSING_CODE;
     pub const LAST_SCROLLING_CODE: &'static str = "dock-column-last-scrolling";
     pub const INVALID_ARGUMENT_CODE: &'static str = "invalid-argument";
+    pub const PERMANENT_CODE: &'static str = PERMANENT_COLUMN_CODE;
 
     pub fn code(&self) -> Option<&'static str> {
         match self {
@@ -47,6 +55,7 @@ impl ColumnDockError {
             }
             Self::LastScrollingColumn => Some(Self::LAST_SCROLLING_CODE),
             Self::InvalidArgument { .. } => Some(Self::INVALID_ARGUMENT_CODE),
+            Self::PermanentColumn => Some(Self::PERMANENT_CODE),
             Self::CommitFailed => None,
         }
     }
@@ -65,10 +74,16 @@ impl fmt::Display for ColumnDockError {
             Self::InvalidArgument { field: "edge", value } => {
                 write!(formatter, "bad edge {value:?} (want left, right, top or bottom)")
             }
+            Self::InvalidArgument { field: "role", value } => {
+                write!(formatter, "bad role {value:?} (want \"agent_chat\")")
+            }
             Self::InvalidArgument { field, value } => {
                 write!(formatter, "bad {field} {value:?} (want \"docked\" or \"overlay\")")
             }
             Self::NoSuchColumn { index } => write!(formatter, "no viewport column {index}"),
+            Self::PermanentColumn => formatter.write_str(
+                "the column is permanent: it stays docked on its edge and cannot be replaced or removed",
+            ),
             Self::CommitFailed => formatter.write_str("could not persist the dock column"),
         }
     }
@@ -89,12 +104,14 @@ pub struct ColumnDockOutcome {
     pub changed: bool,
 }
 
-/// Parse the wire fields of `set-column-dock`. `edge` defaults to right and
-/// `mode` to docked. Values are validated even when `dock` is false.
+/// Parse the wire fields of `set-column-dock`. `edge` defaults to right,
+/// `mode` to docked and `role` to none (`dock-column-role-v1`). Values are
+/// validated even when `dock` is false; undocking drops the role.
 pub fn parse_column_dock(
     dock: bool,
     edge: Option<&str>,
     mode: Option<&str>,
+    role: Option<&str>,
 ) -> Result<Option<ColumnDock>, ColumnDockError> {
     let edge = edge
         .map(|value| {
@@ -114,7 +131,15 @@ pub fn parse_column_dock(
         })
         .transpose()?
         .unwrap_or(DockMode::Docked);
-    Ok(dock.then_some(ColumnDock { edge, mode }))
+    let role = role
+        .map(|value| {
+            DockRole::parse(value).ok_or_else(|| ColumnDockError::InvalidArgument {
+                field: "role",
+                value: value.to_string(),
+            })
+        })
+        .transpose()?;
+    Ok(dock.then_some(ColumnDock { edge, mode, role, permanent: false }))
 }
 
 /// The pure reducer of `set-column-dock`: the screen's column flags in
@@ -129,6 +154,21 @@ pub(crate) fn reduce_column_dock(
 ) -> Result<Vec<Option<ColumnDock>>, ColumnDockError> {
     if index >= flags.len() {
         return Err(ColumnDockError::NoSuchColumn { index });
+    }
+    let mut dock = dock;
+    // A permanent column keeps its edge and its flag; only the mode may change.
+    if let Some(current) = flags[index].filter(|flag| flag.permanent) {
+        match dock.as_mut() {
+            Some(next) if next.edge == current.edge => next.permanent = true,
+            _ => return Err(ColumnDockError::PermanentColumn),
+        }
+    }
+    if let Some(flag) = dock
+        && flags.iter().enumerate().any(|(candidate, held)| {
+            candidate != index && held.is_some_and(|held| held.permanent && held.edge == flag.edge)
+        })
+    {
+        return Err(ColumnDockError::PermanentColumn);
     }
     let mut next = flags.to_vec();
     if let Some(flag) = dock {
@@ -190,8 +230,9 @@ impl Mux {
     /// edge, or clear its flag with `None`. `transaction` is the requesting
     /// `(client, transaction)` pair; changes with the same pair coalesce into
     /// one layout-undo entry, like viewport resizes.
-    pub fn set_column_dock(
+    pub fn set_column_dock_as(
         self: &Arc<Self>,
+        actor: &Actor,
         pane: PaneId,
         dock: Option<ColumnDock>,
         transaction: Option<(u64, u64)>,
@@ -217,13 +258,14 @@ impl Mux {
             let (workspace, screen, column) = dock_column_location(state, pane)?;
             let screen = &state.workspaces[workspace].screens[screen];
             let flags = column_flags(&screen.layout_columns);
-            let unchanged = reduce_column_dock(&flags, column, dock)? == flags;
+            let next = reduce_column_dock(&flags, column, dock)?;
             let outcome = ColumnDockOutcome {
                 screen: screen.id,
                 column: screen.layout_columns[column].id,
-                dock,
+                dock: next[column],
                 changed: false,
             };
+            let unchanged = next == flags;
             Ok::<_, ColumnDockError>(unchanged.then_some(outcome))
         })?;
         if let Some(outcome) = unchanged {
@@ -238,7 +280,7 @@ impl Mux {
         let mut committed = None;
         let commit = self
             .commit_resource_mutation_plan(
-                &WorkspaceMutation::local("cmux-tui-column-dock"),
+                &WorkspaceMutation::local("cmux-tui-column-dock", actor.clone()),
                 COLUMN_DOCK_OPERATION,
                 &fingerprint,
                 None,
@@ -253,7 +295,7 @@ impl Mux {
                     let outcome = ColumnDockOutcome {
                         screen: target.id,
                         column: target.layout_columns[column].id,
-                        dock,
+                        dock: target.layout_columns[column].dock,
                         changed: true,
                     };
                     let pane_id = projected
@@ -296,6 +338,65 @@ impl Mux {
     }
 }
 
+/// Every permanent column of `state`: its workspace and its column id.
+pub(crate) fn permanent_columns(state: &State) -> Vec<(WorkspaceId, SplitId)> {
+    state
+        .workspaces
+        .iter()
+        .flat_map(|workspace| {
+            workspace.screens.iter().flat_map(move |screen| {
+                screen
+                    .layout_columns
+                    .iter()
+                    .filter(|column| column.dock.is_some_and(|flag| flag.permanent))
+                    .map(move |column| (workspace.id, column.id))
+            })
+        })
+        .collect()
+}
+
+/// Refuses a layout change that removed a permanent column (or its flag)
+/// from a workspace that still exists: closing its pane, the last scrolling
+/// column beside it, a tab move that empties it, or an undo past the change
+/// that made it permanent. Closing the whole workspace is not a removal.
+pub(crate) fn ensure_permanent_columns_kept(
+    operation: &str,
+    before: &[(WorkspaceId, SplitId)],
+    after: &State,
+) -> anyhow::Result<()> {
+    if before.is_empty() {
+        return Ok(());
+    }
+    let kept = permanent_columns(after);
+    let lost = before
+        .iter()
+        .filter(|(workspace, _)| after.workspaces.iter().any(|item| item.id == *workspace))
+        .any(|entry| !kept.contains(entry));
+    if !lost {
+        return Ok(());
+    }
+    Err(ResourceError::operation_failed(
+        operation,
+        format!("{PERMANENT_COLUMN_CODE}: {}", ColumnDockError::PermanentColumn),
+        serde_json::json!({"reason_code": PERMANENT_COLUMN_CODE}),
+    )
+    .into())
+}
+
+/// The close planner's guard: the projected state of a close, or the
+/// refusal when the close would remove a permanent column. A terminal that
+/// exited still closes, and closing the whole workspace is no removal.
+pub(crate) fn close_keeping_permanent(
+    operation: ResourceOperation,
+    before: &State,
+    after: State,
+) -> anyhow::Result<State> {
+    if !matches!(operation, ResourceOperation::TerminalClose | ResourceOperation::WorkspaceClose) {
+        ensure_permanent_columns_kept(operation.wire_name(), &permanent_columns(before), &after)?;
+    }
+    Ok(after)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -304,7 +405,7 @@ mod tests {
         let mut flags = vec![None];
         for edge in DockEdge::ALL {
             for mode in [DockMode::Docked, DockMode::Overlay] {
-                flags.push(Some(ColumnDock { edge, mode }));
+                flags.push(Some(ColumnDock::new(edge, mode)));
             }
         }
         flags

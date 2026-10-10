@@ -1,15 +1,29 @@
 #!/bin/sh
 # Builds the shared TypeScript palette ranker for the native JavaScriptCore bridge.
-# The checked-in output is a small IIFE with no web or Node dependencies.
+# The output (gitignored; scripts/cmux-next/build-web-bundles.sh) is a small IIFE with no web or Node dependencies.
 #
 #   scripts/cmux-next/build-palette-ranker.sh          # rebuild the resource
-#   scripts/cmux-next/build-palette-ranker.sh --check  # fail if it is stale
+#   scripts/cmux-next/build-palette-ranker.sh --check  # build into a temp dir only (the sources build)
+#   scripts/cmux-next/build-palette-ranker.sh --out DIR  # write DIR/palette-ranker.js
 set -eu
 
 ROOT="$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)"
 SRC="$ROOT/webviews/src/palette/ranker-bridge.ts"
-OUT="$ROOT/Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js"
-MODE="${1:-build}"
+OUT_DIR="$ROOT/Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources"
+MODE=build
+# --out DIR writes palette-ranker.js into DIR instead (build-web-bundles.sh --out-root, checks).
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --check) MODE=--check ;;
+    --out)
+      [ $# -ge 2 ] || { echo "error: --out needs a directory" >&2; exit 2; }
+      case "$2" in /*) OUT_DIR="$2" ;; *) OUT_DIR="$PWD/$2" ;; esac
+      shift ;;
+    *) echo "usage: $0 [--check] [--out DIR]" >&2; exit 2 ;;
+  esac
+  shift
+done
+OUT="$OUT_DIR/palette-ranker.js"
 REPAIR_REF="https://github.com/manaflow-ai/cmuxterm-hq/blob/main/REPAIR.md#captures-and-the-fleet"
 FAIL_REPORTED=0
 
@@ -38,9 +52,7 @@ cd "$ROOT/webviews"
 bun build "$SRC" --target browser --format=iife --outfile "$WORK/palette-ranker.js" >/dev/null || fail "TypeScript palette ranker bundle failed"
 
 if [ "$MODE" = "--check" ]; then
-  [ -f "$OUT" ] || fail "$OUT is missing; run scripts/cmux-next/build-palette-ranker.sh"
-  cmp -s "$WORK/palette-ranker.js" "$OUT" || fail "$OUT is stale; run scripts/cmux-next/build-palette-ranker.sh"
-  echo "palette ranker bridge bundle is current"
+  echo "palette ranker bridge bundle builds"
   exit 0
 fi
 

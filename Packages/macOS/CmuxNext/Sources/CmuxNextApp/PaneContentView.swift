@@ -3,6 +3,7 @@ import CmuxNextDesign
 import CmuxNextTabs
 import CmuxNextWakeups
 import Observation
+import os
 
 /// One layout leaf: the pane's tab strip on top (or at the bottom,
 /// `tabs.barPosition`, R109) and the selected tab's content beside it.
@@ -17,6 +18,11 @@ final class PaneContentView: NSView, PaneContentChrome {
     private let stripScope = ThemeScope(level: .terminal)
     let contentHost = NSView()
     private(set) weak var content: NSView?
+    /// The content shown before a New Tab page, left in place under it, blurred and dimmed
+    /// (PaneContentView+NewTabBackdrop).
+    weak var underlay: NSView?
+    /// The blur and dim between ``underlay`` and the New Tab page.
+    var frost: NewTabFrostView?
     private var tokenObservation: Task<Void, Never>?
     /// The pane's size changed (divider drag, window resize, animation).
     var onResize: (() -> Void)?
@@ -28,6 +34,15 @@ final class PaneContentView: NSView, PaneContentChrome {
         didSet { if barPosition != oldValue { updateBand() } }
     }
     private var placementObservation: Task<Void, Never>?
+    /// No strip: the chat dock or a lone chat with one tab (``ChatDockChrome``).
+    var hidesStrip = false {
+        didSet {
+            guard hidesStrip != oldValue else { return }
+            stripView.isHidden = hidesStrip
+            refreshBandHeight()
+            needsLayout = true
+        }
+    }
     /// A browser's tab bar above or below its toolbar (`tabs.barOrder`, R109).
     var barOrder: TabBarOrder = .aboveToolbar {
         didSet { if barOrder != oldValue { updateBand() } }
@@ -40,10 +55,15 @@ final class PaneContentView: NSView, PaneContentChrome {
     var isBandActive: Bool { !bandPins.isEmpty }
     private var reportedChrome: (header: CGFloat, footer: CGFloat) = (-1, -1)
     /// The outgoing view kept while the shown one has not painted (`PaneContentView+PaintHold`).
-    var paintHold: PanePaintHold?
-    var paintHoldCounter: UInt64 = 0
-    /// The hold's deadline (``PanePaintHold/limit``).
-    let paintHoldDeadline = DemandTimer(owner: "pane.paint-hold")
+    let paintHold = PanePaintHold(owner: "pane.paint-hold")
+    /// An agent page's last image under the content at launch (`PaneContentView+LaunchImage`).
+    var launchImageView: NSView?
+    /// Runs once when the launch image goes (`clearLaunchImage`).
+    var onLaunchImageCleared: (() -> Void)?
+    let launchImageDeadline = DemandTimer(owner: "pane.launch-image")
+    /// Browsers this pane showed before, kept in place and hidden, oldest
+    /// first (`PaneContentView+Parking`).
+    var parked: [ParkedContent] = []
 
     /// - Parameter reveal: Holds the strip until the first tabs arrive and
     ///   the content until the first terminal frame (launch load-in).
@@ -125,7 +145,7 @@ final class PaneContentView: NSView, PaneContentChrome {
     /// pane cell's top, through the pane padding) and below (to the content
     /// border), on this window's pixel grid (`PaneChromeMetrics`).
     var stripHeight: CGFloat {
-        PaneChromeMetrics.current.resolvedStripHeight(scale: window?.backingScaleFactor ?? 2)
+        hidesStrip ? 0 : PaneChromeMetrics.current.resolvedStripHeight(scale: window?.backingScaleFactor ?? 2)
     }
 
     override func viewDidChangeBackingProperties() {
@@ -171,30 +191,44 @@ final class PaneContentView: NSView, PaneContentChrome {
 
     /// Swaps the hosted content view. Returns the previous one. Focus is
     /// not handled here: the window's `FocusCoordinator` re-targets the
-    /// keyboard when the pane reports the new content.
+    /// keyboard when the pane reports the new content. `overBackdrop`: `view`
+    /// is a New Tab page, shown over the previous content blurred and dimmed.
     @discardableResult
-    func show(_ view: NSView?) -> NSView? {
+    func show(_ view: NSView?, overBackdrop: Bool = false) -> NSView? {
         let previous = content
         guard previous !== view || (view != nil && !hostsContent) else { return previous }
+        tabSwitchMark("show")
+        defer { tabSwitchMark("shown") }
         // Another pane may have reparented `previous` already (a moved tab):
         // only a view still installed here is removed.
         let hosted = previous.flatMap { $0.superview === contentHost ? $0 : nil }
         // An agent page draws nothing until it paints: what this pane showed
         // stays until then (`beginPaintHold`), not an empty pane. Not a
         // browser whose header band the strip leaves now (its header would
-        // jump while it stays).
-        let holds = !isBandActive && holdsForFirstPaint(view, replacing: hosted)
+        // jump while it stays). While an earlier switch waits, what shows is
+        // the content it keeps (a New Tab page over a backdrop ends it instead).
+        let kept = overBackdrop ? nil : paintHold.kept.flatMap { $0.superview === contentHost ? $0 : nil }
+        let shown = kept ?? hosted
+        var holds = !isBandActive && holdsForFirstPaint(view, replacing: shown)
         // The strip's band pins end before the browser leaves (R109).
         if hosted !== view { releaseBand() }
-        // An earlier switch still waiting on a first frame ends now.
-        endPaintHold()
-        if hosted !== view, !holds { hosted?.removeFromSuperview() }
-        if let view, view.superview !== contentHost || view.frame != contentHost.bounds {
-            view.frame = contentHost.bounds
-            view.autoresizingMask = [.width, .height]
-            contentHost.addSubview(view)
+        if holds, kept != nil {
+            // The page that never showed leaves; what shows stays for this hold.
+            paintHold.handOff { [weak self] page in self?.retire(page) }
+        } else {
+            // An earlier switch still waiting on a first frame ends now.
+            endPaintHold()
         }
-        if holds, let hosted, let view { beginPaintHold(outgoing: hosted, incoming: view) }
+        var leaving: NSView?
+        if overBackdrop, let hosted, hosted !== view, keepsBackdrop(hosted) {
+            // Left in place as the New Tab page's backdrop: it stays, so no hold.
+            holds = false
+        } else if hosted !== view, !holds {
+            leaving = hosted
+        }
+        if !overBackdrop { dropBackdrop(keeping: view) }
+        if let view { install(view, replacing: leaving) }
+        if holds, let shown, let view { beginPaintHold(outgoing: shown, incoming: view) }
         // A terminal's theme scope inherits this pane's workspace theme.
         view?.reparentRootedThemeScope()
         // Another pane may own `previous` now and have taken its callback.
@@ -202,6 +236,9 @@ final class PaneContentView: NSView, PaneContentChrome {
             (previous as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
         }
         content = view
+        // After the incoming view is in: a browser that leaves stays parked
+        // here, and the keyboard it held goes to what shows now.
+        if let leaving { retire(leaving) }
         if let inner = innerChrome {
             // A toolbar or bookmarks bar height change moves the strip and
             // the content: lay out again, then report (v4 review b).
@@ -222,6 +259,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         // The strip's band pins end before the browser leaves (R109).
         releaseBand()
         endPaintHold()
+        dropBackdrop(keeping: nil)
         if hostsContent {
             (content as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
             content?.removeFromSuperview()
@@ -269,6 +307,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         let paints = WindowBackdrop(tokens).panesPaintBackground
         performWithTheme {
             contentHost.layer?.backgroundColor = paints ? Palette.surfaceBackground.cgColor : nil
+            frost?.dim = Palette.surfaceBackground
         }
         // The strip: clear, or the user's tab bar background (R55).
         stripView.wantsLayer = true
@@ -280,4 +319,12 @@ final class PaneContentView: NSView, PaneContentChrome {
 // the strip, hit before this view, answers for its own empty space.
 extension PaneContentView: TitlebarPressDeciding {
     func titlebarPress(atWindowPoint windowPoint: CGPoint) -> TitlebarPress { .staysPut }
+}
+
+/// Tab switch timeline marks (cx-asb1): wall-clock ms, so a bench can line
+/// them up with the page's own clock. Debug level: nothing is written unless
+/// a `log stream --level debug` reads category "tab-switch".
+private let tabSwitchLog = Logger(subsystem: "com.cmuxterm.app.next", category: "tab-switch")
+private func tabSwitchMark(_ name: String) {
+    tabSwitchLog.debug("tab-switch \(name, privacy: .public) \(Date().timeIntervalSince1970 * 1_000, format: .fixed(precision: 3), privacy: .public)")
 }

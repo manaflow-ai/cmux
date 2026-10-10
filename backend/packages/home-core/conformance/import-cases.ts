@@ -79,5 +79,17 @@ export const importCases = (): Array<ImportCase> => {
   run("import: commit opens the conversation and bumps the inbox", ME, "conversation.import.commit", { id: ID, last_seq: 5 })
   run("import: a batch after commit is conversation_exists", ME, "conversation.import", { id: ID, after_seq: 5, messages: [msg(6, "user_me", "x")] })
   run("import: normal ops run after commit", ME, "message.send", { client_msg_id: "k2", parts: [{ type: "text", text: "now" }] })
+  // Shared with the Rust local import (cmux-tui-core conversation_import.rs replays this case's
+  // messages): only text or question messages are agent turns, an imported work card is not.
+  state = null
+  run("import: an imported agent work card is not an agent turn", ME, "conversation.import", {
+    id: importConversationId("user_me", source.host, "conv_LOCAL2"), source: { ...source, local_id: "conv_LOCAL2" }, kind: "chief", participants: people,
+    messages: [
+      msg(1, "user_me", "go", { id: "msg_wc1", client_msg_id: "wc1" }),
+      msg(2, "agent_chief", "on it", { id: "msg_wc2", client_msg_id: "wc2" }),
+      msg(3, "agent_chief", "", { id: "msg_wc3", client_msg_id: "wc3", parts: [{ type: "work", session: "s1", status: "running" }] }),
+      msg(4, "agent_chief", "done", { id: "msg_wc4", client_msg_id: "wc4" })
+    ]
+  })
   return out
 }

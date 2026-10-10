@@ -11,7 +11,8 @@ import os
 ///
 /// Closing a workspace asks only while one of its terminals runs a
 /// foreground program (`process-info`) and `app.warnBeforeClosingTab` is
-/// on; that question has "Don't ask again". The other destructive actions
+/// on; that question has "Don't ask again". Delete Space follows the same
+/// rule for the workspaces it closes. The other destructive actions
 /// always ask. A target that does not resolve is not asked about: the
 /// handler then refuses it with the usual typed reason.
 enum DestructiveConfirmation {
@@ -45,21 +46,19 @@ enum DestructiveConfirmation {
         case "cloudFirewallDelete":
             return Prompt(title: CloudStrings.deleteFirewallRuleTitle, body: CloudStrings.deleteFirewallRuleBody,
                           button: CloudStrings.deleteFirewallRule)
-        case "workspaceGroup.delete", "workspaceGroup.closeWorkspaces":
+        case "workspaceGroup.closeWorkspaces":
             guard let group = try? context.group(invocation) else { return nil }
             let daemon = services.machines.daemons.first { $0.store.group(group.id) === group }
             let count = daemon?.store.workspaces.filter { $0.group == group.id }.count ?? 0
             let name = group.name.isEmpty ? ConfirmationStrings.unnamedGroup : group.name
-            return id == "workspaceGroup.delete"
-                ? Prompt(title: ConfirmationStrings.deleteGroupTitle(name), body: ConfirmationStrings.groupBody(count), button: ConfirmationStrings.delete)
-                : Prompt(title: ConfirmationStrings.closeGroupWorkspacesTitle(name), body: ConfirmationStrings.groupBody(count),
-                         button: ConfirmationStrings.close)
+            return Prompt(title: ConfirmationStrings.closeGroupWorkspacesTitle(name), body: ConfirmationStrings.groupBody(count),
+                          button: ConfirmationStrings.close)
         case "browserProfile.delete":
             return await BrowserProfileDeletePrompt.prompt(invocation, context)
         case "browser.allowAgentWithExtensions":
             return AgentExtensionHandlers.prompt(invocation, context)
         case "space.delete":
-            return RoomConfirmation.prompt(invocation, context)
+            return await RoomConfirmation.prompt(invocation, context)
         case "remote.install", "remote.forget":
             return await RemoteConfirmation.prompt(for: id, invocation, context)
         case "tabGroup.close":
@@ -74,7 +73,7 @@ enum DestructiveConfirmation {
             let programs = await runningPrograms(in: workspace, on: daemon)
             guard !programs.isEmpty else { return nil }
             return Prompt(title: ConfirmationStrings.closeWorkspaceTitle(workspace.displayName),
-                          body: ConfirmationStrings.closeWorkspaceBody(programs.joined(separator: ", ")), button: ConfirmationStrings.close,
+                          body: ConfirmationStrings.stillRunning(programs.joined(separator: ", ")), button: ConfirmationStrings.close,
                           suppresses: CmuxConfigSnapshot.warnBeforeClosingTabPath)
         default:
             return nil

@@ -23,12 +23,14 @@ final class TopPageHost {
         let view: NSView
         switch route {
         case .home:
-            view = TopHomePageView(services: services)
+            view = TopHomePageView(services: services, windowKey: { [weak window] in window?.state.id ?? "" })
         case .page(let id):
             guard let provider = TopPages.provider(id, services: services) else { return nil }
             let key = LocalPageTab.makeKey(id)
             keys[route] = key
-            view = InternalPageView(key: key, page: id, content: provider.makeView(for: key, in: window))
+            let page = InternalPageView(key: key, page: id, content: provider.makeView(for: key, in: window))
+            page.navigate = services.pages.navigate
+            view = page
         }
         views[route] = view
         return view

@@ -172,11 +172,11 @@ extension DaemonConnection {
         return try await request(SetTabPinnedRequest(surface: surface, pinned: pinned))
     }
 
-    /// App-rendered browser tab (`frontend-browser-tabs-v1`); `activate: false` keeps the pane's active tab.
+    /// App-rendered browser tab (`frontend-browser-tabs-v1`); `activate: false` keeps the pane's active tab, `after` puts it right after that tab.
     @discardableResult
-    public func newFrontendBrowserTab(url: String, engine: BrowserEngine, in pane: PaneID?, title: String? = nil,
-                                      profileID: String? = nil, activate: Bool? = nil) async throws -> NewFrontendBrowserTabRequest.Response {
-        try await request(NewFrontendBrowserTabRequest(url: url, engine: engine, pane: pane, title: title, profileID: profileID, activate: activate))
+    public func newFrontendBrowserTab(url: String, engine: BrowserEngine, in pane: PaneID?, title: String? = nil, profileID: String? = nil,
+                                      activate: Bool? = nil, after: SurfaceID? = nil) async throws -> NewFrontendBrowserTabRequest.Response {
+        try await request(NewFrontendBrowserTabRequest(url: url, engine: engine, pane: pane, title: title, profileID: profileID, activate: activate, after: after))
     }
 
     @discardableResult
@@ -295,7 +295,7 @@ extension DaemonConnection {
             throw DaemonError.missingCapabilities([DaemonCapabilities.shared.terminalReap])
         }
         guard let endpoint else { throw DaemonError.notConnected }
-        let transport = try LineTransport(path: endpoint.socketPath)
+        let transport = try LineTransport(path: endpoint.socketPath, bridge: endpoint.bridge)
         transport.start(onEvent: { _, _, _ in }, onClose: { _ in })
         defer { transport.close() }
         let request = ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation, endTerminals: true,

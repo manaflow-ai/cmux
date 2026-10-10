@@ -246,29 +246,25 @@ manifests and adapted detector sources live under
 `cmux-tui/bindings/examples/rust-agent-screen-detection/`.
 
 - **Package license:** GPL-3.0-or-later AND Apache-2.0
-- **Herdr-derived material:** Apache License 2.0
-- **Source:** https://github.com/herdrdev/herdr
-- **Detector source reference:** commit `7b675f42af35508eab66ac42fe1598628597a893`
-- **Pi bundled-launcher correction:** commit `b1ff4582e9688f52ffb943cfa8bee4871ae122e4`
-- **Manifest snapshot:** commit `2290257acb2085ce6842ba5c7e3ca50c3ba64f02`
-- **Included manifest fixes:** Claude MCP elicitation `f807b697353cfa00aa912c7cde4830e863001cf5`, Claude background-shell state `987b070fbfa187e85009b45cd7e208fc6175ff6a`, Codex weak-blocker scope `f457cff4f2648eee85d176f8a41861241d4e8428`, and Copilot background-agent activity `2290257acb2085ce6842ba5c7e3ca50c3ba64f02`
+- **Herdr-derived material:** Apache License 2.0 (upstream ships no NOTICE file)
+- **Source:** https://github.com/ogulcancelik/herdr (also https://github.com/herdrdev/herdr, the same repository)
+- **Upstream pin:** commit `2563803dca97c040beaf3dc3acdcb5a3221b4238` (herdr 0.9.3, manifest engine version 3), with per-file hashes in `cmux-tui/bindings/examples/rust-agent-screen-detection/HERDR_UPSTREAM.toml`
 - **License text:** cmux-owned code is covered by
   `cmux-tui/bindings/examples/rust-agent-screen-detection/LICENSE`; the
   herdr-derived files use
   `cmux-tui/bindings/examples/rust-agent-screen-detection/manifests/LICENSE`
-- **Latest agent-surface capability audit:** commit `987b070fbfa187e85009b45cd7e208fc6175ff6a`. The herdr repository tip checked on 2026-09-02 is `94f6d9c0d9bb9cf9ffae99d8bbfb09e9bf2fc9e0`; commits after the audit pin change client rendering, terminal reads, graphics ownership, Windows input and worktree handling, or sidebar focus, with no further `src/detect` or manifest changes. The audit includes the exact Pi bundled CLI path correction from `b1ff4582e9688f52ffb943cfa8bee4871ae122e4` and the Claude background-shell state correction from `987b070fbfa187e85009b45cd7e208fc6175ff6a`, both adapted and tested in the userland package. The first-acquisition OSC retention fix from `82e6a80eb3ae39fb3d3ebd4d1fed19389767e605` is adapted in the userland tracker. The foreground group-leader CWD fix from `3a3792622e59c7f2dc20f9c0236167161e4a5035` is already covered by cmux's generic `foreground_cwd` resource. The shell-render refactor in `207be3c771d281baae6e5fa0fb74be9a056e97a2` and independent multi-client tab views in `6c0bb273d5d5405a00985621b17e36f8b4d64609` are application/client architecture and are not copied. The delayed-agent-prompt fix in `8633a398e653eee47b375c963996c78a8a14aa48` changes PTY input sequencing, and `5616196942cbe752cc0659b9bd0fb616b2a6ed5c` hardens malformed Windows process environments in portable-pty. These changes are outside detector behavior and are not copied. SDK endpoint-generation compatibility remains a standalone-release requirement; review the Windows changes before publishing a Windows package.
 
-Nineteen manifests are unchanged from the manifest snapshot. `claude.toml` is
-byte-identical to upstream commit `987b070fbfa187e85009b45cd7e208fc6175ff6a`.
-`grok.toml` is based on the snapshot file and contains one documented cmux
-precedence correction. `github-copilot.toml` is byte-identical to the snapshot
-and uses upstream version `2026.08.29.1`. The manifest engine, process discovery, state detector, and update
-logic are adapted for the cmux userland plugin contract. The source paths,
-commits, license, and adaptations are recorded in
+All 22 manifests are byte-identical to herdr's `src/detect/manifests/` at the
+pin; none is changed by cmux. The manifest engine, process discovery, state
+detector, background-agent tracking and update logic are adapted and changed
+by cmux for the userland plugin contract; each such file states the upstream
+file, the commit and the changes in its header. The source paths, commits,
+license, adaptations and the reviewed upstream commits are recorded in
 `cmux-tui/bindings/examples/rust-agent-screen-detection/ATTRIBUTIONS.md`.
-The SHA256SUMS file is a checked-in byte-provenance record verified before the
-bundled manifests are compiled. It detects accidental drift, but it is not a
-cryptographic release signature for remote updates.
+`scripts/cmux-next/herdr-sync.py check` verifies the vendored bytes against
+`manifests/SHA256SUMS` and the pin on every push; the record detects
+accidental drift, but it is not a cryptographic release signature for remote
+updates.
 
 ---
 
@@ -286,6 +282,74 @@ into `first-party-apps/integrations/dist/main.js`.
 - **License text and adapted-file list:** `libs/integrations-core/LICENSE-executor` and
   `libs/integrations-core/NOTICE`; the app's notice is
   `first-party-apps/integrations/LICENSE-executor`
+
+---
+
+<!-- notices-section: manual-t3code-agent-harness-support -->
+## t3code (agent harness support)
+
+cmux's agent harness support in acpmux (harness profiles, PATH discovery and
+the integrations of the coding agents that t3code supports) follows the design
+of t3code: its list of supported harnesses, how each one is started, and how
+sign-in, models, permissions and resume map onto one agent pane. A cmux
+source file that adapts t3code code, data (model lists, launch arguments,
+permission mappings) or close structure keeps the t3code copyright line below
+in its header.
+
+- **License:** MIT License
+- **Copyright:** Copyright (c) 2026 T3 Tools Inc.
+- **Source:** https://github.com/pingdotgg/t3code (commit `29980a31409234b676f97bd477c4e46fdb61a929`)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+<!-- notices-section: manual-monocode-live-model-lists -->
+## MonoCode (live model lists)
+
+acpmux's live model lists (`cmux-tui/crates/acpmux/src/live_models/`) follow
+MonoCode's catalog probes: the Claude Code `initialize` and `list_models`
+control requests, the `codex app-server` `model/list` pages, and how their
+rows map to models, reasoning efforts and fast mode. The adapted files keep
+the copyright line below in their headers.
+
+- **License:** MIT License
+- **Copyright:** Copyright (c) 2026 Nick
+- **Source:** https://github.com/hardbeat920/monocode (commit `d26871f246d34479795bc9a00513b43d4d18add2`)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 ---
 
@@ -894,7 +958,7 @@ unchanged, for each rustc that built one of its binaries:
   `bin/cmux`, `bin/cmux-tui-ssh/*`, `bin/cmux-app-host` and `bin/cmux-cloud`
 - `Contents/Resources/toolchain-licenses/rust-1.91.0/COPYRIGHT-library.html`:
   iroh-ffi (`Iroh.framework`; Release builds merge its code into the app binary)
-- `Contents/Resources/toolchain-licenses/rust-1.88.0/COPYRIGHT-library.html`:
+- `Contents/Resources/toolchain-licenses/rust-1.98.1/COPYRIGHT-library.html`:
   `bin/cmux-diff-sidecar`
 
 The app (GhosttyNextKit), `bin/cmux` and `bin/cmux-tui-ssh/*` (libghostty-vt)
@@ -1132,6 +1196,35 @@ obstacle to adoption, that text has been removed.
 
 ---
 
+<!-- notices-section: manual-cmux-vm-api-dependencies-workers-cmux-vm -->
+## cmux VM API dependencies (workers/cmux-vm)
+
+### gdp-ts
+
+- **License:** MIT License
+- **Copyright:** Copyright (c) 2026 Guillermo Rauch
+- **Source:** https://github.com/rauchg/gdp-ts (commit ebd0af9cae423997a43a024dc6d6738b0895bbec)
+- **Use:** `@gdp-ts/core` library and its Oxlint preset, installed from that
+  commit; not vendored.
+
+### Upstream VM provider SDK type declarations
+
+- **License:** MIT License (declared in the package's `package.json`)
+- **Copyright:** Freestyle
+- **Source:** npm package `freestyle` 0.2.16
+- **Files:** `workers/cmux-vm/upstream/sdk/` (`dist/**/*.d.ts` and
+  `package.json`, unmodified), kept as a pinned API surface for coverage
+  checks and not shipped in the Worker bundle.
+
+`workers/cmux-vm/upstream/openapi.json` is the provider's public OpenAPI
+document (https://api.freestyle.sh/openapi.json), copied unmodified. It states
+no license; it is kept only as the pinned surface for coverage checks and is
+not shipped in the Worker bundle.
+
+MIT License text: see the Primer Octicons section above.
+
+---
+
 <!-- notices-section: manual-shared-license-texts -->
 ## Shared License Texts
 
@@ -1282,7 +1375,7 @@ Generated by cmux-tui/build-support/notices/rust_notices.py from `cmux-tui/Cargo
 - **blake3 1.8.6**: CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception. Source: https://crates.io/api/v1/crates/blake3/1.8.6/download. Files: `LICENSE_A2` (text 00fcc7a934dd), `LICENSE_A2LLVM` (text a5695f57ea0c), `LICENSE_CC0` (text a2010f343487)
 - **block-buffer 0.10.4**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/block-buffer/0.10.4/download. Files: `LICENSE-APACHE` (text a9040321c371), `LICENSE-MIT` (text d5c22aa3118d)
 - **block-buffer 0.12.1**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/block-buffer/0.12.1/download. Files: `LICENSE-APACHE` (text a9040321c371), `LICENSE-MIT` (text 98181e7249d0)
-- **block2 0.6.2**: MIT. Source: https://crates.io/api/v1/crates/block2/0.6.2/download. Files: `reviewed-LICENSE.md` (text 7f976f7e9cb2), `reviewed-MIT-Mads-Marquart.txt` (text 340585b843bc)
+- **block2 0.6.2**: MIT. Source: https://crates.io/api/v1/crates/block2/0.6.2/download. Files: `reviewed-LICENSE.md` (text 7f976f7e9cb2), `reviewed-MIT-Marquart-Sheldon-objc2-contributors.txt` (text 0fcbfc4177ad)
 - **boringtun 0.7.1**: BSD-3-Clause. Source: https://crates.io/api/v1/crates/boringtun/0.7.1/download. Files: `reviewed-LICENSE.md` (text 6dbef24708ba)
 - **borrow-or-share 0.2.4**: MIT-0. Source: https://crates.io/api/v1/crates/borrow-or-share/0.2.4/download. Files: `LICENSE` (text 010492e490b9)
 - **bytecount 0.6.9**: Apache-2.0 OR MIT. Source: https://crates.io/api/v1/crates/bytecount/0.6.9/download. Files: `LICENSE.Apache2` (text b40930bbcf80), `LICENSE.MIT` (text a5dea80c1f38)
@@ -1355,7 +1448,7 @@ Generated by cmux-tui/build-support/notices/rust_notices.py from `cmux-tui/Cargo
 - **digest 0.11.3**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/digest/0.11.3/download. Files: `LICENSE-APACHE` (text a9040321c371), `LICENSE-MIT` (text af59cea35d7f)
 - **dirs 6.0.0**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/dirs/6.0.0/download. Files: `LICENSE-APACHE` (text d3174ad63e72), `LICENSE-MIT` (text 6a2e0ade09a7)
 - **dirs-sys 0.5.0**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/dirs-sys/0.5.0/download. Files: `LICENSE-APACHE` (text d3174ad63e72), `LICENSE-MIT` (text 6a2e0ade09a7)
-- **dispatch2 0.3.1**: Zlib OR Apache-2.0 OR MIT. Source: https://crates.io/api/v1/crates/dispatch2/0.3.1/download. Files: `reviewed-LICENSE.md` (text 7f976f7e9cb2), `reviewed-MIT-Mads-Marquart.txt` (text 340585b843bc), `reviewed-Zlib.txt` (text bfb1112d49db), `reviewed-Apache-2.0.txt` (text 074e6e32c86a)
+- **dispatch2 0.3.1**: Zlib OR Apache-2.0 OR MIT. Source: https://crates.io/api/v1/crates/dispatch2/0.3.1/download. Files: `reviewed-LICENSE.md` (text 7f976f7e9cb2), `reviewed-MIT-Marquart-Mary-objc2-contributors.txt` (text 9b36d4f0d60c), `reviewed-Zlib.txt` (text bfb1112d49db), `reviewed-Apache-2.0.txt` (text 074e6e32c86a)
 - **downcast-rs 1.2.1**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/downcast-rs/1.2.1/download. Files: `LICENSE-APACHE` (text 8173d5c29b4f), `LICENSE-MIT` (text fb252fecf98d)
 - **ed25519 3.0.0**: Apache-2.0 OR MIT. Source: https://crates.io/api/v1/crates/ed25519/3.0.0/download. Files: `LICENSE-APACHE` (text 78779d420019), `LICENSE-MIT` (text 9aa4f92bfcde)
 - **ed25519-dalek 3.0.0**: BSD-3-Clause. Source: https://crates.io/api/v1/crates/ed25519-dalek/3.0.0/download. Files: `LICENSE` (text 7a313964a6e0)
@@ -1500,14 +1593,14 @@ Generated by cmux-tui/build-support/notices/rust_notices.py from `cmux-tui/Cargo
 - **num-traits 0.2.19**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/num-traits/0.2.19/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 6485b8ed310d)
 - **num_enum 0.7.6**: BSD-3-Clause OR MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/num_enum/0.7.6/download. Files: `LICENSE-APACHE` (text 62c7a1e35f56), `LICENSE-BSD` (text 0be96d891d00), `LICENSE-MIT` (text 23f18e03dc49)
 - **num_threads 0.1.7**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/num_threads/0.1.7/download. Files: `LICENSE-Apache` (text c69b72788ec2), `LICENSE-MIT` (text b4bf94a9fceb)
-- **objc2 0.6.4**: MIT. Source: https://crates.io/api/v1/crates/objc2/0.6.4/download. Files: `reviewed-LICENSE.md` (text 7f976f7e9cb2), `reviewed-MIT-Mads-Marquart.txt` (text 340585b843bc)
-- **objc2-core-foundation 0.3.2**: Zlib OR Apache-2.0 OR MIT. Source: https://crates.io/api/v1/crates/objc2-core-foundation/0.3.2/download. Files: `reviewed-LICENSE.md` (text 7f976f7e9cb2), `reviewed-MIT-Mads-Marquart.txt` (text 340585b843bc), `reviewed-Zlib.txt` (text bfb1112d49db), `reviewed-Apache-2.0.txt` (text 074e6e32c86a)
-- **objc2-core-wlan 0.3.2**: Zlib OR Apache-2.0 OR MIT. Source: https://crates.io/api/v1/crates/objc2-core-wlan/0.3.2/download. Files: `reviewed-LICENSE.md` (text 7f976f7e9cb2), `reviewed-MIT-Mads-Marquart.txt` (text 340585b843bc), `reviewed-Zlib.txt` (text bfb1112d49db), `reviewed-Apache-2.0.txt` (text 074e6e32c86a)
-- **objc2-encode 4.1.0**: MIT. Source: https://crates.io/api/v1/crates/objc2-encode/4.1.0/download. Files: `reviewed-LICENSE.md` (text 7f976f7e9cb2), `reviewed-MIT-Mads-Marquart.txt` (text 340585b843bc)
-- **objc2-foundation 0.3.2**: MIT. Source: https://crates.io/api/v1/crates/objc2-foundation/0.3.2/download. Files: `reviewed-LICENSE.md` (text 7f976f7e9cb2), `reviewed-MIT-Mads-Marquart.txt` (text 340585b843bc)
-- **objc2-security 0.3.2**: Zlib OR Apache-2.0 OR MIT. Source: https://crates.io/api/v1/crates/objc2-security/0.3.2/download. Files: `reviewed-LICENSE.md` (text 7f976f7e9cb2), `reviewed-MIT-Mads-Marquart.txt` (text 340585b843bc), `reviewed-Zlib.txt` (text bfb1112d49db), `reviewed-Apache-2.0.txt` (text 074e6e32c86a)
-- **objc2-security-foundation 0.3.2**: Zlib OR Apache-2.0 OR MIT. Source: https://crates.io/api/v1/crates/objc2-security-foundation/0.3.2/download. Files: `reviewed-LICENSE.md` (text 7f976f7e9cb2), `reviewed-MIT-Mads-Marquart.txt` (text 340585b843bc), `reviewed-Zlib.txt` (text bfb1112d49db), `reviewed-Apache-2.0.txt` (text 074e6e32c86a)
-- **objc2-system-configuration 0.3.2**: Zlib OR Apache-2.0 OR MIT. Source: https://crates.io/api/v1/crates/objc2-system-configuration/0.3.2/download. Files: `reviewed-LICENSE.md` (text 7f976f7e9cb2), `reviewed-MIT-Mads-Marquart.txt` (text 340585b843bc), `reviewed-Zlib.txt` (text bfb1112d49db), `reviewed-Apache-2.0.txt` (text 074e6e32c86a)
+- **objc2 0.6.4**: MIT. Source: https://crates.io/api/v1/crates/objc2/0.6.4/download. Files: `reviewed-LICENSE.md` (text 7f976f7e9cb2), `reviewed-MIT-Marquart-Sheldon-objc2-contributors.txt` (text 0fcbfc4177ad)
+- **objc2-core-foundation 0.3.2**: Zlib OR Apache-2.0 OR MIT. Source: https://crates.io/api/v1/crates/objc2-core-foundation/0.3.2/download. Files: `reviewed-LICENSE.md` (text 7f976f7e9cb2), `reviewed-MIT-Marquart-Sheldon-objc2-contributors.txt` (text 0fcbfc4177ad), `reviewed-Zlib.txt` (text bfb1112d49db), `reviewed-Apache-2.0.txt` (text 074e6e32c86a)
+- **objc2-core-wlan 0.3.2**: Zlib OR Apache-2.0 OR MIT. Source: https://crates.io/api/v1/crates/objc2-core-wlan/0.3.2/download. Files: `reviewed-LICENSE.md` (text 7f976f7e9cb2), `reviewed-MIT-Marquart-Sheldon-objc2-contributors.txt` (text 0fcbfc4177ad), `reviewed-Zlib.txt` (text bfb1112d49db), `reviewed-Apache-2.0.txt` (text 074e6e32c86a)
+- **objc2-encode 4.1.0**: MIT. Source: https://crates.io/api/v1/crates/objc2-encode/4.1.0/download. Files: `reviewed-LICENSE.md` (text 7f976f7e9cb2), `reviewed-MIT-Marquart-Sheldon-objc2-contributors.txt` (text 0fcbfc4177ad)
+- **objc2-foundation 0.3.2**: MIT. Source: https://crates.io/api/v1/crates/objc2-foundation/0.3.2/download. Files: `reviewed-LICENSE.md` (text 7f976f7e9cb2), `reviewed-MIT-Marquart-Sheldon-objc2-contributors.txt` (text 0fcbfc4177ad)
+- **objc2-security 0.3.2**: Zlib OR Apache-2.0 OR MIT. Source: https://crates.io/api/v1/crates/objc2-security/0.3.2/download. Files: `reviewed-LICENSE.md` (text 7f976f7e9cb2), `reviewed-MIT-Marquart-Sheldon-objc2-contributors.txt` (text 0fcbfc4177ad), `reviewed-Zlib.txt` (text bfb1112d49db), `reviewed-Apache-2.0.txt` (text 074e6e32c86a)
+- **objc2-security-foundation 0.3.2**: Zlib OR Apache-2.0 OR MIT. Source: https://crates.io/api/v1/crates/objc2-security-foundation/0.3.2/download. Files: `reviewed-LICENSE.md` (text 7f976f7e9cb2), `reviewed-MIT-Marquart-Sheldon-objc2-contributors.txt` (text 0fcbfc4177ad), `reviewed-Zlib.txt` (text bfb1112d49db), `reviewed-Apache-2.0.txt` (text 074e6e32c86a)
+- **objc2-system-configuration 0.3.2**: Zlib OR Apache-2.0 OR MIT. Source: https://crates.io/api/v1/crates/objc2-system-configuration/0.3.2/download. Files: `reviewed-LICENSE.md` (text 7f976f7e9cb2), `reviewed-MIT-Marquart-Sheldon-objc2-contributors.txt` (text 0fcbfc4177ad), `reviewed-Zlib.txt` (text bfb1112d49db), `reviewed-Apache-2.0.txt` (text 074e6e32c86a)
 - **once_cell 1.21.4**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/once_cell/1.21.4/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 23f18e03dc49)
 - **opaque-debug 0.3.1**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/opaque-debug/0.3.1/download. Files: `LICENSE-APACHE` (text a9040321c371), `LICENSE-MIT` (text f59f5a781935)
 - **option-ext 0.2.0**: MPL-2.0. Source: https://crates.io/api/v1/crates/option-ext/0.2.0/download. Files: `LICENSE.txt` (text 66a3107d5ad6)
@@ -2084,7 +2177,7 @@ Generated by cmux-tui/build-support/notices/rust_notices.py from `manaflow-ai/ir
 - **bitflags 2.13.0**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/bitflags/2.13.0/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 6485b8ed310d)
 - **blake3 1.8.5**: CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception. Source: https://crates.io/api/v1/crates/blake3/1.8.5/download. Files: `LICENSE_A2` (text 00fcc7a934dd), `LICENSE_A2LLVM` (text a5695f57ea0c), `LICENSE_CC0` (text a2010f343487)
 - **block-buffer 0.12.1**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/block-buffer/0.12.1/download. Files: `LICENSE-APACHE` (text a9040321c371), `LICENSE-MIT` (text 98181e7249d0)
-- **block2 0.6.2**: MIT. Source: https://crates.io/api/v1/crates/block2/0.6.2/download. Files: `reviewed-LICENSE.md` (text 7f976f7e9cb2), `reviewed-MIT-Mads-Marquart.txt` (text 340585b843bc)
+- **block2 0.6.2**: MIT. Source: https://crates.io/api/v1/crates/block2/0.6.2/download. Files: `reviewed-LICENSE.md` (text 7f976f7e9cb2), `reviewed-MIT-Marquart-Sheldon-objc2-contributors.txt` (text 0fcbfc4177ad)
 - **byteorder 1.5.0**: Unlicense OR MIT. Source: https://crates.io/api/v1/crates/byteorder/1.5.0/download. Files: `COPYING` (text 01c266bced4a), `LICENSE-MIT` (text 0f96a83840e1), `UNLICENSE` (text 7e12e5df4bae)
 - **bytes 1.11.1**: MIT. Source: https://crates.io/api/v1/crates/bytes/1.11.1/download. Files: `LICENSE` (text 45f522cacecb)
 - **camino 1.2.2**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/camino/1.2.2/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 23f18e03dc49)
@@ -2119,7 +2212,7 @@ Generated by cmux-tui/build-support/notices/rust_notices.py from `manaflow-ai/ir
 - **derive_more 2.1.1**: MIT. Source: https://crates.io/api/v1/crates/derive_more/2.1.1/download. Files: `LICENSE` (text 8a35369f3ca2)
 - **diatomic-waker 0.2.3**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/diatomic-waker/0.2.3/download. Files: `LICENSE-APACHE` (text 97345ce38907), `LICENSE-MIT` (text 9b7c8198d989)
 - **digest 0.11.3**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/digest/0.11.3/download. Files: `LICENSE-APACHE` (text a9040321c371), `LICENSE-MIT` (text af59cea35d7f)
-- **dispatch2 0.3.1**: Zlib OR Apache-2.0 OR MIT. Source: https://crates.io/api/v1/crates/dispatch2/0.3.1/download. Files: `reviewed-LICENSE.md` (text 7f976f7e9cb2), `reviewed-MIT-Mads-Marquart.txt` (text 340585b843bc), `reviewed-Zlib.txt` (text bfb1112d49db), `reviewed-Apache-2.0.txt` (text 074e6e32c86a)
+- **dispatch2 0.3.1**: Zlib OR Apache-2.0 OR MIT. Source: https://crates.io/api/v1/crates/dispatch2/0.3.1/download. Files: `reviewed-LICENSE.md` (text 7f976f7e9cb2), `reviewed-MIT-Marquart-Mary-objc2-contributors.txt` (text 9b36d4f0d60c), `reviewed-Zlib.txt` (text bfb1112d49db), `reviewed-Apache-2.0.txt` (text 074e6e32c86a)
 - **ed25519 3.0.0**: Apache-2.0 OR MIT. Source: https://crates.io/api/v1/crates/ed25519/3.0.0/download. Files: `LICENSE-APACHE` (text 78779d420019), `LICENSE-MIT` (text 9aa4f92bfcde)
 - **ed25519-dalek 3.0.0-rc.0**: BSD-3-Clause. Source: https://crates.io/api/v1/crates/ed25519-dalek/3.0.0-rc.0/download. Files: `LICENSE` (text 7a313964a6e0)
 - **embedded-io 0.4.0**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/embedded-io/0.4.0/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 423e1c4900b3)
@@ -2219,14 +2312,14 @@ Generated by cmux-tui/build-support/notices/rust_notices.py from `manaflow-ai/ir
 - **num-integer 0.1.46**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/num-integer/0.1.46/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 6485b8ed310d)
 - **num-traits 0.2.19**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/num-traits/0.2.19/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 6485b8ed310d)
 - **num_enum 0.7.6**: BSD-3-Clause OR MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/num_enum/0.7.6/download. Files: `LICENSE-APACHE` (text 62c7a1e35f56), `LICENSE-BSD` (text 0be96d891d00), `LICENSE-MIT` (text 23f18e03dc49)
-- **objc2 0.6.4**: MIT. Source: https://crates.io/api/v1/crates/objc2/0.6.4/download. Files: `reviewed-LICENSE.md` (text 7f976f7e9cb2), `reviewed-MIT-Mads-Marquart.txt` (text 340585b843bc)
-- **objc2-core-foundation 0.3.2**: Zlib OR Apache-2.0 OR MIT. Source: https://crates.io/api/v1/crates/objc2-core-foundation/0.3.2/download. Files: `reviewed-LICENSE.md` (text 7f976f7e9cb2), `reviewed-MIT-Mads-Marquart.txt` (text 340585b843bc), `reviewed-Zlib.txt` (text bfb1112d49db), `reviewed-Apache-2.0.txt` (text 074e6e32c86a)
-- **objc2-core-wlan 0.3.2**: Zlib OR Apache-2.0 OR MIT. Source: https://crates.io/api/v1/crates/objc2-core-wlan/0.3.2/download. Files: `reviewed-LICENSE.md` (text 7f976f7e9cb2), `reviewed-MIT-Mads-Marquart.txt` (text 340585b843bc), `reviewed-Zlib.txt` (text bfb1112d49db), `reviewed-Apache-2.0.txt` (text 074e6e32c86a)
-- **objc2-encode 4.1.0**: MIT. Source: https://crates.io/api/v1/crates/objc2-encode/4.1.0/download. Files: `reviewed-LICENSE.md` (text 7f976f7e9cb2), `reviewed-MIT-Mads-Marquart.txt` (text 340585b843bc)
-- **objc2-foundation 0.3.2**: MIT. Source: https://crates.io/api/v1/crates/objc2-foundation/0.3.2/download. Files: `reviewed-LICENSE.md` (text 7f976f7e9cb2), `reviewed-MIT-Mads-Marquart.txt` (text 340585b843bc)
-- **objc2-security 0.3.2**: Zlib OR Apache-2.0 OR MIT. Source: https://crates.io/api/v1/crates/objc2-security/0.3.2/download. Files: `reviewed-LICENSE.md` (text 7f976f7e9cb2), `reviewed-MIT-Mads-Marquart.txt` (text 340585b843bc), `reviewed-Zlib.txt` (text bfb1112d49db), `reviewed-Apache-2.0.txt` (text 074e6e32c86a)
-- **objc2-security-foundation 0.3.2**: Zlib OR Apache-2.0 OR MIT. Source: https://crates.io/api/v1/crates/objc2-security-foundation/0.3.2/download. Files: `reviewed-LICENSE.md` (text 7f976f7e9cb2), `reviewed-MIT-Mads-Marquart.txt` (text 340585b843bc), `reviewed-Zlib.txt` (text bfb1112d49db), `reviewed-Apache-2.0.txt` (text 074e6e32c86a)
-- **objc2-system-configuration 0.3.2**: Zlib OR Apache-2.0 OR MIT. Source: https://crates.io/api/v1/crates/objc2-system-configuration/0.3.2/download. Files: `reviewed-LICENSE.md` (text 7f976f7e9cb2), `reviewed-MIT-Mads-Marquart.txt` (text 340585b843bc), `reviewed-Zlib.txt` (text bfb1112d49db), `reviewed-Apache-2.0.txt` (text 074e6e32c86a)
+- **objc2 0.6.4**: MIT. Source: https://crates.io/api/v1/crates/objc2/0.6.4/download. Files: `reviewed-LICENSE.md` (text 7f976f7e9cb2), `reviewed-MIT-Marquart-Sheldon-objc2-contributors.txt` (text 0fcbfc4177ad)
+- **objc2-core-foundation 0.3.2**: Zlib OR Apache-2.0 OR MIT. Source: https://crates.io/api/v1/crates/objc2-core-foundation/0.3.2/download. Files: `reviewed-LICENSE.md` (text 7f976f7e9cb2), `reviewed-MIT-Marquart-Sheldon-objc2-contributors.txt` (text 0fcbfc4177ad), `reviewed-Zlib.txt` (text bfb1112d49db), `reviewed-Apache-2.0.txt` (text 074e6e32c86a)
+- **objc2-core-wlan 0.3.2**: Zlib OR Apache-2.0 OR MIT. Source: https://crates.io/api/v1/crates/objc2-core-wlan/0.3.2/download. Files: `reviewed-LICENSE.md` (text 7f976f7e9cb2), `reviewed-MIT-Marquart-Sheldon-objc2-contributors.txt` (text 0fcbfc4177ad), `reviewed-Zlib.txt` (text bfb1112d49db), `reviewed-Apache-2.0.txt` (text 074e6e32c86a)
+- **objc2-encode 4.1.0**: MIT. Source: https://crates.io/api/v1/crates/objc2-encode/4.1.0/download. Files: `reviewed-LICENSE.md` (text 7f976f7e9cb2), `reviewed-MIT-Marquart-Sheldon-objc2-contributors.txt` (text 0fcbfc4177ad)
+- **objc2-foundation 0.3.2**: MIT. Source: https://crates.io/api/v1/crates/objc2-foundation/0.3.2/download. Files: `reviewed-LICENSE.md` (text 7f976f7e9cb2), `reviewed-MIT-Marquart-Sheldon-objc2-contributors.txt` (text 0fcbfc4177ad)
+- **objc2-security 0.3.2**: Zlib OR Apache-2.0 OR MIT. Source: https://crates.io/api/v1/crates/objc2-security/0.3.2/download. Files: `reviewed-LICENSE.md` (text 7f976f7e9cb2), `reviewed-MIT-Marquart-Sheldon-objc2-contributors.txt` (text 0fcbfc4177ad), `reviewed-Zlib.txt` (text bfb1112d49db), `reviewed-Apache-2.0.txt` (text 074e6e32c86a)
+- **objc2-security-foundation 0.3.2**: Zlib OR Apache-2.0 OR MIT. Source: https://crates.io/api/v1/crates/objc2-security-foundation/0.3.2/download. Files: `reviewed-LICENSE.md` (text 7f976f7e9cb2), `reviewed-MIT-Marquart-Sheldon-objc2-contributors.txt` (text 0fcbfc4177ad), `reviewed-Zlib.txt` (text bfb1112d49db), `reviewed-Apache-2.0.txt` (text 074e6e32c86a)
+- **objc2-system-configuration 0.3.2**: Zlib OR Apache-2.0 OR MIT. Source: https://crates.io/api/v1/crates/objc2-system-configuration/0.3.2/download. Files: `reviewed-LICENSE.md` (text 7f976f7e9cb2), `reviewed-MIT-Marquart-Sheldon-objc2-contributors.txt` (text 0fcbfc4177ad), `reviewed-Zlib.txt` (text bfb1112d49db), `reviewed-Apache-2.0.txt` (text 074e6e32c86a)
 - **oid-registry 0.8.1**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/oid-registry/0.8.1/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text a5c61b93b6ee)
 - **once_cell 1.21.4**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/once_cell/1.21.4/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 23f18e03dc49)
 - **opaque-debug 0.3.1**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/opaque-debug/0.3.1/download. Files: `LICENSE-APACHE` (text a9040321c371), `LICENSE-MIT` (text f59f5a781935)
@@ -4616,6 +4709,29 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
+```
+
+#### Text 0fcbfc4177ad
+
+```text
+MIT License
+
+Copyright (c) Mads Marquart, Steven Sheldon and the objc2 contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+associated documentation files (the "Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the
+following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial
+portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT
+LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO
+EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
 #### Text 123a331b5dbf
@@ -7349,29 +7465,6 @@ CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
-```
-
-#### Text 340585b843bc
-
-```text
-MIT License
-
-Copyright (c) Mads Marquart
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
-associated documentation files (the "Software"), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the
-following conditions:
-
-The above copyright notice and this permission notice shall be included in all copies or substantial
-portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT
-LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO
-EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
-USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
 #### Text 3521672491a3
@@ -18185,6 +18278,29 @@ CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
+```
+
+#### Text 9b36d4f0d60c
+
+```text
+MIT License
+
+Copyright (c) Mads Marquart, Mary and the objc2 contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+associated documentation files (the "Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the
+following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial
+portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT
+LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO
+EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
 #### Text 9b7c8198d989

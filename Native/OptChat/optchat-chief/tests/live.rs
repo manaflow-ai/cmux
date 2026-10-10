@@ -38,9 +38,12 @@ fn start(chat: &optchat_host::OptChat, n: u64, text: &str) -> TurnStart {
             effort: None,
             preset: None,
             tags: Default::default(),
+            env: Default::default(),
+            fast: false,
         },
         blocks: turn_blocks(&view.text, &[text.to_owned()]),
         limit: Some(Duration::from_secs(600)),
+        idle_limit: None,
     }
 }
 
@@ -181,7 +184,7 @@ fn the_acpmux_compactor_builds_a_node_through_claude_sr() {
         AcpmuxCompactor::new(
             agents.clone(),
             compactor_spec(&paths, &home, &harness, family, model.as_deref()),
-            Slots::new(optchat_core::JOBS),
+            Slots::new(optchat_chief::compactor::COMPACTOR_SESSIONS),
         )
         .with_log(Arc::new(|line: &str| println!("compactor: {line}"))),
     );
@@ -208,12 +211,13 @@ fn the_acpmux_compactor_builds_a_node_through_claude_sr() {
     }
     context.push_str("</chat>");
     let request = CompactRequest {
+        imported: false,
         node: NodeId::new(0, 100_000),
         system: system.clone(),
         context: context.clone(),
         step: format!(
-            "For scale, this line is exactly 512 bytes:\n{}\n\nCompress this message into one line, in at most 512 bytes:\nuser: deploy service-{i} the same way and tell me when it is healthy",
-            optchat_core::SCALE
+            "Compaction: compress message 100000 into one line of at most 512 bytes\n(about 70 words; aim for about 400 bytes, well inside the limit), the\nlimit is the length of this ruler:\n{}\n<input>\nuser: deploy service-{i} the same way and tell me when it is healthy\n</input>",
+            optchat_core::RULER
         ),
         cut: None,
     };
@@ -227,7 +231,7 @@ fn the_acpmux_compactor_builds_a_node_through_claude_sr() {
     assert!(line.is_ok(), "{line:?}");
     // No transcript of a compactor slot is left in any Claude home, nor
     // anything but the configuration in a codex slot's CODEX_HOME.
-    for k in 0..optchat_core::JOBS {
+    for k in 0..optchat_chief::compactor::COMPACTOR_SESSIONS {
         let slot = optchat_chief::compactor::codex_slot_home(&paths.compactor_codex, k);
         let left: Vec<String> = std::fs::read_dir(&slot)
             .map(|d| {
@@ -362,6 +366,7 @@ fn two_turns_and_two_nodes_through_local_acp() {
         env,
         instructions: None,
         tools: tools.clone(),
+        user_env: Default::default(),
     };
     session_dir::write(&paths, &setup).unwrap();
     let system = system_text(None, &tools);
@@ -462,10 +467,13 @@ fn two_turns_and_two_nodes_through_local_acp() {
                 effort: None,
                 preset,
                 tags: optchat_chief::acpmux::chief_tags(&home_id(&home), "turn"),
+                env: Default::default(),
+                fast: false,
             },
             blocks,
             system_prompt,
             limit: Some(Duration::from_secs(600)),
+            idle_limit: None,
         };
         let started = std::time::Instant::now();
         let outcome = turn::run(
@@ -498,7 +506,7 @@ fn two_turns_and_two_nodes_through_local_acp() {
     let compactor = AcpmuxCompactor::new(
         agents.clone(),
         compactor_spec(&paths, &home, &harness, family, compactor_model.as_deref()),
-        Slots::new(optchat_core::JOBS),
+        Slots::new(optchat_chief::compactor::COMPACTOR_SESSIONS),
     )
     .with_log(Arc::new(|line: &str| println!("host.log: {line}")));
     let config = Config::default();
@@ -515,12 +523,14 @@ fn two_turns_and_two_nodes_through_local_acp() {
     context.push_str("</chat>");
     for k in 0..2u64 {
         let request = CompactRequest {
+            imported: false,
             node: NodeId::new(0, 200_000 + k),
             system: config.prompt.text(&config.agent),
             context: context.clone(),
             step: format!(
-                "For scale, this line is exactly 512 bytes:\n{}\n\nCompress this message into one line, in at most 512 bytes:\nuser: deploy service-{} the same way and tell me when it is healthy",
-                optchat_core::SCALE,
+                "Compaction: compress message {} into one line of at most 512 bytes\n(about 70 words; aim for about 400 bytes, well inside the limit), the\nlimit is the length of this ruler:\n{}\n<input>\nuser: deploy service-{} the same way and tell me when it is healthy\n</input>",
+                200_000 + k,
+                optchat_core::RULER,
                 i + k as usize
             ),
             cut: None,

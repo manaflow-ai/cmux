@@ -32,6 +32,12 @@ pub struct ProviderEngine {
     /// Tabs the session created (`tabs.open` and their popups) and did not
     /// keep (`tab.keep`): they close when the session ends.
     created: Arc<Mutex<BTreeSet<String>>>,
+    /// Tabs of the person the session drove (a claim, `tabs.use(id)`): its
+    /// own besides the ones it created (`tabs.list` without `all`).
+    driven: Mutex<BTreeSet<String>>,
+    /// The session's current tab among those it created: its last
+    /// foreground `tabs.open` or `tabs.activate` (`active` in `tabs.list`).
+    current: Mutex<Option<String>>,
     /// Set once the session's end released its leases (close, or the
     /// backstop drop), so a late drop of a closed engine never clears the
     /// leases of a new session with the same name.
@@ -126,6 +132,8 @@ impl ProviderEngine {
         );
         Ok(ProviderEngine {
             created,
+            current: Mutex::new(None),
+            driven: Mutex::default(),
             provider,
             engine: engine.to_owned(),
             agent_source,
@@ -137,8 +145,43 @@ impl ProviderEngine {
     }
 
     /// `tabs.list`: one shape for every source (driver-protocol.md).
-    fn tabs_list(&self) -> Value {
-        Value::Array(self.provider.tab_rows(&self.engine).iter().map(|row| row.to_json()).collect())
+    /// A tab the session created is `active` when it is the session's
+    /// current tab; any other tab when the person sees it. Without `all`, a
+    /// provider session lists its own tabs (created or driven), of either
+    /// engine; `all` lists every tab the app announced (claims).
+    fn tabs_list(&self, params: &Value) -> Value {
+        let created = self.created_tabs().clone();
+        let current = self.current.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        let all = params.get("all").and_then(Value::as_bool) == Some(true);
+        let provider_session = matches!(self.engine.as_str(), "cef" | "webkit");
+        let rows = if provider_session {
+            self.provider.all_tab_rows()
+        } else {
+            self.provider.tab_rows(&self.engine)
+        };
+        let mut driven = self.driven.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        if provider_session {
+            driven.extend(self.provider.kept_tabs());
+        }
+        Value::Array(
+            rows.into_iter()
+                .filter(|row| {
+                    all || !provider_session
+                        || created.contains(&row.target_id)
+                        || driven.contains(&row.target_id)
+                })
+                .map(|mut row| {
+                    if created.contains(&row.target_id) {
+                        row.active = current.as_deref() == Some(row.target_id.as_str());
+                    }
+                    row.to_json()
+                })
+                .collect(),
+        )
+    }
+
+    fn set_current(&self, target_id: &str) {
+        *self.current.lock().unwrap_or_else(PoisonError::into_inner) = Some(target_id.to_owned());
     }
 }
 
@@ -161,7 +204,7 @@ impl ProviderEngine {
             return Err(DriverError::closed(reason));
         }
         match method {
-            "tabs.list" => return Ok(Reply::Value(self.tabs_list())),
+            "tabs.list" => return Ok(Reply::Value(self.tabs_list(params))),
             // The app owns tabs: it opens them in the session's engine. Only
             // the URL and background pass; profile, workspace and focus are
             // never the agent's to pick (D12).
@@ -172,12 +215,54 @@ impl ProviderEngine {
                         open.insert(key.into(), value.clone());
                     }
                 }
+                // An incognito tab needs a store that keeps nothing: a source
+                // without one (the app has none yet) refuses the call, never
+                // opening it in the person's persistent profile (private
+                // data P1). A source with one gets the flag either way.
+                match params.get("incognito") {
+                    None | Some(Value::Null) => {}
+                    Some(Value::Bool(incognito)) => {
+                        if self.provider.capabilities(&self.engine).contains(&"incognito") {
+                            open.insert("incognito".into(), Value::Bool(*incognito));
+                        } else if *incognito {
+                            return Err(DriverError::new(
+                                crate::protocol::ErrorCode::Unsupported,
+                                format!(
+                                    "tabs.open: incognito tabs are not supported on {} tabs yet; nothing was opened",
+                                    self.engine
+                                ),
+                            ));
+                        }
+                    }
+                    Some(_) => {
+                        return Err(DriverError::invalid("tabs.open: incognito must be a boolean"));
+                    }
+                }
+                // A Chromium tab opens blank; the session then navigates it
+                // through the tab's CDP relay to the commit, as a headless
+                // tab does, so the reply means the document committed and
+                // the navigation passes the same checks as any other.
+                let navigate = if self.engine == "cef" {
+                    open.remove("url").filter(|url| url.as_str().is_some_and(|url| !url.is_empty()))
+                } else {
+                    None
+                };
                 open.insert("engine".into(), Value::String(self.engine.clone()));
                 announce();
                 let opened = self.provider.open_tab(self.subscription, &Value::Object(open))?;
                 if let Some(target) = opened.get("targetId").and_then(Value::as_str) {
                     self.created_tabs().insert(target.to_owned());
+                    if params.get("background").and_then(Value::as_bool) != Some(true) {
+                        self.set_current(target);
+                    }
                     self.provider.opened(self.subscription, target);
+                    if let Some(url) = navigate {
+                        let mut go = json!({"targetId": target, "url": url, "waitUntil": "commit"});
+                        if let Some(timeout) = params.get("timeoutMs") {
+                            go["timeoutMs"] = timeout.clone();
+                        }
+                        self.call_with("tab.navigate", &go, &mut || {}, false)?;
+                    }
                 }
                 return Ok(Reply::Value(opened));
             }
@@ -205,12 +290,9 @@ impl ProviderEngine {
         let Some(engine) = self.provider.tab_engine(target_id) else {
             return Err(DriverError::not_found(format!("{method}: no tab {target_id}")));
         };
-        if engine != self.engine {
-            return Err(DriverError::not_found(format!(
-                "{method}: tab {target_id} is a {engine} tab; this session runs on {}",
-                self.engine
-            )));
-        }
+        // A claimed tab of the other engine is driven on its own engine (the
+        // source routes by the tab's engine); the session's engine only picks
+        // the engine of the tabs it opens.
         if let Some(error) = self.provider.refusal(method, target_id) {
             return Err(error);
         }
@@ -218,6 +300,10 @@ impl ProviderEngine {
         // session's tabs; the app has no part in it).
         if method == "tab.keep" {
             self.created_tabs().remove(target_id);
+            // Still the session's own tab to list and drive, and a deliverable
+            // later agent sessions list (a one-shot eval ends its session).
+            self.driven.lock().unwrap_or_else(PoisonError::into_inner).insert(target_id.to_owned());
+            self.provider.remember_kept(target_id);
             self.provider.kept(self.subscription, target_id);
             return Ok(Reply::Value(Value::Null));
         }
@@ -254,6 +340,24 @@ impl ProviderEngine {
             return Err(DriverError::closed("the session was closed"));
         }
         announce();
+        if method == "tabs.close" {
+            // A tab the session opened is the session's, not the person's:
+            // the agent's close closes it as the session's end would (a
+            // store close kept out of Reopen Closed), on either engine.
+            if self.created_tabs().remove(target_id) {
+                let mut close = json!({"targetId": target_id, "reason": SESSION_END_REASON,
+                    "timeoutMs": SESSION_END_CLOSE_MS});
+                if let Some(timeout) = params.get("timeoutMs") {
+                    close["timeoutMs"] = timeout.clone();
+                }
+                return self.provider.call("tabs.close", &close).map(Reply::Value);
+            }
+            // Any other tab is the person's layout: a Chromium session
+            // closes nothing (the app's WebKit driver only lets the tab go).
+            if engine == "cef" {
+                return Ok(Reply::Value(Value::Null));
+            }
+        }
         // Only the session's end names a close reason (it keeps those tabs
         // out of Reopen Closed); the agent's own close never does.
         let mut params = std::borrow::Cow::Borrowed(params);
@@ -262,6 +366,10 @@ impl ProviderEngine {
             && let Some(fields) = params.to_mut().as_object_mut()
         {
             fields.remove("reason");
+        }
+        self.driven.lock().unwrap_or_else(PoisonError::into_inner).insert(target_id.to_owned());
+        if matches!(method, "tabs.activate" | "tab.bringToFront") {
+            self.set_current(target_id);
         }
         let result = self.provider.tab_call(&TabCall {
             session: self.subscription,

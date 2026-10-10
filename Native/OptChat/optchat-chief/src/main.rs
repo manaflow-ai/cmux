@@ -27,7 +27,7 @@ optchat-chief host --conversation-source cloud --cloud-install FILE --daemon-soc
                                                              answer the chief's cloud conversation (an always-on brain host)
 optchat-chief cloud pair|enroll|register|chief|status --install FILE   the brain host's cloud identity (see `cloud help`)
 Env: CMUX_DAEMON_SOCKET, MUX_HOME (~/.cmux/mux), MUX_AGENT_TOKEN_FILE,
-     OPTCHAT_CHIEF_HARNESS / MUX_HARNESS (claude-sr), OPTCHAT_COMPACTOR_HARNESS (the Chief's),
+     OPTCHAT_CHIEF_HARNESS / MUX_HARNESS (claude-cr when acpmux has a configured CodeRouter route, else claude), OPTCHAT_COMPACTOR_HARNESS (the Chief's),
      MUX_POLICY (approve-all), OPTCHAT_CHIEF_MODEL, ACPMUX_SOCKET / ACPMUX_HOME / ACPMUX_BIN,
      CMUX_SOCKET_PATH, CMUX_MCP_COMMAND, OPTCHAT_ANTHROPIC_BASE_URL (compactor; the team subrouter)";
 
@@ -144,11 +144,14 @@ fn main() -> std::process::ExitCode {
                         let file = paths.root.join("settings.json");
                         let mut s = optchat_chief::chief_settings::ChiefSettings::load(&file);
                         if let Some((key, value)) = set {
-                            if key != optchat_chief::chief_settings::REMOTE_AUTO_APPROVE {
-                                return Err(format!("unknown setting {key:?}"));
+                            use optchat_chief::chief_settings::{
+                                CACHE_TTL, REMOTE_AUTO_APPROVE, parse_bool, parse_ttl,
+                            };
+                            match key {
+                                REMOTE_AUTO_APPROVE => s.remote_auto_approve = parse_bool(value)?,
+                                CACHE_TTL => s.cache_ttl = Some(parse_ttl(value)?),
+                                _ => return Err(format!("unknown setting {key:?}")),
                             }
-                            s.remote_auto_approve =
-                                optchat_chief::chief_settings::parse_bool(value)?;
                             s.save(&file)
                                 .map_err(|e| format!("{}: {e}", file.display()))?;
                         }

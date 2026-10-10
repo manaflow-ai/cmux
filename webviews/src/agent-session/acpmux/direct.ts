@@ -9,6 +9,7 @@ import { postNative } from "./native";
 import { readSummaryCheckpoint } from "./changes/turnCheckpointSource";
 import { HandoffClient } from "./handoff/client";
 import { PermissionGroupClient } from "./permissions/client";
+import { questionFromPermission } from "./question/model";
 import { supportsPermissionGroups, type PermissionDecision } from "./permissions/protocol";
 import { AcpmuxRpcError, supportsHandoff } from "./handoff/protocol";
 import { sessionEnforcement } from "./handoff/review";
@@ -18,6 +19,7 @@ import { acpmuxPerf } from "./perf";
 import { translate } from "./i18n";
 import { errorMessage } from "./transportErrors";
 import { isWarmableCwd } from "./warmFolders";
+import { SubagentFold } from "./subagents/subagentFold";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -30,8 +32,8 @@ export type AcpmuxHostConfig = {
   sessionId?: string;
   /** A pane opened as a new chat: do not fall back to the most recent session; the first prompt creates one. */
   newSession?: boolean;
-  /** A tab a `cmux://session/<id>` link opened: `sessionId` must exist. When the daemon has no such
-   * session the pane says so rather than falling back to the most recent one, and marks nothing seen. */
+  /** A tab's recorded session (`sessionId`) must exist. When the daemon has no such session, or it
+   * goes away, the pane says so rather than showing another chat, and marks nothing seen. */
   sessionMustExist?: boolean;
   /** A new chat's working directory, inherited from the tab it was opened from. */
   cwd?: string;
@@ -44,7 +46,7 @@ export type AcpmuxHostConfig = {
 };
 
 /** A harness's own session for acpmux to adopt (`_meta.acpmux.adopt`). */
-export type AcpmuxAdopt = { harness: string; agentSessionId: string };
+export type AcpmuxAdopt = { harness: string; agentSessionId: string; ifLive?: "fork" | "open" };
 
 /** `session/new` params: the host's cwd when it gave one, else acpmux's default. An adopt
  *  sends no cwd: acpmux resumes the chat where its harness recorded it. */
@@ -61,6 +63,15 @@ export function newSessionParams(
     ...(host.cwd ? { cwd: host.cwd } : {}),
     mcpServers: [],
     _meta: { acpmux: { harness, ...(host.peer ? { peer: host.peer } : {}) } },
+  };
+}
+
+/** What an `adopt.live` refusal's details offer: a fork (Claude Code), and the holding process. */
+function liveDetails(details: unknown): { canFork: boolean; command?: string } {
+  const d = details && typeof details === "object" ? (details as Record<string, unknown>) : {};
+  return {
+    canFork: d.canFork === true,
+    ...(typeof d.command === "string" && d.command ? { command: d.command } : {}),
   };
 }
 
@@ -94,6 +105,8 @@ export const PREWARM_METHOD = "_acpmux/prewarm";
 const COMMANDS_KIND = "available_commands_update";
 /// How much of the context window the session has used; not transcript, so attach asks for it by kind.
 const USAGE_KIND = "usage_update";
+/// The agent's own change of a config option (a reasoning level, a model): the whole option list.
+const CONFIG_KIND = "config_option_update";
 
 export function permissionFromMessage(message: any, selectedSessionId: string): AcpmuxPermission | undefined {
   const envelope = message ?? {};
@@ -101,7 +114,9 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
   const sessionId = envelope?.sessionId ?? raw?.sessionId;
   const permissionId = envelope?.permissionId ?? raw?.permissionId;
   if (!permissionId || sessionId !== selectedSessionId) return undefined;
+  const question = questionFromPermission({ permissionId: String(permissionId), session: sessionId, request: raw });
   return {
+    ...(question ? { question } : {}),
     permissionId: String(permissionId),
     groupId: typeof envelope.groupId === "string" ? envelope.groupId : undefined,
     turnId: typeof envelope.turnId === "string" ? envelope.turnId : undefined,
@@ -219,6 +234,7 @@ export function mergeToolItem(
       startedAt: before?.startedAt ?? at,
       endedAt: before?.endedAt ?? (ended ? at : undefined),
       locations: Array.isArray(update.locations) ? update.locations : before?.locations,
+      images: update.content === undefined ? before?.images : imagesFromContent(update.content),
       diffs:
         update.content === undefined
           ? placeDiffs(before?.diffs, update.locations)
@@ -260,6 +276,25 @@ function textFromContent(content: any): string {
   if (content?.type === "content") return textFromContent(content.content);
   if (Array.isArray(content)) return content.map(textFromContent).join("");
   return "";
+}
+
+/// The largest image block a tool call keeps (its base64 text): a bigger one is left out.
+const MAX_TOOL_IMAGE_LENGTH = 8 * 1024 * 1024;
+
+/// The data URLs of ACP `image` content blocks (`{type: "image", mimeType, data}`, bare or in a
+/// `content` wrapper), images only and each under the cap.
+function imagesFromContent(content: any): string[] | undefined {
+  const found: string[] = [];
+  const visit = (block: any) => {
+    if (Array.isArray(block)) return block.forEach(visit);
+    if (block?.type === "content") return visit(block.content);
+    if (block?.type !== "image" || typeof block.data !== "string") return;
+    const type = String(block.mimeType ?? "");
+    if (/^image\/(png|jpeg|gif|webp)$/.test(type) && block.data.length <= MAX_TOOL_IMAGE_LENGTH)
+      found.push(`data:${type};base64,${block.data}`);
+  };
+  visit(content);
+  return found.length ? found : undefined;
 }
 
 function sessionUpdate(event: EventRecord): any | undefined {
@@ -396,6 +431,8 @@ export class AcpmuxDirectClient {
   private selectedSessionId?: string;
   /** The session a link named that the daemon does not have (`sessionMustExist`). */
   private missingSession?: string;
+  /** The adopt acpmux refused because its chat is live elsewhere, until the user picks a way on. */
+  private liveAdopt?: { adopt: AcpmuxAdopt; canFork: boolean; command?: string };
   private summary: Record<string, any> | undefined;
   private queue: { id: string; prompt: string }[] = [];
   private pendingPermission?: AcpmuxPermission;
@@ -406,6 +443,9 @@ export class AcpmuxDirectClient {
   private commandsApplied = false;
   private optimisticPromptRows = new Map<string, string>();
   private optimisticPromptTexts = new Map<string, string>();
+  /// What a prompt's sender is told once acpmux took the prompt (its `user_message` echo, or the
+  /// reply), by prompt id. A refusal comes before either, so the composer keeps the prompt.
+  private promptAccepts = new Map<string, () => void>();
   /// A prompt that was not sent, by its row: what Retry sends again.
   private failedPrompts = new Map<string, { input: string; attachments: ComposerAttachment[] }>();
   private firstSeq?: number;
@@ -444,6 +484,8 @@ export class AcpmuxDirectClient {
   private messageRows = new Map<string, string[]>();
   /// The activity row each tool call lives in, so a late update lands where the call began.
   private toolRows = new Map<string, string>();
+  /// Subagents and their records, which draw as group rows (subagents/subagentFold.ts).
+  private subagents = new SubagentFold();
   private readonly listener: Listener;
   private host: AcpmuxHostConfig;
   private peers: string[] = [];
@@ -459,6 +501,10 @@ export class AcpmuxDirectClient {
   /// The selection generation whose attach reply has landed; lag resync waits for it.
   private attachedGeneration = -1;
   private historyExhausted = false;
+  /// The daemon's harness list or a harness's models changed (`_acpmux/harnesses_changed`: a
+  /// profile written, live model lists refreshed); the catalog re-reads (catalog.ts
+  /// followHarnessChanges).
+  onHarnessesChanged?: () => void;
 
   private constructor(
     host: AcpmuxHostConfig,
@@ -627,6 +673,7 @@ export class AcpmuxDirectClient {
     this.supersededMessageIds.clear();
     this.messageRows.clear();
     this.toolRows.clear();
+    this.subagents = new SubagentFold();
     this.pendingPermission = undefined;
     this.groupedPermissions.clear();
     this.commands = [];
@@ -662,11 +709,17 @@ export class AcpmuxDirectClient {
       // The failure's code (`validation.invalid`, ...) and details ride along for callers that
       // tell failures apart.
       if (message.error) {
-        const data = message.error.data as { code?: unknown; details?: unknown } | undefined;
+        const data = message.error.data as { code?: unknown; details?: unknown; reason?: unknown } | undefined;
         request.reject(
           Object.assign(new AcpmuxRpcError(message.error), {
             code: data?.code ?? message.error.code,
             ...(data?.details === undefined ? {} : { details: data.details }),
+            // acpmux's own refusals name their reason (`trust.pending`, `remote.mode_not_asking`).
+            ...(typeof data?.reason === "string" ? { reason: data.reason } : {}),
+            // A trust refusal names the folder it asks about (the folder acpmux resolved).
+            ...(typeof (data as { cwd?: unknown } | undefined)?.cwd === "string"
+              ? { cwd: (data as { cwd: string }).cwd }
+              : {}),
           }),
         );
       } else request.resolve(message.result);
@@ -686,6 +739,7 @@ export class AcpmuxDirectClient {
     else if (notification.method === "_acpmux/session_changed") this.sessionChanged(notification.params);
     else if (notification.method === "_acpmux/permission_pending") this.applyPermission(notification.params);
     else if (notification.method === "_acpmux/lagged") this.resyncAfterLag(notification.params);
+    else if (notification.method === "_acpmux/harnesses_changed") this.onHarnessesChanged?.();
   }
 
   /// The daemon dropped events for this client. Fetch what came after the last
@@ -745,9 +799,11 @@ export class AcpmuxDirectClient {
     else this.emit("session changed");
   }
 
-  /// The selected session is gone: show the most recent remaining one, or none.
+  /// The selected session is gone: a tab bound to its session (`sessionMustExist`) says so;
+  /// any other pane shows the most recent remaining one, or none.
   private selectFallbackSession(reason: string): void {
-    this.selectedSessionId = this.sessions[0]?.sessionId;
+    if (this.host.sessionMustExist) this.missingSession = this.selectedSessionId;
+    this.selectedSessionId = this.host.sessionMustExist ? undefined : this.sessions[0]?.sessionId;
     if (this.selectedSessionId) this.markSeen(this.selectedSessionId);
     const generation = ++this.selectionGeneration;
     this.resetSessionState();
@@ -787,12 +843,29 @@ export class AcpmuxDirectClient {
 
   /// Whether the user trusts `cwd` (folderTrust.ts).
   trustGet(cwd: string): Promise<unknown> {
-    return this.request("acp.trust.get", { cwd });
+    return this.request("acp.trust.get", {
+      cwd,
+      ...(this.selectedSessionId ? { sessionId: this.selectedSessionId } : {}),
+    });
   }
 
   /// Records the user's trust in `cwd` in acpmux's own record, never the agents' config files (folderTrust.ts).
   trustSet(cwd: string, level: string): Promise<unknown> {
-    return this.request("acp.trust.set", { cwd, level });
+    return this.request("acp.trust.set", {
+      cwd,
+      level,
+      ...(this.selectedSessionId ? { sessionId: this.selectedSessionId } : {}),
+    });
+  }
+
+  /// Reads the selected session's durable composer draft from acpmux.
+  readDraft(sessionId: string): Promise<unknown> {
+    return this.request("_acpmux/draft_get", { sessionId });
+  }
+
+  /// Persists or clears the selected session's composer draft in acpmux.
+  writeDraft(sessionId: string, text: string): Promise<unknown> {
+    return this.request("_acpmux/draft_set", { sessionId, text });
   }
 
   /// Files under `path` (else the selected session's folder) whose path matches `query`, best
@@ -878,7 +951,7 @@ export class AcpmuxDirectClient {
     const result = await this.request("_acpmux/attach", {
       sessionId,
       limit: 400,
-      kinds: ["transcript", COMMANDS_KIND, USAGE_KIND],
+      kinds: ["transcript", COMMANDS_KIND, USAGE_KIND, CONFIG_KIND],
       eventStream: true,
     });
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
@@ -1020,6 +1093,7 @@ export class AcpmuxDirectClient {
     this.supersededMessageIds.clear();
     this.messageRows.clear();
     this.toolRows.clear();
+    this.subagents = new SubagentFold();
     this.pendingPermission = undefined;
     const events = [...this.events].sort((a, b) => a.seq - b.seq);
     for (const event of events) {
@@ -1086,6 +1160,10 @@ export class AcpmuxDirectClient {
       if (Number.isFinite(used) && Number.isFinite(size) && size > 0) this.usage = { used, size };
       return;
     }
+    if (update?.sessionUpdate === CONFIG_KIND) {
+      if (Array.isArray(update.configOptions)) this.summary = { ...this.summary, configOptions: update.configOptions };
+      return;
+    }
     if (event.dir === "mux") {
       if (event.kind === "user_message") {
         const promptId = typeof msg.promptId === "string" ? msg.promptId : undefined;
@@ -1097,7 +1175,11 @@ export class AcpmuxDirectClient {
           ...msg,
           promptId: fallbackPromptId,
         });
-        if (fallbackPromptId) this.optimisticPromptTexts.delete(fallbackPromptId);
+        if (fallbackPromptId) {
+          this.optimisticPromptTexts.delete(fallbackPromptId);
+          this.promptAccepts.get(fallbackPromptId)?.();
+        }
+        this.subagents.closeBatch();
         this.endAssistantSegment();
         this.streamingActivity = undefined;
         this.rows.set(`user-${event.seq}`, {
@@ -1124,13 +1206,9 @@ export class AcpmuxDirectClient {
         this.turnOpen = false;
         this.pendingPermission = undefined;
         this.groupedPermissions.clear();
-        if (this.streamingAssistant) {
-          const row = this.rows.get(this.streamingAssistant);
-          if (row) {
-            row.streaming = false;
-            row.version += 1;
-          }
-        }
+        // A new row, never an in-place change: emitted snapshots share row objects, and the
+        // transcript's memo compares the drawn row's version with the next one.
+        this.endAssistantSegment();
         this.rows.delete("typing");
         const checkpoint = event.kind === "turn_result" ? readSummaryCheckpoint(msg) : undefined;
         if (event.kind === "turn_result")
@@ -1152,6 +1230,17 @@ export class AcpmuxDirectClient {
       return;
     }
     if (!update) return;
+    if (this.subagents.reduce(event, update)) {
+      for (const row of this.subagents.takeRows()) {
+        // A new group ends the text and tool calls before it, like a tool call does.
+        if (!this.rows.has(row.id)) {
+          this.endAssistantSegment();
+          this.streamingActivity = undefined;
+        }
+        this.rows.set(row.id, row);
+      }
+      return;
+    }
     const commands = commandsFromUpdate(update);
     if (commands) {
       this.commands = commands;
@@ -1161,6 +1250,8 @@ export class AcpmuxDirectClient {
     const text = textFromContent(update.content);
     if (event.kind === "agent_message_chunk" && text) {
       acpmuxPerf.markAgent("firstToken");
+      // Subagents spawned after the session's own text form a new group.
+      this.subagents.closeBatch();
       const messageId = typeof update.messageId === "string" ? update.messageId : undefined;
       if (messageId && this.supersededMessageIds.has(messageId)) return;
       const sameMessage = Boolean(
@@ -1312,6 +1403,7 @@ export class AcpmuxDirectClient {
       commands: this.commands,
       canLoadOlder: !this.historyExhausted && (this.firstSeq ?? 1) > 1,
       missingSession: this.selectedSessionId ? undefined : this.missingSession,
+      liveChat: this.liveAdopt && { canFork: this.liveAdopt.canFork, command: this.liveAdopt.command },
     });
   }
 
@@ -1321,6 +1413,10 @@ export class AcpmuxDirectClient {
   /** The session this pane shows, if any. */
   get selectedSession(): string | undefined {
     return this.selectedSessionId;
+  }
+  /** A copy of the selected session's recorded events, oldest first, for the inspector. */
+  sessionEvents(): EventRecord[] {
+    return this.events.slice();
   }
   /** A new chat starting (`create`): a Send meanwhile waits for it and goes to the new chat, not to
    *  the session still on screen (a harness pick), and a Send with no session joins it. */
@@ -1351,10 +1447,17 @@ export class AcpmuxDirectClient {
   }
   /// Sends a prompt. `promptId` keys its optimistic row (`local-<promptId>`), so a prompt the
   /// pane drew while a harness started keeps its row once it goes out (harnessSwitch.ts).
+  /// `accepted` runs once acpmux took the prompt (its echo or its reply); a refusal comes before
+  /// that, and then a caller that passed `accepted` still holds the prompt (the composer keeps
+  /// it), so the prompt leaves no bubble and the refusal names its reason in the transcript.
+  /// `ticket`: the gesture a send kept for this prompt while acpmux held it for the folder trust
+  /// answer (heldPrompt.ts); it rides as `_meta.cmuxGesture`, and the host strips it.
   async send(
     input: string,
     attachments: ComposerAttachment[] = [],
     promptId: string = crypto.randomUUID(),
+    accepted?: () => void,
+    ticket?: string,
   ): Promise<string | undefined> {
     const record = this.handoff.state.record;
     if (
@@ -1378,16 +1481,41 @@ export class AcpmuxDirectClient {
     this.optimisticPromptRows.set(promptId, rowId);
     this.optimisticPromptTexts.set(promptId, text);
     this.rows.set(rowId, { id: rowId, version: 1, at, kind: "user", text, pending: true });
+    let taken = false;
+    const accept = () => {
+      this.promptAccepts.delete(promptId);
+      if (taken) return;
+      taken = true;
+      accepted?.();
+    };
+    this.promptAccepts.set(promptId, accept);
     this.emit();
     try {
       await this.request("session/prompt", {
         sessionId,
         prompt: promptBlocks(input, attachments),
-        _meta: { acpmux: { promptId } },
+        _meta: { acpmux: { promptId }, ...(ticket ? { cmuxGesture: ticket } : {}) },
       });
+      accept();
     } catch (error) {
+      this.promptAccepts.delete(promptId);
       const code = (error as { code?: unknown } | null)?.code;
       const refused = typeof code === "string" && code.startsWith("transport.");
+      // acpmux holds every prompt while the folder's trust question is open (`trust_gate.rs`), and
+      // a sender that holds its prompt (`accepted`) keeps every refused one: the prompt never
+      // went, so it leaves no bubble, and the pane keeps it in (or puts it back in) the composer.
+      const held = !taken && accepted !== undefined;
+      // The folder's trust question (the one route); the pane's sender adds the re-send.
+      this.routeTrustRefusal(error);
+      if (isTrustRefusal(error) || held) {
+        this.rows.delete(rowId);
+        this.optimisticPromptRows.delete(promptId);
+        this.optimisticPromptTexts.delete(promptId);
+        // The prompt is still in the composer, so Enter sends it again (no Retry button).
+        if (held && !isTrustRefusal(error)) this.notice(translate("prompt.notSent", { reason: errorMessage(error) }));
+        else this.emit();
+        throw error;
+      }
       const row = this.rows.get(rowId);
       if (row) {
         // A new row object: the transcript's rows are memoized on identity and version. The
@@ -1454,12 +1582,15 @@ export class AcpmuxDirectClient {
     this.wire.sent(text, "session/cancel");
     this.socket.send(text);
   }
-  async permission(permissionId: string, optionId: string): Promise<void> {
+  /// Answers a permission: `optionId` picks an option (absent cancels the request), and
+  /// `answers` carries a question's harness-shaped answers (question/model.ts `reply`).
+  async permission(permissionId: string, optionId?: string, answers?: Record<string, unknown>): Promise<void> {
     if (this.selectedSessionId)
       await this.request("_acpmux/permission_respond", {
         sessionId: this.selectedSessionId,
         permissionId,
-        optionId,
+        ...(optionId === undefined ? {} : { optionId }),
+        ...(answers === undefined ? {} : { answers }),
       });
   }
   async permissionGroup(groupId: string, revision: number, decision: PermissionDecision): Promise<void> {
@@ -1476,10 +1607,47 @@ export class AcpmuxDirectClient {
     await this.attach(sessionId, generation);
     return generation === this.selectionGeneration && this.selectedSessionId === sessionId ? sessionId : undefined;
   }
+  /// The one route of a trust refusal (cx-nn3e): acpmux refuses `session/new`, `session/prompt`
+  /// and a prewarm in a folder without a Trust answer (`trust_gate.rs`). Every caller hands its
+  /// refusal here with the step to re-run after Trust; the pane shows the folder's one question.
+  /// A refusal that comes before the pane set its route (an adopt while connecting) waits for it.
+  get onTrustRefused(): TrustRoute | undefined {
+    return this.trustRoute;
+  }
+  set onTrustRefused(route: TrustRoute | undefined) {
+    this.trustRoute = route;
+    const waiting = this.waitingTrust;
+    this.waitingTrust = undefined;
+    if (route && waiting) route(waiting.refusal, waiting.again);
+  }
+  private trustRoute?: TrustRoute;
+  private waitingTrust?: { refusal: TrustRefusal; again?: () => void };
+  /// True when `error` is a trust refusal, which then went to the route.
+  routeTrustRefusal(error: unknown, again?: () => void): boolean {
+    const refusal = trustRefusal(error);
+    if (!refusal) return false;
+    if (this.trustRoute) this.trustRoute(refusal, again);
+    else this.waitingTrust = { refusal, again };
+    return true;
+  }
+  /// `session/new` for every caller: a trust refusal goes to the one route, then rejects as before.
+  private async newSession(params: Record<string, unknown>, again?: () => void): Promise<any> {
+    try {
+      return await this.request("session/new", params);
+    } catch (error) {
+      this.routeTrustRefusal(error, again);
+      throw error;
+    }
+  }
   /// A new session, in `cwd` when given; otherwise in the inherited cwd, then where acpmux defaults.
   create(harness?: string, cwd?: string, peer?: string): Promise<string | undefined> {
     const started = (async () => {
-      const sessionId = await this.startSession(harness, cwd, peer);
+      const sessionId = await this.startSession(
+        harness,
+        cwd,
+        peer,
+        () => void this.create(harness, cwd, peer).catch(() => undefined),
+      );
       return sessionId ? this.select(sessionId) : undefined;
     })();
     const tracked = started.finally(() => {
@@ -1492,10 +1660,11 @@ export class AcpmuxDirectClient {
   }
   /// `session/new` without showing it: a harness switch starts the session behind the pane's
   /// new chat and shows it once it is ready (harnessSwitch.ts).
-  async startSession(harness?: string, cwd?: string, peer?: string): Promise<string | undefined> {
-    const result = await this.request(
-      "session/new",
+  /// `again` re-runs the caller's step after a Trust answer (the trust route).
+  async startSession(harness?: string, cwd?: string, peer?: string, again?: () => void): Promise<string | undefined> {
+    const result = await this.newSession(
       newSessionParams(cwd ? { cwd, peer } : { ...this.host, peer }, harness),
+      again,
     );
     // The inherited cwd is the first default chat's; later ones start where acpmux defaults.
     if (result?.sessionId && !cwd) this.host = { ...this.host, cwd: undefined };
@@ -1546,7 +1715,16 @@ export class AcpmuxDirectClient {
   /// awaited; a refusal (the pool is off, a failed start) is ignored.
   prewarm(harness: string, cwd?: string): void {
     if (!this.prewarmSupported) return;
-    void this.request(PREWARM_METHOD, cwd ? { harness, cwd } : { harness }).catch(() => undefined);
+    // A prewarm in a folder without a Trust answer asks the question early (nothing to re-run).
+    void this.request(PREWARM_METHOD, cwd ? { harness, cwd } : { harness }).catch((error: unknown) => {
+      this.routeTrustRefusal(error);
+    });
+  }
+  /// Resumes `adopt` in this pane now (a chat whose folder was missing, after Choose Folder): the
+  /// same path as an adopt on connect, so a trust refusal asks the question (the trust route).
+  async resume(adopt: AcpmuxAdopt): Promise<string | undefined> {
+    await this.adoptChat(adopt);
+    return this.adopted;
   }
   /** The session an adopt on connect resumed, for the host to keep as the tab's session. */
   adopted?: string;
@@ -1558,20 +1736,42 @@ export class AcpmuxDirectClient {
     this.host = { ...this.host, adopt: undefined };
     let result: any;
     try {
-      result = await this.request("session/new", newSessionParams({ adopt }));
+      // After Trust the same chat is adopted again.
+      result = await this.newSession(
+        newSessionParams({ adopt }),
+        () => void this.adoptChat(adopt).catch(() => undefined),
+      );
     } catch (error) {
       if (this.socket?.readyState !== WebSocket.OPEN) throw error;
+      // The trust route asks about the folder; this is no failure to resume.
+      if (trustRefusal(error)) return;
+      if (error instanceof AcpmuxRpcError && error.reason === "adopt.live" && !adopt.ifLive) {
+        this.liveAdopt = { adopt, ...liveDetails((error as { details?: unknown }).details) };
+        this.emit();
+        return;
+      }
       this.adoptFailed(error instanceof Error && error.message ? `: ${error.message}` : "");
       return;
     }
     const sessionId = result?.sessionId ? String(result.sessionId) : undefined;
-    if (sessionId && adoptedBy(result, adopt)) {
+    // A fork is a new conversation: its harness session is its own, not the adopted one.
+    if (sessionId && (adopt.ifLive === "fork" || adoptedBy(result, adopt))) {
       this.adopted = sessionId;
       await this.select(sessionId);
       return;
     }
     if (sessionId) await this.request("_acpmux/kill", { sessionId, purge: true }).catch(() => undefined);
     this.adoptFailed(": this acpmux can't resume chats");
+  }
+  /// Adopts the chat acpmux refused as live elsewhere anyway: `open` resumes it as it is (two
+  /// processes then write one conversation), `fork` starts a new chat from it. Once; a second
+  /// click while it adopts does nothing.
+  async adoptLive(choice: "fork" | "open"): Promise<void> {
+    const live = this.liveAdopt;
+    if (!live || (choice === "fork" && !live.canFork)) return;
+    this.liveAdopt = undefined;
+    this.emit();
+    await this.adoptChat({ ...live.adopt, ifLive: choice });
   }
   /// A line in the shown transcript (a pick the agent refused).
   notice(text: string): void {
@@ -1629,25 +1829,56 @@ export class AcpmuxDirectClient {
   /// rides as `_meta.cmuxGesture`, and the host strips it before acpmux.
   async setMode(modeId: string, ticket?: string): Promise<void> {
     if (this.selectedSessionId)
-      await this.request("session/set_mode", { sessionId: this.selectedSessionId, modeId, ...gestureMeta(ticket) });
-  }
-  async setConfig(configId: string, value: string, ticket?: string): Promise<void> {
-    if (this.selectedSessionId)
-      await this.request("session/set_config_option", {
+      await this.request("session/set_mode", {
         sessionId: this.selectedSessionId,
-        configId,
-        value,
+        modeId,
         ...gestureMeta(ticket),
       });
   }
-  /** The harness and model catalog. Server state the pane caches with TanStack Query (catalog.ts), so connect does not wait on it. */
-  async harnesses(): Promise<AcpmuxSnapshot["catalog"]> {
+  /// The session's summary reads the agent's answer, its whole option list: acpmux sends no
+  /// session change for it, so without this the chip and menu keep the old level.
+  async setConfig(configId: string, value: string, ticket?: string): Promise<void> {
+    const sessionId = this.selectedSessionId;
+    if (!sessionId) return;
+    const result = await this.request("session/set_config_option", {
+      sessionId,
+      configId,
+      value,
+      ...gestureMeta(ticket),
+    });
+    if (sessionId !== this.selectedSessionId || !Array.isArray(result?.configOptions)) return;
+    this.summary = { ...this.summary, configOptions: result.configOptions };
+    this.emit();
+  }
+  /** The harness and model catalog. Server state the pane caches with TanStack Query (catalog.ts), so connect does not wait on it.
+   *  With `cwd` (the chat's folder) it also holds that folder's harness profiles (`folder` entries,
+   *  docs/add-your-harness.md). A refused `cwd` (an older acpmux, a folder outside the roots)
+   *  falls back to the list without it, so the catalog never empties over a folder. */
+  async harnesses(cwd?: string): Promise<AcpmuxSnapshot["catalog"]> {
     // The harness list carries no models; acpmux serves the probed ones apart (modelCatalog.ts).
     const [names, probed] = await Promise.all([
-      this.request("_acpmux/harnesses", {}),
+      cwd
+        ? this.request("_acpmux/harnesses", { cwd }).catch(() => this.request("_acpmux/harnesses", {}))
+        : this.request("_acpmux/harnesses", {}),
       this.request("_acpmux/models", {}).catch(() => undefined),
     ]);
-    return mergeModelCatalog(names, probed);
+    const catalog = mergeModelCatalog(names, probed);
+    const profiles = normalizeFolderProfiles(names);
+    if (profiles.length === 0) return catalog;
+    // A probed folder profile keeps its models; it is listed once, as the folder's.
+    const ids = new Set(profiles.map((profile) => profile.id));
+    const models = new Map(catalog.map((entry) => [entry.id, entry.models]));
+    return [
+      ...catalog.filter((entry) => !ids.has(entry.id)),
+      ...profiles.map((profile) => ({ ...profile, models: models.get(profile.id) ?? profile.models })),
+    ];
+  }
+  /// Enables a folder profile (`_acpmux/harness_enable {folder, id}`). Call it straight from the
+  /// click or key handler, with no await before it: the host takes the gesture, shows its own
+  /// confirmation and adds the file's hash itself (the pane never sends one). A Cancel there
+  /// rejects with code `transport.harness_not_confirmed`.
+  harnessEnable(folder: string, id: string): Promise<unknown> {
+    return this.request("_acpmux/harness_enable", { folder, id });
   }
   /// Pages older transcript events in without reattaching, so the live summary,
   /// queue and permission stay as they are. A page that lands after the
@@ -1697,9 +1928,93 @@ export class AcpmuxDirectClient {
 const gestureMeta = (ticket?: string) => (ticket ? { _meta: { cmuxGesture: ticket } } : {});
 
 /// Why acpmux says a harness will not start: its launcher check, else its failed model probe.
+/// A prompt acpmux refused because the session's folder has no Trust answer (`trust_gate.rs`).
+export function isTrustRefusal(error: unknown): boolean {
+  // The reasons acpmux's trust gate writes (trust_gate.rs; checked against trust_gate.json).
+  const reason = (error as { reason?: unknown } | null)?.reason;
+  return reason === "trust.pending" || reason === "trust.untrusted";
+}
+
+/// What a trust refusal names: its reason and the folder acpmux asks about.
+export type TrustRefusal = { reason: "trust.pending" | "trust.untrusted"; cwd?: string };
+/// The pane's handler of every trust refusal (`AcpmuxDirectClient.onTrustRefused`).
+export type TrustRoute = (refusal: TrustRefusal, again?: () => void) => void;
+
+export function trustRefusal(error: unknown): TrustRefusal | undefined {
+  if (!isTrustRefusal(error)) return undefined;
+  const fields = error as { reason: TrustRefusal["reason"]; cwd?: unknown };
+  return { reason: fields.reason, ...(typeof fields.cwd === "string" && fields.cwd ? { cwd: fields.cwd } : {}) };
+}
+
 export function harnessRefusal(entry: { unavailable?: unknown; probeError?: unknown } | undefined): string | undefined {
   for (const reason of [entry?.unavailable, entry?.probeError]) if (typeof reason === "string" && reason) return reason;
   return undefined;
+}
+
+const FOLDER_STATES = ["enabled", "needs-enable", "needs-trust", "error"] as const;
+
+/// The folder profiles of a `_acpmux/harnesses {cwd}` reply (`folderProfiles`) as catalog entries.
+/// An entry without an id, a folder or a known state is dropped.
+export function normalizeFolderProfiles(value: any): AcpmuxSnapshot["catalog"] {
+  const profiles: any[] = Array.isArray(value?.folderProfiles) ? value.folderProfiles : [];
+  return profiles.flatMap((profile) => {
+    const id = typeof profile?.id === "string" ? profile.id : "";
+    const folder = typeof profile?.folder === "string" ? profile.folder : "";
+    const state = FOLDER_STATES.find((candidate) => candidate === profile?.state);
+    if (!id || !folder || !state) return [];
+    const first = Array.isArray(profile.diagnostics) ? profile.diagnostics[0] : undefined;
+    const diagnostic =
+      typeof first === "string" ? first : typeof first?.message === "string" ? first.message : undefined;
+    return [
+      {
+        id,
+        name: typeof profile.displayName === "string" && profile.displayName ? profile.displayName : id,
+        models: Array.isArray(profile.models) ? profile.models.map((model: unknown) => catalogModel(model)) : [],
+        ...(typeof profile.family === "string" && profile.family ? { family: profile.family } : {}),
+        ...(typeof profile.icon === "string" && profile.icon ? { icon: profile.icon } : {}),
+        folder: {
+          folder,
+          ...(typeof profile.path === "string" ? { path: profile.path } : {}),
+          state,
+          ...(diagnostic ? { diagnostic } : {}),
+        },
+      },
+    ];
+  });
+}
+
+/// A `session/new` acpmux refused because the chat's folder profile is not enabled yet
+/// (`harness.needs_enable`) or its folder has no Trust answer (`harness.needs_trust`).
+export type HarnessBlock = { reason: "needs-enable" | "needs-trust"; harness: string; folder: string };
+
+export function harnessBlock(error: unknown): HarnessBlock | undefined {
+  const data = (error as { data?: unknown } | null)?.data as
+    | { reason?: unknown; harness?: unknown; folder?: unknown }
+    | undefined;
+  const reason =
+    data?.reason === "harness.needs_enable"
+      ? "needs-enable"
+      : data?.reason === "harness.needs_trust"
+        ? "needs-trust"
+        : undefined;
+  if (!reason || typeof data?.harness !== "string" || typeof data.folder !== "string") return undefined;
+  return { reason, harness: data.harness, folder: data.folder };
+}
+
+/// One `_acpmux/models` entry: id and name, plus the metadata a declared profile model carries.
+export function catalogModel(model: any): AcpmuxSnapshot["catalog"][number]["models"][number] {
+  const entry: AcpmuxSnapshot["catalog"][number]["models"][number] = {
+    id: String(model?.id ?? model?.modelId),
+    name: typeof model?.name === "string" ? model.name : undefined,
+  };
+  if (typeof model?.unavailable === "string") entry.unavailable = model.unavailable;
+  for (const key of ["shortName", "family", "defaultEffort"] as const)
+    if (typeof model?.[key] === "string" && model[key]) entry[key] = model[key];
+  if (Array.isArray(model?.efforts))
+    entry.efforts = model.efforts.filter((value: unknown) => typeof value === "string");
+  if (typeof model?.fast === "boolean") entry.fast = model.fast;
+  if (Number.isInteger(model?.contextWindow) && model.contextWindow > 0) entry.contextWindow = model.contextWindow;
+  return entry;
 }
 
 export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
@@ -1708,11 +2023,20 @@ export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
     Array.isArray(harnesses) ? harnesses : Object.entries(harnesses).map(([id, data]) => ({ id, ...(data as any) }))
   ).map((harness: any) => ({
     id: String(harness.id ?? harness.name),
-    name: agentName(String(harness.id ?? harness.name), harness.name == null ? undefined : String(harness.name)),
-    models: (harness.models ?? []).map((model: any) => ({
-      id: String(model.id ?? model.modelId),
-      name: model.name,
-    })),
+    name: agentName(
+      String(harness.id ?? harness.name),
+      typeof harness.displayName === "string" && harness.displayName
+        ? harness.displayName
+        : harness.name == null
+          ? undefined
+          : String(harness.name),
+    ),
+    models: (harness.models ?? []).map((model: any) => catalogModel(model)),
+    ...(typeof harness.family === "string" && harness.family ? { family: harness.family } : {}),
+    ...(typeof harness.icon === "string" && harness.icon ? { icon: harness.icon } : {}),
+    ...(typeof harness.auth?.login === "string" && harness.auth.login.trim()
+      ? { auth: { login: harness.auth.login.trim() } }
+      : {}),
     // Why acpmux will not start it, when it says: its launcher check (`unavailable`), else its
     // failed model probe (`probeError`).
     ...(harnessRefusal(harness) ? { unavailable: harnessRefusal(harness) } : {}),

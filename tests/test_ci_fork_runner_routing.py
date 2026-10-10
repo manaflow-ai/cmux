@@ -37,11 +37,28 @@ MACOS_15_FORK_JOBS = {
 # app-host shards over macos-15 and macos-26. Accepted only when every
 # `hosted_runner:` value in the workflow is a GitHub-hosted macOS label.
 FORK_MACOS_MATRIX_BRANCH = "github.repository_owner != 'manaflow-ai' && matrix.hosted_runner"
+# Windows and ARM64 Linux jobs run on Blacksmith in manaflow-ai; a fork takes
+# GitHub's image of the same OS.
+FORK_WINDOWS_BRANCH = "github.repository_owner != 'manaflow-ai' && 'windows-2025'"
+FORK_LINUX_ARM64_BRANCH = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04-arm'"
 HOSTED_MACOS_LABELS = {"macos-15", "macos-26"}
 # Any Blacksmith runner label. Script names such as
 # scripts/blacksmith-bounded-command.sh have no `-Nvcpu-` part.
 BLACKSMITH_LABEL = re.compile(r"blacksmith-\d+vcpu-[a-z0-9]+(?:[.-][a-z0-9]+)*")
-FORK_BRANCHES = (FORK_LINUX_BRANCH, FORK_MACOS_BRANCH, FORK_MACOS_15_BRANCH, FORK_MACOS_MATRIX_BRANCH)
+# A runner identity guard compares runner.name with a Blacksmith scale set's
+# VM-name prefix ('<label>-Runner-'). It selects no runner, so it is not a
+# label a fork could queue on.
+BLACKSMITH_RUNNER_NAME_CHECK = re.compile(
+    r"startsWith\(runner\.name, '" + BLACKSMITH_LABEL.pattern + r"-Runner-'\)"
+)
+FORK_BRANCHES = (
+    FORK_LINUX_BRANCH,
+    FORK_MACOS_BRANCH,
+    FORK_MACOS_15_BRANCH,
+    FORK_MACOS_MATRIX_BRANCH,
+    FORK_WINDOWS_BRANCH,
+    FORK_LINUX_ARM64_BRANCH,
+)
 OWNER_ONLY_JOB_IF = "if: github.repository_owner == 'manaflow-ai'"
 EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}")
 JOB_HEADER = re.compile(r"^  ([A-Za-z0-9_-]+):\s*(?:#.*)?$")
@@ -50,6 +67,12 @@ INPUT_HEADER = re.compile(r"^      ([A-Za-z0-9_-]+):\s*$")
 UNGATED_BLACKSMITH_ALLOWED = {
     ("reload-build.yml", "macOS runner label to build on. Blacksmith (blacksmith-6vcpu-macos-26),"): (
         "description text of the runner input, not a value"
+    ),
+    ("ci-health-report.yml", "MACOS_RUNNER_BACKGROUND=${{ vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}"): (
+        "report text that prints the lane's effective label, not a runs-on value"
+    ),
+    ("ci-repo-variables.yml", "MACOS_RUNNER_BACKGROUND=${{ vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}"): (
+        "report text that prints the lane's effective label, not a runs-on value"
     ),
 }
 # (workflow, dispatch input) -> why its Blacksmith default and choices may be
@@ -134,8 +157,9 @@ FORK_PULL_REQUEST_LABEL = re.compile(
 # Context names are case-insensitive, and `vars['X']` reads the same value as
 # `vars.X`; _refs normalizes the index form before matching.
 # CI_SIDE_LANE_RUNNER and CI_LIGHT_LANE_RUNNER name owned side labels outright
-# (runner_label_policy.side_lane_reason), so every read of them is gated too.
-OWNED_RUNNER_NAME = r"(?:MACOS_RUNNER_\w+|LINUX_RUNNER|LINUX_ARM64_RUNNER|CI_SIDE_LANE_RUNNER|CI_LIGHT_LANE_RUNNER)"
+# (runner_label_policy.side_lane_reason), and CI_AWS_SIDE_RUNNER the owned AWS
+# pool (aws_side_reason), so every read of them is gated too.
+OWNED_RUNNER_NAME = r"(?:MACOS_RUNNER_\w+|LINUX_RUNNER|LINUX_ARM64_RUNNER|CI_SIDE_LANE_RUNNER|CI_LIGHT_LANE_RUNNER|CI_AWS_SIDE_RUNNER)"
 OWNED_RUNNER_VARIABLE = re.compile(
     rf"\bvars(?:\.{OWNED_RUNNER_NAME}\b|\[\s*'{OWNED_RUNNER_NAME}'\s*\])", re.IGNORECASE
 )
@@ -665,7 +689,7 @@ def ungated_blacksmith_labels(name: str, text: str) -> list[str]:
             continue
         if in_options and not stripped.startswith("- "):
             in_options = False
-        if stripped.startswith("#") or not BLACKSMITH_LABEL.search(raw):
+        if stripped.startswith("#") or not BLACKSMITH_LABEL.search(BLACKSMITH_RUNNER_NAME_CHECK.sub("", raw)):
             continue
         if job in owner_only_jobs or (name, stripped) in UNGATED_BLACKSMITH_ALLOWED:
             continue
@@ -958,7 +982,12 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                 # condition selects, not a label appearing later on the line.
                 pull_request_linux = pull_request_selects(line, "ubuntu")
                 pull_request_macos = pull_request_selects(line, "macos")
-                hosted_linux = FORK_LINUX_BRANCH in line or pull_request_linux
+                hosted_linux = (
+                    FORK_LINUX_BRANCH in line
+                    or FORK_LINUX_ARM64_BRANCH in line
+                    or FORK_WINDOWS_BRANCH in line
+                    or pull_request_linux
+                )
                 hosted_macos = (
                     FORK_MACOS_BRANCH in line
                     or FORK_MACOS_15_BRANCH in line
@@ -1144,6 +1173,24 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         # a, b, c, and the dispatch default and option that d reads before
         # the fork branch. d itself passes: an explicitly chosen input wins.
         self.assertEqual(len(ungated_blacksmith_labels("x.yml", text)), 5)
+
+    def test_runner_name_guards_are_not_selectable_labels(self) -> None:
+        guard = (
+            "        if: (runner.environment != 'github-hosted'"
+            " && !startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-Runner-')"
+            " && !startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-Runner-'))"
+            " || contains(runner.name, 'glaeda')\n"
+        )
+        text = "jobs:\n  a:\n    runs-on: ubuntu-24.04\n    steps:\n      - name: guard\n" + guard
+        self.assertEqual(ungated_blacksmith_labels("x.yml", text), [])
+        # The same label outside a runner.name prefix check is still selectable.
+        for line in (
+            "        if: startsWith(runner.name, 'x') && 'blacksmith-4vcpu-ubuntu-2404'\n",
+            "    runs-on: blacksmith-4vcpu-ubuntu-2404\n",
+            "        if: startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404')\n",
+        ):
+            with self.subTest(line=line):
+                self.assertEqual(len(ungated_blacksmith_labels("x.yml", "jobs:\n  a:\n" + line)), 1)
 
     def test_owner_gated_blacksmith_fallbacks_pass(self) -> None:
         text = (

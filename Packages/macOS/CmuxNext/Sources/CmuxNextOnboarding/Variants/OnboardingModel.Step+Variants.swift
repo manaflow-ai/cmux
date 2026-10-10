@@ -15,6 +15,7 @@ extension OnboardingModel.Step {
         case .theme: ThemeVariants.all
         case .computerUse: ComputerUseVariants.all
         case .accounts: AccountsVariants.all
+        case .tabKeys: TabKeysVariants.all
         }
     }
 

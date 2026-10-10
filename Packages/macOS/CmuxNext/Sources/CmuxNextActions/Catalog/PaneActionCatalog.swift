@@ -36,7 +36,8 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "newPaneAutoLayout",
                 title: String(localized: "action.newPaneAutoLayout", defaultValue: "New Pane (Auto Layout)", bundle: .module),
-                keywords: ["split", "pane"], defaultShortcut: Shortcut("n", modifiers: [.control, .command]),
+                // Zellij's new pane: the largest scrolling pane splits along its longer side.
+                keywords: ["split", "pane", "smart arrange", "auto arrange", "tile", "zellij"], defaultShortcut: Shortcut("n", modifiers: [.control, .command]),
                 category: .pane, symbol: "rectangle.badge.plus", surfaces: [.palette, .keyboard, .menu],
                 targets: [.pane], cliName: "pane new-auto-layout", mainMenu: .view, startsTerminal: true
             ),
@@ -304,7 +305,8 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "simulatorToggleSoftwareKeyboard",
                 title: String(localized: "action.simulatorToggleSoftwareKeyboard", defaultValue: "Simulator: Toggle Software Keyboard", bundle: .module),
-                keywords: ["ios", "simulator"], defaultShortcut: Shortcut("k", modifiers: [.command]), category: .pane,
+                // Decision K1: Cmd-K is Clear Screen and Scrollback only (Simulator.app uses Cmd-K here).
+                keywords: ["ios", "simulator"], defaultShortcut: Shortcut("k", modifiers: [.command, .shift]), category: .pane,
                 symbol: "keyboard", surfaces: [.keyboard], requires: [.simulatorFocused], targets: [.pane],
                 cliName: "pane simulator-toggle-software-keyboard"
             ),

@@ -77,7 +77,21 @@ tmux-*.log
 /.cmux-scratch/
 
 # Local-only prototype and deploy state
-/Prototypes/codex-atlas-clone/
+/Prototypes/*-clone/
 /.cloudflare/
 # Locally downloaded prebuilt client for Packages/Shared/CmuxTerminalClient
 Packages/Shared/CmuxTerminalClient/CmuxTerminalClient.xcframework/
+
+# The cmux-next web bundle stamp (scripts/cmux-next/build-web-bundles.sh).
+/.web-bundles.key
+/.web-bundles.key.tmp
+# The cmux-next web bundles: build output of scripts/cmux-next/build-web-bundles.sh
+# (cx-vn5). Each resource directory keeps its GENERATED.md placeholder.
+/Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/*
+!/Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/GENERATED.md
+/Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/*
+!/Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/GENERATED.md
+/Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/*
+!/Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/GENERATED.md
+/Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js
+/Resources/markdown-viewer/webviews-app/

@@ -67,6 +67,28 @@ pub fn message(seq: u64, author: &str, text: &str) -> Message {
     }
 }
 
+/// A message of side conversation `conversation`.
+pub fn side_message(conversation: &str, seq: u64, author: &str, text: &str) -> Message {
+    Message {
+        id: format!("{conversation}_msg_{seq}"),
+        conversation: conversation.into(),
+        ..message(seq, author, text)
+    }
+}
+
+/// A side conversation: a DM between `person` and the Chief (every message
+/// of the person wakes it).
+pub fn side_summary(conversation: &str, person: &str) -> Summary {
+    let mut participants = participants("Bob");
+    participants[0].id = person.into();
+    Summary {
+        id: conversation.into(),
+        title: format!("dm {conversation}"),
+        participants,
+        ..summary()
+    }
+}
+
 pub fn summary() -> Summary {
     Summary {
         id: CONV.into(),
@@ -90,6 +112,8 @@ pub struct Owner {
     /// Every op the brain sent, in order: (idempotency key, op).
     pub ops: Vec<(String, Op)>,
     pub typing: Vec<bool>,
+    /// Every draft published: (conversation, draft).
+    pub drafts: Vec<(String, optchat_chief::draft::Draft)>,
     /// Rejections for the next `message.send` ops, in order (None: accept).
     pub rejects: VecDeque<Option<String>>,
     pub reconnects: usize,
@@ -102,6 +126,40 @@ pub struct Owner {
     /// Attachment bytes (base64) by (hash, variant), and every read: (hash, variant, bytes).
     pub attachments: BTreeMap<(String, String), String>,
     pub attachment_reads: Vec<(String, String, u64)>,
+    /// The other conversations (side conversations the chief is in), one
+    /// store each. The fields above are the main conversation's store.
+    pub stores: BTreeMap<String, Store>,
+    /// The conversation of every snapshot and history read, in order.
+    pub reads: Vec<String>,
+    /// Every `cloud-mux-ack` the brain sent: (conversation, seq).
+    pub acks: Vec<(String, u64)>,
+}
+
+/// One side conversation as the fake owner keeps it.
+#[derive(Clone)]
+pub struct Store {
+    pub summary: Summary,
+    pub messages: Vec<Message>,
+    /// Every op the brain sent to this conversation: (idempotency key, op).
+    pub ops: Vec<(String, Op)>,
+    /// Rejections for the next `message.send` ops here (None: accept).
+    pub rejects: VecDeque<Option<String>>,
+}
+
+impl Store {
+    /// The texts the brain posted here: (key, text).
+    pub fn sends(&self) -> Vec<(String, String)> {
+        self.ops
+            .iter()
+            .filter_map(|(key, op)| match op {
+                Op::MessageSend { parts, .. } => match &parts[0] {
+                    Part::Text { text, .. } => Some((key.clone(), text.clone())),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect()
+    }
 }
 
 impl Owner {
@@ -116,6 +174,16 @@ impl Owner {
                 _ => None,
             })
             .collect()
+    }
+
+    /// Whether `conversation` is the main conversation (the fields of `Owner`).
+    pub fn is_main(&self, conversation: &str) -> bool {
+        self.summary.as_ref().is_some_and(|s| s.id == conversation)
+    }
+
+    /// The reads of `conversation` so far.
+    pub fn reads_of(&self, conversation: &str) -> usize {
+        self.reads.iter().filter(|c| *c == conversation).count()
     }
 
     pub fn cursors(&self) -> Vec<u64> {
@@ -151,8 +219,28 @@ impl ConversationPort for FakeDaemon {
             .ok_or_else(|| OpError::Rejected("unknown_attachment".into()))
     }
 
-    fn snapshot(&mut self, _: &str, tail: u32) -> Result<(Summary, Vec<Message>), OpError> {
-        let owner = self.0.lock().unwrap();
+    fn snapshot(
+        &mut self,
+        conversation: &str,
+        tail: u32,
+    ) -> Result<(Summary, Vec<Message>), OpError> {
+        let mut owner = self.0.lock().unwrap();
+        owner.reads.push(conversation.to_owned());
+        if !owner.is_main(conversation) {
+            let store = owner
+                .stores
+                .get(conversation)
+                .ok_or_else(|| OpError::Rejected("not_found".into()))?;
+            let messages = store
+                .messages
+                .iter()
+                .rev()
+                .take(tail as usize)
+                .rev()
+                .cloned()
+                .collect();
+            return Ok((store.summary.clone(), messages));
+        }
         let messages = owner
             .messages
             .iter()
@@ -164,10 +252,24 @@ impl ConversationPort for FakeDaemon {
         Ok((owner.summary.clone().unwrap(), messages))
     }
 
-    fn history(&mut self, _: &str, before_seq: u64, limit: u32) -> Result<Vec<Message>, OpError> {
-        let owner = self.0.lock().unwrap();
-        let older: Vec<Message> = owner
-            .messages
+    fn history(
+        &mut self,
+        conversation: &str,
+        before_seq: u64,
+        limit: u32,
+    ) -> Result<Vec<Message>, OpError> {
+        let mut owner = self.0.lock().unwrap();
+        owner.reads.push(conversation.to_owned());
+        let messages = if owner.is_main(conversation) {
+            &owner.messages
+        } else {
+            &owner
+                .stores
+                .get(conversation)
+                .ok_or_else(|| OpError::Rejected("not_found".into()))?
+                .messages
+        };
+        let older: Vec<Message> = messages
             .iter()
             .filter(|m| m.seq < before_seq)
             .cloned()
@@ -176,8 +278,26 @@ impl ConversationPort for FakeDaemon {
         Ok(older.into_iter().skip(skip).collect())
     }
 
-    fn op(&mut self, _: &str, key: &str, op: &Op) -> Result<Option<Change>, OpError> {
+    fn op(&mut self, conversation: &str, key: &str, op: &Op) -> Result<Option<Change>, OpError> {
         let mut owner = self.0.lock().unwrap();
+        if !owner.is_main(conversation) {
+            let store = owner
+                .stores
+                .get_mut(conversation)
+                .ok_or_else(|| OpError::Rejected("not_found".into()))?;
+            store.ops.push((key.to_owned(), op.clone()));
+            if let Op::MessageSend { parts, .. } = op {
+                if let Some(Some(reason)) = store.rejects.pop_front() {
+                    return Err(OpError::Rejected(reason));
+                }
+                let seq = store.messages.len() as u64 + 1;
+                let mut m = side_message(conversation, seq, "agent_mux", "");
+                m.parts = parts.clone();
+                store.messages.push(m.clone());
+                return Ok(Some(Change::Message { message: m }));
+            }
+            return Ok(None);
+        }
         owner.ops.push((key.to_owned(), op.clone()));
         match op {
             Op::ReadCursorSet { seq } => {
@@ -223,6 +343,28 @@ impl ConversationPort for FakeDaemon {
 
     fn typing(&mut self, _: &str, on: bool) -> Result<(), OpError> {
         self.0.lock().unwrap().typing.push(on);
+        Ok(())
+    }
+
+    fn draft(
+        &mut self,
+        conversation: &str,
+        draft: &optchat_chief::draft::Draft,
+    ) -> Result<(), OpError> {
+        self.0
+            .lock()
+            .unwrap()
+            .drafts
+            .push((conversation.to_owned(), draft.clone()));
+        Ok(())
+    }
+
+    fn mux_ack(&mut self, conversation: &str, seq: u64) -> Result<(), OpError> {
+        self.0
+            .lock()
+            .unwrap()
+            .acks
+            .push((conversation.to_owned(), seq));
         Ok(())
     }
 }
@@ -276,6 +418,8 @@ pub struct Agents {
     pub prompt_sets: Vec<(String, String)>,
     /// Each turn's prompt blocks.
     pub prompts: Vec<Vec<Value>>,
+    /// Every `probe_models` request, in order.
+    pub probed: Vec<String>,
     pub prompt_ids: Vec<String>,
     pub events: BTreeMap<String, Vec<AcpmuxEvent>>,
     pub ended: Vec<String>,
@@ -293,6 +437,9 @@ pub struct Agents {
     /// The next prompt fails with this JSON-RPC error message, used once
     /// (acpmux answers a refused or failed Claude turn this way).
     pub answer_error: Option<String>,
+    /// The next prompt never answers and sends no more events (a hung
+    /// harness); taken by that prompt.
+    pub answer_never: bool,
     /// Names looked up with `find`, in order.
     pub finds: Vec<String>,
     /// The next this many `cancel` calls are recorded but change nothing
@@ -301,6 +448,11 @@ pub struct Agents {
     /// The prompt's answer comes this long after its events (acpmux records
     /// `turn_end` before it answers the prompt).
     pub answer_delay: Option<Duration>,
+    /// `new_session` of a session whose name contains the text takes this
+    /// long (a Claude Code process that starts slowly).
+    pub slow_session: Option<(String, Duration)>,
+    /// `new_session` on this harness profile fails with the text.
+    pub session_errors: BTreeMap<String, String>,
     /// Each session's turn signals, for `push_events`.
     pub signals: BTreeMap<String, Sender<TurnSignal>>,
     /// The `_acpmux/harnesses` answer; None: `catalog()` (claude-sr and
@@ -309,8 +461,31 @@ pub struct Agents {
     /// The harness acpmux reports a new session on (`session`); None: the
     /// one the spec asked for.
     pub session_harness: Option<String>,
+    /// Every folder the host trusted (`acp.trust.set`, level trusted).
+    pub trusted: Vec<std::path::PathBuf>,
     /// Every permission answer: (session, permission id, option id).
     pub responses: Vec<(String, String, Option<String>)>,
+    /// Every `_acpmux/prewarm` hint: (harness, preset, cwd).
+    pub prewarms: Vec<(String, Option<String>, std::path::PathBuf)>,
+    /// Every `set_mode`: (session, mode id, prompts sent before it).
+    pub modes: Vec<(String, String, usize)>,
+    /// The sessions steer (deliver between tool calls); else a steer fails.
+    pub steering: bool,
+    /// Every steer delivered: (session, blocks).
+    pub steers: Vec<(String, Vec<Value>)>,
+    /// The next this many steers fail (acpmux refused them).
+    pub steer_errors: usize,
+    /// Steers that failed.
+    pub failed_steers: usize,
+    /// Steers are answered only when the turn ends (codex-acp).
+    pub steer_at_end: bool,
+    /// Turns whose prompt was answered.
+    pub answered_turns: usize,
+    /// Each prompt's session id, in prompt order.
+    pub prompt_sessions: Vec<String>,
+    /// Each session's `.claude/settings.json` in its cwd when it started
+    /// (None: no file), in `specs` order.
+    pub session_settings: Vec<Option<String>>,
 }
 
 /// An `_acpmux/harnesses` answer as a machine with `sr` and `claude` on
@@ -389,10 +564,26 @@ impl FakeAgents {
     /// Adds events to a running turn and tells its runner, as acpmux's
     /// notifications do.
     pub fn push_events(&self, session: &str, events: Vec<Value>) {
+        let from_agent = events.iter().any(|e| e["dir"] == "in");
         self.append_events(session, events);
         let signals = self.inner.lock().unwrap().signals.get(session).cloned();
         if let Some(tx) = signals {
-            let _ = tx.send(TurnSignal::Changed);
+            let _ = tx.send(if from_agent {
+                TurnSignal::Changed
+            } else {
+                TurnSignal::Noted
+            });
+        }
+    }
+
+    /// Waits until `n` steers were delivered.
+    pub fn wait_steers(&self, n: usize) {
+        let deadline = std::time::Instant::now() + WAIT;
+        let mut inner = self.inner.lock().unwrap();
+        while inner.steers.len() < n {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            assert!(!left.is_zero(), "no steer {n}");
+            inner = self.changed.wait_timeout(inner, left).unwrap().0;
         }
     }
 
@@ -421,7 +612,27 @@ impl FakeAgents {
 }
 
 impl AgentPort for FakeAgents {
+    fn trust_folder(&self, cwd: &std::path::Path) -> Result<(), String> {
+        self.inner.lock().unwrap().trusted.push(cwd.to_owned());
+        Ok(())
+    }
+
     fn new_session(&self, spec: &SessionSpec) -> Result<String, String> {
+        if let Some(e) = self.inner.lock().unwrap().session_errors.get(&spec.harness) {
+            return Err(e.clone());
+        }
+        let slow = self.inner.lock().unwrap().slow_session.clone();
+        if let Some((part, delay)) = slow
+            && spec.name.contains(&part)
+        {
+            std::thread::sleep(delay);
+        }
+        // acpmux refuses any other session env key (acpmux session_env.rs ALLOWED_KEYS).
+        if let Some(key) = spec.env.keys().find(|k| k.as_str() != "CMUX_WORKSPACE_ID") {
+            return Err(format!(
+                "session/new: env key {key} is not one a session may set (allowed: CMUX_WORKSPACE_ID)"
+            ));
+        }
         let mut inner = self.inner.lock().unwrap();
         let system = spec
             .preset
@@ -429,6 +640,8 @@ impl AgentPort for FakeAgents {
             .and_then(|p| inner.preset_prompts.get(p))
             .cloned();
         inner.systems.push(system);
+        let settings = std::fs::read_to_string(spec.cwd.join(".claude").join("settings.json")).ok();
+        inner.session_settings.push(settings);
         inner.specs.push(spec.clone());
         Ok(format!("s{}", inner.specs.len()))
     }
@@ -444,6 +657,7 @@ impl AgentPort for FakeAgents {
             let mut inner = self.inner.lock().unwrap();
             inner.prompts.push(blocks.clone());
             inner.prompt_ids.push(prompt_id.to_owned());
+            inner.prompt_sessions.push(session.to_owned());
             inner.signals.insert(session.to_owned(), signals.clone());
             inner.prompts.len() - 1
         };
@@ -456,6 +670,9 @@ impl AgentPort for FakeAgents {
                 while inner.hold && inner.released <= turn {
                     inner = me.changed.wait(inner).unwrap();
                 }
+            }
+            if std::mem::take(&mut me.inner.lock().unwrap().answer_never) {
+                return;
             }
             let (lose, answer, error, delay) = {
                 let mut inner = me.inner.lock().unwrap();
@@ -470,6 +687,8 @@ impl AgentPort for FakeAgents {
             if let Some(delay) = delay {
                 std::thread::sleep(delay);
             }
+            me.inner.lock().unwrap().answered_turns += 1;
+            me.changed.notify_all();
             if lose {
                 let _ = signals.send(TurnSignal::Lost);
             } else if let Some(error) = error {
@@ -505,6 +724,11 @@ impl AgentPort for FakeAgents {
     fn find(&self, name: &str) -> Result<Option<String>, String> {
         self.inner.lock().unwrap().finds.push(name.to_owned());
         Ok(None)
+    }
+
+    fn probe_models(&self, harness: &str) -> Result<(), String> {
+        self.inner.lock().unwrap().probed.push(harness.to_owned());
+        Ok(())
     }
 
     fn harness_catalog(&self) -> Result<Value, String> {
@@ -564,8 +788,71 @@ impl AgentPort for FakeAgents {
         Ok(())
     }
 
+    fn start_steer(
+        &self,
+        session: &str,
+        blocks: Vec<Value>,
+        _prompt_id: &str,
+    ) -> Result<optchat_chief::acpmux::SteerWait, String> {
+        let mut inner = self.inner.lock().unwrap();
+        if !inner.steering {
+            return Err("steer.unavailable".into());
+        }
+        if inner.steer_errors > 0 {
+            inner.steer_errors -= 1;
+            inner.failed_steers += 1;
+            drop(inner);
+            self.changed.notify_all();
+            return Err("steer: the connection dropped".into());
+        }
+        inner.steers.push((session.to_owned(), blocks));
+        let at_end = inner.steer_at_end;
+        let turn = inner.answered_turns;
+        // acpmux echoes the steer (a mux `user_message`) to the turn.
+        if let Some(tx) = inner.signals.get(session) {
+            let _ = tx.send(optchat_chief::acpmux::event_signal(
+                "_acpmux/event",
+                &json!({"dir": "mux", "kind": "user_message"}),
+            ));
+        }
+        drop(inner);
+        self.changed.notify_all();
+        let me = self.me.upgrade().expect("alive");
+        Ok(Box::new(move || {
+            // codex-acp answers a steer only when the turn ends.
+            let mut inner = me.inner.lock().unwrap();
+            while at_end && inner.answered_turns == turn {
+                inner = me.changed.wait(inner).unwrap();
+            }
+            Ok(())
+        }))
+    }
+
+    fn prewarm(
+        &self,
+        harness: &str,
+        preset: Option<&str>,
+        cwd: &std::path::Path,
+    ) -> Result<(), String> {
+        self.inner.lock().unwrap().prewarms.push((
+            harness.to_owned(),
+            preset.map(str::to_owned),
+            cwd.to_owned(),
+        ));
+        Ok(())
+    }
+
     /// Ends the held turn with stop reason `cancelled`, as acpmux answers a
     /// prompt that `session/cancel` interrupted.
+    fn set_mode(&self, session: &str, mode: &str) -> Result<(), String> {
+        let mut inner = self.inner.lock().unwrap();
+        let prompts = inner.prompts.len();
+        inner
+            .modes
+            .push((session.to_owned(), mode.to_owned(), prompts));
+        Ok(())
+    }
+
     fn cancel(&self, session: &str) -> Result<(), String> {
         let mut inner = self.inner.lock().unwrap();
         inner.cancels.push(session.to_owned());
@@ -605,6 +892,7 @@ pub fn settings(dir: &Path) -> Settings {
         turn_prefix: TURN_PREFIX.into(),
         agent_gap: Duration::from_millis(30),
         turn_limit: None,
+        turn_idle_limit: None,
         engine: Engine::Acpmux,
         turn_preset: Some(TURN_PRESET.into()),
         chief_id: "h0me".into(),
@@ -614,6 +902,8 @@ pub fn settings(dir: &Path) -> Settings {
         codex_preset: None,
         settings_file: dir.join("settings.json"),
         trace_dir: Some(dir.join("traces")),
+        cache_ttl: None,
+        shared_ttl: Default::default(),
     }
 }
 
@@ -667,6 +957,18 @@ impl Harness {
         log: optchat_chief::brain::Log,
     ) -> Harness {
         let chat = open_chat(&dir.path().join("chat"));
+        Harness::over_chat(dir, script, owner, settings, log, chat)
+    }
+
+    /// `configured` over a chat the test opened (its own compactor model).
+    pub fn over_chat(
+        dir: tempfile::TempDir,
+        script: Script,
+        owner: Arc<Mutex<Owner>>,
+        settings: Settings,
+        log: optchat_chief::brain::Log,
+        chat: Arc<OptChat>,
+    ) -> Harness {
         let agents = FakeAgents::new(script);
         let (tx, rx) = channel();
         let brain = Brain::new(
@@ -734,11 +1036,64 @@ impl Harness {
         m
     }
 
+    /// Adds side conversation `conversation` (a DM with `person`) to the owner.
+    pub fn add_side(&self, conversation: &str, person: &str) {
+        self.owner.lock().unwrap().stores.insert(
+            conversation.into(),
+            Store {
+                summary: side_summary(conversation, person),
+                messages: Vec::new(),
+                ops: Vec::new(),
+                rejects: VecDeque::new(),
+            },
+        );
+    }
+
+    /// A new message in side conversation `conversation`. Nothing tells the
+    /// brain: the brain is not subscribed to side conversations, only the
+    /// wake queue (`wake`) tells it.
+    pub fn post_side(&self, conversation: &str, author: &str, text: &str) -> Message {
+        let mut owner = self.owner.lock().unwrap();
+        let store = owner.stores.get_mut(conversation).expect("add_side first");
+        let seq = store.messages.len() as u64 + 1;
+        let m = side_message(conversation, seq, author, text);
+        store.messages.push(m.clone());
+        store.summary.last_seq = seq;
+        m
+    }
+
+    /// The daemon relays wakes of the chief's queue (`cloud-mux-wake`).
+    pub fn wake(&mut self, wakes: &[(&str, u64)]) {
+        let wakes = wakes
+            .iter()
+            .map(|(conversation, seq)| optchat_chief::daemon::MuxWake {
+                conversation: (*conversation).into(),
+                seq: *seq,
+                reason: "dm".into(),
+            })
+            .collect();
+        self.brain.step(Input::from(DaemonEvent::MuxWake(wakes)));
+    }
+
+    /// The texts the brain posted in side conversation `conversation`.
+    pub fn side_sends(&self, conversation: &str) -> Vec<(String, String)> {
+        self.owner.lock().unwrap().stores[conversation].sends()
+    }
+
     /// Steps the brain until it is idle (no turn, nothing queued).
     pub fn settle(&mut self) {
         while !self.brain.is_idle() {
             let input = self.rx.recv_timeout(WAIT).expect("the brain got no input");
             self.brain.step(input);
+        }
+    }
+
+    /// Settles, then posts every reply the agent gap holds back (G11).
+    pub fn settle_posts(&mut self) {
+        self.settle();
+        while let Some(at) = self.brain.next_timer() {
+            std::thread::sleep(at.saturating_duration_since(std::time::Instant::now()));
+            self.brain.on_timer();
         }
     }
 

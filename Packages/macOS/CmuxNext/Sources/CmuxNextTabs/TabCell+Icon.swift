@@ -7,6 +7,11 @@ extension TabCell {
     func iconImage(tint: NSColor) -> CGImage? {
         switch item.icon {
         case .none:
+            // A pinned tab is icon-only: without an icon of its own it shows a pin.
+            if item.isPinned, item.tint == nil {
+                return TabPackIconCache.shared.image(name: .statePinned, tint: tint, size: metrics.iconSize, scale: scale)
+                    ?? TabSymbolCache.shared.image(named: "pin.fill", tint: tint, pointSize: Metrics.smallIconSize, size: metrics.iconSize, scale: scale)
+            }
             // A colored tab with no icon shows its color as a dot.
             guard item.tint != nil else { return nil }
             return TabSymbolCache.shared.image(named: "circle.fill", tint: tint, pointSize: Metrics.smallIconSize * 0.6,

@@ -10,20 +10,48 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 category: .agents, symbol: "bubble.left.and.text.bubble.right",
                 surfaces: [.palette, .keyboard, .menu, .contextMenu], targets: [.pane], cliName: "agent new-chat", mainMenu: .file
             ),
+            ActionDescriptor(
+                id: "agentPane.toggleInspector",
+                title: String(localized: "action.agentPane.toggleInspector", defaultValue: "Show ACP Inspector", bundle: .module),
+                keywords: ["agent", "acp", "acpmux", "inspector", "log", "debug"], category: .agents, symbol: "list.bullet.rectangle",
+                surfaces: [.palette, .contextMenu], targets: [.pane], cliName: "agent toggle-acp-inspector",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [ContextMenuPlacement(.agentChat, .inspect, 0)])
+            ),
+            ActionDescriptor(
+                id: "palette.quickAgentChat",
+                title: String(localized: "action.palette.quickAgentChat", defaultValue: "Start Agent…", bundle: .module),
+                keywords: ["agent", "start", "session", "launcher", "new", "chat", "ai", "acpmux", "quick", "composer", "summon"],
+                // Ctrl-Cmd-Return (cx-hkat): Cmd-Shift-Return is Toggle Pane Zoom.
+                defaultShortcut: Shortcut(Shortcut.returnKey, modifiers: [.control, .command]),
+                category: .agents, symbol: "bubble.left.and.text.bubble.right.fill",
+                surfaces: [.palette, .keyboard, .menu], cliName: "agent quick", mainMenu: .file
+            ),
             {
-                var quick = ActionDescriptor(
-                    id: "palette.quickAgentChat",
-                    title: String(localized: "action.palette.quickAgentChat", defaultValue: "Quick Agent Chat…", bundle: .module),
-                    keywords: ["agent", "chat", "ai", "acpmux", "quick", "composer", "global", "hotkey", "summon"],
+                // Start Agent's system-wide key, its own action so it has its own recorder and
+                // stays off until `app.startAgentGlobalHotKey` (GlobalHotKeyService gates it).
+                var anyApp = ActionDescriptor(
+                    id: "palette.startAgentFromAnyApp",
+                    title: String(localized: "action.palette.startAgentFromAnyApp", defaultValue: "Start Agent from Any App", bundle: .module),
+                    keywords: ["agent", "start", "global", "hotkey", "hot key", "summon", "quick", "chat"],
                     // Ctrl-Opt-Cmd-Space: clear of ChatGPT's and Claude's quick-entry defaults.
                     defaultShortcut: Shortcut(Shortcut.spaceKey, modifiers: [.control, .option, .command]),
-                    category: .agents, symbol: "bubble.left.and.text.bubble.right.fill",
-                    surfaces: [.palette, .keyboard, .menu], cliName: "agent quick", mainMenu: .file
+                    category: .agents, symbol: "bubble.left.and.text.bubble.right.fill", surfaces: [.keyboard],
+                    // Start Agent offers the palette row, the menu item and the CLI verb.
+                    surfacePlan: ActionSurfacePlan(palette: .exempt(.familyMember), cli: .exempt(.familyMember),
+                                                   contextMenuExemption: .noObject)
                 )
-                // A floating composer over any app, so the key works while cmux is in the background.
-                quick.isGlobalHotKey = true
-                return quick
+                anyApp.isGlobalHotKey = true
+                return anyApp
             }(),
+            ActionDescriptor(
+                id: "palette.addHarness",
+                title: String(localized: "action.palette.addHarness", defaultValue: "Integrate a Harness with an Agent…", bundle: .module),
+                keywords: ["agent", "harness", "integrate", "acp", "acpmux", "custom", "bring your own"],
+                category: .agents, symbol: "puzzlepiece.extension", surfaces: [.palette, .menu], mainMenu: .file,
+                // Opens a chat that walks the user through `cmux harness guide`. Agents and
+                // scripts run that guide (and `cmux harness add|doctor`) directly.
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
             ActionDescriptor(
                 id: "palette.toggleDictation",
                 title: String(localized: "action.palette.toggleDictation", defaultValue: "Toggle Dictation", bundle: .module),
@@ -44,6 +72,19 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
             ),
             ActionDescriptor(
+                id: "agentPane.switchModel",
+                title: String(localized: "action.agentPane.switchModel", defaultValue: "Switch Model…", bundle: .module),
+                keywords: ["agent", "chat", "model", "harness", "effort", "reasoning", "picker", "switch"],
+                // Ctrl-Cmd-M (Lawrence 2026-10-09): an app chord, so it works wherever the agent
+                // pane's keyboard is; the menu opens with the keyboard in its search field.
+                defaultShortcut: Shortcut("m", modifiers: [.control, .command]),
+                category: .agents, symbol: "cpu", surfaces: [.palette, .keyboard],
+                requires: [.agentPaneFocused], targets: [.pane],
+                // A chooser for a person. Scripts set the model with `debug.agent_pane set_model`
+                // or the acpmux CLI, so the CLI/MCP surface is exempt like Continue in….
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
+            ),
+            ActionDescriptor(
                 id: "agentPane.createCheckpoint",
                 title: String(localized: "action.agentPane.createCheckpoint", defaultValue: "Create checkpoint", bundle: .module),
                 keywords: ["agent", "git", "snapshot", "checkpoint", "handoff"],
@@ -57,11 +98,9 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 id: "agentPane.searchChats",
                 title: String(localized: "action.agentPane.searchChats", defaultValue: "Search Agent Chats", bundle: .module),
                 keywords: ["agent", "chat", "search", "find", "sessions", "acpmux"],
-                // Cmd-K searches chats only while an agent chat has the keyboard,
-                // so the simulator's Cmd-K keeps its meaning.
-                defaultShortcut: Shortcut("k", modifiers: [.command]),
-                category: .agents, symbol: "magnifyingglass", surfaces: [.palette, .keyboard],
-                requires: [.agentPaneFocused], targets: [.pane]
+                // Decision K1: no default shortcut (Cmd-K clears the terminal). The command
+                // palette's chats page lists every chat; this opens it from anywhere.
+                category: .agents, symbol: "magnifyingglass", surfaces: [.palette, .keyboard]
             ),
             permissionAction("allowOnce", title: String(localized: "action.agentPane.permission.allowOnce", defaultValue: "Allow once", bundle: .module), symbol: "checkmark", shortcut: Shortcut("1", modifiers: [.command, .option])),
             permissionAction("allowChat", title: String(localized: "action.agentPane.permission.allowChat", defaultValue: "Allow for this chat", bundle: .module), symbol: "checkmark.circle", shortcut: Shortcut("2", modifiers: [.command, .option])),
@@ -164,6 +203,8 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                                    kind: .string, isRequired: false),
                     ActionArgument(name: "cwd", title: String(localized: "argument.agent.cwd", defaultValue: "Folder", bundle: .module),
                                    kind: .string, isRequired: false),
+                    ActionArgument(name: "host", title: String(localized: "argument.agent.host", defaultValue: "Session Host", bundle: .module),
+                                   kind: .string, isRequired: false),
                 ],
                 // It starts the workspace's terminal: action.run waits the
                 // terminal start deadline, not 2 s, so the caller's run ends
@@ -178,6 +219,25 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 keywords: ["chief", "home", "engine", "model", "harness", "settings"], category: .agents,
                 symbol: "sidebar.right", surfaces: [.palette],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
+            // Stops the Home Chief's running turn (chief.stop); the compose bar's
+            // stop button, Esc and Cmd-. in its field run this one action.
+            ActionDescriptor(
+                id: "home.stopChief",
+                title: String(localized: "action.home.stopChief", defaultValue: "Stop the Chief", bundle: .module),
+                keywords: ["chief", "home", "stop", "cancel", "interrupt", "turn"], category: .agents,
+                symbol: "stop.circle", surfaces: [.palette],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
+            // The local Chief's memory inspector (optchat-inspector.md): what the
+            // model saw each turn and the memory tree, in a browser tab in a new
+            // column. Debug builds only (DEV and nightly).
+            ActionDescriptor(
+                id: "chief.openMemoryInspector",
+                title: String(localized: "action.chief.openMemoryInspector", defaultValue: "Chief: Open Memory Inspector", bundle: .module),
+                keywords: ["chief", "memory", "optchat", "view", "zoom", "tree", "trace", "cache", "debug", "inspector"],
+                category: .agents, symbol: "brain", surfaces: [.palette], isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
             ActionDescriptor(
                 id: "agentActivity.open",

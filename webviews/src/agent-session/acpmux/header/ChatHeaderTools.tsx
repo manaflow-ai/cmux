@@ -3,7 +3,6 @@
 // chat's folder; and the "..." chat menu. Every control renders from the first frame at its final
 // size; data fills in place.
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Counts } from "../changes/Counts";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { useShortcut, withShortcut } from "../shortcuts";
@@ -18,6 +17,7 @@ export const HEADER_ACTIONS = {
   pin: "palette.toggleTabPin",
   moveRight: "moveSurfaceToPaneRight",
   newWorkspace: "palette.moveTabToNewWorkspace",
+  newWindow: "tab.moveToNewWindow",
   close: "closeTab",
 } as const;
 
@@ -67,19 +67,21 @@ export function ChatHeaderTools({
   const t = useT();
   const terminalKey = useShortcut(HEADER_ACTIONS.terminal);
   const browserKey = useShortcut(HEADER_ACTIONS.browser);
+  const changesLabel = changes
+    ? `${t("header.changes")}: +${changes.additions} -${changes.deletions}`
+    : t("header.changes");
   return (
     <div className="acpmux-header-tools">
       <button
         type="button"
         className="acpmux-header-changes"
         aria-pressed={changesOpen}
-        aria-label={t("header.changes")}
+        aria-label={changesLabel}
         title={t("header.changes")}
         disabled={!changes}
         onClick={onChanges}
       >
         <Icon name="diff.file" size={15} />
-        <Counts additions={changes?.additions ?? 0} deletions={changes?.deletions ?? 0} />
       </button>
       {tabTools && (
         <>

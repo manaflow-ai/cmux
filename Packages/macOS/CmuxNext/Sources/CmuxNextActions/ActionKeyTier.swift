@@ -36,7 +36,7 @@ public nonisolated enum ActionKeyTier: Int, Comparable, CaseIterable, Sendable {
     /// Actions that must always work, even inside a web app in browser
     /// focus mode (the exit chord is one of them).
     static let systemActions: Set<ActionID> = [
-        "quit", "closeTab", "closeWorkspace", "closeWindow", "newWindow", "commandPalette",
+        "quit", "closeTab", "closeWorkspace", "closeWindow", "newWindow", "newIncognitoWindow", "commandPalette",
         "toggleBrowserFocusMode", "openSettings", "showHideAllWindows", "toggleFullScreen",
     ]
 

@@ -9,6 +9,9 @@ public import Foundation
 extension ActionID {
     /// New Agent Chat: opens an agent tab.
     public static let newAgentChat: ActionID = "palette.newAgentChat"
+    /// Show ACP Inspector: toggles the agent pane's ACP inspector
+    /// (`AgentPaneView.toggleInspector`).
+    public static let toggleAcpInspector: ActionID = "agentPane.toggleInspector"
     /// Open File: a file in a tab of the pane or in the text editor
     /// (`AgentPaneFileOpening`).
     public static let fileOpen: ActionID = "file.open"
@@ -23,6 +26,20 @@ extension ActionRegistry {
     @discardableResult
     public func bindAgentPane(openNewChat: @escaping @MainActor (ActionInvocation) -> Void) -> Bool {
         bind(.newAgentChat, invoke: openNewChat)
+    }
+
+    /// Binds Show ACP Inspector. `toggle` toggles the inspector of the agent
+    /// tab shown in the invocation's pane (the focused pane when it has no
+    /// target). Returns false when the descriptor is missing from the catalog.
+    @discardableResult
+    public func bindAgentPaneInspector(toggle: @escaping @MainActor (ActionInvocation) -> Void) -> Bool {
+        bind(.toggleAcpInspector, invoke: { [weak self] invocation in
+            guard ActionRunScope.viewChangeAllowed() else {
+                self?.refuse(AgentPaneView.inspectorNeedsFocus)
+                return
+            }
+            toggle(invocation)
+        })
     }
 }
 

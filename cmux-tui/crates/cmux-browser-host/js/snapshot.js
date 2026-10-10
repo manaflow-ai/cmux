@@ -862,14 +862,22 @@
   // escape sequences (CSI, and OSC, DCS, SOS, PM and APC up to their
   // terminator, in 7- and 8-bit forms) and every other C0 or C1 control go,
   // and a long line is cut with its length.
+  // Only the first HEADER_SCAN_MAX characters are cleaned (a page sets how
+  // long its title is); a sequence cut there goes with the rest, which is
+  // counted.
+  const HEADER_SCAN_MAX = HEADER_LINE_MAX * 8;
   function headerLine(text) {
-    const clean = String(text)
+    const raw = String(text);
+    const scanned = raw.length > HEADER_SCAN_MAX ? raw.slice(0, HEADER_SCAN_MAX) : raw;
+    const clean = scanned
       .replace(/(?:\u001b\[|\u009b)[0-?]*[ -/]*[@-~]?/g, "")
       .replace(/(?:\u001b[\]PX^_]|[\u0090\u0098\u009d\u009e\u009f])[\s\S]*?(?:\u0007|\u009c|\u001b\\|$)/g, "")
       .replace(/[\t\n\r]/g, " ")
       .replace(/[\u0000-\u001f\u007f-\u009f]/g, "");
-    if (clean.length <= HEADER_LINE_MAX) return clean;
-    return `${clean.slice(0, HEADER_LINE_MAX)}… (${commas(clean.length - HEADER_LINE_MAX)} more characters)`;
+    const unscanned = raw.length - scanned.length;
+    if (clean.length <= HEADER_LINE_MAX && !unscanned) return clean;
+    const shown = clean.slice(0, HEADER_LINE_MAX);
+    return `${shown}… (${commas(clean.length - shown.length + unscanned)} more characters)`;
   }
 
   class Snapshot {
@@ -1013,14 +1021,47 @@
     return roots;
   }
 
+  // The most page nodes one snapshot reads, over all its frames (the page
+  // agent's own bound per read is the same). A hostile page can hold
+  // millions; the walk stops here instead of pinning the page and the
+  // session, and the snapshot says so. `_maxNodes` lowers it (tests).
+  const MAX_SNAPSHOT_NODES = 250000;
+  // The most characters of page text, names, values and URLs one snapshot
+  // reads, over all its frames (the page agent's own bound per frame is the
+  // same): one text node or value can hold megabytes, which the node budget
+  // does not bound, and the tree is kept as the diff baseline. `_maxSize`
+  // lowers it (tests).
+  const MAX_SNAPSHOT_SIZE = 2000000;
+  function nodeBudget(options) {
+    if (!options._nodes) {
+      const asked = options._maxNodes > 0 ? Math.floor(options._maxNodes) : MAX_SNAPSHOT_NODES;
+      const size = Math.min(options._maxSize > 0 ? Math.floor(options._maxSize) : MAX_SNAPSHOT_SIZE, MAX_SNAPSHOT_SIZE);
+      options._nodes = { left: Math.min(asked, MAX_SNAPSHOT_NODES), total: Math.min(asked, MAX_SNAPSHOT_NODES), sizeLeft: size, sizeTotal: size, truncated: null };
+    }
+    return options._nodes;
+  }
+
   // Reads a frame's tree and, a few at a time, the trees of the frames
   // inside it. `nest`: how deep the stitched tree is where this frame's
-  // tree goes.
-  async function frameTree(page, frame, rootHandle, options, inner, nest = 0) {
+  // tree goes. `share` (`sizeShare`) is the part of the node (size) budget
+  // this frame and the frames inside it may read, reserved for it before
+  // any of them is read: the frames inside split what this frame left of
+  // its own share, never the snapshot's remaining budget, which siblings
+  // still being read hold shares of. So frames read together never pass
+  // the budget.
+  async function frameTree(page, frame, rootHandle, options, inner, nest = 0, share, sizeShare) {
     const limit = options._limit || (options._limit = limiter(FRAME_CONCURRENCY));
+    const budget = nodeBudget(options);
+    const maxNodes = Math.max(1, share === undefined ? budget.left : share);
+    const maxSize = Math.max(1, sizeShare === undefined ? budget.sizeLeft : sizeShare);
     let called = 0;
-    const read = () => frame._agent("snapshot", { root: rootHandle || null, showHidden: !!options.showHidden, viewport: !!options.viewport, options: !!options.options, base: page._refMaxFor(frame), nest });
+    const read = () => frame._agent("snapshot", { root: rootHandle || null, showHidden: !!options.showHidden, viewport: !!options.viewport, options: !!options.options, base: page._refMaxFor(frame), nest, maxNodes, maxSize });
     const r = await limit(() => ((called = clock()), inner ? withDeadline(page, read(), options._frameTimeout) : read()));
+    const usedNodes = Math.min(maxNodes, Math.max(0, Number(r.visited) || 0));
+    const usedSize = Math.min(maxSize, Math.max(0, Number(r.size) || 0));
+    budget.left -= usedNodes;
+    budget.sizeLeft -= usedSize;
+    if (r.truncated && !budget.truncated) budget.truncated = r.truncated;
     // Where the time goes, for tests/browser-parity/perf: in-page traversal
     // and the whole agent call (traversal plus transport).
     const timing = options._timing;
@@ -1031,6 +1072,7 @@
     }
     page._noteRefMax(frame, r.max);
     if (options.viewport) options._offscreen = (options._offscreen || 0) + (r.offscreen || 0);
+    if (options.viewport && r.offscreenMore) options._offscreenMore = true;
     const flat = r.flat || [];
     // An entry's depth in the stitched tree is `nest` plus its depth here.
     const iframes = [];
@@ -1051,12 +1093,19 @@
         if (e && e.code === "unsupported") page._batchContentFrames = false;
       }
     }
+    // The frames inside split what this frame left of its share, so
+    // reading them together cannot pass it.
+    const childShare = iframes.length ? Math.floor((maxNodes - usedNodes) / iframes.length) : 0;
+    const childSizeShare = iframes.length ? Math.floor((maxSize - usedSize) / iframes.length) : 0;
     await Promise.all(iframes.map(async (node) => {
       let child = null;
       try {
         if (batch) child = batch.get(node.frame) || null;
         else child = node.frame ? await limit(() => withDeadline(page, frame._contentFrame(node.frame), options._frameTimeout)) : null;
-        if (child && !child._detached) node._child = { frame: child, tree: await frameTree(page, child, null, options, true, node._nest) };
+        if (child && !child._detached && (childShare < 1 || childSizeShare < 1)) {
+          node._child = { frame: child, overBudget: childShare < 1 ? "node" : "size" };
+          budget.truncated = budget.truncated || (childShare < 1 ? "nodes" : "size");
+        } else if (child && !child._detached) node._child = { frame: child, tree: await frameTree(page, child, null, options, true, node._nest, childShare, childSizeShare) };
       } catch (e) {
         if (e instanceof FrameTimeout) node._child = { frame: child, timedOut: true };
         // The driver does not read a frame that shows a page the domain
@@ -1103,6 +1152,7 @@
       if (child && child.deep) node.unread = NEST_CUT;
       if (child && child.timedOut) node.unread = "timed out";
       if (child && child.blocked) node.unread = "blocked by the domain policy";
+      if (child && child.overBudget) node.unread = `the snapshot's ${child.overBudget} budget is used up`;
       if (child && child.tree) stack.push(open(child.tree, depth + 1, f.focus && focused, shown));
       else if (child && child.frame) page._prefixFor(child.frame);
     }
@@ -1154,7 +1204,12 @@
     if (options.interactive) nodes = interactiveOnly(nodes);
     const full = options.interactive ? render(shaped, options) : null;
     const body = render(nodes, options);
-    const trailer = options.viewport ? [`# ${options._offscreen || 0} interactive elements outside the viewport are not shown; snapshot() shows the whole page`] : [];
+    const trailer = options.viewport ? [`# ${options._offscreenMore ? "at least " : ""}${options._offscreen || 0} interactive elements outside the viewport are not shown; snapshot() shows the whole page`] : [];
+    const budget = nodeBudget(options);
+    if (budget.truncated) {
+      const note = core.readCutNote("the snapshot", { truncated: budget.truncated, maxNodes: budget.total, maxSize: budget.sizeTotal });
+      trailer.push(`# ${note}; the rest of the page is not shown. Snapshot a part of it (snapshot(ref) or snapshot(locator)) to read further`);
+    }
     body.push(...trailer);
     return { header, body, nodes, full, trailer };
   }

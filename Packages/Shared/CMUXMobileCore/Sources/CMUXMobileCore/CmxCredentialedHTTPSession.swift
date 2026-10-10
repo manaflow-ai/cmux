@@ -21,13 +21,14 @@ public final class CmxCredentialedHTTPSession: @unchecked Sendable {
         configuration: sending URLSessionConfiguration = .ephemeral,
         maximumResponseByteCount: Int = defaultMaximumResponseByteCount
     ) {
-        precondition(maximumResponseByteCount > 0)
         configuration.httpShouldSetCookies = false
         configuration.httpCookieStorage = nil
         configuration.urlCache = nil
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         let redirectDelegate = CmxCredentialedHTTPRedirectDelegate()
         self.redirectDelegate = redirectDelegate
+        // A limit below one byte accepts only an empty body; any byte throws
+        // `responseTooLarge`, so no limit value can trap.
         self.maximumResponseByteCount = maximumResponseByteCount
         session = URLSession(
             configuration: configuration,
@@ -45,7 +46,7 @@ public final class CmxCredentialedHTTPSession: @unchecked Sendable {
         var data = Data()
         if response.expectedContentLength > 0 {
             data.reserveCapacity(
-                min(Int(response.expectedContentLength), maximumResponseByteCount)
+                min(Int(clamping: response.expectedContentLength), maximumResponseByteCount)
             )
         }
         for try await byte in bytes {

@@ -42,6 +42,13 @@ public final class ImportStepModel {
     public private(set) var selectedProfiles: Set<String> = []
     /// What to bring from every selected profile.
     public private(set) var kinds: Set<ImportDataKind> = Set(ImportStepModel.offeredKinds)
+    /// The kinds a caller opened the step on (the cookie import card: cookies
+    /// only); detection then leaves passwords unchecked unless they are among them.
+    @ObservationIgnored private var presetKinds: Set<ImportDataKind>?
+    /// The cmux browser profile every source goes into (the cookie import
+    /// card: the profile of the tab that showed it); nil makes one new
+    /// profile per source.
+    public private(set) var mergeTarget: String?
     @ObservationIgnored private let services: any OnboardingServices
     @ObservationIgnored private var task: Task<Void, Never>?
     /// The plan being run, and each started row's count so far (progress
@@ -108,7 +115,7 @@ public final class ImportStepModel {
             guard let self, !Task.isCancelled else { return }
             sources = Self.edgeFirst(found)
             // Checked like the rest the first time it is offered; Import asks before anything is read.
-            if store, !passwordStore { kinds.insert(.passwords) }
+            if store, !passwordStore, presetKinds?.contains(.passwords) ?? true { kinds.insert(.passwords) }
             if !store { kinds.remove(.passwords) }
             passwordStore = store
             // Everything is checked to start with: the common case is "bring it all".
@@ -157,6 +164,22 @@ public final class ImportStepModel {
         if selectedProfiles.remove(profile.id) == nil { selectedProfiles.insert(profile.id) }
     }
 
+    /// Checks only `preset` (the cookie import card opens the step on
+    /// cookies); the person can still check the other kinds. Ignored while
+    /// an import or its consent screen runs; a finished import may be followed by another.
+    public func preset(kinds preset: Set<ImportDataKind>, into target: String? = nil) {
+        guard !isImporting, !isConfirmingPasswords else { return }
+        presetKinds = preset
+        kinds = preset.filter { $0 != .passwords || passwordStore }
+        mergeTarget = target
+    }
+
+    /// Back to one new profile per source (the step opened from anywhere but the card).
+    public func resetTarget() {
+        guard !isImporting, !isConfirmingPasswords else { return }
+        mergeTarget = nil
+    }
+
     public func toggle(_ kind: ImportDataKind) {
         guard canEditSelection, kindChoices.contains(kind) else { return }
         if kinds.remove(kind) == nil { kinds.insert(kind) }
@@ -174,7 +197,7 @@ public final class ImportStepModel {
     public var plan: ImportPlan {
         ImportPlan(items: profiles.filter { selectedProfiles.contains($0.id) }.map { profile in
             ImportPlan.Item(profile: profile, kinds: passwordConsent.contains(profile.id) ? kinds : kinds.subtracting([.passwords]))
-        })
+        }, mergeTarget: mergeTarget)
     }
 
     /// Checked profiles with passwords to bring: the consent screen's list.
@@ -191,6 +214,9 @@ public final class ImportStepModel {
         }
         return items
     }
+
+    /// Whether a Firefox profile is among them: its key is in the profile, not the Keychain.
+    public var passwordsIncludeFirefox: Bool { passwordProfiles.contains { $0.browser.family == .firefox } }
 
     public var isConfirmingPasswords: Bool { phase == .confirmingPasswords }
 

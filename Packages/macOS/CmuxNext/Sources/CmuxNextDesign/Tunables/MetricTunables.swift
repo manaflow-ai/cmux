@@ -45,9 +45,9 @@ public nonisolated enum MetricTunables {
     public static let sidebarHeaderHeight = MetricTunable.make("sidebarHeaderHeight", .sidebar, "Sidebar header height", help: "Group and machine headers.",
                                                                compact: 22, comfortable: 26)
     public static let roomDotDiameter = MetricTunable.make("roomDotDiameter", .sidebar, "Room dot size", help: "Drawn size of a room dot at the sidebar bottom.",
-                                                           compact: 5, comfortable: 6)
+                                                           compact: 8, comfortable: 9)
     public static let roomDotSlot = MetricTunable.make("roomDotSlot", .sidebar, "Room dot hit width", help: "Hit target width of each room dot.",
-                                                       compact: 16, comfortable: 18)
+                                                       compact: 24, comfortable: 32)
 
     // MARK: Tabs
 

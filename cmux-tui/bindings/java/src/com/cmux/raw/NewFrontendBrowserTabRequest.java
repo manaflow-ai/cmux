@@ -13,6 +13,7 @@ import java.util.Objects;
 /** Immutable new-frontend-browser-tab request. Protocol v12; authority: control. */
 public final class NewFrontendBrowserTabRequest implements WireValue {
     private final Field<Boolean> activate;
+    private final Field<UInt64> after;
     private final Field<Integer> cols;
     private final String engine;
     private final Field<String> faviconUrl;
@@ -26,6 +27,7 @@ public final class NewFrontendBrowserTabRequest implements WireValue {
 
     private NewFrontendBrowserTabRequest(Builder builder) {
         this.activate = builder.activate;
+        this.after = builder.after;
         this.cols = builder.cols;
         if (!builder.engineSet) throw new IllegalArgumentException("engine is required");
         this.engine = Wire.nonNull(builder.engine, "engine");
@@ -43,6 +45,7 @@ public final class NewFrontendBrowserTabRequest implements WireValue {
     public static Builder builder() { return new Builder(); }
 
     public Field<Boolean> activate() { return activate; }
+    public Field<UInt64> after() { return after; }
     public Field<Integer> cols() { return cols; }
     public String engine() { return engine; }
     public Field<String> faviconUrl() { return faviconUrl; }
@@ -60,6 +63,10 @@ public final class NewFrontendBrowserTabRequest implements WireValue {
         Object rawActivate = Wire.optional(object, "activate");
         if (!Wire.isMissing(rawActivate)) {
             builder.activate(Wire.bool(rawActivate, "NewFrontendBrowserTabRequest.activate"));
+        }
+        Object rawAfter = Wire.optional(object, "after");
+        if (!Wire.isMissing(rawAfter)) {
+            builder.after(rawAfter == null ? null : Wire.uint64(rawAfter, "NewFrontendBrowserTabRequest.after"));
         }
         Object rawCols = Wire.optional(object, "cols");
         if (!Wire.isMissing(rawCols)) {
@@ -104,6 +111,7 @@ public final class NewFrontendBrowserTabRequest implements WireValue {
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "activate", activate);
+        Wire.put(object, "after", after);
         Wire.put(object, "cols", cols);
         Wire.put(object, "engine", engine);
         Wire.put(object, "favicon_url", faviconUrl);
@@ -120,17 +128,18 @@ public final class NewFrontendBrowserTabRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof NewFrontendBrowserTabRequest that)) return false;
-        return Objects.equals(activate, that.activate) && Objects.equals(cols, that.cols) && Objects.equals(engine, that.engine) && Objects.equals(faviconUrl, that.faviconUrl) && Objects.equals(idempotencyKey, that.idempotencyKey) && Objects.equals(owner, that.owner) && Objects.equals(pane, that.pane) && Objects.equals(profileId, that.profileId) && Objects.equals(rows, that.rows) && Objects.equals(title, that.title) && Objects.equals(url, that.url);
+        return Objects.equals(activate, that.activate) && Objects.equals(after, that.after) && Objects.equals(cols, that.cols) && Objects.equals(engine, that.engine) && Objects.equals(faviconUrl, that.faviconUrl) && Objects.equals(idempotencyKey, that.idempotencyKey) && Objects.equals(owner, that.owner) && Objects.equals(pane, that.pane) && Objects.equals(profileId, that.profileId) && Objects.equals(rows, that.rows) && Objects.equals(title, that.title) && Objects.equals(url, that.url);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(activate, cols, engine, faviconUrl, idempotencyKey, owner, pane, profileId, rows, title, url); }
+    public int hashCode() { return Objects.hash(activate, after, cols, engine, faviconUrl, idempotencyKey, owner, pane, profileId, rows, title, url); }
 
     @Override
     public String toString() { return "NewFrontendBrowserTabRequest" + toWire(); }
 
     public static final class Builder {
         private Field<Boolean> activate = Field.omitted();
+        private Field<UInt64> after = Field.omitted();
         private Field<Integer> cols = Field.omitted();
         private String engine;
         private boolean engineSet;
@@ -146,6 +155,10 @@ public final class NewFrontendBrowserTabRequest implements WireValue {
 
         public Builder activate(Boolean value) {
             this.activate = Field.of(value);
+            return this;
+        }
+        public Builder after(UInt64 value) {
+            this.after = Field.ofNullable(value);
             return this;
         }
         public Builder cols(Integer value) {

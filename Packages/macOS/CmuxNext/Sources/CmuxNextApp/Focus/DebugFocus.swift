@@ -30,7 +30,7 @@ enum DebugFocus {
 
     /// No-activate mode: how often the keyboard was given back, and the last time.
     private static func keyboardGuard(_ services: AppServices) -> JSONValue {
-        guard let guardian = services.keyboardGuard else { return .null }
+        guard let guardian = services.input.keyboardGuard else { return .null }
         let last = guardian.giveBacks.last.map { giveBack -> JSONValue in
             ["trigger": .string(giveBack.trigger.rawValue), "cause": .string(giveBack.cause),
              "restored_to": giveBack.restoredTo.map { JSONValue(Int($0)) } ?? .null]

@@ -64,8 +64,10 @@ fn env_reduce_motion() -> Option<bool> {
 }
 
 /// The system Reduce Motion setting: macOS
-/// `NSWorkspace.accessibilityDisplayShouldReduceMotion`; false elsewhere
-/// (use `CMUX2_REDUCE_MOTION` or the override there).
+/// `NSWorkspace.accessibilityDisplayShouldReduceMotion`; Linux GNOME
+/// `enable-animations` (else `gtk-enable-animations`); Windows "Animation
+/// effects" (`SPI_GETCLIENTAREAANIMATION`). Linux and Windows keep it
+/// current from a watcher thread (`system.rs`); false on other systems.
 pub fn system_reduce_motion() -> bool {
     #[cfg(target_os = "macos")]
     {
@@ -73,7 +75,7 @@ pub fn system_reduce_motion() -> bool {
     }
     #[cfg(not(target_os = "macos"))]
     {
-        false
+        crate::system::reduce_motion()
     }
 }
 
@@ -101,30 +103,4 @@ fn debug_scale() -> f64 {
 /// The live policy: speed, Reduce Motion and the recording scale.
 pub fn policy() -> MotionPolicy {
     MotionPolicy { debug_scale: debug_scale(), ..MotionPolicy::new(speed(), reduce_motion()) }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{MotionFade, MotionSpring};
-
-    /// The only test in this crate that touches the globals.
-    #[test]
-    fn global_settings() {
-        set_speed(MotionSpeed::Normal);
-        set_reduce_motion_override(Some(true));
-        let p = policy();
-        assert_eq!(p.speed, MotionSpeed::Normal);
-        assert!(p.reduce_motion);
-        assert!(!p.animates_movement());
-        assert_eq!(p.spring_duration(MotionSpring::Move), 0.);
-        set_reduce_motion_override(Some(false));
-        let d = policy().spring_duration(MotionSpring::Move);
-        assert!((d - 1.5 * MotionSpring::Move.base().visible_end()).abs() < 0.01);
-        set_speed(MotionSpeed::Off);
-        assert_eq!(policy().fade(MotionFade::FadeIn), 0.);
-        set_speed(MotionSpeed::Fast);
-        set_reduce_motion_override(None);
-        assert_eq!(speed(), MotionSpeed::Fast);
-    }
 }

@@ -160,6 +160,8 @@ fn pins_groups_and_room_deletion() {
     // Delete without a target: pins removed, groups deleted, members ungrouped.
     let deleted = run(&mux, json!({"cmd":"delete-profile","profile":"prof_work"})).unwrap();
     assert!(deleted["moved_to"].is_null());
+    // Delete Space is one reopenable closed group (SPACE-DELETE-CLOSES-ITS-WORKSPACES).
+    assert!(deleted["closed_id"].as_str().is_some_and(|id| id.starts_with("closed_")));
     assert_eq!(
         deleted["unpinned"],
         json!([{"session_id":"remote-1","workspace_key":"future-key"}])
@@ -192,6 +194,9 @@ fn pins_groups_and_room_deletion() {
     );
     let removed = run(&mux, json!({"cmd":"delete-personal-group","group":"grp_b"})).unwrap();
     assert_eq!(removed["group"], "grp_b");
+    // The raw delete is the same recoverable delete as workspace_group.delete.
+    let closed = mux.read_registry_state(crate::state::closed_history_store::closed_items).unwrap();
+    assert_eq!(closed[0]["group"]["id"], "grp_b", "the raw delete is recorded: {closed:?}");
 }
 
 #[test]
@@ -266,5 +271,35 @@ fn identify_advertises_the_mixed_personal_order() {
             .unwrap()
             .iter()
             .any(|value| value == "personal-mixed-order-v1")
+    );
+}
+
+/// `workspace-group-icon-v1`: a personal workspace group has an icon
+/// (`workspace_group.update {icon}`, `list-personal` groups).
+#[test]
+fn identify_advertises_workspace_group_icons() {
+    let mux = personal_mux();
+    let identity = run(&mux, json!({"cmd":"identify"})).unwrap();
+    assert!(
+        identity["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == "workspace-group-icon-v1")
+    );
+}
+
+/// `workspace-group-pin-v1`: a personal workspace group can be pinned
+/// (saved) (`workspace_group.update {pinned}`, `list-personal` groups).
+#[test]
+fn identify_advertises_workspace_group_pins() {
+    let mux = personal_mux();
+    let identity = run(&mux, json!({"cmd":"identify"})).unwrap();
+    assert!(
+        identity["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == "workspace-group-pin-v1")
     );
 }

@@ -1,58 +1,69 @@
+import { isCount } from "../../packages/brain/src/core/acp.ts";
+import { Core, type Effect, type Input } from "../../packages/brain/src/core/core.ts";
+import {
+  CHIEF_CONVERSATION_TITLE,
+  CHIEF_DISPLAY_NAME,
+  DEFAULT_CONVERSATION_KEY,
+  MUX_SESSION_NAME,
+  selectChiefConversation,
+} from "../../packages/brain/src/core/rules.ts";
 import {
   type AcpmuxEvent,
   AcpmuxClient,
+  AcpmuxClosedError,
+  AcpmuxError,
   type McpServer,
   type Notification,
-  type SessionStatus,
   type SessionSummary,
   eventFromUpdate,
 } from "./acpmux-client.ts";
-import {
-  AGENT_MUX,
-  type ConversationChangedEvent,
-  type Message,
-  messageText,
-  type Op,
-  type Part,
-  type Participant,
-  type Summary,
-  USER_LOCAL,
-} from "./conversation-types.ts";
+import { AGENT_MUX, type ConversationChangedEvent, type Participant, type Summary, USER_LOCAL } from "./conversation-types.ts";
 import { DaemonClient, DaemonError, MissingCapabilityError } from "./daemon-client.ts";
 import { takeLock } from "./lock.ts";
 import type { MuxPaths } from "./paths.ts";
 import { writeSessionDir } from "./session-dir.ts";
-import { type ChildRecord, HostState, type OutboxEntry } from "./state.ts";
-import {
-  childFinishedPrompt,
-  childPermissionPrompt,
-  excerpt,
-  PARENT_TAG,
-  turnEnded,
-  workStatus,
-} from "./supervisor.ts";
-import { lastReply, type Turn, TurnFolder, type TurnOutput } from "./turns.ts";
-import { wakes } from "./wake.ts";
+import { HostStateFile } from "./state.ts";
 
-// The local mux brain host (plans/cmux-next/home.md section 4). A client of
-// two owners, listening on nothing:
+export { DEFAULT_CONVERSATION_KEY, MUX_SESSION_NAME };
+
+// The local mux brain host (plans/cmux-next/home.md section 4): a thin I/O
+// shell around the brain core (packages/brain/src/core/core.ts), which holds
+// every decision. A client of two owners, listening on nothing:
 //   - the cmux daemon's local conversation owner (conversation-* commands and
 //     conversation-changed events), and
 //   - acpmux, which owns the mux session `mux` and its child agents.
-// Every effect is keyed so an owner dedupes a replay: prompts carry promptId =
-// the message id (acpmux), replies carry client_msg_id = "turn:<session>:<turn
-// seq>" (conversation owner). The host's durable to-dos live in HostState.
+// The shell turns owner events and request results into core inputs and runs
+// the core's effects: `persist` first (write-ahead), then requests, whose
+// answers come back as inputs. Every effect is keyed so an owner dedupes a
+// replay (promptId at acpmux, idempotency key at the conversation owner).
 
-export const DEFAULT_CONVERSATION_KEY = "mux-home-default";
-/** The owner's minimum gap between agent messages (2 s) plus a margin. */
-const AGENT_GAP_RETRY_MS = 2_200;
-export const MUX_SESSION_NAME = "mux";
+/** The timers the shell uses for request timeouts and the outbox retry; tests inject a fake one. */
+export interface Clock {
+  setTimeout(fn: () => void, ms: number): unknown;
+  clearTimeout(handle: unknown): void;
+  /** Milliseconds since the epoch on this clock: the core's time and every timer use it. */
+  nowMs(): number;
+}
+
+/** Real timers. They keep the process alive (the reconnect backoff is one of them; the host is a daemon). */
+const realClock: Clock = {
+  setTimeout(fn, ms) {
+    return setTimeout(fn, ms);
+  },
+  clearTimeout(handle) {
+    clearTimeout(handle as ReturnType<typeof setTimeout>);
+  },
+  nowMs: () => Date.now(),
+};
+
+/** A daemon or acpmux request that got no answer within the request timeout. */
+export class RequestTimeoutError extends Error {}
 
 export interface HostOptions {
   daemonSocket: string;
   acpmuxSocket: string;
   paths: MuxPaths;
-  /** The mux's acpmux harness (MUX_HARNESS, default claude-sr). */
+  /** The mux's acpmux harness (MUX_HARNESS, default claude). */
   harness: string;
   policy: string;
   /** The Mac user's display name (user_local). */
@@ -73,54 +84,36 @@ export interface HostOptions {
   log?: (line: string) => void;
   /** Reconnect backoff after a failed or lost connection. */
   backoff?: { initialMs: number; maxMs: number };
-}
-
-type Queue = { run(task: () => Promise<void>): Promise<void> };
-
-/** Tasks run one at a time, in order; a failed task is logged and the queue continues. */
-function serialQueue(log: (line: string) => void): Queue {
-  let tail = Promise.resolve();
-  return {
-    run(task) {
-      const next = tail.then(task).catch((error) => log(`task failed: ${String(error)}`));
-      tail = next;
-      return next;
-    },
-  };
+  /** Timers for request timeouts and the outbox retry (default: real timers). */
+  clock?: Clock;
+  /** How long one daemon or acpmux request (not a prompt) may take before its connection counts as lost (default 30 s). */
+  requestTimeoutMs?: number;
 }
 
 export class HostAlreadyRunningError extends Error {}
 
 export class MuxHost {
-  private readonly state: HostState;
+  private readonly stateFile: HostStateFile;
+  /** Created in start(), after the MUX_HOME lock, so the state is read by its only writer. */
+  private core!: Core;
   private readonly log: (line: string) => void;
-  private readonly inbox: Queue;
-  private readonly effects: Queue;
   private releaseLock?: () => void;
   private stopped = false;
+  /** Aborted by stop(): in-flight connects listen to it. */
+  private readonly stopping = new AbortController();
   private readonly stoppedSignal: Promise<void>;
   private signalStop!: () => void;
+  private readonly timers = new Map<string, unknown>();
+  /** Prompts waiting for `_acpmux/prompt_accepted`: the deadline timer and the connection. */
+  private readonly promptAcks = new Map<string, { timer: unknown; acpmux: AcpmuxClient }>();
+  /** Per connection loop: the clock time its connection came up, if it did. */
+  private readonly upAt = new Map<string, number>();
+  private readonly clock: Clock;
+  private readonly queue: { effect: Effect; daemon?: DaemonClient; acpmux?: AcpmuxClient }[] = [];
+  private draining = false;
 
   private daemon?: DaemonClient;
   private acpmux?: AcpmuxClient;
-  private muxSessionId?: string;
-  private folder = new TurnFolder();
-
-  /** Conversation summaries the host has seen (refreshed on each daemon connect). */
-  private readonly summaries = new Map<string, Summary>();
-  /** Highest message seq the inbox handled per conversation (>= the agent_mux read cursor). */
-  private readonly handled = new Map<string, number>();
-  /** Message id -> author, for the reply-to-mux wake rule. */
-  private readonly authors = new Map<string, string>();
-  /** promptId -> resolvers waiting for acpmux to accept it. */
-  private readonly acceptWaiters = new Map<string, () => void>();
-  /** Conversation where the mux is typing (its running turn's). */
-  private typingIn?: string;
-  /** Every acpmux session's last status and, for running children, the seq their turn started after. */
-  private readonly sessionStatus = new Map<string, SessionStatus>();
-  private readonly sessionInfo = new Map<string, SessionSummary>();
-  /** Per child: the event seq when its previous turn ended (its next turn's events come after it). */
-  private readonly childTurnFloor = new Map<string, number>();
 
   private readyResolve!: () => void;
   /** Resolves once both owners are connected and the first catch-up ran. */
@@ -131,9 +124,8 @@ export class MuxHost {
 
   constructor(private readonly options: HostOptions) {
     this.log = options.log ?? ((line) => console.error(`${new Date().toISOString()} mux host: ${line}`));
-    this.state = new HostState(options.paths.hostState);
-    this.inbox = serialQueue(this.log);
-    this.effects = serialQueue(this.log);
+    this.stateFile = new HostStateFile(options.paths.hostState);
+    this.clock = options.clock ?? realClock;
     this.ready = new Promise((resolve) => (this.readyResolve = resolve));
     this.stoppedSignal = new Promise((resolve) => (this.signalStop = resolve));
     this.fatal = new Promise<never>((_, reject) => (this.fail = reject));
@@ -151,6 +143,8 @@ export class MuxHost {
     if (!release) throw new HostAlreadyRunningError(`another mux host holds ${this.options.paths.hostLock}`);
     this.releaseLock = release;
     try {
+      // Read after the lock: the state's only writer is the lock holder.
+      this.core = new Core(this.stateFile.load());
       writeSessionDir(this.options.paths, this.options.self, this.options.sessionEnv, {
         mcp: this.options.mcpServers.length > 0,
       });
@@ -164,11 +158,15 @@ export class MuxHost {
     void this.loop("acpmux", () => this.runAcpmux());
   }
 
-
   async stop(): Promise<void> {
     if (this.stopped) return;
     this.stopped = true;
     this.signalStop();
+    this.stopping.abort();
+    for (const timer of this.timers.values()) this.clock.clearTimeout(timer);
+    this.timers.clear();
+    for (const { timer } of this.promptAcks.values()) this.clock.clearTimeout(timer);
+    this.promptAcks.clear();
     this.daemon?.close();
     this.acpmux?.close();
     this.releaseLock?.();
@@ -179,7 +177,7 @@ export class MuxHost {
     const { initialMs, maxMs } = this.options.backoff ?? { initialMs: 500, maxMs: 30_000 };
     let delay = initialMs;
     while (!this.stopped) {
-      const startedAt = Date.now();
+      this.upAt.delete(name);
       try {
         await run();
         this.log(`${name} connection closed`);
@@ -193,53 +191,366 @@ export class MuxHost {
         this.log(`${name}: ${String(error)}`);
       }
       if (this.stopped) return;
-      // A connection that lived a while resets the backoff.
-      if (Date.now() - startedAt > maxMs) delay = initialMs;
-      await Promise.race([new Promise((resolve) => setTimeout(resolve, delay)), this.stoppedSignal]);
+      // A connection that lived longer than maxMs starts the backoff over; one
+      // that came up and closed at once keeps growing it.
+      const up = this.upAt.get(name);
+      if (up !== undefined && this.clock.nowMs() - up > maxMs) delay = initialMs;
+      // The wait runs on the injected clock; stop() ends it at once.
+      let timer: unknown;
+      await Promise.race([new Promise((resolve) => (timer = this.clock.setTimeout(() => resolve(undefined), delay))), this.stoppedSignal]);
+      this.clock.clearTimeout(timer);
       delay = Math.min(delay * 2, maxMs);
     }
+  }
+
+  // MARK: core
+
+  /**
+   * Steps the core and queues its effects. Effects run in order, one at a
+   * time, each on the connections that were current when its step ran; a
+   * conversation write waits for the owner's answer before the next effect
+   * starts (as the old host's serial queue did), and its answer is the next
+   * input. `persist` is the first effect of its step, so the state is on
+   * disk before that step's requests go out. `log` lines are written at once.
+   */
+  private feed(input: Input): void {
+    if (this.stopped) return;
+    const ports = { daemon: this.daemon, acpmux: this.acpmux };
+    for (const effect of this.core.step(input, this.clock.nowMs())) {
+      // Diagnostics are written when the core decides, not when the queue gets there.
+      if (effect.kind === "log") this.log(effect.line);
+      else this.queue.push({ effect, ...ports });
+    }
+    void this.drain();
+  }
+
+  private async drain(): Promise<void> {
+    if (this.draining) return;
+    this.draining = true;
+    try {
+      for (let next = this.queue.shift(); next && !this.stopped; next = this.queue.shift()) {
+        try {
+          await this.run(next.effect, next.daemon, next.acpmux);
+        } catch (error) {
+          this.log(`effect ${next.effect.kind} failed: ${String(error)}`);
+        }
+      }
+    } finally {
+      this.draining = false;
+    }
+  }
+
+  private async run(effect: Effect, daemon: DaemonClient | undefined, acpmux: AcpmuxClient | undefined): Promise<void> {
+    switch (effect.kind) {
+      case "persist":
+        this.stateFile.save(effect.state);
+        return;
+      case "log":
+        this.log(effect.line);
+        return;
+      case "ready":
+        this.readyResolve();
+        return;
+      case "arm_timer": {
+        this.clock.clearTimeout(this.timers.get(effect.key));
+        const timer = this.clock.setTimeout(
+          () => {
+            this.timers.delete(effect.key);
+            this.feed({ kind: "timer", key: effect.key });
+          },
+          Math.max(0, effect.at - this.clock.nowMs()),
+        );
+        this.timers.set(effect.key, timer);
+        return;
+      }
+      case "reconnect":
+        (effect.port === "daemon" ? daemon : acpmux)?.close();
+        return;
+      case "prompt":
+        this.prompt(acpmux, effect.prompt_id, effect.text);
+        return;
+      case "fetch_sessions":
+        if (!acpmux) return;
+        void this.timed(acpmux, "acpmux", "sessions", acpmux.sessions()).then(
+          (sessions) => this.feed({ kind: "sessions", sessions }),
+          () => this.feed({ kind: "sessions", sessions: [], failed: true }),
+        );
+        return;
+      case "fetch_child_events":
+        if (!acpmux) return;
+        void this.timed(acpmux, "acpmux", "events", acpmux.events(effect.session_id, effect.after))
+          .catch(() => [] as AcpmuxEvent[])
+          .then((events) => this.feed({ kind: "child_events", session_id: effect.session_id, events }));
+        return;
+    }
+    if (!daemon || daemon.isClosed) return;
+    switch (effect.kind) {
+      case "conversation_op":
+        try {
+          const result = await this.timed(daemon, "daemon", "op", daemon.op({
+            conversation: effect.conversation,
+            idempotency_key: effect.idempotency_key,
+            actor: AGENT_MUX,
+            op: effect.op,
+          }));
+          this.feed({ kind: "op_result", idempotency_key: effect.idempotency_key, change: result.change });
+        } catch (error) {
+          // A reject carries the owner's reason; a lost connection arrives as `disconnected`.
+          if (error instanceof DaemonError)
+            this.feed({ kind: "op_result", idempotency_key: effect.idempotency_key, reason: error.message });
+        }
+        return;
+      case "typing":
+        try {
+          await this.timed(daemon, "daemon", "typing", daemon.typing(effect.conversation, AGENT_MUX, effect.on));
+        } catch (error) {
+          this.log(`typing ${effect.on ? "on" : "off"} failed: ${String(error)}`);
+        }
+        return;
+      case "list_conversations":
+        this.read(daemon, undefined, this.timed(daemon, "daemon", "list", daemon.list()), (conversations) => ({ kind: "conversations_listed", conversations }));
+        return;
+      case "fetch_snapshot":
+        this.read(daemon, effect.conversation, this.timed(daemon, "daemon", "snapshot", daemon.snapshot(effect.conversation, effect.tail)), ({ conversation, messages }) => ({
+          kind: "snapshot",
+          conversation,
+          messages,
+        }));
+        return;
+      case "fetch_history":
+        this.read(
+          daemon,
+          effect.conversation,
+          this.timed(daemon, "daemon", "history", daemon.history(effect.conversation, effect.before_seq, effect.limit)),
+          (messages) => ({ kind: "history", conversation: effect.conversation, messages }),
+        );
+        return;
+    }
+  }
+
+  /** How long one daemon or acpmux request may take (default 30 s). */
+  private get requestTimeoutMs(): number {
+    return this.options.requestTimeoutMs ?? 30_000;
+  }
+
+  /**
+   * A connect (socket plus handshake) bounded by the request timeout. The
+   * deadline, or stop(), aborts the connect, which closes its socket, so a
+   * stuck handshake leaves no socket open; a client that still arrives late
+   * (or after stop) is closed.
+   */
+  private connectWithin<T extends { close(): void }>(what: string, start: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    const ms = this.requestTimeoutMs;
+    const controller = new AbortController();
+    let late = false;
+    const connect = start(controller.signal);
+    return new Promise<T>((resolve, reject) => {
+      const timer = this.clock.setTimeout(() => {
+        late = true;
+        this.log(`${what} connect got no answer in ${ms} ms; retrying`);
+        controller.abort();
+        reject(new RequestTimeoutError(`${what} connect timed out`));
+      }, ms);
+      // stop() aborts the connect too: its socket closes and nothing runs after it.
+      const onStop = () => {
+        if (late) return;
+        late = true;
+        this.clock.clearTimeout(timer);
+        controller.abort();
+        reject(new Error(`${what} connect stopped`));
+      };
+      if (this.stopping.signal.aborted) onStop();
+      else this.stopping.signal.addEventListener("abort", onStop, { once: true });
+      connect.then(
+        (client) => {
+          this.stopping.signal.removeEventListener("abort", onStop);
+          this.clock.clearTimeout(timer);
+          if (late || this.stopped) client.close();
+          if (late) return;
+          if (this.stopped) {
+            late = true;
+            reject(new Error(`${what} connect stopped`));
+            return;
+          }
+          resolve(client);
+        },
+        (error) => {
+          this.stopping.signal.removeEventListener("abort", onStop);
+          this.clock.clearTimeout(timer);
+          reject(error);
+        },
+      );
+    });
+  }
+
+  /**
+   * A daemon or acpmux request bounded by the request timeout. A timeout
+   * counts as a lost connection: that connection is dropped (the core sees
+   * `disconnected`), the request fails, and the reconnect retries. One stuck
+   * daemon request cannot block the serial effect queue; a stuck acpmux read
+   * cannot leave a child finish or a permission waiting forever. Prompts have
+   * their own deadline on the acknowledgment (`prompt`).
+   */
+  private timed<T>(client: { close(): void }, port: "daemon" | "acpmux", what: string, request: Promise<T>): Promise<T> {
+    const ms = this.requestTimeoutMs;
+    return new Promise<T>((resolve, reject) => {
+      const timer = this.clock.setTimeout(() => {
+        this.log(`${port} ${what} got no answer in ${ms} ms; reconnecting`);
+        reject(new RequestTimeoutError(`${what} timed out`));
+        client.close();
+      }, ms);
+      request.then(
+        (value) => {
+          this.clock.clearTimeout(timer);
+          resolve(value);
+        },
+        (error) => {
+          this.clock.clearTimeout(timer);
+          reject(error);
+        },
+      );
+    });
+  }
+
+  /**
+   * A daemon read the inbox waits for. An owner refusal (a reject with a
+   * reason) skips that read (`fetch_refused`, no reconnect); any other
+   * failure drops the connection, and the reconnect catches up again.
+   */
+  private read<T>(daemon: DaemonClient, conversation: string | undefined, request: Promise<T>, input: (value: T) => Input): void {
+    request.then(
+      (value) => this.feed(input(value)),
+      (error) => {
+        if (error instanceof DaemonError) {
+          this.feed({ kind: "fetch_refused", ...(conversation === undefined ? {} : { conversation }), reason: error.message });
+          return;
+        }
+        this.log(`daemon read failed: ${String(error)}; reconnecting`);
+        daemon.close();
+      },
+    );
+  }
+
+  /**
+   * A prompt. Its request answers when the turn ends, which has no bound; the
+   * acknowledgment (`_acpmux/prompt_accepted`, sent as soon as acpmux records
+   * the prompt) has the request deadline. A missing acknowledgment closes the
+   * connection (the prompt is sent again on the next connect). A refusal by
+   * acpmux is `prompt_settled {rejected}`: the core retries it on the clock.
+   */
+  private prompt(acpmux: AcpmuxClient | undefined, promptId: string, text: string): void {
+    const session = this.core.state.muxSessionId;
+    if (!acpmux || !session) return;
+    const ms = this.requestTimeoutMs;
+    this.clock.clearTimeout(this.promptAcks.get(promptId)?.timer);
+    const timer = this.clock.setTimeout(() => {
+      this.promptAcks.delete(promptId);
+      this.log(`prompt ${promptId} got no acknowledgment in ${ms} ms; reconnecting`);
+      acpmux.close();
+    }, ms);
+    this.promptAcks.set(promptId, { timer, acpmux });
+    acpmux
+      .prompt(session, text, { promptId, delivery: "turn" })
+      .then(
+        (): { refusal?: string } => ({}),
+        (error) => {
+          const rejected = error instanceof AcpmuxError && !(error instanceof AcpmuxClosedError);
+          const next = rejected ? "the core retries it" : "resent on the next acpmux connect";
+          this.log(`prompt ${promptId} failed: ${String(error)}; ${next}`);
+          return rejected ? { refusal: (error as AcpmuxError).rpcMessage } : {};
+        },
+      )
+      .then(({ refusal }) => {
+        this.acknowledged(promptId, acpmux);
+        this.feed({
+          kind: "prompt_settled",
+          prompt_id: promptId,
+          ...(refusal === undefined ? {} : { rejected: true, error: refusal }),
+        });
+      });
+  }
+
+  /** The prompt's acknowledgment arrived (or its request settled) on `acpmux`: its deadline ends. */
+  private acknowledged(promptId: string, acpmux: AcpmuxClient): void {
+    const pending = this.promptAcks.get(promptId);
+    if (pending?.acpmux !== acpmux) return;
+    this.clock.clearTimeout(pending.timer);
+    this.promptAcks.delete(promptId);
   }
 
   // MARK: daemon
 
   private async runDaemon(): Promise<void> {
-    const daemon = await DaemonClient.connect(this.options.daemonSocket, {
-      subscribe: true,
-      onEvent: (event) => this.onDaemonEvent(daemon, event),
-    });
+    // Events that arrive before the core knows the connection are held, then fed after it.
+    let held: Record<string, unknown>[] | undefined = [];
+    const daemon = await this.connectWithin("daemon", (signal) =>
+      DaemonClient.connect(this.options.daemonSocket, {
+        subscribe: true,
+        signal,
+        onEvent: (event) => {
+          if (held) held.push(event);
+          else this.onDaemonEvent(daemon, event);
+        },
+      }),
+    );
     const closed = new Promise<void>((resolve) => daemon.onClose(() => resolve()));
-    this.summaries.clear();
     try {
-      const { conversation } = await daemon.create({
-        idempotency_key: DEFAULT_CONVERSATION_KEY,
-        actor: USER_LOCAL,
-        title: "mux",
-        participants: this.defaultParticipants(),
-      });
-      this.remember(conversation);
+      const conversation = await this.chiefConversation(daemon);
       // Read at every connect: the app mints a new token on each launch.
       const token = typeof this.options.agentToken === "function" ? this.options.agentToken() : this.options.agentToken;
-      if (token) await daemon.bind(AGENT_MUX, token);
-      if (this.state.data.defaultConversation !== conversation.id) {
-        this.state.data.defaultConversation = conversation.id;
-        this.state.save();
-      }
+      if (token) await this.timed(daemon, "daemon", "bind", daemon.bind(AGENT_MUX, token));
       this.daemon = daemon;
       this.log(`daemon connected (${daemon.identity.app ?? "?"} ${daemon.identity.version ?? ""}); conversation ${conversation.id}`);
-      await this.effects.run(() => this.flushOutbox());
-      if (this.acpmux) await this.inbox.run(() => this.catchUp());
-    } catch (error) {
+      this.upAt.set("daemon", this.clock.nowMs());
+      this.feed({ kind: "daemon_connected", conversation });
+      const queued = held;
+      held = undefined;
+      for (const event of queued) this.onDaemonEvent(daemon, event);
+      await Promise.race([closed, this.stoppedSignal]);
+    } finally {
       daemon.close();
-      throw error;
+      if (this.daemon === daemon) {
+        this.daemon = undefined;
+        this.feed({ kind: "disconnected", port: "daemon" });
+      }
     }
-    await Promise.race([closed, this.stoppedSignal]);
-    if (this.daemon === daemon) this.daemon = undefined;
+  }
+
+  /**
+   * The Chief conversation by the shared rule (rules.ts selectChiefConversation):
+   * the oldest local conversation with agent_mux, else a new Home Chief
+   * conversation. A create the owner refuses as idempotency_conflict (the app
+   * created home-chief with other names) lists again and adopts by the rule.
+   */
+  private async chiefConversation(daemon: DaemonClient): Promise<Summary> {
+    const listed = selectChiefConversation(await this.timed(daemon, "daemon", "list", daemon.list()));
+    if (listed) return listed;
+    try {
+      const created = await this.timed(
+        daemon,
+        "daemon",
+        "create",
+        daemon.create({
+          idempotency_key: DEFAULT_CONVERSATION_KEY,
+          actor: USER_LOCAL,
+          title: CHIEF_CONVERSATION_TITLE,
+          participants: this.defaultParticipants(),
+        }),
+      );
+      return created.conversation;
+    } catch (error) {
+      if (!(error instanceof DaemonError) || !error.message.includes("idempotency_conflict")) throw error;
+      const adopted = selectChiefConversation(await this.timed(daemon, "daemon", "list", daemon.list()));
+      if (!adopted) throw error;
+      this.log(`${DEFAULT_CONVERSATION_KEY} exists with another title or names (idempotency_conflict); adopting ${adopted.id}`);
+      return adopted;
+    }
   }
 
   private defaultParticipants(): Participant[] {
     return [
       { id: USER_LOCAL, kind: "human", display_name: this.options.displayName },
-      { id: AGENT_MUX, kind: "agent", display_name: "mux", agent_class: "mux", acp_session: MUX_SESSION_NAME },
+      { id: AGENT_MUX, kind: "agent", display_name: CHIEF_DISPLAY_NAME, agent_class: "mux", acp_session: MUX_SESSION_NAME },
     ];
   }
 
@@ -250,206 +561,99 @@ export class MuxHost {
       daemon.close();
       return;
     }
-    if (event.event !== "conversation-changed") return;
+    if (event.event !== "conversation-changed" || this.daemon !== daemon) return;
     const changed = event as unknown as ConversationChangedEvent;
-    const change = changed.change;
-    if (change.kind === "conversation") {
-      this.remember(change.conversation);
-      return;
-    }
-    if (change.kind === "read-cursor") {
-      const summary = this.summaries.get(changed.conversation);
-      if (summary) summary.read_cursors[change.participant] = Math.max(summary.read_cursors[change.participant] ?? 0, change.seq);
-      return;
-    }
-    if (change.kind === "message") {
-      this.authors.set(change.message.id, change.message.author);
-      const message = change.message;
-      void this.inbox.run(() => this.onMessage(message));
-    }
-  }
-
-  private remember(summary: Summary): void {
-    this.summaries.set(summary.id, summary);
-    if (!this.handled.has(summary.id)) this.handled.set(summary.id, summary.read_cursors[AGENT_MUX] ?? 0);
-    if (summary.last_message) this.authors.set(summary.last_message.id, summary.last_message.author);
-  }
-
-  private async summary(conversation: string): Promise<Summary | undefined> {
-    const cached = this.summaries.get(conversation);
-    if (cached) return cached;
-    const daemon = this.daemon;
-    if (!daemon) return undefined;
-    const { conversation: summary } = await daemon.snapshot(conversation, 1);
-    this.remember(summary);
-    return summary;
-  }
-
-  // MARK: inbox
-
-  /** A live message: handle it in seq order, or catch the conversation up when the host missed some. */
-  private async onMessage(message: Message): Promise<void> {
-    if (!this.daemon || !this.acpmux) return; // The catch-up after both connect covers it.
-    const summary = await this.summary(message.conversation);
-    if (!summary || !summary.participants.some((p) => p.id === AGENT_MUX)) return;
-    const handled = this.handled.get(summary.id) ?? 0;
-    if (message.seq <= handled) return;
-    if (message.seq > handled + 1) return this.catchUpConversation(summary);
-    summary.last_seq = Math.max(summary.last_seq, message.seq);
-    await this.handleMessage(summary, message);
-  }
-
-  /** Every conversation with the mux, from its agent_mux read cursor. */
-  private async catchUp(): Promise<void> {
-    const daemon = this.daemon;
-    if (!daemon || !this.acpmux) return;
-    for (const summary of await daemon.list()) {
-      this.remember(summary);
-      if (summary.participants.some((p) => p.id === AGENT_MUX)) await this.catchUpConversation(summary);
-    }
-    this.readyResolve();
-  }
-
-  private async catchUpConversation(known: Summary): Promise<void> {
-    const daemon = this.daemon;
-    if (!daemon) return;
-    const { conversation: summary, messages } = await daemon.snapshot(known.id, 500);
-    this.summaries.set(summary.id, summary);
-    const from = Math.max(this.handled.get(summary.id) ?? 0, summary.read_cursors[AGENT_MUX] ?? 0);
-    this.handled.set(summary.id, from);
-    let pending = messages.filter((m) => m.seq > from);
-    // Page back until the first missing message is in hand.
-    while (pending.length > 0 && pending[0].seq > from + 1) {
-      const older = await daemon.history(summary.id, pending[0].seq, 500);
-      if (older.length === 0) break;
-      pending = [...older.filter((m) => m.seq > from), ...pending];
-    }
-    for (const message of messages) this.authors.set(message.id, message.author);
-    for (const message of pending) {
-      this.authors.set(message.id, message.author);
-      await this.handleMessage(summary, message);
-    }
-  }
-
-  /** Prompts the mux when the message wakes it, then moves agent_mux's read cursor past it. */
-  private async handleMessage(summary: Summary, message: Message): Promise<void> {
-    if (message.seq <= (this.handled.get(summary.id) ?? 0)) return;
-    if (!this.state.isAnswered(message.id) && wakes(summary, message, (id) => this.authors.get(id) === AGENT_MUX)) {
-      const author = summary.participants.find((p) => p.id === message.author);
-      const text = `[conversation ${summary.id} from ${author?.display_name ?? message.author}] ${messageText(message)}`;
-      this.state.data.prompts[message.id] = { conversation: summary.id, text, seq: message.seq };
-      this.state.save();
-      await this.sendPrompt(message.id, { awaitAccepted: true });
-    }
-    this.handled.set(summary.id, message.seq);
-    await this.setReadCursor(summary, message.seq);
-  }
-
-  private async setReadCursor(summary: Summary, seq: number): Promise<void> {
-    const daemon = this.daemon;
-    if (!daemon || seq <= (summary.read_cursors[AGENT_MUX] ?? 0)) return;
-    try {
-      await daemon.op({
-        conversation: summary.id,
-        idempotency_key: `cursor:${AGENT_MUX}:${seq}`,
-        actor: AGENT_MUX,
-        op: { kind: "read_cursor.set", seq },
-      });
-      summary.read_cursors[AGENT_MUX] = seq;
-    } catch (error) {
-      if (error instanceof DaemonError && error.message.includes("cursor_regression")) return;
-      throw error;
-    }
-  }
-
-  /**
-   * Sends an outstanding prompt (state.prompts) to the mux as its own turn.
-   * With `awaitAccepted`, settles once acpmux recorded it (user_message or
-   * queued) or answered the request (a promptId it already had).
-   */
-  private async sendPrompt(promptId: string, options: { awaitAccepted: boolean }): Promise<void> {
-    const entry = this.state.data.prompts[promptId];
-    const acpmux = this.acpmux;
-    const session = this.muxSessionId;
-    if (!entry || !acpmux || !session) return;
-    let accepted: Promise<void> = Promise.resolve();
-    if (options.awaitAccepted) accepted = new Promise((resolve) => this.acceptWaiters.set(promptId, resolve));
-    acpmux
-      .prompt(session, entry.text, { promptId, delivery: "turn" })
-      .catch((error) => this.log(`prompt ${promptId} failed: ${String(error)}; resent on the next acpmux connect`))
-      .finally(() => this.accept(promptId));
-    await accepted;
-  }
-
-  private accept(promptId: string): void {
-    const resolve = this.acceptWaiters.get(promptId);
-    if (!resolve) return;
-    this.acceptWaiters.delete(promptId);
-    resolve();
+    this.feed({ kind: "conversation_changed", conversation: changed.conversation, change: changed.change });
   }
 
   // MARK: acpmux
 
   private async runAcpmux(): Promise<void> {
     await this.options.startAcpmux?.();
-    const acpmux = await AcpmuxClient.connect(this.options.acpmuxSocket, "mux-host");
+    const acpmux = await this.connectWithin("acpmux", (signal) =>
+      AcpmuxClient.connect(this.options.acpmuxSocket, "mux-host", signal),
+    );
     const closed = new Promise<void>((resolve) => acpmux.onClose(() => resolve()));
+    // The connect sequence (sessions, watch, first event, attach) has one deadline:
+    // a stuck step closes the client and the loop connects again.
+    const ms = this.requestTimeoutMs;
+    const deadline = this.clock.setTimeout(() => {
+      this.log(`acpmux connect got no answer in ${ms} ms; reconnecting`);
+      acpmux.close();
+    }, ms);
+    // Notifications that arrive while attach replays are held, then fed after it.
+    let held: Notification[] | undefined = [];
+    acpmux.onNotification((n) => {
+      if (held) held.push(n);
+      else this.onAcpmuxNotification(n, acpmux);
+    });
     try {
-      const sessionId = await this.ensureMuxSession(acpmux);
-      if (this.state.data.muxSessionId !== sessionId) {
-        this.state.data.muxSessionId = sessionId;
-        this.state.data.acpmuxSeq = 0;
-        this.state.save();
-      }
-      this.muxSessionId = sessionId;
-      // Notifications that arrive while attach replays are held, then applied after it.
-      let held: Notification[] | undefined = [];
-      acpmux.onNotification((n) => {
-        if (held) held.push(n);
-        else this.onAcpmuxNotification(n);
+      const { sessionId, created } = await this.ensureMuxSession(acpmux);
+      // The session list from the watch call itself has no gap to the change
+      // notifications; an acpmux that does not return one is listed after watch.
+      const watched = (await acpmux.watch(true)) as { sessions?: unknown } | undefined;
+      const listed = watched?.sessions;
+      const sessions = Array.isArray(listed) ? (listed as SessionSummary[]) : await acpmux.sessions();
+      // The log's identity is the `at` of its seq 1 event. A log host.json does
+      // not know (another session, or another identity) replays from 0; the core
+      // decides the reset and the reply-key epoch (core.ts acpmuxConnected).
+      // A failed fetch fails the connect (the loop retries): an unknown identity would decide a reset wrongly.
+      const [firstEvent] = await acpmux.events(sessionId, 0, 1);
+      const firstAt: unknown = firstEvent?.at;
+      const logId = isCount(firstAt) ? firstAt : undefined;
+      const state = this.core.state;
+      // A host.json without acpmuxLog (from before it existed) adopts this identity: no replay from 0.
+      const known =
+        state.muxSessionId === sessionId &&
+        (logId === undefined || state.acpmuxLog === undefined || logId === state.acpmuxLog);
+      const { events, cursorReset } = await this.attach(acpmux, sessionId, known ? state.acpmuxSeq : 0);
+      this.clock.clearTimeout(deadline);
+      this.acpmux = acpmux;
+      this.log(`acpmux connected; mux session ${sessionId} (${events.length} events replayed)`);
+      this.upAt.set("acpmux", this.clock.nowMs());
+      this.feed({
+        kind: "acpmux_connected",
+        session_id: sessionId,
+        sessions,
+        events,
+        ...(cursorReset ? { cursor_reset: true } : {}),
+        ...(logId === undefined ? {} : { log_id: logId }),
+        ...(created ? { created: true } : {}),
       });
-      for (const session of await acpmux.sessions()) {
-        this.sessionStatus.set(session.sessionId, session.status);
-        this.sessionInfo.set(session.sessionId, session);
-      }
-      await acpmux.watch(true);
-      const attached = await this.attach(acpmux, sessionId);
-      this.folder = new TurnFolder(this.state.data.acpmuxSeq);
-      for (const event of attached) this.applyMuxEvent(event);
       const queued = held;
       held = undefined;
-      for (const n of queued) this.onAcpmuxNotification(n);
-      this.acpmux = acpmux;
-      this.log(`acpmux connected; mux session ${sessionId} (${attached.length} events replayed)`);
-      // Prompts acpmux may have dropped with an old connection; it dedupes the rest by promptId.
-      for (const promptId of Object.keys(this.state.data.prompts)) await this.sendPrompt(promptId, { awaitAccepted: false });
-      await this.effects.run(() => this.reconcileChildren());
-      if (this.daemon) await this.inbox.run(() => this.catchUp());
-    } catch (error) {
+      for (const n of queued) this.onAcpmuxNotification(n, acpmux);
+      await Promise.race([closed, this.stoppedSignal]);
+    } finally {
+      this.clock.clearTimeout(deadline);
       acpmux.close();
-      throw error;
+      if (this.acpmux === acpmux) {
+        this.acpmux = undefined;
+        this.feed({ kind: "disconnected", port: "acpmux" });
+      }
     }
-    await Promise.race([closed, this.stoppedSignal]);
-    if (this.acpmux === acpmux) this.acpmux = undefined;
-    for (const promptId of [...this.acceptWaiters.keys()]) this.accept(promptId);
-    if (this.typingIn) void this.setTyping(this.typingIn, false);
   }
 
-  private async attach(acpmux: AcpmuxClient, sessionId: string): Promise<AcpmuxEvent[]> {
+  private async attach(
+    acpmux: AcpmuxClient,
+    sessionId: string,
+    after: number,
+  ): Promise<{ events: AcpmuxEvent[]; cursorReset: boolean }> {
     try {
-      return (await acpmux.attach(sessionId, this.state.data.acpmuxSeq)).events;
+      return { events: (await acpmux.attach(sessionId, after)).events, cursorReset: false };
     } catch (error) {
-      // The log is shorter than the saved cursor (a re-imported session): replay it all; the owner dedupes replies.
-      if (!String(error).includes("cursor_future")) throw error;
-      this.state.data.acpmuxSeq = 0;
-      return (await acpmux.attach(sessionId, 0)).events;
+      // The log is shorter than the saved cursor (a re-imported session): replay it all. The core
+      // treats this as a reset: the replay posts no promptless turn and reply keys get a new epoch.
+      if (after === 0 || !String(error).includes("cursor_future")) throw error;
+      return { events: (await acpmux.attach(sessionId, 0)).events, cursorReset: true };
     }
   }
 
   /** The `mux` acpmux session, created with the mux's cwd, harness and policy when missing. */
-  private async ensureMuxSession(acpmux: AcpmuxClient): Promise<string> {
+  /** The `mux` session id, and whether this call created it (a new log). */
+  private async ensureMuxSession(acpmux: AcpmuxClient): Promise<{ sessionId: string; created: boolean }> {
     const existing = (await acpmux.sessions()).find((s) => s.name === MUX_SESSION_NAME);
-    if (existing) return existing.sessionId;
+    if (existing) return { sessionId: existing.sessionId, created: false };
     const { sessionId } = await acpmux.newSession({
       cwd: this.options.paths.session,
       name: MUX_SESSION_NAME,
@@ -458,238 +662,28 @@ export class MuxHost {
       mcpServers: this.options.mcpServers,
     });
     this.log(`created acpmux session ${MUX_SESSION_NAME} (${this.options.harness})`);
-    return sessionId;
+    return { sessionId, created: true };
   }
 
-  private onAcpmuxNotification(n: Notification): void {
-    if (n.params.sessionId === this.muxSessionId) {
-      if (n.method === "_acpmux/event") this.applyMuxEvent(n.params as unknown as AcpmuxEvent);
-      else if (n.method === "session/update") this.applyMuxEvent(eventFromUpdate(n.params));
-    }
-    if (n.method === "_acpmux/session_changed") {
+  private onAcpmuxNotification(n: Notification, acpmux?: AcpmuxClient): void {
+    if (n.method === "_acpmux/prompt_accepted") {
+      const promptId = n.params.promptId;
+      if (typeof promptId === "string" && acpmux) this.acknowledged(promptId, acpmux);
+    } else if (n.method === "_acpmux/event") {
+      this.feed({ kind: "acpmux_event", event: n.params as unknown as AcpmuxEvent });
+    } else if (n.method === "session/update") {
+      this.feed({ kind: "acpmux_event", event: eventFromUpdate(n.params) });
+    } else if (n.method === "_acpmux/session_changed") {
       const session = n.params.session as SessionSummary | undefined;
-      if (session) void this.effects.run(() => this.onSessionChanged(session));
+      if (session) this.feed({ kind: "session_changed", session });
     } else if (n.method === "_acpmux/permission_pending") {
       const params = n.params as { sessionId: string; permissionId: string; request?: Record<string, unknown> };
-      void this.effects.run(() => this.onPermission(params.sessionId, params.permissionId, params.request ?? {}));
-    }
-  }
-
-  /** Folds one mux event; accepts resolve now, turn effects run in order on the effects queue. */
-  private applyMuxEvent(event: AcpmuxEvent): void {
-    for (const output of this.folder.apply(event)) {
-      if (output.type === "accepted") this.accept(output.promptId);
-      else void this.effects.run(() => this.onTurn(output));
-    }
-  }
-
-  private conversationFor(promptId: string | undefined): string | undefined {
-    return (promptId && this.state.data.prompts[promptId]?.conversation) || this.state.data.defaultConversation;
-  }
-
-  private async onTurn(output: Exclude<TurnOutput, { type: "accepted" }>): Promise<void> {
-    const conversation = this.conversationFor(output.turn.promptId);
-    if (output.type === "started") {
-      if (conversation) await this.setTyping(conversation, true);
-      return;
-    }
-    const text = output.turn.text.trim() || (output.error ? `(turn failed: ${output.error})` : "");
-    if (conversation && text) {
-      const key = turnKey(this.muxSessionId ?? "", output.turn);
-      const parts: Part[] = [{ type: "text", text }];
-      this.state.data.outbox.push({
-        conversation,
-        idempotency_key: key,
-        op: { kind: "message.send", client_msg_id: key, parts },
+      this.feed({
+        kind: "permission_pending",
+        session_id: params.sessionId,
+        permission_id: params.permissionId,
+        request: params.request ?? {},
       });
     }
-    if (output.turn.promptId) this.state.markAnswered(output.turn.promptId);
-    this.state.data.acpmuxSeq = Math.max(this.state.data.acpmuxSeq, output.seq);
-    this.state.save();
-    await this.flushOutbox();
-    if (conversation) await this.setTyping(conversation, false);
   }
-
-  private async setTyping(conversation: string, on: boolean): Promise<void> {
-    this.typingIn = on ? conversation : undefined;
-    try {
-      await this.daemon?.typing(conversation, AGENT_MUX, on);
-    } catch (error) {
-      this.log(`typing ${on ? "on" : "off"} failed: ${String(error)}`);
-    }
-  }
-
-  // MARK: outbox
-
-  /** Sends queued conversation ops in order; stops at a connection failure, drops owner rejects. */
-  private async flushOutbox(): Promise<void> {
-    const daemon = this.daemon;
-    if (!daemon) return;
-    const outbox = this.state.data.outbox;
-    while (outbox.length > 0) {
-      const entry = outbox[0];
-      if (entry.notBefore && Date.now() < entry.notBefore) return; // its one-shot timer flushes it
-      const op = this.resolveOp(entry);
-      if (op) {
-        try {
-          const result = await daemon.op({
-            conversation: entry.conversation,
-            idempotency_key: entry.idempotency_key,
-            actor: AGENT_MUX,
-            op,
-          });
-          if (entry.child && op.kind === "message.send" && result.change?.kind === "message") {
-            const child = this.state.data.children[entry.child];
-            if (child) child.messageId = result.change.message.id;
-          }
-        } catch (error) {
-          if (!(error instanceof DaemonError)) return; // Connection lost: retried on the next connect.
-          // The owner's agent turn budget: a reply sent inside the minimum gap is
-          // retried once, after the gap, by a one-shot timer; anything else
-          // (including agent_budget) is dropped, so a reject never loops.
-          // The binding was lost (the app replaced the token): reconnect, which
-          // binds again with the current token, and keep the entry.
-          if (error.message.includes("actor_mismatch")) {
-            this.log(`op ${entry.idempotency_key}: binding lost; reconnecting to bind again`);
-            daemon.close();
-            return;
-          }
-          if (error.message.includes("agent_rate") && !entry.rateRetried) {
-            entry.rateRetried = true;
-            entry.notBefore = Date.now() + AGENT_GAP_RETRY_MS;
-            this.state.save();
-            this.log(`op ${entry.idempotency_key} inside the agent gap; retrying once after it`);
-            const timer = setTimeout(() => void this.effects.run(() => this.flushOutbox()), AGENT_GAP_RETRY_MS + 50);
-            timer.unref?.();
-            return;
-          }
-          this.log(`dropping rejected op ${entry.idempotency_key}: ${error.message}`);
-        }
-      }
-      outbox.shift();
-      this.state.save();
-    }
-  }
-
-  private resolveOp(entry: OutboxEntry): Op | undefined {
-    if (!entry.child || entry.op.kind !== "message.edit") return entry.op;
-    const messageId = this.state.data.children[entry.child]?.messageId;
-    return messageId ? { ...entry.op, message_id: messageId } : undefined;
-  }
-
-  // MARK: children (sessions tagged mux.parent=mux)
-
-  private isChild(session: SessionSummary): boolean {
-    return session.tags?.[PARENT_TAG] === MUX_SESSION_NAME && session.sessionId !== this.muxSessionId;
-  }
-
-  private async onSessionChanged(session: SessionSummary): Promise<void> {
-    const before = this.sessionStatus.get(session.sessionId);
-    this.sessionStatus.set(session.sessionId, session.status);
-    this.sessionInfo.set(session.sessionId, session);
-    if (!this.isChild(session)) return;
-    const child = this.state.data.children[session.sessionId] ?? this.registerChild(session);
-    if (turnEnded(before, session.status)) await this.childFinished(session, child);
-    else if (session.status === "running" && child.status !== "running") this.editWork(session, child, "running");
-    else if ((session.status === "closed" || session.status === "disconnected") && child.status === "running")
-      this.editWork(session, child, "failed");
-    await this.flushOutbox();
-  }
-
-  /** A new child: a work-part message in the conversation the mux is answering. */
-  private registerChild(session: SessionSummary): ChildRecord {
-    const conversation = this.conversationFor(this.folder.running?.promptId) ?? "";
-    const child: ChildRecord = { conversation, name: session.name, status: "running", edits: 0 };
-    this.state.data.children[session.sessionId] = child;
-    if (conversation) {
-      const key = `work:${session.sessionId}`;
-      this.state.data.outbox.push({
-        conversation,
-        idempotency_key: key,
-        child: session.sessionId,
-        op: { kind: "message.send", client_msg_id: key, parts: [workPart(session, "running", session.lastPrompt)] },
-      });
-    }
-    this.state.save();
-    this.log(`child ${session.name} started (${session.sessionId})`);
-    return child;
-  }
-
-  private editWork(session: SessionSummary, child: ChildRecord, status: ChildRecord["status"], preview?: string): void {
-    child.status = status;
-    child.edits += 1;
-    if (child.conversation)
-      this.state.data.outbox.push({
-        conversation: child.conversation,
-        idempotency_key: `work:${session.sessionId}:${child.edits}`,
-        child: session.sessionId,
-        op: { kind: "message.edit", message_id: "", parts: [workPart(session, status, preview ?? session.preview)] },
-      });
-    this.state.save();
-  }
-
-  private async childFinished(session: SessionSummary, child: ChildRecord): Promise<void> {
-    const acpmux = this.acpmux;
-    let reply = "";
-    if (acpmux) {
-      const after = this.childTurnFloor.get(session.sessionId) ?? 0;
-      reply = lastReply(await acpmux.events(session.sessionId, after).catch(() => [] as AcpmuxEvent[]));
-    }
-    this.childTurnFloor.set(session.sessionId, session.lastSeq ?? 0);
-    this.editWork(session, child, workStatus(session.status), excerpt(reply, 200) || undefined);
-    const promptId = `child:${session.sessionId}:${session.turnCount ?? session.stateSeq}`;
-    this.state.data.prompts[promptId] = {
-      conversation: child.conversation || (this.state.data.defaultConversation ?? ""),
-      text: childFinishedPrompt(session, reply),
-    };
-    this.state.save();
-    this.log(`child ${session.name} finished; telling the mux`);
-    await this.sendPrompt(promptId, { awaitAccepted: false });
-  }
-
-  private async onPermission(sessionId: string, permissionId: string, request: Record<string, unknown>): Promise<void> {
-    let session = this.sessionInfo.get(sessionId);
-    if (!session?.tags?.[PARENT_TAG] && this.acpmux)
-      session = (await this.acpmux.sessions()).find((s) => s.sessionId === sessionId);
-    if (!session || !this.isChild(session)) return;
-    const child = this.state.data.children[sessionId] ?? this.registerChild(session);
-    this.editWork(session, child, "waiting");
-    const promptId = `perm:${sessionId}:${permissionId}`;
-    this.state.data.prompts[promptId] = {
-      conversation: child.conversation || (this.state.data.defaultConversation ?? ""),
-      text: childPermissionPrompt(session, request),
-    };
-    this.state.save();
-    await this.flushOutbox();
-    await this.sendPrompt(promptId, { awaitAccepted: false });
-  }
-
-  /** After a reconnect: children whose turn ended while the host was away. */
-  private async reconcileChildren(): Promise<void> {
-    for (const [sessionId, child] of Object.entries(this.state.data.children)) {
-      const session = this.sessionInfo.get(sessionId);
-      if (!session) {
-        if (child.status === "running" || child.status === "waiting")
-          this.editWork({ sessionId, name: child.name } as SessionSummary, child, "failed");
-        continue;
-      }
-      if (child.status === "running" && (session.status === "ready" || session.status === "idle"))
-        await this.childFinished(session, child);
-    }
-    await this.flushOutbox();
-  }
-}
-
-/** The owner-side idempotency key (and client_msg_id) of a mux turn's reply. */
-export function turnKey(sessionId: string, turn: Turn): string {
-  return `turn:${sessionId}:${turn.turnSeq}`;
-}
-
-function workPart(session: SessionSummary, status: ChildRecord["status"], preview?: string | null): Part {
-  return {
-    type: "work",
-    session: session.name,
-    status,
-    ...(preview ? { preview: excerpt(preview, 200) } : {}),
-  };
 }

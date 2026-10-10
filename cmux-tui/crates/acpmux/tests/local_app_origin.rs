@@ -19,6 +19,8 @@ const PANE: &str = "cmux-agent://pane";
 struct Daemon {
     child: Option<Child>,
     home: PathBuf,
+    /// Added to the daemon's environment at every launch.
+    env: Vec<(&'static str, &'static str)>,
     /// `ws://127.0.0.1:<port>/` and the listener token, from the ready line.
     ws: String,
     listener_token: String,
@@ -26,6 +28,10 @@ struct Daemon {
 
 impl Daemon {
     fn start(tag: &str) -> Self {
+        Self::start_with(tag, &[])
+    }
+
+    fn start_with(tag: &str, env: &[(&'static str, &'static str)]) -> Self {
         let home = std::env::temp_dir().join(format!("ala-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
         std::fs::create_dir_all(&home).unwrap();
@@ -36,7 +42,13 @@ impl Daemon {
             .to_string(),
         )
         .unwrap();
-        let mut d = Self { child: None, home, ws: String::new(), listener_token: String::new() };
+        let mut d = Self {
+            child: None,
+            home,
+            env: env.to_vec(),
+            ws: String::new(),
+            listener_token: String::new(),
+        };
         d.launch();
         d
     }
@@ -49,6 +61,7 @@ impl Daemon {
             .env_remove("ACPMUX_AGENT_HOSTS")
             .env_remove("ACPMUX_LOGIN_ENV")
             .env_remove("XPC_SERVICE_NAME")
+            .envs(self.env.iter().copied())
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -163,15 +176,17 @@ async fn the_app_pane_is_local_and_the_pool_serves_it() {
     let token = d.local_token();
     let (mut ws, init) = hello(&d, Some(PANE), Some(&token)).await;
     assert_eq!(origin_of(&init), "local", "{init}");
+    let trust = call(&mut ws, 2, "acp.trust.set", json!({"cwd": d.home, "level": "trusted"})).await;
+    assert!(trust.get("error").is_none(), "{trust}");
     let warmed = call(
         &mut ws,
-        2,
+        3,
         "_acpmux/prewarm",
         json!({"harness": "fake", "cwd": d.home, "wait": true}),
     )
     .await;
     assert_eq!(warmed["result"]["accepted"], true, "{warmed}");
-    let status = call(&mut ws, 3, "_acpmux/status", json!({})).await;
+    let status = call(&mut ws, 4, "_acpmux/status", json!({})).await;
     let text = status.to_string();
     assert!(!text.contains(&token), "the LocalApp token came back");
     assert!(!text.contains(&d.listener_token), "the listener token came back");
@@ -216,6 +231,27 @@ async fn the_token_is_new_at_every_launch_private_and_never_in_a_reply() {
     assert_eq!(origin_of(&init), "remote", "the previous launch's token opens nothing");
     let (_, init) = hello(&d, Some(PANE), Some(&second)).await;
     assert_eq!(origin_of(&init), "local");
+}
+
+/// A stop right after the ready line is a clean stop: SIGTERM ends the
+/// daemon through its shutdown path (exit 0, run/localapp.token removed).
+/// The daemon installed its SIGTERM handler only after the ready line, so a
+/// SIGTERM in between ended it by the default action and left the token
+/// file, the pid file and the socket: the test above failed that way in 16
+/// of 96 parallel runs on the rbx builder. The debug-only seam holds the
+/// daemon right after the ready line.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_sigterm_right_after_the_ready_line_is_a_clean_stop() {
+    let mut d = Daemon::start_with("ready-term", &[("ACPMUX_TEST_HOLD_AFTER_READY_MS", "2000")]);
+    let token = d.home.join("run/localapp.token");
+    assert!(token.exists(), "the token is written before the ready line");
+    let mut child = d.child.take().unwrap();
+    // SAFETY: this test's own child.
+    unsafe { libc::kill(child.id() as i32, libc::SIGTERM) };
+    let status = child.wait().unwrap();
+    assert_eq!(status.code(), Some(0), "the daemon ended by the signal: {status:?}");
+    assert!(!token.exists(), "removed when the daemon stops");
+    assert!(!d.home.join("daemon.pid").exists(), "the pid file is removed too");
 }
 
 fn unix_status(home: &Path) -> String {

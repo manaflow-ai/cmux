@@ -1,13 +1,15 @@
+mod plugin_generation;
 use super::*;
 use base64::Engine;
 use flate2::bufread::GzDecoder;
 use rusqlite::Row;
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::io::{BufRead, BufReader, Read, Result as IoResult};
+use std::io::{BufRead, BufReader, Read};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+pub(crate) mod salvage;
 const JOURNAL_RECORD_SCHEMA_VERSION: u32 = 1;
 const MAX_JOURNAL_PAGE_SIZE: usize = 1024;
 pub(crate) const MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES: usize = 16 * 1024 * 1024;
@@ -75,14 +77,12 @@ impl JournalSensitivity {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct JournalProducer {
     pub kind: String,
     pub id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct JournalAuthority {
     pub principal_id: String,
     pub lease_id: String,
@@ -97,8 +97,11 @@ pub struct JournalSubject {
     pub id: String,
 }
 
+/// Decoding tolerates unknown fields: a sealed segment written by a newer
+/// daemon must stay readable (P8 landing 2c); so do `JournalProducer` and
+/// `JournalAuthority` (stored only). Limits: `JournalSubject` stays strict (it
+/// is also `JournalIngress` wire input) and a new enum variant still breaks.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct SessionJournalRecord {
     pub sequence: u64,
     pub event_id: String,
@@ -417,6 +420,8 @@ pub(crate) struct JournalAppend<'a> {
     pub(crate) content: Option<&'a [u8]>,
     pub(crate) resource_revision: Option<u64>,
     pub(crate) previous_resource_revision: Option<u64>,
+    /// [`crate::Actor::wire`] of the caller; stored beside the record JSON.
+    pub(crate) actor: Option<&'a str>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -466,6 +471,7 @@ pub(crate) fn create_session_journal_schema(transaction: &Transaction<'_>) -> an
            content BLOB,
            resource_revision INTEGER UNIQUE,
            previous_resource_revision INTEGER,
+           actor TEXT,
            CHECK(
              (resource_revision IS NULL AND previous_resource_revision IS NULL)
              OR (
@@ -545,14 +551,13 @@ pub(crate) fn create_session_journal_schema(transaction: &Transaction<'_>) -> an
 }
 
 fn ensure_session_journal_content_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
-    let columns = {
-        let mut statement = transaction.prepare("PRAGMA table_info(session_journal)")?;
-        statement
-            .query_map([], |row| row.get::<_, String>(1))?
-            .collect::<Result<HashSet<_>, _>>()?
-    };
+    let columns = journal_extensions::table_columns(transaction, "session_journal")?;
     if !columns.contains("content") {
         transaction.execute("ALTER TABLE session_journal ADD COLUMN content BLOB", [])?;
+    }
+    // Appends write it before the ledger pass; ADD COLUMN keeps rows and sequences (cx-0b8z).
+    if !columns.contains("actor") {
+        transaction.execute("ALTER TABLE session_journal ADD COLUMN actor TEXT", [])?;
     }
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS journal_terminal_streams (
@@ -752,6 +757,7 @@ pub(crate) fn migrate_resource_events_to_session_journal(
                 content: None,
                 resource_revision: None,
                 previous_resource_revision: None,
+                actor: None,
             },
         )?;
     }
@@ -921,6 +927,7 @@ pub(crate) fn append_resource_effect_journal_record(
             content: None,
             resource_revision: None,
             previous_resource_revision: None,
+            actor: ledger_actor(transaction, idempotency_key)?.as_deref(),
         },
     )?;
     Ok(())
@@ -972,6 +979,7 @@ fn append_resource_journal_record_at(
         "changes": changes,
     });
     let event_id = format!("event_resource_{revision:020}");
+    let actor = resource_record_actor(transaction, origin, idempotency_key, with_current_state)?;
     append_journal_record(
         transaction,
         &JournalAppend {
@@ -992,6 +1000,7 @@ fn append_resource_journal_record_at(
             content: None,
             resource_revision: Some(revision),
             previous_resource_revision: Some(previous_revision),
+            actor: actor.as_deref(),
         },
     )?;
     Ok(())
@@ -1023,8 +1032,9 @@ pub(crate) fn append_journal_record(
            event_id, schema_version, kind, class, replay_policy,
            occurred_at_ms, committed_at_ms, producer_json, authority_json,
            causation_id, correlation_id, causation_depth, subjects_json,
-           sensitivity, payload_json, content, resource_revision, previous_resource_revision
-         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+           sensitivity, payload_json, content, resource_revision, previous_resource_revision, actor
+         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
+                  ?19)",
         params![
             append.event_id,
             i64::from(append.schema_version),
@@ -1058,6 +1068,7 @@ pub(crate) fn append_journal_record(
                 .map(i64::try_from)
                 .transpose()
                 .context("previous resource revision exceeds SQLite range")?,
+            append.actor,
         ],
     )?;
     let sequence = transaction.last_insert_rowid();
@@ -1105,44 +1116,12 @@ pub(crate) fn append_journal_record(
 }
 
 impl WorkspaceRegistry {
-    /// Reserve a process generation for the userland journal-plugin
-    /// supervisor. The value lives in the session registry so a daemon restart
-    /// can never reuse a generation that a persisted roster fence retired.
-    pub(crate) fn reserve_journal_plugin_generation(&self) -> anyhow::Result<u64> {
-        let transaction =
-            Transaction::new_unchecked(&self.connection, rusqlite::TransactionBehavior::Immediate)?;
-        let current = transaction
-            .query_row(
-                "SELECT value FROM meta WHERE key = ?1",
-                [JOURNAL_PLUGIN_GENERATION_META_KEY],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()?
-            .map(|value| {
-                value.parse::<u64>().with_context(|| {
-                    format!("journal plugin generation {JOURNAL_PLUGIN_GENERATION_META_KEY} is not an unsigned integer")
-                })
-            })
-            .transpose()?
-            .unwrap_or(0);
-        let next = current
-            .checked_add(1)
-            .ok_or_else(|| anyhow::anyhow!("journal plugin generation exhausted"))?;
-        transaction.execute(
-            "INSERT INTO meta(key, value) VALUES(?1, ?2)
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            rusqlite::params![JOURNAL_PLUGIN_GENERATION_META_KEY, next.to_string()],
-        )?;
-        transaction.commit()?;
-        Ok(next)
-    }
-
     pub fn session_journal_after(
         &self,
         sequence: u64,
         limit: usize,
     ) -> anyhow::Result<SessionJournalPage> {
-        query_session_journal_after(&self.connection, sequence, limit)
+        query_session_journal_after(&self.connection.get(), sequence, limit)
     }
 
     /// Return the highest sequence in the active or archived journal without
@@ -1150,7 +1129,7 @@ impl WorkspaceRegistry {
     /// snapshot cursor while remaining valid when the journal has compacted
     /// its earliest records.
     pub fn session_journal_head(&self) -> anyhow::Result<u64> {
-        query_journal_head(&self.connection)
+        query_journal_head(&self.connection.get())
     }
 
     /// Persisted fold position of one journal reducer: (version, cursor,
@@ -1162,6 +1141,7 @@ impl WorkspaceRegistry {
     ) -> anyhow::Result<Option<(u32, u64, String)>> {
         let raw = self
             .connection
+            .get()
             .query_row(
                 "SELECT value FROM meta WHERE key = ?1",
                 [format!("journal_reducer.{reducer_id}")],
@@ -1196,7 +1176,7 @@ impl WorkspaceRegistry {
             "cursor": cursor.to_string(),
             "snapshot": snapshot,
         });
-        self.connection.execute(
+        self.connection.get().execute(
             "INSERT INTO meta(key, value) VALUES(?1, ?2)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             params![format!("journal_reducer.{reducer_id}"), value.to_string()],
@@ -1212,6 +1192,7 @@ impl WorkspaceRegistry {
     ) -> anyhow::Result<Option<(String, u64)>> {
         let Some((generation, next_offset)) = self
             .connection
+            .get()
             .query_row(
                 "SELECT generation, next_offset FROM journal_terminal_streams
                  WHERE terminal_id = ?1
@@ -1245,7 +1226,8 @@ impl WorkspaceRegistry {
         after: u64,
         max_bytes: u64,
     ) -> anyhow::Result<TerminalOutputRecordsWindow> {
-        let mut statement = self.connection.prepare(
+        let db = self.connection.get();
+        let mut statement = db.prepare(
             "SELECT sequence, event_id, schema_version, kind, class, replay_policy,
                     occurred_at_ms, committed_at_ms, producer_json, authority_json,
                     causation_id, correlation_id, causation_depth, subjects_json,
@@ -1608,28 +1590,6 @@ fn decode_journal_segment(row: JournalSegmentRow) -> anyhow::Result<DecodedJourn
         );
     }
     Ok(DecodedJournalSegment { start_sequence, end_sequence, records })
-}
-
-struct DigestReader<R> {
-    inner: R,
-    hasher: Sha256,
-    bytes_read: usize,
-}
-impl<R: Read> DigestReader<R> {
-    fn new(inner: R) -> Self {
-        Self { inner, hasher: Sha256::new(), bytes_read: 0 }
-    }
-    fn finish(self) -> (R, usize, sha2::digest::Output<Sha256>) {
-        (self.inner, self.bytes_read, self.hasher.finalize())
-    }
-}
-impl<R: Read> Read for DigestReader<R> {
-    fn read(&mut self, buf: &mut [u8]) -> IoResult<usize> {
-        let n = self.inner.read(buf)?;
-        self.bytes_read = self.bytes_read.saturating_add(n);
-        self.hasher.update(&buf[..n]);
-        Ok(n)
-    }
 }
 
 fn archived_records_after(
@@ -2188,3 +2148,13 @@ pub(crate) fn unix_epoch_ms() -> anyhow::Result<u64> {
 
 #[cfg(test)]
 mod tests;
+
+mod actors;
+mod digest_reader;
+use digest_reader::DigestReader;
+#[cfg(test)]
+mod actor_tests;
+
+#[cfg(test)]
+pub(crate) use actors::journal_actor;
+pub(crate) use actors::{ledger_actor, resource_record_actor, segment_actors_json};

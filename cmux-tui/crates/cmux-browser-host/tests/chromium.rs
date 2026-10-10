@@ -121,6 +121,12 @@ fn serve() -> u16 {
                          <input type=password aria-label=\"Closed password\" value=\"hunter2-closed\">\
                          <button onclick=\"document.getElementById(&quot;out&quot;).textContent = &quot;clicked&quot;\">Closed button</button>';</script>"
                     ),
+                    "/closed-kinds" => "<!doctype html><title>Closed kinds</title><p>Open text</p>\
+                         <div><template shadowrootmode=\"closed\"><button>Declarative closed button</button></template></div>\
+                         <div id=t></div><div id=e></div><script>document.getElementById('t').attachShadow({mode: 'closed'})\
+                         .textContent = 'Only closed text'; document.getElementById('e').attachShadow({mode: 'closed'})\
+                         .innerHTML = '<a href=\"#x\">Scripted closed link</a>';</script>"
+                        .to_owned(),
                     "/cross-closed" => "<!doctype html><div id=h></div><script>document.getElementById('h')\
                          .attachShadow({mode: 'closed'}).innerHTML = '<button>Cross closed button</button>';</script>"
                         .to_owned(),
@@ -402,6 +408,10 @@ fn browser_host_drives_headless_chromium_over_the_pipe() {
           snapshot: () => [...document.querySelectorAll("input")]
             .map((i) => `${i.id}=${i.value}|${i.getAttribute("value") || ""}`).join(" "),
           fill: (id, v) => { el(id).value = v; },
+          // observe runs each read inside the agent's reply, and its field
+          // scan within the agent's page-read budget.
+          reply: (v) => v,
+          budget: () => ({ spend: () => true, charge: () => true, report: () => ({}) }),
         };
       }"#}),
     );
@@ -595,6 +605,66 @@ fn eval_without_a_session_is_one_shot() {
     assert_eq!(eval(&["--session", "kept"], "console.log(carried);").trim(), "2");
     let mut close = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"));
     let _ = close.args(["close", "--session", "kept", "--socket"]).arg(&socket).output();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Back-to-back one-shot calls (the agent default) share the profile's
+/// browser: the browser stays a while after a call ends, so the next call
+/// does not launch Chromium again (browser perf report R1: a relaunch cost
+/// 0.45-0.6 s per call on macOS).
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn one_shot_calls_reuse_the_profile_browser() {
+    let binary = std::env::var("CMUX_BROWSER_HOST_TEST_CHROME")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let dir = std::env::temp_dir().join(format!("cmux-host-linger-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("host.sock");
+    // The test's own host: stopped (exact PID) when the test ends, also on failure.
+    let _host = HostGuard::start(&socket, &binary);
+    let eval = |code: &str| -> (String, Duration) {
+        let started = Instant::now();
+        let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"))
+            .args(["eval", "--engine", "headless", "--socket"])
+            .arg(&socket)
+            .arg("-")
+            .current_dir(&dir)
+            .env("CMUX_BROWSER_HOST_CHROMIUM", &binary)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("run cmux-browser-host eval");
+        child.stdin.take().unwrap().write_all(code.as_bytes()).unwrap();
+        let out = child.wait_with_output().unwrap();
+        let text = format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        (text, started.elapsed())
+    };
+    // A call that opens no tab: the browser is unused when it ends. The
+    // first call launches Chromium; the next ones must find it running.
+    let times: Vec<Duration> = (0..5)
+        .map(|_| {
+            let (out, took) = eval("console.log(1 + 1);");
+            assert_eq!(out.trim(), "2");
+            took
+        })
+        .collect();
+    eprintln!("one-shot call times: {times:?}");
+    let mut later = times[1..].to_vec();
+    later.sort();
+    let median = later[later.len() / 2];
+    assert!(
+        median * 2 < times[0],
+        "one-shot calls after the first should reuse the running browser: first {:?}, later {:?}",
+        times[0],
+        &times[1..]
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -914,6 +984,71 @@ console.log("stats:" + !!(cr && cr.walks >= 1 && cr.roots >= 1 && cr.walkMs >= 0
     }
 }
 
+/// The closed-root walk (`DOM.getDocument {pierce}`, about 700 ms on a
+/// 100k-node page) runs only when a closed shadow root holds nodes: a
+/// node count check skips it on a plain page, and closed roots of every
+/// kind (scripted, declarative, text only) are still read.
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn the_closed_root_walk_runs_only_when_a_closed_root_holds_nodes() {
+    let binary = std::env::var("CMUX_BROWSER_HOST_TEST_CHROME")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let dir = std::env::temp_dir().join(format!("cmux-host-closed-check-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("host.sock");
+    // The test's own host: stopped (exact PID) when the test ends, also on failure.
+    let _host = HostGuard::start(&socket, &binary);
+    let code = format!(
+        r##"const stats = async () => (await page._session.call("tab.info", {{ targetId: page._targetId }})).closedRoots;
+await page.goto("http://127.0.0.1:{port}/scripted");
+await snapshot();
+let cr = await stats();
+console.log("plain:" + JSON.stringify(cr));
+console.log("skipped:" + (cr.walks === 0 && cr.skips >= 1));
+await page.goto("http://127.0.0.1:{port}/closed-kinds");
+const s = await snapshot();
+cr = await stats();
+console.log("kinds:" + JSON.stringify(cr));
+console.log("open:" + s.tree.includes("Open text"));
+console.log("declarative:" + s.tree.includes('button "Declarative closed button"'));
+console.log("text:" + s.tree.includes("Only closed text"));
+console.log("scripted:" + s.tree.includes('link "Scripted closed link"'));
+console.log("walked:" + (cr.walks >= 1 && cr.roots >= 3));
+"##
+    );
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"))
+        .args(["eval", "--engine", "headless", "--socket"])
+        .arg(&socket)
+        .arg("-")
+        .current_dir(&dir)
+        .env("CMUX_BROWSER_HOST_CHROMIUM", &binary)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("run cmux-browser-host eval");
+    child.stdin.take().unwrap().write_all(code.as_bytes()).unwrap();
+    let out = child.wait_with_output().unwrap();
+    let out =
+        format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    let mut stop = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"));
+    let _ = stop.args(["close", "--socket"]).arg(&socket).output();
+    let _ = std::fs::remove_dir_all(&dir);
+    for line in [
+        "skipped:true",
+        "open:true",
+        "declarative:true",
+        "text:true",
+        "scripted:true",
+        "walked:true",
+    ] {
+        assert!(out.lines().any(|l| l.trim() == line), "{line} missing in: {out}");
+    }
+}
+
 /// One headless browser per (host, profile) (item 4b): a tab a one-shot run
 /// kept outlives the run, the next session lists and attaches it, and a tab
 /// it did not keep is gone (parity 20).
@@ -1141,3 +1276,23 @@ mod clipboard;
 // HTML5 drag and drop (input.drag, parity 05).
 #[path = "chromium/drag.rs"]
 mod drag;
+
+// Incognito tabs (private data P1).
+#[path = "chromium/incognito.rs"]
+mod incognito;
+
+// frame.observe's field scan within the page-read budget.
+#[path = "chromium/observe.rs"]
+mod observe;
+
+// FETCH-PRIVATE-RANGES under a proxy store (browser-egress.md 7.3).
+#[path = "chromium/proxy_ranges.rs"]
+mod proxy_ranges;
+
+// Undoable cookie clears through the whole host (private data P2).
+#[path = "chromium/cookie_backups.rs"]
+mod cookie_backups;
+
+// EGRESS-ISOLATED on a real Chromium (cx-d0d.7).
+#[path = "chromium/egress_isolated.rs"]
+mod egress_isolated;

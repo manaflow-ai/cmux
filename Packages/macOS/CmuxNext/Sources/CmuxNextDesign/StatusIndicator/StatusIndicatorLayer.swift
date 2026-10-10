@@ -19,12 +19,15 @@ public final class StatusIndicatorLayer {
         public var attention: CGColor
         public var danger: CGColor
         public var success: CGColor
+        /// Agent work (`Tint.accent`); the loading color when nil.
+        public var accent: CGColor?
 
-        public init(loading: CGColor, attention: CGColor, danger: CGColor, success: CGColor) {
+        public init(loading: CGColor, attention: CGColor, danger: CGColor, success: CGColor, accent: CGColor? = nil) {
             self.loading = loading
             self.attention = attention
             self.danger = danger
             self.success = success
+            self.accent = accent
         }
 
         /// The theme's colors (call inside `performWithTheme` / a theme
@@ -34,7 +37,19 @@ public final class StatusIndicatorLayer {
             Colors(loading: color?.nsColor.cgColor ?? Palette.textSecondary.cgColor,
                    attention: Palette.attention.cgColor,
                    danger: Palette.danger.cgColor,
-                   success: Palette.success.cgColor)
+                   success: Palette.success.cgColor,
+                   accent: Palette.textPrimary.cgColor)
+        }
+
+        /// The color a plan's tint draws in.
+        public func color(for tint: StatusIndicatorPlan.Tint) -> CGColor {
+            switch tint {
+            case .loading: loading
+            case .attention: attention
+            case .danger: danger
+            case .success: success
+            case .accent: accent ?? loading
+            }
         }
     }
 
@@ -52,6 +67,12 @@ public final class StatusIndicatorLayer {
     /// Braille spinner frames (masks) for the current size and font.
     private var brailleLayer: CALayer?
     private var brailleFrames: [CGImage] = []
+    /// The working dots: a replicator of one dot (`StatusIndicatorLayer+Dots`).
+    var dotsLayer: CAReplicatorLayer?
+    /// A status icon set's mark: a tinted layer masked by `StatusMarkArt`
+    /// (`StatusIndicatorLayer+Mark`), and what its mask was drawn for.
+    var markLayer: CALayer?
+    var markKey: StatusMarkKey?
 
     public init() {
         layer.actions = Self.noActions
@@ -92,7 +113,7 @@ public final class StatusIndicatorLayer {
 
     /// The animation running now (tests, diagnostics).
     public var runningAnimation: StatusIndicatorPlan.Animation? {
-        for (sublayer, key) in [(glyphLayer as CALayer?, "spin"), (nativeLayer, "step"), (glyphLayer, "pulse"), (brailleLayer?.mask, "frames")] {
+        for (sublayer, key) in [(glyphLayer as CALayer?, "spin"), (nativeLayer, "step"), (glyphLayer, "pulse"), (markLayer, "pulse"), (brailleLayer?.mask, "frames"), (dotsLayer?.sublayers?.first, "wave")] {
             if let sublayer, sublayer.animation(forKey: key) != nil {
                 return StatusIndicatorPlan.Animation(key: key)
             }
@@ -141,11 +162,12 @@ public final class StatusIndicatorLayer {
     private func rebuild() {
         let rect = glyphRect
         let thickness = config.settings.thickness
+        if case .mark = plan.glyph {} else { removeMark() }
         switch plan.glyph {
         case .none:
-            removeGlyph(); removeTrack(); removeNative(); removeBraille()
+            removeGlyph(); removeTrack(); removeNative(); removeBraille(); removeDots()
         case .arc:
-            removeTrack(); removeNative(); removeBraille()
+            removeTrack(); removeNative(); removeBraille(); removeDots()
             let shape = makeGlyph(frame: rect)
             shape.path = CGPath(ellipseIn: shape.bounds.insetBy(dx: thickness / 2, dy: thickness / 2), transform: nil)
             shape.fillColor = nil
@@ -153,19 +175,19 @@ public final class StatusIndicatorLayer {
             shape.strokeStart = 0
             shape.strokeEnd = config.arcLength
         case .ring(let progress):
-            removeNative(); removeBraille()
+            removeNative(); removeBraille(); removeDots()
             let track = makeTrack(frame: rect)
-            track.path = ringPath(in: track.bounds, thickness: thickness)
+            track.path = StatusGlyphGeometry.ringPath(in: track.bounds, thickness: thickness)
             track.lineWidth = thickness
             track.opacity = Float(config.trackOpacity)
             let shape = makeGlyph(frame: rect)
-            shape.path = ringPath(in: shape.bounds, thickness: thickness)
+            shape.path = StatusGlyphGeometry.ringPath(in: shape.bounds, thickness: thickness)
             shape.fillColor = nil
             shape.lineWidth = thickness
             shape.strokeStart = 0
             shape.strokeEnd = progress
         case .native:
-            removeGlyph(); removeTrack(); removeBraille()
+            removeGlyph(); removeTrack(); removeBraille(); removeDots()
             let native = makeNative(frame: rect)
             let scale = contentsScale
             if nativeSide != rect.width * scale {
@@ -173,23 +195,23 @@ public final class StatusIndicatorLayer {
                 native.mask?.contents = NativeSpinnerImage.image(side: rect.width, scale: scale)
             }
         case .dot:
-            removeTrack(); removeNative(); removeBraille()
+            removeTrack(); removeNative(); removeBraille(); removeDots()
             let shape = makeGlyph(frame: rect)
             let side = rect.width * config.dotScale
             shape.path = CGPath(ellipseIn: CGRect(x: (rect.width - side) / 2, y: (rect.height - side) / 2, width: side, height: side), transform: nil)
             shape.lineWidth = 0
             shape.strokeEnd = 1
         case .check:
-            removeTrack(); removeNative(); removeBraille()
+            removeTrack(); removeNative(); removeBraille(); removeDots()
             let shape = makeGlyph(frame: rect)
-            shape.path = checkPath(in: shape.bounds.insetBy(dx: rect.width * 0.16, dy: rect.height * 0.2))
+            shape.path = StatusGlyphGeometry.checkPath(in: StatusGlyphGeometry.checkRect(in: shape.bounds))
             shape.fillColor = nil
             shape.lineWidth = max(thickness, 1.25)
             shape.lineJoin = .round
             shape.strokeStart = 0
             shape.strokeEnd = 1
         case .braille:
-            removeGlyph(); removeTrack(); removeNative()
+            removeGlyph(); removeTrack(); removeNative(); removeDots()
             let braille = makeBraille(frame: rect)
             let frames = BrailleSpinnerImage.images(side: rect.width, scale: contentsScale, family: config.terminalFontFamily)
             if frames != brailleFrames {
@@ -197,25 +219,16 @@ public final class StatusIndicatorLayer {
                 braille.mask?.removeAllAnimations()
                 braille.mask?.contents = frames.first
             }
+        case .dots:
+            removeGlyph(); removeTrack(); removeNative(); removeBraille()
+            buildDots(in: rect)
+        case .bars:
+            removeGlyph(); removeTrack(); removeNative(); removeBraille()
+            buildDots(in: rect, bars: true)
+        case .mark(let mark):
+            removeGlyph(); removeTrack(); removeNative(); removeBraille(); removeDots()
+            buildMark(mark, in: rect)
         }
-    }
-
-    /// A ring that starts at 12 o'clock and runs clockwise, so `strokeEnd`
-    /// reads as progress.
-    private func ringPath(in rect: CGRect, thickness: CGFloat) -> CGPath {
-        let radius = max(0, min(rect.width, rect.height) / 2 - thickness / 2)
-        let path = CGMutablePath()
-        path.addArc(center: CGPoint(x: rect.midX, y: rect.midY), radius: radius,
-                    startAngle: .pi / 2, endAngle: .pi / 2 - 2 * .pi, clockwise: true)
-        return path
-    }
-
-    private func checkPath(in rect: CGRect) -> CGPath {
-        let path = CGMutablePath()
-        path.move(to: CGPoint(x: rect.minX, y: rect.minY + rect.height * 0.5))
-        path.addLine(to: CGPoint(x: rect.minX + rect.width * 0.38, y: rect.minY + rect.height * 0.12))
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
-        return path
     }
 
     // MARK: Sublayers
@@ -312,20 +325,18 @@ public final class StatusIndicatorLayer {
 
     private func removeAllAnimations() {
         glyphLayer?.removeAllAnimations()
+        markLayer?.removeAllAnimations()
         nativeLayer?.removeAllAnimations()
         brailleLayer?.mask?.removeAllAnimations()
+        dotsLayer?.sublayers?.first?.removeAllAnimations()
     }
 
     // MARK: Color and motion
 
     private func applyColors() {
         guard let colors else { return }
-        let color: CGColor = switch plan.tint {
-        case .loading: colors.loading
-        case .attention: colors.attention
-        case .danger: colors.danger
-        case .success: colors.success
-        }
+        let color = colors.color(for: plan.tint)
+        markLayer?.backgroundColor = color
         switch plan.glyph {
         case .dot:
             glyphLayer?.fillColor = color
@@ -337,6 +348,7 @@ public final class StatusIndicatorLayer {
         trackLayer?.strokeColor = color
         nativeLayer?.backgroundColor = color
         brailleLayer?.backgroundColor = color
+        (dotsLayer?.sublayers?.first as? CAShapeLayer)?.fillColor = color
     }
 
     private func updateAnimation() {
@@ -349,6 +361,7 @@ public final class StatusIndicatorLayer {
         case .step: Motion.stepAnimation(steps: config.nativeSteps)
         case .pulse: Motion.pulseAnimation(low: Float(config.pulseLow))
         case .frames: Motion.framesAnimation(brailleFrames)
+        case .wave: waveAnimation()
         }
         if let animation { target.add(animation, forKey: wanted.key) }
     }
@@ -357,29 +370,9 @@ public final class StatusIndicatorLayer {
         switch animation {
         case .step?: nativeLayer
         case .frames?: brailleLayer?.mask
-        case .spin?, .pulse?: glyphLayer
+        case .spin?, .pulse?: markLayer ?? glyphLayer
+        case .wave?: dotsLayer?.sublayers?.first
         case nil: nil
-        }
-    }
-}
-
-extension StatusIndicatorPlan.Animation {
-    var key: String {
-        switch self {
-        case .spin: "spin"
-        case .step: "step"
-        case .pulse: "pulse"
-        case .frames: "frames"
-        }
-    }
-
-    init?(key: String) {
-        switch key {
-        case "spin": self = .spin
-        case "step": self = .step
-        case "pulse": self = .pulse
-        case "frames": self = .frames
-        default: return nil
         }
     }
 }

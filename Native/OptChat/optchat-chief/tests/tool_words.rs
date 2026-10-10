@@ -26,7 +26,9 @@ fn tasks_are_still_tasks() {
     assert_eq!(
         command("spawn", &["Reply PONG."]),
         Ok(Command::Call(Call::Spawn {
-            tasks: vec!["Reply PONG.".into()]
+            tasks: vec!["Reply PONG.".into()],
+            cwd: None,
+            effort: None,
         }))
     );
     assert_eq!(command("spawn", &[]), Ok(Command::Usage(usage("spawn"))));

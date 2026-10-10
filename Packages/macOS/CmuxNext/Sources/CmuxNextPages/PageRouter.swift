@@ -13,8 +13,8 @@ public import Foundation
 /// - events of one subscription are numbered from 1; an unsubscribe or ``close()`` cancels.
 @MainActor
 public final class PageRouter {
-    public let descriptor: PageDescriptor
-    private let routes: [PageRoute]
+    public private(set) var descriptor: PageDescriptor
+    private var routes: [PageRoute]
     /// Runs one envelope in the page (`window.__cmuxPageReceive(<json>)`).
     public var send: ((JSONValue) -> Void)?
     private var subscriptions: [UInt64: PageSubscription] = [:]
@@ -33,6 +33,13 @@ public final class PageRouter {
     public private(set) var connected = true
 
     public init(descriptor: PageDescriptor, routes: [PageRoute]) {
+        self.descriptor = descriptor
+        self.routes = routes.sorted { $0.prefix.count > $1.prefix.count }
+    }
+
+    /// Rebinds a pooled router to a new document and ends every operation owned by the old page.
+    func rebind(descriptor: PageDescriptor, routes: [PageRoute]) {
+        reset()
         self.descriptor = descriptor
         self.routes = routes.sorted { $0.prefix.count > $1.prefix.count }
     }
@@ -139,7 +146,11 @@ public final class PageRouter {
         let (provider, filter) = try admit(stream, params: filter)
         let sub = nextSubscription
         nextSubscription += 1
+        // A provider may send its current state from inside `subscribe` (the icon picker's open
+        // session). Those events wait until the reply that names `sub` reaches the page.
+        let early = PageEarlyEvents()
         let subscription = try await provider.subscribe(stream, filter: filter, context: PageCallContext(page: descriptor.id)) { [weak self] data in
+            if early.hold(data) { return }
             self?.deliver(sub: sub, data)
         }
         guard !closed else {
@@ -147,6 +158,16 @@ public final class PageRouter {
             throw PageError.closed
         }
         subscriptions[sub] = subscription
+        // Nothing held: later events go straight to the page. Otherwise they queue behind the held
+        // ones until the flush, which runs after the reply.
+        guard early.isHolding else {
+            _ = early.release()
+            return sub
+        }
+        // task-owner: one flush after the reply; ends with the router
+        Task { @MainActor [weak self] in
+            for data in early.release() { self?.deliver(sub: sub, data) }
+        }
         return sub
     }
 
@@ -283,5 +304,28 @@ final class PageCallInFlight {
         guard let continuation else { return }
         self.continuation = nil
         continuation.resume(with: result)
+    }
+}
+
+/// Events a provider sends before its subscription is registered and answered: held in order,
+/// then released once, after which events go straight to the page.
+@MainActor
+final class PageEarlyEvents {
+    private var held: [JSONValue]? = []
+
+    /// Whether any event is held (the subscription is not released and something arrived).
+    var isHolding: Bool { !(held?.isEmpty ?? true) }
+
+    /// Holds `data` while the subscription is not released yet; false once it is.
+    func hold(_ data: JSONValue) -> Bool {
+        guard held != nil else { return false }
+        held?.append(data)
+        return true
+    }
+
+    /// The held events, oldest first; later events are not held.
+    func release() -> [JSONValue] {
+        defer { held = nil }
+        return held ?? []
     }
 }

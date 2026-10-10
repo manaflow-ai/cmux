@@ -41,20 +41,22 @@ public struct FrontendBrowserHistory: Codable, Sendable, Equatable {
     /// current entry. Nil when there is nothing to keep or the index is out
     /// of range.
     public func bounded(maxEntries: Int = Self.maxEntries, maxBytes: Int = Self.maxBytes) -> Self? {
-        guard entries.indices.contains(index), maxEntries > 0 else { return nil }
+        guard maxEntries > 0, let current = entries[checked: index] else { return nil }
         var start = index, end = index
-        var bytes = entries[index].byteCount
+        var bytes = current.byteCount
         // Grow one entry at a time toward the nearer side.
         while end - start + 1 < maxEntries {
             let back = start > 0 ? start - 1 : nil
             let forward = end < entries.count - 1 ? end + 1 : nil
             // The nearer entry that fits; on a tie, the back one.
-            let fitting = [back, forward].compactMap(\.self).filter { bytes + entries[$0].byteCount <= maxBytes }
+            let fitting = [back, forward].compactMap(\.self).filter { candidate in
+                entries[checked: candidate].map { bytes + $0.byteCount <= maxBytes } ?? false
+            }
             guard let next = fitting.min(by: { (($0 - index).magnitude, $0) < (($1 - index).magnitude, $1) }) else { break }
-            bytes += entries[next].byteCount
+            bytes += entries[checked: next]?.byteCount ?? 0
             if next < start { start = next } else { end = next }
         }
-        return FrontendBrowserHistory(entries: Array(entries[start...end]), index: index - start)
+        return FrontendBrowserHistory(entries: Array(entries.dropFirst(start).prefix(end - start + 1)), index: index - start)
     }
 }
 
@@ -67,6 +69,7 @@ extension FrontendBrowserHistory.Entry {
 public struct SetFrontendBrowserHistoryRequest: DaemonRequest {
     public typealias Response = EmptyResponse
     public static let command = "set-frontend-browser-history"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.frontendBrowserHistory
     public var surface: SurfaceID
     public var history: FrontendBrowserHistory?
 
@@ -90,6 +93,7 @@ public struct GetFrontendBrowserHistoryRequest: DaemonRequest {
         public var history: FrontendBrowserHistory?
     }
     public static let command = "get-frontend-browser-history"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.frontendBrowserHistory
     public var surface: SurfaceID
 
     public init(surface: SurfaceID) {

@@ -38,7 +38,27 @@ const CONNECTION_REASON: &str =
 /// Read and mutation operations the curated `cmux` CLI does not offer
 /// (`cmux-tui`-only scopes), with the reason. The parity test checks that
 /// `cmux` refuses each one too.
+/// MCP clients act as the local user (an agent in a pane, the Chief's own
+/// turns): conversation reads and writes would let them read the person's
+/// chats and write as the person. Home, `cmux chief` and the person's own
+/// scripts (`cmux-tui conversation`) use the operations instead.
+const CONVERSATION_REASON: &str = "A conversation belongs to the person: MCP clients act as the local user, so conversations stay with Home, cmux chief and cmux-tui conversation.";
+
+/// The Chief's engine and turn are the owner's (the daemon refuses an
+/// agent-bound connection); an MCP client is an agent acting as the user.
+const CHIEF_REASON: &str = "The Chief's engine and turn are the owner's: cmux chief, Home and the owner's scripts control them, never an agent.";
+
 pub(super) const EXCLUDED: &[(&str, &str)] = &[
+    ("conversation.list", CONVERSATION_REASON),
+    ("conversation.get", CONVERSATION_REASON),
+    ("conversation.history", CONVERSATION_REASON),
+    ("conversation.search", CONVERSATION_REASON),
+    ("conversation.send", CONVERSATION_REASON),
+    ("conversation.typing", CONVERSATION_REASON),
+    ("conversation.draft", CONVERSATION_REASON),
+    ("chief.engine.get", CHIEF_REASON),
+    ("chief.engine.set", CHIEF_REASON),
+    ("chief.stop", CHIEF_REASON),
     ("machine.list", MACHINE_REASON),
     ("machine.get", MACHINE_REASON),
     ("session.list", MACHINE_REASON),
@@ -76,10 +96,24 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("window_record.list", WINDOW_RECORD_REASON),
     ("window_record.put", WINDOW_RECORD_REASON),
     ("window_record.delete", WINDOW_RECORD_REASON),
+    ("sidebar_layout.get", SIDEBAR_LAYOUT_REASON),
+    ("sidebar_layout.update", SIDEBAR_LAYOUT_REASON),
+    ("project.list", PROJECT_REASON),
+    ("project.observe", PROJECT_REASON),
+    ("project.add", PROJECT_REASON),
+    ("project.update", PROJECT_REASON),
+    ("project.remove", PROJECT_REASON),
+    ("project.sync", PROJECT_REASON),
+    ("palette_usage.get", PALETTE_USAGE_REASON),
+    ("palette_usage.record", PALETTE_USAGE_REASON),
+    ("palette_usage.import", PALETTE_USAGE_REASON),
+    ("palette_usage.hide", PALETTE_USAGE_REASON),
+    ("palette_usage.forget", PALETTE_USAGE_REASON),
     ("workspace.ensure_home", HOME_REASON),
     ("workspace.agent_folder.set", AGENT_FOLDER_REASON),
 ];
 
+const PROJECT_REASON: &str = "The user's folders (project-list-v1) stay with the app and its importers; an MCP client never reads or edits them.";
 const MACHINE_REASON: &str =
     "Machine and session plumbing in the cmux-tui-only scopes; the curated cmux CLI omits it.";
 const LIFECYCLE_REASON: &str = "Session lifecycle (ends every terminal or reloads the daemon); \
@@ -93,6 +127,10 @@ const PAIRING_REASON: &str =
     "Device pairing approval: a person approves a pairing, never an agent; cmux-tui-only.";
 const WINDOW_RECORD_REASON: &str = "A window record has one writer, the app that hosts the \
      window; the CLI omits it too, and window_list reads the app's windows.";
+const SIDEBAR_LAYOUT_REASON: &str = "The Mac app's sidebar layout: agents edit it through the \
+     app's sidebar actions (action tools), which keep the app's intent log.";
+const PALETTE_USAGE_REASON: &str = "The user's own palette usage history: the app's palette \
+     records and reads it; agents rank rows through palette.query, never read or write usage.";
 const SIDEBAR_REASON: &str = "TUI sidebar plugin views in the cmux-tui-only scope.";
 const HOME_REASON: &str = "The hosting app creates its one home workspace on connect; the CLI \
      never offers it (workspace-kind-v1).";
@@ -403,6 +441,7 @@ impl V2Tool {
                 idempotency_key,
                 stream: false,
                 resolve: Vec::new(),
+                view: Default::default(),
             },
             session,
             page,

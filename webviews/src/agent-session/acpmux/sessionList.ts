@@ -132,6 +132,14 @@ export function sessionTitle(
   return session.title?.trim() || session.lastPrompt?.trim() || t("sidebar.newChat");
 }
 
+/**
+ * A folderless workspace's private chat folder, `~/Library/Application Support/cmux/agent-home/<workspace-id>`
+ * (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE). It is not a project, so it is never shown by its id.
+ */
+export function isAgentHome(cwd: string | undefined): boolean {
+  return /\/Library\/Application Support\/cmux\/agent-home(?:\/|$)/.test(cwd ?? "");
+}
+
 /** A project's name for its header: the folder's last component, `~` for a home folder. */
 export function projectLabel(cwd: string | undefined, t: Translate = translate): string {
   const trimmed = (cwd ?? "").replace(/\/+$/, "");
@@ -149,6 +157,11 @@ export function homePath(path: string): string {
 /** Newest first. */
 function byRecency(sessions: AcpmuxSessionEntry[]): AcpmuxSessionEntry[] {
   return [...sessions].sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0));
+}
+
+/** A stable newest-first view for ungrouped sidebar sections. */
+export function sortByRecency(sessions: AcpmuxSessionEntry[]): AcpmuxSessionEntry[] {
+  return byRecency(sessions);
 }
 
 /** Sessions under one header per folder (a cloud-only folder per machine). Groups follow their most recent session; sessions stay newest first. */

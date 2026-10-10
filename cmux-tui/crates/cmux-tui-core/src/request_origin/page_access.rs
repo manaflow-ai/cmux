@@ -99,7 +99,14 @@ const fn access(operation: Op) -> Access {
         | Op::GitCheckpointList
         | Op::GitCheckpointPin
         | Op::GitCheckpointUnpin
-        | Op::SessionJournalHookPut => Access::Denied(Denied::FileSystem),
+        | Op::SessionJournalHookPut
+        // The user's folders (project-list-v1): read and edited by the app, never a page.
+        | Op::ProjectList
+        | Op::ProjectObserve
+        | Op::ProjectAdd
+        | Op::ProjectUpdate
+        | Op::ProjectRemove
+        | Op::ProjectSync => Access::Denied(Denied::FileSystem),
         Op::PaneCreate | Op::PaneSplit | Op::TabCreateTerminal => Access::DeniedWithCwd,
         Op::MachineList
         | Op::MachineGet
@@ -198,10 +205,18 @@ const fn access(operation: Op) -> Access {
         | Op::StreamCancel
         | Op::OriginConfirmationIssue
         | Op::ClosedList
+        | Op::ClosedDelete
         | Op::ClosedReopen
         | Op::WindowRecordList
         | Op::WindowRecordPut
         | Op::WindowRecordDelete
+        | Op::SidebarLayoutGet
+        | Op::SidebarLayoutUpdate
+        | Op::PaletteUsageGet
+        | Op::PaletteUsageRecord
+        | Op::PaletteUsageImport
+        | Op::PaletteUsageHide
+        | Op::PaletteUsageForget
         | Op::RoomCreate
         | Op::RoomDelete
         | Op::RoomFollow
@@ -251,7 +266,20 @@ const fn access(operation: Op) -> Access {
         | Op::WorkspaceProgressSet
         | Op::WorkspaceStatusClear
         | Op::WorkspaceStatusList
-        | Op::WorkspaceStatusSet => Access::Denied(Denied::NotAllowed),
+        | Op::WorkspaceStatusSet
+        // A page never controls the Chief.
+        | Op::ChiefEngineGet
+        | Op::ChiefEngineSet
+        | Op::ChiefStop
+        // A page never reads or writes the person's conversations.
+        | Op::ConversationList
+        | Op::ConversationGet
+        | Op::ConversationHistory
+        | Op::ConversationSearch
+        | Op::ConversationSend
+        | Op::ConversationTyping
+        | Op::ConversationDraft
+        | Op::ConversationEvents => Access::Denied(Denied::NotAllowed),
     }
 }
 
