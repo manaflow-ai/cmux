@@ -432,3 +432,27 @@ fieldset.acpmux-question{display:flex;flex-direction:column;gap:10px;margin:0;mi
 @media (prefers-reduced-motion:no-preference){.acpmux-question-row{transition:background-color var(--agent-motion-hover,120ms) var(--agent-ease-out,ease-out)}}
 /* Menus and popovers open from their trigger (ui/popupSurface.css), only when motion is allowed. */
 @media (prefers-reduced-motion:no-preference){.acpmux-menu,.acpmux-context-pop,.acpmux-slash-menu{animation:ui-popup-open var(--ui-popup-open) ease-out}}
+
+/* Keep the legacy cascade and slash surfaces on the same material contract as Base UI's Menu and
+   Popover.  These menus keep their bespoke layout, but never their own glass, border, shadow or
+   motion. */
+:where(.acpmux-menu,.acpmux-context-pop,.acpmux-slash-menu,.acpmux-mp) {
+  border: 1px solid var(--ui-line, color-mix(in srgb, var(--agent-text) 12%, transparent));
+  background-color: color-mix(in srgb, var(--acpmux-menu-bg, var(--ui-surface, Canvas)) var(--ui-popup-glass-alpha, 88%), transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(1.15);
+  backdrop-filter: blur(18px) saturate(1.15);
+  box-shadow: var(--ui-popup-shadow);
+  scrollbar-width: thin;
+}
+
+:where(.acpmux-menu,.acpmux-slash-menu,.acpmux-mp) {
+  overscroll-behavior: contain;
+}
+
+/* Virtual-focus rows use aria-activedescendant on the chip or prompt. A mouse hover is a fill
+   only; the ring is reserved for keyboard focus on actual controls. */
+:where(.acpmux-menu-item,.acpmux-slash-row,.acpmux-mp-row):focus { outline: none; }
+:where(.acpmux-menu-item,.acpmux-slash-row,.acpmux-mp-row):focus-visible {
+  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--ui-ring, color-mix(in srgb, var(--agent-text) 48%, transparent));
+  outline-offset: -1px;
+}

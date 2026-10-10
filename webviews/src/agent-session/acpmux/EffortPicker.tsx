@@ -39,7 +39,10 @@ export function EffortPicker({
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
-  const selected = efforts.find((choice) => choice.id === current) ?? efforts[0];
+  // The agent's implicit level is represented by the chip, not a second "Default" row. Keep the
+  // real levels in the menu so the first arrow lands on an actionable choice.
+  const visibleEfforts = efforts.filter((choice) => !isDefaultChoice(choice));
+  const selected = visibleEfforts.find((choice) => choice.id === current) ?? visibleEfforts[0];
   const level = !selected || isDefaultChoice(selected) ? t("picker.reasoning") : selected.name;
   const fast = speed !== undefined && speed.current === speed.on;
   // Automation opens the menu by its label as a click does (see pickerOpeners.ts).
@@ -77,17 +80,19 @@ export function EffortPicker({
           {chevron}
         </MenuButton>
         <MenuPopup side="top" align="start" className="acpmux-effort-menu">
-          <MenuGroup label={t("picker.reasoning")}>
-            <MenuRadioGroup
-              value={selected?.id ?? ""}
-              onValueChange={(next) => {
-                onPick(next);
-                setOpen(false);
-              }}
-            >
-              {efforts.map(row)}
-            </MenuRadioGroup>
-          </MenuGroup>
+          {visibleEfforts.length > 0 && (
+            <MenuGroup label={t("picker.reasoning")}>
+              <MenuRadioGroup
+                value={selected?.id ?? ""}
+                onValueChange={(next) => {
+                  onPick(next);
+                  setOpen(false);
+                }}
+              >
+                {visibleEfforts.map(row)}
+              </MenuRadioGroup>
+            </MenuGroup>
+          )}
           {speed && (
             <>
               <MenuSeparator />
