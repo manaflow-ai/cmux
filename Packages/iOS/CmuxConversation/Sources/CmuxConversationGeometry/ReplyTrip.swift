@@ -51,10 +51,11 @@ public struct ReplyTrip: Equatable, Sendable {
         stepCount += 1
         if initialOffsetX > 0 {
             let travel = max(abs(targetY - startY), 1)
-            if y == targetY {
-                offsetX = 0
-            } else if travel < 2 {
+            if travel < 2 {
+                // Nowhere to go: the swing walks home on its own.
                 offsetX = max(0, offsetX - 6 * frames)
+            } else if y == targetY {
+                offsetX = 0
             } else {
                 offsetX = max(0, initialOffsetX * ConversationReplyMotion.offsetCurve(progress: abs(y - startY) / travel))
             }
