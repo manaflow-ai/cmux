@@ -2,7 +2,7 @@
 // used by the entry view and matrix runner. It is intentionally a view of the registry rather
 // than a second set of synthetic thumbnails, so a card is useful for both visual scanning and
 // opening the exact entry/variant that produced it.
-import { useCallback, useState } from "react";
+import { useEffect, useState } from "react";
 import type { GalleryEnv } from "../env";
 import type { GalleryEntry } from "../format";
 import { browseFrameHref, browseItems } from "./browseModel";
@@ -71,14 +71,16 @@ function BrowseCard({
 }) {
   const [variant, setVariant] = useState(initialVariant);
   const [width, setWidth] = useState(420);
-  const previewRef = useCallback((node: HTMLElement | null) => {
-    if (!node) return;
-    const measure = () => setWidth(node.clientWidth);
+  const [previewNode, setPreviewNode] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!previewNode) return;
+    const measure = () => setWidth(previewNode.clientWidth);
     measure();
+    if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(measure);
-    observer.observe(node);
+    observer.observe(previewNode);
     return () => observer.disconnect();
-  }, []);
+  }, [previewNode]);
   const variants = Object.keys(entry.variants);
   const fixture = entry.variants[variant];
   return (
@@ -103,7 +105,7 @@ function BrowseCard({
           </button>
         ))}
       </fieldset>
-      <div ref={previewRef} className="gallery-browse-preview">
+      <div ref={setPreviewNode} className="gallery-browse-preview">
         <Stage
           key={variant}
           entry={entry}
