@@ -76,6 +76,19 @@ extension TerminalController {
         return .openedExternally(windowID: windowId, url: url.absoluteString)
     }
     // MARK: - split
+    /// Protocol-shaped entry point used by the socket coordinator. Browser
+    /// creation policy is an app-local seam used by layout/browser callers.
+    func controlSurfaceSplit(
+        routing: ControlRoutingSelectors,
+        inputs: ControlSurfaceSplitInputs
+    ) -> ControlSurfaceSplitResolution {
+        controlSurfaceSplit(
+            routing: routing,
+            inputs: inputs,
+            browserCreationPolicy: .automationPreload
+        )
+    }
+
     func controlSurfaceSplit(
         routing: ControlRoutingSelectors,
         inputs: ControlSurfaceSplitInputs,
@@ -356,6 +369,17 @@ extension TerminalController {
     }
 
     // MARK: - create
+
+    func controlSurfaceCreate(
+        routing: ControlRoutingSelectors,
+        inputs: ControlSurfaceCreateInputs
+    ) -> ControlSurfaceCreateResolution {
+        controlSurfaceCreate(
+            routing: routing,
+            inputs: inputs,
+            browserCreationPolicy: .automationPreload
+        )
+    }
 
     func controlSurfaceCreate(
         routing: ControlRoutingSelectors,
