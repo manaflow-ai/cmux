@@ -31,6 +31,10 @@ extension UpdaterService {
     /// Sparkle is about to replace the running bundle.
     public func updaterWillInstallUpdate(build: String) {
         let bundle = Bundle.main.bundleURL
+        #if DEBUG
+        UpdateHarness.mark("keep_previous_start")
+        defer { UpdateHarness.mark("keep_previous_end") }
+        #endif
         do {
             try keptVersions.keep(bundle: bundle, build: identity.build, limit: preferences.keepPreviousVersions)
             log.append("kept \(identity.build) for rollback before installing \(build)")
