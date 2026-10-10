@@ -233,6 +233,17 @@ fn new_store(inner: &Inner, params: Value, copy: bool) -> Result<String, DriverE
     Ok(context)
 }
 
+/// A driver that goes (its browser exited or was replaced) takes the
+/// in-memory undo of its incognito stores with it.
+impl Drop for Inner {
+    fn drop(&mut self) {
+        let contexts = self.proxy_contexts.get_mut().unwrap_or_else(std::sync::PoisonError::into_inner);
+        for context in contexts.drain() {
+            super::incognito_backups::forget(&context);
+        }
+    }
+}
+
 /// A store the driver made closes: it is no proxy store any more, and the
 /// undo backups an incognito store kept in memory go with it.
 pub(super) fn forget_store(inner: &Inner, context: &str) {
