@@ -1376,9 +1376,16 @@
       return;
     }
     const name = slot.getAttribute("name") || "";
-    // A name past the bound is never escaped or matched: the slot shows
-    // its own fallback content.
-    if (name.length > ID_LIST_CHARS) return;
+    // A name past the bound is never escaped into a selector: each of the
+    // host's children is asked natively which slot took it.
+    if (name.length > ID_LIST_CHARS) {
+      for (let c = host.firstChild; c; c = c.nextSibling) {
+        const taken = c.assignedSlot === slot;
+        if (!charge(taken)) return;
+        if (taken) yield c;
+      }
+      return;
+    }
     const first = root.querySelector(name ? `slot[name="${global.CSS.escape(name)}"]` : 'slot:not([name]), slot[name=""]');
     if (first !== slot) return;
     for (let c = host.firstChild; c; c = c.nextSibling) {

@@ -835,8 +835,8 @@ test("snapshot: a link URL summary never shows part of a value the session masks
 // IDREF lists (aria-labelledby, aria-owns) and slot names are page
 // attributes of any length: the page agent reads at most their first
 // 4,096 characters (and an id cut there is dropped), never splitting,
-// scanning or escaping the whole value, and a slot whose name is longer
-// reads its own fallback content instead of the host's children.
+// scanning or escaping the whole value; a slot whose name is longer is
+// never escaped into a selector, and still reads the children it took.
 test("snapshot: IDREF lists and slot names are read only within their first 4,096 characters", async () => {
   const servers = await startFixtureServers();
   try {
@@ -857,7 +857,7 @@ test("snapshot: IDREF lists and slot names are read only within their first 4,09
           shadow.querySelector("slot").setAttribute("name", long);
         });`);
       const r = await run(`const s = await snapshot({ maxChars: Infinity }); console.log("@@" + JSON.stringify(s.tree.split("\\n").map((l) => l.trim()).filter((l) => /^- (listbox|option|button|group)/.test(l)).map((l) => l.replace(/ \\[ref=\\w+\\]/, "").replace(/:$/, ""))));`);
-      assert.deepEqual(JSON.parse(r.value), ['- listbox "L"', '- button "Own"', '- group "G"', '- button "Fallback"']);
+      assert.deepEqual(JSON.parse(r.value), ['- listbox "L"', '- button "Own"', '- group "G"', '- button "Slotted"']);
     });
   } finally {
     await servers.close();

@@ -318,7 +318,8 @@ rest. Measurements: [performance.md](performance.md).
   An `aria-labelledby` or `aria-owns` list is read from its first 4,096
   characters only (each id charged; an id cut there is dropped, and a
   name with a longer list is read directly), and a slot whose name is
-  longer than 4,096 characters shows its own fallback content.
+  longer than 4,096 characters is never matched by a selector: each of
+  the host's children is asked which slot took it.
   Labels come from an index of the read's `<label>` elements, each one
   counted and read one at a time (a document's from its live `<label>`
   collection, a shadow root's by a walk of at most 250,000 elements),
