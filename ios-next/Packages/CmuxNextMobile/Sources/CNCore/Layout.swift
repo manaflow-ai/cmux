@@ -60,8 +60,15 @@ public struct LayoutTab: Codable, Sendable, Hashable, Identifiable {
     public var streamable: Bool
     public var url: String?
     public var focused: Bool
-    public init(id: String, kind: LayoutTabKind, title: String, refId: String?, streamable: Bool = true, url: String? = nil, focused: Bool = false) {
-        self.id = id; self.kind = kind; self.title = title; self.refId = refId; self.streamable = streamable; self.url = url; self.focused = focused
+    /// Browser tabs: the Mac shows this tab right now. A hidden tab sends no
+    /// frames until it is shown (`layout.focusTab`). Nil: not reported.
+    public var visibleOnMac: Bool?
+    /// Why the tab is not streamable, for the placeholder.
+    public var reason: String?
+    public init(id: String, kind: LayoutTabKind, title: String, refId: String?, streamable: Bool = true, url: String? = nil,
+                focused: Bool = false, visibleOnMac: Bool? = nil, reason: String? = nil) {
+        self.id = id; self.kind = kind; self.title = title; self.refId = refId; self.streamable = streamable; self.url = url
+        self.focused = focused; self.visibleOnMac = visibleOnMac; self.reason = reason
     }
 }
 

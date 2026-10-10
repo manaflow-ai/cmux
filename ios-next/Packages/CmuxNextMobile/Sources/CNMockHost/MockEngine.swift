@@ -39,6 +39,7 @@ actor MockEngine {
     /// Layout: focused tab per pane, and the active pane per workspace.
     var layoutFocus: [String: String] = [:]
     var layoutActivePane: [String: String] = [:]
+    var layoutActiveWorkspace = "ws_a"
     /// DEBUG `CMUX_NEXT_MOCK_TERMINAL_MIRROR=<cols>x<rows>`: behave like the Mac
     /// bridge (`term.mirror.v1`): every terminal has this grid, resize is ignored.
     nonisolated let mirrorGrid: (cols: Int, rows: Int)? = {

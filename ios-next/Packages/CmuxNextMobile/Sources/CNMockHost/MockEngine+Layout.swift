@@ -25,13 +25,21 @@ extension MockEngine {
         let rightBottom = agents.dropFirst().prefix(1).map(agentTab)
         var docs = browserTabs.dropFirst(2).map(webTab)
         docs.append(LayoutTab(id: "lt_cef_linear", kind: .browser, title: "Linear — cmux-next roadmap", refId: nil,
-                              streamable: false, url: "https://linear.app/manaflow/project/cmux-next"))
+                              streamable: false, url: "https://linear.app/manaflow/project/cmux-next",
+                              reason: "Browser access is off on Demo Mac"))
 
         func pane(_ id: String, _ rect: LayoutRect, _ tabs: [LayoutTab], workspace: String) -> LayoutPane? {
             guard !tabs.isEmpty else { return nil }
             let focused = layoutFocus[id].flatMap { f in tabs.contains { $0.id == f } ? f : nil } ?? tabs[0].id
-            let marked = tabs.map { t -> LayoutTab in var t = t; t.focused = t.id == focused; return t }
-            return LayoutPane(id: id, rect: rect, tabs: marked, focusedTabId: focused, active: layoutActivePane[workspace] == id)
+            let marked = tabs.map { t -> LayoutTab in
+                var t = t
+                t.focused = t.id == focused
+                // The Mac renders a browser tab only while it is selected in an on-screen pane.
+                if t.kind == .browser, t.streamable { t.visibleOnMac = t.focused && workspace == layoutActiveWorkspace }
+                return t
+            }
+            return LayoutPane(id: id, rect: rect, tabs: marked, focusedTabId: focused,
+                              active: workspace == layoutActiveWorkspace && layoutActivePane[workspace] == id)
         }
         let wsA = [
             pane("pane_a_left", LayoutRect(x: 0, y: 0, w: 0.5, h: 1), left, workspace: "ws_a"),
@@ -40,9 +48,9 @@ extension MockEngine {
         ].compactMap { $0 }
         let wsB = [pane("pane_b_docs", LayoutRect(x: 0, y: 0, w: 1, h: 1), docs, workspace: "ws_b")].compactMap { $0 }
         return MacLayout(workspaces: [
-            LayoutWorkspace(id: "ws_a", title: "cmux · fix-resize", active: true,
+            LayoutWorkspace(id: "ws_a", title: "cmux · fix-resize", active: layoutActiveWorkspace == "ws_a",
                             activePaneId: layoutActivePane["ws_a"] ?? wsA.first?.id, panes: wsA),
-            LayoutWorkspace(id: "ws_b", title: "Docs", activePaneId: layoutActivePane["ws_b"] ?? wsB.first?.id, panes: wsB),
+            LayoutWorkspace(id: "ws_b", title: "Docs", active: layoutActiveWorkspace == "ws_b", activePaneId: layoutActivePane["ws_b"] ?? wsB.first?.id, panes: wsB),
         ])
     }
 
@@ -54,6 +62,7 @@ extension MockEngine {
         }
         layoutFocus[p.paneId] = p.tabId
         layoutActivePane[ws.id] = p.paneId
+        layoutActiveWorkspace = ws.id
         broadcast(.layoutChanged, LayoutResult(layout: currentLayout()))
     }
 

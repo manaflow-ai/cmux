@@ -37,10 +37,13 @@ public struct BrowserAttachParams: Codable, Sendable, Hashable {
     /// The user picked Request Mobile/Desktop Website: reload the page so it
     /// loads with the new user agent (otherwise it applies on the next navigation).
     public var reloadForMode: Bool?
+    /// A Mac tab the Mac is not showing: show it there first (the opt-in
+    /// "Bring tabs forward on Mac automatically"; `browser.mac.v1`).
+    public var bringForward: Bool?
     public init(tabId: String, width: Int, height: Int, scale: Double, mobile: Bool = true, frameMeta: Bool? = nil,
-                reloadForMode: Bool? = nil) {
+                reloadForMode: Bool? = nil, bringForward: Bool? = nil) {
         self.tabId = tabId; self.width = width; self.height = height; self.scale = scale; self.mobile = mobile
-        self.frameMeta = frameMeta; self.reloadForMode = reloadForMode
+        self.frameMeta = frameMeta; self.reloadForMode = reloadForMode; self.bringForward = bringForward
     }
 }
 
