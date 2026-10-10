@@ -1860,6 +1860,8 @@ describe("Cloud VM publication workflows", () => {
     const zone = domain("custom", { hostname: "example.com", verificationState: "verified", certificateState: "active" });
     const failed = target(publication("public", { hostname: "app.example.com", domainId: zone.id, state: "unavailable" }), zone);
     const claimed: string[] = [];
+    const reconciled: Array<{ ruleId: string | null | undefined; hostname: string; providerVmId: string }> = [];
+    const recorded: Array<{ id: string; providerTlsRuleId: string }> = [];
     await run(verifyCustomDomain({
       principal: { userId: "owner-1", teamIds: [] }, hostname: zone.hostname, now: NOW,
     }), fakeRepository({
@@ -1868,13 +1870,63 @@ describe("Cloud VM publication workflows", () => {
       listOwnedPublicationsForDomain: () => Effect.succeed([failed]),
       claimVmPublicationOperation: (input) => {
         claimed.push(input.publicationId);
-        return Effect.succeed({ kind: "in_progress", retryAt: new Date(NOW.getTime() + 1000) });
+        return Effect.succeed({ kind: "claimed", vmId: "db-vm-1" });
+      },
+      recordProvisioningTlsRule: (input) => {
+        recorded.push({ id: input.id, providerTlsRuleId: input.providerTlsRuleId });
+        return Effect.succeed({ ...failed.publication, providerTlsRuleId: input.providerTlsRuleId });
       },
     }), fakeProvider({
       requestWildcardCertificate: () => Effect.succeed({} as never),
       getWildcardCertificateStatus: () => Effect.succeed({ state: "active", ready: true } as never),
+      reconcileTlsRule: (ruleId, spec) => {
+        reconciled.push({ ruleId, hostname: spec.hostname, providerVmId: spec.providerVmId });
+        return Effect.succeed({
+          disposition: "created",
+          rule: { tlsRuleId: "tls-rule-retried", hostname: spec.hostname, providerVmId: spec.providerVmId, port: spec.port, forwardAuthId: null },
+        } as never);
+      },
+      // The certificate is still pending, so the retry stops after recording the rule.
+      getCertificateStatus: () => Effect.succeed({ state: "pending", ready: false } as never),
     }));
     expect(claimed).toEqual([failed.publication.id]);
+    expect(reconciled).toEqual([{ ruleId: null, hostname: "app.example.com", providerVmId: "vm-provider-1" }]);
+    expect(recorded).toEqual([{ id: failed.publication.id, providerTlsRuleId: "tls-rule-retried" }]);
+  });
+
+  test("a custom-domain create that fails at domain verification marks the publication unavailable", async () => {
+    const pendingZone = domain("custom", { hostname: "example.com", verificationState: "pending", providerVerificationId: null });
+    const reserved = target(publication("public", { hostname: "app.example.com", domainId: pendingZone.id, hostnameClaimedAt: null, routingRevision: 2 }), pendingZone);
+    const marked: Array<{ id: string; expectedRoutingRevision: number }> = [];
+    const failure = new VmPublicationProviderError({ operation: "createDomainVerification", cause: new Error("provider refused") });
+    const repository = fakeRepository({
+      listOwnedDomains: () => Effect.succeed([pendingZone]),
+      findOwnedDomainByHostname: () => Effect.succeed(pendingZone),
+      reservePublicationOnDomain: () => Effect.succeed(reserved),
+      reservePublicationWithNewDomain: () => Effect.succeed(reserved),
+      markPublicationUnavailable: (input) => {
+        marked.push({ id: input.id, expectedRoutingRevision: input.expectedRoutingRevision });
+        return Effect.succeed({ ...reserved.publication, state: "unavailable" });
+      },
+    });
+    const provider = fakeProvider({
+      getDomainVerification: () => Effect.fail(failure),
+      createDomainVerification: () => Effect.fail(failure),
+    });
+    const result = await Effect.runPromise(Effect.either(createPublication({
+      principal: { userId: "owner-1", teamIds: [] },
+      providerVmId: "vm-provider-1",
+      port: 3_000,
+      hostname: "app.example.com",
+      accessMode: "public",
+      now: NOW,
+    }).pipe(
+      Effect.provideService(CloudVmPublicationRepository, repository),
+      Effect.provideService(VmPublicationProvider, provider),
+    )));
+    expect(result._tag).toBe("Left");
+    if (result._tag === "Left") expect(result.left).toBe(failure);
+    expect(marked).toEqual([{ id: reserved.publication.id, expectedRoutingRevision: 2 }]);
   });
 
   test("changing access on a failed publication is a clear 409 that says to delete it", async () => {

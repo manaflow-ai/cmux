@@ -303,6 +303,11 @@ let lastTlsRuleLimitReportAt = Number.NEGATIVE_INFINITY;
  * One operator error per instance per ten minutes: every refused publish at
  * the cap hits this path, and the vm-alerts cron already pages on the count.
  */
+/** Test seam: forget the last report so each test starts with an open gate. */
+export function resetTlsRuleLimitReportForTesting(): void {
+  lastTlsRuleLimitReportAt = Number.NEGATIVE_INFINITY;
+}
+
 export function reportTlsRuleLimit(operation: string, now: number = Date.now()): boolean {
   if (now - lastTlsRuleLimitReportAt < TLS_RULE_LIMIT_REPORT_INTERVAL_MS) return false;
   lastTlsRuleLimitReportAt = now;

@@ -528,14 +528,17 @@ export function createPublication(input: {
     // resume this durable provisioning record after any provider failure.
     if (isCustom && domain) {
       if (domain.verificationState !== "verified") {
-        domain = yield* ensureCustomDomainVerification({
+        // A provider failure here strands the reserved row just like one in
+        // provisioning: mark it unavailable, which verify and every zone
+        // verification still retry.
+        domain = yield* markUnavailableOnProviderFailure({ repository, target, now }, ensureCustomDomainVerification({
           repository,
           provider,
           domain,
           publicationHostname: target.publication.hostname,
           ownerUserId: input.principal.userId,
           now,
-        });
+        }));
         target = { ...target, domain };
       }
       if (domain.verificationState !== "verified") return publicationDto(target);

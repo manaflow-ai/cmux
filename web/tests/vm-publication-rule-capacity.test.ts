@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { context as otelContext, trace } from "@opentelemetry/api";
 import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
 import {
@@ -13,6 +13,7 @@ import { VmPublicationProviderError } from "../services/vm-publications/provider
 import {
   publicationErrorResponse,
   reportTlsRuleLimit,
+  resetTlsRuleLimitReportForTesting,
   withAuthedPublicationApiRoute,
 } from "../app/api/vm/publications/routeShared";
 
@@ -40,6 +41,8 @@ describe("publication create at the Freestyle TLS rule cap", () => {
   });
   trace.setGlobalTracerProvider(provider);
   otelContext.setGlobalContextManager(new AsyncLocalStorageContextManager().enable());
+  // The report gate is module state; no test may inherit another's.
+  afterEach(() => resetTlsRuleLimitReportForTesting());
   afterAll(async () => {
     await provider.shutdown();
     trace.disable();
@@ -65,6 +68,7 @@ describe("publication create at the Freestyle TLS rule cap", () => {
   });
 
   test("the operator report is sent at most once per ten minutes per instance", () => {
+    resetTlsRuleLimitReportForTesting();
     const start = 9_000_000_000_000;
     expect(reportTlsRuleLimit("createTlsRule", start)).toBe(true);
     expect(reportTlsRuleLimit("createTlsRule", start + 60_000)).toBe(false);
