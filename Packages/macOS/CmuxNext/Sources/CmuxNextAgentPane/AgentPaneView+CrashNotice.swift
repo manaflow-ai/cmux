@@ -17,6 +17,13 @@ extension AgentPaneView {
         }
     }
 
+    /// The page cannot answer any more: the one-shot ``onPageGone`` runs.
+    func pageGone() {
+        let gone = onPageGone
+        onPageGone = nil
+        gone?()
+    }
+
     /// The page host's crash report: the same as ``webContentProcessDidTerminate()``, with the
     /// reload policy kept by the page host.
     func pageCrashed(reloading: Bool) {
@@ -25,6 +32,7 @@ extension AgentPaneView {
     }
 
     private func showCrashNotice() {
+        pageGone()
         guard crashNotice == nil else { return }
         let message = NSTextField(wrappingLabelWithString: Self.crashedMessage)
         message.alignment = .center

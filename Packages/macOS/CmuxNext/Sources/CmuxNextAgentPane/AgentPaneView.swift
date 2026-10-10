@@ -16,6 +16,9 @@ public import WebKit
 public final class AgentPaneView: NSView {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.webview")
     public let model: AgentPaneModel
+    /// Runs once when the page can no longer answer `newTab.inputReady` (it crashed for good or
+    /// failed to load), so a key hold waiting for that answer ends (cx-9fl).
+    public var onPageGone: (@MainActor () -> Void)?
     public let webView: WKWebView
     /// Opens a link the user clicked in the transcript. Defaults to the
     /// system handler; the App can route it to a cmux browser tab.
@@ -342,14 +345,6 @@ public final class AgentPaneView: NSView {
     /// selects its text, wherever focus was on the page.
     public func focusLocation() {
         deliver([.focusLocation], scripts: ["window.dispatchEvent(new Event('acpmux-focus-location'))"])
-    }
-
-    /// Focus Location Bar, answered by `newTab.inputReady` (cx-9fl): by the page host right after
-    /// the focus when the page listens, else by the page's mount, whose handshake carries `token`.
-    public func focusLocation(token: String) {
-        model.expectInputReady(token: token)
-        guard let pageEvents, pageEvents.hasSubscribers else { return focusLocation() }
-        pageEvents.publish(.focusLocation(token: token))
     }
 
     /// The page's surface for overrides (R55): new tab page until a chat starts.

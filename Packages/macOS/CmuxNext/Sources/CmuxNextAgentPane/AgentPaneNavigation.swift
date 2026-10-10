@@ -36,6 +36,15 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
         view?.replayCustomization()
     }
 
+    /// The page failed to load: nothing on it can answer the host (cx-9fl).
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation?, withError error: any Error) {
+        view?.pageGone()
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation?, withError error: any Error) {
+        view?.pageGone()
+    }
+
     /// A crashed web content process leaves a blank pane; the view reloads
     /// the page, which asks for a fresh handshake and reattaches the session.
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {

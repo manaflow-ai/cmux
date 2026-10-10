@@ -6,6 +6,8 @@ import CmuxNextSettings
 /// terminal tab (`CreationInputCoordinator`, cx-wb5.76), so a proof can end a hold by each of its
 /// lifecycle events. Params, all optional: `fail_next` (the next split fails before it is sent),
 /// `vanish_next` (the next creation's pane counts as gone after its reply's events applied),
+/// `ignore_next_page_answer` (the next New Tab page focus hold ignores the page's answer) and
+/// `page_gone` (the focused agent page reports it can no longer answer, as after a crash),
 /// `pause` (true: resolutions wait; false: release the paused ones in order). Reports `held`, the
 /// held key count of each window with a hold (window id).
 enum DebugCreationHold {
@@ -13,6 +15,11 @@ enum DebugCreationHold {
         let coordinator = services.keyRouter.creationInputCoordinator
         if let fail = params["fail_next"]?.boolValue { coordinator.failNextCreation = fail }
         if let vanish = params["vanish_next"]?.boolValue { coordinator.vanishNextCreation = vanish }
+        if let deaf = params["ignore_next_page_answer"]?.boolValue { coordinator.ignoreNextPageAnswer = deaf }
+        if params["page_gone"]?.boolValue == true, let pane = services.windows.active?.focusedPane,
+           let key = pane.currentTabKey, let view = services.agentTabs.existingView(key) {
+            view.onPageGone?()
+        }
         if let pause = params["pause"]?.boolValue {
             if pause { coordinator.pausesResolutions = true } else { coordinator.releasePausedResolutions() }
         }

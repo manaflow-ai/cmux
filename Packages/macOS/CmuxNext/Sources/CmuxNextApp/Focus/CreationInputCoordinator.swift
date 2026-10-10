@@ -40,6 +40,7 @@ final class CreationInputCoordinator {
     /// next resolutions wait for an explicit release, so a proof can end a hold another way first.
     var failNextCreation = false
     var vanishNextCreation = false
+    var ignoreNextPageAnswer = false
     var pausesResolutions = false
     private var pausedResolutions: [(CreationInputBuffer.Ticket, Bool, NSWindow)] = []
     #endif
@@ -259,6 +260,13 @@ final class CreationInputCoordinator {
         guard vanishNextCreation else { return surface }
         vanishNextCreation = false
         return SurfaceID(rawValue: 0)
+    }
+
+    /// Debug socket: the next New Tab page focus hold ignores the page's answer, as when the page
+    /// crashed (consumed once); `debug.creation_hold {"page_gone": true}` then ends it.
+    func takeIgnorePageAnswer() -> Bool {
+        defer { ignoreNextPageAnswer = false }
+        return ignoreNextPageAnswer
     }
 
     /// Debug socket: the split behind the next ticket fails (consumed once).
