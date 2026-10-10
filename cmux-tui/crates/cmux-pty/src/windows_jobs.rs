@@ -7,15 +7,74 @@
 //! The job only groups: it sets no limits (no kill on close), so terminals
 //! behave as before. The child is assigned right after it is created; a
 //! process it started in that instant is outside the job and is not read.
+//!
+//! Each job is named after its terminal's first process
+//! ([`job_name`], `Local\cmux-pty-job-<pid>`), so another process of the
+//! same user (a daemon reading the processes of a terminal that runs in a
+//! terminal-host process, also after a daemon restart) can open it for
+//! queries and ask whether a process runs in it ([`named_job_contains`]).
+//! A name that already exists is never joined: that terminal gets an
+//! unnamed job, as before.
 
 use std::ffi::c_void;
 use std::sync::Mutex;
 
 use portable_pty::{Child, ChildKiller, ExitStatus};
-use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+use windows_sys::Win32::Foundation::{CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HANDLE};
 use windows_sys::Win32::System::JobObjects::{
-    AssignProcessToJobObject, CreateJobObjectW, IsProcessInJob, TerminateJobObject,
+    AssignProcessToJobObject, CreateJobObjectW, IsProcessInJob, OpenJobObjectW, TerminateJobObject,
 };
+
+/// `JOB_OBJECT_QUERY`: enough for `IsProcessInJob`.
+const JOB_OBJECT_QUERY: u32 = 0x0004;
+
+/// The name of the job whose first process is `pid`.
+pub fn job_name(pid: u32) -> String {
+    format!("Local\\cmux-pty-job-{pid}")
+}
+
+fn wide(name: &str) -> Vec<u16> {
+    name.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+/// A new job named after `pid`; an unnamed one when that name exists
+/// already (never another process's job) or no pid is known.
+fn create_job(pid: Option<u32>) -> HANDLE {
+    if let Some(pid) = pid {
+        let name = wide(&job_name(pid));
+        // SAFETY: plain call; a NUL-terminated name; null is failure.
+        let job = unsafe { CreateJobObjectW(std::ptr::null(), name.as_ptr()) };
+        // SAFETY: read right after the call that set it.
+        let existed = unsafe { GetLastError() } == ERROR_ALREADY_EXISTS;
+        if !job.is_null() && !existed {
+            return job;
+        }
+        if !job.is_null() {
+            // SAFETY: the handle this call opened; the job is not ours.
+            unsafe { CloseHandle(job) };
+        }
+    }
+    // SAFETY: plain call; null is failure.
+    unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) }
+}
+
+/// Whether `process` (a handle with PROCESS_QUERY_LIMITED_INFORMATION) runs
+/// in the job named after `root_pid` ([`job_name`]), made by any process of
+/// this user.
+pub fn named_job_contains(process: *mut c_void, root_pid: u32) -> bool {
+    let name = wide(&job_name(root_pid));
+    // SAFETY: plain call; a NUL-terminated name; null is failure.
+    let job = unsafe { OpenJobObjectW(JOB_OBJECT_QUERY, 0, name.as_ptr()) };
+    if job.is_null() {
+        return false;
+    }
+    let mut result = 0;
+    // SAFETY: valid handles; `result` is written on success.
+    let inside = unsafe { IsProcessInJob(process as HANDLE, job, &mut result) != 0 && result != 0 };
+    // SAFETY: the handle opened above.
+    unsafe { CloseHandle(job) };
+    inside
+}
 
 /// The open job handles, as integers (a HANDLE is a pointer).
 static JOBS: Mutex<Vec<usize>> = Mutex::new(Vec::new());
@@ -31,9 +90,8 @@ struct Job(usize);
 impl Job {
     /// A new job with `process` in it, or None (the child then runs outside
     /// any job and the daemon reads nothing of it).
-    fn assign(process: HANDLE) -> Option<Self> {
-        // SAFETY: plain call; null is failure.
-        let job = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
+    fn assign(process: HANDLE, pid: Option<u32>) -> Option<Self> {
+        let job = create_job(pid);
         if job.is_null() {
             return None;
         }
@@ -89,7 +147,8 @@ pub(crate) struct JobChild {
 
 impl JobChild {
     pub(crate) fn new(child: Box<dyn Child + Send + Sync>) -> Self {
-        let job = child.as_raw_handle().and_then(|handle| Job::assign(handle as HANDLE));
+        let pid = child.process_id();
+        let job = child.as_raw_handle().and_then(|handle| Job::assign(handle as HANDLE, pid));
         Self { child, _job: job }
     }
 }

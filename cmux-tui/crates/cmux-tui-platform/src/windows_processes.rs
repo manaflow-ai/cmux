@@ -4,8 +4,9 @@
 //!
 //! Access rule: a process is read (usage, name, cwd from its PEB) only when
 //! this daemon started it (it runs in a terminal's Job Object,
-//! `cmux_pty::windows_jobs`), as the same user and in the same session; every
-//! other process is refused. All checks and reads use one handle, opened
+//! `cmux_pty::windows_jobs`: one of this process's, or the named job of a
+//! terminal that runs in a terminal-host process), as the same user and in
+//! the same session; every other process is refused. All checks and reads use one handle, opened
 //! once, so a reused pid cannot slip in between.
 //!
 //! Foreground: ConPTY has no foreground process group. Heuristic: the newest
@@ -104,12 +105,42 @@ fn ours() -> Option<(String, u32)> {
     Some((me.user_sid, session))
 }
 
+/// How many ancestors [`in_named_terminal_job`] climbs.
+const MAX_JOB_ANCESTORS: usize = 64;
+
+/// Whether `process` (pid `pid`) runs in a named terminal job
+/// (`cmux_pty::windows_jobs::job_name`) of this user: the job of a terminal
+/// whose child tree runs in a terminal-host process, which this daemon (or
+/// the daemon before a restart) started. The job is named after the
+/// terminal's first process, `pid` itself or one of its ancestors.
+fn in_named_terminal_job(pid: u32, process: *mut c_void) -> bool {
+    if cmux_pty::windows_jobs::named_job_contains(process, pid) {
+        return true;
+    }
+    let processes = snapshot();
+    let mut current = pid;
+    for _ in 0..MAX_JOB_ANCESTORS {
+        let Some(parent) = processes.get(&current).map(|entry| entry.parent) else {
+            return false;
+        };
+        if parent == 0 || parent == current {
+            return false;
+        }
+        if cmux_pty::windows_jobs::named_job_contains(process, parent) {
+            return true;
+        }
+        current = parent;
+    }
+    false
+}
+
 /// Process `pid`, opened once with `access` (plus query rights), when the
 /// access rule admits it; None otherwise.
 pub fn open_started_by_us(pid: u32, access: u32) -> Option<Handle> {
     let handle = open(pid, access | PROCESS_QUERY_LIMITED_INFORMATION)?;
     let (our_user, our_session) = ours()?;
-    let in_job = cmux_pty::windows_jobs::contains(handle.0.cast::<c_void>());
+    let in_job = cmux_pty::windows_jobs::contains(handle.0.cast::<c_void>())
+        || in_named_terminal_job(pid, handle.0.cast::<c_void>());
     let identity = cmux::local_socket::win::handle_identity(handle.0.cast::<c_void>()).ok()?;
     let session = token_session(handle.0)?;
     may_read(in_job, &identity.user_sid, session, &our_user, our_session).ok()?;
