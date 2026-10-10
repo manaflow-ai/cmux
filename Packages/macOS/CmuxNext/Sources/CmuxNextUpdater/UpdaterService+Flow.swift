@@ -64,6 +64,7 @@ extension UpdaterService {
             #if DEBUG
             UpdateHarness.mark("install_started")
             #endif
+            willInstallStaged?()
             installStaged()
             #if DEBUG
             UpdateHarness.mark("install_handed_to_sparkle")
@@ -83,8 +84,19 @@ extension UpdaterService {
         #if DEBUG
         if phase.harnessName != flow.phase.harnessName { UpdateHarness.mark("phase.\(phase.harnessName)") }
         #endif
+        let wasInstalling = flow.phase == .installing
         send(.sparkle(phase))
         followStagedUpdate(phase)
+        switch phase {
+        case .ready:
+            keepRunningBuildForRollback()
+        case .note where wasInstalling:
+            // The install failed: no relaunch comes.
+            log.append("install ended without a relaunch")
+            installAbandoned?()
+        default:
+            break
+        }
     }
 
     /// Follows Sparkle's flow through observation (no polling).

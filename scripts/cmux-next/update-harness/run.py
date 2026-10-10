@@ -177,6 +177,8 @@ def main():
     ap.add_argument("--port", type=int, default=0, help="loopback port for the appcast (default: a free one)")
     ap.add_argument("--stage-timeout", type=float, default=240)
     ap.add_argument("--relaunch-timeout", type=float, default=120)
+    ap.add_argument("--click-at-stage", action="store_true",
+                    help="click the moment the update stages, not after the staging work (the rollback keep) ends")
     a = ap.parse_args()
 
     if a.port == 0:
@@ -259,6 +261,10 @@ def main():
             status = rpc(sock, "updates.status")
             raise SystemExit(f"no staged update: {json.dumps(status)[:1500]}")
         log("staged")
+        if not a.click_at_stage:
+            # A person clicks seconds or hours after the card appears; the staging work is done by then.
+            kept = marks.wait(lambda rows: first(rows, "keep_previous_end", pid=v1_pid), 120)
+            log("staging work done" if kept else "staging work still running after 120 s; clicking anyway")
         t_send = time.time()
         reply = rpc(sock, "action.run", {"id": INSTALL_ACTION})
         t_reply = time.time()

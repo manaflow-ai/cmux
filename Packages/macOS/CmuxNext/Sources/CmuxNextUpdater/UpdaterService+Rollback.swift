@@ -17,6 +17,11 @@ nonisolated public struct RollbackInputs: Sendable {
     }
 }
 
+/// Where the running bundle's keep for rollback is.
+enum KeepState {
+    case running, kept
+}
+
 /// Rollback (decision 2026-10-04): the running bundle is kept right before
 /// each install, and a rollback runs only when the kept build reads every
 /// store the daemons hold (`StoreSchemaProbe`, `app call updates.rollback`).
@@ -28,15 +33,43 @@ extension UpdaterService {
         return KeptVersionStore(root: root, teamID: { Self.signingTeam(of: $0) })
     }
 
-    /// Sparkle is about to replace the running bundle.
+    /// An update staged: keep the running bundle for rollback now, off the
+    /// main thread, so the click that installs does no disk work (the
+    /// clone, and the prune's signature reads of every kept build, take
+    /// seconds on a busy disk). Once per running build.
+    func keepRunningBuildForRollback() {
+        guard keptRunningBuild == nil else { return }
+        keptRunningBuild = .running
+        let store = keptVersions, bundle = Bundle.main.bundleURL, build = identity.build, limit = preferences.keepPreviousVersions
+        let log = log
+        // task-owner: one clone that ends by itself; the install waits for nothing it does.
+        keepTask = Task.detached { [weak self] in
+            #if DEBUG
+            UpdateHarness.mark("keep_previous_start")
+            #endif
+            let kept: Bool
+            do {
+                try store.keep(bundle: bundle, build: build, limit: limit)
+                log.append("kept \(build) for rollback when the update staged")
+                kept = true
+            } catch {
+                log.append("could not keep \(build) for rollback: \(error)")
+                kept = false
+            }
+            #if DEBUG
+            UpdateHarness.mark("keep_previous_end")
+            #endif
+            await MainActor.run { self?.keptRunningBuild = kept ? .kept : nil }
+        }
+    }
+
+    /// Sparkle is about to replace the running bundle. The bundle was kept
+    /// when the update staged; only a keep that never ran or failed runs
+    /// here (a quit that installs an update staged before this launch).
     public func updaterWillInstallUpdate(build: String) {
-        let bundle = Bundle.main.bundleURL
-        #if DEBUG
-        UpdateHarness.mark("keep_previous_start")
-        defer { UpdateHarness.mark("keep_previous_end") }
-        #endif
+        guard keptRunningBuild == nil else { return }
         do {
-            try keptVersions.keep(bundle: bundle, build: identity.build, limit: preferences.keepPreviousVersions)
+            try keptVersions.keep(bundle: Bundle.main.bundleURL, build: identity.build, limit: preferences.keepPreviousVersions)
             log.append("kept \(identity.build) for rollback before installing \(build)")
         } catch {
             log.append("could not keep \(identity.build) for rollback: \(error)")

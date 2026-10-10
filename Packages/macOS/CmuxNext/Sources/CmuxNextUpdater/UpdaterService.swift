@@ -61,6 +61,14 @@ public final class UpdaterService {
     /// What's New after an update (WHATS-NEW-AFTER-UPDATE): the bundled
     /// documents and this feed's nightly digests. The App loads it at launch.
     public let whatsNew: WhatsNewCenter
+    /// The running bundle's keep for rollback (``keepRunningBuildForRollback()``).
+    @ObservationIgnored var keptRunningBuild: KeepState?
+    @ObservationIgnored var keepTask: Task<Void, Never>?
+    /// The click that installs, before Sparkle takes over (set by the App:
+    /// the windows go at once). ``installAbandoned`` undoes it when the
+    /// install ends without a relaunch.
+    @ObservationIgnored public var willInstallStaged: (() -> Void)?
+    @ObservationIgnored public var installAbandoned: (() -> Void)?
     /// Reads a build's verified notes (``releaseNotes`` in the app; replaced by tests).
     @ObservationIgnored var notesLoader: (@Sendable (String) async -> ReleaseNotes?)?
     /// UPDATE-CARD: the staged update's display version (kept while it
