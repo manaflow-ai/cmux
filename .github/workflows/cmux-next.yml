@@ -411,6 +411,7 @@ jobs:
       pull-requests: read
     outputs:
       native: ${{ steps.route.outputs.native }}
+      release: ${{ steps.route.outputs.release }}
       swift_canary: ${{ steps.route.outputs.swift_canary }}
       swift_canary_targets: ${{ steps.route.outputs.swift_canary_targets }}
       macos: ${{ steps.route.outputs.macos }}
@@ -443,18 +444,21 @@ jobs:
         run: |
           set -euo pipefail
           changed="$RUNNER_TEMP/changed-files.txt"
+          diff="$RUNNER_TEMP/changes.diff"
           labels=""
           if [[ "$EVENT_NAME" == pull_request ]]; then
             git diff --no-renames --name-only HEAD^1 HEAD > "$changed"
+            git diff --no-renames -U0 HEAD^1 HEAD > "$diff"
             labels="$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/labels" --jq '[.[].name] | join(",")' 2>/dev/null)" || {
               echo "::warning::could not read the pull request labels; routing on its paths only"
               labels=""
             }
           else
             : > "$changed"
+            : > "$diff"
           fi
           echo "changed files: $(wc -l < "$changed"); labels: ${labels:-none}"
-          python3 scripts/ci/cmux_next_route.py --event "$EVENT_NAME" --changed-files "$changed" \
+          python3 scripts/ci/cmux_next_route.py --event "$EVENT_NAME" --changed-files "$changed" --diff "$diff" \
             --labels "$labels" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
           # Whether this pull request changes the cmux-tui it would test against.
           # One that does not is never failed for an unpublished merge tree
@@ -1809,7 +1813,7 @@ jobs:
 
   release-compile:
     needs: [path_route, macos-placement, push-head-preflight]
-    if: ${{ !cancelled() && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/')) }}
+    if: ${{ !cancelled() && needs.path_route.outputs.release == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/')) }}
     name: cmux-next Release compile (Xcode 26)
     # Package-only Swift PRs have the bounded Swift canary as their merge gate.
     # Keep this full Release compile visible and running for diagnostics, while

@@ -405,7 +405,7 @@ class PathRoutingStructure(unittest.TestCase):
         self.assertIn("needs.path_route.outputs.swift == 'true'", jobs["swift-test"]["if"])
         self.assertIn("needs.path_route.outputs.daemon == 'true'", jobs["daemon-test"]["if"])
         self.assertIn("needs.path_route.outputs.generated == 'true'", jobs["generated-files"]["if"])
-        self.assertIn("needs.path_route.outputs.native", jobs["release-compile"]["if"])
+        self.assertIn("needs.path_route.outputs.release == 'true'", jobs["release-compile"]["if"])
         self.assertIn("needs.path_route.outputs.scheme == 'true'", jobs["cmux-scheme-compile"]["if"])
 
     def test_package_tests_never_wait_for_the_cmux_tui_tree(self):

@@ -9,7 +9,11 @@ runs the tiers its changed files reach (docs/ci/cmux-next-tiers.md):
   generated   any change to the CmuxNext package or plans/cmux-next: the
               generated action catalog, surfaces and inventory and the CI target
               graph are fresh (a mini; a stale file is fixed by a bot commit)
-  native      Swift or app sources: the Release compile
+  native      Swift or app sources
+  release     the Release compile: on a pull request only for a manifest, an
+              Xcode build setting, the job's own scripts or the CEF shim, or a
+              changed file with a DEBUG conditional (swift test already builds
+              the package in Debug with the same Xcode)
   canary      changed CmuxNext Swift targets type-check on a warm mini; this
               is the pull-request gate for small package-only Swift diffs
   scheme      app host, Xcode project, webviews or other local packages: the
@@ -23,8 +27,8 @@ Pushes, dispatches and pull requests labeled `full-ci` (a batch integration
 PR) run every tier. A changed file this script cannot place selects every
 tier, so an unknown input never skips a check.
 
-Usage: cmux_next_route.py --event NAME [--changed-files FILE] [--labels a,b]
-       [--github-output FILE] [--summary FILE]
+Usage: cmux_next_route.py --event NAME [--changed-files FILE] [--diff FILE]
+       [--labels a,b] [--github-output FILE] [--summary FILE]
 """
 
 from __future__ import annotations
@@ -32,6 +36,7 @@ from __future__ import annotations
 import argparse
 import fnmatch
 import json
+import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -108,6 +113,17 @@ GENERATED_INPUTS = (
     "scripts/cmux-next/regenerate-action-contracts.sh",
     "scripts/cmux-next/check-action-surfaces.sh",
 )
+
+# Where a Release build can differ from the Debug builds a pull request gets.
+RELEASE_PATTERNS = (
+    "Package.swift", "*/Package.swift", "*.xcconfig", "*.pbxproj",
+    "scripts/cmux-next/check-release-compile.sh", "scripts/cmux-next/build-cef-shim.sh",
+    "scripts/cmux-next/ensure-cef.sh", "scripts/cmux-next/cef-manifest.json", "scripts/cmux-next/cef-cache-root.sh",
+    PACKAGE + "CEFShim/*",
+)
+# `#if DEBUG`, `#elseif !DEBUG && os(macOS)` and the like: code a Release build compiles differently.
+DEBUG_CONDITIONAL = re.compile(r"^\s*#\s*(?:if|elseif)\b.*\bDEBUG\b")
+SOURCE_SUFFIXES = (".swift", ".m", ".mm", ".c", ".cc", ".cpp", ".h")
 
 # The path classes of the original routing: these never need a Mac.
 WEB_ONLY = (
@@ -187,12 +203,13 @@ class Route:
     generated: bool = False
     swift: bool = False
     daemon: bool = False
+    release: bool = False
     tests: set[str] = field(default_factory=set)
     swift_canary_targets: set[str] = field(default_factory=set)
     reasons: list[str] = field(default_factory=list)
 
     def everything(self, reason: str) -> None:
-        self.full = self.native = self.scheme = self.generated = self.swift = self.daemon = True
+        self.full = self.native = self.scheme = self.generated = self.swift = self.daemon = self.release = True
         self.reasons.append(reason)
 
 
@@ -247,7 +264,19 @@ def owning_target(graph: dict, path: str) -> str | None:
     return best
 
 
-def route(root: Path, event: str, changed: list[str] | None, labels: set[str]) -> Route:
+def debug_conditional(root: Path, path: str) -> bool:
+    """Whether the head's copy of a changed source file has a DEBUG conditional."""
+    if not path.endswith(SOURCE_SUFFIXES):
+        return False
+    try:
+        text = (root / path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return any(DEBUG_CONDITIONAL.match(line) for line in text.splitlines())
+
+
+def route(root: Path, event: str, changed: list[str] | None, labels: set[str],
+          diff: list[str] | None = None) -> Route:
     result = Route()
     if event != "pull_request":
         result.everything(f"{event}: base coverage runs every tier")
@@ -289,6 +318,11 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str]) -
         if any(matches(path, prefix) for prefix in GENERATED_INPUTS):
             result.generated = True
 
+        if not result.release and (any(fnmatch.fnmatch(path, pattern) for pattern in RELEASE_PATTERNS)
+                                   or debug_conditional(root, path)):
+            result.release = True
+            result.reasons.append(f"{path} can change the Release build")
+
         if path in FULL_INPUTS:
             result.everything(f"{path} is an input of every package test")
             continue
@@ -327,6 +361,10 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str]) -
                 result.tests.add(name)
                 result.reasons.append(f"{path} is read by {name}")
 
+    removed = [line[1:] for line in diff or [] if line[:1] in "+-" and not line.startswith(("+++", "---"))]
+    if not result.release and any(DEBUG_CONDITIONAL.match(line) for line in removed):
+        result.release = True
+        result.reasons.append("the diff adds or removes a DEBUG conditional")
     if result.full:
         return result
     for name in tests:
@@ -388,9 +426,10 @@ def canary_targets(graph: dict, changed_targets: set[str]) -> set[str]:
 def outputs(result: Route) -> dict[str, str]:
     flag = lambda value: "true" if value else "false"  # noqa: E731
     # Any tier that needs a Mac: the placement job places these runs.
-    macos = result.native or result.webview or result.swift or result.generated or result.daemon
+    macos = result.native or result.release or result.webview or result.swift or result.generated or result.daemon
     return {
         "native": flag(result.native),
+        "release": flag(result.release),
         "swift_canary": flag(result.swift_canary),
         "macos": flag(macos),
         "scheme": flag(result.scheme or result.webview or result.full),
@@ -409,6 +448,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--root", type=Path, default=ROOT)
     parser.add_argument("--event", required=True)
     parser.add_argument("--changed-files", type=Path)
+    parser.add_argument("--diff", type=Path, help="the pull request's unified diff (-U0)")
     parser.add_argument("--labels", default="")
     parser.add_argument("--github-output", type=Path)
     parser.add_argument("--summary", type=Path)
@@ -417,8 +457,11 @@ def main(argv: list[str]) -> int:
     changed = None
     if args.changed_files:
         changed = [line for line in args.changed_files.read_text(encoding="utf-8").splitlines() if line]
+    diff = None
+    if args.diff:
+        diff = args.diff.read_text(encoding="utf-8", errors="replace").splitlines()
     labels = {label for label in args.labels.split(",") if label}
-    result = route(args.root, args.event, changed, labels)
+    result = route(args.root, args.event, changed, labels, diff)
     values = outputs(result)
     lines = [f"{key}={value}" for key, value in values.items()]
     print("\n".join(lines))
@@ -428,7 +471,7 @@ def main(argv: list[str]) -> int:
     if args.summary:
         with args.summary.open("a", encoding="utf-8") as stream:
             stream.write("### cmux-next tiers\n\n| tier | runs |\n| --- | --- |\n")
-            for key in ("generated", "native", "swift_canary", "scheme", "swift", "daemon", "full"):
+            for key in ("generated", "native", "release", "swift_canary", "scheme", "swift", "daemon", "full"):
                 stream.write(f"| {key} | {values[key]} |\n")
             stream.write(f"\nSwift test targets: {values['swift_targets'] or 'none'}\n\n")
             stream.write(f"Swift canary targets: {values['swift_canary_targets'] or 'none'}\n\n")

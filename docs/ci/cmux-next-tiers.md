@@ -10,7 +10,7 @@ job's summary lists each tier and the reason for it.
 | checks | `cmux-next checks` (god files, concurrency, crash safety, string tables, script tests, package conventions, tier routing) | any cmux-next path | Linux (Blacksmith) |
 | generated | `cmux-next generated files` (action catalog, surfaces and inventory; CI target graph) | the CmuxNext package, `plans/cmux-next/`, the generators | mini |
 | swift canary | `cmux-next Swift canary` (Debug SwiftPM build of the changed production targets) | production Swift files under `Packages/macOS/CmuxNext/Sources/` only | mini, placed first |
-| native | `cmux-next Release compile (Xcode 26)` | Swift or app sources | mini |
+| release | `cmux-next Release compile (Xcode 26)` | a `Package.swift`, an `.xcconfig` or `.pbxproj`, the Release compile's own scripts or the CEF shim, or a source file that has or loses a `#if DEBUG`-style conditional. `swift test` already builds the package in Debug with the same Xcode, so other Swift changes skip it | mini |
 | scheme | `cmux app scheme compile (Debug)` | the app host, Xcode project, CLI, resources, webviews, local packages CmuxNext uses, an executable target | mini |
 | swift | `cmux-next swift test` | the test targets the target graph reaches | mini |
 | daemon | `cmux-next daemon tests` (`same-tree cmux-tui` reports a tree that nothing will publish) | cmux-tui tree inputs, daemon capabilities, `pin-cmux-tui.sh`, CmuxNextDaemon or CmuxNextMobile and their dependencies, CmuxNextControl | a mini, once the tree is published |
