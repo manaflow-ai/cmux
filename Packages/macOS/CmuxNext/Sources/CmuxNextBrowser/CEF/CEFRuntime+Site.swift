@@ -60,7 +60,7 @@ extension CEFRuntime {
         return reply?.value == 1
     }
 
-    private func siteCall(_ browser: Int32, what: String,
+    func siteCall(_ browser: Int32, what: String,
                           start: (CEFShimLibrary, Int32) -> Int32) async throws -> CEFSiteReply {
         guard let shim else { throw BrowserTabError.closed }
         let id = nextSiteReply

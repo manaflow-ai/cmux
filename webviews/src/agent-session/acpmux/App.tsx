@@ -101,7 +101,7 @@ import {
 import { RenderCard, canRender } from "./conversation/RenderCard";
 import { renderCall } from "./conversation/renderCall";
 import { DateLine } from "./conversation/DateLine";
-import { SHORTCUT_ACTIONS, ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
+import { ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
 import { FALLBACK_LINK_SCHEME, revealTurnWhenShown, setLinkScheme } from "./links";
 import { copyText, copyTextResult } from "./conversation/clipboard";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
@@ -110,9 +110,10 @@ import { ImageViewer } from "./conversation/ImageViewer";
 import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { sessionLink } from "./links";
 import { ChatHeaderStatus } from "./header/ChatHeaderStatus";
-import { ChatHeaderTools, HEADER_ACTIONS, type ChatMenuItem } from "./header/ChatHeaderTools";
+import { ChatHeaderTools, HEADER_ACTIONS, menuGroups, type ChatMenuItem } from "./header/ChatHeaderTools";
 import { configureQuickActions, type QuickActionMode } from "./header/quickActions";
 import { archiveRow } from "./header/archiveRow";
+import { copyRow } from "./header/copyRow";
 import { sideChatRow } from "./header/sideChatRow";
 import { Thinking } from "./conversation/Thinking";
 import { WorkingFor } from "./conversation/WorkingFor";
@@ -2562,28 +2563,11 @@ function AcpmuxPane() {
     (throughSeq) => ignoreFailure(callNative("chat.side", { throughSeq })),
     t,
   );
-  const copyLinkRow = (link: string): ChatMenuItem => ({
-    key: "copyLink",
-    label: t("chatMenu.copyLink"),
-    icon: "link",
-    shortcutAction: SHORTCUT_ACTIONS.copyTabLink,
-    onSelect: () => ignoreFailure(copyText(link)),
-  });
   const chatMenu = (): ChatMenuItem[] => {
     const link = snapshot.sessionId ? sessionLink(snapshot.sessionId) : undefined;
-    const chat: ChatMenuItem[] = [
-      {
-        key: "inspector",
-        label: t("inspector.title"),
-        icon: "code",
-        onSelect: () => {
-          inspectorOpener.current = Array.from(
-            document.querySelectorAll<HTMLElement>(".acpmux-header-tools button"),
-          ).find((button) => button.getAttribute("aria-label") === t("chatMenu.open"));
-          toggleInspector(true);
-        },
-      },
-      ...(forkable && lastForkSeq !== undefined
+    const copy = copyRow({ link, rows: snapshot.rows }, (text) => ignoreFailure(copyText(text)), t);
+    const fork: ChatMenuItem[] =
+      forkable && lastForkSeq !== undefined
         ? [
             {
               key: "fork",
@@ -2592,9 +2576,9 @@ function AcpmuxPane() {
               onSelect: () => turnActions.fork?.(lastForkSeq),
             },
           ]
-        : []),
-      ...(sideChat ? [sideChat] : []),
-      ...(snapshot.canHandoff && handoffTargets.length > 0
+        : [];
+    const continueIn: ChatMenuItem[] =
+      snapshot.canHandoff && handoffTargets.length > 0
         ? [
             {
               key: "continue",
@@ -2608,7 +2592,19 @@ function AcpmuxPane() {
               })),
             },
           ]
-        : []),
+        : [];
+    const tools: ChatMenuItem[] = [
+      {
+        key: "inspector",
+        label: t("inspector.title"),
+        icon: "code",
+        onSelect: () => {
+          inspectorOpener.current = Array.from(
+            document.querySelectorAll<HTMLElement>(".acpmux-header-tools button"),
+          ).find((button) => button.getAttribute("aria-label") === t("chatMenu.open"));
+          toggleInspector(true);
+        },
+      },
       ...(checkpoints.supported
         ? [
             {
@@ -2621,57 +2617,62 @@ function AcpmuxPane() {
         : []),
     ];
     // Quick Chat's panel is not a tab: only the chat's own actions.
-    if (quick)
-      return chat.length ? [...chat, ...(link ? (["separator", copyLinkRow(link)] as ChatMenuItem[]) : [])] : [];
-    return [
-      {
-        key: "rename",
-        label: t("chatMenu.rename"),
-        icon: "action.edit",
-        shortcutAction: HEADER_ACTIONS.rename,
-        onSelect: () => runHeaderAction(HEADER_ACTIONS.rename),
-      },
-      {
-        key: "pin",
-        label: tabPinned.current ? t("chatMenu.unpin") : t("chatMenu.pin"),
-        icon: "action.pin",
-        shortcutAction: HEADER_ACTIONS.pin,
-        onSelect: () => runHeaderAction(HEADER_ACTIONS.pin),
-      },
-      ...(archive ? [archive] : []),
-      ...(chat.length ? (["separator", ...chat] as ChatMenuItem[]) : []),
-      ...(link ? (["separator", copyLinkRow(link)] as ChatMenuItem[]) : []),
-      "separator",
-      {
-        key: "moveRight",
-        label: t("chatMenu.moveRight"),
-        icon: "pane.split.right",
-        shortcutAction: HEADER_ACTIONS.moveRight,
-        onSelect: () => runHeaderAction(HEADER_ACTIONS.moveRight),
-      },
-      {
-        key: "newWorkspace",
-        label: t("chatMenu.newWorkspace"),
-        icon: "workspace.new",
-        shortcutAction: HEADER_ACTIONS.newWorkspace,
-        onSelect: () => runHeaderAction(HEADER_ACTIONS.newWorkspace),
-      },
-      {
-        key: "newWindow",
-        label: t("chatMenu.newWindow"),
-        icon: "app.open.external",
-        shortcutAction: HEADER_ACTIONS.newWindow,
-        onSelect: () => runHeaderAction(HEADER_ACTIONS.newWindow),
-      },
-      "separator",
-      {
-        key: "close",
-        label: t("chatMenu.close"),
-        icon: "tab.close",
-        shortcutAction: HEADER_ACTIONS.close,
-        onSelect: () => runHeaderAction(HEADER_ACTIONS.close),
-      },
-    ];
+    if (quick) return menuGroups([...fork, ...continueIn], copy ? [copy] : [], tools);
+    // ChatGPT's order: the chat's name and pin, new chats from it, Copy, where it shows, then Archive.
+    return menuGroups(
+      [
+        {
+          key: "rename",
+          label: t("chatMenu.rename"),
+          icon: "action.edit",
+          shortcutAction: HEADER_ACTIONS.rename,
+          onSelect: () => runHeaderAction(HEADER_ACTIONS.rename),
+        },
+        {
+          key: "pin",
+          label: tabPinned.current ? t("chatMenu.unpin") : t("chatMenu.pin"),
+          icon: "action.pin",
+          shortcutAction: HEADER_ACTIONS.pin,
+          onSelect: () => runHeaderAction(HEADER_ACTIONS.pin),
+        },
+      ],
+      [...(sideChat ? [sideChat] : []), ...fork, ...continueIn],
+      copy ? [copy] : [],
+      [
+        {
+          key: "moveRight",
+          label: t("chatMenu.moveRight"),
+          icon: "pane.split.right",
+          shortcutAction: HEADER_ACTIONS.moveRight,
+          onSelect: () => runHeaderAction(HEADER_ACTIONS.moveRight),
+        },
+        {
+          key: "newWorkspace",
+          label: t("chatMenu.newWorkspace"),
+          icon: "workspace.new",
+          shortcutAction: HEADER_ACTIONS.newWorkspace,
+          onSelect: () => runHeaderAction(HEADER_ACTIONS.newWorkspace),
+        },
+        {
+          key: "newWindow",
+          label: t("chatMenu.newWindow"),
+          icon: "app.open.external",
+          shortcutAction: HEADER_ACTIONS.newWindow,
+          onSelect: () => runHeaderAction(HEADER_ACTIONS.newWindow),
+        },
+      ],
+      tools,
+      [
+        ...(archive ? [archive] : []),
+        {
+          key: "close",
+          label: t("chatMenu.close"),
+          icon: "tab.close",
+          shortcutAction: HEADER_ACTIONS.close,
+          onSelect: () => runHeaderAction(HEADER_ACTIONS.close),
+        },
+      ],
+    );
   };
   const showNewTab = newTab !== undefined && !snapshot.sessionId && snapshot.rows.length === 0;
   const inspectorHiddenSurface = quick || showNewTab;

@@ -33,8 +33,15 @@ export type ChatMenuItem =
       shortcutAction?: string;
       disabled?: boolean;
       onSelect?: () => void;
-      children?: { key: string; label: string; onSelect: () => void }[];
+      children?: ChatMenuChild[];
     };
+
+/// The menu's groups in order, the empty ones dropped, with a separator between each two.
+export const menuGroups = (...groups: ChatMenuItem[][]): ChatMenuItem[] =>
+  groups.filter((group) => group.length > 0).flatMap((group, index) => (index ? ["separator", ...group] : group));
+
+/// A submenu row: its label, and the keycap of `shortcutAction` when it has one.
+export type ChatMenuChild = { key: string; label: string; shortcutAction?: string; onSelect: () => void };
 
 export function ChatHeaderTools({
   onTerminal,
@@ -183,11 +190,7 @@ function ChatMenu({
       </MenuButton>
       <MenuPopup className="acpmux-chat-menu-popover" align="end">
         {children
-          ? children.map((child) => (
-              <MenuItem key={child.key} className="acpmux-chat-menu-item" onSelect={child.onSelect}>
-                <span className="acpmux-chat-menu-label">{child.label}</span>
-              </MenuItem>
-            ))
+          ? children.map((child) => <ChatMenuChildRow key={child.key} child={child} />)
           : rows.map((row, index) =>
               row === "separator" ? (
                 // oxlint-disable-next-line react/no-array-index-key
@@ -206,9 +209,7 @@ function ChatMenu({
                   }
                 >
                   {row.children.map((child) => (
-                    <MenuItem key={child.key} className="acpmux-chat-menu-item" onSelect={child.onSelect}>
-                      <span className="acpmux-chat-menu-label">{child.label}</span>
-                    </MenuItem>
+                    <ChatMenuChildRow key={child.key} child={child} />
                   ))}
                 </Submenu>
               ) : (
@@ -226,6 +227,16 @@ function ChatMenuRow({ item }: { item: Exclude<ChatMenuItem, "separator"> }) {
     <MenuItem className="acpmux-chat-menu-item" disabled={item.disabled} onSelect={item.onSelect}>
       <Icon name={item.icon} size={15} />
       <span className="acpmux-chat-menu-label">{item.label}</span>
+      {shortcut && <kbd className="acpmux-chat-menu-key">{shortcut}</kbd>}
+    </MenuItem>
+  );
+}
+
+function ChatMenuChildRow({ child }: { child: ChatMenuChild }) {
+  const shortcut = useShortcut(child.shortcutAction ?? "");
+  return (
+    <MenuItem className="acpmux-chat-menu-item" onSelect={child.onSelect}>
+      <span className="acpmux-chat-menu-label">{child.label}</span>
       {shortcut && <kbd className="acpmux-chat-menu-key">{shortcut}</kbd>}
     </MenuItem>
   );

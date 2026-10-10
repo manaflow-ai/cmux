@@ -62,6 +62,9 @@ public protocol BrowserTab: AnyObject, Observable, Sendable {
 
     func showDevTools()
 
+    /// The favicon at `url` fetched as this tab would (the default is the app's cookieless fetch).
+    func fetchFavicon(_ url: URL) async -> NSImage?
+
     /// An agent is driving this tab (browser automation): saved passwords
     /// stop filling in it for the rest of its life, so a page script cannot
     /// read one after an automated click. Agents sign in only through the
@@ -84,6 +87,12 @@ extension BrowserTab {
     public func thumbnail() async throws -> CGImage { try await snapshot() }
 
     /// Engines without Chromium password autofill have nothing to withhold.
+    /// The favicon at `url` as this tab fetches it: the app's cookieless fetch, unless the
+    /// engine can fetch through the tab's own context (a Chromium tab, cx-d0d.8).
+    public func fetchFavicon(_ url: URL) async -> NSImage? {
+        await BrowserFaviconLoader.shared.favicon(at: url, profile: profileID)
+    }
+
     public func markAgentDriven() {}
     public var isAgentDriven: Bool { false }
     public func setPasswordFillAllowedByProfile(_ allowed: Bool) {}

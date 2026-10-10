@@ -97,6 +97,13 @@ public nonisolated struct BrowserTabState: Hashable, Sendable {
         }
     }
 
+    /// The request is out and no response committed yet: Chromium's waiting throbber
+    /// (counter-clockwise), before the loading one (clockwise) once the page commits.
+    public var isWaiting: Bool {
+        if case .provisional = phase { return true }
+        return false
+    }
+
     public var loadError: BrowserLoadError? {
         if case .failed(let error) = phase { return error }
         return nil
