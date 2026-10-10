@@ -95,7 +95,7 @@ extension WorkspaceContentController {
     /// Runs a pane-creating command and focuses the new pane when it lands;
     /// `then` runs after it succeeded (a new column's width change).
     private func spawnPane(_ label: String, then: (@MainActor () -> Void)? = nil,
-                           _ body: @escaping @Sendable (DaemonConnection) async throws -> SurfaceCreated) {
+                           _ body: @escaping @Sendable (isolated DaemonConnection) async throws -> SurfaceCreated) {
         guard let connection = daemon.connection else { return }
         let intent = beginFocusIntent()
         // [services, state]: the task pins this controller's owners until it ends (cx-6so P1b).
@@ -146,7 +146,7 @@ extension WorkspaceContentController {
     }
 
     private func sendGesture(_ transaction: LayoutTransactionID, phase: LayoutGesturePhase, label: String,
-                             _ body: @escaping @Sendable (DaemonConnection) async throws -> Void) {
+                             _ body: @escaping DaemonCommandBody) {
         Task {
             let ok = await daemon.run(label, body)
             guard phase == .ended || !ok else { return }
