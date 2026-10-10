@@ -8,6 +8,9 @@ import { ApiClient, ApiError } from "./backend/api.ts";
 import { HostAgent } from "./backend/hostAgent.ts";
 import { HostClient } from "./client.ts";
 import { HostCore } from "./host.ts";
+import { AcpmuxAgents } from "./bridge/acpmuxAgents.ts";
+import { DaemonTerminals } from "./bridge/daemonTerminals.ts";
+import { discoverTargets } from "./bridge/discover.ts";
 import { downloadChrome, findChromeBinaries } from "./providers/browser/chrome.ts";
 import { createLoopbackPair } from "./transport/loopback.ts";
 import { enableRtcLoggingFromEnv, shutdownWebRtc } from "./transport/webrtc.ts";
@@ -19,6 +22,7 @@ Usage:
   cmux-next-host login --api https://<backend> [--name <host name>] [--yes]
   cmux-next-host run [--relay-only] [--cdp http://127.0.0.1:9222] [--api URL]
                      [--headless-browser] [--no-browser-launch] [--no-browser-download]
+                     [--bridge auto|on|off] [--daemon-socket PATH] [--acpmux-socket PATH]
   cmux-next-host status
   cmux-next-host logout
   cmux-next-host install-chrome
@@ -39,6 +43,9 @@ async function main(): Promise<void> {
       "headless-browser": { type: "boolean", default: false },
       "no-browser-launch": { type: "boolean", default: false },
       "no-browser-download": { type: "boolean", default: false },
+      bridge: { type: "string", default: "auto" },
+      "daemon-socket": { type: "string" },
+      "acpmux-socket": { type: "string" },
     },
     allowPositionals: true,
   });
@@ -53,6 +60,9 @@ async function main(): Promise<void> {
         headless: values["headless-browser"]!,
         launch: !values["no-browser-launch"],
         download: !values["no-browser-download"],
+        bridge: values.bridge as string,
+        daemonSocket: values["daemon-socket"],
+        acpmuxSocket: values["acpmux-socket"],
       });
     case "status":
       return status();
@@ -138,7 +148,47 @@ async function login(apiArg: string | undefined, name: string | undefined, yes =
   throw new Error("pairing code expired; run login again");
 }
 
-async function run(opts: { api?: string; relayOnly: boolean; cdp?: string; headless: boolean; launch: boolean; download: boolean }): Promise<void> {
+interface RunOptions {
+  api?: string;
+  relayOnly: boolean;
+  cdp?: string;
+  headless: boolean;
+  launch: boolean;
+  download: boolean;
+  /** auto (bridge when a cmux-next app is running), on, off. */
+  bridge?: string;
+  daemonSocket?: string;
+  acpmuxSocket?: string;
+}
+
+/** Bridges to the running cmux-next app, or null for standalone mode. */
+async function setupBridge(opts: RunOptions, log: (m: string) => void) {
+  const mode = opts.bridge ?? "auto";
+  if (mode === "off") return null;
+  if (mode !== "auto" && mode !== "on") throw new Error("--bridge must be auto, on or off");
+  const explicit = { daemonSocket: opts.daemonSocket, acpmuxSocket: opts.acpmuxSocket };
+  let targets = await discoverTargets(explicit);
+  if (!targets.daemonSocket && !targets.acpmuxSocket) {
+    if (mode === "on") throw new Error("--bridge on: no running cmux-next app found (no daemon or acpmux socket)");
+    log("no running cmux-next app found; standalone mode (own terminals and agents)");
+    return null;
+  }
+  log(`bridging to cmux-next: daemon ${targets.daemonSocket ?? "none"} (session ${targets.session ?? "?"}), acpmux ${targets.acpmuxSocket ?? "none"}`);
+  // The app may restart (new socket); re-discover periodically.
+  const timer = setInterval(() => {
+    void discoverTargets(explicit).then((t) => {
+      if (t.daemonSocket !== targets.daemonSocket || t.acpmuxSocket !== targets.acpmuxSocket) log(`cmux-next targets changed: daemon ${t.daemonSocket ?? "none"}, acpmux ${t.acpmuxSocket ?? "none"}`);
+      targets = { daemonSocket: t.daemonSocket ?? targets.daemonSocket, session: t.session ?? targets.session, acpmuxSocket: t.acpmuxSocket ?? targets.acpmuxSocket };
+    });
+  }, 15_000);
+  timer.unref();
+  return {
+    terminals: targets.daemonSocket ? new DaemonTerminals(() => targets.daemonSocket, { log: makeLogger("bridge") }) : undefined,
+    agents: targets.acpmuxSocket ? new AcpmuxAgents(() => targets.acpmuxSocket, { log: makeLogger("bridge") }) : undefined,
+  };
+}
+
+async function run(opts: RunOptions): Promise<void> {
   const log = makeLogger("host");
   const cfg = readConfig();
   const apiBase = opts.api ?? cfg.api;
@@ -148,10 +198,12 @@ async function run(opts: { api?: string; relayOnly: boolean; cdp?: string; headl
     process.exit(0);
   }
   enableRtcLoggingFromEnv(makeLogger("rtc"));
+  const bridge = await setupBridge(opts, log);
   const core = new HostCore({
     hostId: cfg.hostId,
     hostName: cfg.hostName,
     log,
+    bridge: bridge ?? undefined,
     browser: { cdp: opts.cdp, headless: opts.headless, launch: opts.launch, download: opts.download, log: makeLogger("browser") },
   });
   const api = new ApiClient(apiBase, cfg.hostToken);

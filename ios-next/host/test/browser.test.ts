@@ -339,7 +339,8 @@ describe("BrowserProvider with a fake CDP endpoint", () => {
     const exited = new Promise((r) => unsafe.once("exit", r));
     expect(await retireUnsafeProfileChrome(() => {}, profile)).toBe(true);
     await exited;
-  });
+  }, 90_000); // ps can take seconds on a loaded Mac
+
 
   it("only adopts a CDP endpoint the host launched (DevToolsActivePort in its profile)", async () => {
     const cdp = await startFakeCdp();

@@ -10,6 +10,8 @@ import { ChiefProvider } from "./providers/chief.ts";
 import { FilesProvider, type FilesOptions } from "./providers/files.ts";
 import { TerminalProvider, type TerminalOptions } from "./providers/terminal.ts";
 import { VERSION, type Logger } from "./util.ts";
+import type { AcpmuxAgents } from "./bridge/acpmuxAgents.ts";
+import type { DaemonTerminals } from "./bridge/daemonTerminals.ts";
 
 export interface HostCoreOptions {
   hostId?: string;
@@ -20,6 +22,12 @@ export interface HostCoreOptions {
   browser?: BrowserProviderOptions;
   conversationsPath?: string;
   files?: FilesOptions;
+  /**
+   * Bridge to the cmux-next app on this Mac: when set, term.* and agent.*
+   * are served from its daemon and acpmux instead of the host's own PTYs and
+   * agents (Chief keeps using the host's agents for its own session).
+   */
+  bridge?: { terminals?: DaemonTerminals; agents?: AcpmuxAgents };
 }
 
 export class HostCore {
@@ -29,6 +37,7 @@ export class HostCore {
   readonly chief: ChiefProvider;
   readonly browser: BrowserProvider;
   readonly files: FilesProvider;
+  readonly bridge: { terminals?: DaemonTerminals; agents?: AcpmuxAgents };
   hostId: string;
   readonly hostName: string;
 
@@ -42,8 +51,11 @@ export class HostCore {
     this.chief = new ChiefProvider(this.agents, { log, hostName: this.hostName, path: opts.conversationsPath });
     this.browser = new BrowserProvider({ log, ...opts.browser });
     this.files = new FilesProvider({ log, ...opts.files });
-    this.terminals.register(this.server);
-    this.agents.register(this.server);
+    this.bridge = opts.bridge ?? {};
+    if (this.bridge.terminals) this.bridge.terminals.register(this.server);
+    else this.terminals.register(this.server);
+    if (this.bridge.agents) this.bridge.agents.register(this.server);
+    else this.agents.register(this.server);
     this.chief.register(this.server);
     this.browser.register(this.server);
     this.files.register(this.server);
@@ -68,6 +80,8 @@ export class HostCore {
   shutdown(): void {
     this.terminals.closeAll();
     this.agents.shutdown();
+    this.bridge.terminals?.shutdown();
+    this.bridge.agents?.shutdown();
     this.chief.flush();
     this.browser.close();
     this.files.close();
