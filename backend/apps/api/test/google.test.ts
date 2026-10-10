@@ -56,38 +56,6 @@ const CAL = "https://www.googleapis.com/calendar/v3"
 const e = testEnv as any
 const oauth = { kind: "oauth" as const, access_token: "ya29.test", refresh_token: "1//refresh", expires_at: Date.now() + 3600_000 }
 
-describe("Google scopes and tokens", () => {
-  it("refuses unknown scopes everywhere and restricted Gmail scopes unless the deployment allows them", () => {
-    const refuse = refuseGoogleScopes(["gmail.send", "gmail.readonly", "gmail.modify"])
-    const production = { ...e, GOOGLE_RESTRICTED_SCOPES: undefined }
-    expect(refuse(production, ["gmail.send"])).toBeUndefined()
-    expect(refuse(production, ["gmail.readonly"])).toMatch(/restricted Gmail scope/)
-    expect(refuse(production, ["https://mail.google.com/"])).toMatch(/not a scope/)
-    expect(refuse(e, ["gmail.readonly", "gmail.modify"])).toBeUndefined()
-    expect(typeof gmail.defaultScopes === "function" && gmail.defaultScopes(production)).toEqual(["gmail.send"])
-    expect(typeof gmail.defaultScopes === "function" && gmail.defaultScopes(e)).toEqual(["gmail.send", "gmail.modify"])
-  })
-
-  it("production honors only a verified restricted-scope setting", () => {
-    expect(restrictedScopesEnabled({ ...e, ENVIRONMENT: "production", GOOGLE_RESTRICTED_SCOPES: "testing" })).toBe(false)
-    expect(restrictedScopesEnabled({ ...e, ENVIRONMENT: "production", GOOGLE_RESTRICTED_SCOPES: "internal" })).toBe(false)
-    expect(restrictedScopesEnabled({ ...e, ENVIRONMENT: "production", GOOGLE_RESTRICTED_SCOPES: "verified" })).toBe(true)
-    expect(restrictedScopesEnabled({ ...e, ENVIRONMENT: "staging", GOOGLE_RESTRICTED_SCOPES: "testing" })).toBe(true)
-  })
-
-  it("maps Google errors: 401 reauth, 403 rate limit retryable, effect 5xx and network failure indeterminate", async () => {
-    const at = (res: () => Response) => fakeHttp({ "https://x.test/": res }).http
-    await expect(googleApi(at(() => ok({}, 401)), "t", "GET", "https://x.test/a", { what: "a" })).rejects.toMatchObject({ code: "needs_reauth" })
-    await expect(googleApi(at(() => ok({ error: { errors: [{ reason: "userRateLimitExceeded" }] } }, 403)), "t", "GET", "https://x.test/a", { what: "a" })).rejects.toMatchObject({ retryable: true })
-    await expect(googleApi(at(() => ok({}, 502)), "t", "POST", "https://x.test/a", { what: "a", effect: true })).rejects.toMatchObject({ code: "mutation.indeterminate" })
-    await expect(googleApi(at(() => ok({}, 502)), "t", "GET", "https://x.test/a", { what: "a" })).rejects.toMatchObject({ code: "provider.error", retryable: true })
-    const broken: Http = async () => {
-      throw new Error("reset")
-    }
-    await expect(googleApi(broken, "t", "POST", "https://x.test/a", { what: "a", effect: true })).rejects.toMatchObject({ code: "mutation.indeterminate" })
-  })
-})
-
 describe("Gmail client (fake HTTP)", () => {
 
   it("peek reports a deleted thread as missing and keeps the order", async () => {

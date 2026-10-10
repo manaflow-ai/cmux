@@ -1,5 +1,5 @@
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// One value, delivered once, to one waiter that may be cancelled: the
 /// wait ends with `cancelled` when its task is cancelled, so no

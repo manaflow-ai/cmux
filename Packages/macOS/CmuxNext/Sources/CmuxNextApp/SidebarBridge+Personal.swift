@@ -35,10 +35,11 @@ extension SidebarBridge {
         case .setGroupColor(let group, let color):
             groupFlow.edit(group, color: color, intent)
         case .toggleCollapse(.group(let group)):
-            model.apply(intent)
-            guard let collapsed = model.group(group)?.isCollapsed else { return true }
-            let v2 = statePersonal
-            personal("update-personal-group") {
+            // Each click flips what the sidebar shows now; the fold holds
+            // until the store has it, so no echo undoes a click (cx-qno.17).
+            guard let shown = model.group(group)?.isCollapsed else { return true }
+            let collapsed = !shown, v2 = statePersonal
+            rows.fold(group, collapsed: collapsed, on: services.machines.local, resync: { [weak self] in self?.resync() }) {
                 if v2 { return try await $0.state.updateWorkspaceGroup(group.rawValue, collapsed: collapsed) }
                 try await $0.updatePersonalGroup(WorkspaceGroupID(rawValue: group.rawValue), collapsed: collapsed)
             }

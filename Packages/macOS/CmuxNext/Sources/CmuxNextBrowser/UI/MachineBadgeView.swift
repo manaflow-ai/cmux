@@ -16,7 +16,8 @@ final class MachineBadgeView: NSView {
         label.translatesAutoresizingMaskIntoConstraints = false
         label.font = Typography.caption
         label.lineBreakMode = .byTruncatingTail
-        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        // Beats the URL field (250) beside it: a long URL truncates, not the chip (cx-k9mc).
+        label.setContentCompressionResistancePriority(.keepsTextWidth, for: .horizontal)
         addSubview(label)
         NSLayoutConstraint.activate([
             label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),

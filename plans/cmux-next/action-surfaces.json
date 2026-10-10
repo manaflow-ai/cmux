@@ -7037,7 +7037,7 @@
     },
     {
       "cli" : "focusMove",
-      "cli_name" : "tab next",
+      "cli_name" : "action navigate-next",
       "context_menu" : "focusMove",
       "context_menus" : [
 
@@ -7098,7 +7098,7 @@
           "cmd"
         ]
       },
-      "id" : "nextSurface",
+      "id" : "navigate.next",
       "mcp" : "focusMove",
       "palette" : "offered",
       "palette_section" : {
@@ -7109,13 +7109,13 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Next Tab",
-      "title_key" : "action.nextSurface",
+      "title" : "Next Tab or Workspace",
+      "title_key" : "action.navigate.next",
       "title_table" : "ActionCatalog"
     },
     {
       "cli" : "focusMove",
-      "cli_name" : "tab previous",
+      "cli_name" : "action navigate-previous",
       "context_menu" : "focusMove",
       "context_menus" : [
 
@@ -7177,6 +7177,60 @@
           "cmd"
         ]
       },
+      "id" : "navigate.previous",
+      "mcp" : "focusMove",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Previous Tab or Workspace",
+      "title_key" : "action.navigate.previous",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "focusMove",
+      "cli_name" : "tab next",
+      "context_menu" : "focusMove",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "nextSurface",
+      "mcp" : "focusMove",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Next Tab in Pane",
+      "title_key" : "action.nextSurface.inPane",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "focusMove",
+      "cli_name" : "tab previous",
+      "context_menu" : "focusMove",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
       "id" : "prevSurface",
       "mcp" : "focusMove",
       "palette" : "offered",
@@ -7188,8 +7242,8 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Previous Tab",
-      "title_key" : "action.prevSurface",
+      "title" : "Previous Tab in Pane",
+      "title_key" : "action.prevSurface.inPane",
       "title_table" : "ActionCatalog"
     },
     {
@@ -16789,6 +16843,105 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "agent zoom-in",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "pane",
+        "agentChat"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "=",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "id" : "agentPaneZoomIn",
+      "mcp" : "systemChange",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Agent Chat: Zoom In",
+      "title_key" : "action.agentPaneZoomIn",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "agent zoom-out",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "pane",
+        "agentChat"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "-",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "id" : "agentPaneZoomOut",
+      "mcp" : "systemChange",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Agent Chat: Zoom Out",
+      "title_key" : "action.agentPaneZoomOut",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "agent actual-size",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "pane",
+        "agentChat"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "0",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "id" : "agentPaneZoomReset",
+      "mcp" : "systemChange",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Agent Chat: Actual Size",
+      "title_key" : "action.agentPaneZoomReset",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "agent new-chat",
       "context_menu" : "offered",
       "context_menus" : [
@@ -22436,7 +22589,12 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : null,
+      "default_shortcut" : {
+        "key" : "=",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
       "id" : "terminal.increaseFontSize",
       "mcp" : "stepAdjust",
       "palette" : "offered",
@@ -22463,7 +22621,12 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : null,
+      "default_shortcut" : {
+        "key" : "-",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
       "id" : "terminal.decreaseFontSize",
       "mcp" : "stepAdjust",
       "palette" : "offered",
@@ -22490,7 +22653,12 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : null,
+      "default_shortcut" : {
+        "key" : "0",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
       "id" : "terminal.resetFontSize",
       "mcp" : "stepAdjust",
       "palette" : "offered",
@@ -25791,14 +25959,53 @@
           }
         },
         {
+          "enabled_when" : "can_perform",
+          "id" : "agentPaneZoomIn",
+          "kind" : "action",
+          "order" : 5,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+              "agentPaneFocused"
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "agentPaneZoomOut",
+          "kind" : "action",
+          "order" : 6,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+              "agentPaneFocused"
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "agentPaneZoomReset",
+          "kind" : "action",
+          "order" : 7,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+              "agentPaneFocused"
+            ]
+          }
+        },
+        {
           "kind" : "separator",
-          "order" : 5
+          "order" : 8
         },
         {
           "enabled_when" : "can_perform",
           "id" : "agentPane.toggleInspector",
           "kind" : "action",
-          "order" : 6,
+          "order" : 9,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -25809,7 +26016,7 @@
         }
       ],
       "implied" : [
-
+        "agentPaneFocused"
       ]
     },
     "bookmark" : {
@@ -28144,6 +28351,45 @@
                 "feature" : null,
                 "requires" : [
 
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "agentPaneZoomIn",
+              "kind" : "action",
+              "order" : 16,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+                  "agentPaneFocused"
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "agentPaneZoomOut",
+              "kind" : "action",
+              "order" : 17,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+                  "agentPaneFocused"
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "agentPaneZoomReset",
+              "kind" : "action",
+              "order" : 18,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+                  "agentPaneFocused"
                 ]
               }
             }
