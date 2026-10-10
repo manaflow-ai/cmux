@@ -1,5 +1,5 @@
 import Foundation
-import Synchronization
+import CmuxNextCompat
 import os
 
 /// Where the daemon listens, as printed by `server ensure`.

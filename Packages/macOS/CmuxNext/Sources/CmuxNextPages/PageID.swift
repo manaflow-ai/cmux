@@ -1,5 +1,5 @@
 public import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// Page ids and their trust (coordinator rule from the P8 review): a page id is its origin host
 /// (`cmux-page://<id>`), and a first-party host inherits first-party access (`cmux.agent` reaches

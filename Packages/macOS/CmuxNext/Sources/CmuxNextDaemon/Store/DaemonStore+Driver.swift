@@ -1,6 +1,6 @@
 import CmuxNextWakeups
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// Off-main event buffer. The pump appends; the main actor takes whole
 /// batches. At most one frame is requested per non-empty buffer.

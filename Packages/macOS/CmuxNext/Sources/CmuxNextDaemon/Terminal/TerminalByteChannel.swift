@@ -1,5 +1,5 @@
 public import Foundation
-import Synchronization
+import CmuxNextCompat
 import os
 
 public enum TerminalChannelCloseReason: Sendable, Hashable {

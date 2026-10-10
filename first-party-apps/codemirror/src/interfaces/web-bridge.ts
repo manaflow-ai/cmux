@@ -1,5 +1,5 @@
 // PROPOSED web pane bridge (app platform critique C6).
-// Vendored copy; identical in first-party-apps/{diffs,monaco,codemirror}.
+// Vendored copy; identical in first-party-apps/{diffs,codemirror}.
 //
 // A web pane is a sandboxed WKWebView that loads the app's bundle from the
 // `cmux-app://<app id>/` scheme with CSP `default-src 'self'` and no network.

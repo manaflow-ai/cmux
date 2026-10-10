@@ -19,7 +19,7 @@
   },
   "presentation": {
     "sidebarItem": { "section": "top", "order": 0 },
-    "screen": "appColumn",
+    "screen": "app",
     "tab": true,
     "primaryInput": "home.composer"
   }

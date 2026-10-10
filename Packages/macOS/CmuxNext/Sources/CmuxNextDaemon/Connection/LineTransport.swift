@@ -1,7 +1,7 @@
 import CmuxNextWakeups
 import Darwin
 public import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// Why a transport stopped.
 public enum TransportCloseReason: Sendable, Equatable {

@@ -3141,6 +3141,11 @@ export interface CloudOps {
     readonly params: Readonly<Record<string, never>>
     readonly result: UserProfile
   }
+  /** The owner's presence keys with their public P-256 parts, platform, App Attest flag, usable_from and install state. Only an owner Mac install without an agent claim reads it: the Mac checks a phone's signed feed answers (cx-aocz). */
+  readonly "user.presence_key.list": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: unknown
+  }
   /** Make an install's presence key unusable at once (device lost); its nonces are dropped. */
   readonly "user.presence_key.revoke": {
     readonly params: {
@@ -3367,6 +3372,7 @@ export const cloudOpMeta = {
   "usage.cap.set": { class: "mutation", owner: "cloud:UsageMeterDO", risk: "money" },
   "usage.summary": { class: "read", owner: "cloud:UsageMeterDO", risk: "read" },
   "user.ensure": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "user.presence_key.list": { class: "read", owner: "cloud:UserDO", risk: "read" },
   "user.presence_key.revoke": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "user.teams.list": { class: "read", owner: "cloud:UserDO", risk: "read" },
   "user.text_confirm.get": { class: "read", owner: "cloud:UserDO", risk: "read" },

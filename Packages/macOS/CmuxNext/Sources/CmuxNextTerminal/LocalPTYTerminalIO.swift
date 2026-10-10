@@ -1,7 +1,7 @@
 public import Foundation
 import Darwin
 import os
-import Synchronization
+import CmuxNextCompat
 
 /// A local shell on a PTY, exposed as a ``TerminalIO``. For development,
 /// demos, and tests only: production terminals come from the cmux-tui

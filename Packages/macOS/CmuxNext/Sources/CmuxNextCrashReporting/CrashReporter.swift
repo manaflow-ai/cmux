@@ -2,7 +2,7 @@ public import CmuxSentryReporting
 public import Darwin
 public import Foundation
 public import Sentry
-import Synchronization
+import CmuxNextCompat
 
 /// Sends cmux-next crashes (signals, Mach exceptions, uncaught Objective-C
 /// exceptions, app hangs) to Sentry, under ``CrashReportingPolicy``.

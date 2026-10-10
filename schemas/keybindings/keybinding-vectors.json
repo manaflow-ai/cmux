@@ -3,22 +3,22 @@
   "description": "Conformance vectors for cmux key binding resolution (R59). Every client (the Mac key router, the GPUI and browser clients) resolves each vector with the default table of the action catalog, every action runnable where its catalog context holds, plus the vector's own user entries and removals. keys: one stroke per array element in keybindings.json syntax (cmd, ctrl, opt, shift; tab, pagedown, right, escape, f1...). context: the live context keys (bool, string or number values). expect: {\"action\": id, \"args\": {...}} when the last key runs an entry, {\"armed\": true} when the chord waits for more keys, {\"none\": true} when a key completes nothing. Rules: plans/cmux-next/keybindings.md section 8.",
   "vectors": [
     {
-      "name": "Ctrl-Tab in an agent chat changes tabs",
+      "name": "Ctrl-Tab in an agent chat is Next",
       "context": {"surfaceKind": "agent", "agentPaneFocused": true},
       "keys": ["ctrl+tab"],
-      "expect": {"action": "nextSurface"}
+      "expect": {"action": "navigate.next"}
     },
     {
-      "name": "Ctrl-Shift-Tab in Settings changes tabs",
+      "name": "Ctrl-Shift-Tab in Settings is Previous",
       "context": {"surfaceKind": "settings"},
       "keys": ["ctrl+shift+tab"],
-      "expect": {"action": "prevSurface"}
+      "expect": {"action": "navigate.previous"}
     },
     {
-      "name": "Ctrl-PageDown in Home changes tabs",
+      "name": "Ctrl-PageDown in Home is Next",
       "context": {"surfaceKind": "home"},
       "keys": ["ctrl+pagedown"],
-      "expect": {"action": "nextSurface"}
+      "expect": {"action": "navigate.next"}
     },
     {
       "name": "Ctrl-Tab in a terminal stays with Ghostty (K-T1)",
@@ -27,16 +27,16 @@
       "expect": {"none": true}
     },
     {
-      "name": "Ctrl-Tab in terminal copy mode changes tabs",
+      "name": "Ctrl-Tab in terminal copy mode is Next",
       "context": {"surfaceKind": "terminal", "terminalFocused": true, "terminal.copyMode": true},
       "keys": ["ctrl+tab"],
-      "expect": {"action": "nextSurface"}
+      "expect": {"action": "navigate.next"}
     },
     {
-      "name": "Cmd-Shift-] in a web page is the next tab",
+      "name": "Cmd-Shift-] in a web page is Next",
       "context": {"surfaceKind": "page", "browserFocused": true},
       "keys": ["cmd+shift+]"],
-      "expect": {"action": "nextSurface"}
+      "expect": {"action": "navigate.next"}
     },
     {
       "name": "Cmd-R in a web page reloads",
@@ -123,23 +123,23 @@
     {
       "name": "A removal takes out the Ctrl-Tab default outside a terminal",
       "context": {"surfaceKind": "agent", "agentPaneFocused": true},
-      "removals": [{"key": "ctrl+tab", "command": "nextSurface", "when": "surfaceKind != terminal"}],
+      "removals": [{"key": "ctrl+tab", "command": "navigate.next", "when": "surfaceKind != terminal"}],
       "keys": ["ctrl+tab"],
       "expect": {"none": true}
     },
     {
       "name": "A removal with another when leaves the default",
       "context": {"surfaceKind": "agent", "agentPaneFocused": true},
-      "removals": [{"key": "ctrl+tab", "command": "nextSurface", "when": "surfaceKind == agent"}],
+      "removals": [{"key": "ctrl+tab", "command": "navigate.next", "when": "surfaceKind == agent"}],
       "keys": ["ctrl+tab"],
-      "expect": {"action": "nextSurface"}
+      "expect": {"action": "navigate.next"}
     },
     {
       "name": "A removal keeps the action's other keys",
       "context": {"surfaceKind": "agent", "agentPaneFocused": true},
-      "removals": [{"key": "ctrl+tab", "command": "nextSurface"}],
+      "removals": [{"key": "ctrl+tab", "command": "navigate.next"}],
       "keys": ["ctrl+pagedown"],
-      "expect": {"action": "nextSurface"}
+      "expect": {"action": "navigate.next"}
     }
   ]
 }

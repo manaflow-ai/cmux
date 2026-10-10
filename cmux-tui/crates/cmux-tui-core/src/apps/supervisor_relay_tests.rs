@@ -241,22 +241,6 @@ fn relay_needs_the_scope_and_a_provider() {
     );
 }
 
-#[test]
-fn a_stopped_server_cancels_its_relay_calls_and_a_late_answer_goes_nowhere() {
-    let (f, _outs) = setup(&[Probe::new("relay", true, vec![relay_op("r1", "cloud.machine.get")])]);
-    let rx = credential_provider(&f);
-    f.install("cmux/relay");
-    let call = next_event(&rx, "apps-provider-request");
-    let id = call["request_id"].as_u64().unwrap();
-    f.set("rm", "cmux/relay", Origin::User, |o| o.installed = Some(false)).unwrap();
-    let cancel = next_event(&rx, "apps-provider-cancel");
-    assert_eq!(cancel["request_id"], json!(id));
-    assert_eq!(
-        f.supervisor.provider_result(PROVIDER, id, true, json!({ "value": 1 })).unwrap_err().code,
-        "apps.provider.unknown"
-    );
-}
-
 fn with_origin(id: &str, origin: &str) -> Value {
     let mut line = relay_op(id, "cloud.machine.start");
     line["origin"] = json!(origin);

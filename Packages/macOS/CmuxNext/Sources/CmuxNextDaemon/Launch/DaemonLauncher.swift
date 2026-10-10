@@ -1,6 +1,6 @@
 public import Foundation
 import os
-import Synchronization
+import CmuxNextCompat
 
 /// Locates the bundled cmux-tui binary and runs `cmux-tui --session <S>
 /// --json server ensure`, which returns a running owner or spawns a detached

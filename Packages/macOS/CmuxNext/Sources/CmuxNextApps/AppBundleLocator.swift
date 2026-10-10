@@ -1,5 +1,5 @@
 public import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// Where an app's bundle files (icons, scene images) are on this Mac when
 /// the supervisor sent no `bundle_dir`: the bundled sample's directory once

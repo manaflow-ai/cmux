@@ -55,13 +55,18 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// Live gap to open, and its height.
     public var gap: DropPosition?
     public var gapHeight: CGFloat = 0
-    /// Show the machine header even when only one machine is listed,
-    /// titled "Projects" (the sidebar list sets it). Off in bare layouts.
+    /// With `sidebar.groupByComputer`, show the machine header even when
+    /// only one machine is listed, titled "Projects" (the sidebar list sets
+    /// it). One list (the default) never shows it (cx-mdo0).
     public var showsSoleMachineHeader = false
     /// One workspace list (`sidebar.groupByComputer` off): machine sections
     /// show no header and no gap between them, and a row of a computer other
-    /// than this Mac names it on its second line.
+    /// than this Mac names it (and a failed connection) on its second line.
     public var flattensMachines = false
+    /// In one list, the status a computer's rows name after its name when it
+    /// cannot connect until the person acts ("Failed to start"; cx-mdo0).
+    /// Localized by the model, so the layout stays nonisolated.
+    public var machineStatusLabels: [MachineID: String] = [:]
     /// Include tab rows beneath each visible workspace.
     public var showWorkspaceTabs = false
     /// With `showWorkspaceTabs`, the workspaces whose disclosure hid their tabs.

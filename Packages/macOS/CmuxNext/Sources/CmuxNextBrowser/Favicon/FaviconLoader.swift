@@ -1,6 +1,6 @@
 public import AppKit
 public import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// Loads favicons for tabs.
 public protocol BrowserFaviconLoading: AnyObject {

@@ -1,6 +1,6 @@
 public import Foundation
 public import Sentry
-import Synchronization
+import CmuxNextCompat
 import os
 
 /// Sends the crash reports macOS writes for this app's helper processes

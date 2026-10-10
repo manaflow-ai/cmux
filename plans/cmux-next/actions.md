@@ -39,7 +39,7 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 - `workspace`: 146
 - `pane`: 78
 - `screen`: 63
-- `tab`: 82
+- `tab`: 84
 - `terminal`: 36
 - `browser`: 159
 - `sidebar`: 63
@@ -49,9 +49,9 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 - `remote`: 10
 - `settings`: 76
 
-## Counts (898 actions)
+## Counts (900 actions)
 
-Palette 862, CLI verbs 484, right-click 467, MCP tools 424.
+Palette 864, CLI verbs 484, right-click 467, MCP tools 424.
 
 ## Menus
 
@@ -79,7 +79,7 @@ Palette 862, CLI verbs 484, right-click 467, MCP tools 424.
 - **notification**: notificationOpen | notificationToggleRead | notificationCopy | notificationDismiss
 - **sidebarItem**: sidebar.item.toggleLabel | sidebar.item.removeEverywhere sidebar.item.remove sidebar.item.hideApp
 - **sidebarSection**: sidebar.section.add sidebar.item.add | sidebar.section.rename [appearance] > (sidebar.section.useBuiltInLook sidebar.section.useListLook sidebar.section.toggleTitle sidebar.section.layoutList sidebar.section.layoutInline sidebar.section.layoutGrid sidebar.section.setAlignment sidebar.section.setGap sidebar.section.setColumns) [options] > (sidebar.section.toggleSpaceScope sidebar.section.setMaxRows) | sidebar.section.toggleCollapsed | [move] > (sidebar.section.moveToTop sidebar.section.moveToScrolling sidebar.section.moveToBottom) | sidebar.section.hide | sidebar.section.remove sidebar.item.hideApp
-- **agentChat**: appearance.changeBackground | appearance.interfaceSize.increase appearance.interfaceSize.decrease appearance.interfaceSize.reset | agentPaneZoomIn agentPaneZoomOut agentPaneZoomReset | agentPane.toggleInspector
+- **agentChat**: appearance.changeBackground | appearance.interfaceSize.increase appearance.interfaceSize.decrease appearance.interfaceSize.reset agentPaneZoomIn agentPaneZoomOut agentPaneZoomReset | agentPane.toggleInspector
 
 ## Exemptions: palette
 
@@ -103,7 +103,7 @@ Palette 862, CLI verbs 484, right-click 467, MCP tools 424.
 
 **devOnly** (9): `home.saveFlightRecording`, `chief.openMemoryInspector`, `remote.openBrowserTab`, `remote.openLocalBrowserTab`, `openDebugSettings`, `palette.onboardingGallery`, `server.makeThisMacAServer`, `server.stopServing`, `server.showHealth`
 
-**focusMove** (51): `showHideAllWindows`, `goToWorkspace`, `showMainWindow`, `nextSidebarTab`, `prevSidebarTab`, `nextSidebarTabInGroup`, `prevSidebarTabInGroup`, `selectWorkspaceByNumber`, `workspace.selectFirst`, `workspace.selectLast`, `workspace.selectLastUsed`, `nextWorkspaceGroup`, `prevWorkspaceGroup`, `space.next`, `space.previous`, `space.selectByNumber`, `focusLeft`, `focusRight`, `focusUp`, `focusDown`, `focusPreviousPane`, `focusNextPane`, `canvasRevealFocusedPane`, `focusLocation`, `nextSurface`, `prevSurface`, `selectSurfaceByNumber`, `home.show`, `home.previousConversation`, `home.nextConversation`, `home.openConversation`, `screen.next`, `screen.previous`, `screen.select`, `screen.selectLast`, `focusTextBoxInput`, `focusBrowserAddressBar`, `focusRightSidebar`, `vaultFocusSession`, `jumpToUnread`, `markOldestUnreadAndJumpNext`, `notificationOpen`, `computerUseFocus`, `computerUseFocusCallingTerminal`, `column.focusLeft`, `column.focusRight`, `focusHistoryBack`, `focusHistoryForward`, `focusHistoryLast`, `history.goTo`, `sidebar.section.toggleCollapsed`
+**focusMove** (53): `showHideAllWindows`, `goToWorkspace`, `showMainWindow`, `nextSidebarTab`, `prevSidebarTab`, `nextSidebarTabInGroup`, `prevSidebarTabInGroup`, `selectWorkspaceByNumber`, `workspace.selectFirst`, `workspace.selectLast`, `workspace.selectLastUsed`, `nextWorkspaceGroup`, `prevWorkspaceGroup`, `space.next`, `space.previous`, `space.selectByNumber`, `focusLeft`, `focusRight`, `focusUp`, `focusDown`, `focusPreviousPane`, `focusNextPane`, `canvasRevealFocusedPane`, `focusLocation`, `navigate.next`, `navigate.previous`, `nextSurface`, `prevSurface`, `selectSurfaceByNumber`, `home.show`, `home.previousConversation`, `home.nextConversation`, `home.openConversation`, `screen.next`, `screen.previous`, `screen.select`, `screen.selectLast`, `focusTextBoxInput`, `focusBrowserAddressBar`, `focusRightSidebar`, `vaultFocusSession`, `jumpToUnread`, `markOldestUnreadAndJumpNext`, `notificationOpen`, `computerUseFocus`, `computerUseFocusCallingTerminal`, `column.focusLeft`, `column.focusRight`, `focusHistoryBack`, `focusHistoryForward`, `focusHistoryLast`, `history.goTo`, `sidebar.section.toggleCollapsed`
 
 **stepAdjust** (34): `resizePaneLeft`, `resizePaneRight`, `resizePaneUp`, `resizePaneDown`, `increaseWorkspaceTerminalFontSize`, `decreaseWorkspaceTerminalFontSize`, `resetWorkspaceTerminalFontSize`, `canvasZoomIn`, `canvasZoomOut`, `canvasZoomReset`, `browserZoomIn`, `browserZoomOut`, `browserZoomReset`, `markdownZoomIn`, `markdownZoomOut`, `markdownZoomReset`, `fileEditorZoomIn`, `fileEditorZoomOut`, `fileEditorZoomReset`, `appearance.interfaceSize.increase`, `appearance.interfaceSize.decrease`, `appearance.interfaceSize.reset`, `appearance.uiScale.increase`, `appearance.uiScale.decrease`, `appearance.uiScale.reset`, `column.cycleWidth`, `column.cycleWidthBack`, `terminal.increaseFontSize`, `terminal.decreaseFontSize`, `terminal.resetFontSize`, `terminal.scrollPageUp`, `terminal.scrollPageDown`, `terminal.scrollToTop`, `terminal.scrollToBottom`
 
@@ -127,7 +127,7 @@ Palette 862, CLI verbs 484, right-click 467, MCP tools 424.
 
 **devOnly** (2): `openDebugSettings`, `palette.onboardingGallery`
 
-**focusMove** (53): `showHideAllWindows`, `goToWorkspace`, `showMainWindow`, `nextSidebarTab`, `prevSidebarTab`, `nextSidebarTabInGroup`, `prevSidebarTabInGroup`, `selectWorkspaceByNumber`, `workspace.selectFirst`, `workspace.selectLast`, `workspace.selectLastUsed`, `nextWorkspaceGroup`, `prevWorkspaceGroup`, `space.next`, `space.previous`, `space.selectByNumber`, `space.switch`, `focusLeft`, `focusRight`, `focusUp`, `focusDown`, `focusPreviousPane`, `focusNextPane`, `canvasRevealFocusedPane`, `focusLocation`, `tab.focus`, `pane.focus`, `screen.focus`, `nextSurface`, `prevSurface`, `selectSurfaceByNumber`, `tab.search`, `home.previousConversation`, `home.nextConversation`, `home.openConversation`, `screen.next`, `screen.previous`, `screen.select`, `screen.selectLast`, `focusTextBoxInput`, `focusBrowserAddressBar`, `focusRightSidebar`, `vaultFocusSession`, `jumpToUnread`, `markOldestUnreadAndJumpNext`, `computerUseFocus`, `computerUseFocusCallingTerminal`, `column.focusLeft`, `column.focusRight`, `focusHistoryBack`, `focusHistoryForward`, `focusHistoryLast`, `history.goTo`
+**focusMove** (55): `showHideAllWindows`, `goToWorkspace`, `showMainWindow`, `nextSidebarTab`, `prevSidebarTab`, `nextSidebarTabInGroup`, `prevSidebarTabInGroup`, `selectWorkspaceByNumber`, `workspace.selectFirst`, `workspace.selectLast`, `workspace.selectLastUsed`, `nextWorkspaceGroup`, `prevWorkspaceGroup`, `space.next`, `space.previous`, `space.selectByNumber`, `space.switch`, `focusLeft`, `focusRight`, `focusUp`, `focusDown`, `focusPreviousPane`, `focusNextPane`, `canvasRevealFocusedPane`, `focusLocation`, `tab.focus`, `pane.focus`, `screen.focus`, `navigate.next`, `navigate.previous`, `nextSurface`, `prevSurface`, `selectSurfaceByNumber`, `tab.search`, `home.previousConversation`, `home.nextConversation`, `home.openConversation`, `screen.next`, `screen.previous`, `screen.select`, `screen.selectLast`, `focusTextBoxInput`, `focusBrowserAddressBar`, `focusRightSidebar`, `vaultFocusSession`, `jumpToUnread`, `markOldestUnreadAndJumpNext`, `computerUseFocus`, `computerUseFocusCallingTerminal`, `column.focusLeft`, `column.focusRight`, `focusHistoryBack`, `focusHistoryForward`, `focusHistoryLast`, `history.goTo`
 
 **stepAdjust** (31): `resizePaneLeft`, `resizePaneRight`, `resizePaneUp`, `resizePaneDown`, `increaseWorkspaceTerminalFontSize`, `decreaseWorkspaceTerminalFontSize`, `resetWorkspaceTerminalFontSize`, `canvasZoomIn`, `canvasZoomOut`, `canvasZoomReset`, `browserZoomIn`, `browserZoomOut`, `browserZoomReset`, `markdownZoomIn`, `markdownZoomOut`, `markdownZoomReset`, `fileEditorZoomIn`, `fileEditorZoomOut`, `fileEditorZoomReset`, `appearance.uiScale.increase`, `appearance.uiScale.decrease`, `appearance.uiScale.reset`, `column.cycleWidth`, `column.cycleWidthBack`, `terminal.increaseFontSize`, `terminal.decreaseFontSize`, `terminal.resetFontSize`, `terminal.scrollPageUp`, `terminal.scrollPageDown`, `terminal.scrollToTop`, `terminal.scrollToBottom`
 

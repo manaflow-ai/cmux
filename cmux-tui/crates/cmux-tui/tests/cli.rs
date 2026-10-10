@@ -2959,6 +2959,10 @@ fn plain_launch_attaches_to_existing_local_session() {
 mod session_shutdown;
 
 #[cfg(unix)]
+#[path = "cli/apps_store.rs"]
+mod apps_store;
+
+#[cfg(unix)]
 #[path = "cli/pty_child.rs"]
 mod pty_child;
 #[cfg(unix)]

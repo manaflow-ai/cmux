@@ -1,6 +1,6 @@
 public import CmuxNextSettings
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// Answers control-socket methods. Transport and authorization live in
 /// `ControlSocketServer`; this type is request -> response, so tests drive

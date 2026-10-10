@@ -1,5 +1,5 @@
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// The page relay's handshake (request-origin.md): `identify`, then `client-hello {role:
 /// page_relay}` only when the daemon has `origin-claim-v1`, and nothing else (no label, no

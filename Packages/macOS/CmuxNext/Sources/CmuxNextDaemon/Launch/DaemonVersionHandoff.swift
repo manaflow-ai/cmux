@@ -1,7 +1,7 @@
 import CmuxNextWakeups
 import Foundation
 import os
-import Synchronization
+import CmuxNextCompat
 
 /// What the app does with a running daemon of another build after an update
 /// (plans/cmux-next/durable-sessions.md section 3).

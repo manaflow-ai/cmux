@@ -548,27 +548,6 @@ fn a_failed_render_reports_mount_failed() {
 }
 
 #[test]
-fn uninstall_fails_mounts_stops_the_host_and_clears_storage() {
-    let f = fixture();
-    f.install("cmux/demo");
-    f.mount("m1", "cmux/demo", "cmux.section/1", json!({}));
-    f.call("m1", "app.storage.set", json!({ "key": "k", "value": 1 }), false);
-    f.set("rm", "cmux/demo", Origin::User, |o| o.installed = Some(false)).unwrap();
-    let failed = f.wait_event("apps-mount-failed");
-    assert_eq!(failed["mount_id"], "m1");
-    f.wait("host stopped", |e| e["event"] == "apps-host" && e["state"] == "stopped");
-    let storage = f.supervisor.storage();
-    assert_eq!(
-        storage
-            .as_ref()
-            .unwrap()
-            .call("cmux/demo", "app.storage.get", &json!({ "key": "k" }))
-            .unwrap(),
-        Value::Null
-    );
-}
-
-#[test]
 fn runs_answer_through_the_responder_and_a_crash_restarts_with_reset() {
     let f = fixture();
     f.install("cmux/demo");
@@ -630,48 +609,6 @@ fn daemon_events_reach_subscribed_apps() {
     assert_eq!(log["message"], "event 1");
     let lines = f.supervisor.logs(CLIENT, "cmux/demo", false);
     assert!(lines["lines"].as_array().unwrap().iter().any(|l| l["message"] == "event 1"));
-}
-
-#[test]
-fn keyed_runs_run_once_and_hidden_apps_refuse_hidden_surfaces() {
-    let f = fixture();
-    f.install("cmux/demo");
-    let (tx, rx) = channel();
-    for _ in 0..2 {
-        let tx = tx.clone();
-        f.supervisor.run(
-            run_request("cmux/demo", "demo.go", Some("k1".into()), Origin::Cli, None),
-            Box::new(move |r| tx.send(r).unwrap()),
-        );
-        assert_eq!(
-            rx.recv_timeout(Duration::from_secs(10)).unwrap().unwrap(),
-            json!({ "value": "go" })
-        );
-    }
-    let runs = f.supervisor.logs(CLIENT, "cmux/demo", false)["lines"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|l| l["message"] == "run go")
-        .count();
-    assert_eq!(runs, 1, "the replay answered from the stored result");
-    f.set("hide", "cmux/demo", Origin::Mcp, |o| {
-        o.hidden = Some(true);
-        o.hidden_access =
-            Some(super::mirror::HiddenAccess { cli: false, mcp: true, automations: true });
-    })
-    .unwrap();
-    let tx2 = tx.clone();
-    f.supervisor.run(
-        run_request("cmux/demo", "demo.go", None, Origin::Cli, None),
-        Box::new(move |r| tx2.send(r).unwrap()),
-    );
-    assert_eq!(rx.recv_timeout(Duration::from_secs(10)).unwrap().unwrap_err().code, "apps.hidden");
-    f.supervisor.run(
-        run_request("cmux/demo", "demo.go", None, Origin::Mcp, None),
-        Box::new(move |r| tx.send(r).unwrap()),
-    );
-    assert!(rx.recv_timeout(Duration::from_secs(10)).unwrap().is_ok());
 }
 
 #[test]
@@ -919,71 +856,6 @@ fn the_shipped_first_party_directory_is_the_default_set() {
     });
     assert!(overridden.defaults.is_empty());
     assert_eq!(overridden.packages["cmux/coderouter"].source, super::mirror::Source::Bundled);
-}
-
-#[test]
-fn a_fresh_daemon_with_the_bundle_path_lists_coderouter_installed_by_default() {
-    let root = temp_dir();
-    let first_party = root.0.join("first-party");
-    write_app(&first_party, "coderouter", "cmux/coderouter", json!({ "workspace:read": "r" }));
-    let supervisor = Supervisor::new(
-        Config {
-            state_dir: Some(root.0.join("state")),
-            host_binary: None,
-            host_args: Vec::new(),
-            server_dir: None,
-            sources: Sources {
-                first_party: Some(first_party),
-                bundled: vec![],
-                local: None,
-                defaults: None,
-            },
-            idle_stop: Duration::from_secs(60),
-            provider_deadline: Duration::from_secs(30),
-            provider_user_deadline: Duration::from_secs(600),
-        },
-        Box::new(Arc::new(FakeRouter::default())),
-        Box::new(Arc::new(FakeFetcher::default())),
-    );
-    let coderouter = app_entry(&supervisor.list(), "cmux/coderouter");
-    assert_eq!(
-        (
-            coderouter["installed"].clone(),
-            coderouter["source"].clone(),
-            coderouter["grants"].clone()
-        ),
-        (json!(true), json!("default"), json!(["workspace:read"]))
-    );
-    // Removing it leaves a tombstone: a restart does not install it again.
-    let mut op = SetOp {
-        key: "rm".into(),
-        app: "cmux/coderouter".into(),
-        origin: Origin::User,
-        ..SetOp::default()
-    };
-    op.installed = Some(false);
-    supervisor.set(CLIENT, op).unwrap();
-    drop(supervisor);
-    let again = Supervisor::new(
-        Config {
-            state_dir: Some(root.0.join("state")),
-            host_binary: None,
-            host_args: Vec::new(),
-            server_dir: None,
-            sources: Sources {
-                first_party: Some(root.0.join("first-party")),
-                bundled: vec![],
-                local: None,
-                defaults: None,
-            },
-            idle_stop: Duration::from_secs(60),
-            provider_deadline: Duration::from_secs(30),
-            provider_user_deadline: Duration::from_secs(600),
-        },
-        Box::new(Arc::new(FakeRouter::default())),
-        Box::new(Arc::new(FakeFetcher::default())),
-    );
-    assert_eq!(app_entry(&again.list(), "cmux/coderouter")["installed"], false);
 }
 
 /// Gate for the switch to the daemon supervisor: every bundled first-party

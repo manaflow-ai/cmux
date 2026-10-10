@@ -92,7 +92,22 @@ export const TextConfirmGet = def({
   mcp: { expose: "never", group: "account" }
 })
 
-export const userConfirmOps = [TextConfirmLevelSet, TextConfirmLowerChallenge, TextConfirmLower, PresenceKeyRevoke, TextConfirmGet] as const
+export const PresenceKeyList = def({
+  name: "user.presence_key.list",
+  owner: "cloud:UserDO",
+  class: "read",
+  risk: "read",
+  target: "user",
+  principals: ["install"],
+  params: Schema.Struct({}),
+  result: Schema.Unknown,
+  errors: ["auth.forbidden"],
+  docs: "The owner's presence keys with their public P-256 parts, platform, App Attest flag, usable_from and install state. Only an owner Mac install without an agent claim reads it: the Mac checks a phone's signed feed answers (cx-aocz).",
+  cli: { path: "", visible: false },
+  mcp: { expose: "never", group: "account" }
+})
+
+export const userConfirmOps = [TextConfirmLevelSet, TextConfirmLowerChallenge, TextConfirmLower, PresenceKeyRevoke, TextConfirmGet, PresenceKeyList] as const
 
 const internal = (name: string, docs: string): CloudOpDef =>
   ({

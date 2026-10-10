@@ -1,5 +1,5 @@
 package import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// A cmux-tui helper process (`wg hub`, `remote connect`) whose stdout is a
 /// stream of JSON lines. Reading happens on Foundation's pipe threads, never
