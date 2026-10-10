@@ -976,6 +976,12 @@
    "denseStyle": "solid"
   },
   {
+   "name": "remote.display",
+   "meaning": "Remote desktop / a machine's display (Remote View)",
+   "sf": "display",
+   "family": "remote"
+  },
+  {
    "name": "search",
    "meaning": "Search / find",
    "sf": "magnifyingglass",

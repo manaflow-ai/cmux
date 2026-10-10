@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBookmarks
 import CmuxNextBrowser
+import CmuxNextIcons
 import Foundation
 import Observation
 
@@ -14,7 +15,7 @@ final class BookmarkPageTab: BrowserTab {
     let profileID: BrowserProfileID
     let presentation: BrowserPresentation = .inView
     private(set) var state: BrowserTabState
-    let favicon: NSImage? = NSImage(systemSymbolName: "book.closed", accessibilityDescription: nil)
+    let favicon: NSImage? = NSImage.icon(.bookmarkManager, size: 16)
     let pendingPrompts: [BrowserPrompt] = []
     @ObservationIgnored weak var delegate: (any BrowserTabDelegate)?
     @ObservationIgnored weak var keyRouter: (any BrowserKeyRouting)?
