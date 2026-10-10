@@ -548,6 +548,61 @@ final class NewCloudWorkspaceShortcutTests {
         #expect(ContentView.commandPaletteShortcutAction(forCommandID: ContentView.commandPaletteCloudNewWorkspaceCommandId) == .newCloudWorkspace)
     }
 
+    @Test func testCommandYDoesNotFallbackForProviderFailure() async throws {
+        defer { restoreState() }
+        setCloudMachinesEnabled(true)
+        let appDelegate = AppDelegate()
+        let presenter = RecordingSheetPresenter()
+        let manager = TabManager()
+        let windowID = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowID) }
+        appDelegate.newMachineSheetPresenter = presenter
+        enum ProviderFailure: Error { case unavailable }
+        appDelegate.cloudWorkspaceCoordinator = CloudWorkspaceCoordinator(
+            machinePinStore: pinStore(),
+            allowsOperation: { true },
+            loadMachines: { ["machine-a"] },
+            createWorkspace: { _ in throw ProviderFailure.unavailable }
+        )
+        appDelegate.cloudWorkspaceOperationController = CloudWorkspaceOperationController(isAvailable: { true })
+
+        #expect(appDelegate.performNewCloudWorkspaceOnResolvedMachineAction(
+            tabManager: manager,
+            debugSource: "test.providerFailure"
+        ))
+        await appDelegate.cloudWorkspaceOperationController?.waitForPendingOperations()
+        #expect(presenter.presentCount == 0)
+    }
+
+    @Test func testCommandYDoesNotFallbackAfterSuccessfulCreateWhenAccessChanges() async throws {
+        defer { restoreState() }
+        setCloudMachinesEnabled(true)
+        let appDelegate = AppDelegate()
+        let presenter = RecordingSheetPresenter()
+        let manager = TabManager()
+        let windowID = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowID) }
+        appDelegate.newMachineSheetPresenter = presenter
+        var available = true
+        appDelegate.cloudWorkspaceCoordinator = CloudWorkspaceCoordinator(
+            machinePinStore: pinStore(),
+            allowsOperation: { available },
+            loadMachines: { ["machine-a"] },
+            createWorkspace: { _ in
+                available = false
+                return UUID()
+            }
+        )
+        appDelegate.cloudWorkspaceOperationController = CloudWorkspaceOperationController(isAvailable: { true })
+
+        #expect(appDelegate.performNewCloudWorkspaceOnResolvedMachineAction(
+            tabManager: manager,
+            debugSource: "test.accessAfterCreate"
+        ))
+        await appDelegate.cloudWorkspaceOperationController?.waitForPendingOperations()
+        #expect(presenter.presentCount == 0)
+    }
+
     @Test func testCommandYFallsBackToNewMachineWhenCloudContextIsMissing() async throws {
         defer { restoreState() }
         setCloudMachinesEnabled(true)

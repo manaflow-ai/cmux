@@ -2291,7 +2291,8 @@ class TabManager: ObservableObject {
         initialBrowserURL: URL? = nil,
         initialBrowserOmnibarVisible: Bool = true,
         initialBrowserTransparentBackground: Bool = false,
-        applyCreationTitleAsCustomTitle: Bool = true
+        applyCreationTitleAsCustomTitle: Bool = true,
+        inheritWorkingDirectory: Bool? = nil
     ) -> Workspace? {
         workspaceGrouping.createWorkspaceInGroup(
             groupId: groupId,
@@ -2303,7 +2304,8 @@ class TabManager: ObservableObject {
             initialBrowserURL: initialBrowserURL,
             initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
             initialBrowserTransparentBackground: initialBrowserTransparentBackground,
-            applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
+            applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle,
+            inheritWorkingDirectory: inheritWorkingDirectory
         )
     }
 

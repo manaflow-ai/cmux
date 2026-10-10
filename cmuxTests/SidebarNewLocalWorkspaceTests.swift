@@ -69,7 +69,7 @@ struct SidebarNewLocalWorkspaceTests {
     }
 
     @Test(arguments: [false, true])
-    func plusMenuCreatesLocalWithoutCloudServicesAndDoesNotAdvertiseCommandN(cloudSelected: Bool) throws {
+    func plusMenuCreatesLocalAndAdvertisesCommandN(cloudSelected: Bool) throws {
         let fixture = try Fixture()
         defer { fixture.tearDown() }
         let selected = try #require(fixture.manager.selectedWorkspace)
@@ -102,6 +102,41 @@ struct SidebarNewLocalWorkspaceTests {
         let created = try #require(fixture.manager.selectedWorkspace)
         #expect(created.cloudVMBinding == nil)
         #expect(created.currentDirectory == fixture.root.path)
+    }
+
+    @Test func commandNPreservesLocalDirectoryInheritanceAndGroupPlacement() throws {
+        let fixture = try Fixture()
+        defer { fixture.tearDown() }
+        let selected = try #require(fixture.manager.selectedWorkspace)
+        let nested = fixture.root.appendingPathComponent("nested", isDirectory: true)
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        selected.currentDirectory = nested.path
+        let groupID = try #require(fixture.manager.createWorkspaceGroup(
+            name: "Local Cmd-N",
+            childWorkspaceIds: [selected.id]
+        ))
+
+        #expect(fixture.app.performNewLocalWorkspaceAction(
+            tabManager: fixture.manager,
+            debugSource: "test.local.group"
+        ))
+        let created = try #require(fixture.manager.selectedWorkspace)
+        #expect(created.groupId == groupID)
+        #expect(created.currentDirectory == nested.path)
+    }
+
+    @Test func commandNWithoutAWindowKeepsTheInitialWorkspace() throws {
+        let app = AppDelegate()
+        #expect(app.mainWindowContexts.isEmpty)
+        #expect(app.performNewLocalWorkspaceAction(debugSource: "test.local.noWindow"))
+        let context = try #require(app.mainWindowContexts.first?.value)
+        defer {
+            context.tabManager.tabs.forEach { $0.teardownAllPanels() }
+            app.unregisterMainWindowContextForTesting(windowId: context.windowId)
+            app.forgetRecoverableMainWindowRoute(windowId: context.windowId)
+        }
+        #expect(context.tabManager.tabs.count == 1)
+        #expect(context.tabManager.selectedWorkspace?.cloudVMID == nil)
     }
 }
 
@@ -147,8 +182,8 @@ private extension SidebarNewLocalWorkspaceTests {
             })
             let item = menu.items[index]
             #expect(item.title == String(localized: "command.newWorkspace.title", defaultValue: "New Workspace"))
-            #expect(item.keyEquivalent.isEmpty)
-            #expect(item.keyEquivalentModifierMask.isEmpty)
+            #expect(item.keyEquivalent == "n")
+            #expect(item.keyEquivalentModifierMask == [.command])
             menu.performActionForItem(at: index)
         }
 

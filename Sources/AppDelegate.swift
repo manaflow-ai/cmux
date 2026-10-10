@@ -8544,16 +8544,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) -> Bool {
         let manager = preferredTabManager
             ?? event.flatMap { mainWindowContext(forShortcutEvent: $0, debugSource: debugSource)?.tabManager }
-        if let manager {
-            return manager.addWorkspaceIfActive(inheritWorkingDirectory: false) != nil
-        }
         return performNewWorkspaceCreationAction(
             initialSurface: .terminal,
-            preferredTabManager: nil,
+            preferredTabManager: manager,
             event: event,
             debugSource: debugSource,
-            skipConfiguredAction: true
+            skipConfiguredAction: true,
+            inheritWorkingDirectoryOverride: manager.map { shouldInheritWorkingDirectoryForLocalWorkspace(in: $0) }
         )
+    }
+
+    private func shouldInheritWorkingDirectoryForLocalWorkspace(in tabManager: TabManager) -> Bool {
+        guard let workspace = tabManager.selectedWorkspace else { return true }
+        return workspace.cloudVMBinding == nil
+            && workspace.remoteConfiguration == nil
+            && workspace.deviceMachineForNewWorkspace == nil
     }
 
     /// Empty-area double-click in the sidebar. A configured
@@ -8776,7 +8781,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         applyCreationTitleAsCustomTitle: Bool = true,
         focusInitialBrowserAddressBarOnCreate: Bool = true,
         createdWorkspaceHandler: ((Workspace) -> Void)? = nil,
-        skipConfiguredAction: Bool = false
+        skipConfiguredAction: Bool = false,
+        inheritWorkingDirectoryOverride: Bool? = nil
     ) -> Bool {
         let preferredContext = preferredTabManager.flatMap { mainWindowContext(for: $0) }
         let livePreferredContext: MainWindowContext? = {
@@ -8808,10 +8814,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                             in: context,
                             debugSource: debugSource,
                             replacingInitialWorkspace: initialWorkspace
-                        )
-                    } else {
-                        _ = context.tabManager.addWorkspaceIfActive(
-                            inheritWorkingDirectory: false
                         )
                     }
                 case .browser:
@@ -8884,7 +8886,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
                 initialBrowserTransparentBackground: initialBrowserTransparentBackground,
-                applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
+                applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle,
+                inheritWorkingDirectory: inheritWorkingDirectoryOverride
             ) else {
                 return false
             }
@@ -8904,7 +8907,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
                 initialBrowserTransparentBackground: initialBrowserTransparentBackground,
                 placementOverride: placementOverride,
-                applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
+                applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle,
+                inheritWorkingDirectory: inheritWorkingDirectoryOverride ?? true
             ) else { return false }
             createdWorkspaceHandler?(workspace)
             if initialSurface == .browser, focusInitialBrowserAddressBarOnCreate {
@@ -8921,6 +8925,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialBrowserTransparentBackground: initialBrowserTransparentBackground,
             placementOverride: placementOverride,
             applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle,
+            inheritWorkingDirectory: inheritWorkingDirectoryOverride ?? true,
             event: event,
             debugSource: debugSource
         ) {
@@ -10075,6 +10080,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         initialBrowserTransparentBackground: Bool = false,
         placementOverride: WorkspacePlacement? = nil,
         applyCreationTitleAsCustomTitle: Bool = true,
+        inheritWorkingDirectory: Bool = true,
         select: Bool = true,
         shouldBringToFront: Bool = false,
         event: NSEvent? = nil,
@@ -10136,7 +10142,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 initialBrowserTransparentBackground: initialBrowserTransparentBackground,
                 select: select,
                 placementOverride: placementOverride,
-                applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
+                applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle,
+                inheritWorkingDirectory: inheritWorkingDirectory
             )
         } else if workingDirectory != nil || initialTerminalInput != nil {
             workspace = context.tabManager.addWorkspaceIfActive(
@@ -10146,19 +10153,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 select: select,
                 placementOverride: placementOverride,
                 autoWelcomeIfNeeded: initialTerminalInput == nil,
-                applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
+                applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle,
+                inheritWorkingDirectory: inheritWorkingDirectory
             )
         } else if title != nil {
             workspace = context.tabManager.addWorkspaceIfActive(
                 title: title, titleSource: titleSource,
                 select: select,
                 placementOverride: placementOverride,
-                applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
+                applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle,
+                inheritWorkingDirectory: inheritWorkingDirectory
             )
         } else {
             workspace = context.tabManager.addWorkspaceIfActive(
                 select: select,
-                placementOverride: placementOverride
+                placementOverride: placementOverride,
+                inheritWorkingDirectory: inheritWorkingDirectory
             )
         }
         guard let workspace else { return nil }

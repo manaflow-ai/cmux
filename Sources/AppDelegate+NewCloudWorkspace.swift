@@ -58,10 +58,11 @@ extension AppDelegate {
                             || coordinator.scopeIdentifier != scopeID
                         return nil
                     }
-                    guard !Task.isCancelled, coordinator.isAvailable, coordinator.scopeIdentifier == scopeID else {
-                        accessBecameUnavailable = true
-                        return nil
-                    }
+                    // A successful create is already committed on the Cloud
+                    // machine. Availability can change while the result is
+                    // being projected into the sidebar; that must not turn a
+                    // completed workspace into a spurious New Machine flow.
+                    guard !Task.isCancelled else { return nil }
                     destination?.apply(workspaceID: workspaceID)
                     return self?.focusCreatedCloudWorkspace(workspaceID, manager: manager, revision: revision, windowID: windowID)
                 }
@@ -69,12 +70,15 @@ extension AppDelegate {
                     fallbackToNewMachine()
                 }
             } catch CloudWorkspaceCreationError.noMachines {
-                guard !Task.isCancelled, coordinator.scopeIdentifier == scopeID else { return }
+                guard !Task.isCancelled else { return }
                 fallbackToNewMachine()
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
-                fallbackToNewMachine()
+                // Creation failures are reported by the operation controller.
+                // New Machine is reserved for a missing or unusable Cloud
+                // context, never for an arbitrary provider error.
+                throw error
             }
         }
     }

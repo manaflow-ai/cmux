@@ -890,7 +890,7 @@ struct cmuxApp: App {
                             debugSource: "menu.newWorkspace"
                         )
                     } else {
-                        activeTabManager.addWorkspaceIfActive(inheritWorkingDirectory: false)
+                        activeTabManager.addWorkspaceIfActive()
                     }
                 }
 
