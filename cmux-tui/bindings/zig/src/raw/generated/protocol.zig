@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "2bf19d19dd792ab6ce12fb52406a3928efe88c839b5e097d4a042d2dcc4158d4";
+pub const ir_sha256 = "4439f0cc6d7d083091ce91f267dc8423b97ca0405e90960be83ec73bf19b1cc1";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -2695,6 +2695,10 @@ pub const ViewAttachmentOutcome = enum {
             .superseded => "superseded",
         };
     }
+};
+
+pub const ViewportPaneWidthResult = struct {
+    width: f32,
 };
 
 pub const VtStateResult = struct {
@@ -7553,7 +7557,7 @@ pub const SetViewportPaneWidthRequest = struct {
     width: f32,
 };
 
-pub const SetViewportPaneWidthResult = EmptyResult;
+pub const SetViewportPaneWidthResult = ViewportPaneWidthResult;
 
 pub fn setViewportPaneWidth(client: anytype, request: SetViewportPaneWidthRequest) !wire.Decoded(SetViewportPaneWidthResult) {
     return client.callTyped(
