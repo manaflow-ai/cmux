@@ -19,6 +19,7 @@ mod input;
 mod metadata;
 mod mouse_input;
 mod options;
+mod pending_bells;
 mod pty_surface;
 mod render_tap;
 mod render_view;
@@ -57,6 +58,7 @@ use hosted_stager::{HostedFrameStager, HostedTransition};
 use options::child_term_for;
 pub(crate) use options::replace_ghostty_cursor_defaults;
 pub use options::{DefaultColors, SurfaceOptions, TerminalColors, default_child_term};
+use pending_bells::PendingBells;
 #[cfg(unix)]
 mod reconnect_backoff;
 #[cfg(unix)]
@@ -671,9 +673,10 @@ impl Surface {
         let snapshot = attachment.snapshot.clone();
         let mut applied_color_overrides = snapshot.colors.clone();
         let title_changed = Arc::new(AtomicBool::new(false));
+        let pending_bells = PendingBells::default();
         let mut terminal_metadata = crate::terminal_metadata::TerminalMetadata::default();
         let records = terminal_metadata.program_status();
-        let callbacks = hosted_terminal_callbacks(id, mux.clone(), title_changed.clone(), records);
+        let callbacks = hosted_terminal_callbacks(&pending_bells, title_changed.clone(), records);
         let mut term = Terminal::new(snapshot.cols, snapshot.rows, opts.scrollback, callbacks)?;
         anyhow::ensure!(
             terminal_metadata.set_osc_progress(&snapshot.osc_progress),
@@ -1132,8 +1135,7 @@ impl Surface {
                                     .unwrap_or_default();
                                 let records = pty.program_status_records();
                                 let callbacks = hosted_terminal_callbacks(
-                                    id,
-                                    mux.clone(),
+                                    &pending_bells,
                                     title_changed.clone(),
                                     records,
                                 );
@@ -1247,6 +1249,9 @@ impl Surface {
                         }
                         drop(journal_update.take());
                         journal_target = None;
+                        // Bells rung by this transition's parser work, emitted
+                        // with neither the terminal nor the geometry lock held.
+                        pending_bells.publish(&mux, surface.id);
                     }
                     frames.abandon();
                     let Some(pty) = surface.as_pty() else { return };
@@ -1428,8 +1433,7 @@ impl Surface {
                         };
                         let records = pty.program_status_records();
                         let callbacks = hosted_terminal_callbacks(
-                            id,
-                            mux.clone(),
+                            &pending_bells,
                             title_changed.clone(),
                             records.clone(),
                         );
