@@ -35,7 +35,7 @@ impl Mux {
         let _creation_fence =
             self.resource_creation_execution.lock().unwrap_or_else(PoisonError::into_inner);
         let mut registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut state = self.lock_state_pinned(&registry).unwrap_or_else(PoisonError::into_inner);
         let selection_before = active_tree_selection(&state);
         let mut projected = state.clone();
         let mut remaining = Vec::new();

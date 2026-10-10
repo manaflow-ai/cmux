@@ -62,7 +62,8 @@ impl WorkspaceRegistry {
         old_incarnation: &str,
         any_end: bool,
     ) -> anyhow::Result<Option<u64>> {
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         let Some(terminal) = read_terminal(&tx, terminal_id)? else { return Ok(None) };
         let host_lost =
             matches!(TerminalEnd::from_receipt(terminal.exit.as_ref()), TerminalEnd::HostLost(_));
@@ -113,7 +114,8 @@ impl WorkspaceRegistry {
         incarnation: &str,
         terminal_snapshot: Value,
     ) -> anyhow::Result<Option<(u64, u64)>> {
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         let Some(terminal) = read_terminal(&tx, terminal_id)? else { return Ok(None) };
         if terminal.lifecycle != TerminalLifecycle::Launching || terminal.incarnation.is_some() {
             return Ok(None);
@@ -210,7 +212,8 @@ impl WorkspaceRegistry {
         &self,
         terminal_public_id: &str,
     ) -> anyhow::Result<Option<TerminalReplay>> {
-        let mut statement = self.connection.prepare(
+        let db = self.connection.get();
+        let mut statement = db.prepare(
             "SELECT content_refs_json FROM journal_checkpoints
              ORDER BY source_sequence DESC, created_at_ms DESC, checkpoint_id DESC LIMIT 16",
         )?;
@@ -228,6 +231,7 @@ impl WorkspaceRegistry {
         let Some(content_id) = content_id else { return Ok(None) };
         let row = self
             .connection
+            .get()
             .query_row(
                 "SELECT codec, content, uncompressed_bytes, sha256
                  FROM journal_content_blobs WHERE content_id = ?1",

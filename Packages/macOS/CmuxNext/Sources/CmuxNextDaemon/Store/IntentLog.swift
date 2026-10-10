@@ -18,6 +18,8 @@ enum IntentUndo: Equatable {
     case createdTab(surface: SurfaceID, pane: PaneID)
     /// The tab's record before a session bind.
     case tabSnapshot(surface: SurfaceID, previous: TabSnapshot)
+    /// The screen's split tree and columns before a provisional split, and the provisional pane.
+    case splitPane(screen: ScreenID, layout: LayoutNode, columns: [ColumnSnapshot], pane: PaneID)
 }
 
 struct PendingIntent {

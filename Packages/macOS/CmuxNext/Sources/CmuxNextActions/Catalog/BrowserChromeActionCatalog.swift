@@ -43,6 +43,26 @@ nonisolated enum BrowserChromeActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .keyboard, .contextMenu], requires: [.browserFocused], targets: [.tab],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.clipboard), contextMenus: [ActionSurfaceCatalog.p(.browserPage, .navigate, 4)])
             ),
+            // A browser tab of another machine that is not ready (cx-2cob):
+            // this Mac's page in its place, at the address it waits for.
+            ActionDescriptor(
+                id: "browser.openLocally",
+                title: String(localized: "action.browser.openLocally", defaultValue: "Open Locally Instead", bundle: .module),
+                keywords: ["browser", "remote", "machine", "local", "this mac", "cloud", "ssh"],
+                category: .browser, symbol: "laptopcomputer",
+                surfaces: [.palette, .contextMenu], requires: [.browserFocused], targets: [.tab],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenus: [ActionSurfaceCatalog.p(.browserPage, .navigate, 5)])
+            ),
+            // This Mac's tab in a machine's workspace: run its page on the
+            // machine (the This Mac chip's menu, cx-2cob).
+            ActionDescriptor(
+                id: "browser.openOnMachine",
+                title: String(localized: "action.browser.openOnMachine", defaultValue: "Open on Machine", bundle: .module),
+                keywords: ["browser", "remote", "machine", "cloud", "ssh", "run there"],
+                category: .browser, symbol: "server.rack",
+                surfaces: [.palette], requires: [.browserFocused], targets: [.tab],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noTargetSurface)
+            ),
             // Shift-Cmd-G is Find Previous in every Mac browser. Elsewhere the
             // chord stays Group Selected Workspaces: this binding needs a
             // browser focused, so it wins only there (specificity rule).

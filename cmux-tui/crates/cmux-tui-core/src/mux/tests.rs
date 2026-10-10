@@ -40,6 +40,7 @@ mod view_close_replay;
 mod viewport_columns;
 mod workspace_materialize;
 mod workspaces;
+mod writer_lock_order;
 
 use crate::layout::{DEFAULT_VIEWPORT_PANE_WIDTH, VirtualRect};
 use crate::resource::{BrowserPublicId, MachinePublicId, SessionPublicId, TabPublicId};

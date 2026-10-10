@@ -30,6 +30,10 @@ final class BrowserTabService {
     var daemonForTab: @MainActor (TabModel) -> DaemonService
     /// Every daemon, local first (tab lookups by id).
     var daemons: @MainActor () -> [DaemonService]
+    /// Whether a machine's browser host is available now (cached; slice 2
+    /// installs and finds hosts). None is yet, so a new tab in a machine's
+    /// workspace opens on this Mac (`BrowserPlacement`).
+    var browserHostAvailable: @MainActor (String) -> Bool = { _ in false }
     /// A machine's name for the user (`MachineRegistry.machineName`).
     var machineName: @MainActor (DaemonService) -> String = { $0.machineID }
     /// Shows `text` on the page of `daemon`'s tab on `surface` when that page
@@ -230,7 +234,9 @@ final class BrowserTabService {
         let daemon = daemonForPane(pane)
         let offTheRecord = incognito ?? isIncognitoPane(pane)
         let profile = offTheRecord ? nil : resolveProfile(pane, explicit)
-        let shown = notice ?? (daemon.isLocal ? nil : RemoteStrings.browserRunsOnThisMac(machineName(daemon)))
+        // A machine browser record runs there: no "runs on this Mac" notice.
+        let runsHere = !daemon.isLocal && !MachineBrowserRecord.matches(URL(string: url))
+        let shown = notice ?? (runsHere ? RemoteStrings.browserRunsOnThisMac(machineName(daemon)) : nil)
         return try await open(choice, in: pane.handle, on: daemon, url: url, offTheRecord: offTheRecord, profile: profile,
                               notice: shown, activate: activate, after: after)
     }

@@ -9,7 +9,6 @@ name: cmux-tui Windows check
 on:
   push:
     branches:
-      - feat-cmux-next
       - "feat-cmux-next-*"
     paths:
       - "cmux-tui/**"

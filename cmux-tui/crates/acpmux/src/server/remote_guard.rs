@@ -269,11 +269,6 @@ pub(super) async fn settle_web_session_mode(
     Ok(())
 }
 
-/// The only permission policies a Web connection may set: `ask` (every
-/// tool call asks) and `deny-all` (nothing runs, nothing is approved). The
-/// exact names only; aliases, other policies and unknown values are refused.
-const ASKING_POLICIES: &[&str] = &["ask", "deny-all"];
-
 /// What a Web (remote-origin) connection may never do; LocalApp and the
 /// unix socket may. The daemon cannot see user gestures: for LocalApp the
 /// native relay enforces a fresh gesture before it sends a policy that
@@ -284,12 +279,9 @@ fn web_only(m: &str, params: &Value) -> Result<(), RpcError> {
             "{what} is accepted only from the local app or the unix socket, never from a remote WebSocket connection"
         ))
     };
-    // Absent: nothing is set. Present: one of the asking policies, exactly.
-    let policy_ok = |v: Option<&Value>| match v {
-        None | Some(Value::Null) => true,
-        Some(Value::String(p)) => ASKING_POLICIES.contains(&p.as_str()),
-        Some(_) => false,
-    };
+    // Absent: nothing is set. Present: one of the asking policies, exactly
+    // (`ask`, `deny-all`; the person rule's list, `hub/person.rs`).
+    let policy_ok = crate::hub::person::asking_policy_value;
     let policy_refused = || refused("a permission policy other than ask or deny-all");
     if m == method::SESSION_NEW
         && crate::web_modes::MODE_FIELDS.iter().any(|f| {
@@ -333,7 +325,9 @@ fn web_only(m: &str, params: &Value) -> Result<(), RpcError> {
         method::MUX_DEFAULTS | method::MUX_PRESETS if !policy_ok(params.pointer("/set/policy")) => {
             Err(policy_refused())
         }
-        method::MUX_SET_RULES if !rules_cannot_auto_approve(params.get("rules")) => {
+        method::MUX_SET_RULES
+            if !crate::hub::person::rules_cannot_auto_approve(params.get("rules")) =>
+        {
             Err(refused("a permission rule that could auto-approve"))
         }
         "_acpmux/directories" => Err(RpcError::method_not_found(
@@ -499,20 +493,6 @@ async fn web_starts_asking(
         )));
     }
     Ok(())
-}
-
-/// Rules a Web connection may set: none (a clear), or only `autoDeny` and
-/// `ask` lists with a `default` of `ask` or `deny`. No `autoApprove` entry,
-/// no `default: "approve"`, and no field this check does not know.
-fn rules_cannot_auto_approve(rules: Option<&Value>) -> bool {
-    let Some(rules) = rules.filter(|r| !r.is_null()) else { return true };
-    let Some(obj) = rules.as_object() else { return false };
-    obj.iter().all(|(k, v)| match k.as_str() {
-        "autoApprove" => !non_empty(Some(v)),
-        "autoDeny" | "ask" => v.is_null() || v.is_array(),
-        "default" => v.is_null() || matches!(v.as_str(), Some("ask" | "deny")),
-        _ => false,
-    })
 }
 
 fn non_empty(v: Option<&Value>) -> bool {

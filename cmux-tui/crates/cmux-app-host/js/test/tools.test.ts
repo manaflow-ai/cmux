@@ -118,6 +118,8 @@ describe("generator", () => {
     expect(scopeFor("team.directory", { class: "read", risk: "read" })).toBe("team:read")
     // A read of the whole team's files from a retired team VM: a person's session only (cx-lyvg).
     expect(scopeFor("team_vm.retired.export", { class: "mutation", risk: "read" })).toBeNull()
+    expect(scopeFor("team.audit.list", { class: "read", risk: "read" })).toBeNull()
+    expect(scopeFor("team.members.remove", { class: "mutation", risk: "destructive" })).toBeNull()
   })
   test("first-party app catalog ops get scopes and typed clients", () => {
     const files = generate()

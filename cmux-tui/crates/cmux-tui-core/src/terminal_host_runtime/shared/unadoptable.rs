@@ -7,7 +7,11 @@ use std::fs::{self, File};
 
 use super::super::sys::{self, PrivateOpen};
 use super::super::*;
-use super::records::validate_terminal_host_record;
+use super::records::{liveness_path, validate_terminal_host_record};
+// The typed refusal lives in the platform-neutral handshake; adoption code
+// reads it from here (`pub use shared::unadoptable::*`).
+#[cfg_attr(not(unix), allow(unused_imports))]
+pub use super::host_refusal::{NoCommonHostProtocol, is_no_common_host_protocol};
 
 /// A discovery record this build cannot adopt: it does not decode or does
 /// not validate, for example a newer `record_version` left by a host of a
@@ -26,6 +30,23 @@ pub struct UnadoptableTerminalHostRecord {
     /// this build accepts that `host_pid` is that host.
     pub marker: Option<PathBuf>,
     pub reason: String,
+}
+
+impl UnadoptableTerminalHostRecord {
+    /// A valid record whose live host refuses every protocol this build
+    /// offers ([`NoCommonHostProtocol`]). Its live marker and PID come from
+    /// the record, so the host is watched and ended with the same proof as a
+    /// record this build cannot read.
+    pub fn with_no_common_protocol(record_path: &Path, record: &TerminalHostRecord) -> Self {
+        Self {
+            terminal_id: record.terminal_id.clone(),
+            record_path: record_path.to_path_buf(),
+            record_version: Some(u64::from(record.record_version)),
+            host_pid: Some(record.host_pid),
+            marker: Some(liveness_path(record_path, record)),
+            reason: NoCommonHostProtocol.to_string(),
+        }
+    }
 }
 
 /// Every `<terminal id>.json` record under `root` that

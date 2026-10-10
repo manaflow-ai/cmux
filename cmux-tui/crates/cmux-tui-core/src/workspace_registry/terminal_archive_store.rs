@@ -190,7 +190,8 @@ impl WorkspaceRegistry {
         if archives.is_empty() {
             return Ok(());
         }
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         for archive in archives {
             let screen = archive
                 .screen
@@ -242,6 +243,7 @@ impl WorkspaceRegistry {
     ) -> anyhow::Result<Option<StoredArchive>> {
         let row = self
             .connection
+            .get()
             .query_row(
                 "SELECT program, cols, rows, screen FROM terminal_archives WHERE terminal_id = ?1",
                 [terminal_id],
@@ -272,6 +274,7 @@ impl WorkspaceRegistry {
     ) -> anyhow::Result<bool> {
         Ok(self
             .connection
+            .get()
             .query_row(
                 "SELECT 1 FROM closed_group_terminals WHERE terminal_id = ?1 LIMIT 1",
                 [terminal_id],

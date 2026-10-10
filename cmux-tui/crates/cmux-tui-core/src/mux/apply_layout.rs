@@ -206,6 +206,7 @@ impl Mux {
                     expected_generation: None,
                     expected_revision: None,
                     on_exit: TerminalOnExit::Close,
+                    tab_id: None,
                     env: Vec::new(),
                 };
                 let surface = self.spawn_surface_in_workspace_reserved(
@@ -301,7 +302,7 @@ impl Mux {
                 let mut topology_changed = false;
                 let mut projection_errors = Vec::new();
                 {
-                    let mut state = self.state.lock().unwrap();
+                    let mut state = self.lock_state_pinned(&registry).unwrap();
                     for (terminal_id, _) in &hosted {
                         let terminal = match registry.terminal_record(terminal_id) {
                             Ok(Some(terminal))

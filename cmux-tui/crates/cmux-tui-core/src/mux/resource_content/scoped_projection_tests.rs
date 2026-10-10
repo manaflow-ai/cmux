@@ -131,10 +131,12 @@ fn scoped_creates_without_the_crosscheck_leave_nothing_for_a_full_projection() {
         // The reference projection of the live tree finds every row stored.
         let full = mux.resource_effect_projection().unwrap();
         let registry = mux.workspace_registry.lock().unwrap();
-        let transaction = registry.connection.unchecked_transaction().unwrap();
+        let db = registry.connection.get();
+        let transaction = db.unchecked_transaction().unwrap();
         let written = prune_unchanged_resource_changes(&transaction, &full.patch).unwrap();
         assert!(written.changes.is_empty(), "scoped creates left rows behind: {written:?}");
         drop(transaction);
+        drop(db);
         drop(registry);
         browser.kill();
     });

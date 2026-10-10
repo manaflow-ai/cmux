@@ -2,10 +2,13 @@ public import Foundation
 public import Observation
 import CmuxNextWakeups
 
-/// The App Store window's state (app-platform.md step 6): Discover
-/// (search, category chips, listings, detail with a live preview) and
-/// Installed (enable, reload, remove, logs). Install and remove are only
-/// reachable from this window's buttons, which are user gestures.
+/// The App Store page's state (app-platform.md step 6): Discover (search,
+/// category chips, listings, detail with a live preview) and Installed
+/// (grants, Run sandboxed, Hide/Show, enable, remove, logs). Every listing
+/// and install state comes from the app supervisor through `AppsClient`;
+/// install, remove and grant changes are reachable only from this page's
+/// controls, which are user gestures (origin `user`). While the supervisor
+/// is unreachable every control is disabled and the page says why.
 ///
 /// Page history: every change of tab or opened listing is a navigation
 /// (``show(_:selection:)``), with Back and Forward lists like a browser
@@ -29,10 +32,8 @@ public final class AppStoreModel {
     }
 
     public private(set) var tab: Tab = .discover
-    public var query = "" { didSet { if query != oldValue { refresh() } } }
-    public var category: String? { didSet { if category != oldValue { refresh() } } }
-    public private(set) var listings: [AppStoreListing] = []
-    public private(set) var allCategories: [String] = []
+    public var query = ""
+    public var category: String?
     public private(set) var selection: String?
     /// Older locations, newest last.
     public private(set) var backList: [Location] = []
@@ -40,64 +41,51 @@ public final class AppStoreModel {
     public private(set) var forwardList: [Location] = []
     /// An app whose Remove waits for its undo window (``requestRemove(_:)``).
     public private(set) var pendingRemoval: String?
-    public private(set) var loadError: String?
     /// Installed app whose log is expanded.
-    public var logsShown: String?
+    public var logsShown: String? { didSet { if let logsShown, logsShown != oldValue { client.followLogs(logsShown) } } }
     /// Installed app whose permissions are expanded.
     public var grantsShown: String?
     /// Demo and screenshot overrides of the Debug Settings prototypes.
     public var layoutOverride: AppStoreLayout?
     public var lookOverride: AppSectionLook?
 
-    public let registry: AppRegistry
-    /// Runs installed, enabled apps (real data, the app's grant).
-    public let host: AppHost
-    /// Runs previews of apps that are not installed (sample data, no grant).
-    public let previewHost: AppHost
-    @ObservationIgnored let catalog: any AppStoreCatalog
-    /// Called after a remove (the App deletes the app's storage).
-    @ObservationIgnored public var onRemoved: ((String) async -> Void)?
+    public let client: AppsClient
     /// Called after every page navigation (the titlebar arrows re-read
     /// ``canGoBack`` and ``canGoForward``).
     @ObservationIgnored public var onNavigate: (() -> Void)?
-    @ObservationIgnored private var search: Task<Void, Never>?
     @ObservationIgnored private let removalTimer = DemandTimer(owner: "AppStoreModel.removal")
     @ObservationIgnored private var removalWasEnabled = true
     /// How long a Remove can be undone before it is committed.
     @ObservationIgnored var removalUndoInterval: Duration = .seconds(6)
 
-    public init(catalog: any AppStoreCatalog, registry: AppRegistry, host: AppHost, previewHost: AppHost) {
-        self.catalog = catalog
-        self.registry = registry
-        self.host = host
-        self.previewHost = previewHost
+    public init(client: AppsClient) {
+        self.client = client
     }
 
     public var layout: AppStoreLayout { layoutOverride ?? AppsTunables.storeLayout.value }
     public var look: AppSectionLook { lookOverride ?? AppsTunables.sectionLook.value }
-    public var installedApps: [InstalledApp] { registry.apps.filter(\.isInstalled) }
-    public var selectedListing: AppStoreListing? { listings.first { $0.id == selection } }
+    /// Whether changes can be sent (the supervisor answers).
+    public var canChange: Bool { client.isAvailable }
 
-    public func state(of id: String) -> InstalledApp? { registry.app(id) }
-
-    /// Re-runs the search with the current query and category.
-    public func refresh() {
-        search?.cancel()
-        let (query, category, catalog) = (query, category, catalog)
-        search = Task { [weak self] in
-            do {
-                let found = try await catalog.search(query: query, category: category)
-                let everything = category == nil && query.isEmpty ? found : try await catalog.search(query: "", category: nil)
-                guard !Task.isCancelled, let self else { return }
-                listings = found
-                allCategories = Self.categories(of: everything)
-                loadError = nil
-            } catch {
-                guard !Task.isCancelled else { return }
-                self?.loadError = String(describing: error)
-            }
-        }
+    /// Every app the supervisor knows, as listings, filtered by the search
+    /// and category. `local/` development apps, apps whose package the
+    /// daemon does not have, and the App Store itself are never listed.
+    public var listings: [AppStoreListing] {
+        allListings.filter { listing in (category.map { listing.categories.contains($0) } ?? true) && listing.matches(query) }
     }
+
+    public var allCategories: [String] { Set(allListings.flatMap(\.categories)).sorted() }
+
+    private var allListings: [AppStoreListing] {
+        client.apps.filter { !$0.manifest.isLocal && $0.available && $0.id != AppStoreListing.storeID }.map(AppStoreListing.init(record:))
+    }
+
+    public var installedApps: [AppRecord] { client.apps.filter(\.installed) }
+    public var selectedListing: AppStoreListing? { allListings.first { $0.id == selection } }
+    public func state(of id: String) -> AppRecord? { client.app(id) }
+
+    /// Lists again (the page opened).
+    public func refresh() { client.refresh() }
 
     /// The App Store's title (window and tab).
     public static var title: String { AppsStrings.windowTitle }
@@ -172,22 +160,19 @@ public final class AppStoreModel {
 
     static let historyCapacity = 100
 
-    public func install(_ id: String) async throws {
-        try await registry.install(id)
-    }
+    // MARK: User changes (every one a gesture on this page)
 
-    public func remove(_ id: String) async throws {
-        await host.stop(id, reason: "removed")
-        try await registry.remove(id)
-        await onRemoved?(id)
-    }
+    public func install(_ id: String) async throws(AppsClientError) { try await client.install(id) }
 
-    /// Remove without a confirmation: the app stops at once and is removed
-    /// (its storage deleted) after ``removalUndoInterval`` unless
-    /// ``undoRemove()`` runs first. A second request commits the first.
+    /// Removes the app now (the supervisor stops it and deletes its storage).
+    public func remove(_ id: String) async throws(AppsClientError) { try await client.remove(id) }
+
+    /// Remove without a confirmation: the app is disabled at once and
+    /// removed after ``removalUndoInterval`` unless ``undoRemove()`` runs
+    /// first. A second request commits the first.
     public func requestRemove(_ id: String) async {
         await commitPendingRemoval()
-        removalWasEnabled = state(of: id)?.isEnabled ?? true
+        removalWasEnabled = state(of: id)?.enabled ?? true
         pendingRemoval = id
         try? await setEnabled(id, false)
         removalTimer.schedule(after: removalUndoInterval) { @MainActor [weak self] in
@@ -216,30 +201,21 @@ public final class AppStoreModel {
         try? await remove(id)
     }
 
-    public func setEnabled(_ id: String, _ enabled: Bool) async throws {
-        if !enabled { await host.stop(id, reason: "disabled") }
-        try await registry.setEnabled(id, enabled)
-        // Back on (a toggle or an undone Remove): the Installed row no longer reads "disabled".
-        if enabled { host.forgetStopReason(id) }
+    public func setEnabled(_ id: String, _ enabled: Bool) async throws(AppsClientError) {
+        try await client.set(id, .enable(enabled), origin: .user)
     }
 
-    /// Revoke or grant one scope; the app's next call sees it.
-    public func setGranted(_ id: String, scope: String, _ granted: Bool) async throws {
-        try await registry.setGranted(id, scope: scope, granted)
+    public func setHidden(_ id: String, _ hidden: Bool) async throws(AppsClientError) {
+        try await client.set(id, .hide(hidden), origin: .user)
+    }
+
+    /// Grant or revoke one scope; the supervisor refuses the app's next call.
+    public func setGranted(_ id: String, scope: String, _ granted: Bool) async throws(AppsClientError) {
+        try await client.set(id, .grant(scope, granted), origin: .user)
     }
 
     /// The "Run sandboxed" switch.
-    public func setSandboxed(_ id: String, _ sandboxed: Bool) async throws {
-        try await registry.setSandboxed(id, sandboxed)
-    }
-
-    public func reload(_ id: String) async {
-        guard let app = registry.app(id) else { return }
-        await host.reload(app.manifest, directory: app.bundle.directory)
-    }
-
-    static func categories(of listings: [AppStoreListing]) -> [String] {
-        var seen = Set<String>()
-        return listings.flatMap(\.categories).filter { seen.insert($0).inserted }.sorted()
+    public func setSandboxed(_ id: String, _ sandboxed: Bool) async throws(AppsClientError) {
+        try await client.set(id, .sandbox(sandboxed), origin: .user)
     }
 }

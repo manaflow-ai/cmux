@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "df62bacacb98188785a178bbd7800b544565009478075e923a1f881e1198dfcc";
+pub const ir_sha256 = "b8080659176dd2ad4dbe5462ac8964ca79ef766e909605a3badf1689087ac5a9";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1169,6 +1169,15 @@ pub const PaneNeighborResult = struct {
 /// A pane named by its numeric id or its public pane_ id.
 pub const PaneRef = wire.Value;
 
+pub const PaneSurfaceResult = struct {
+    pane_id: wire.Field([]const u8) = .absent,
+    replayed: wire.Field(bool) = .absent,
+    surface: Id,
+    tab_id: wire.Field([]const u8) = .absent,
+    terminal_id: wire.Field([]const u8) = .absent,
+    terminal_incarnation: wire.Field([]const u8) = .absent,
+};
+
 pub const PingResult = struct {
     build_commit: wire.Field([]const u8) = .absent,
     ghostty_commit: wire.Field([]const u8) = .absent,
@@ -1546,10 +1555,20 @@ pub const ServerStatsResult = struct {
     resource_projection: ?ServerStatsResourceProjection = null,
     schema: u32,
     uptime_ms: u64,
+    write_path: ?ServerStatsWritePath = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "resource_projection",
+        "write_path",
     };
+};
+
+pub const ServerStatsWritePath = struct {
+    effect_intent_batches: u64,
+    effect_intent_failures: u64,
+    effect_intents: u64,
+    request_effect_commits: u64,
+    writer_registry_locks: u64,
 };
 
 pub const ServerStatsWriterPhase = enum {
@@ -4689,6 +4708,108 @@ pub fn exportLayout(client: anytype, request: ExportLayoutRequest) !wire.Decoded
     );
 }
 
+pub const FeedLocalHandoffAbortRequest = struct {
+    item: []const u8,
+};
+
+pub const FeedLocalHandoffAbortResult = JsonValue;
+
+pub fn feedLocalHandoffAbort(client: anytype, request: FeedLocalHandoffAbortRequest) !wire.Decoded(FeedLocalHandoffAbortResult) {
+    return client.callTyped(
+        FeedLocalHandoffAbortResult,
+        .{
+            .name = "feed-local-handoff-abort",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "feed-local-owner-v1",
+        },
+        request,
+    );
+}
+
+pub const FeedLocalHandoffBeginRequest = struct {
+    item: []const u8,
+};
+
+pub const FeedLocalHandoffBeginResult = JsonValue;
+
+pub fn feedLocalHandoffBegin(client: anytype, request: FeedLocalHandoffBeginRequest) !wire.Decoded(FeedLocalHandoffBeginResult) {
+    return client.callTyped(
+        FeedLocalHandoffBeginResult,
+        .{
+            .name = "feed-local-handoff-begin",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "feed-local-owner-v1",
+        },
+        request,
+    );
+}
+
+pub const FeedLocalHandoffDoneRequest = struct {
+    home: []const u8,
+    item: []const u8,
+};
+
+pub const FeedLocalHandoffDoneResult = JsonValue;
+
+pub fn feedLocalHandoffDone(client: anytype, request: FeedLocalHandoffDoneRequest) !wire.Decoded(FeedLocalHandoffDoneResult) {
+    return client.callTyped(
+        FeedLocalHandoffDoneResult,
+        .{
+            .name = "feed-local-handoff-done",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "feed-local-owner-v1",
+        },
+        request,
+    );
+}
+
+pub const FeedLocalListRequest = struct {
+    state: wire.Field([]const u8) = .absent,
+    terminal_id: wire.Field([]const u8) = .absent,
+    unread: ?bool = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "unread",
+    };
+};
+
+pub const FeedLocalListResult = JsonValue;
+
+pub fn feedLocalList(client: anytype, request: FeedLocalListRequest) !wire.Decoded(FeedLocalListResult) {
+    return client.callTyped(
+        FeedLocalListResult,
+        .{
+            .name = "feed-local-list",
+            .authority = "control",
+            .since = 12,
+            .capability = "feed-local-owner-v1",
+        },
+        request,
+    );
+}
+
+pub const FeedLocalReadRequest = struct {
+    items: []const []const u8,
+};
+
+pub const FeedLocalReadResult = JsonValue;
+
+pub fn feedLocalRead(client: anytype, request: FeedLocalReadRequest) !wire.Decoded(FeedLocalReadResult) {
+    return client.callTyped(
+        FeedLocalReadResult,
+        .{
+            .name = "feed-local-read",
+            .authority = "control",
+            .since = 12,
+            .capability = "feed-local-owner-v1",
+        },
+        request,
+    );
+}
+
 pub const FocusDirectionRequest = struct {
     dir: PaneDirection,
     pane: wire.Field(Id) = .absent,
@@ -5839,8 +5960,10 @@ pub const NewPaneRequest = struct {
     env: wire.Field(wire.Map([]const u8)) = .absent,
     keep: ?bool = null,
     pane: Id,
+    pane_id: wire.Field([]const u8) = .absent,
     rows: wire.Field(u16) = .absent,
     shell_args: wire.Field([]const []const u8) = .absent,
+    tab_id: wire.Field([]const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
@@ -5848,7 +5971,7 @@ pub const NewPaneRequest = struct {
     };
 };
 
-pub const NewPaneResult = SurfaceResult;
+pub const NewPaneResult = PaneSurfaceResult;
 
 pub fn newPane(client: anytype, request: NewPaneRequest) !wire.Decoded(NewPaneResult) {
     return client.callTyped(
@@ -5862,7 +5985,9 @@ pub fn newPane(client: anytype, request: NewPaneRequest) !wire.Decoded(NewPaneRe
                 .{ .name = "cwd", .since = 12, .capability = "terminal-placement-env-v1" },
                 .{ .name = "env", .since = 12, .capability = "terminal-placement-env-v1" },
                 .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
+                .{ .name = "pane_id", .since = 12, .capability = "split-client-keys-v1" },
                 .{ .name = "shell_args", .since = 12, .capability = "terminal-shell-args-v1" },
+                .{ .name = "tab_id", .since = 12, .capability = "split-client-keys-v1" },
                 .{ .name = "terminal_id", .since = 12, .capability = "terminal-placement-env-v1" },
             },
         },
@@ -5877,8 +6002,10 @@ pub const NewPaneRightRequest = struct {
     keep: ?bool = null,
     kind: wire.Field(PaneKind) = .absent,
     pane: Id,
+    pane_id: wire.Field([]const u8) = .absent,
     rows: wire.Field(u16) = .absent,
     shell_args: wire.Field([]const []const u8) = .absent,
+    tab_id: wire.Field([]const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
     url: wire.Field([]const u8) = .absent,
     width: wire.Field(f32) = .absent,
@@ -5888,7 +6015,7 @@ pub const NewPaneRightRequest = struct {
     };
 };
 
-pub const NewPaneRightResult = SurfaceResult;
+pub const NewPaneRightResult = PaneSurfaceResult;
 
 pub fn newPaneRight(client: anytype, request: NewPaneRightRequest) !wire.Decoded(NewPaneRightResult) {
     return client.callTyped(
@@ -5903,7 +6030,9 @@ pub fn newPaneRight(client: anytype, request: NewPaneRightRequest) !wire.Decoded
                 .{ .name = "env", .since = 12, .capability = "terminal-placement-env-v1" },
                 .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
                 .{ .name = "kind", .since = 12, .capability = "pane-browser-kind-v1" },
+                .{ .name = "pane_id", .since = 12, .capability = "split-client-keys-v1" },
                 .{ .name = "shell_args", .since = 12, .capability = "terminal-shell-args-v1" },
+                .{ .name = "tab_id", .since = 12, .capability = "split-client-keys-v1" },
                 .{ .name = "terminal_id", .since = 12, .capability = "terminal-placement-env-v1" },
                 .{ .name = "url", .since = 12, .capability = "pane-browser-kind-v1" },
             },
@@ -7552,8 +7681,10 @@ pub const SplitRequest = struct {
     keep: ?bool = null,
     kind: wire.Field(PaneKind) = .absent,
     pane: Id,
+    pane_id: wire.Field([]const u8) = .absent,
     rows: wire.Field(u16) = .absent,
     shell_args: wire.Field([]const []const u8) = .absent,
+    tab_id: wire.Field([]const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
     url: wire.Field([]const u8) = .absent,
 
@@ -7562,7 +7693,7 @@ pub const SplitRequest = struct {
     };
 };
 
-pub const SplitResult = SurfaceResult;
+pub const SplitResult = PaneSurfaceResult;
 
 pub fn split(client: anytype, request: SplitRequest) !wire.Decoded(SplitResult) {
     return client.callTyped(
@@ -7577,7 +7708,9 @@ pub fn split(client: anytype, request: SplitRequest) !wire.Decoded(SplitResult) 
                 .{ .name = "env", .since = 12, .capability = "terminal-env-v1" },
                 .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
                 .{ .name = "kind", .since = 12, .capability = "pane-browser-kind-v1" },
+                .{ .name = "pane_id", .since = 12, .capability = "split-client-keys-v1" },
                 .{ .name = "shell_args", .since = 12, .capability = "terminal-shell-args-v1" },
+                .{ .name = "tab_id", .since = 12, .capability = "split-client-keys-v1" },
                 .{ .name = "terminal_id", .since = 12, .capability = "terminal-placement-env-v1" },
                 .{ .name = "url", .since = 12, .capability = "pane-browser-kind-v1" },
             },
@@ -9475,7 +9608,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 237;
+pub const command_count: usize = 242;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -9557,6 +9690,11 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "detach-attached-view", .authority = "frontend", .since = 10, .capability = "view-attachment-detach-v1", .stream = null },
     .{ .name = "detach-client", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "export-layout", .authority = "control", .since = 6, .capability = null, .stream = null },
+    .{ .name = "feed-local-handoff-abort", .authority = "local-admin", .since = 12, .capability = "feed-local-owner-v1", .stream = null },
+    .{ .name = "feed-local-handoff-begin", .authority = "local-admin", .since = 12, .capability = "feed-local-owner-v1", .stream = null },
+    .{ .name = "feed-local-handoff-done", .authority = "local-admin", .since = 12, .capability = "feed-local-owner-v1", .stream = null },
+    .{ .name = "feed-local-list", .authority = "control", .since = 12, .capability = "feed-local-owner-v1", .stream = null },
+    .{ .name = "feed-local-read", .authority = "control", .since = 12, .capability = "feed-local-owner-v1", .stream = null },
     .{ .name = "focus-direction", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "focus-pane", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "forget-session", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },

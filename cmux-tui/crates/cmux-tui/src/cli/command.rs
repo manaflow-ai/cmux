@@ -40,6 +40,8 @@ pub(super) enum CommandPlan {
     Plugin(PluginPlan),
     ProviderAuthority(ProviderAuthorityPlan),
     RawCommand(super::raw::RawCommandPlan),
+    AgentMessage(Box<super::agent_message::MessagePlan>),
+    AgentInbox(super::agent_message::InboxPlan),
 }
 
 #[derive(Clone, Debug)]
@@ -167,7 +169,7 @@ pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandP
             conversation::parse_conversation(&strs(&tokens.words[1..]), &mut tokens.flags)?
         }
         "notify" => parse_notify(&tokens.words[1..], &mut tokens.flags)?,
-        "agent" => parse_agent(&tokens.words[1..], &mut tokens.flags)?,
+        "agent" => parse_agent(&tokens.words[1..], &mut tokens.flags, tokens.argv)?,
         "sidebar" => parse_sidebar(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "pairing" => parse_pairing(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "projection" => parse_projection(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
@@ -247,7 +249,8 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
             if flags.values.insert(name.to_string(), flag_value).is_some() {
                 return Err(UsageError::new(format!("duplicate flag --{name}")));
             }
-        } else if value.starts_with('-') {
+        } else if value.starts_with('-') && value != "-" {
+            // A lone `-` is a word: standard input, for commands that read it.
             return Err(UsageError::new(format!("unknown short flag {value:?}")));
         } else {
             words.push(value.clone());
@@ -1292,9 +1295,27 @@ fn parse_notify(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
     request(ResourceOperation::NotificationCreate, &selectors, flags, params)
 }
 
-fn parse_agent(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
+fn parse_agent(
+    words: &[String],
+    flags: &mut Flags,
+    argv: Option<Vec<String>>,
+) -> Result<CommandPlan, UsageError> {
     let selectors = Selectors::default();
     match strs(words).as_slice() {
+        ["message", rest @ ..] => {
+            let from = flags.take("from");
+            let thread = flags.take("thread");
+            let reply_to = flags.take("reply-to");
+            Ok(CommandPlan::AgentMessage(Box::new(super::agent_message::parse_message(
+                rest, argv, from, thread, reply_to,
+            )?)))
+        }
+        ["inbox", rest @ ..] => {
+            let state = flags.take("state");
+            let limit = flags.take("limit");
+            let ack = flags.boolean("ack");
+            Ok(CommandPlan::AgentInbox(super::agent_message::parse_inbox(rest, state, limit, ack)?))
+        }
         ["plugin", tail @ ..] => {
             parse_plugin(tail, flags, crate::plugin_manager::PluginKind::Agent)
         }

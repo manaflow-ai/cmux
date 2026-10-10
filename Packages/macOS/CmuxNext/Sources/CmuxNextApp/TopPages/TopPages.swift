@@ -16,13 +16,14 @@ enum TopPages {
         guard ActionRunScope.viewChangeAllowed(),
               let controller = state.flatMap({ services.windows.controller(for: $0.id) }) ?? services.windows.active else { return nil }
         guard controller.topPages.view(for: route, in: controller) != nil else { return nil }
+        let origin = controller.trailOrigin
         if controller.state.page != route {
             controller.state.page = route
             services.windows.recordSaver.stateDidChange(controller.state)
         }
         controller.showTopPage(route)
         controller.topPages.focus(route, in: controller.window)
-        services.locationTrail.pageDidShow(route, title: controller.topPages.title(for: route), in: controller)
+        services.locationTrail.pageDidShow(route, title: controller.topPages.title(for: route), origin: origin, in: controller)
         if case .home = route { return "" }
         return controller.topPages.key(for: route)
     }

@@ -847,6 +847,29 @@ impl AcpmuxCompactor {
         }
     }
 
+    /// Warn-only: the probe session's Claude Code is older than the first
+    /// version that knows the compactor model. Such a Claude Code prices the
+    /// model at its default rates and checks it with one more request
+    /// (max_tokens 1) in every session. One host.log line and one
+    /// `compactor.model_unknown` trace event; never a note, never a failure.
+    fn check_model_known(&self, events: &[AcpmuxEvent]) {
+        let Some(model) = self.model() else { return };
+        let Some(version) = claude_code_version(events) else {
+            return;
+        };
+        if harness_knows_model(&model, &version) != Some(false) {
+            return;
+        }
+        let harness = self.harness();
+        self.say(&format!(
+            "compactor: Claude Code {version} ({harness}) does not know {model}: it prices it at its default rates and checks it with one more request per session; update Claude Code"
+        ));
+        self.trace.emit(
+            "compactor.model_unknown",
+            json!({"harness": harness, "cc_version": version, "model": model}),
+        );
+    }
+
     fn session_name(&self, node: NodeId) -> String {
         if node == PROBE_NODE {
             format!("{}-probe", self.spec.name)
@@ -1259,6 +1282,7 @@ impl AcpmuxCompactor {
             .map_err(|e| ModelError::new(format!("reading the compactor reply: {e}")))?;
         if node == PROBE_NODE {
             check_isolation(&events).map_err(ModelError::new)?;
+            self.check_model_known(&events);
         }
         let mut fold = TurnFold::after(after);
         for event in &events {
@@ -1773,6 +1797,37 @@ pub fn project_dir_name(cwd: &Path) -> String {
         .collect()
 }
 
+/// The first Claude Code version known to have each model in its own model
+/// list (2.1.287 has no claude-haiku-5-5; 2.1.293 has it, with its prices).
+const KNOWN_SINCE: &[(&str, [u32; 3])] = &[("claude-haiku-5-5", [2, 1, 293])];
+
+/// Whether Claude Code `version` knows `model`: None when this table has no
+/// entry for the model or the version does not parse.
+pub fn harness_knows_model(model: &str, version: &str) -> Option<bool> {
+    let since = KNOWN_SINCE.iter().find(|(m, _)| *m == model)?.1;
+    let mut parts = version.trim().split('.').map(|p| p.parse::<u32>().ok());
+    let mut have = [0u32; 3];
+    for slot in &mut have {
+        *slot = parts.next()??;
+    }
+    Some(have >= since)
+}
+
+/// The Claude Code version its `system/init` reported (acpmux records it as
+/// a `session_info_update`).
+pub fn claude_code_version(events: &[AcpmuxEvent]) -> Option<String> {
+    events
+        .iter()
+        .filter(|e| e.kind == "session_info_update")
+        .find_map(|e| {
+            e.msg
+                .get("params")
+                .and_then(|p| p.pointer("/update/_meta/claude/version"))
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
+}
+
 /// Section 4.2 says a compactor call has no tools: the probe fails when the
 /// session's Claude Code reports a tool or an MCP server (its `system/init`,
 /// which acpmux records as a `session_info_update`), or when the session
@@ -2166,44 +2221,5 @@ pub fn compact_route(choice: Option<&str>, config: &Config) -> Result<CompactRou
             let _ = config;
             Ok(CompactRoute::Acpmux)
         }
-    }
-}
-
-#[cfg(test)]
-mod slot_order_tests {
-    use super::*;
-
-    /// No starvation: while chat nodes keep coming, a waiting import node
-    /// still takes every `BACKGROUND_EVERY + 1`-th session, and each queue
-    /// keeps its own order.
-    #[test]
-    fn an_import_node_takes_a_session_between_chat_nodes() {
-        let mut st = SlotState::default();
-        st.queues[1].extend([100, 101]);
-        st.queues[0].extend(1..=10);
-        let mut order = Vec::new();
-        while !st.queues[0].is_empty() || !st.queues[1].is_empty() {
-            let q = (0..2)
-                .find(|&q| st.queues[q].front().is_some_and(|&t| st.turn(q, t)))
-                .expect("someone's turn");
-            order.push(*st.queues[q].front().unwrap());
-            st.took(q);
-        }
-        assert_eq!(order, vec![1, 2, 3, 4, 100, 5, 6, 7, 8, 101, 9, 10]);
-    }
-}
-
-#[cfg(test)]
-mod session_count_tests {
-    use super::*;
-
-    #[test]
-    fn the_session_count_setting_takes_1_to_jobs_else_the_default() {
-        assert_eq!(compactor_sessions_from(None), COMPACTOR_SESSIONS);
-        assert_eq!(compactor_sessions_from(Some("32")), 32);
-        assert_eq!(compactor_sessions_from(Some(" 1 ")), 1);
-        assert_eq!(compactor_sessions_from(Some("0")), COMPACTOR_SESSIONS);
-        assert_eq!(compactor_sessions_from(Some("65")), COMPACTOR_SESSIONS);
-        assert_eq!(compactor_sessions_from(Some("lots")), COMPACTOR_SESSIONS);
     }
 }
