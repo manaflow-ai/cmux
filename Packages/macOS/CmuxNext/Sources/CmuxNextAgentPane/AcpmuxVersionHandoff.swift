@@ -1,6 +1,6 @@
 import Foundation
 import os
-import CmuxNextCompat
+import Synchronization
 
 /// After an update: hand a running acpmux daemon of another build off to the
 /// bundled build (plans/cmux-next/durable-sessions.md section 3). Only a

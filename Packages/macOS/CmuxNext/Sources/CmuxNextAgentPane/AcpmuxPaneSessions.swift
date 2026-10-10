@@ -1,5 +1,5 @@
 public import Foundation
-import CmuxNextCompat
+import Synchronization
 
 /// The sessions this pane started or shows (b, ad349): `_acpmux/kill`, `permission_respond` and
 /// `permission_group_respond` are allowed only for them. A session is the pane's when it came back

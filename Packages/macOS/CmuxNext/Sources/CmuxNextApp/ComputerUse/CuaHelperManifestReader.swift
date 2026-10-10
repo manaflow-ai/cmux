@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 import os
-import CmuxNextCompat
+import Synchronization
 
 nonisolated private let manifestLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "computer-use")
 

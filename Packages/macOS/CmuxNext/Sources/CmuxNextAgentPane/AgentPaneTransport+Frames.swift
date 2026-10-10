@@ -1,6 +1,6 @@
 import Foundation
 import os
-import CmuxNextCompat
+import Synchronization
 
 /// One page frame through the relay: the off-main checks and the main-actor decisions.
 extension AgentPaneTransport {

@@ -1,4 +1,4 @@
-import CmuxNextCompat
+import Synchronization
 
 /// Runs the first closure handed to it and drops the rest, so a
 /// continuation fed by several callbacks (state changes, a deadline) is

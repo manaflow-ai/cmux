@@ -1,4 +1,4 @@
-import CmuxNextCompat
+import Synchronization
 
 /// Whether an administrator turned off the feature that reaches one
 /// machine (`DisabledFeatures`). Read off the main actor by terminal

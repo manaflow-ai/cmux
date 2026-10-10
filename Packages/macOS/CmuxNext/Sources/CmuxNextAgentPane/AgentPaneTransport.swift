@@ -1,6 +1,6 @@
 public import Foundation
 import os
-import CmuxNextCompat
+import Synchronization
 
 /// The host side of the pane's acpmux connection (design B, localapp-isolation-spike.md): the
 /// host owns the WebSocket, puts the LocalApp token in the first frame, checks every page frame

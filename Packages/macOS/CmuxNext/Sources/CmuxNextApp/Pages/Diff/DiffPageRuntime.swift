@@ -1,7 +1,7 @@
 import CmuxNextAgentPane
 import CmuxNextSettings
 import Foundation
-import CmuxNextCompat
+import Synchronization
 
 /// What every diff tab shares: the per-user session root, the sidecar pool
 /// (4 children at once, nil when this build has no bundled sidecar) and the

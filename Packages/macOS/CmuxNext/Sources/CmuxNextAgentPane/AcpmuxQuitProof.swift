@@ -1,6 +1,6 @@
 import Darwin
 public import Foundation
-import CmuxNextCompat
+import Synchronization
 
 /// What proves that Quit Everything ended the local agents (R96 + P2-9).
 ///

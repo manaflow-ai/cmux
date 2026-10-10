@@ -1,5 +1,5 @@
 import Foundation
-import CmuxNextCompat
+import Synchronization
 
 /// Fetches a reply's web image for the page, which has no network of its own (CSP
 /// `connect-src 'none'`, `img-src data:`). The URL is untrusted reply text, so the fetch follows

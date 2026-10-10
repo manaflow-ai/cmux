@@ -1,6 +1,6 @@
 import CmuxHomeCore
 import Foundation
-import CmuxNextCompat
+import Synchronization
 
 /// One Home inbox over two owners: the local daemon's conversations and the
 /// cloud's (`ConversationSummary.owner`). It routes each read and op to the

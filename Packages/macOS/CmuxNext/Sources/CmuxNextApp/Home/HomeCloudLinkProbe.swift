@@ -1,5 +1,5 @@
 import Foundation
-import CmuxNextCompat
+import Synchronization
 
 #if DEBUG
 /// What a `HomeCloudLink` started and tests wait for: the main-actor hops

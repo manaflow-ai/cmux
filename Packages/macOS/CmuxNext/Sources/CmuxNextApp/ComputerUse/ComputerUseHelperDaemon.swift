@@ -5,7 +5,7 @@ import Darwin
 import Foundation
 import Observation
 import os
-import CmuxNextCompat
+import Synchronization
 
 private let helperLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "computer-use")
 

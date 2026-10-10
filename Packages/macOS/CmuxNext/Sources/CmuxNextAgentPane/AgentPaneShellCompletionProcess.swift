@@ -1,7 +1,7 @@
 import CmuxNextWakeups
 import Darwin
 import Foundation
-import CmuxNextCompat
+import Synchronization
 
 /// One completion shell: spawned in its own process group, its stdout read to EOF, reaped, and
 /// killed with its group at the deadline. Answers the output, or `timedOut`.
