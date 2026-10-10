@@ -3279,6 +3279,137 @@
         }
       }
     },
+    "home.engine.error.localUnreachable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac's Chief is not running. Open Home to start it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac の Chief が動いていません。Home を開くと開始します。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الـ Chief على هذا الـ Mac لا يعمل. افتح Home لتشغيله."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief na ovom Macu ne radi. Otvorite Home da ga pokrenete."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne Macs Chief kører ikke. Åbn Home for at starte den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Chief dieses Macs läuft nicht. Öffne Home, um ihn zu starten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El Chief de este Mac no se está ejecutando. Abre Home para iniciarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le Chief de ce Mac ne fonctionne pas. Ouvrez Home pour le démarrer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il Chief di questo Mac non è in esecuzione. Apri Home per avviarlo."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief នៅលើ Mac នេះមិនកំពុងដំណើរការទេ។ បើក Home ដើម្បីចាប់ផ្ដើមវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 Mac의 Chief가 실행 중이 아닙니다. Home을 열면 시작됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief på denne Macen kjører ikke. Åpne Home for å starte den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief na tym Macu nie działa. Otwórz Home, aby go uruchomić."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O Chief deste Mac não está em execução. Abra o Home para iniciá-lo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief на этом Mac не запущен. Откройте Home, чтобы запустить его."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief ของ Mac เครื่องนี้ไม่ได้ทำงานอยู่ เปิด Home เพื่อเริ่มต้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu Mac'in Chief'i çalışmıyor. Başlatmak için Home'u açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief на цьому Mac не запущено. Відкрийте Home, щоб запустити його."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief của máy Mac này không chạy. Mở Home để khởi động."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此 Mac 的 Chief 未在运行。打开 Home 即可启动。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此 Mac 的 Chief 未在執行。打開 Home 即可啟動。"
+          }
+        }
+      }
+    },
     "home.engine.error.unreachable": {
       "extractionState": "manual",
       "localizations": {

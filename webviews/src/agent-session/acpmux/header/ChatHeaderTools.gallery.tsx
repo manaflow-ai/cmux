@@ -6,9 +6,6 @@ import type { Play } from "../../../gallery/play";
 import type { ChatMenuItem } from "./ChatHeaderTools";
 
 type HeaderToolsProps = {
-  changes?: { additions: number; deletions: number };
-  changesOpen: boolean;
-  onChanges: () => void;
   onTerminal: () => void;
   onBrowser: () => void;
   tabTools?: boolean;
@@ -89,8 +86,6 @@ const keyboardSubmenu: Play = async (ctx) => {
 };
 
 const base: HeaderToolsProps = {
-  changesOpen: false,
-  onChanges: () => undefined,
   onTerminal: () => undefined,
   onBrowser: () => undefined,
   summary,
@@ -127,12 +122,8 @@ export default componentEntry<HeaderToolsProps>({
   },
   variants: {
     idle: {
-      note: "The complete tab header: Changes, Terminal, Browser, summary, and chat actions.",
+      note: "The complete tab header: Terminal, Browser, summary, and chat actions.",
       props: base,
-    },
-    "changed-files": {
-      note: "Changes carries the last turn's counts and its pressed state while the split tools stay fixed.",
-      props: { ...base, changes: { additions: 42, deletions: 9 }, changesOpen: true },
     },
     "menu-open": {
       note: "The real tab menu includes navigation actions and keeps Close as the final tab-owned row.",
@@ -150,7 +141,7 @@ export default componentEntry<HeaderToolsProps>({
       play: keyboardSubmenu,
     },
     "quick-chat": {
-      note: "Quick Chat has no tab to split, so only Changes, summary, and chat actions remain.",
+      note: "Quick Chat has no tab to split, so only the summary and chat actions remain.",
       props: { ...base, tabTools: false },
     },
   },

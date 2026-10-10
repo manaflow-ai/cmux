@@ -3,7 +3,8 @@ import CmuxNextIcons
 public import SwiftUI
 
 /// The App Store window's content: a toolbar row (Discover / Installed,
-/// search, prototype label) and the selected tab.
+/// search, prototype label), the disconnected banner while the supervisor
+/// is unreachable, and the selected tab.
 public struct AppStoreRootView: View {
     let model: AppStoreModel
     /// Hosted in a pane (internal page tab): no traffic-light inset and a
@@ -20,13 +21,14 @@ public struct AppStoreRootView: View {
         VStack(spacing: 0) {
             toolbar
             Rectangle().fill(colors.separator).frame(height: Borders.width(1))
+            if let reason = model.client.unavailableReason { AppsDisconnectedBanner(reason: reason) }
             switch model.tab {
             case .discover: AppDiscoverView(model: model)
             case .installed: AppInstalledView(model: model)
             }
         }
         .background(colors.background)
-        .onAppear { if model.listings.isEmpty { model.refresh() } }
+        .onAppear { model.refresh() }
     }
 
     private var toolbar: some View {

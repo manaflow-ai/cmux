@@ -191,7 +191,10 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::WorkspaceProgressClear
         | ResourceOperation::WorkspaceLogAppend
         | ResourceOperation::WorkspaceLogList
-        | ResourceOperation::WorkspaceLogClear => OperationOwner::State,
+        | ResourceOperation::WorkspaceLogClear
+        | ResourceOperation::AgentMessageSend
+        | ResourceOperation::AgentMessageList
+        | ResourceOperation::AgentMessageMark => OperationOwner::State,
         ResourceOperation::SessionEvents
         | ResourceOperation::SessionJournalSubscribe
         | ResourceOperation::SessionJournalProducerList

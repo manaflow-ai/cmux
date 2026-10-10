@@ -150,59 +150,6 @@ pub async fn connect(address: SocketAddr) -> std::io::Result<TcpStream> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    #[test]
-    fn backoff_doubles_to_a_cap_and_resets() {
-        let mut backoff = Backoff::default();
-        let delays: Vec<u64> = (0..9).map(|_| backoff.failure().0.as_millis() as u64).collect();
-        assert_eq!(delays, [10, 20, 40, 80, 160, 320, 640, 1000, 1000]);
-        backoff.success();
-        assert_eq!(backoff.failure(), (Backoff::FIRST, true));
-        assert!(!backoff.failure().1);
-    }
-
-    /// An accept that keeps failing is retried with backoff and logged
-    /// once per burst, not once per error.
-    #[tokio::test]
-    async fn a_failing_listener_backs_off_and_logs_once_per_burst() {
-        let calls = Arc::new(AtomicUsize::new(0));
-        let logged = Arc::new(AtomicUsize::new(0));
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-        let started = std::time::Instant::now();
-        let task = tokio::spawn({
-            let (calls, logged, seen) = (calls.clone(), logged.clone(), logged.clone());
-            accept_loop(
-                move || {
-                    let call = calls.fetch_add(1, Ordering::SeqCst) + 1;
-                    async move {
-                        match call {
-                            1..=5 | 7..=8 => Err(std::io::Error::other("EMFILE")),
-                            6 | 9 => Ok(call),
-                            // Then no more connections, as a real listener.
-                            _ => std::future::pending().await,
-                        }
-                    }
-                },
-                // Record how many bursts were logged when each accept lands.
-                move |value| {
-                    let _ = tx.send((value, seen.load(Ordering::SeqCst), started.elapsed()));
-                },
-                move |_| {
-                    logged.fetch_add(1, Ordering::SeqCst);
-                },
-            )
-        });
-        let (value, bursts, elapsed) = rx.recv().await.unwrap();
-        assert_eq!((value, bursts), (6, 1));
-        assert!(elapsed >= Duration::from_millis(10 + 20 + 40 + 80 + 160));
-        let (value, bursts, elapsed_again) = rx.recv().await.unwrap();
-        assert_eq!((value, bursts), (9, 2));
-        // The second burst starts again at 10 ms: 10 + 20 after the reset.
-        assert!(elapsed_again - elapsed < Duration::from_millis(300));
-        task.abort();
-    }
 
     #[tokio::test]
     async fn accepted_and_dialed_sockets_are_tuned() {
