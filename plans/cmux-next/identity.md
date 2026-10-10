@@ -78,7 +78,10 @@ Rules:
   `CMUX_LAUNCH_CREDENTIAL` into each request). The dispatcher verifies it per
   request and builds the actor. A caller can never send an actor directly.
 - One rule for stale credentials: a bad MAC, a foreign `host`, or a closed terminal
-  or ACP session is refused with `credential_invalid`. An unknown `kid` (dropped by
+  or ACP session is refused with `validation.invalid` on field `credential`
+  (`details.reason`: `credential_invalid`, `credential_foreign_host`,
+  `credential_closed`; also `credential_malformed`, and
+  `credential_not_local` for a link, WebSocket, remote or page connection). An unknown `kid` (dropped by
   rotation) is not an error: the request falls back to pid ancestry (slice 4) or to
   the user, as if no credential was sent.
 - `credential.verify` and the per-request check read liveness from mux state

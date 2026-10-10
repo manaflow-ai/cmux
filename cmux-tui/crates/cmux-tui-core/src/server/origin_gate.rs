@@ -39,6 +39,11 @@ pub(super) fn handle_resource_line(
     let admitted = check(mux, client, &envelope)
         .and_then(|actor| {
             check_credential_owner(mux, client, operation, &actor, credential.is_some())?;
+            if credential.is_some() && derived_origin(mux, client) == RequestOrigin::Page {
+                // A page relay forwards a page's requests: never a terminal.
+                let reason = "credential_not_local";
+                return Err(ResourceError::validation_invalid(Some("credential"), reason));
+            }
             mux.request_actor(actor, credential.as_ref().map(|c| c.as_str()))
         })
         .and_then(|actor| check_pairing_accept(mux, client, &envelope, &actor).map(|()| actor))
@@ -121,6 +126,12 @@ pub(super) const PAIRING_APPROVAL_NEEDS_HUMAN: &str =
 /// plain local user to the daemon and may only deny.
 pub(super) fn may_approve_pairing(mux: &Mux, client: u64) -> bool {
     matches!(connection_actor(mux, client), Actor::Frontend { .. })
+}
+
+/// The origin `client` derives; a client with no record is an agent.
+fn derived_origin(mux: &Mux, client: u64) -> RequestOrigin {
+    let state = mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    state.clients.get(&client).map_or(RequestOrigin::Agent, |record| record.origin.derive())
 }
 
 /// The v2 form of [`may_approve_pairing`]: `pairing_request.resolve` with

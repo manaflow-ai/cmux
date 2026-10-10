@@ -11,6 +11,9 @@
 //! file 0600, owned by this user). A key file that another user owns, that is
 //! not a plain file, or that group or others could read is never trusted: the
 //! daemon makes new keys, so credentials made with a leaked key never verify.
+//! The same holds for a key directory another user owns or others can write.
+//! On Windows the file gets the platform's private-file treatment only; there
+//! is no owner or mode check.
 
 use std::collections::BTreeMap;
 use std::io::Write as _;
@@ -116,14 +119,27 @@ pub(crate) enum VerifyError {
 struct LaunchKeys {
     current: String,
     keys: BTreeMap<String, [u8; KEY_BYTES]>,
+    /// The last rotation, so a retry of the same request (also after a
+    /// restart) rotates once.
+    last_rotation: Option<Rotation>,
 }
 
-/// The key file's JSON form: `{current: kid, keys: {kid: base64url}}`.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Rotation {
+    idempotency_key: String,
+    kid: String,
+}
+
+/// The key file's JSON form: `{current: kid, keys: {kid: base64url},
+/// last_rotation?: {idempotency_key, kid}}`.
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct StoredKeys {
     current: String,
     keys: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    last_rotation: Option<Rotation>,
 }
 
 impl LaunchKeys {
@@ -131,18 +147,20 @@ impl LaunchKeys {
         let mut keys = BTreeMap::new();
         let kid = new_kid()?;
         keys.insert(kid.clone(), random_key()?);
-        Ok(Self { current: kid, keys })
+        Ok(Self { current: kid, keys, last_rotation: None })
     }
 
     /// A new current key; only the previous current key stays besides it.
-    fn rotated(&self) -> anyhow::Result<Self> {
+    fn rotated(&self, idempotency_key: &str) -> anyhow::Result<Self> {
         let mut keys = BTreeMap::new();
         if let Some(previous) = self.keys.get(&self.current) {
             keys.insert(self.current.clone(), *previous);
         }
         let kid = new_kid()?;
         keys.insert(kid.clone(), random_key()?);
-        Ok(Self { current: kid, keys })
+        let last_rotation =
+            Some(Rotation { idempotency_key: idempotency_key.to_string(), kid: kid.clone() });
+        Ok(Self { current: kid, keys, last_rotation })
     }
 
     fn from_stored(stored: StoredKeys) -> Option<Self> {
@@ -154,7 +172,11 @@ impl LaunchKeys {
             }
             keys.insert(kid, key);
         }
-        keys.contains_key(&stored.current).then_some(Self { current: stored.current, keys })
+        keys.contains_key(&stored.current).then_some(Self {
+            current: stored.current,
+            keys,
+            last_rotation: stored.last_rotation,
+        })
     }
 
     fn stored(&self) -> StoredKeys {
@@ -165,6 +187,7 @@ impl LaunchKeys {
                 .iter()
                 .map(|(kid, key)| (kid.clone(), URL_SAFE_NO_PAD.encode(key)))
                 .collect(),
+            last_rotation: self.last_rotation.clone(),
         }
     }
 
@@ -211,9 +234,9 @@ pub(crate) struct LaunchIdentity {
     keys: Mutex<Option<LaunchKeys>>,
     /// None for an in-memory session: its keys last this process only.
     path: Option<PathBuf>,
-    /// The idempotency key and key id of the last rotation, so a retry of the
-    /// same request rotates once.
-    last_rotation: Mutex<Option<(String, String)>>,
+    /// Serializes rotations; the keys lock is held only to read and swap, never
+    /// across the key file write.
+    rotation: Mutex<()>,
 }
 
 impl LaunchIdentity {
@@ -242,7 +265,7 @@ impl LaunchIdentity {
                 None
             }
         });
-        Self { keys: Mutex::new(keys), path, last_rotation: Mutex::new(None) }
+        Self { keys: Mutex::new(keys), path, rotation: Mutex::new(()) }
     }
 
     pub(crate) fn mint(&self, claims: &Claims) -> Option<String> {
@@ -260,23 +283,22 @@ impl LaunchIdentity {
     /// Make a new current key, keep one previous key, save both. Returns the
     /// new key id and whether `idempotency_key` repeats the last rotation.
     pub(crate) fn rotate(&self, idempotency_key: &str) -> anyhow::Result<(String, bool)> {
-        let mut last = self.last_rotation.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Some((key, kid)) = last.as_ref()
-            && key == idempotency_key
+        let _rotation = self.rotation.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let current = self.keys.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+        if let Some(last) = current.as_ref().and_then(|keys| keys.last_rotation.as_ref())
+            && last.idempotency_key == idempotency_key
         {
-            return Ok((kid.clone(), true));
+            return Ok((last.kid.clone(), true));
         }
-        let mut keys = self.keys.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let next = match keys.as_ref() {
-            Some(current) => current.rotated()?,
-            None => LaunchKeys::fresh()?,
+        let next = match current.as_ref() {
+            Some(current) => current.rotated(idempotency_key)?,
+            None => LaunchKeys::fresh()?.rotated(idempotency_key)?,
         };
         if let Some(path) = self.path.as_deref() {
             write_keys(path, &next)?;
         }
         let kid = next.current.clone();
-        *keys = Some(next);
-        *last = Some((idempotency_key.to_string(), kid.clone()));
+        *self.keys.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(next);
         Ok((kid, false))
     }
 }
@@ -284,11 +306,34 @@ impl LaunchIdentity {
 /// The stored keys when the file exists and may be trusted; `Ok(None)` when
 /// there is no file; `Err` names why an existing file is not trusted.
 fn read_trusted(path: &Path) -> Result<Option<LaunchKeys>, &'static str> {
-    let metadata = match std::fs::symlink_metadata(path) {
-        Ok(metadata) => metadata,
+    #[cfg(unix)]
+    if let Some(directory) = path.parent() {
+        use std::os::unix::fs::MetadataExt;
+        match std::fs::symlink_metadata(directory) {
+            Ok(metadata) => {
+                let ours = metadata.is_dir() && metadata.uid() == crate::platform::effective_uid();
+                if !ours || metadata.mode() & 0o022 != 0 {
+                    return Err("the key directory is not this user's alone");
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(_) => return Err("unreadable"),
+        }
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        // Never follow a planted link; the checks below read the opened file.
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+    }
+    let mut file = match options.open(path) {
+        Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(_) => return Err("unreadable"),
+        Err(_) => return Err("not a plain file or unreadable"),
     };
+    let metadata = file.metadata().map_err(|_| "unreadable")?;
     if !metadata.file_type().is_file() {
         return Err("not a plain file");
     }
@@ -302,7 +347,8 @@ fn read_trusted(path: &Path) -> Result<Option<LaunchKeys>, &'static str> {
             return Err("readable by group or others");
         }
     }
-    let bytes = std::fs::read(path).map_err(|_| "unreadable")?;
+    let mut bytes = Vec::new();
+    std::io::Read::read_to_end(&mut file, &mut bytes).map_err(|_| "unreadable")?;
     let stored: StoredKeys = serde_json::from_slice(&bytes).map_err(|_| "does not parse")?;
     LaunchKeys::from_stored(stored).map(Some).ok_or("invalid keys")
 }

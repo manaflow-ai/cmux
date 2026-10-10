@@ -9250,7 +9250,7 @@
             "kind": "primitive",
             "name": "string",
             "min_length": 1,
-            "max_length": 256
+            "max_length": 288
           },
           "description": "Present when valid: terminal:<terminal id> or acp_session:<id>[;agent=<agent>]."
         },
@@ -9290,7 +9290,7 @@
             "kind": "primitive",
             "name": "string",
             "min_length": 1,
-            "max_length": 256
+            "max_length": 288
           },
           "description": "The actor it names: acp_session:<id>[;agent=<agent>]."
         }
@@ -12547,6 +12547,7 @@
         "name": "CredentialCheck"
       },
       "errors": [
+        "operation.failed",
         "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
