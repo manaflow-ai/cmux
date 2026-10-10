@@ -11,6 +11,9 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneModel+Replies.swift": {
   "JSON / property-list decode": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneModel.swift": {
+  "JSON / property-list decode": 1
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneShell.swift": {
   "process launch": 1
  },
