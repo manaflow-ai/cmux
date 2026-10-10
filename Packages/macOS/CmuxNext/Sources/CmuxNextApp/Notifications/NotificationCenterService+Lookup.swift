@@ -147,15 +147,35 @@ extension NotificationCenterService {
     /// its color is the notification source's override, if any.
     func attentionMarks(for workspace: WorkspaceModel) -> [LayoutPaneID: AttentionMark] {
         guard DesignSettings.shared.attention.style != .none, !preferences.mutedWorkspaces.contains(workspace.id) else { return [:] }
+        let dismissed = dismissedHighlights[workspace.id] ?? 0
         var marks: [LayoutPaneID: AttentionMark] = [:]
         for screen in workspace.screens {
             for pane in screen.panes {
                 let unread = pane.tabs.filter(\.hasUnread)
                 guard let newest = unread.max(by: { ($0.notification?.notification.rawValue ?? 0) < ($1.notification?.notification.rawValue ?? 0) }) else { continue }
+                let generation = newest.notification?.notification.rawValue ?? 1
+                // A dismissed highlight stays hidden until a newer notification arrives.
+                guard generation > dismissed else { continue }
                 let color = preferences.sources[source(of: newest)]?.color
-                marks[LayoutPaneID(pane.id)] = AttentionMark(color: color, generation: newest.notification?.notification.rawValue ?? 1)
+                marks[LayoutPaneID(pane.id)] = AttentionMark(color: color, generation: generation)
             }
         }
         return marks
+    }
+
+    /// Whether `workspace` draws an attention ring now (the Dismiss Highlight item shows only then).
+    func hasHighlight(_ workspace: WorkspaceModel) -> Bool {
+        !attentionMarks(for: workspace).isEmpty
+    }
+
+    /// Dismiss Highlight (cx-epgo): hides `workspace`'s attention rings
+    /// until a newer notification arrives. The notifications stay unread
+    /// (the tab mark, the row badge and the Dock badge keep them).
+    func dismissHighlight(_ workspace: WorkspaceModel) {
+        let newest = workspace.screens.flatMap(\.panes).flatMap(\.tabs).filter(\.hasUnread)
+            .map { $0.notification?.notification.rawValue ?? 1 }.max() ?? 0
+        guard newest > (dismissedHighlights[workspace.id] ?? 0) else { return }
+        dismissedHighlights[workspace.id] = newest
+        note("highlight dismissed workspace=\(workspace.id) through=\(newest)")
     }
 }
