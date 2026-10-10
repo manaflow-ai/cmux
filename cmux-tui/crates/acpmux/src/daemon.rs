@@ -77,6 +77,13 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     let _ = std::env::set_current_dir(home());
     let lock = home().join("daemon.lock");
     let _lock_file = acquire_lock(&lock)?;
+    // The local CodeRouter relay (crate cmux-coderouter): `cmux-router` and
+    // `local-coderouter` routes read its port and mint keys from it. Opt-in
+    // (the cmux app sets ACPMUX_LOCAL_ROUTER=1): test daemons in temporary
+    // homes must not leave detached routers behind.
+    if std::env::var("ACPMUX_LOCAL_ROUTER").as_deref() == Ok("1") {
+        ensure_router();
+    }
     let store = crate::store::open(&config.store, &home())?;
     // The dashboard and WebSocket always run. First run picks a loopback port
     // and a random token and saves both, so the URL is stable afterwards.
@@ -767,6 +774,51 @@ fn first_run_listen(shared_home: bool, saved: Option<&str>) -> &str {
         Some(saved) if shared_home || !saved.ends_with(":47811") => saved,
         _ if shared_home => SHARED,
         _ => ANY,
+    }
+}
+
+/// Start `acpmux router serve` as a detached child unless a router already
+/// answers on `<home>/router/router.sock`. It outlives a daemon restart (model
+/// streams keep running); a later daemon finds and reuses it.
+fn ensure_router() {
+    use std::io::{BufRead, BufReader, Write};
+    use std::os::unix::net::UnixStream;
+    use std::os::unix::process::CommandExt;
+    let socket = home().join("router").join("router.sock");
+    let alive = UnixStream::connect(&socket)
+        .and_then(|stream| {
+            stream.set_read_timeout(Some(Duration::from_secs(2)))?;
+            let mut writer = stream.try_clone()?;
+            writer.write_all(b"{\"op\":\"status\"}\n")?;
+            let mut line = String::new();
+            BufReader::new(stream).read_line(&mut line)?;
+            Ok(line.contains("\"port\""))
+        })
+        .unwrap_or(false);
+    if alive {
+        return;
+    }
+    let Ok(exe) = std::env::current_exe() else { return };
+    let mut command = std::process::Command::new(exe);
+    command
+        .args(["router", "serve"])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    // Its own session: a daemon exit or a terminal hangup does not stop it.
+    unsafe {
+        command.pre_exec(|| {
+            libc::setsid();
+            Ok(())
+        });
+    }
+    match command.spawn() {
+        Ok(mut child) => {
+            std::thread::spawn(move || {
+                let _ = child.wait();
+            });
+        }
+        Err(e) => tracing::warn!("could not start the local router: {e}"),
     }
 }
 

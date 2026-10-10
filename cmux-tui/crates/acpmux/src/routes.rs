@@ -56,8 +56,10 @@ pub enum RouteKind {
     Subrouter,
     /// CLIProxyAPI (an Anthropic/OpenAI-compatible proxy over subscription logins).
     Cliproxyapi,
-    /// The hosted cmux model router: open-source models only (Fireworks,
-    /// Baseten, DeepInfra), OpenAI-compatible.
+    /// The hosted cmux model router (open-source models), reached through the
+    /// local relay (crate cmux-coderouter): the relay holds the app's upstream
+    /// bearer; a harness gets only the relay's loopback URL and a crl_ key.
+    /// Serves both families (Messages API and OpenAI chat/completions).
     CmuxRouter,
     CustomAnthropic,
     CustomOpenai,
@@ -92,12 +94,17 @@ impl RouteKind {
         Self::ALL.iter().copied().find(|k| k.as_str() == text)
     }
 
+    /// Kinds whose URL and key come from the running local router.
+    pub fn relayed(self) -> bool {
+        matches!(self, Self::LocalCoderouter | Self::CmuxRouter)
+    }
+
     /// The auth a preset of this kind starts with.
     fn default_auth(self) -> Auth {
         match self {
             Self::DirectSubscription => Auth::Subscription,
-            Self::DirectApiKey | Self::CmuxRouter => Auth::ApiKey,
-            Self::LocalCoderouter => Auth::Bearer,
+            Self::DirectApiKey => Auth::ApiKey,
+            Self::LocalCoderouter | Self::CmuxRouter => Auth::Bearer,
             Self::Subrouter | Self::Cliproxyapi | Self::CustomAnthropic | Self::CustomOpenai => {
                 Auth::None
             }
@@ -193,11 +200,9 @@ impl Route {
             RouteKind::DirectSubscription | RouteKind::DirectApiKey => true,
             _ => {
                 if is_anthropic_family(family) {
-                    self.file.anthropic_base_url.is_some()
-                        || self.file.kind == RouteKind::LocalCoderouter
+                    self.file.anthropic_base_url.is_some() || self.file.kind.relayed()
                 } else {
-                    self.file.openai_base_url.is_some()
-                        || self.file.kind == RouteKind::LocalCoderouter
+                    self.file.openai_base_url.is_some() || self.file.kind.relayed()
                 }
             }
         }
@@ -356,9 +361,7 @@ pub fn validate(file: &RouteFile) -> Result<(), RouteError> {
         }
     }
     let auth = file.auth.unwrap_or_else(|| file.kind.default_auth());
-    if matches!(auth, Auth::ApiKey | Auth::Bearer)
-        && file.secret.is_none()
-        && file.kind != RouteKind::LocalCoderouter
+    if matches!(auth, Auth::ApiKey | Auth::Bearer) && file.secret.is_none() && !file.kind.relayed()
     {
         return Err(RouteError::BadParams(format!(
             "auth {} needs secret (keychain:ITEM or env:VAR)",
@@ -678,6 +681,16 @@ fn reference_value(secret: &str) -> String {
 /// running harnesses hold), so a spawn's env stays the same and the session
 /// pool's env key still matches.
 pub fn local_router(home: &Path, family: &str) -> Result<(String, String), RouteError> {
+    local_router_with(home, family, false)
+}
+
+/// `local_router`, and for the cmux model router also a live upstream (the app
+/// signed the relay in), else `route.unavailable` with the reason.
+pub fn local_router_with(
+    home: &Path,
+    family: &str,
+    need_upstream: bool,
+) -> Result<(String, String), RouteError> {
     use std::io::{BufRead, BufReader, Write};
     use std::os::unix::net::UnixStream;
     static MINTED: Mutex<BTreeMap<(u64, String), String>> = Mutex::new(BTreeMap::new());
@@ -702,6 +715,19 @@ pub fn local_router(home: &Path, family: &str) -> Result<(String, String), Route
         .get("port")
         .and_then(Value::as_u64)
         .ok_or_else(|| unavailable("it is older than this acpmux: no port".into()))?;
+    if need_upstream {
+        let live = status
+            .get("upstream")
+            .and_then(|u| u.get("live"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        if !live {
+            return Err(RouteError::Unavailable(
+                "the cmux model router is not connected (open cmux to sign the local router in)"
+                    .into(),
+            ));
+        }
+    }
     let url = format!("http://127.0.0.1:{port}");
     let mut minted = MINTED.lock().unwrap_or_else(|p| p.into_inner());
     if let Some(key) = minted.get(&(port, family.to_owned())) {
@@ -755,8 +781,8 @@ pub fn env_for(route: &Route, family: &str, home: &Path) -> Result<RouteEnv, Rou
         },
         route.file.secret.as_deref().map(reference_value),
     );
-    if route.file.kind == RouteKind::LocalCoderouter {
-        let (url, key) = local_router(home, family)?;
+    if route.file.kind.relayed() {
+        let (url, key) = local_router_with(home, family, route.file.kind == RouteKind::CmuxRouter)?;
         if base.is_none() {
             base = Some(if anthropic { url } else { format!("{url}/v1") });
         }
@@ -898,8 +924,8 @@ pub async fn probe(route: &Route, home: &Path) -> Value {
         }
         None => None,
     };
-    if route.file.kind == RouteKind::LocalCoderouter {
-        match local_router(home, family) {
+    if route.file.kind.relayed() {
+        match local_router_with(home, family, route.file.kind == RouteKind::CmuxRouter) {
             Ok((url, key)) => {
                 base.get_or_insert(url);
                 secret.get_or_insert(key);
