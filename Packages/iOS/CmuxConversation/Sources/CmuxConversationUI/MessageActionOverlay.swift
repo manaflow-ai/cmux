@@ -61,6 +61,13 @@ final class MessageActionOverlay: UIView {
         static let menuGap: CGFloat = 18
         static let menuRow: CGFloat = 42
         static let menuWidth: CGFloat = 250
+        /// UIKit's context menu list (iOS 27.0 MobileSMS): 10 pt above the
+        /// first row and below the last; each row centers its 17 pt symbol
+        /// 40.17 pt in and starts its label at 64 pt, 28 pt short of the edge.
+        static let menuVerticalInset: CGFloat = 10
+        static let menuIconCenter: CGFloat = 241.0 / 6
+        static let menuLabelLeading: CGFloat = 64
+        static let menuLabelTrailing: CGFloat = 28
         static let smiley: CGFloat = 44
         static let tailDot: CGFloat = 7
         /// Recent-emoji cells draw the emoji at ~26 pt (Messages: 25.5-26.9 pt images).
@@ -336,7 +343,7 @@ final class MessageActionOverlay: UIView {
     required init?(coder: NSCoder) { fatalError() }
 
     private var menuSize: CGSize {
-        let height = menuStack.arrangedSubviews.reduce(CGFloat(0)) { $0 + ($1 is MenuRow ? Metrics.menuRow : 14) } + 16
+        let height = menuStack.arrangedSubviews.reduce(CGFloat(0)) { $0 + ($1 is MenuRow ? Metrics.menuRow : 14) } + 2 * Metrics.menuVerticalInset
         return CGSize(width: Metrics.menuWidth, height: height)
     }
 
@@ -424,7 +431,7 @@ final class MessageActionOverlay: UIView {
         let menuY = min(preview.maxY + Metrics.menuGap, bounds.height - safe.bottom - menuSize.height - 8)
         let menuX = isOutgoing ? preview.maxX - menuSize.width : preview.minX
         menu.frame = CGRect(x: min(max(Metrics.screenInset, menuX), bounds.width - Metrics.screenInset - menuSize.width), y: menuY, width: menuSize.width, height: menuSize.height)
-        menuStack.frame = menu.bounds.insetBy(dx: 0, dy: 8)
+        menuStack.frame = menu.bounds.insetBy(dx: 0, dy: Metrics.menuVerticalInset)
     }
 
     /// The dot the capsule grows out of (and folds back into): just outside
@@ -789,11 +796,13 @@ final class MessageActionOverlay: UIView {
             self.action = action
             super.init(frame: .zero)
             icon.image = UIImage(systemName: item.symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .regular))
-            icon.tintColor = item.isDestructive ? .systemRed : .label
+            // Dark menus draw text and symbols at 96% white (MobileSMS 27.0).
+            let ink = UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.96) : .label }
+            icon.tintColor = item.isDestructive ? .systemRed : ink
             icon.contentMode = .center
             label.text = item.title
             label.font = .systemFont(ofSize: 17)
-            label.textColor = item.isDestructive ? .systemRed : .label
+            label.textColor = item.isDestructive ? .systemRed : ink
             addSubview(icon)
             addSubview(label)
             heightAnchor.constraint(equalToConstant: Metrics.menuRow).isActive = true
@@ -809,8 +818,8 @@ final class MessageActionOverlay: UIView {
 
         override func layoutSubviews() {
             super.layoutSubviews()
-            icon.frame = CGRect(x: 20, y: 0, width: 28, height: bounds.height)
-            label.frame = CGRect(x: 60, y: 0, width: bounds.width - 76, height: bounds.height)
+            icon.frame = CGRect(x: Metrics.menuIconCenter - 14, y: 0, width: 28, height: bounds.height)
+            label.frame = CGRect(x: Metrics.menuLabelLeading, y: 0, width: bounds.width - Metrics.menuLabelLeading - Metrics.menuLabelTrailing, height: bounds.height)
         }
 
         override var isHighlighted: Bool {
