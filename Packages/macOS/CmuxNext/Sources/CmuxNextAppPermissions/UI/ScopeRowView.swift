@@ -1,3 +1,4 @@
+import CmuxNextIcons
 import SwiftUI
 
 /// One scope: tone dot, sentence, reason, approval menu and switch.
@@ -22,7 +23,7 @@ struct ScopeRowView: View {
             }
             Spacer(minLength: 8)
             if row.lock != nil {
-                Image(systemName: "lock").font(.system(size: 10)).foregroundStyle(colors.tertiary)
+                Icon(.securityLock, size: 12).foregroundStyle(colors.tertiary)
                     .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
                     .help(row.lock == .tier ? AppPermissionsStrings.restricted : AppPermissionsStrings.blockedByProfile)
             } else {
