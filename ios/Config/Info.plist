@@ -87,8 +87,19 @@
 		     ONLY WKWebView web content from ATS; the app's own API/auth/pairing
 		     traffic stays under ATS and still requires HTTPS. NSAllowsLocalNetworking
 		     alone would not cover routable private-LAN dev servers. -->
+#if CMUX_DEBUG_BUILD
+		<!-- Debug builds talk cleartext ws:// to dev services on other hosts
+		     (the conversation-sim lab over Tailscale). Loopback is ATS-exempt,
+		     but a routable dev host is not. ATS ignores this blanket key when
+		     a narrower Allows key is present, so Debug carries ONLY this one
+		     (it also covers WKWebView content). Defined only in Debug.xcconfig,
+		     so TestFlight and App Store builds keep full ATS. -->
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+#else
 		<key>NSAllowsArbitraryLoadsInWebContent</key>
 		<true/>
+#endif
 	</dict>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
