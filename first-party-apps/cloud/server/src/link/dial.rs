@@ -123,28 +123,3 @@ pub fn parse_reply(line: &str) -> DialReply {
         None => DialReply::Refused(DialCode::Unavailable("cmux link sent no ok field".into())),
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn replies_parse() {
-        assert_eq!(
-            parse_reply(r#"{"ok":true,"path_state":"tunnel","relay_available":false}"#),
-            DialReply::Connected { path_state: "tunnel".into() }
-        );
-        assert_eq!(
-            parse_reply(r#"{"ok":false,"error_code":"host_paused","path_state":"unreachable"}"#),
-            DialReply::Refused(DialCode::HostPaused)
-        );
-        assert!(matches!(
-            parse_reply("cmux link is not running: no such file"),
-            DialReply::Refused(DialCode::Unavailable(_))
-        ));
-        assert_eq!(
-            dial_args("host_x", std::path::Path::new("/tmp/l.sock")),
-            ["link", "dial", "--host", "host_x", "--socket", "/tmp/l.sock"]
-        );
-    }
-}

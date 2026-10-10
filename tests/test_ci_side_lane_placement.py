@@ -33,7 +33,7 @@ GUI_JOBS = ("swift-test", "daemon-test", "generated-files")
 def on(name: str, label: str) -> str:
     """The label a job takes where the compile jobs take an owned side or std label."""
     return GUI if name in GUI_JOBS and label in (SIDE, STD) else label
-JOBS = ("cmux-scheme-compile", "release-compile", "swift-test", "daemon-test", "generated-files")
+JOBS = ("cmux-scheme-compile", "release-compile", "swift-test", "daemon-test", "generated-files", "swift-canary")
 
 sys.path.insert(0, str(ROOT / "tests"))
 from test_seed_derived_data import evaluate, github_context  # noqa: E402
@@ -162,7 +162,7 @@ class CmuxNextWiring(unittest.TestCase):
                                                     "gui_runner": GUI if runner else ""}
         # path_route (#17164) gates every Mac job; these cases are native changes.
         context["needs"] = {"path_route": {"outputs": {"native": "true", "macos": "true", "scheme": "true",
-                                                            "swift": "true", "daemon": "true", "generated": "true",
+                                                            "swift": "true", "swift_canary": "true", "daemon": "true", "generated": "true",
                                                             "tree_state": "ready"}},
                             "push-head-preflight": {"outputs": {"current": "true"}},
                             self.PLACEMENT: {"outputs": outputs}}

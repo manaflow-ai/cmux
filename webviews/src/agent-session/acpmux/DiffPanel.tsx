@@ -48,6 +48,22 @@ function store(key: string, value: string) {
 
 type Tool = "collapse" | "wrap" | "split" | "tree";
 
+export function bindDiffPanelEscape(panel: HTMLElement, onClose: () => void): () => void {
+  const ownerDocument = panel.ownerDocument;
+  const ownerWindow = ownerDocument.defaultView;
+  if (!ownerWindow) return () => {};
+  const close = (event: KeyboardEvent) => {
+    const focus = ownerDocument.activeElement;
+    if (event.key !== "Escape" || event.defaultPrevented || focus instanceof ownerWindow.HTMLInputElement) return;
+    if (!focus || focus === ownerDocument.body || panel.contains(focus)) {
+      event.preventDefault();
+      onClose();
+    }
+  };
+  ownerWindow.addEventListener("keydown", close);
+  return () => ownerWindow.removeEventListener("keydown", close);
+}
+
 /// The changes one turn's tool calls made, file by file, or a git scope of the session's
 /// repository from `source`. Back or Escape returns to the transcript. With `review`, the last
 /// turn's hunks can each be accepted or rejected, and the rejected ones sent back to the agent.
@@ -162,16 +178,8 @@ export function DiffPanel({
   const selectedFile = useStableCallback(() => selected);
   useDiffKeys(panel, body, revealFromTree, selectedFile);
   useEffect(() => {
-    const close = (event: KeyboardEvent) => {
-      const focus = document.activeElement;
-      if (event.key !== "Escape" || event.defaultPrevented || focus instanceof HTMLInputElement) return;
-      if (!focus || focus === document.body || panel.current?.contains(focus)) {
-        event.preventDefault();
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", close);
-    return () => window.removeEventListener("keydown", close);
+    const node = panel.current;
+    return node ? bindDiffPanelEscape(node, onClose) : undefined;
   }, [onClose]);
   // Why the last open failed, until the next open or another scope. Only the latest open's
   // failure shows: an earlier one that fails late was overtaken.

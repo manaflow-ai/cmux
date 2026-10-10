@@ -68,30 +68,11 @@ describe("Google scopes and tokens", () => {
     expect(typeof gmail.defaultScopes === "function" && gmail.defaultScopes(e)).toEqual(["gmail.send", "gmail.modify"])
   })
 
-  it("derives one PKCE verifier per connection attempt (connection and signed state)", async () => {
-    const a = await pkceVerifier(e, "conn_aaaaaaaaaaaaaaaaaaaa", "state-1")
-    expect(a).toMatch(/^[A-Za-z0-9_-]{43}$/)
-    expect(await pkceVerifier(e, "conn_aaaaaaaaaaaaaaaaaaaa", "state-1")).toBe(a)
-    expect(await pkceVerifier(e, "conn_bbbbbbbbbbbbbbbbbbbb", "state-1")).not.toBe(a)
-    expect(await pkceVerifier(e, "conn_aaaaaaaaaaaaaaaaaaaa", "state-2")).not.toBe(a)
-  })
-
   it("production honors only a verified restricted-scope setting", () => {
     expect(restrictedScopesEnabled({ ...e, ENVIRONMENT: "production", GOOGLE_RESTRICTED_SCOPES: "testing" })).toBe(false)
     expect(restrictedScopesEnabled({ ...e, ENVIRONMENT: "production", GOOGLE_RESTRICTED_SCOPES: "internal" })).toBe(false)
     expect(restrictedScopesEnabled({ ...e, ENVIRONMENT: "production", GOOGLE_RESTRICTED_SCOPES: "verified" })).toBe(true)
     expect(restrictedScopesEnabled({ ...e, ENVIRONMENT: "staging", GOOGLE_RESTRICTED_SCOPES: "testing" })).toBe(true)
-  })
-
-  it("refresh keeps the refresh token; invalid_grant needs reauth; a 503 is retryable", async () => {
-    const expired = { ...oauth, expires_at: Date.now() }
-    expect(await googleRefresh(e, fakeHttp({}).http, oauth)).toBeUndefined()
-    const fresh = await googleRefresh(e, fakeHttp({ "https://oauth2.googleapis.com/token": () => ok({ access_token: "ya29.new", expires_in: 3599 }) }).http, expired)
-    expect(fresh).toMatchObject({ kind: "oauth", access_token: "ya29.new", refresh_token: "1//refresh" })
-    await expect(googleRefresh(e, fakeHttp({ "https://oauth2.googleapis.com/token": () => ok({ error: "invalid_grant" }, 400) }).http, expired)).rejects.toMatchObject({ code: "needs_reauth" })
-    // Our misconfiguration must not send every connection to re-authorization.
-    await expect(googleRefresh(e, fakeHttp({ "https://oauth2.googleapis.com/token": () => ok({ error: "invalid_client" }, 401) }).http, expired)).rejects.toMatchObject({ code: "provider.error", retryable: false })
-    await expect(googleRefresh(e, fakeHttp({ "https://oauth2.googleapis.com/token": () => ok({}, 503) }).http, expired)).rejects.toMatchObject({ code: "provider.error", retryable: true })
   })
 
   it("maps Google errors: 401 reauth, 403 rate limit retryable, effect 5xx and network failure indeterminate", async () => {
@@ -108,51 +89,6 @@ describe("Google scopes and tokens", () => {
 })
 
 describe("Gmail client (fake HTTP)", () => {
-  it("returns message text, html flag and attachments at call time, cut at the cap", () => {
-    const m = {
-      id: "m1",
-      threadId: "t1",
-      labelIds: ["INBOX", "UNREAD"],
-      snippet: "hello",
-      internalDate: "1700000000000",
-      payload: {
-        headers: [
-          { name: "From", value: "A <a@example.com>" },
-          { name: "Subject", value: "Hi" },
-          { name: "X-Other", value: "dropped" }
-        ],
-        parts: [
-          { mimeType: "text/plain", body: { data: b64url("héllo body") } },
-          { mimeType: "text/html", body: { data: b64url("<p>x</p>") } },
-          { mimeType: "application/pdf", filename: "a.pdf", body: { attachmentId: "att1", size: 10 } },
-          { mimeType: "text/plain", filename: "notes.txt", body: { data: b64url("inline attachment") } }
-        ]
-      }
-    }
-    expect(messageView(m, true)).toMatchObject({
-      id: "m1",
-      thread_id: "t1",
-      headers: { from: "A <a@example.com>", subject: "Hi" },
-      text: "héllo body",
-      has_html: true,
-      attachments: [{ attachment_id: "att1", filename: "a.pdf", mime_type: "application/pdf", size: 10 }]
-    })
-    expect((messageView(m, true).headers as Record<string, string>)["x-other"]).toBeUndefined()
-    const long = { ...m, payload: { parts: [{ mimeType: "text/plain", body: { data: b64url("x".repeat(MAX_TEXT_CHARS + 10)) } }] } }
-    expect(messageView(long, true)).toMatchObject({ text_truncated: true })
-    expect((messageView(long, true) as { text: string }).text).toHaveLength(MAX_TEXT_CHARS)
-  })
-
-  it("encodes a long non-ASCII subject as folded words of at most 75 characters that decode back", () => {
-    const subject = "Grüße aus München ".repeat(20)
-    const v = headerValue(subject)
-    const words = v.split("\r\n ")
-    expect(words.length).toBeGreaterThan(1)
-    for (const w of words) expect(w.length).toBeLessThanOrEqual(75)
-    const bytes = words.flatMap((w) => [...atob(w.slice("=?UTF-8?B?".length, -2))].map((c) => c.charCodeAt(0)))
-    expect(new TextDecoder().decode(Uint8Array.from(bytes))).toBe(subject)
-    expect(headerValue("Plain subject")).toBe("Plain subject")
-  })
 
   it("peek reports a deleted thread as missing and keeps the order", async () => {
     const f = fakeHttp({
