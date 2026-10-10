@@ -40,12 +40,16 @@ pub const DAEMON_OWNED_ENV_KEYS: [&str; 12] = [
 
 /// Ghostty shell-integration keys. The daemon owns them only when it
 /// integrates the default shell itself.
-pub const INTEGRATION_OWNED_ENV_KEYS: [&str; 5] = [
+pub const INTEGRATION_OWNED_ENV_KEYS: [&str; 8] = [
     "GHOSTTY_ZSH_ZDOTDIR",
     "GHOSTTY_BASH_ENV",
     "GHOSTTY_BASH_INJECT",
     "GHOSTTY_BASH_UNEXPORT_HISTFILE",
     "GHOSTTY_SHELL_INTEGRATION_XDG_DIR",
+    // The app's bundled-CLI layer over the injection (`shell_integration::cli_path`).
+    "CMUX_CLI_ZSH_ZDOTDIR",
+    "CMUX_CLI_BASH_ENV",
+    "CMUX_CLI_FISH_XDG_DIR",
 ];
 
 /// The daemon's socket keys for every terminal it creates: `CMUX_TUI_SOCKET`
@@ -132,6 +136,48 @@ fn path_with_dir_first(path: &str, dir: &str) -> String {
         entries.extend(rest);
     }
     entries.join(PATH_SEPARATOR)
+}
+
+/// Put the app's bundled CLI (`<Resources>/bin/cmux`) dir first on the
+/// `PATH` in `env`, followed by the other entries, and name it in
+/// `CMUX_BUNDLED_CLI_PATH`, over a caller's values. Run it after the caller
+/// env is merged and before [`keep_shim_first_on_path`], so the shim stays
+/// first. Does nothing without a bundled CLI or a `PATH` entry.
+pub(crate) fn keep_bundled_cli_first(env: &mut Vec<(String, String)>, bundled_cli: Option<&str>) {
+    let Some(cli) = bundled_cli.filter(|cli| !cli.is_empty()) else { return };
+    let Some(dir) = std::path::Path::new(cli).parent().and_then(|dir| dir.to_str()) else {
+        return;
+    };
+    set_env(env, BUNDLED_CLI_ENV, cli);
+    let Some(path) =
+        env.iter().rev().find(|(key, _)| same_env_key(key, "PATH")).map(|(_, value)| value.clone())
+    else {
+        return;
+    };
+    set_env(env, "PATH", &path_with_dir_first(&path, dir));
+}
+
+/// The app's bundled CLI (`<Resources>/bin/cmux`), which the app puts in the
+/// daemon's environment.
+pub const BUNDLED_CLI_ENV: &str = "CMUX_BUNDLED_CLI_PATH";
+
+/// The bundled CLI in this daemon's own environment, when it is an
+/// executable file. A daemon from an older app has none.
+pub fn bundled_cli_from_process_env() -> Option<String> {
+    let cli = std::env::var(BUNDLED_CLI_ENV).ok().filter(|cli| !cli.is_empty())?;
+    is_executable_file(std::path::Path::new(&cli)).then_some(cli)
+}
+
+#[cfg(unix)]
+fn is_executable_file(path: &std::path::Path) -> bool {
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::metadata(path)
+        .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+}
+
+#[cfg(not(unix))]
+fn is_executable_file(path: &std::path::Path) -> bool {
+    path.is_file()
 }
 
 const PATH_SEPARATOR: &str = if cfg!(windows) { ";" } else { ":" };

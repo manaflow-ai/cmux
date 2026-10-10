@@ -353,27 +353,27 @@
   "programs": [
     {
       "name": "cmux-tui",
-      "version": "d3fa8796dee7f44f861c74ad9c80b82b054f518e",
-      "url": "https://files.cmux.com/cmux-tui/d3fa8796dee7f44f861c74ad9c80b82b054f518e/cmux-tui-x86_64-unknown-linux-musl",
-      "sha256": "6e1f396150d755ad555c29787d71c06c95ddd42893cee4b6fe9f3e205b3d0c56",
-      "size": 75473168,
+      "version": "09827ef9e27b1dd538be0dca019c48e41c16f13f",
+      "url": "https://files.cmux.com/cmux-tui/09827ef9e27b1dd538be0dca019c48e41c16f13f/cmux-tui-x86_64-unknown-linux-musl",
+      "sha256": "f44d6a65abffb0a22fecfd299161c5421a7bc5b48a143bd87b36124d9e2fe98a",
+      "size": 79097184,
       "format": "raw",
       "fileName": "cmux-tui",
       "bin": { "cmux": "cmux-tui", "cmux-tui": "cmux-tui" },
       "versionArgs": ["--version"],
-      "source": "https://files.cmux.com/cmux-tui/d3fa8796dee7f44f861c74ad9c80b82b054f518e/manifest.json (cmux-tui-artifacts run 37772102409, branch cmux-tui-pin-d3fa8796dee7; contains eb9cd709a8a8, the Cloud worker survives agent socket clients; contains 65477c3b1ce4, the cmux host Cloud agent role, and 3c15962b154c, host key comment root@<hostname>, bead cx-3bi.29; contains a97f64d1e118 systemd host scopes, cx-4eho, and 9778585eda79, cx-h8n)"
+      "source": "https://files.cmux.com/cmux-tui/09827ef9e27b1dd538be0dca019c48e41c16f13f/manifest.json (cmux-tui-artifacts run 37940126061, feat-cmux-next push 09827ef9e27b; contains 89d2e5ddd194 palette-usage-v1; bead cx-4l51 tip rebake)"
     },
     {
       "name": "cmux-tui-hook",
-      "version": "d3fa8796dee7f44f861c74ad9c80b82b054f518e",
-      "url": "https://files.cmux.com/cmux-tui/d3fa8796dee7f44f861c74ad9c80b82b054f518e/cmux-tui-hook-x86_64-unknown-linux-musl",
-      "sha256": "dbdcda72ea23ccdcb080e086213cbfed485e05de846b2722fa3da090678f902a",
-      "size": 3625064,
+      "version": "09827ef9e27b1dd538be0dca019c48e41c16f13f",
+      "url": "https://files.cmux.com/cmux-tui/09827ef9e27b1dd538be0dca019c48e41c16f13f/cmux-tui-hook-x86_64-unknown-linux-musl",
+      "sha256": "3851906633bdd78602c9c3ff9c7edc2d54cc49701e2b4426c1957565e5d10a3a",
+      "size": 3676200,
       "format": "raw",
       "fileName": "cmux-tui-hook",
       "bin": { "cmux-tui-hook": "cmux-tui-hook" },
       "versionArgs": [],
-      "source": "https://files.cmux.com/cmux-tui/d3fa8796dee7f44f861c74ad9c80b82b054f518e/manifest.json (cmux-tui-artifacts run 37772102409, branch cmux-tui-pin-d3fa8796dee7; contains eb9cd709a8a8, the Cloud worker survives agent socket clients; contains 65477c3b1ce4, the cmux host Cloud agent role, and 3c15962b154c, host key comment root@<hostname>, bead cx-3bi.29; contains a97f64d1e118 systemd host scopes, cx-4eho, and 9778585eda79, cx-h8n)"
+      "source": "https://files.cmux.com/cmux-tui/09827ef9e27b1dd538be0dca019c48e41c16f13f/manifest.json (cmux-tui-artifacts run 37940126061, feat-cmux-next push 09827ef9e27b; contains 89d2e5ddd194 palette-usage-v1; bead cx-4l51 tip rebake)"
     },
     {
       "name": "coderouter",

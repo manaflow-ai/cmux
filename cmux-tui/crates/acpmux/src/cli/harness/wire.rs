@@ -2,16 +2,16 @@
 
 use super::*;
 
-pub(super) struct Wire {
-    pub(super) stdin: tokio::process::ChildStdin,
-    pub(super) lines: tokio::io::Lines<BufReader<tokio::process::ChildStdout>>,
-    pub(super) next: i64,
-    pub(super) reply: String,
-    pub(super) noise: usize,
+pub(crate) struct Wire {
+    pub(crate) stdin: tokio::process::ChildStdin,
+    pub(crate) lines: tokio::io::Lines<BufReader<tokio::process::ChildStdout>>,
+    pub(crate) next: i64,
+    pub(crate) reply: String,
+    pub(crate) noise: usize,
 }
 
 impl Wire {
-    pub(super) async fn send(&mut self, msg: Value) -> Result<(), String> {
+    pub(crate) async fn send(&mut self, msg: Value) -> Result<(), String> {
         let mut line = msg.to_string();
         line.push('\n');
         self.stdin
@@ -23,7 +23,7 @@ impl Wire {
 
     /// One request; answers the harness's own requests (permission asks are
     /// cancelled, anything else is refused) and collects reply text.
-    pub(super) async fn call(
+    pub(crate) async fn call(
         &mut self,
         method: &str,
         params: Value,
@@ -56,7 +56,7 @@ impl Wire {
                     self.send(json!({"jsonrpc": "2.0", "id": rid, "result": answer})).await?;
                 }
                 (Some(rid), Some(_)) => {
-                    let error = json!({"code": -32601, "message": "cmux harness doctor does not serve this method"});
+                    let error = json!({"code": -32601, "message": "cmux harness doctor and login do not serve this method"});
                     self.send(json!({"jsonrpc": "2.0", "id": rid, "error": error})).await?;
                 }
                 (None, Some("session/update")) => {
@@ -84,12 +84,12 @@ impl Wire {
 }
 
 /// A private temp folder, removed on drop.
-pub(super) struct TempFolder {
-    pub(super) path: PathBuf,
+pub(crate) struct TempFolder {
+    pub(crate) path: PathBuf,
 }
 
 impl TempFolder {
-    pub(super) fn new(id: &str) -> std::io::Result<Self> {
+    pub(crate) fn new(id: &str) -> std::io::Result<Self> {
         use std::os::unix::fs::DirBuilderExt;
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

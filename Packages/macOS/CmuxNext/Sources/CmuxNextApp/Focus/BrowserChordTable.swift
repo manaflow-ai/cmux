@@ -16,9 +16,9 @@ import CmuxNextActions
 /// consulted, so cmux keeps them.
 enum BrowserChordTable {
     private static let left = Shortcut.leftArrowKey
-    private static let right = String(Character(UnicodeScalar(UInt32(NSRightArrowFunctionKey))!))
-    private static let pageUp = String(Character(UnicodeScalar(UInt32(NSPageUpFunctionKey))!))
-    private static let pageDown = String(Character(UnicodeScalar(UInt32(NSPageDownFunctionKey))!))
+    private static let right = Shortcut.rightArrowKey
+    private static let pageUp = FunctionKeyCharacter.string(NSPageUpFunctionKey)
+    private static let pageDown = FunctionKeyCharacter.string(NSPageDownFunctionKey)
 
     /// The standard browser shortcuts on macOS, limited to Command and
     /// Control chords.
@@ -74,6 +74,14 @@ enum BrowserChordTable {
     static func isBrowserOnlyChord(_ event: NSEvent, registry: ActionRegistry) -> Bool {
         let chords = browserOnlyActions.compactMap(registry.effectiveShortcut(for:))
         return shortcuts(of: event).contains { chords.contains($0) }
+    }
+
+    /// The page-history action (`focusHistoryBack` / `focusHistoryForward`) of a browser-only
+    /// chord, for a page with its own history (history.md 4.2b); nil for any other key.
+    static func pageHistoryAction(for event: NSEvent, registry: ActionRegistry) -> ActionID? {
+        let typed = shortcuts(of: event)
+        let pairs: [(ActionID, ActionID)] = [("browserBack", "focusHistoryBack"), ("browserForward", "focusHistoryForward")]
+        return pairs.first { pair in registry.effectiveShortcut(for: pair.0).map(typed.contains) ?? false }?.1
     }
 
     /// Like `ActionRegistry.resolveShortcut`: the key as typed and its

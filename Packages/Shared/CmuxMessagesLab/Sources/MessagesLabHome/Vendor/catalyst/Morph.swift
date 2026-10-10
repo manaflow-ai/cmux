@@ -160,6 +160,9 @@ final class MorphBubble {
         mask.frame = sharpClip.bounds
         mask.actions = none
         sharpClip.mask = mask
+        // Hidden until `clipGlass` gives it its region: a masked layer is drawn through an
+        // offscreen pass of its whole area, even with an empty mask.
+        sharpClip.isHidden = true
         insideClip.superlayer?.insertSublayer(sharpClip, above: insideClip)
         build(sp.bubble, sp.body, sp.text, sp.tail, sp.underlay, in: sharpHolder, blurred: nil)
 
@@ -176,16 +179,15 @@ final class MorphBubble {
         // The first 1/120 s step from 0.3 s with 12 steps in a row inside every
         // tolerance (each step's checks evaluated once; same result as testing
         // 12 steps per candidate, about 12x less spring math on the send commit).
-        let steps = Int(((2.0 - 0.3) * 120).rounded(.up))
-        var ok = [Bool](repeating: false, count: steps + 12)
-        for i in ok.indices {
+        let steps = CrashGuard.int(((2.0 - 0.3) * 120).rounded(.up)) // cmux: same value, no trapping conversion
+        let ok = (0..<(steps + 12)).map { i in // cmux: no index writes
             let tau = 0.3 + Double(i) / 120
-            ok[i] = checks.allSatisfy { e, a, b, tol in abs(e.value(tau, from: a, to: b) - b) <= tol }
+            return checks.allSatisfy { e, a, b, tol in abs(e.value(tau, from: a, to: b) - b) <= tol }
         }
         var first = steps
         var run = 0
-        for i in ok.indices {
-            run = ok[i] ? run + 1 : 0
+        for (i, good) in ok.enumerated() { // cmux: no index math
+            run = good ? run + 1 : 0
             if run == 12 { first = i - 11; break }
         }
         let settle = 0.3 + Double(min(first, steps)) / 120
@@ -252,7 +254,7 @@ final class MorphBubble {
         let padded = UIGraphicsImageRenderer(size: CGSize(width: size.width + 2 * p, height: size.height + 2 * p), format: fmt).image { ctx in
             PartRenderer.drawText(ctx.cgContext, tl, in: CGRect(x: p, y: p, width: size.width, height: size.height), outgoing: true)
         }
-        return (img.cgImage, padded.cgImage.flatMap { MorphBubble.boxBlur($0, radiusPx: Int((9 * Fixture.renderScale / 2).rounded())) })
+        return (img.cgImage, padded.cgImage.flatMap { MorphBubble.boxBlur($0, radiusPx: CrashGuard.int((9 * Fixture.renderScale / 2).rounded(), in: 0...64)) }) // cmux
     }
 
     /// The body's bottom edge in window points, `tau` seconds after the send
@@ -271,7 +273,17 @@ final class MorphBubble {
     func clipGlass(field: CGRect, topFrom: Double, topTo: Double, begin: CFTimeInterval) {
         guard let mask = sharpClip.mask else { return }
         let none: [String: CAAction] = ["bounds": NSNull(), "position": NSNull(), "backgroundColor": NSNull()]
-        let W = sharpClip.bounds.width, H = sharpClip.bounds.height
+        // The sharp copy's mask covers only the flight (the start rect at the field, the
+        // landing slot, padded for the scale pulse and later shifts), not the window: a
+        // mask is an offscreen pass of the masked area every frame (fd13f59 drew two
+        // full-window passes during each send). Child and mask coordinates stay window
+        // coordinates (bounds origin = frame origin).
+        let start = CGRect(x: fieldRect.minX, y: fieldRect.minY, width: fieldRect.width,
+                           height: max(fieldRect.height, flyingRect.height))
+        flight = start.union(flyingRect).insetBy(dx: -24, dy: -24).intersection(sharpClip.frame)
+        place(sharpClip, flight); place(mask, flight)
+        sharpClip.isHidden = false
+        let W = sharpClip.frame.maxX, H = sharpClip.frame.maxY
         func rect(_ r: CGRect) -> CALayer {
             let l = CALayer(); l.actions = none; l.backgroundColor = UIColor.black.cgColor; l.frame = r; mask.addSublayer(l); return l
         }
@@ -286,18 +298,36 @@ final class MorphBubble {
         mask.addSublayer(glassAbove)
         Animate.scalar(glassAbove, "bounds.size.height", from: topFrom, to: topTo, Springs.fieldTop, begin: begin)
         // The main tree (blurred copy fading to sharp) only inside the glass: its
-        // bottom edge fixed, its top edge with the field's.
-        let inside = CALayer()
-        inside.actions = none
-        inside.frame = insideClip.bounds
-        glassInside.actions = none
-        glassInside.backgroundColor = UIColor.black.cgColor
-        glassInside.anchorPoint = CGPoint(x: 0, y: 1)
-        glassInside.position = CGPoint(x: field.minX, y: field.maxY)
-        glassInside.bounds = CGRect(x: 0, y: 0, width: field.width, height: field.maxY - CGFloat(topTo))
-        inside.addSublayer(glassInside)
-        insideClip.mask = inside
-        Animate.scalar(glassInside, "bounds.size.height", from: Double(field.maxY) - topFrom, to: Double(field.maxY) - topTo, Springs.fieldTop, begin: begin)
+        // bottom edge fixed, its top edge with the field's. A rectangular bounds clip
+        // (no mask, no offscreen pass): the top edge moves as the clip's origin and
+        // height together, so its children keep window coordinates.
+        insideClip.masksToBounds = true
+        place(insideClip, CGRect(x: field.minX, y: CGFloat(topTo), width: field.width, height: field.maxY - CGFloat(topTo)))
+        for key in ["position.y", "bounds.origin.y"] {
+            Animate.scalar(insideClip, key, from: topFrom, to: topTo, Springs.fieldTop, begin: begin)
+        }
+        Animate.scalar(insideClip, "bounds.size.height", from: Double(field.maxY) - topFrom, to: Double(field.maxY) - topTo, Springs.fieldTop, begin: begin)
+    }
+
+    /// The sharp copy's clip region in window coordinates (`clipGlass`); empty before it.
+    private var flight = CGRect.null
+
+    /// `layer` covers `r` of its superlayer, with its own coordinates equal to the
+    /// superlayer's (bounds origin = frame origin): its children keep window coordinates.
+    private func place(_ layer: CALayer, _ r: CGRect) {
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        layer.anchorPoint = .zero
+        layer.bounds = r
+        layer.position = r.origin
+        CATransaction.commit()
+    }
+
+    /// The bubble moved by `dy` (a later transcript shift or a user scroll): the
+    /// sharp copy's region grows to keep it.
+    private func extendFlight(by dy: Double) {
+        guard !flight.isNull, let mask = sharpClip.mask, let up = sharpClip.superlayer else { return }
+        flight = flight.union(flight.offsetBy(dx: 0, dy: CGFloat(-dy))).intersection(up.bounds)
+        place(sharpClip, flight); place(mask, flight)
     }
 
     /// A display-scale change during the flight (the window moved to another
@@ -314,6 +344,7 @@ final class MorphBubble {
     /// A later transcript shift moves the target slot: same additive motion as the row.
     func shift(by dy: Double, _ element: SpringElement, begin: CFTimeInterval) {
         guard abs(dy) > 0.01 else { return }
+        extendFlight(by: dy)
         CATransaction.begin(); CATransaction.setDisableActions(true)
         for h in [holder, sharpHolder] { h.position.y -= CGFloat(dy) }
         CATransaction.commit()
@@ -324,6 +355,7 @@ final class MorphBubble {
 
     /// User scroll during the flight (no animation).
     func scroll(by dy: CGFloat) {
+        extendFlight(by: Double(dy))
         CATransaction.begin(); CATransaction.setDisableActions(true)
         holder.position.y -= dy
         sharpHolder.position.y -= dy
@@ -336,7 +368,7 @@ final class MorphBubble {
     static let peakScale: CGFloat = {
         let e = Springs.bubbleScale
         var peak = 1.0
-        for i in 0..<Int(max(1, e.settleTime) * 240) { peak = max(peak, e.value(Double(i) / 240, from: 1, to: 1)) }
+        for i in 0..<CrashGuard.int(max(1, e.settleTime) * 240, in: 0...14_400) { peak = max(peak, e.value(Double(i) / 240, from: 1, to: 1)) } // cmux: at most 60 s of samples
         return CGFloat((peak * 1000).rounded(.up) / 1000)
     }()
 
@@ -344,9 +376,10 @@ final class MorphBubble {
     static func boxBlur(_ cg: CGImage, radiusPx r: Int) -> CGImage? {
         guard var format = vImage_CGImageFormat(cgImage: cg),
               var src = try? vImage_Buffer(cgImage: cg, format: format),
-              var dst = try? vImage_Buffer(width: Int(src.width), height: Int(src.height), bitsPerPixel: format.bitsPerPixel) else { return nil }
+              let width = Int(exactly: src.width), let height = Int(exactly: src.height), // cmux: no trapping conversion
+              var dst = try? vImage_Buffer(width: width, height: height, bitsPerPixel: format.bitsPerPixel) else { return nil }
         defer { src.free(); dst.free() }
-        let k = UInt32(2 * r + 1)
+        let k = UInt32(clamping: 2 * max(0, r) + 1) // cmux: a negative radius does not trap
         for _ in 0..<3 {
             vImageBoxConvolve_ARGB8888(&src, &dst, nil, 0, 0, k, k, nil, vImage_Flags(kvImageEdgeExtend))
             swap(&src, &dst)
@@ -360,9 +393,9 @@ final class MorphBubble {
         // cmux: a themed accent interpolates its own stops.
         if let t = Fixture.themedGradient { return Fixture.color(in: t, atPx: px) }
         let s = Fixture.gradientStops
-        var i = 1
-        while i < s.count - 1, s[i].0 < px { i += 1 }
-        let a = s[i - 1], b = s[i]
+        // cmux: the first inner stop at or past px, else the last stop (no index math).
+        let upper = s.dropFirst().dropLast().firstIndex(where: { $0.0 >= px }) ?? s.count - 1
+        guard let a = s[checked: upper - 1], let b = s[checked: upper] else { return Fixture.gradientColor(0, 0) }
         let f = max(0, min(1, (px - a.0) / max(1, b.0 - a.0)))
         return Fixture.gradientColor(a.1 + (b.1 - a.1) * f, a.2 + (b.2 - a.2) * f)
     }

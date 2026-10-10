@@ -52,6 +52,27 @@ impl Mux {
         self.session_shutdown.begin();
     }
 
+    /// Log that this owner got termination signal `signal` from `sender_pid`
+    /// (cx-0tgl LA): `"event":"daemon_signal"` in `terminal-losses.jsonl`,
+    /// with the sender's name and parent. Best effort.
+    #[cfg(unix)]
+    pub fn record_daemon_signal(&self, signal: i32, sender_pid: i32, sender_uid: Option<u32>) {
+        let root = self
+            .surface_options
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .terminal_host_root
+            .clone();
+        if let Some(root) = root {
+            crate::terminal_loss_log::record_daemon_signal(
+                &root,
+                signal,
+                (sender_pid, sender_uid),
+                self.started_at.elapsed().as_millis(),
+            );
+        }
+    }
+
     /// Called by a surface's reader thread when its child exits. Hosted
     /// terminals preserve a durable exit receipt while all views detach;
     /// local surfaces are removed immediately.
@@ -177,6 +198,19 @@ impl Mux {
         // the retained terminal.output records.
         let exit_replay = incarnation
             .and_then(|generation| self.capture_terminal_exit_replay(terminal_id, generation));
+        // The host's loss breadcrumbs are read before the commit, so the
+        // exit and its cause become visible in the same locked section
+        // (a client never reads a host_lost end without its cause).
+        #[cfg(unix)]
+        let host_loss =
+            self.surface_options.lock().unwrap().terminal_host_root.clone().map(|root| {
+                crate::terminal_loss_log::HostLoss::read(
+                    &root.join(format!("{terminal_id}.json")),
+                    terminal_id,
+                    incarnation,
+                    end,
+                )
+            });
         let mut registry = self.workspace_registry.lock().unwrap();
         let terminal = registry
             .terminal_record(terminal_id)?
@@ -205,7 +239,7 @@ impl Mux {
             self.emit_terminal_registry_changed(&registry, terminal_revision);
             return Ok(true);
         }
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.lock_state_pinned(&registry).unwrap();
         let terminal_snapshot = if matches!(
             terminal.lifecycle,
             TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned
@@ -271,6 +305,12 @@ impl Mux {
             .commit_terminal_exit(terminal_id, incarnation, exit, terminal_snapshot, topology)?;
         let mut detach_effects = None;
         if !replayed {
+            #[cfg(unix)]
+            if let Some(cause) = host_loss.as_ref().and_then(|loss| loss.cause())
+                && let Some(public_id) = public_terminal_id.as_ref()
+            {
+                self.record_terminal_loss_cause(public_id.as_str(), cause.clone());
+            }
             if let Some(projection) = detach_projection {
                 detach_effects =
                     Some(projection.install(&mut state, resource_revision, workspace_revision));
@@ -304,15 +344,17 @@ impl Mux {
                 }
             }
             // A host loss is logged once, with the signals its host recorded
-            // (cx-6so.49); best effort, after the exit latch.
+            // (cx-6so.49); best effort, after the exit latch. Its cause is
+            // on the tab already (recorded with the commit above).
             #[cfg(unix)]
-            if let Some(root) = self.surface_options.lock().unwrap().terminal_host_root.clone() {
-                crate::terminal_loss_log::record_host_loss(
-                    &root.join(format!("{terminal_id}.json")),
-                    terminal_id,
-                    incarnation,
-                    end,
-                );
+            {
+                #[cfg(debug_assertions)]
+                if matches!(end, TerminalEnd::HostLost(_)) {
+                    host_loss_log_test_delay();
+                }
+                if let Some(loss) = host_loss {
+                    loss.record();
+                }
             }
             // cx-6so.49 L2: a placed terminal whose shell was lost with its
             // host gets a new shell under the same id (it decides and marks
@@ -340,10 +382,22 @@ impl Mux {
     /// Reconcile a lifecycle row that was committed before topology detach was
     /// introduced, or whose daemon stopped between those two older commits.
     /// The durable terminal receipt remains queryable after every view leaves.
+    ///
+    /// Every path that reconciles an exited terminal also records its typed
+    /// end (R41): a tab the detach keeps (a host loss) has no runtime surface
+    /// after a restart, so its end and loss cause come only from that record
+    /// (cx-ayt2: a restart path that skipped it showed "Process exited").
     pub(super) fn detach_exited_terminal_topology(
         &self,
         terminal_id: &str,
     ) -> anyhow::Result<bool> {
+        let detached = self.detach_exited_terminal_topology_only(terminal_id);
+        #[cfg(unix)]
+        self.record_terminal_end(terminal_id);
+        detached
+    }
+
+    fn detach_exited_terminal_topology_only(&self, terminal_id: &str) -> anyhow::Result<bool> {
         let mut registry = self.workspace_registry.lock().unwrap();
         let terminal = registry
             .terminal_record(terminal_id)?
@@ -375,7 +429,7 @@ impl Mux {
             // owner that no longer knows this shutdown window agrees. Best
             // effort: on failure the tab stays dead now and a later owner
             // that still knows the window settles it again.
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.lock_state_pinned(&registry).unwrap();
             let settled = terminal_exit_snapshot_in_state(&registry, &state, terminal_id).and_then(
                 |snapshot| registry.settle_terminal_exit(terminal_id, recorded, lost, snapshot),
             );
@@ -401,7 +455,7 @@ impl Mux {
         let Some(terminal_public_id) = registry.terminal_resource_id(terminal_id)? else {
             return Ok(false);
         };
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.lock_state_pinned(&registry).unwrap();
         // Tabs the workspace store keeps (`kept_tabs`, keep-layout) survive
         // the terminal's exit and owner restarts; a frontend relaunches them.
         if Self::terminal_tabs_kept_locked(&registry, &state, &terminal_public_id)? {
@@ -474,5 +528,19 @@ impl Mux {
         self.publish_resource_event();
         self.finish_terminal_exit_detach(effects);
         Ok(true)
+    }
+}
+
+/// Debug builds only: `CMUX_TUI_TEST_HOST_LOSS_LOG_DELAY_MS` holds the
+/// owner between a host loss's exit commit and its loss log, so integration
+/// tests can read the tab in that window. Bounded so a stray setting cannot
+/// wedge an owner; release builds have no seam.
+#[cfg(all(unix, debug_assertions))]
+fn host_loss_log_test_delay() {
+    if let Ok(delay) = std::env::var("CMUX_TUI_TEST_HOST_LOSS_LOG_DELAY_MS")
+        && let Ok(delay) = delay.parse::<u64>()
+        && delay > 0
+    {
+        std::thread::sleep(Duration::from_millis(delay.min(5_000)));
     }
 }

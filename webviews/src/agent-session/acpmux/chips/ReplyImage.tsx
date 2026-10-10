@@ -12,7 +12,7 @@ import { ImageIcon, Lock } from "../conversation/icons";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
 import { callChipHost } from "./host";
 import { usePathInfo, useReplyPolicy } from "./linkStore";
-import { mediaKind, ReplyMedia } from "./ReplyMedia";
+import { isRemoteMedia, mediaKind, RemoteMedia, ReplyMedia } from "./ReplyMedia";
 import { isDeniedPath, linkPath, pathName } from "./paths";
 
 type State = { kind: "idle" } | { kind: "loading" } | { kind: "shown"; src: string } | { kind: "failed" };
@@ -72,7 +72,13 @@ export function OpenableImage({ src, alt }: { src: string; alt: string }) {
   const image = <img className="cv-img" src={src} alt={alt} loading="lazy" decoding="async" />;
   if (!openImage) return image;
   return (
-    <button type="button" className="cv-img-open" title={alt || t("image.view")} onClick={() => openImage(src, alt)}>
+    <button
+      type="button"
+      className="cv-img-open"
+      data-open-image
+      title={alt || t("image.view")}
+      onClick={() => openImage(src, alt)}
+    >
       {image}
     </button>
   );
@@ -82,6 +88,7 @@ export function OpenableImage({ src, alt }: { src: string; alt: string }) {
 export function ReplyImage({ src, alt, fallback }: { src: string; alt: string; fallback: ReactNode }) {
   const local = localImageSource(src);
   if (local && mediaKind(local)) return <ReplyMedia path={local} alt={alt} fallback={fallback} />;
+  if (!local && isRemoteMedia(src)) return <RemoteMedia url={src} alt={alt} fallback={fallback} />;
   const host = local ? undefined : remoteImageHost(src);
   if (!local && !host) return <>{fallback}</>;
   return local ? (

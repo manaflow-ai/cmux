@@ -36,8 +36,9 @@ final class TerminalStatusBanner: NSView {
     /// Clicks go to the terminal below (a click there re-attaches).
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-    func show(_ status: TerminalConnectionStatus, hostLoss: TerminalHostLoss? = nil) {
-        guard let text = Self.text(for: status, hostLoss: hostLoss) else {
+    func show(_ status: TerminalConnectionStatus, hostLoss: TerminalHostLoss? = nil,
+              cause: TerminalHostLossCause? = nil) {
+        guard let text = Self.text(for: status, hostLoss: hostLoss, cause: cause) else {
             isHidden = true
             return
         }
@@ -47,13 +48,20 @@ final class TerminalStatusBanner: NSView {
     }
 
     /// The banner text, or nil while connected. An exited terminal whose
-    /// host was lost (`hostLoss`) says so. `strings` defaults to this
-    /// module's table and falls back to English if the bundle is gone.
+    /// host was lost (`hostLoss`) says so, followed by the owner's recorded
+    /// `cause` when there is one. `strings` defaults to this module's table
+    /// and falls back to English if the bundle is gone.
     static func text(
         for status: TerminalConnectionStatus,
         hostLoss: TerminalHostLoss? = nil,
+        cause: TerminalHostLossCause? = nil,
         strings: ModuleResourceBundle = .terminal
     ) -> String? {
+        if case .exited = status, hostLoss != nil, let cause,
+           let detail = causeText(cause, strings: strings),
+           let lost = text(for: status, hostLoss: hostLoss, strings: strings) {
+            return "\(lost) · \(detail)"
+        }
         switch status {
         case .connected:
             return nil
@@ -88,5 +96,24 @@ final class TerminalStatusBanner: NSView {
             let hint = strings.text("terminal.link.hint", defaultValue: "Click or type to reconnect")
             return "\(reason) · \(hint)"
         }
+    }
+
+    /// "SIGTERM from bash (pid 84954)", "the host had panicked", both, or
+    /// nil when the host left no evidence.
+    static func causeText(_ cause: TerminalHostLossCause, strings: ModuleResourceBundle) -> String? {
+        var parts: [String] = []
+        if let signal = cause.signal, let pid = cause.senderPid {
+            if let sender = cause.senderName, !sender.isEmpty {
+                parts.append(strings.text("terminal.link.lost.cause.signal",
+                                          defaultValue: "\(signal) from \(sender) (pid \(pid))"))
+            } else {
+                parts.append(strings.text("terminal.link.lost.cause.signalFromPid",
+                                          defaultValue: "\(signal) from pid \(pid)"))
+            }
+        }
+        if cause.panicked {
+            parts.append(strings.text("terminal.link.lost.cause.panicked", defaultValue: "the host had panicked"))
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 }

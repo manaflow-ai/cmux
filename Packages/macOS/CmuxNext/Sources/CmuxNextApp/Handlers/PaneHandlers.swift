@@ -59,7 +59,11 @@ enum PaneHandlers {
     /// then swap the original into the new slot, so the new pane lands on
     /// that side. A shown workspace focuses the new pane.
     static func split(_ ctx: AppActionContext, _ invocation: ActionInvocation, direction: PaneDirection) {
-        guard let pane = ctx.daemonPane(invocation), let connection = ctx.connection() else { return }
+        guard let pane = ctx.daemonPane(invocation) else { return }
+        // The pane's own daemon: a CLI run can target a pane of a machine
+        // other than the active window's.
+        let daemon = ctx.services.daemon(for: pane)
+        guard daemon.connection != nil else { return ctx.refuse(MiscHandlerStrings.daemonOffline) }
         let controller = ctx.services.paneController(for: pane)
         let content = controller?.workspace
         let handle = pane.handle
@@ -88,10 +92,19 @@ enum PaneHandlers {
         default: nil
         }
         let intent = content?.beginFocusIntent()
+        let command = PaneSplitCommand(pane: handle, direction: daemonDirection,
+                                       options: SpawnOptions(cwd: cwd, workspace: workspace, keep: keep), swapTowards: swapTowards)
+        // Cmd+D on a daemon with client keys: the new pane shows and takes focus in this frame
+        // (plans/cmux-next/remote-state-ownership.md S3); otherwise after the reply.
+        let provisional = command.isOptimistic(on: daemon) ? ProvisionalPane() : nil
+        if let provisional { content?.expectFocus(on: provisional.surface, generation: intent) }
         ctx.registry.track(Task {
             do {
-                let created = try await connection.split(handle, direction: daemonDirection, options: SpawnOptions(cwd: cwd, workspace: workspace, keep: keep))
-                if let swapTowards { try await connection.swapPane(handle, with: .direction(swapTowards)) }
+                let created = if let provisional {
+                    try await command.sendIntended(on: daemon, provisional: provisional)
+                } else {
+                    try await command.send(on: daemon)
+                }
                 content?.expectFocus(on: created.surface, generation: intent)
                 content?.layoutModel.applySplitSizing(sizing)
                 return nil

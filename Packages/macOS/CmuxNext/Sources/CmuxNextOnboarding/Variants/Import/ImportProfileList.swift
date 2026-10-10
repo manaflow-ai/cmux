@@ -13,7 +13,7 @@ final class ImportProfileList: NSView {
     private let style: Style
     private let font: NSFont
     private let stack = NSStackView()
-    private var scroll: NSScrollView!
+    private lazy var scroll: NSScrollView = VariantLayout.scroller(stack)  // no IUO (crash program)
     private let empty: NSTextField
     private var boxes: [String: NSButton] = [:]
     private var shown: [BrowserSourceProfile]?
@@ -31,7 +31,6 @@ final class ImportProfileList: NSView {
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = style == .checkboxes ? spacing : 0
-        scroll = VariantLayout.scroller(stack)
         addSubview(scroll)
         addSubview(empty)
         let hug = bottomAnchor.constraint(equalTo: scroll.bottomAnchor)

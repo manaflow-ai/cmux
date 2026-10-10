@@ -27,7 +27,7 @@ use crate::config::folder_profiles;
 use crate::config::profiles::{self, ProfileSources, Severity};
 use crate::config::{Config, HarnessKind, HarnessProfile, ProfileSource};
 
-mod wire;
+pub(crate) mod wire;
 use wire::{TempFolder, Wire};
 
 /// Example profiles shipped with acpmux, by id (`harness add --example`).
@@ -74,7 +74,21 @@ pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
         HarnessCmd::Secret(SecretCmd::Set { id, key }) => {
             super::harness_secret::set_cmd(&id, &key).await
         }
-        HarnessCmd::Add { id, command, protocol, example, force } => {
+        HarnessCmd::Login { id, method, list, status } => {
+            super::harness_login::run_cmd(&id, method, list, status, json_out).await
+        }
+        HarnessCmd::Registry { refresh } => {
+            super::harness_registry::list_cmd(refresh, json_out).await
+        }
+        HarnessCmd::Add { id: Some(id), registry: true, force, .. } => {
+            super::harness_registry::add_cmd(&id, force, json_out).await
+        }
+        HarnessCmd::Add { registry: true, .. } => {
+            bail!(
+                "give the registry agent id: `cmux harness add <id> --registry` (see `cmux harness registry`)"
+            )
+        }
+        HarnessCmd::Add { id, command, protocol, example, force, registry: false } => {
             let sources = ProfileSources::current();
             let req = AddRequest { id, command, protocol, example, force };
             let added = add(&req, &sources)?;
@@ -118,6 +132,42 @@ pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
         }
         HarnessCmd::Guide => {
             print!("{GUIDE}");
+            Ok(())
+        }
+        HarnessCmd::Remove { id } => {
+            let cfg = Config::load()?;
+            let removed = crate::harness_admin::remove(
+                &id,
+                &cfg,
+                &ProfileSources::current(),
+                &crate::config::home(),
+            )?;
+            let reloaded = reload_daemon().await;
+            if json_out {
+                println!(
+                    "{}",
+                    json!({"id": removed.id, "backup": removed.backup, "daemonReloaded": reloaded})
+                );
+            } else {
+                println!("removed {id}; undo with `cmux harness restore {}`", removed.backup);
+            }
+            Ok(())
+        }
+        HarnessCmd::Restore { backup } => {
+            let restored = crate::harness_admin::restore(
+                &backup,
+                &ProfileSources::current(),
+                &crate::config::home(),
+            )?;
+            let reloaded = reload_daemon().await;
+            if json_out {
+                println!(
+                    "{}",
+                    json!({"id": restored.id, "path": restored.path, "daemonReloaded": reloaded})
+                );
+            } else {
+                println!("restored {} to {}", restored.id, restored.path.display());
+            }
             Ok(())
         }
         HarnessCmd::Reload => {
@@ -300,7 +350,7 @@ pub fn add(req: &AddRequest, sources: &ProfileSources) -> Result<Added> {
     Ok(Added { id, path, diagnostics })
 }
 
-fn example_id(name: &str) -> Option<String> {
+pub(crate) fn example_id(name: &str) -> Option<String> {
     let text = example(name)?;
     text.lines()
         .find_map(|l| l.strip_prefix("id = \""))

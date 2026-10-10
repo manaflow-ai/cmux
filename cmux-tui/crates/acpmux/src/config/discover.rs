@@ -116,6 +116,11 @@ pub fn discover_harnesses_from(
         ("omp", "omp"),
         // Prime Agent (PrimeIntellect-ai/prime-agent), a pi fork: `--mode acp`.
         ("prime", "prime-agent"),
+        // Grok (xAI's grok CLI) speaks ACP itself: `grok agent stdio`.
+        ("grok", "grok"),
+        // Cursor's CLI speaks ACP itself: `cursor-agent acp` (newer installs
+        // name the launcher `agent`; see cursor_agent_launcher below).
+        ("cursor", "cursor-agent"),
     ] {
         // An ~/.acpx entry keeps its name, except the reserved Claude names:
         // `claude` and `claude-sr` are acpmux's own Claude Code adapter
@@ -137,6 +142,8 @@ pub fn discover_harnesses_from(
                 "sr" => (HarnessKind::ClaudeStdio, vec![path, "claude".into(), "proxy".into()]),
                 "omp" => (HarnessKind::Acp, vec![path, "acp".into()]),
                 "prime-agent" => (HarnessKind::Acp, vec![path, "--mode".into(), "acp".into()]),
+                "grok" => (HarnessKind::Acp, vec![path, "agent".into(), "stdio".into()]),
+                "cursor-agent" => (HarnessKind::Acp, vec![path, "acp".into()]),
                 "gemini" => (HarnessKind::Acp, vec![path, "--experimental-acp".into()]),
                 "opencode" | "opencode2" => (HarnessKind::Acp, vec![path, "acp".into()]),
                 "dsh" => (HarnessKind::Acp, vec![path, "--profile".into(), "acp".into()]),
@@ -167,6 +174,28 @@ pub fn discover_harnesses_from(
             );
         }
     }
+    // Cursor's installer links `~/.local/bin/agent` into its install
+    // (`.../cursor-agent/versions/<v>/cursor-agent`). `agent` is too common a
+    // name to trust by itself: only a launcher that resolves there counts.
+    if !agents.contains_key("cursor")
+        && let Some(path) = which("agent").filter(|p| cursor_agent_launcher(p))
+    {
+        agents.insert(
+            "cursor".to_owned(),
+            HarnessProfile {
+                kind: HarnessKind::Acp,
+                argv: vec![path, "acp".into()],
+                env: BTreeMap::new(),
+                description: Some("found on PATH".into()),
+                fallback: None,
+                family: None,
+                models: vec![],
+                model: None,
+                effort: None,
+                policy: None,
+            },
+        );
+    }
     // Codex speaks ACP only through its adapter. Without a codex-acp on PATH (or an ~/.acpx
     // entry), an installed codex still gets a harness through the pinned adapter package.
     if !agents.contains_key("codex")
@@ -176,4 +205,13 @@ pub fn discover_harnesses_from(
         agents.insert("codex".to_owned(), profile);
     }
     agents
+}
+
+/// True when the program at `path` resolves (through links) to Cursor's
+/// `cursor-agent` binary.
+fn cursor_agent_launcher(path: &str) -> bool {
+    std::fs::canonicalize(path)
+        .ok()
+        .and_then(|real| real.file_name().map(|n| n == "cursor-agent"))
+        .unwrap_or(false)
 }

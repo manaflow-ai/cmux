@@ -48,3 +48,26 @@ if (!("Element" in scope)) {
   const table = (await import("../src/agent-session/acpmux/generated/strings.json")).default;
   (scope as { __cmuxPaneStrings?: unknown }).__cmuxPaneStrings ??= table;
 }
+
+// WebKit's Element.getAnimations is missing in jsdom. Base UI ScrollArea (ui/ScrollArea.tsx) asks the viewport for
+// its running animations. jsdom builds each window's Element interface through this installer, so wrapping it gives
+// every window a test file creates the method, returning no animations, as an idle WebKit view would. A test that
+// needs animations installs its own (transcript.test.tsx does).
+{
+  const { createRequire } = await import("node:module");
+  const { dirname, join } = await import("node:path");
+  const require = createRequire(import.meta.url);
+  // The package exports no subpaths: load the generated interface by its file path, the module jsdom itself loads.
+  const root = dirname(require.resolve("jsdom/package.json"));
+  const element = require(join(root, "lib/generated/idl/Element.js")) as {
+    install: (globalObject: Record<string, { prototype: Record<string, unknown> }>, names: unknown) => void;
+  };
+  const install = element.install;
+  element.install = (globalObject, names) => {
+    install(globalObject, names);
+    globalObject.Element.prototype.getAnimations ??= () => [];
+  };
+  // With getAnimations present, Base UI popups would wait for animation frames before closing; jsdom has no
+  // animations, so keep Base UI's own test switch on and popups close at once, as they did before the shim.
+  (scope as { BASE_UI_ANIMATIONS_DISABLED?: boolean }).BASE_UI_ANIMATIONS_DISABLED = true;
+}

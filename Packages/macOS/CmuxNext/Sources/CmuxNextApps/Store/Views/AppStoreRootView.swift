@@ -1,4 +1,5 @@
 public import CmuxNextDesign
+import CmuxNextIcons
 public import SwiftUI
 
 /// The App Store window's content: a toolbar row (Discover / Installed,
@@ -38,7 +39,7 @@ public struct AppStoreRootView: View {
             .background(Capsule().fill(colors.hover))
             Spacer()
             HStack(spacing: Metrics.space2) {
-                Image(systemName: "magnifyingglass").font(.system(size: 11)).foregroundStyle(colors.tertiary)
+                Icon(.search, size: CGFloat.iconFloor).foregroundStyle(colors.tertiary)
                 TextField(AppsStrings.search, text: Binding(get: { model.query }, set: { model.query = $0 }))
                     .textFieldStyle(.plain)
                     .font(Font(Typography.body))
@@ -49,16 +50,19 @@ public struct AppStoreRootView: View {
             .frame(height: 26)
             .background(Capsule().fill(colors.hover))
         }
+        // The same column as the listings and the detail page below it; the
+        // split layout's list runs edge to edge, so its toolbar does too.
+        .modifier(AppStoreColumnModifier(enabled: model.layout != .split,
+                                          fallbackPadding: Metrics.space4))
         // The window's toolbar row starts after the traffic lights; a pane has none.
-        .padding(.leading, inPane ? Metrics.space4 : 84)
-        .padding(.trailing, Metrics.space4)
+        .padding(.leading, inPane ? 0 : 84)
         .frame(height: inPane ? Metrics.titlebarHeight : Metrics.titlebarHeight + Metrics.space2)
     }
 
     private func tab(_ tab: AppStoreModel.Tab, _ title: String) -> some View {
         Button {
-            model.tab = tab
-            if tab == .discover { model.selection = model.layout == .split ? model.selection : nil }
+            // A tab switch is a page navigation (Back returns to the listing it left).
+            model.show(tab, selection: tab == .discover && model.layout == .split ? model.selection : nil)
         } label: {
             Text(title)
                 .font(Font(Typography.bodyEmphasized))
@@ -70,4 +74,38 @@ public struct AppStoreRootView: View {
         .buttonStyle(.plain)
         .accessibilityIdentifier("appStore.tab.\(tab.rawValue)")
     }
+}
+
+/// The store's one content column (toolbar, listings, Installed and the
+/// detail page): centered, at most ``maxWidth`` wide, so the header, its
+/// actions and the body share one grid at any window width.
+enum AppStoreColumn {
+    static let maxWidth: CGFloat = 760
+    /// Tags and small labels: a small-radius rectangle, never a capsule.
+    static let tagRadius: CGFloat = 4
+    /// Install, Remove and Undo share one height.
+    static let actionHeight: CGFloat = 26
+}
+
+/// Centers content in the store column; `enabled` false keeps the edge
+/// padding only (the split layout).
+struct AppStoreColumnModifier: ViewModifier {
+    var enabled = true
+    var fallbackPadding: CGFloat = Metrics.space6
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content
+                .frame(maxWidth: AppStoreColumn.maxWidth, alignment: .leading)
+                .padding(.horizontal, Metrics.space6)
+                .frame(maxWidth: .infinity)
+        } else {
+            content.padding(.horizontal, fallbackPadding)
+        }
+    }
+}
+
+extension View {
+    /// Centers the view in the store column (``AppStoreColumn``).
+    func appStoreColumn() -> some View { modifier(AppStoreColumnModifier()) }
 }

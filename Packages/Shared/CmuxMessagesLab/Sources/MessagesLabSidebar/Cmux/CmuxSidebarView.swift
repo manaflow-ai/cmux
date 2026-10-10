@@ -63,6 +63,11 @@ public struct CmuxSidebarEntry: Hashable, Sendable {
 public final class CmuxSidebarView: NSView {
     public var onSelect: (String?) -> Void = { _ in }
     public var onSetPinned: (Bool, String) -> Void = { _, _ in }
+    /// A drag put a conversation at an index of the pinned grid (a new place, or a row pinned
+    /// there). The host changes its order and calls `show` before returning, so the tiles land
+    /// from where they were drawn. A tile dragged onto the list goes to `onSetPinned(false, _)`.
+    public var onPlacePinned: (String, Int) -> Void = { _, _ in }
+    /// Mark as Read (true) on an unread conversation, Mark as Unread (false) on a read one.
     public var onSetRead: (Bool, String) -> Void = { _, _ in }
     /// Host items for a conversation's context menu after Pin and Read (MessagesLab v1.1
     /// `menuItemsFor`; Hide Alerts and Delete are left out until cmux can do them).
@@ -82,7 +87,7 @@ public final class CmuxSidebarView: NSView {
         set { controller.selectionColor = newValue }
     }
 
-    private let controller = SidebarController()
+    let controller = SidebarController()
     private let link = SidebarLink()
     public private(set) var entries: [CmuxSidebarEntry] = []
     public private(set) var pinnedOrder: [String] = []
@@ -143,6 +148,25 @@ public final class CmuxSidebarView: NSView {
         controller.select(id, notify: false)
     }
 
+    /// Each pinned tile's and list row's frame in window points from the top-left, in display
+    /// order (automation: drive a pin drag through synthesized mouse events).
+    public var itemFramesInWindow: [(id: String, pinned: Bool, frame: NSRect)] {
+        guard let window else { return [] }
+        let height = window.contentView?.bounds.height ?? window.frame.height
+        let document = controller.document
+        func top(_ r: CGRect) -> NSRect {
+            let w = document.convert(r, to: nil)
+            return NSRect(x: w.minX, y: height - w.maxY, width: w.width, height: w.height)
+        }
+        let tiles = controller.pinnedItems.enumerated().compactMap { t, i in
+            SidebarController.element(controller.snapshot.items, i).map { ($0.id, true, top(controller.tileRect(t))) }
+        }
+        let rows = controller.rowItems.enumerated().compactMap { r, i in
+            SidebarController.element(controller.snapshot.items, i).map { ($0.id, false, top(controller.rowRect(r))) }
+        }
+        return tiles + rows
+    }
+
     var snapshot: ConversationListSnapshot { ConversationListSnapshot(items: entries.map(\.summary), pinned: pinnedOrder) }
 }
 
@@ -174,7 +198,8 @@ public struct CmuxSidebarSearchSection: Hashable, Sendable {
 
 /// The controller's data source, delegate and search provider (it holds them weakly).
 @MainActor
-private final class SidebarLink: @preconcurrency SidebarDataSource, @preconcurrency SidebarDelegate, @preconcurrency SidebarSearchProvider {
+private final class SidebarLink: @preconcurrency SidebarDataSource, @preconcurrency SidebarDelegate, @preconcurrency SidebarSearchProvider,
+    @preconcurrency SidebarPinPlacing {
     weak var owner: CmuxSidebarView?
 
     func sidebarSnapshot(_ sidebar: SidebarController) -> ConversationListSnapshot {
@@ -184,11 +209,12 @@ private final class SidebarLink: @preconcurrency SidebarDataSource, @preconcurre
     func sidebar(_ sidebar: SidebarController, didSelect id: ConversationID?) { owner?.onSelect(id) }
     func sidebar(_ sidebar: SidebarController, setPinned pinned: Bool, for id: ConversationID) { owner?.onSetPinned(pinned, id) }
     func sidebar(_ sidebar: SidebarController, setRead read: Bool, for id: ConversationID) { owner?.onSetRead(read, id) }
-    // Pin, and Mark as Read while the conversation has unread messages (the read cursor only moves
-    // forward, so there is no Mark as Unread). Hide Alerts and Delete need owner support first:
-    // no item that does nothing.
+    func sidebar(_ sidebar: SidebarController, place id: ConversationID, at index: Int) { owner?.onPlacePinned(id, index) }
+    // Pin, and Mark as Read on an unread conversation or Mark as Unread on a read one (the
+    // controller picks the title from the entry's unread count; the host keeps the mark). Hide
+    // Alerts and Delete need owner support first: no item that does nothing.
     func sidebar(_ sidebar: SidebarController, actionsFor id: ConversationID) -> SidebarActions {
-        (owner?.entries.first { $0.id == id }?.unreadCount ?? 0) > 0 ? [.pin, .markRead] : [.pin]
+        owner?.entries.contains { $0.id == id } == true ? [.pin, .markRead] : [.pin]
     }
     func sidebar(_ sidebar: SidebarController, menuItemsFor id: ConversationID) -> [NSMenuItem] { owner?.menuItems(id) ?? [] }
 

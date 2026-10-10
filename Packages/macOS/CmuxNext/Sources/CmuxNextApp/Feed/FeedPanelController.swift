@@ -24,7 +24,7 @@ final class FeedPanelController {
     }
 
     private func show() {
-        guard let window = context.services.windows.active?.window, let feed = context.services.feed else { return }
+        guard let window = context.services.windows.active?.window, case let feed = context.services.feed else { return }
         feed.startIfSignedIn()
         let panel = panel ?? makePanel(model: feed.model)
         self.panel = panel

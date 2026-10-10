@@ -95,6 +95,14 @@ nonisolated final class DaemonHomeSource: HomeSource {
         return connection
     }
 
+    /// The connection for a write: without one nothing is sent
+    /// (`HomeOwnerOffline`), so the store keeps the send waiting for the
+    /// owner instead of counting it as possibly delivered.
+    func requireOwner() throws -> DaemonConnection {
+        guard let connection = state.withLock({ $0.connection }) else { throw HomeOwnerOffline() }
+        return connection
+    }
+
     func inbox() async throws -> InboxSnapshot {
         let list = try await Self.mapped { try await ConversationClient(self.requireConnection()).list() }
         let rev = list.map(\.rev).max() ?? 0
@@ -129,7 +137,8 @@ nonisolated final class DaemonHomeSource: HomeSource {
         }
         let request = ConversationOpRequest(conversation: mapped.conversation, idempotencyKey: intent.key.rawValue,
                                             transaction: ClientTransactionID(rawValue: intent.key.rawValue), op: mapped.op)
-        let result = try await Self.mapped { try await ConversationClient(self.requireConnection()).op(request) }
+        let connection = try requireOwner()
+        let result = try await Self.mapped { try await ConversationClient(connection).op(request) }
         return HomeOpResult(rev: result.rev, replayed: result.replayed, conversation: ConversationID(mapped.conversation))
     }
 

@@ -31,8 +31,9 @@ public struct ChromiumPasswordCrypto: Sendable {
                                      salt, salt.count, CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA1), 1003,
                                      out.baseAddress?.assumingMemoryBound(to: UInt8.self), kCCKeySizeAES128)
             }
-            precondition(status == kCCSuccess, "PBKDF2 with fixed parameters cannot fail")
-            return kCCKeySizeAES128
+            // An empty key never decrypts: decrypt and encrypt then throw
+            // `undecryptable` (CCCrypt refuses the key length) instead of the process trapping.
+            return status == kCCSuccess ? kCCKeySizeAES128 : 0
         }
     }
 
