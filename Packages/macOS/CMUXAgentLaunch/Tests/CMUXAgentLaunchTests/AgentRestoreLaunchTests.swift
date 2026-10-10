@@ -214,6 +214,37 @@ import Testing
         #expect(invocation.arguments == [executable, "--session", sessionID])
     }
 
+    @Test(arguments: [false, true])
+    func structuredOmpRestoreRejectsRejectedCaptureWithAbsoluteEvidence(
+        withPreparedArguments: Bool
+    ) {
+        let executable = "/Users/test/.bun/bin/omp"
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "omp",
+            checkpointID: sessionID,
+            source: "agent-hook",
+            workingDirectory: "/tmp/omp-project",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                rejectedOn: .argvDecodeFailed,
+                launcher: "omp",
+                executablePath: executable
+            ),
+            preparedArguments: withPreparedArguments
+                ? [executable, "--session", sessionID]
+                : nil,
+            observedPermissionMode: nil
+        )
+
+        #expect(
+            AgentRestorePlanner(isExecutableFile: { _ in false }).invocation(
+                for: request,
+                ambientEnvironment: ["PATH": "/usr/bin:/bin"]
+            ) == nil
+        )
+    }
+
     @Test func structuredOmpRestoreKeepsAbsolutePreparedExecutable() throws {
         let executable = "/Users/test/.bun/bin/omp"
         let prepared = [executable, "--session", sessionID]
