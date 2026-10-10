@@ -7030,20 +7030,27 @@ impl Mux {
             let latest =
                 self.workspace_registry.lock().unwrap().journal_checkpoints()?.into_iter().next();
             let checkpoint_source = latest.map_or(0, |checkpoint| checkpoint.source_sequence);
-            if head.saturating_sub(checkpoint_source) < JOURNAL_MAINTENANCE_CHECKPOINT_RECORDS {
+            let mut sealed_through =
+                self.workspace_registry.lock().unwrap().journal_segments_end()?;
+            let pending_seal = checkpoint_source > sealed_through;
+            if !pending_seal
+                && head.saturating_sub(checkpoint_source) < JOURNAL_MAINTENANCE_CHECKPOINT_RECORDS
+            {
                 return Ok(());
             }
 
-            let checkpoint_key = format!("auto_checkpoint_{head}");
-            let checkpoint =
-                self.create_journal_checkpoint("journal-maintenance", &checkpoint_key)?;
-            let target = checkpoint.checkpoint.source_sequence;
+            let target = if pending_seal {
+                checkpoint_source
+            } else {
+                let checkpoint_key = format!("auto_checkpoint_{head}");
+                self.create_journal_checkpoint("journal-maintenance", &checkpoint_key)?
+                    .checkpoint
+                    .source_sequence
+            };
             if target == 0 {
                 return Ok(());
             }
 
-            let mut sealed_through =
-                self.workspace_registry.lock().unwrap().journal_segments_end()?;
             for batch in 0..JOURNAL_MAINTENANCE_SEAL_BATCHES_PER_TICK {
                 if sealed_through >= target {
                     break;
