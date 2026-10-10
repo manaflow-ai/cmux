@@ -39,6 +39,33 @@ private final class FakeBonsplitTabItemRegionView: NSView, BonsplitTabItemHitReg
     }
 }
 
+private final class FakeBonsplitTabBarRegionView: NSView {
+    deinit {
+        BonsplitTabBarHitRegionRegistry.unregister(self)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        BonsplitTabBarHitRegionRegistry.unregister(self)
+        if window != nil {
+            BonsplitTabBarHitRegionRegistry.register(self)
+        }
+    }
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        if superview == nil {
+            BonsplitTabBarHitRegionRegistry.unregister(self)
+        } else if window != nil {
+            BonsplitTabBarHitRegionRegistry.register(self)
+        }
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+}
+
 @MainActor
 final class WindowGlassEffectTests: XCTestCase {
     func testRemoveRestoresOriginalContentHierarchy() {
@@ -1480,6 +1507,66 @@ final class WindowDragHandleHitTests: XCTestCase {
                 eventWindow: window
             ),
             "Empty tab-strip chrome should remain available for app-window dragging"
+        )
+    }
+
+    func testMinimalModeDragHandleYieldsToReparentedPaneTabBarWithoutItemRegion() {
+        let savedMode = UserDefaults.standard.object(forKey: WorkspacePresentationModeSettings.modeKey)
+        UserDefaults.standard.set(
+            WorkspacePresentationModeSettings.Mode.minimal.rawValue,
+            forKey: WorkspacePresentationModeSettings.modeKey
+        )
+        defer {
+            if let savedMode {
+                UserDefaults.standard.set(savedMode, forKey: WorkspacePresentationModeSettings.modeKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: WorkspacePresentationModeSettings.modeKey)
+            }
+        }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 120),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let firstContainer = NSView(frame: contentView.bounds)
+        let tabBar = FakeBonsplitTabBarRegionView(
+            frame: NSRect(x: 20, y: 82, width: 220, height: 30)
+        )
+        let dragHandle = NSView(frame: contentView.bounds)
+
+        contentView.addSubview(firstContainer)
+        firstContainer.addSubview(tabBar)
+        contentView.addSubview(tabBar)
+        contentView.addSubview(dragHandle)
+        window.makeKeyAndOrderFront(nil)
+
+        let tabWindowPoint = tabBar.convert(NSPoint(x: 80, y: 15), to: nil)
+        let dragHandlePoint = dragHandle.convert(tabWindowPoint, from: nil)
+        BonsplitTabBarHitRegionRegistry.unregister(tabBar)
+        tabBar.viewDidMoveToSuperview()
+        #expect(
+            BonsplitTabBarHitRegionRegistry.containsWindowPoint(tabWindowPoint, in: window),
+            "The tab-bar region must be restored after a same-window reparent"
+        )
+        BonsplitTabItemHitRegionRegistry.unregister(tabBar)
+        defer { BonsplitTabBarHitRegionRegistry.unregister(tabBar) }
+
+        XCTAssertFalse(
+            windowDragHandleShouldCaptureHit(
+                dragHandlePoint,
+                in: dragHandle,
+                eventType: .leftMouseDown,
+                eventWindow: window
+            ),
+            "Minimal-mode pane chrome must own the press while its tab-item registry is between lifecycle updates"
         )
     }
 
