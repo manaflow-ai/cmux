@@ -215,7 +215,7 @@ def main() -> int:
             allowed_count = baseline.get(f, {}).get(rule, 0)
             if count > allowed_count:
                 failures += 1
-                print(f"main-actor-work: {f}: {rule}: {count} hit(s), baseline {allowed_count}")
+                print(f"main-actor-work violation: {f}: {rule}: {count} hit(s), baseline {allowed_count}")
                 for line, text in hits[f][rule]:
                     print(f"    {f}:{line}: {text}")
     for f, rules in baseline.items():
@@ -223,7 +223,7 @@ def main() -> int:
             if counts.get(f, {}).get(rule, 0) < allowed_count:
                 lowered += 1
     if failures:
-        print(f"check-main-actor-work: {failures} new main-actor hot spot(s). Move the work off the main actor "
+        print(f"check-main-actor-work: {failures} violation(s): new main-actor hot spots. Move the work off the main actor "
               "(nonisolated type, @concurrent function, actor, or the Rust daemon), or add a reviewed "
               "`// main-actor-ok: <reason>` when its input is provably small.")
         return 1

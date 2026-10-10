@@ -98,7 +98,11 @@ final class DividerHandleView: NSView {
     }
 
     override func resetCursorRects() {
-        addCursorRect(bounds, cursor: axis == .horizontal ? .columnResize : .rowResize)
+        if #available(macOS 15, *) {
+            addCursorRect(bounds, cursor: axis == .horizontal ? .columnResize : .rowResize)
+        } else {
+            addCursorRect(bounds, cursor: axis == .horizontal ? .resizeLeftRight : .resizeUpDown)
+        }
     }
 
     override func updateTrackingAreas() {
