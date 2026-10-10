@@ -35,3 +35,31 @@ import Testing
         #expect(abs(278 * MessagePressTiming.liftScale(for: CGSize(width: 278, height: 39)) - 303.5) < 1)
     }
 }
+
+/// Real-iPhone bug: lifting mid-hold on a photo, link or file opened it as
+/// well. In Messages, once the press has begun (0.15 s) a lift never opens
+/// the item; a quicker tap still does.
+@Suite struct MessagePressTapArbitrationTests {
+    @Test func aBegunPressExcludesTaps() {
+        #expect(!MessagePressTiming.recognizeTogether(.press, .tap, isGrowing: true))
+        #expect(!MessagePressTiming.recognizeTogether(.tap, .press, isGrowing: true))
+        #expect(!MessagePressTiming.recognizeTogether(.press, .tap, isGrowing: false))
+    }
+
+    @Test func theTwoPressClocksAndDragsStillShare() {
+        #expect(MessagePressTiming.recognizeTogether(.press, .press, isGrowing: true))
+        #expect(MessagePressTiming.recognizeTogether(.press, .pan, isGrowing: true))
+        #expect(!MessagePressTiming.recognizeTogether(.pan, .press, isGrowing: false))
+        // Taps keep sharing with everything else (single tap beside double tap).
+        #expect(MessagePressTiming.recognizeTogether(.tap, .tap, isGrowing: false))
+        #expect(MessagePressTiming.recognizeTogether(.tap, .pan, isGrowing: false))
+    }
+
+    @Test func onlyAQuickTapOpensTheItem() {
+        #expect(MessagePressTiming.tapOpensItem(afterHolding: 0.1))
+        #expect(!MessagePressTiming.tapOpensItem(afterHolding: 0.15))
+        #expect(!MessagePressTiming.tapOpensItem(afterHolding: 0.2))
+        #expect(!MessagePressTiming.tapOpensItem(afterHolding: 0.3))
+        #expect(!MessagePressTiming.tapOpensItem(afterHolding: 0.5))
+    }
+}

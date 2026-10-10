@@ -41,6 +41,35 @@ public enum MessagePressTiming {
         elapsed >= clickDown ? .open : .cancel
     }
 
+    /// The transcript's touch handlers, as the press arbitrates them.
+    public enum Gesture: Equatable, Sendable {
+        /// Either press clock (growth start or click timeout).
+        case press
+        /// A single or double tap: opening a photo, file, link, link card,
+        /// mention card, tapback detail, poll vote, thread, or the tapback bar.
+        case tap
+        /// A scroll or swipe.
+        case pan
+        case other
+    }
+
+    /// Whether `a` and `b` may both recognize on one touch. Today a press and
+    /// a tap both fire: lifting mid-hold opens the row's item.
+    public static func recognizeTogether(_ a: Gesture, _ b: Gesture, isGrowing: Bool) -> Bool {
+        switch (a, b) {
+        case (.press, .press): return true
+        case (.press, .pan), (.pan, .press): return isGrowing
+        case (.press, _), (_, .press): return a == .tap || b == .tap
+        case (.tap, _), (_, .tap): return true
+        default: return false
+        }
+    }
+
+    /// Whether a tap that lifts after `held` seconds still opens what it hit.
+    public static func tapOpensItem(afterHolding held: TimeInterval) -> Bool {
+        true
+    }
+
     /// Scale of a held bubble of `size` just before the menu opens.
     public static func pressScale(for size: CGSize) -> CGFloat {
         scale(for: size, growth: pressGrowth)
