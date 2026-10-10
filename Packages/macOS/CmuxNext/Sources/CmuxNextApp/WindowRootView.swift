@@ -223,16 +223,25 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// the top row recompute their inset in the same layout pass.
     var onToolbarBandPresenceChange: (() -> Void)?
 
+    /// Work after the window's layout pass (`ShellWindow.layoutIfNeeded`),
+    /// when every frame is final: the agent cursor goes back on top after a
+    /// reorder that added no view (no add hook ran), and the sidebar stays
+    /// above Chromium pages and pane overlays (R126) as an occluder of the
+    /// window's overlay host.
+    func windowDidLayout() {
+        guard let window, let host = WindowOverlayHost.existingHost(for: window) else { return }
+        host.repairAgentCursorOrder()
+        let shows = sidebar.frame.width > 0.5 && !sidebar.isHidden
+        host.setOccluder(id: "sidebar", rect: shows ? sidebar.convert(sidebar.bounds, to: nil) : nil)
+    }
+
     override func layout() {
         defer { onHintGeometryChange?() }
         super.layout()
-        // A reorder that added no view passed no add hook: the agent cursor goes back on top.
-        if let window { WindowOverlayHost.existingHost(for: window)?.repairAgentCursorOrder() }
-        // The sidebar stays above Chromium pages and pane overlays (R126): an occluder of the window's overlay host.
-        if let window {
-            let shows = sidebar.frame.width > 0.5 && !sidebar.isHidden
-            WindowOverlayHost.existingHost(for: window)?.setOccluder(id: "sidebar", rect: shows ? sidebar.convert(sidebar.bounds, to: nil) : nil)
-        }
+        // Inside the window's layout pass the cursor order and the sidebar
+        // occluder wait for its end (`windowDidLayout`): both change other
+        // windows (overlay panel, pages) or this view's subviews.
+        if (window as? ShellWindow)?.isInLayoutPass != true { windowDidLayout() }
         TitlebarDragPolicy.layoutBandBlocker(titlebarBandBlocker, in: self)
         // The band starts after the traffic lights (which never move) and is
         // as wide as the sidebar's on-screen share: 0 wide, with no gap
