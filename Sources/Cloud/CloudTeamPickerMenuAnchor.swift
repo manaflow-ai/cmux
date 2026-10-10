@@ -9,11 +9,14 @@ import SwiftUI
 /// takes the pointer; keyboard and VoiceOver presses still reach the trigger
 /// button beneath it, which requests the menu through `isPresented` like the
 /// palette does. Because it takes the pointer, the button's own `onHover`
-/// never fires, so the overlay reports hover through `isHovered`.
+/// never fires, so the anchor also owns the chip's visual hover snapshot.
 struct CloudTeamPickerMenuAnchor: NSViewRepresentable {
     @Binding var isPresented: Bool
-    @Binding var isHovered: Bool
     let helpText: String
+    /// Builds the visible chip from the anchor's pointer snapshot. The anchor
+    /// owns this snapshot so AppKit lifecycle callbacks never mutate SwiftUI
+    /// state while the representable is being updated.
+    let makeChip: @MainActor (Bool) -> AnyView
     /// Receives the anchor, so an item can place follow-up UI on the trigger's
     /// window once the menu closes.
     let makeMenu: @MainActor (CloudTeamPickerMenuAnchorView) -> NSMenu
@@ -23,6 +26,7 @@ struct CloudTeamPickerMenuAnchor: NSViewRepresentable {
     func makeNSView(context: Context) -> CloudTeamPickerMenuAnchorView {
         let view = CloudTeamPickerMenuAnchorView()
         view.toolTip = helpText
+        view.updateChip(makeChip)
         return view
     }
 
@@ -31,11 +35,11 @@ struct CloudTeamPickerMenuAnchor: NSViewRepresentable {
         view.toolTip = helpText
         view.isRightToLeft = context.environment.layoutDirection == .rightToLeft
         view.isEnabled = context.environment.isEnabled
+        view.updateChip(makeChip)
         view.makeMenu = makeMenu
         view.onWillPresent = onWillPresent
         view.onOpen = { isPresented = true }
         view.onDismiss = { isPresented = false }
-        view.onHoverChange = { isHovered = $0 }
         view.syncPresentation(isPresented)
     }
 
@@ -55,9 +59,6 @@ final class CloudTeamPickerMenuAnchorView: NSView {
     var onWillPresent: (@MainActor () -> Void)?
     var onOpen: (@MainActor () -> Void)?
     var onDismiss: (@MainActor () -> Void)?
-    /// Called when the pointer enters or leaves the trigger. Reported whether
-    /// or not the trigger is enabled; the trigger decides how to draw it.
-    var onHoverChange: (@MainActor (Bool) -> Void)?
     var isRightToLeft = false
     var isEnabled = true
 
@@ -74,11 +75,23 @@ final class CloudTeamPickerMenuAnchorView: NSView {
     private var isPresentationRequested = false
     private var isPresentationScheduled = false
     private var hoverTracking: NSTrackingArea?
-    private var isPointerInside = false
+    private(set) var isPointerInside = false
+    private var makeChip: (@MainActor (Bool) -> AnyView)?
+    private let chipHost: NSHostingView<AnyView>
 
     override init(frame frameRect: NSRect) {
+        chipHost = NSHostingView(rootView: AnyView(EmptyView()))
         super.init(frame: frameRect)
         setAccessibilityElement(false)
+        chipHost.translatesAutoresizingMaskIntoConstraints = false
+        chipHost.setAccessibilityElement(false)
+        addSubview(chipHost)
+        NSLayoutConstraint.activate([
+            chipHost.leadingAnchor.constraint(equalTo: leadingAnchor),
+            chipHost.trailingAnchor.constraint(equalTo: trailingAnchor),
+            chipHost.topAnchor.constraint(equalTo: topAnchor),
+            chipHost.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
     }
 
     required init?(coder: NSCoder) {
@@ -87,8 +100,17 @@ final class CloudTeamPickerMenuAnchorView: NSView {
 
     override var isFlipped: Bool { true }
 
+    /// The anchor is the only hit-test target. Its hosted chip is visual only;
+    /// the SwiftUI button underneath retains keyboard and accessibility input.
     override func hitTest(_ point: NSPoint) -> NSView? {
-        isEnabled ? super.hitTest(point) : nil
+        isEnabled ? self : nil
+    }
+
+    /// Replaces the hosted chip content without crossing back into SwiftUI
+    /// state. Pointer and menu lifecycle updates therefore have one owner.
+    func updateChip(_ makeChip: @escaping @MainActor (Bool) -> AnyView) {
+        self.makeChip = makeChip
+        refreshChip()
     }
 
     /// Rebuilds the tracking area and reconciles it with the current pointer.
@@ -137,7 +159,12 @@ final class CloudTeamPickerMenuAnchorView: NSView {
     private func setPointerInside(_ inside: Bool) {
         guard isPointerInside != inside else { return }
         isPointerInside = inside
-        onHoverChange?(inside)
+        refreshChip()
+    }
+
+    private func refreshChip() {
+        let highlighted = isEnabled && (isPointerInside || trackingMenu != nil || isPresentationRequested)
+        chipHost.rootView = makeChip?(highlighted) ?? AnyView(EmptyView())
     }
 
     /// The menu's tracking loop swallows enter and exit events, so hover is
@@ -162,6 +189,10 @@ final class CloudTeamPickerMenuAnchorView: NSView {
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         if window !== newWindow {
             trackingMenu?.cancelTracking()
+            if let hoverTracking {
+                removeTrackingArea(hoverTracking)
+                self.hoverTracking = nil
+            }
             // A window transition owns the pointer transition. Do this before
             // AppKit detaches the view so no stale exit can clear a reattached
             // view later.
@@ -176,6 +207,7 @@ final class CloudTeamPickerMenuAnchorView: NSView {
         if window == nil {
             setPointerInside(false)
         } else {
+            if hoverTracking == nil { updateTrackingAreas() }
             syncPointerInside()
             presentIfRequested()
         }
@@ -199,6 +231,7 @@ final class CloudTeamPickerMenuAnchorView: NSView {
 
     func syncPresentation(_ requested: Bool) {
         isPresentationRequested = requested
+        refreshChip()
         if requested {
             presentIfRequested()
         } else {
@@ -235,6 +268,7 @@ final class CloudTeamPickerMenuAnchorView: NSView {
         menu.minimumWidth = bounds.width
         menu.userInterfaceLayoutDirection = isRightToLeft ? .rightToLeft : .leftToRight
         trackingMenu = menu
+        refreshChip()
         onWillPresent?()
         // Flipped coordinates: the menu's top-leading corner sits just below the
         // trigger, aligned with its leading edge in either layout direction.
@@ -246,6 +280,7 @@ final class CloudTeamPickerMenuAnchorView: NSView {
         trackingMenu = nil
         isPresentationRequested = false
         syncPointerInside()
+        refreshChip()
         onDismiss?()
         let actions = afterDismissActions
         afterDismissActions.removeAll()
