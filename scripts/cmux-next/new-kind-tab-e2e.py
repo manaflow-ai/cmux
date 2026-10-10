@@ -50,8 +50,8 @@ def rpc(method, params=None, timeout=30):
         return {"error": str(error)}
 
 
-def action(name, args=None):
-    return rpc("action.run", {"action": name, "args": args or {}})
+def action(name, args=None, focus=False):
+    return rpc("action.run", {"action": name, "args": args or {}, "focus": focus})
 
 
 def daemon_socket():
@@ -110,10 +110,10 @@ def row(check, expected, observed, ok):
 def main():
     if not wait(lambda: (rpc("debug.windows") or {}).get("windows"), 60):
         sys.exit("the app does not answer on " + opts.socket)
-    print("newTab (workspace):", action("newTab", {"focus": True}), flush=True)
+    print("newTab (workspace):", action("newTab", focus=True), flush=True)
     time.sleep(1)  # test harness: the workspace mounts
     start = browsers()
-    print("openBrowser:", action("openBrowser", {"url": "about:blank", "focus": True}), flush=True)
+    print("openBrowser:", action("openBrowser", {"url": "about:blank"}, focus=True), flush=True)
     if not wait(lambda: browsers() > start, 20):
         sys.exit(f"no browser tab opened; a daemon tab: {json.dumps((daemon_tabs() or [{}])[-1])[:600]}")
     time.sleep(1)  # test harness: the browser tab is selected
