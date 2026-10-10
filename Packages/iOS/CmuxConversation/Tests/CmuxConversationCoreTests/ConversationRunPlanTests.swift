@@ -35,6 +35,16 @@ import Testing
         #expect(plan.entries[1].isFirstInRun)
     }
 
+    @Test func aTapbackMakesItsMessageARunOfItsOwn() {
+        // Messages (iOS 26.5 and 27.0): a heart on the middle of three sent
+        // messages puts tails on all three and 10 pt between runs.
+        var reacted = message(2, "me", minute: 1)
+        reacted.reactions = [ConversationReactionMark(participantID: "me", reaction: .heart)]
+        let plan = ConversationRunPlan(messages: [message(1, "me", minute: 0), reacted, message(3, "me", minute: 2)], meID: "me")
+        #expect(plan.entries.map(\.isFirstInRun) == [true, true, true])
+        #expect(plan.entries.map(\.isLastInRun) == [true, true, true])
+    }
+
     @Test func typingFromTheSameSenderKeepsTheRunOpen() {
         let plan = ConversationRunPlan(messages: [message(1, "a", minute: 0)], meID: "me", typingParticipantIDs: ["a"])
         #expect(!plan.entries[0].isLastInRun)
