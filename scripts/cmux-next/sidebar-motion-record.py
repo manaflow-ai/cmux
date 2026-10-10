@@ -76,6 +76,16 @@ def center(row):
     return frame.get("x", 0) + frame.get("width", 0) / 2, frame.get("y", 0) + frame.get("height", 0) / 2
 
 
+def block_height(row):
+    """A workspace row plus its tab rows: the height of its lifted drag card."""
+    key = str(row.get("key", ""))
+    owner = key[len("workspace("):-1]
+    frames = [r.get("window_frame") or {} for r in sidebar().get("rows") or []
+              if str(r.get("key", "")) == key or str(r.get("key", "")).startswith(f"tab({owner},")]
+    top = min(f.get("y", 0) for f in frames)
+    return max(f.get("y", 0) + f.get("height", 0) for f in frames) - top
+
+
 def record(name, trigger):
     if opts.only and name not in opts.only:
         return
@@ -125,11 +135,15 @@ def main():
         record("drag-reorder", lambda: rpc("debug.mouse", {"action": "drag", "x": x, "y": y, "to_x": x, "to_y": to_y, "steps": 30}))
         time.sleep(0.5)  # test harness: the drop settles
     workspace_rows = rows("workspace")
-    if len(workspace_rows) >= 3:
-        # Dropped on another workspace's middle: the two make a group, whose name editor opens.
-        x, y = center(workspace_rows[0])
-        _, to_y = center(workspace_rows[2])
-        record("drag-onto", lambda: rpc("debug.mouse", {"action": "drag", "x": x, "y": y, "to_x": x, "to_y": to_y + 4, "steps": 30}))
+    if len(workspace_rows) >= 4:
+        # Dropped with the card's middle on another workspace's middle: the
+        # two make a group, whose name editor opens.
+        dragged, target = workspace_rows[1], workspace_rows[3]
+        x, y = center(dragged)
+        _, target_y = center(target)
+        card = block_height(dragged)
+        to_y = target_y - card / 2 + (dragged.get("window_frame") or {}).get("height", 0) / 2
+        record("drag-onto", lambda: rpc("debug.mouse", {"action": "drag", "x": x, "y": y, "to_x": x, "to_y": to_y, "steps": 30}))
     print("\nRESULT PASS (recorded)")
 
 
