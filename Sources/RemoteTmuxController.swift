@@ -591,10 +591,11 @@ final class RemoteTmuxController {
         newSessionTasks[managerID] = Task { @MainActor [weak self, weak manager] in
             guard let self else { return }
             defer {
-                guard self.newSessionRequestIDs[managerID] == request.id else { return }
-                guard self.pendingMultiplexNewSessionRequests[managerID] != request.id else { return }
-                self.newSessionRequestIDs.removeValue(forKey: managerID)
-                self.newSessionTasks.removeValue(forKey: managerID)
+                if self.newSessionRequestIDs[managerID] == request.id,
+                   self.pendingMultiplexNewSessionRequests[managerID] != request.id {
+                    self.newSessionRequestIDs.removeValue(forKey: managerID)
+                    self.newSessionTasks.removeValue(forKey: managerID)
+                }
             }
             guard let manager else { return }
             await self.createAndMirrorSession(request, in: manager, onCreated: onCreated)
