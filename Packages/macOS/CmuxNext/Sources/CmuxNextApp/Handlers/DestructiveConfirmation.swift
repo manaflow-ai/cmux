@@ -22,6 +22,8 @@ enum DestructiveConfirmation {
         var button: String
         /// The toggle "Don't ask again" turns off; nil shows no check box.
         var suppresses: [String]? = nil
+        /// What the confirm grants; only the person answers it (cx-zk9t).
+        var kind: CmuxDialogConfirmKind = .destructive
     }
 
     static func install(_ services: AppServices) {
@@ -139,7 +141,7 @@ enum DestructiveConfirmation {
         CmuxDialogSpec(title: prompt.title, lines: [prompt.body],
                        fields: prompt.suppresses == nil ? [] : [.check(id: suppressID, title: QuitStrings.dontAskAgain, on: false)],
                        buttons: [.cancel(ConfirmationStrings.cancel), CmuxDialogButton(id: confirmID, title: prompt.button, role: .default)],
-                       identifier: "cmux.dialog.confirmation")
+                       identifier: "cmux.dialog.confirmation", confirmKind: prompt.kind)
     }
 
     private static func turnOff(_ path: [String], _ settings: SettingsController?) {

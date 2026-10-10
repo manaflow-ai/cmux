@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCloud
 import CmuxNextDaemon
+import CmuxNextDesign
 import Foundation
 
 /// The Cloud app server path of the machine list and create (cx-t2rz):
@@ -107,7 +108,7 @@ extension CloudPresenter {
         let body = ([intro] + lines).joined(separator: "\n")
         return await withCheckedContinuation { continuation in
             confirm(CloudStrings.createConfirmTitle, body, button: CloudStrings.createConfirmButton,
-                    identifier: createConfirmIdentifier, in: window) { continuation.resume(returning: $0) }
+                    identifier: createConfirmIdentifier, kind: .money, in: window) { continuation.resume(returning: $0) }
         }
     }
 }

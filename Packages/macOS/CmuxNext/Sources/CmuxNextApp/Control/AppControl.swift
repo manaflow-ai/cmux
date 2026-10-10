@@ -344,7 +344,11 @@ final class AppControl {
             },
             // The quit sheet (Quit and the local terminals).
             .mainActor("debug.quit") { [weak services] call in
-                .value(services.map { DebugQuit.run(call.params, $0) } ?? .null)
+                guard let services else { return .value(.null) }
+                if call.params["fixture_discard_unsaved"]?.boolValue == true {
+                    return .followUp { await DebugQuit.discardUnsaved(services) }
+                }
+                return .value(DebugQuit.run(call.params, services))
             },
             // Every open cmux dialog (R96): list, fixtures, keys, presses.
             .mainActor("debug.dialog") { [weak services] call in

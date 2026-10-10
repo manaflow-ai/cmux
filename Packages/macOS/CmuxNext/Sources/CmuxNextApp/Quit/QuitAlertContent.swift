@@ -21,6 +21,9 @@ struct QuitAlertContent: Equatable {
     /// The first is the primary button; `QuitAlert` draws it last.
     var buttons: [Button]
     var showsSuppression: Bool
+    /// Quitting ends incognito programs (their terminals never persist): then every
+    /// quit choice, Keep and Quit too, is the person's (cx-zk9t).
+    var endsIncognito = false
 
     var message: String { lines.joined(separator: "\n") }
 
@@ -31,7 +34,7 @@ struct QuitAlertContent: Equatable {
     static func main(_ prompt: QuitPrompt) -> QuitAlertContent {
         guard prompt.offersSessionChoice else {
             return QuitAlertContent(title: ConfirmationStrings.quitIncognitoTitle, lines: [], buttons: [.quit, .cancel],
-                                    showsSuppression: false)
+                                    showsSuppression: false, endsIncognito: !prompt.incognitoPrograms.isEmpty)
         }
         // Statuses only, no explanation of what quitting does.
         var lines: [String] = []
@@ -39,7 +42,7 @@ struct QuitAlertContent: Equatable {
         if prompt.agentsInTurn > 0 { lines.append(QuitStrings.agentsWorking(prompt.agentsInTurn)) }
         if !prompt.incognitoPrograms.isEmpty { lines.append(QuitStrings.incognitoCloses) }
         return QuitAlertContent(title: QuitStrings.title, lines: lines, buttons: [.keep, .cancel, .confirmQuitEverything],
-                                showsSuppression: true)
+                                showsSuppression: true, endsIncognito: !prompt.incognitoPrograms.isEmpty)
     }
 
     static func title(of button: Button) -> String {
