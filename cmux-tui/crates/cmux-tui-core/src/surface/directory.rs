@@ -55,7 +55,7 @@ impl Surface {
         loop {
             // Once the PTY has recorded an exit, transient records are no
             // longer part of the hook envelope, matching the public snapshot.
-            let running = pty.terminal_end().is_none();
+            let running = self.terminal_end().is_none();
             let (status_revision, status_change) = {
                 let mut records = records.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 records
