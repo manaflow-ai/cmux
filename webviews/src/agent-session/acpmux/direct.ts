@@ -1598,6 +1598,11 @@ export class AcpmuxDirectClient {
     this.wire.sent(text, "session/cancel");
     this.socket.send(text);
   }
+  /// Withdraws a queued prompt before its turn starts; `removed` is false once it started.
+  async removeQueued(promptId: string): Promise<{ removed: boolean }> {
+    if (!this.selectedSessionId) return { removed: false };
+    return this.request("_acpmux/queue_remove", { sessionId: this.selectedSessionId, promptId });
+  }
   /// Answers a permission: `optionId` picks an option (absent cancels the request), and
   /// `answers` carries a question's harness-shaped answers (question/model.ts `reply`).
   async permission(permissionId: string, optionId?: string, answers?: Record<string, unknown>): Promise<void> {
@@ -1834,6 +1839,18 @@ export class AcpmuxDirectClient {
         this.emit("fork failed");
       }
       return undefined;
+    } finally {
+      this.forking = false;
+    }
+  }
+  /// Forks the open session through `throughSeq` and stays on it: New side chat's copy, which the
+  /// host opens beside this chat. One fork at a time, as `fork`.
+  async forkAside(throughSeq: number): Promise<string | undefined> {
+    if (!this.canFork || !this.selectedSessionId || this.forking) return undefined;
+    this.forking = true;
+    try {
+      const result = await this.request(FORK_OP, { sessionId: this.selectedSessionId, throughSeq });
+      return result?.sessionId ? String(result.sessionId) : undefined;
     } finally {
       this.forking = false;
     }

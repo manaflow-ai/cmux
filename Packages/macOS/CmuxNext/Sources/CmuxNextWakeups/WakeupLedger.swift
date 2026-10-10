@@ -1,5 +1,5 @@
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// Counts every wakeup the sanctioned primitives perform, per owner and
 /// reason (plans/cmux-next/idle-wakeups.md). An idle app records nothing:

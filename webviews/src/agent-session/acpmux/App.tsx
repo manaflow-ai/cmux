@@ -110,6 +110,7 @@ import { sessionLink } from "./links";
 import { ChatHeaderStatus } from "./header/ChatHeaderStatus";
 import { ChatHeaderTools, HEADER_ACTIONS, type ChatMenuItem } from "./header/ChatHeaderTools";
 import { archiveRow } from "./header/archiveRow";
+import { sideChatRow } from "./header/sideChatRow";
 import { Thinking } from "./conversation/Thinking";
 import { WorkingFor } from "./conversation/WorkingFor";
 import { HostError } from "./HostError";
@@ -236,6 +237,12 @@ function callNative<T>(method: string, params: Record<string, unknown> = {}): Pr
   if (direct) return direct(params) as Promise<T>;
   return postNative<T>(method, params);
 }
+
+/// Withdraws a queued prompt before its turn starts; false when it already started.
+const removeQueued = (promptId: string) =>
+  callNative<{ removed?: boolean } | null>("chat.queue.remove", { promptId }).then(
+    (result) => result?.removed === true,
+  );
 
 /// Asks the host to show the Quick Composer's chat in a window.
 const postOpenInWindow = (sessionId: string) =>
@@ -2164,6 +2171,7 @@ function AcpmuxPane() {
               typeof accepted === "function" ? (accepted as () => void) : undefined,
             ),
           "chat.cancel": () => client.cancel(),
+          "chat.queue.remove": ({ promptId }) => client.removeQueued(String(promptId)),
           "chat.permission": ({ permissionId, optionId, answers }) =>
             client.permission(
               String(permissionId),
@@ -2258,6 +2266,10 @@ function AcpmuxPane() {
           "chat.fork": async ({ throughSeq }) => {
             harnessSwitch.cancel();
             return persistSession(await client.fork(Number(throughSeq)));
+          },
+          "chat.side": async ({ throughSeq }) => {
+            const sessionId = await client.forkAside(Number(throughSeq));
+            if (sessionId) await postNative("chat.sideChat", { sessionId });
           },
           "chat.handoff.prepare": async ({ harness }) => {
             harnessSwitch.cancel();
@@ -2438,6 +2450,12 @@ function AcpmuxPane() {
       tabPinned.current = state?.pinned === true;
     });
   const lastForkSeq = latestForkSeq(snapshot.rows);
+  const sideChat = sideChatRow(
+    // Quick Chat's panel is not a tab: there is no split to open beside it.
+    { canFork: forkable, throughSeq: lastForkSeq, local: localCwd !== undefined && !quick },
+    (throughSeq) => ignoreFailure(callNative("chat.side", { throughSeq })),
+    t,
+  );
   const copyLinkRow = (link: string): ChatMenuItem => ({
     key: "copyLink",
     label: t("chatMenu.copyLink"),
@@ -2469,6 +2487,7 @@ function AcpmuxPane() {
             },
           ]
         : []),
+      ...(sideChat ? [sideChat] : []),
       ...(snapshot.canHandoff && handoffTargets.length > 0
         ? [
             {
@@ -2828,6 +2847,13 @@ function AcpmuxPane() {
             return held;
           }}
           onStop={() => void callNative("chat.cancel")}
+          onQueueRemove={removeQueued}
+          onQueueEdit={(entry) =>
+            removeQueued(entry.id).then((removed) => {
+              if (removed) composerHandle.current?.restore(entry.prompt, []);
+              return removed;
+            })
+          }
           onProject={chooseProject}
           // SSH… opens Connect to Machine; cmux Cloud… opens New Cloud Machine (Lawrence 2026-10-06).
           onConnect={(kind) =>

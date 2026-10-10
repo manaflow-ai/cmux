@@ -1,6 +1,6 @@
 public import Foundation
 import os
-import Synchronization
+import CmuxNextCompat
 
 /// Marks of the daemon start path (login environment, `server ensure`,
 /// connect, handshake) for the App's `debug.timings` and Instruments
