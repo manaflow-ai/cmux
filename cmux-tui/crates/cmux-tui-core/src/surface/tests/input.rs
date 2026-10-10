@@ -77,10 +77,8 @@ fn test_surface_accepts_non_uuid_public_terminal_identity() {
 #[cfg(unix)]
 #[test]
 fn hosted_mirror_never_answers_terminal_queries() {
-    let mux = Mux::new_for_test("hosted-query-authority", SurfaceOptions::default());
     let callbacks = hosted_terminal_callbacks(
-        1,
-        Arc::downgrade(&mux),
+        &PendingBells::default(),
         Arc::new(AtomicBool::new(false)),
         Default::default(),
     );
