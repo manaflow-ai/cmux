@@ -627,12 +627,29 @@ struct MachinesPanelView: View {
             scope: destination.teamScope,
             cmuxExecutable: cmuxExecutable
         )
-        guard let workspaceID = tabManager?.selectedWorkspace?.id else {
-            viewModel.noteTreeHint(String(localized: "coderouter.selectWorkspace", defaultValue: "Select a local workspace before adding a coding agent account."))
-            return
-        }
 
         Task { @MainActor in
+            guard let route = CoderouterSetupWorkspaceCoordinator.resolveDestination(
+                preferredManager: tabManager,
+                provider: provider,
+                initialTerminalCommand: command
+            ) else {
+                viewModel.noteTreeHint("Could not open a local workspace for CodeRouter setup.")
+                return
+            }
+
+            // A newly-created setup workspace already owns the initial command
+            // in its starter terminal. Reuse adds a fresh terminal in the
+            // persisted workspace so each provider gets its own interactive
+            // setup session.
+            let workspace: Workspace
+            switch route {
+            case .created:
+                return
+            case let .existing(existingWorkspace, _):
+                workspace = existingWorkspace
+            }
+
             do {
                 _ = try await TerminalController.surfaceNewTerminal(
                     machine: .local,
@@ -640,7 +657,7 @@ struct MachinesPanelView: View {
                     cwd: nil,
                     name: "CodeRouter",
                     remoteWorkspaceID: nil,
-                    destination: .workspace(id: workspaceID, placement: .split),
+                    destination: .workspace(id: workspace.id, placement: .split),
                     focus: true
                 )
             } catch {

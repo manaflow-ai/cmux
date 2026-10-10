@@ -240,7 +240,14 @@ final class LocalSurfaceProvider: SurfaceProvider {
 
     func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?) async throws -> SurfaceResource {
         let all = workspaces()
-        guard let workspace = all.first(where: { $0.owningTabManager?.selectedTabId == $0.id }) ?? all.first else {
+        // A local terminal must never be staged inside a Cloud or remote
+        // workspace. This matters when the destination setup workspace lives
+        // in another window: selecting it does not deselect the Cloud tab in
+        // the initiating window, and the old first-selected lookup could pick
+        // that remote workspace before projection moved the pane.
+        guard let workspace = all.first(where: {
+            $0.owningTabManager?.selectedTabId == $0.id && !$0.usesRemoteDirectoryProvenance
+        }) ?? all.first(where: { !$0.usesRemoteDirectoryProvenance }) else {
             throw SurfaceCatalogError.destinationNotFound("a workspace")
         }
         let initialCommand = command.map { $0.map(Self.shellQuote).joined(separator: " ") }
