@@ -104,7 +104,7 @@ extension MobileShellComposite {
                 break
             case .networkChange, .presencePush, .directoryChanged, .foreground, .liveness,
                  .eventStreamEnded, .subscriptionStartFailed,
-                 .transportWriteTimedOut, .automaticBackoffExpired:
+                 .transportWriteTimedOut, .requestConnectionClosed, .automaticBackoffExpired:
                 MobileDebugLog.anchormux(
                     "connection.recovery coalesced trigger=\(trigger.description) "
                         + "storedMacGeneration=\(storedMacReconnectGeneration)"
@@ -121,7 +121,7 @@ extension MobileShellComposite {
                     return
                 }
             case .liveness, .eventStreamEnded, .subscriptionStartFailed,
-                 .transportWriteTimedOut, .automaticBackoffExpired:
+                 .transportWriteTimedOut, .requestConnectionClosed, .automaticBackoffExpired:
                 break
             }
         }
@@ -195,7 +195,7 @@ extension MobileShellComposite {
             return false
         case .networkChange, .presencePush, .directoryChanged, .foreground,
              .liveness, .eventStreamEnded, .subscriptionStartFailed,
-             .transportWriteTimedOut, .automaticBackoffExpired:
+             .transportWriteTimedOut, .requestConnectionClosed, .automaticBackoffExpired:
             break
         }
         return isSignedIn
@@ -325,8 +325,8 @@ extension MobileShellComposite {
             case .liveness, .networkChange:
                 resyncTerminalOutput(reason: trigger.description, restartEventStream: true)
             case .manual, .presencePush, .directoryChanged, .foreground, .eventStreamEnded,
-                 .subscriptionStartFailed, .transportWriteTimedOut, .automaticBackoffExpired,
-                 .connectionMethodChanged:
+                 .subscriptionStartFailed, .transportWriteTimedOut, .requestConnectionClosed,
+                 .automaticBackoffExpired, .connectionMethodChanged:
                 markMacConnectionUnavailableIfNoStore()
             }
             return
