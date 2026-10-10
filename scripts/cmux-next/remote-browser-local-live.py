@@ -204,8 +204,9 @@ def edge(opened):
     report["edge"] = {"page": [page_w, page_h], "anchor": [x, y, w, h], "past_page_edge": past_edge, "surface": info,
                       "page_screen_frame": (state or {}).get("page_screen_frame")}
     # A child view of the page clips what runs past the page; a child panel of the window does not.
-    step("a date picker at the page's bottom-right edge shows in full (child panel, never key)",
-         info and (in_panel or not past_edge) and not (panel or {}).get("key"),
+    # The page is shorter than the picker, so the picker runs past it: else the check proves nothing.
+    step("a date picker that runs past the page's bottom-right edge shows in full (child panel, never key)",
+         info and past_edge and in_panel and not panel.get("key"),
          {"anchor": [x, y, w, h], "page": [page_w, page_h], "past_page_edge": past_edge, "panel": panel,
           "key_window": (state or {}).get("key_window")})
 
@@ -218,7 +219,8 @@ def edge(opened):
         px, py, _, ph = rect(s["page_screen_frame"])
         fx, fy, fw, fh = rect(i["panel"]["screen_frame"])
         ax, ay, aw, ah = rect(i["frame"])
-        return (fx, fy) if (fx, fy + fh) == (px + ax, py + ph - ay) else None
+        # Whole points, each value cut to an integer: allow 1 point.
+        return (fx, fy) if abs(fx - (px + ax)) <= 1 and abs(fy + fh - (py + ph - ay)) <= 1 else None
     before = placed()
     frame = (rpc("debug.window_frame") or {}).get("frame") or []  # [x, y, width, height], screen points
     moved_to = None
@@ -227,7 +229,7 @@ def edge(opened):
         rpc("debug.window_frame", {"frame": moved_to})
     after = wait(lambda: (lambda p: p if p and p != before else None)(placed()), 10)
     step("the popup panel sits at its anchor and follows a window move",
-         before and after and (after[0] - before[0], after[1] - before[1]) == (60, 40),
+         before and after and abs(after[0] - before[0] - 60) <= 1 and abs(after[1] - before[1] - 40) <= 1,
          {"before": before, "after": after, "window": moved_to})
 
     # A click in the panel reaches the picker (Today, bottom right of the picker).
@@ -252,7 +254,8 @@ def edge(opened):
     rpc("action.run", {"action": "closeTab"})
     gone = wait(lambda: not any(w.get("kind") == "remote-browser-surface" and w.get("visible")
                                 for w in rpc("debug.window_list").get("windows") or []), 15)
-    step("closing the tab closes its popup panel", reopened and reopened.get("panel") and gone,
+    step("closing the tab closes its popup panel",
+         reopened and (reopened.get("panel") or {}).get("visible") and gone,
          {"reopened": reopened, "gone": gone})
 
 
