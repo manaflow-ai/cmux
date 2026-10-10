@@ -100,9 +100,9 @@ extension SidebarView {
             let height = window?.contentView?.bounds.height ?? 0
             let windowFrame = CGRect(x: inWindow.minX, y: height - inWindow.maxY, width: inWindow.width, height: inWindow.height)
             return SidebarDebugRow(key: String(describing: row.key), title: title, frame: list.frame(for: row), windowFrame: windowFrame,
-                                   viewFrame: view?.frame, viewAlpha: view.map { CGFloat($0.layer?.presentation()?.opacity ?? -1) }, inList: view?.superview === list,
+                                   viewFrame: view?.frame, viewAlpha: view?.alphaValue, inList: view?.superview === list,
                                    suppressed: list.suppressed.contains(row.key), selected: view?.isSelected == true, muted: muted,
-                                   activity: activity, icon: icon, shownFrame: view.map { $0.layer?.presentation()?.frame ?? $0.frame }, clips: view?.layer?.presentation()?.masksToBounds ?? view?.layer?.masksToBounds == true)
+                                   activity: activity, icon: icon, shownFrame: view.map { $0.layer?.presentation()?.frame ?? $0.frame }, clips: view?.clipsToBounds == true)
         }
         let selection = model.orderedSelection.map { model.workspace($0)?.title ?? $0.rawValue }
         let dragging = list.drag.map { drag in drag.hiddenKeys.map { String(describing: $0) } } ?? []

@@ -199,7 +199,8 @@ final class SidebarListView: NSView {
         var keep = Set<SidebarRowKey>()
         let animate = animated && !old.rows.isEmpty
         // New rows open from their run's top, so only the rows below move; a row still opening
-        // that the next update moves (appended, then placed below) opens again there (cx-ai79).
+        // that the next update moves (appended, then placed below) opens again there, in a new view:
+        // the old one's retargeted spring would carry its stale open on through the rows (cx-ai79).
         let now = CACurrentMediaTime()
         openingRows = openingRows.filter { now - $0.value < Motion.spring(.move).settlingTime() }
         let reopened = animate ? Set(layout.rows.filter { openingRows[$0.key] != nil && old.row(for: $0.key)?.y != $0.y }.map(\.key)) : []
@@ -207,6 +208,7 @@ final class SidebarListView: NSView {
         let insertRuns = SidebarRowTransition.runTops(of: layout, missingFrom: old, reopened: reopened)
         for row in layout.rows {
             let target = frame(for: row)
+            if reopened.contains(row.key) { rowViews.removeValue(forKey: row.key)?.removeFromSuperview() }
             let existing = rowViews[row.key]
             guard existing != nil || target.intersects(realize) else { continue }
             keep.insert(row.key)
@@ -230,10 +232,7 @@ final class SidebarListView: NSView {
                     }
                 }
             }
-            if existing == nil {
-                addSubview(view, positioned: .above, relativeTo: decorations)
-                rowViews[row.key] = view
-            }
+            if existing == nil { addSubview(view, positioned: .above, relativeTo: decorations); rowViews[row.key] = view }
             if suppressed.contains(row.key) {
                 view.frame = target
                 view.alphaValue = 0
