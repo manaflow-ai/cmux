@@ -6,11 +6,12 @@ public import Foundation
 public nonisolated struct HistoryCookieBackup: Identifiable, Hashable, Sendable {
     /// The restore id (`app:<32 hex>`).
     public let id: String
-    /// The host whose cookies the clear removed.
-    public let site: String
+    /// The host whose cookies the clear removed; nil when the backup no
+    /// longer opens with this Mac's key (the person can still delete it).
+    public let site: String?
     public let createdAt: Date
 
-    public init(id: String, site: String, createdAt: Date) {
+    public init(id: String, site: String?, createdAt: Date) {
         self.id = id
         self.site = site
         self.createdAt = createdAt
@@ -27,14 +28,18 @@ public extension HistoryPageModel {
     /// Shows the cookie backups sheet and loads its rows.
     func showCookieBackups() {
         showsCookieBackups = true
-        loadCookieBackups()
+        Task { await refreshCookieBackups() }
     }
 
-    func loadCookieBackups() {
-        Task { [weak self] in
-            let loaded = await self?.source?.cookieBackups() ?? []
-            self?.cookieBackups = loaded
-        }
+    /// Loads the rows; a load that an older call started never replaces a
+    /// newer one (a delete starts a new load).
+    @discardableResult
+    func refreshCookieBackups() async -> [HistoryCookieBackup] {
+        cookieBackupsGeneration += 1
+        let current = cookieBackupsGeneration
+        let loaded = await source?.cookieBackups() ?? []
+        if current == cookieBackupsGeneration { cookieBackups = loaded }
+        return loaded
     }
 
     /// Deletes backups for good (the person confirmed): an agent can no
@@ -42,9 +47,13 @@ public extension HistoryPageModel {
     func deleteCookieBackups(_ ids: [String]) {
         guard !ids.isEmpty else { return }
         cookieBackups.removeAll { ids.contains($0.id) }
-        Task { [weak self] in
-            await self?.source?.deleteCookieBackups(ids)
-            self?.loadCookieBackups()
-        }
+        cookieBackupsGeneration += 1
+        Task { await deleteCookieBackupsNow(ids) }
+    }
+
+    /// ``deleteCookieBackups(_:)``, awaited (the debug control method waits for it).
+    func deleteCookieBackupsNow(_ ids: [String]) async {
+        await source?.deleteCookieBackups(ids)
+        await refreshCookieBackups()
     }
 }

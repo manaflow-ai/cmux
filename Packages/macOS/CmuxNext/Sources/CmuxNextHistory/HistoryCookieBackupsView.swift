@@ -25,7 +25,9 @@ struct HistoryCookieBackupsView: View {
                 List(model.cookieBackups) { backup in
                     HStack(spacing: Metrics.panelInset) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(backup.site).font(Font(Typography.bodyEmphasized)).foregroundStyle(colors.primary)
+                            Text(backup.site ?? HistoryStrings.cookieBackupsUnreadable)
+                                .font(Font(Typography.bodyEmphasized))
+                                .foregroundStyle(backup.site == nil ? colors.secondary : colors.primary)
                             Text(backup.createdAt.formatted(date: .abbreviated, time: .shortened))
                                 .font(Font(Typography.body)).foregroundStyle(colors.tertiary)
                         }
