@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 import unittest
 from unittest import mock
@@ -15,6 +16,7 @@ SCRIPT = ROOT / "scripts/ci/late_placement.py"
 WORKFLOW = ROOT / ".github/workflows/ci-macos.yml"
 XCODE = "/Applications/Xcode_26.6.app"
 ROOT_STD = "glaeda-root-std-xcode-26.6"
+ROOT_AWS = "glaeda-aws-root-std-xcode-26.6"
 FULL = {"MACOS": "true", "CLI": "false", "FULL_SUITE": "true", "UNIT_SUITE": "false",
         "UNIT_IN_ADMISSION": "false", "UNIT_SELECTORS": "", "ADMISSION_XCODE_APP": XCODE,
         "ADMISSION_RUNNER": "blacksmith-12vcpu-macos-26", "OWNED_JOBS": ""}
@@ -41,6 +43,14 @@ def roots(idle: int, busy: int = 0) -> list[dict]:
 
 
 class Decide(unittest.TestCase):
+    def test_explicit_aws_admission_keeps_late_jobs_in_the_aws_namespace(self):
+        env = dict(FULL, ADMISSION_ROOT=ROOT_AWS)
+        aws = [runner(f"aws-{i}", "self-hosted", ROOT_AWS) for i in range(3)]
+        placed, _ = late.decide(env, aws)
+        self.assertEqual(set(placed.values()), {ROOT_AWS})
+        self.assertEqual(late.root_for(XCODE, ROOT_AWS), ROOT_AWS)
+        self.assertEqual(late.root_for(XCODE, "", json.dumps([ROOT_AWS, "glaeda-runner-aws-0"])), ROOT_AWS)
+
     def test_a_full_suite_off_blacksmith_takes_the_idle_roots_shards_first(self):
         placed, why = late.decide(FULL, roots(idle=3, busy=5))
         self.assertEqual(placed, {"shard-1": ROOT_STD, "shard-2": ROOT_STD, "shard-3": ROOT_STD})

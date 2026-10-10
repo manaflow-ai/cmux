@@ -65,6 +65,56 @@ struct SurfaceResumeAgentHookDowngradeTests {
         )
     }
 
+    private static let ompSessionID = "6f1d9f5a-2a0c-4b68-b7c7-9c8a1d6e5f40"
+
+    private static func trustedOmpBinding() -> SurfaceResumeBindingSnapshot {
+        SurfaceResumeBindingSnapshot(
+            name: "OMP",
+            kind: "omp",
+            command: "/Users/test/.bun/bin/omp --session \(ompSessionID)",
+            cwd: "/tmp/omp-project",
+            checkpointId: ompSessionID,
+            source: "agent-hook",
+            environment: ["PATH": "/Users/test/.bun/bin:/usr/bin:/bin"],
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "omp",
+                executablePath: "/Users/test/.bun/bin/omp",
+                arguments: ["/Users/test/.bun/bin/omp", "--model", "sonnet"],
+                workingDirectory: "/tmp/omp-project",
+                environment: ["PATH": "/Users/test/.bun/bin:/usr/bin:/bin"],
+                capturedAt: 10,
+                source: "environment"
+            ),
+            autoResume: true,
+            approvalPolicy: .auto,
+            updatedAt: 10
+        )
+    }
+
+    private static func downgradedOmpRefresh() -> SurfaceResumeBindingSnapshot {
+        SurfaceResumeBindingSnapshot(
+            name: "OMP",
+            kind: "omp",
+            command: "omp --session \(ompSessionID)",
+            cwd: "/tmp/omp-project",
+            checkpointId: ompSessionID,
+            source: "agent-hook",
+            environment: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"],
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "omp",
+                executablePath: "omp",
+                arguments: ["omp", "--model", "sonnet"],
+                workingDirectory: "/tmp/omp-project",
+                environment: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"],
+                capturedAt: 11,
+                source: "environment"
+            ),
+            autoResume: true,
+            approvalPolicy: .auto,
+            updatedAt: 11
+        )
+    }
+
     // MARK: - Store behavior
 
     @Test
@@ -157,6 +207,18 @@ struct SurfaceResumeAgentHookDowngradeTests {
         #expect(workspace.surfaceResumeBinding(panelId: panelID) == userBinding)
     }
 
+    @Test
+    func workspaceKeepsCapturedExecutableWhenSameSessionHookRefreshLosesIt() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let panelID = try #require(workspace.focusedPanelId)
+        let trusted = Self.trustedOmpBinding()
+
+        #expect(workspace.setSurfaceResumeBinding(trusted, panelId: panelID))
+        #expect(!workspace.setSurfaceResumeBinding(Self.downgradedOmpRefresh(), panelId: panelID))
+        #expect(workspace.surfaceResumeBinding(panelId: panelID) == trusted)
+    }
+
     // MARK: - Predicate
 
     @Test
@@ -194,5 +256,10 @@ struct SurfaceResumeAgentHookDowngradeTests {
         let pathCheckpoint = Self.manualPiRepublish(checkpointId: Self.piSessionPath)
 
         #expect(pathCheckpoint.downgradesTrustedAgentHookBinding(trusted))
+    }
+
+    @Test
+    func downgradeDetectsBareExecutableForSameSession() {
+        #expect(Self.downgradedOmpRefresh().downgradesTrustedAgentHookBinding(Self.trustedOmpBinding()))
     }
 }

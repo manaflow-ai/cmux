@@ -171,6 +171,14 @@
       "message": "このマシンは Cloud の更新前に作成されたため、接続できません。",
       "action": "新しいマシンを作成し、cmux vm pull と cmux vm push でファイルを移してから、このマシンを削除してください。"
     },
+    "networkRuleCapacity": {
+      "title": "ネットワークルールの上限に達しました",
+      "message": "ネットワークポリシーは保存されましたが、適用されませんでした。cmux Cloud のネットワークルールが上限に達しています。",
+      "action": "cmux チームに通知済みです。このマシンで不要になったドメインを削除するか、サポートにお問い合わせください。それまでは、このマシンのネットワークアクセスが保存したポリシーと一致しない場合があります。"
+    },
+    "networkPolicyStatus": {
+      "applyFailed": "ネットワークポリシーは保存されましたが、適用されませんでした。再度保存してやり直してください。"
+    },
     "unsupported": {
       "title": "Cloud VM 操作を利用できません",
       "reason": "このマシン種別ではこの操作を利用できません。",
@@ -728,7 +736,7 @@
         "activeBody": "Max プランは有効です。次回更新日は {date} です。",
         "pendingBody": "Max プランは {date} に終了します。",
         "monthlyPrice": "${amount}/月",
-        "upsell": "Max は月額 $200 の月払いで、最大 5 台の Cloud VM で 80 vCPU と 160 GB RAM を共有できます。"
+        "upsell": "Max は月額 $200、または年払い $1,920（月額 $160 相当）で、最大 5 台の Cloud VM で 80 vCPU と 160 GB RAM を共有できます。24 GB / 12 vCPU、32 GB / 16 vCPU、最大 64 GB / 32 vCPU を利用できます。"
       },
       "teamPanel": {
         "notFound": "このチームは利用できません。チームから退出したか、チームが削除された可能性があります。",
@@ -793,11 +801,11 @@
           ],
           "pro": [
             "Cloud VM 上のクラウドエージェント",
-            "最大 5 台の Cloud VM で 20 vCPU と 40 GB RAM を共有",
+            "最大 5 台の Cloud VM で 20 vCPU と 40 GB RAM を共有。1 台の VM は最大 16 GB RAM / 8 vCPU。24 GB / 12 vCPU と 32 GB / 16 vCPU は Max が必要です。",
             "cmux iOS アプリ"
           ],
           "max": [
-            "最大 5 台の Cloud VM で 80 vCPU と 160 GB RAM を共有",
+            "最大 5 台の Cloud VM で 80 vCPU と 160 GB RAM を共有。Max では 24 GB / 12 vCPU、32 GB / 16 vCPU、最大 64 GB / 32 vCPU を利用できます。",
             "より大きなマシンサイズ",
             "Pro のすべての機能"
           ],
@@ -863,7 +871,8 @@
         "error": "TestFlightを更新できませんでした。しばらくしてから再試行してください。",
         "ineligible": "iOS TestFlightには有効な個人Proサブスクリプションが必要です。",
         "needs_email": "iOS TestFlightに参加する前に、確認済みのメインメールを追加してください。",
-        "unavailable": "現在、TestFlight登録は利用できません。"
+        "unavailable": "現在、TestFlight登録は利用できません。",
+        "busy": "アカウントへの別の変更を処理中です。しばらくしてから再試行してください。"
       },
       "notEligible": {
         "title": "サブスクリプションが必要です",
@@ -1749,7 +1758,7 @@
       "featuresLead": "Free のすべてに加えて:",
       "features": [
         "分離されたリモートサンドボックスの Cloud VM 上で動くクラウドエージェント",
-        "最大 5 台の Cloud VM で 20 vCPU と 40 GB RAM を共有",
+        "最大 5 台の Cloud VM で 20 vCPU と 40 GB RAM を共有。1 台の VM は最大 16 GB RAM / 8 vCPU。24 GB / 12 vCPU と 32 GB / 16 vCPU は Max が必要です。",
         "ワークスペースは無制限",
         "cmux iOS アプリとメールサポート"
       ],
@@ -1769,9 +1778,12 @@
       "cta": "Max を入手",
       "featuresLead": "Pro のすべてに加えて:",
       "features": [
-        "最大 5 台の Cloud VM で 80 vCPU と 160 GB RAM を共有",
+        "最大 5 台の Cloud VM で 80 vCPU と 160 GB RAM を共有。Max では 24 GB / 12 vCPU、32 GB / 16 vCPU、最大 64 GB / 32 vCPU を利用できます。",
         "無制限のワークスペースと iOS アプリ"
-      ]
+      ],
+      "annual": {
+        "yearly": "年払い"
+      }
     },
     "team": {
       "name": "Team",
@@ -1887,9 +1899,9 @@
         {
           "label": "最大の Cloud VM",
           "free": "false",
-          "pro": "32 GB RAM",
-          "max": "64 GB RAM",
-          "team": "32 GB RAM",
+          "pro": "16 GB RAM / 8 vCPU（24 GB / 12 vCPU と 32 GB / 16 vCPU は Max が必要）",
+          "max": "64 GB RAM / 32 vCPU（24 GB / 12 vCPU と 32 GB / 16 vCPU を含む）",
+          "team": "16 GB RAM / 8 vCPU（24 GB / 12 vCPU と 32 GB / 16 vCPU は Max が必要）",
           "enterprise": "カスタム",
           "go": "4 GiB RAM"
         },
@@ -1991,7 +2003,7 @@
         },
         {
           "q": "Max では何が追加されますか?",
-          "a": "Max は月払いで $200/月です。Pro のすべてを含み、最大 5 台の Cloud VM で 80 vCPU と 160 GB RAM を共有します。Pro と Team では最大 5 台の Cloud VM で 20 vCPU と 40 GB RAM を共有します。VM は 1 つのプールからリソースを使います。大きな VM 1 台でも、小さな VM 5 台でも動かせます。一時停止中の VM はプールを使いません。Free には Cloud VM は含まれません。"
+          "a": "Max は月額 $200、または年払いで $1,920（月額 $160 相当）です。Pro のすべてを含み、最大 5 台の Cloud VM で 80 vCPU と 160 GB RAM を共有します。24 GB / 12 vCPU、32 GB / 16 vCPU、最大 64 GB / 32 vCPU を利用できます。Pro と Team では最大 5 台の Cloud VM で 20 vCPU と 40 GB RAM を共有し、1 台は最大 16 GB RAM / 8 vCPU です。VM は 1 つのプールからリソースを使います。大きな VM 1 台でも、小さな VM 5 台でも動かせます。一時停止中の VM はプールを使いません。Free には Cloud VM は含まれません。"
         },
         {
           "q": "cmux Vault とは何ですか?",
@@ -2004,7 +2016,7 @@
         },
         {
           "q": "課金はどのように行われますか?",
-          "a": "Pro は月額 $50、または年払いで $480（月額 $40 相当）です。その他の有料プランは月払いで、Max は月額 $200、Team はユーザーあたり月額 $60 です。ターミナルとローカルエージェントは無料のままです。"
+          "a": "Pro は月額 $50、または年払いで $480（月額 $40 相当）です。Max は月額 $200、または年払いで $1,920（月額 $160 相当）です。Team はユーザーあたり月額 $60 です。ターミナルとローカルエージェントは無料のままです。"
         },
         {
           "q": "クラウドをセルフホストできますか?",
@@ -2023,7 +2035,7 @@
     "billingError": "チェックアウトの開始中に問題が発生しました。しばらくしてからもう一度お試しください。",
     "billingUnavailable": "現在、決済をご利用いただけません。時間をおいてお試しください。",
     "billingCancelled": "チェックアウトはキャンセルされました。請求は発生していません。",
-    "billingAnnualUnavailable": "年払いはProプランのみご利用いただけます。下のプランからお選びください。",
+    "billingAnnualUnavailable": "年払いは Pro と Max でご利用いただけます。下のプランからお選びください。",
     "billingPlanUnavailable": "このプランはまだご利用いただけません。以下から Pro または Max をお選びください。",
     "billingInvalidPlan": "指定されたプランはご利用いただけません。以下からプランをお選びください。",
     "signedOutNotice": "サインインしていません。サインインすると、現在のプランの確認や購入済みプランの復元ができます。",
@@ -2037,7 +2049,8 @@
     },
     "priceMonthlyNote": "月払いは${amount}/月",
     "priceMonthlyPerUserNote": "月払いは${amount}/ユーザー/月",
-    "manageInAppStore": "App Store で管理"
+    "manageInAppStore": "App Store で管理",
+    "resumePlan": "{plan} を再開"
   },
   "home": {
     "taglinePrefix": "次のために作られたターミナル：",
@@ -4354,7 +4367,7 @@
       "createCli": "CLIでは、cmux vm new がマシンを作成し、そのマシン上でワークスペースを開きます。何も開かずに作成するには --detach を使います。作成リクエストが再試行された場合、cmuxは同じリクエストを再利用するため、マシンが2台できることはありません。",
       "createFailed": "作成に失敗した場合は、通知から再試行、エラーの表示、またはサポート依頼用にエラーをコピーできます。",
       "sizesTitle": "サイズ",
-      "sizesDesc": "各サイズはメモリ、vCPU、ディスクをまとめて決めます。作成シートまたは --size でサイズを選びます。",
+      "sizesDesc": "各サイズはメモリ、vCPU、ディスクをまとめて決めます。作成シートまたは --size でサイズを選びます。 Pro と Team は 4g、8g、16g（2、4、8 vCPU）に対応します。Max では 24g と 32g（12、16 vCPU）、さらに 64g（32 vCPU）も利用できます。",
       "sizeColumn": "サイズ",
       "memoryColumn": "メモリ",
       "cpuColumn": "vCPU",
@@ -4368,7 +4381,7 @@
       "limitsFree": "無料アカウントではマシンを作成できません。",
       "limitsPaid": "ProおよびFounder's Editionアカウントでは、20 vCPUと40 GBのメモリを共有するアクティブなマシンを最大5台まで持てます。実行中または起動中のマシンがアクティブとして数えられます。",
       "limitsTeam": "Teamアカウントでは、有料シート1つにつきアクティブなマシンを最大5台まで持てます。有料シート1つごとに、チームのプールに20 vCPUと40 GBのメモリが追加されます。",
-      "limitsMax": "Maxアカウントでは、80 vCPUと160 GBのメモリを共有するアクティブなマシンを最大5台まで持てます。1台のマシンは、ProとTeamでは最大32 GB、16 vCPU、Maxでは最大64 GB、32 vCPUまで使えます。",
+      "limitsMax": "Maxアカウントでは、80 vCPUと160 GBのメモリを共有するアクティブなマシンを最大5台まで持てます。Maxの1台のマシンは最大64 GB、32 vCPUまで使え、24 GB / 12 vCPUと32 GB / 16 vCPUのサイズも含まれます。ProとTeamは16 GB、8 vCPUまでです。",
       "limitsPoolFull": "新規作成、再開、サイズ変更、フォークでプールを超える場合、cmuxはリクエストを拒否し、プールの使用量を表示します。マシンを一時停止または削除してリソースを空けるか、Maxにアップグレードしてください。",
       "limitsOversize": "プランの上限より大きいマシンはロックされます。一覧表示と削除はできますが、アップグレードするまで開く、コマンドを実行する、再開する、サイズを変更することはできません。",
       "limitsPricing": "現在の価格は料金ページを参照してください。従量課金や超過料金はありません。",
@@ -4379,7 +4392,7 @@
       "agentUpdatesToggle": "「新しいマシン」シートではこの設定がデフォルトでオンです。既存のマシンで変更するには、マシンを右クリックして「エージェントを最新に保つ」を選ぶか、cmux vm agent-updates を実行します。cmux vm new は --agent-updates latest を指定しない限りイメージのバージョンを保持します。更新をオフにしても、インストール済みのバージョンはそのまま残ります。",
       "agentUpdatesNetwork": "更新が使うのは github.com, api.github.com, objects.githubusercontent.com、release-assets.githubusercontent.com だけです。cmux は「許可リスト」や「インターネットなし」を含むすべてのネットワークモードでこれらのホストを許可するため、ネットワークポリシーが更新を妨げることはありません。",
       "resizeTitle": "サイズ変更",
-      "resizeDesc": "データを失わずにマシンを大きくできます。マシンを右クリックして「マシンのサイズを変更」を選ぶか、cmux vm resize を使います。サイズ変更は拡大のみです。ディスクは4 GB単位で最大256 GBまで拡大できます。メモリとCPUは、ProとTeamでは最大32 GB、16 vCPU、Maxでは最大64 GB、32 vCPUまで拡大できます。大きなマシンほどプールを多く使います。実際の上限はプランによって決まります。",
+      "resizeDesc": "データを失わずにマシンを大きくできます。マシンを右クリックして「マシンのサイズを変更」を選ぶか、cmux vm resize を使います。サイズ変更は拡大のみです。ディスクは4 GB単位で、ProとTeamでは最大128 GB、Maxでは256 GBまで拡大できます（Goは16 GBまで）。メモリとCPUは、ProとTeamでは最大16 GB、8 vCPU、Maxでは最大64 GB、32 vCPUまで拡大できます。大きなマシンほどプールを多く使います。実際の上限はプランによって決まります。",
       "pauseTitle": "一時停止と再開",
       "pauseDesc": "cmux vm pause はマシンのコンピュートを停止します。ディスク、ワークスペース、ターミナルの履歴は残りますが、実行中のプロセスは停止します。cmux vm resume でマシンを再び起動します。一時停止中のマシンを開いたり、そのマシンでコマンドを実行したりしても起動します。",
       "pauseIdle": "アイドル状態でもマシンは自動では一時停止しません。一時停止するか削除するまで動き続けます。",
@@ -4530,7 +4543,7 @@
       "errPlan": "Cloud VMには有料プランが必要",
       "fixPlan": "無料アカウントではマシンを作成できません。料金ページでアップグレードしてください。",
       "errSize": "サイズに上位プランが必要",
-      "fixSize": "32 GBを超えるマシンにはcmux Maxが必要です。小さいサイズを選ぶか、アップグレードしてください。",
+      "fixSize": "16 GBを超えるマシンにはcmux Maxが必要です。小さいサイズを選ぶか、アップグレードしてください。",
       "errLimit": "アクティブなマシンの上限に達した",
       "fixLimit": "マシンを一時停止または削除してから、もう一度試してください。",
       "errPool": "Cloud VMのリソースが足りない",
@@ -7029,7 +7042,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro が有効です",
     "title": "cmux Pro へようこそ",
-    "body": "Pro には、20 個の vCPU と 40 GB の RAM を共有する最大 5 台の Cloud VM と、cmux iOS TestFlight へのアクセスが含まれます。",
+    "body": "Pro には最大 5 台の Cloud VM が含まれ、20 vCPU と 40 GB RAM を共有します。1 台は最大 16 GB RAM / 8 vCPU で、24 GB / 12 vCPU と 32 GB / 16 vCPU は Max が必要です。cmux iOS TestFlight も利用できます。",
     "done": "ダッシュボードへ",
     "steps": {
       "iosApp": {

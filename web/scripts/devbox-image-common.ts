@@ -35,6 +35,8 @@ export const CMUX_TUI_STATE_IMAGE_PATH = "/var/lib/cmux/cmux-tui-state.ext4";
 export const CMUX_TUI_STATE_MOUNT_HELPER_PATH = "/usr/local/bin/cmux-tui-state-mount";
 export const CMUX_TUI_STATE_RESERVATION_MARKER_PATH = "/etc/cmux/cmux-tui-state-reservation";
 export const CMUX_TUI_STATE_RESERVATION_BYTES = 1024 * 1024 * 1024;
+/** The reserved filesystem may grow inside the existing VM disk as journals grow. */
+export const CMUX_TUI_STATE_MAX_BYTES = 8 * 1024 * 1024 * 1024;
 
 /** Files the Dockerfile COPYs plus the Dockerfile itself; all must exist. */
 export const DEVBOX_TEMPLATE_FILES = [
@@ -886,7 +888,7 @@ export function devboxParkDaemonCommand(): string {
     "! pgrep -f 'cmux-tui server [s]tart' >/dev/null",
     "systemctl is-active cmux-tui-daemon >/dev/null",
     devboxWipeDaemonStateKeepingTemplateCommand('"$CMUX_TUI_HOME/.local/state/cmux-tui"'),
-    'rm -rf "$CMUX_TUI_HOME/.local/state/cmux/remote" /etc/cmux/daemon-instance-id /etc/cmux/first-terminal.json',
+    'rm -rf "$CMUX_TUI_HOME/.local/state/cmux/remote" /etc/cmux/daemon-instance-id /etc/cmux/daemon-boot-id /etc/cmux/first-terminal.json',
     `rm -f ${TEMPLATE_RUN_DIR}/bound ${TEMPLATE_RUN_DIR}/clone-started ${TEMPLATE_RUN_DIR}/first-prompt-named`,
     `test "$(ls "$cmux_keep" | grep -c '\\.json$')" = 1`,
     "pgrep -f '[_]_terminal-host' >/dev/null",

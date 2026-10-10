@@ -565,6 +565,28 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Idle-classified Antigravity notifications must not override the running status while background work is active, saw \(backgroundDuplicateCommands)"
         )
 
+        // An empty notification may rebuild the last display summary while
+        // the background task is still running. That presentation-only event
+        // must preserve the idle completion marker used to recognize the next
+        // real turn boundary.
+        let rebuiltSummary = runAntigravityHook(
+            "notification",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"Notification"}"#
+        )
+        XCTAssertFalse(rebuiltSummary.timedOut, rebuiltSummary.stderr)
+        XCTAssertEqual(rebuiltSummary.status, 0, rebuiltSummary.stderr)
+        XCTAssertEqual(rebuiltSummary.stdout, "{}\n")
+
+        let storeURL = root.appendingPathComponent("antigravity-hook-sessions.json", isDirectory: false)
+        let rebuiltJSON = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any]
+        )
+        let rebuiltSessions = try XCTUnwrap(rebuiltJSON["sessions"] as? [String: Any])
+        let rebuiltSession = try XCTUnwrap(rebuiltSessions[sessionId] as? [String: Any])
+        XCTAssertEqual(rebuiltSession["agentLifecycle"] as? String, "running")
+        XCTAssertEqual(rebuiltSession["runtimeStatus"] as? String, "running")
+        XCTAssertEqual(rebuiltSession["lastNotificationStatus"] as? String, "idle")
+
         let missingFullyIdleSessionId = "\(sessionId)-missing-fully-idle"
         let missingFullyIdleStart = runAntigravityHook(
             "session-start",
@@ -3096,9 +3118,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
             },
             "Expected waiting notification to forward the payload message, saw \(waitingCommands)"
         )
-        XCTAssertTrue(
+        XCTAssertFalse(
             waitingCommands.contains { $0.contains("set_status grok Grok needs input") },
-            "Expected waiting notification to mark Grok as needing input, saw \(waitingCommands)"
+            "A delayed idle reminder after Stop must not revive Grok as needing input, saw \(waitingCommands)"
         )
 
         let fallbackCommandStart = state.commands.count
@@ -3127,8 +3149,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         session = try XCTUnwrap(sessions[sessionId] as? [String: Any])
         XCTAssertEqual(session["lastSubtitle"] as? String, "Waiting")
         XCTAssertEqual(session["lastBody"] as? String, waitingMessage)
-        XCTAssertNil(session["lastNotificationStatus"])
-        XCTAssertEqual(session["runtimeStatus"] as? String, "needsInput")
+        XCTAssertEqual(session["agentLifecycle"] as? String, "idle")
+        XCTAssertEqual(session["lastNotificationStatus"] as? String, "idle")
+        XCTAssertEqual(session["runtimeStatus"] as? String, "idle")
 
         for neutralMessage in ["Invalid input format", "Question mark rendered"] {
             let neutralCommandStart = state.commands.count
@@ -3198,6 +3221,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         session = try XCTUnwrap(sessions[sessionId] as? [String: Any])
         XCTAssertEqual(session["lastSubtitle"] as? String, "Waiting")
         XCTAssertEqual(session["lastBody"] as? String, incompleteWaitingMessage)
+        // Prose waiting notifications remain actionable; only the structured
+        // idle_prompt marker is observational.
         XCTAssertEqual(session["lastNotificationStatus"] as? String, "needsInput")
 
         let neutralFallbackCommandStart = state.commands.count
@@ -3223,7 +3248,164 @@ extension CLINotifyProcessIntegrationRegressionTests {
         json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
         sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
         session = try XCTUnwrap(sessions[sessionId] as? [String: Any])
+        // Rebuilding a display summary keeps the existing actionable marker.
         XCTAssertEqual(session["runtimeStatus"] as? String, "needsInput")
+
+        let resumedSessionID = "grok-resumed-after-stop"
+        let resumedCommandStart = state.commands.count
+        _ = runGrokHook(
+            "session-start",
+            input: #"{"sessionId":"\#(resumedSessionID)","cwd":"\#(root.path)","hookEventName":"SessionStart"}"#
+        )
+        _ = runGrokHook(
+            "prompt-submit",
+            input: #"{"sessionId":"\#(resumedSessionID)","cwd":"\#(root.path)","hookEventName":"UserPromptSubmit","prompt":"first turn"}"#
+        )
+        _ = runGrokHook(
+            "stop",
+            input: #"{"sessionId":"\#(resumedSessionID)","cwd":"\#(root.path)","hookEventName":"Stop"}"#
+        )
+        _ = runGrokHook(
+            "prompt-submit",
+            input: #"{"sessionId":"\#(resumedSessionID)","cwd":"\#(root.path)","hookEventName":"UserPromptSubmit","prompt":"second turn"}"#
+        )
+        let resumedReminder = runGrokHook(
+            "notification",
+            input: #"{"sessionId":"\#(resumedSessionID)","cwd":"\#(root.path)","hookEventName":"Notification","reason":"idle_prompt","message":"Stale waiting reminder"}"#
+        )
+        XCTAssertFalse(resumedReminder.timedOut, resumedReminder.stderr)
+        XCTAssertEqual(resumedReminder.status, 0, resumedReminder.stderr)
+        let resumedCommands = Array(state.commands.dropFirst(resumedCommandStart))
+        XCTAssertFalse(
+            resumedCommands.contains { $0.contains("set_status grok Grok needs input") },
+            "A stale idle reminder after a new prompt must not revive Grok, saw \(resumedCommands)"
+        )
+        XCTAssertTrue(
+            AgentJournalAppendCapture.contains(
+                resumedCommands,
+                kind: "agent.idle.observed",
+                agentKey: "grok",
+                sessionId: resumedSessionID
+            ),
+            "A structured idle reminder must remain an observation while the next turn is running, saw \(resumedCommands)"
+        )
+        XCTAssertFalse(
+            AgentJournalAppendCapture.contains(
+                resumedCommands,
+                kind: "agent.question.requested",
+                agentKey: "grok",
+                sessionId: resumedSessionID
+            ),
+            "A structured idle reminder must not journal a question for the active turn, saw \(resumedCommands)"
+        )
+        json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
+        let resumedSession = try XCTUnwrap(sessions[resumedSessionID] as? [String: Any])
+        XCTAssertEqual(resumedSession["agentLifecycle"] as? String, "running")
+        XCTAssertEqual(resumedSession["runtimeStatus"] as? String, "running")
+
+        // A prose waiting request has no provider idle marker and must remain
+        // actionable even when it follows a completed Stop.
+        let realWaitingSessionID = "grok-real-waiting-after-stop"
+        _ = runGrokHook(
+            "session-start",
+            input: #"{"sessionId":"\#(realWaitingSessionID)","cwd":"\#(root.path)","hookEventName":"SessionStart"}"#
+        )
+        _ = runGrokHook(
+            "stop",
+            input: #"{"sessionId":"\#(realWaitingSessionID)","cwd":"\#(root.path)","hookEventName":"Stop"}"#
+        )
+        let realWaitingCommandStart = state.commands.count
+        let realWaiting = runGrokHook(
+            "notification",
+            input: #"{"sessionId":"\#(realWaitingSessionID)","cwd":"\#(root.path)","hookEventName":"Notification","message":"Grok is waiting for your input"}"#
+        )
+        XCTAssertFalse(realWaiting.timedOut, realWaiting.stderr)
+        XCTAssertEqual(realWaiting.status, 0, realWaiting.stderr)
+        let realWaitingCommands = Array(state.commands.dropFirst(realWaitingCommandStart))
+        XCTAssertTrue(
+            realWaitingCommands.contains { $0.contains("set_status grok Grok needs input") },
+            "A prose waiting request after Stop must remain actionable, saw \(realWaitingCommands)"
+        )
+        json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
+        let realWaitingSession = try XCTUnwrap(sessions[realWaitingSessionID] as? [String: Any])
+        XCTAssertEqual(realWaitingSession["agentLifecycle"] as? String, "needsInput")
+        XCTAssertEqual(realWaitingSession["runtimeStatus"] as? String, "needsInput")
+
+        // A turn-boundary SessionEnd closes only the nested turn. Its running
+        // parent must retain both the running runtime projection and an
+        // existing notification status.
+        let nestedSessionID = "grok-nested-session-end"
+        _ = runGrokHook(
+            "session-start",
+            input: #"{"sessionId":"\#(nestedSessionID)","cwd":"\#(root.path)","hookEventName":"SessionStart"}"#
+        )
+        _ = runGrokHook(
+            "prompt-submit",
+            input: #"{"sessionId":"\#(nestedSessionID)","cwd":"\#(root.path)","hookEventName":"UserPromptSubmit","prompt":"outer turn"}"#
+        )
+        let nestedPrompt = runGrokHook(
+            "prompt-submit",
+            input: #"{"sessionId":"\#(nestedSessionID)","cwd":"\#(root.path)","hookEventName":"UserPromptSubmit","prompt":"nested turn"}"#
+        )
+        XCTAssertFalse(nestedPrompt.timedOut, nestedPrompt.stderr)
+        XCTAssertEqual(nestedPrompt.status, 0, nestedPrompt.stderr)
+        let nestedPermission = runGrokHook(
+            "notification",
+            input: #"{"sessionId":"\#(nestedSessionID)","cwd":"\#(root.path)","hookEventName":"Notification","message":"Permission required"}"#
+        )
+        XCTAssertFalse(nestedPermission.timedOut, nestedPermission.stderr)
+        XCTAssertEqual(nestedPermission.status, 0, nestedPermission.stderr)
+        let nestedSessionEnd = runGrokHook(
+            "session-end",
+            input: #"{"sessionId":"\#(nestedSessionID)","cwd":"\#(root.path)","hookEventName":"SessionEnd"}"#
+        )
+        XCTAssertFalse(nestedSessionEnd.timedOut, nestedSessionEnd.stderr)
+        XCTAssertEqual(nestedSessionEnd.status, 0, nestedSessionEnd.stderr)
+        json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
+        let nestedSession = try XCTUnwrap(sessions[nestedSessionID] as? [String: Any])
+        XCTAssertEqual(nestedSession["agentLifecycle"] as? String, "running")
+        XCTAssertEqual(nestedSession["runtimeStatus"] as? String, "running")
+        XCTAssertEqual(nestedSession["lastNotificationStatus"] as? String, "needsInput")
+
+        let endedSessionID = "grok-session-end-order"
+        _ = runGrokHook(
+            "session-start",
+            input: #"{"sessionId":"\#(endedSessionID)","cwd":"\#(root.path)","hookEventName":"SessionStart"}"#
+        )
+        _ = runGrokHook(
+            "stop",
+            input: #"{"sessionId":"\#(endedSessionID)","cwd":"\#(root.path)","hookEventName":"Stop"}"#
+        )
+        let endedReminderStart = state.commands.count
+        _ = runGrokHook(
+            "notification",
+            input: #"{"sessionId":"\#(endedSessionID)","cwd":"\#(root.path)","hookEventName":"Notification","reason":"idle_prompt","message":"Waiting after stop"}"#
+        )
+        _ = runGrokHook(
+            "session-end",
+            input: #"{"sessionId":"\#(endedSessionID)","cwd":"\#(root.path)","hookEventName":"SessionEnd"}"#
+        )
+        let lateReminder = runGrokHook(
+            "notification",
+            input: #"{"sessionId":"\#(endedSessionID)","cwd":"\#(root.path)","hookEventName":"Notification","reason":"idle_prompt","message":"Late waiting reminder"}"#
+        )
+        XCTAssertFalse(lateReminder.timedOut, lateReminder.stderr)
+        XCTAssertEqual(lateReminder.status, 0, lateReminder.stderr)
+        let endedReminderCommands = Array(state.commands.dropFirst(endedReminderStart))
+        XCTAssertFalse(
+            endedReminderCommands.contains { $0.contains("set_status grok Grok needs input") },
+            "Idle reminders before or after SessionEnd must not revive Grok, saw \(endedReminderCommands)"
+        )
+        json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
+        let endedSession = try XCTUnwrap(sessions[endedSessionID] as? [String: Any])
+        XCTAssertEqual(endedSession["agentLifecycle"] as? String, "idle")
+        XCTAssertEqual(endedSession["runtimeStatus"] as? String, "idle")
+        XCTAssertNil(endedSession["lastNotificationStatus"])
+        XCTAssertEqual(endedSession["hookEventName"] as? String, "SessionEnd")
     }
 
     func testGrokSessionStartUsesLiveTargetWithoutHookEnvironmentAndDescribesResolutionFailures() throws {

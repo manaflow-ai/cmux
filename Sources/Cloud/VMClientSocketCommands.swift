@@ -57,6 +57,9 @@ extension TerminalController {
                         "freeAccessExpiresAt": limits.freeAccessExpiresAt.map { $0 as Any } ?? NSNull(),
                         "imageKinds": limits.imageKinds.map { ["kind": $0.kind.rawValue, "image": $0.image] },
                         "memoryOptionsMb": limits.memoryOptionsMb,
+                        "maxDiskMb": limits.maxDiskMb.map { $0 as Any } ?? NSNull(),
+                        "maxMemoryMb": limits.maxMemoryMb.map { $0 as Any } ?? NSNull(),
+                        "maxVcpus": limits.maxVcpus.map { $0 as Any } ?? NSNull(),
                         "lockedMemoryOptionsMb": limits.lockedMemoryOptionsMb.map { $0 as Any } ?? NSNull(),
                         "memoryUpgradePlanId": limits.memoryUpgradePlanId.map { $0 as Any } ?? NSNull(),
                         "memoryUpgradePlansByMb": limits.memoryUpgradePlansByMb.map { $0 as Any } ?? NSNull(),
@@ -860,6 +863,20 @@ extension TerminalController {
         }
         if let agentUpdates = vm.agentUpdates {
             payload["agentUpdates"] = agentUpdates.rawValue
+        }
+        if let claim = vm.resourcePoolClaim ?? vm.resourceReservation {
+            payload["resources"] = [
+                "vcpus": claim.vcpus,
+                "memoryMb": claim.memoryMb,
+                "diskMb": claim.diskMb.map { $0 as Any } ?? NSNull(),
+            ]
+        }
+        if let reservation = vm.resourceReservation {
+            payload["resourceReservation"] = [
+                "vcpus": reservation.vcpus,
+                "memoryMb": reservation.memoryMb,
+                "diskMb": reservation.diskMb.map { $0 as Any } ?? NSNull(),
+            ]
         }
         if vm.addressIPv4 != nil || vm.addressIPv6 != nil {
             var address: [String: Any] = [:]

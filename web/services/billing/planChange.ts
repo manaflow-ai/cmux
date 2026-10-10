@@ -56,7 +56,7 @@ export type PlanChangeDependencies = {
 
 const defaultDependencies: PlanChangeDependencies = {
   billingStatus: stripeBillingStatusForUser,
-  priceFor: (plan) => (plan === "max" ? resolveMaxPrice() : resolveProPrice("month")),
+  priceFor: (plan) => (plan === "max" ? resolveMaxPrice("month") : resolveProPrice("month")),
   stripe,
   now: () => Math.floor(Date.now() / 1000),
   syncSubscription: (subscription) => applySubscriptionUpdate(subscription),

@@ -43,6 +43,21 @@ struct CoderouterProvider: Hashable {
     }
 }
 
+/// The local terminal launch used by a New Account row. Account setup is
+/// interactive, so it always owns a fresh focused terminal instead of writing
+/// into whichever terminal happens to be selected (which may be an agent TUI).
+struct CoderouterAccountTerminalLaunch: Equatable {
+    let command: [String]
+    let name: String
+    let focus: Bool
+
+    init(provider: CoderouterProvider) {
+        command = ["sh", "-lc", provider.addCommand]
+        name = "CodeRouter"
+        focus = true
+    }
+}
+
 /// What the Cloud tree's CodeRouter section shows: the selected team's
 /// accounts and whether a refresh is running.
 struct CloudTreeCoderouterSection: Equatable {

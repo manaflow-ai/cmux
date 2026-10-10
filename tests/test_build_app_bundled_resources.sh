@@ -68,6 +68,8 @@ if [[ "$output" == *.app/Contents/Resources/bin/cmux-cua ]]; then
 fi
 EOF
 chmod +x "$SRCROOT/scripts-build-helper" "$SRCROOT/scripts-build-cua"
+printf 'apply-v1\n' > "$SRCROOT/scripts/apply-cmux-cua-patch.sh"
+printf 'patch-v1\n' > "$SRCROOT/scripts/cmux-cua-codex-delivery-mode.patch"
 ln -s "$SRCROOT/scripts-build-helper" "$SRCROOT/scripts/build-ghostty-cli-helper.sh"
 ln -s "$SRCROOT/scripts-build-cua" "$SRCROOT/scripts/build-cmux-cua.sh"
 ln -s "$ROOT_DIR/scripts/build-app-bundled-resources.sh" "$SRCROOT/scripts/build-app-bundled-resources.sh"
@@ -198,6 +200,12 @@ expect_rebuild_then_skip 'a new Ghostty commit'
 printf 'helper-source-v3\n' > "$SRCROOT/ghostty/src/main.zig"
 git -C "$SRCROOT/ghostty" commit -q -am 'fixture v3'
 expect_rebuild_then_skip 'a Ghostty revision change on a clean tree'
+
+printf 'patch-v2\n' > "$SRCROOT/scripts/cmux-cua-codex-delivery-mode.patch"
+expect_rebuild_then_skip 'a changed cmux-cua compatibility patch'
+
+printf 'apply-v2\n' > "$SRCROOT/scripts/apply-cmux-cua-patch.sh"
+expect_rebuild_then_skip 'a changed cmux-cua patch application helper'
 
 cat > "$SRCROOT/fake-zig" <<'EOF'
 #!/usr/bin/env bash
