@@ -9,5 +9,4 @@ describe("agent pane strings", () => {
     const findings = scan().map((finding) => `${finding.file}:${finding.line} ${JSON.stringify(finding.text)}`);
     expect(findings).toEqual([]);
   });
-
 });

@@ -36032,127 +36032,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose a bundled public-domain painting or a macOS system wallpaper behind the window material."
+            "value": "Choose a public-domain figure drawing or painting, your desktop wallpaper, or a macOS system wallpaper behind the window material."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wähle ein gemeinfreies Gemälde oder ein macOS-Systembild hinter dem Fenstermaterial."
+            "value": "Wähle eine gemeinfreie Figurenzeichnung oder ein Gemälde, dein Schreibtischbild oder ein macOS-Systembild hinter dem Fenstermaterial."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choisissez une peinture libre de droits ou un fond d’écran macOS derrière le matériau de la fenêtre."
+            "value": "Choisissez un dessin de figure ou une peinture libre de droits, votre fond d’écran de bureau ou un fond d’écran macOS derrière le matériau de la fenêtre."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "اختر لوحة متاحة للملكية العامة أو خلفية نظام macOS خلف مادة النافذة."
+            "value": "اختر رسمًا للشخوص أو لوحة متاحة للملكية العامة، أو خلفية سطح مكتبك، أو خلفية نظام macOS خلف مادة النافذة."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Elige una pintura de dominio público o un fondo de macOS detrás del material de la ventana."
+            "value": "Elige un dibujo de figura o una pintura de dominio público, tu fondo de escritorio o un fondo de macOS detrás del material de la ventana."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "選擇內建的公版畫作或 macOS 系統桌布顯示在視窗材質後方。"
+            "value": "選擇公版人物素描或畫作、你的桌面背景，或 macOS 系統桌布顯示在視窗材質後方。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "选择内置的公版画作或 macOS 系统墙纸显示在窗口材质后方。"
+            "value": "选择公版人物素描或画作、你的桌面墙纸，或 macOS 系统墙纸显示在窗口材质后方。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "창 재질 뒤에 번들 퍼블릭 도메인 그림이나 macOS 시스템 배경화면을 선택합니다."
+            "value": "창 재질 뒤에 퍼블릭 도메인 인물 소묘나 그림, 데스크탑 배경화면 또는 macOS 시스템 배경화면을 선택합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ウィンドウ素材の背後に、内蔵のパブリックドメイン絵画または macOS システム壁紙を選びます。"
+            "value": "ウィンドウ素材の背後に、パブリックドメインの人物素描や絵画、デスクトップ壁紙、または macOS システム壁紙を選びます。"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Choose a bundled public-domain painting or a macOS system wallpaper behind the window material."
+            "value": "Choose a public-domain figure drawing or painting, your desktop wallpaper, or a macOS system wallpaper behind the window material."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Choose a bundled public-domain painting or a macOS system wallpaper behind the window material."
+            "value": "Choose a public-domain figure drawing or painting, your desktop wallpaper, or a macOS system wallpaper behind the window material."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Choose a bundled public-domain painting or a macOS system wallpaper behind the window material."
+            "value": "Choose a public-domain figure drawing or painting, your desktop wallpaper, or a macOS system wallpaper behind the window material."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Choose a bundled public-domain painting or a macOS system wallpaper behind the window material."
+            "value": "Choose a public-domain figure drawing or painting, your desktop wallpaper, or a macOS system wallpaper behind the window material."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Choose a bundled public-domain painting or a macOS system wallpaper behind the window material."
+            "value": "Choose a public-domain figure drawing or painting, your desktop wallpaper, or a macOS system wallpaper behind the window material."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Choose a bundled public-domain painting or a macOS system wallpaper behind the window material."
+            "value": "Choose a public-domain figure drawing or painting, your desktop wallpaper, or a macOS system wallpaper behind the window material."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Choose a bundled public-domain painting or a macOS system wallpaper behind the window material."
+            "value": "Choose a public-domain figure drawing or painting, your desktop wallpaper, or a macOS system wallpaper behind the window material."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Choose a bundled public-domain painting or a macOS system wallpaper behind the window material."
+            "value": "Choose a public-domain figure drawing or painting, your desktop wallpaper, or a macOS system wallpaper behind the window material."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Choose a bundled public-domain painting or a macOS system wallpaper behind the window material."
+            "value": "Choose a public-domain figure drawing or painting, your desktop wallpaper, or a macOS system wallpaper behind the window material."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Choose a bundled public-domain painting or a macOS system wallpaper behind the window material."
+            "value": "Choose a public-domain figure drawing or painting, your desktop wallpaper, or a macOS system wallpaper behind the window material."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Choose a bundled public-domain painting or a macOS system wallpaper behind the window material."
+            "value": "Choose a public-domain figure drawing or painting, your desktop wallpaper, or a macOS system wallpaper behind the window material."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Choose a bundled public-domain painting or a macOS system wallpaper behind the window material."
+            "value": "Choose a public-domain figure drawing or painting, your desktop wallpaper, or a macOS system wallpaper behind the window material."
           }
         }
       }
@@ -72909,6 +72909,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "模型旁的圓環，隨聊天使用上下文視窗而填滿。"
+          }
+        }
+      }
+    },
+    "settings.choice.desktopWallpaper": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خلفية سطح المكتب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desktop Wallpaper"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desktop Wallpaper"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schreibtischhintergrund"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desktop Wallpaper"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fondo de escritorio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fond d’écran du bureau"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desktop Wallpaper"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デスクトップ壁紙"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desktop Wallpaper"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "데스크탑 배경화면"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desktop Wallpaper"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desktop Wallpaper"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desktop Wallpaper"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desktop Wallpaper"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desktop Wallpaper"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desktop Wallpaper"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desktop Wallpaper"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desktop Wallpaper"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "桌面墙纸"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "桌面背景"
           }
         }
       }

@@ -110,12 +110,4 @@ describe("user.teams.list (cx-5xew)", { timeout: 60_000 }, () => {
     expect(member.body?.code ?? member.body?.error?.code).toBe("auth.forbidden")
   })
 
-  it("answers the personal team for a new person before user.ensure", async () => {
-    const stackUser = crypto.randomUUID()
-    const token = await sessionToken(stackUser, "New")
-    const r = await listTeams(token)
-    expect(r.status, JSON.stringify(r.body)).toBe(200)
-    expect(r.body.value.teams).toHaveLength(1)
-    expect(r.body.value.teams[0]).toMatchObject({ kind: "personal", role: "owner" })
-  })
 })

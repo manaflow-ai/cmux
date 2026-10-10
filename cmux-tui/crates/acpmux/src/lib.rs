@@ -28,6 +28,7 @@ pub mod config;
 pub mod cua_socket;
 pub mod cua_v2;
 pub mod daemon;
+pub mod deliver;
 #[cfg(test)]
 mod git_short_sha;
 pub mod harness_admin;

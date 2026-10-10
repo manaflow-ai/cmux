@@ -115,9 +115,18 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             let status = try await AcpmuxStatusClient.status(socketPath: environment.socketPath)
             // After an update the daemon may be the previous build's: hand it
             // off (its agents keep running under their hosts) and start ours.
-            guard startsDaemon, await AcpmuxVersionHandoff.handOffIfStale(status, environment: environment) else {
+            // A reconnect never stops or starts a daemon. It still gives a daemon that restarted
+            // this launch's person key (a signed daemon takes it by this app's signature), so
+            // the reconnected pane's allows keep working.
+            guard startsDaemon else {
+                _ = await AcpmuxPersonKey.enroll(status, environment: environment, mayHandOff: false)
                 return try status.endpoint()
             }
+            // After an update, or for this launch's person key (`AcpmuxPersonKey`): a daemon
+            // that cannot take the key is handed off and ours starts with it.
+            let stale = await AcpmuxVersionHandoff.handOffIfStale(status, environment: environment)
+            let stopped = stale ? true : await AcpmuxPersonKey.enroll(status, environment: environment)
+            guard stopped else { return try status.endpoint() }
         } catch AcpmuxStatusClient.Failure.unreachable {
             logger.info("acpmux status unreachable socket=\(environment.socketPath, privacy: .public) startsDaemon=\(startsDaemon, privacy: .public)")
             // Nothing listens on the socket: start a daemon below, unless
@@ -134,7 +143,12 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             throw AgentPaneHostError.daemonFailed(logPath: environment.logPath)
         }
         do {
-            return try await AcpmuxDaemonLauncher.launch(environment)
+            let endpoint = try await AcpmuxDaemonLauncher.launch(environment)
+            // A signed daemon ignores the spawn key: it takes the key by this app's signature.
+            if let status = try? await AcpmuxStatusClient.status(socketPath: environment.socketPath) {
+                _ = await AcpmuxPersonKey.enroll(status, environment: environment)
+            }
+            return endpoint
         } catch AcpmuxDaemonLauncher.Failure.exited {
             logger.error("acpmux launcher exited before ready log=\(environment.logPath, privacy: .public)")
             // Another client may have started the daemon first; the loser
