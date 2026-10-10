@@ -18,7 +18,9 @@ public import AppKit
 /// - Ctrl-Cmd H/J/K/L are aliases for the pane-focus actions, whose catalog
 ///   keys are Cmd-Opt arrows (PANE-FOCUS-RESIZE-KEYS-AND-GHOSTTY-KEYBINDS).
 ///
-/// Unbinding `nextSurface` or `prevSurface` in cmux.json removes its entries.
+/// They run Previous / Next (`navigate.previous`, `navigate.next`): the
+/// focused pane's tabs when it has 2+, else the sidebar rows. Unbinding one
+/// of those in cmux.json removes its entries.
 public nonisolated struct KeyBindingDefaults {
     public nonisolated init() {}
     static let right = String(Character(UnicodeScalar(UInt32(NSRightArrowFunctionKey)) ?? UnicodeScalar(0)))
@@ -38,16 +40,16 @@ public nonisolated struct KeyBindingDefaults {
 
     /// The entries, without the registry's unbinding applied.
     public static let tabSwitching: [KeyBinding] = [
-        KeyBinding(keys: [Shortcut("\t", modifiers: [.control])], command: "nextSurface", when: notTerminal),
-        KeyBinding(keys: [Shortcut("\t", modifiers: [.control, .shift])], command: "prevSurface", when: notTerminal),
-        KeyBinding(keys: [Shortcut(pageDown, modifiers: [.control])], command: "nextSurface", when: notTerminal),
-        KeyBinding(keys: [Shortcut(pageUp, modifiers: [.control])], command: "prevSurface", when: notTerminal),
-        KeyBinding(keys: [Shortcut("\t", modifiers: [.control])], command: "nextSurface", when: terminalCopyMode),
-        KeyBinding(keys: [Shortcut("\t", modifiers: [.control, .shift])], command: "prevSurface", when: terminalCopyMode),
-        KeyBinding(keys: [Shortcut(right, modifiers: [.command, .option])], command: "nextSurface", when: webPage),
-        KeyBinding(keys: [Shortcut(left, modifiers: [.command, .option])], command: "prevSurface", when: webPage),
-        KeyBinding(keys: [Shortcut("]", modifiers: [.command, .shift])], command: "nextSurface", when: webPage),
-        KeyBinding(keys: [Shortcut("[", modifiers: [.command, .shift])], command: "prevSurface", when: webPage),
+        KeyBinding(keys: [Shortcut("\t", modifiers: [.control])], command: "navigate.next", when: notTerminal),
+        KeyBinding(keys: [Shortcut("\t", modifiers: [.control, .shift])], command: "navigate.previous", when: notTerminal),
+        KeyBinding(keys: [Shortcut(pageDown, modifiers: [.control])], command: "navigate.next", when: notTerminal),
+        KeyBinding(keys: [Shortcut(pageUp, modifiers: [.control])], command: "navigate.previous", when: notTerminal),
+        KeyBinding(keys: [Shortcut("\t", modifiers: [.control])], command: "navigate.next", when: terminalCopyMode),
+        KeyBinding(keys: [Shortcut("\t", modifiers: [.control, .shift])], command: "navigate.previous", when: terminalCopyMode),
+        KeyBinding(keys: [Shortcut(right, modifiers: [.command, .option])], command: "navigate.next", when: webPage),
+        KeyBinding(keys: [Shortcut(left, modifiers: [.command, .option])], command: "navigate.previous", when: webPage),
+        KeyBinding(keys: [Shortcut("]", modifiers: [.command, .shift])], command: "navigate.next", when: webPage),
+        KeyBinding(keys: [Shortcut("[", modifiers: [.command, .shift])], command: "navigate.previous", when: webPage),
     ]
 
     /// The Home top page (`topPage` home): Cmd-Shift-[ / ] move between
