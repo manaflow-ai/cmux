@@ -27,7 +27,7 @@ The dots are off by default until they are styled (cx-7qqu): Debug Settings `new
 
 ## Terminal routing
 
-`newTab.sameKind` (Cmd-T, the strip's +) resolves `tabs.newTabKind` to a kind. When that kind is the page and the template is `terminal`, `NewTabKind.resolve` returns a terminal instead, so every entrypoint that uses the shared action gets a terminal. A person's new workspace (Cmd-N, sidebar +) also starts on a terminal instead of the page (`WindowManager.createWorkspace`). The explicit `newTab.page` action and Focus Location Bar still open the page, which is the way back to the dots (plus Settings and cmux.json). The spare page pool does not prewarm while the template is `terminal`.
+`newTab.default` (Cmd-T, the strip's +) resolves `tabs.newTabKind` to a kind. When that kind is the page and the template is `terminal`, `NewTabKind.resolve` returns a terminal instead, so every entrypoint that uses the shared action gets a terminal. A person's new workspace (Cmd-N, sidebar +) also starts on a terminal instead of the page (`WindowManager.createWorkspace`). The explicit `newTab.page` action and Focus Location Bar still open the page, which is the way back to the dots (plus Settings and cmux.json). The spare page pool does not prewarm while the template is `terminal`.
 
 ## Not in the prototype
 
