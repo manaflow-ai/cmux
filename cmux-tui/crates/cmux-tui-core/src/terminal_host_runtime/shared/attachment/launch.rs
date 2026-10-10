@@ -1,6 +1,7 @@
 //! Launch and adoption entry points of a daemon-side attachment: a new host
-//! (through the platform's `launch_terminal_host_from`), a one-shot owner
-//! connection, and a surface adoption bounded by the Kitty graphics quota.
+//! (on a standby process, `sys::StandbyTerminalHost`, or a fresh one), a
+//! one-shot owner connection, and a surface adoption bounded by the Kitty
+//! graphics quota.
 
 use std::fs;
 use std::path::PathBuf;
