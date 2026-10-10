@@ -8,12 +8,14 @@ impl Terminal {
     /// the top row, as after Ghostty's clear_screen.
     ///
     /// OSC 133 identifies the full prompt when available. Without shell
-    /// metadata, only scrollback is cleared because visible rows may contain
-    /// hard-newline input whose boundary cannot be inferred. Cursor movement
-    /// is skipped when pending-wrap or origin-mode state cannot be restored
-    /// exactly. If preserved content begins in scrollback, or the persistent
-    /// VT parser is inside a partial sequence or UTF-8 code point, no mutation
-    /// is applied.
+    /// metadata, or while a command runs, the cursor's logical line (soft
+    /// wraps included) is kept and every row above it goes, as Ghostty's
+    /// clear_screen keeps the cursor row when it is not at a prompt. Cursor
+    /// movement is skipped when pending-wrap or origin-mode state cannot be
+    /// restored exactly. If the kept content begins in scrollback, only the
+    /// scrollback is cleared: Cmd-K on the primary screen never refuses. The
+    /// alternate screen is unchanged, and while the persistent VT parser is
+    /// inside a partial sequence or UTF-8 code point the clear is blocked.
     pub fn clear_history_preserving_prompt(&mut self) -> ClearHistoryOutcome {
         const CLEAR_SCROLLBACK: &[u8] = b"\x1b[3J";
 
@@ -28,19 +30,17 @@ impl Terminal {
         let Some((cursor_x, cursor_y)) = self.cursor_position() else {
             return ClearHistoryOutcome::Unchanged;
         };
-        let prompt_semantic = self.prompt_semantic.semantic(Screen::Primary);
         let cursor_is_at_prompt = self.cursor_is_at_prompt();
         let prompt_start_y =
             cursor_is_at_prompt.then(|| self.active_prompt_start_row(cursor_y)).flatten();
         let preserve_from_y = if cursor_is_at_prompt {
             prompt_start_y.or_else(|| self.active_logical_line_start_row(cursor_y))
-        } else if prompt_semantic == PromptSemantic::Unknown {
-            Some(0)
         } else {
             self.active_logical_line_start_row(cursor_y)
         };
         let Some(preserve_from_y) = preserve_from_y else {
-            return ClearHistoryOutcome::Unchanged;
+            self.vt_write(&clear);
+            return ClearHistoryOutcome::Cleared(clear);
         };
         let history_rows = self.history_rows();
         let prompt_may_begin_in_history = cursor_is_at_prompt
@@ -62,7 +62,8 @@ impl Terminal {
                     && !cursor_is_at_prompt
                     && self.active_row_wrap_continuation(0).unwrap_or(true)))
         {
-            return ClearHistoryOutcome::Unchanged;
+            self.vt_write(&clear);
+            return ClearHistoryOutcome::Cleared(clear);
         }
         if self.cursor_pending_wrap() || self.mode(6, false) {
             self.vt_write(&clear);
