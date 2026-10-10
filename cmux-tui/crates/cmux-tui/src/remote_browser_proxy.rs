@@ -1070,6 +1070,54 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
+    async fn cloud_remote_network_keeps_allowed_private_identities_on_guest_loopback() {
+        tokio::task::LocalSet::new().run_until(async {
+            tokio::time::timeout(Duration::from_secs(10), async {
+                let fixture = ProxyFixture::new().await;
+                for host in ["10.42.0.7", "fd12::7"] {
+                    for websocket in [false, true] {
+                        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+                        let port = listener.local_addr().unwrap().port();
+                        let authority = if host.contains(':') { format!("[{host}]:{port}") }
+                            else { format!("{host}:{port}") };
+                        let target = async {
+                            let (mut socket, _) = listener.accept().await.unwrap();
+                            if websocket {
+                                let (headers, _) = read_http_headers(&mut socket,
+                                    tokio::time::Instant::now() + Duration::from_secs(5), Vec::new())
+                                    .await.unwrap();
+                                assert!(headers.contains(&format!("Host: {host}:{port}\r\n")));
+                                assert!(!headers.contains("fixture-token"));
+                                socket.write_all(b"HTTP/1.1 101 Switching Protocols\r\n\r\n").await.unwrap();
+                            }
+                            socket.write_all(b"guest-payload").await.unwrap();
+                            socket.shutdown().await.unwrap();
+                        };
+                        let request = if websocket {
+                            format!("GET /__cmux_ws__/{authority}/socket HTTP/1.1\r\nSec-WebSocket-Protocol: cmux-proxy-fixture-token\r\n\r\n")
+                        } else {
+                            let auth = base64::engine::general_purpose::STANDARD.encode("fixture:password");
+                            format!("CONNECT {authority} HTTP/1.1\r\nProxy-Authorization: Basic {auth}\r\n\r\n")
+                        };
+                        let policy = BrowserProxyPolicy {
+                            allowed_hosts: vec![host.into()],
+                            allow_loopback: false,
+                            allow_remote_network: true,
+                        };
+                        let ((), (response, ok)) = tokio::join!(target, fixture.request(policy, request));
+                        assert!(ok, "proxy rejected remote-network {authority}");
+                        let expected = if websocket { "HTTP/1.1 101" } else { "HTTP/1.1 200" };
+                        assert!(response.starts_with(expected.as_bytes()));
+                        assert!(response.ends_with(b"guest-payload"));
+                    }
+                }
+                assert_eq!(fixture.routes.load(Ordering::SeqCst), 4);
+                fixture.close().await;
+            }).await.expect("remote-network browser proxy round trip timed out");
+        }).await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
     async fn browser_proxy_denies_untrusted_requests_before_creating_routes() {
         tokio::task::LocalSet::new().run_until(async {
             tokio::time::timeout(Duration::from_secs(5), async {
