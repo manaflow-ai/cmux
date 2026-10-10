@@ -473,6 +473,7 @@ export default settingsPageEntry({
   covers: [
     "page:cmux.settings",
     "pages/settings/components/AccountsSection.tsx",
+    "pages/settings/components/AgentHarnesses.tsx",
     "pages/settings/components/ComputerUseCard.tsx",
     "pages/settings/components/HarnessesCard.tsx",
     "pages/settings/components/AgentHarnesses.tsx#AgentHarnesses",

@@ -82,6 +82,8 @@ on:
       - scripts/ci/select_package_tests.py
       - scripts/ci/cmux_next_push_attribution.py
       - tests/test_cmux_next_route.py
+      - scripts/cmux-next/swift-exports-cache.sh
+      - scripts/cmux-next/swift-exports-key.py
       - scripts/cmux-next/ci-target-graph.py
       - scripts/cmux-next/regenerate-action-contracts.sh
       - .github/actions/setup-cmux-tui-rust/**
@@ -199,6 +201,8 @@ on:
       - scripts/ci/select_package_tests.py
       - scripts/ci/cmux_next_push_attribution.py
       - tests/test_cmux_next_route.py
+      - scripts/cmux-next/swift-exports-cache.sh
+      - scripts/cmux-next/swift-exports-key.py
       - scripts/cmux-next/ci-target-graph.py
       - scripts/cmux-next/regenerate-action-contracts.sh
       - .github/actions/setup-cmux-tui-rust/**
@@ -1121,12 +1125,12 @@ jobs:
     concurrency:
       group: ${{ github.event_name == 'push' && format('cmux-next-push-{0}-swift-canary', github.ref) || format('cmux-next-run-{0}-swift-canary', github.run_id) }}
       cancel-in-progress: false
-    runs-on: ${{ needs.macos-placement.outputs.runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
+    runs-on: ${{ (github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && needs.macos-placement.outputs.runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
     permissions:
       contents: read
     timeout-minutes: 20
     env:
-      CMUX_NEXT_RUNNER: ${{ needs.macos-placement.outputs.runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
+      CMUX_NEXT_RUNNER: ${{ (github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && needs.macos-placement.outputs.runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
       SWIFT_CANARY_TARGETS: ${{ needs.path_route.outputs.swift_canary_targets }}
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
@@ -1135,7 +1139,24 @@ jobs:
           ws="${GITHUB_WORKSPACE:-$PWD}"
           rm -f "$ws/.git/index.lock" 2>/dev/null || true
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Checkout
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+          fetch-depth: 2
+
+      # As in swift test: a partial clone left in this reused workspace fetches
+      # a missing blob mid-step, unretried. Retry once from a fresh repository.
+      - name: Discard the workspace repository after a failed checkout
+        if: steps.checkout.outcome == 'failure'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
+
+      - name: Retry checkout after transient network failure
+        if: steps.checkout.outcome == 'failure'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           submodules: false
@@ -1907,6 +1928,48 @@ jobs:
         env:
           CEF_DIR: ${{ steps.cef.outputs.dir }}
         run: scripts/cmux-next/build-cef-shim.sh "$CEF_DIR" "$(scripts/cmux-next/cef-cache-root.sh)/shim"
+
+  # Caches the Swift exports of a green feat-cmux-next push under their source
+  # key (scripts/cmux-next/swift-exports-key.py), so a job that only reads them
+  # (the web bundles read the settings schema) can restore them with
+  # swift-exports-cache.sh install instead of a Mac build (cx-vn5). A push runs
+  # every tier, so on success the committed exports are the ones the Swift
+  # tests checked.
+  swift-exports-cache:
+    needs: [checks, generated-files, swift-test, daemon-test]
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.checks.result == 'success' && needs.generated-files.result == 'success' && needs.swift-test.result == 'success' && needs.daemon-test.result == 'success' }}
+    name: cmux-next Swift exports cache
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Source key of the Swift exports
+        id: key
+        run: echo "key=$(python3 scripts/cmux-next/swift-exports-key.py . --source)" >> "$GITHUB_OUTPUT"
+
+      - name: Look up the cache entry
+        id: lookup
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: swift-exports-out
+          key: cmux-next-swift-exports-v1-${{ steps.key.outputs.key }}
+          lookup-only: true
+
+      - name: Pack the Swift exports
+        if: steps.lookup.outputs.cache-hit != 'true'
+        run: scripts/cmux-next/swift-exports-cache.sh pack swift-exports-out
+
+      - name: Save the Swift exports under their source key
+        if: steps.lookup.outputs.cache-hit != 'true'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: swift-exports-out
+          key: cmux-next-swift-exports-v1-${{ steps.key.outputs.key }}
 
   # A green Release compile on a feat-cmux-next push asks main's nightly.yml to
   # promote this commit to the protected `nightly-next` branch. Main's promote
