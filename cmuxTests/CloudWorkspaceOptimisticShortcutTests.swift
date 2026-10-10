@@ -143,7 +143,7 @@ struct CloudWorkspaceOptimisticShortcutTests {
         #expect(manager.tabs.count == 3, "Reconciliation adopts the same workspace")
         #expect(manager.selectedTabId == (navigation == "afterAdmission" ? other.id : shouldSelect ? pending.id : previous))
         let reveal = try #require(fixture.catalog.cloudWorkspaceCreationCoordinator.reveals.reveal(for: manager))
-        #expect(reveal.isWithdrawn == (navigation != "stay"))
+        #expect(reveal.isWithdrawn == (navigation != "stay" && navigation != "providerDelay"))
     }
 
     @Test("An optimistic Cmd-Y failure retains a retry pane; cancellation removes its reservation",
