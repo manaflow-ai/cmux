@@ -743,13 +743,17 @@ export function makeVmPublicationProvider(
         // Provider creation and CMUX persistence are separate commits. If the
         // first succeeded and the process died before the second, recover that
         // exact-domain rule instead of creating a duplicate. Equal Freestyle
-        // ingress matches resolve oldest-first, so converge the oldest and
-        // remove every shadow that could otherwise reappear after deletion.
+        // ingress matches resolve oldest-first, so converge the oldest of this
+        // VM's rules and remove its shadows that could reappear after deletion.
         const listed = await listAllTlsRules(client);
         const byId = new Map(listed.map((rule) => [rule.id, rule]));
         if (persisted) byId.set(persisted.id, persisted);
+        // Only rules on this publication's VM (or the one its row already
+        // names) are its own: another VM's rule for the same hostname belongs
+        // to another publication and is never adopted, rewritten, or deleted.
         const candidates = [...byId.values()].filter((rule) =>
-          sameExactHttpIngressHostname(rule, desired.domain),
+          sameExactHttpIngressHostname(rule, desired.domain) &&
+          (rule.destination.vmId === desired.destination.vmId || rule.id === persisted?.id),
         );
         const recovered = oldestRule(candidates);
         if (recovered) {

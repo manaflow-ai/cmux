@@ -831,11 +831,13 @@ export function deletePublication(input: {
       // duplicates on this publication's own VM that no local row names yet.
       // Never every rule for the hostname: an unclaimed row shares it with
       // the claimed owner's live rule.
+      // Ownership comes from the row locked by beginDisable, not the pre-lease
+      // read: a provision that finished in between recorded its rule there.
       yield* provider.deletePublicationTlsRules([{
-        hostname: target.publication.hostname,
+        hostname: disabling.hostname,
         providerVmId: target.vm.providerVmId,
-        providerTlsRuleId: target.publication.providerTlsRuleId,
-        hostnameClaimed: target.publication.hostnameClaimedAt !== null,
+        providerTlsRuleId: disabling.providerTlsRuleId,
+        hostnameClaimed: disabling.hostnameClaimedAt !== null,
       }]);
       yield* repository.finishDisablePublication({ id: disabling.id, now });
       return { deleted: true as const, id: disabling.id };

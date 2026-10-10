@@ -20,6 +20,7 @@ import {
   makeVmPublicationProvider,
   type VmPublicationFreestyleClient,
 } from "../services/vm-publications/provider";
+import { ingressRule, publicationRuleStore } from "./fixtures/publicationRuleStore";
 
 const CREATED_AT = "2026-09-02T12:00:00.000Z";
 
@@ -838,5 +839,19 @@ describe("VM publication Freestyle provider", () => {
       certificate: null,
     });
     expect(listCalls).toBe(5);
+  });
+
+  test("reconcile never adopts, rewrites, or deletes another VM's rule for the same hostname", async () => {
+    const store = publicationRuleStore([
+      ingressRule("tls-foreign-oldest", "app.example.com", "vm-foreign", "2026-09-01T00:00:00.000Z"),
+      ingressRule("tls-own-newer", "app.example.com", "vm-1", "2026-09-02T00:00:00.000Z"),
+    ]);
+    const reconciled = await Effect.runPromise(store.provider.reconcileTlsRule(null, {
+      hostname: "app.example.com", providerVmId: "vm-1", port: 3_000,
+    }));
+    expect(reconciled.rule.tlsRuleId).toBe("tls-own-newer");
+    expect(store.deleted).toEqual([]);
+    expect(store.updated).not.toContain("tls-foreign-oldest");
+    expect(store.rules.map((rule) => rule.id)).toEqual(["tls-foreign-oldest", "tls-own-newer"]);
   });
 });

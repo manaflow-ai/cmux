@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import { teardownVmPublicationsForAccountDeletion } from "../services/vm-publications/accountDeletion";
+import { ingressRule, publicationRuleStore } from "./fixtures/publicationRuleStore";
 import {
   VmPublicationProvider,
   VmPublicationProviderError,
@@ -173,5 +174,32 @@ describe("VM publication account deletion", () => {
       `finish:${TARGET.publicationId}`,
       `finish:${second.publicationId}`,
     ]);
+  });
+
+  test("removes the account's own rules and never a claimed owner's rule on the same hostname", async () => {
+    const store = publicationRuleStore([
+      ingressRule("tls-foreign-owner", "app.example.com", "vm-foreign"),
+      ingressRule("tls-own", "app.example.com", "vm-a"),
+      ingressRule("tls-own-duplicate", "app.example.com", "vm-a"),
+    ]);
+    const claimed = { ...TARGET, publicationId: "00000000-0000-4000-8000-00000000000a", hostname: "app.example.com", providerVmId: "vm-a" };
+    const unclaimed = { ...TARGET, publicationId: "00000000-0000-4000-8000-00000000000b", hostname: "app.example.com", providerVmId: "vm-b", providerTlsRuleId: null, hostnameClaimed: false };
+    // The first listing is stale: the claimed row recorded its rule after it.
+    const listed = [{ ...claimed, providerTlsRuleId: null }, unclaimed];
+    const rows = new Map([
+      [claimed.publicationId, { id: claimed.publicationId, state: "disabling", providerTlsRuleId: "tls-own", hostnameClaimedAt: new Date() }],
+      [unclaimed.publicationId, { id: unclaimed.publicationId, state: "disabling", providerTlsRuleId: null, hostnameClaimedAt: null }],
+    ]);
+    const result = await Effect.runPromise(runTeardown({
+      repository: {
+        listPublicationsForAccountDeletion: () => Effect.succeed(listed),
+        beginDisablePublication: (input) => Effect.succeed(rows.get(input.id) as never),
+        finishDisablePublication: () => Effect.succeed({ state: "disabled" } as never),
+      },
+      provider: store.provider,
+    }));
+    expect(result.publications).toBe(2);
+    expect(store.rules.map((rule) => rule.id)).toEqual(["tls-foreign-owner"]);
+    expect([...store.deleted].sort()).toEqual(["tls-own", "tls-own-duplicate"]);
   });
 });
