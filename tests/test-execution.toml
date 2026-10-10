@@ -70,6 +70,10 @@ path = "tests/test_cli_config_completion_verbs.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
+path = "tests/test_cli_hooks_completion_verbs.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
 path = "tests/test_cli_dispatch_parity.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
