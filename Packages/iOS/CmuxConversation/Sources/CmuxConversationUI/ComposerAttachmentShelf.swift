@@ -124,6 +124,7 @@ final class ComposerAttachmentShelf: UIView {
         }
         guard animated, !wasEmpty else {
             strip.contentOffset = CGPoint(x: endOffset, y: 0)
+            if animated { flashClearButton() }
             return
         }
         item.view.alpha = 0
@@ -171,6 +172,37 @@ final class ComposerAttachmentShelf: UIView {
         items = []
         strip.contentSize = .zero
         strip.contentOffset = .zero
+    }
+
+    /// Light 156 gray, dark 68 gray: the disc of the clear button Messages
+    /// flashes when the shelf opens.
+    static let clearFlashColor = UIColor { traits in
+        UIColor(white: traits.userInterfaceStyle == .dark ? 68 / 255 : 156 / 255, alpha: 1)
+    }
+
+    /// Messages' shelf opens with its clear button showing and fades it out
+    /// as the field grows (iOS 26.5 and 27.0).
+    private func flashClearButton() {
+        let diameter = Geometry.removeDiscDiameter
+        let disc = UIView(frame: CGRect(
+            x: bounds.width - Geometry.clearFlashCenterInsetFromRight - diameter / 2,
+            y: Geometry.clearFlashCenterInsetFromTop - diameter / 2, width: diameter, height: diameter
+        ))
+        disc.autoresizingMask = [.flexibleLeftMargin]
+        disc.isUserInteractionEnabled = false
+        disc.backgroundColor = Self.clearFlashColor
+        disc.layer.cornerRadius = diameter / 2
+        let cross = UIImageView(image: UIImage(systemName: "xmark", withConfiguration: UIImage.SymbolConfiguration(pointSize: 9, weight: .bold)))
+        cross.tintColor = .white
+        cross.contentMode = .center
+        cross.frame = disc.bounds
+        disc.addSubview(cross)
+        addSubview(disc)
+        Self.animate {
+            disc.alpha = 0
+        } completion: {
+            disc.removeFromSuperview()
+        }
     }
 
     // MARK: Exit

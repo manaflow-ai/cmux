@@ -34,6 +34,12 @@ public enum ComposerAttachmentShelfGeometry {
     public static let removeCenterInsetFromRight: CGFloat = 14
     public static let removeCenterInsetFromTop: CGFloat = 13.75
 
+    /// When the first photo arrives, Messages flashes an 18 pt gray clear
+    /// button at the shelf's top right (center 16 pt in from the right edge,
+    /// 21.5 pt down) that fades out on the shelf spring as the field grows.
+    public static let clearFlashCenterInsetFromRight: CGFloat = 16
+    public static let clearFlashCenterInsetFromTop: CGFloat = 21.5
+
     /// A preview as wide as its photo at the shelf height, at most the
     /// shelf's width less its insets.
     public static func previewWidth(aspectRatio: CGFloat, shelfWidth: CGFloat) -> CGFloat {
