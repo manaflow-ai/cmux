@@ -50,11 +50,13 @@ pub fn serve_terminal_host_stdio(
 
     let stopping = shared.clone();
     host_signals::on_service_manager_stop(Box::new(move || stopping.request_termination()));
-    // A plain SIGTERM ends an orphaned host (no client stream: its daemon is
-    // gone); a host its daemon still serves records and survives it.
+    // A plain SIGTERM ends an orphaned host (no client stream for a while:
+    // its daemon is gone); a host its daemon still serves, or one in a short
+    // reconnect gap, records and survives it.
     let watched = shared.clone();
     host_signals::on_orphan_check(Box::new(move || {
         watched.active_client_streams.load(Ordering::Acquire) == 0
+            && orphaned_for(HOST_SIGTERM_ORPHAN_MIN)
     }));
     let endpoint = PathBuf::from(&launch.endpoint);
     let mut unpublished =
@@ -183,27 +185,41 @@ pub fn serve_terminal_host_stdio(
             break;
         }
         if shared.active_client_streams.load(Ordering::Acquire) == 0 {
-            let since = *orphan_since.get_or_insert(now);
-            if !orphan_ended && now.saturating_duration_since(since) >= orphan_grace {
-                orphan_ended = true;
-                eprintln!(
-                    "terminal-host: no client for {} s (owner daemon gone); ending the terminal",
-                    orphan_grace.as_secs()
-                );
-                shared.request_termination();
+            if orphan_since.is_none() {
+                orphan_since = Some(now);
+                set_orphan_since(orphan_since);
             }
-        } else {
-            orphan_since = None;
+        } else if orphan_since.take().is_some() {
+            set_orphan_since(None);
         }
         match listener.accept() {
             Ok(stream) => {
-                orphan_since = None;
+                if orphan_since.take().is_some() {
+                    set_orphan_since(None);
+                }
                 match host_accept::serve_accepted(&shared, stream) {
                     Ok(()) => backoff.reset(),
                     Err(error) => backoff.after_error(&shared, &error),
                 }
             }
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                // The queue is drained: a waiting daemon connection was
+                // accepted above and reset the clock, so adoption wins a
+                // tie with the deadline.
+                if let Some(since) = orphan_since
+                    && !orphan_ended
+                    && now.saturating_duration_since(since) >= orphan_grace
+                {
+                    orphan_ended = true;
+                    eprintln!(
+                        "terminal-host: no client for {} s (owner daemon gone); ending the \
+                         terminal",
+                        orphan_grace.as_secs()
+                    );
+                    mark_owner_gone();
+                    shared.request_termination();
+                    continue;
+                }
                 // Block until an attachment arrives or the accept waker
                 // reports a lifecycle change (terminal exit, last client
                 // stream closed). The timeouts are the one-shot launch

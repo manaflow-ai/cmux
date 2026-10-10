@@ -127,7 +127,7 @@ fn parse_fd(text: &str) -> Option<RawFd> {
 pub(crate) fn adopt_pty_fd(args: &[String]) -> anyhow::Result<Option<RawFd>> {
     // A trailing `--owner <value>` only labels the process (host_session.rs).
     let args = match args {
-        [rest @ .., flag, _] if flag == super::host_session::OWNER_FLAG => rest,
+        [rest @ .., flag, _] if flag == OWNER_FLAG => rest,
         args => args,
     };
     match args {
@@ -253,7 +253,7 @@ fn spawn_adopting_host(
         command
             .args(["__terminal-host", "--bootstrap-stdio", ADOPT_PTY_FD_FLAG])
             .arg(ADOPTED_PTY_FD.to_string())
-            .args(super::host_session::host_owner_args())
+            .args(host_owner_args())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null());

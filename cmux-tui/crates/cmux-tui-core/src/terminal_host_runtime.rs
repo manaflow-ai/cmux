@@ -610,7 +610,7 @@ mod unix {
     use super::shared::host_start::start_host_runtime;
     pub use adopt_launch::{TerminalHostAdoption, launch_terminal_host_adopting};
     pub use host_session::enter_terminal_host_process;
-    pub(crate) use host_session::{host_owner_args, host_session_env};
+    pub(crate) use host_session::{OWNER_FLAG, host_owner_args, host_session_env};
     pub(crate) use host_start::HostChild;
     pub(crate) use pty_custody::serve as serve_pty_custody;
     pub use pty_custody::{PtyCustody, request_terminal_host_pty_custody};

@@ -54,6 +54,12 @@ pub(crate) enum TerminalEnd {
 /// parent, could not read the status. This is a real process end.
 pub(crate) const EXIT_UNOBSERVED: &str = "exit-unobserved";
 
+/// The exit reason a host records when it ended its terminal because its
+/// owner daemon was gone for the orphan grace, or a `SIGTERM` reached it
+/// while orphaned (cx-3ryj). An `unknown` outcome, so the next owner reads a
+/// host loss and keeps the tabs instead of detaching them.
+pub(crate) const EXIT_OWNER_GONE: &str = "owner-gone";
+
 /// The detail prefix of a respawn whose launch failed (cx-6so.49): the
 /// terminal stays ended as `restart_failed` and never respawns again.
 pub(crate) const RESPAWN_FAILED_DETAIL: &str = "respawn-failed";

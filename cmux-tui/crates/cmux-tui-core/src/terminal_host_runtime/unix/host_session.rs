@@ -35,6 +35,8 @@ pub(crate) fn host_session_env() -> Option<(&'static str, String)> {
 pub(crate) const OWNER_FLAG: &str = "--owner";
 
 /// `--owner <bundle>:<tag>@<daemon pid>` for a spawned host's command line.
+/// The pid names the daemon that spawned the host; after a restart the
+/// adopting daemon is another process.
 /// The bundle is `CMUX_BUNDLE_ID`, else the name of the `.app` that holds
 /// the daemon without its suffix; the tag is `CMUX_TAG`; `-` when unknown.
 /// Each part keeps only `[A-Za-z0-9._-]` (others become `_`), so the value
@@ -46,9 +48,8 @@ pub(crate) fn host_owner_args() -> [String; 2] {
         let env = |name: &str| std::env::var(name).ok().filter(|value| !value.trim().is_empty());
         let bundle = env("CMUX_BUNDLE_ID").or_else(|| {
             let exe = std::env::current_exe().ok()?;
-            exe.components().find_map(|part| {
-                part.as_os_str().to_str()?.strip_suffix(".app").map(str::to_owned)
-            })
+            exe.components()
+                .find_map(|part| part.as_os_str().to_str()?.strip_suffix(".app").map(str::to_owned))
         });
         format!(
             "{}:{}@{}",

@@ -1,7 +1,10 @@
-//! cx-0tgl LF: a terminal host's command line names neither its owner's tag
-//! (state path) nor the executable it was built in (the app bundle), so
-//! cleanup that matches a tag or a bundle path (`pgrep -f <tag>`, `pkill -f
-//! "<app>.app"`, a bundle-age reaper) never reaches a host.
+//! cx-0tgl LF: a terminal host's command line names neither its owner's
+//! state path nor the executable it was built in (the app bundle), so
+//! cleanup that matches a state path or a bundle path (`pkill -f
+//! "<app>.app"`, a bundle-age reaper) never reaches a host. cx-3ryj: it does
+//! name its owner (`--owner <bundle>:<tag>@<daemon pid>`, no path), so
+//! `pgrep -f <CMUX_TAG>` finds a tag's hosts; a host its daemon serves still
+//! survives a stray SIGTERM.
 
 use super::*;
 

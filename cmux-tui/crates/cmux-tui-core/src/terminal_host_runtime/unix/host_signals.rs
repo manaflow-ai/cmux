@@ -127,6 +127,9 @@ static STOP_ACTED: AtomicBool = AtomicBool::new(false);
 static TERM_PENDING: AtomicBool = AtomicBool::new(false);
 /// The terminal was asked to end for a `SIGTERM` to an orphaned host.
 static ORPHAN_TERM_ACTED: AtomicBool = AtomicBool::new(false);
+/// The slot of the `SIGTERM` that ended an orphaned host (`usize::MAX`:
+/// none), so only that breadcrumb says `ended`.
+static ORPHAN_TERM_SLOT: AtomicUsize = AtomicUsize::new(usize::MAX);
 /// True when no client stream is attached (the owner daemon is gone).
 static ORPHANED: OnceLock<Box<dyn Fn() -> bool + Send + Sync>> = OnceLock::new();
 /// Dropped signals already summarized in the breadcrumb file.
@@ -163,6 +166,15 @@ fn act_on_orphan_term() {
         && let Some(terminate) = TERMINATE.get()
         && !ORPHAN_TERM_ACTED.swap(true, Ordering::AcqRel)
     {
+        // The newest recorded SIGTERM is the one acted on.
+        let recorded = NEXT_SLOT.load(Ordering::Acquire).min(MAX_RECORDED_SIGNALS);
+        if let Some(index) = (0..recorded).rev().find(|index| {
+            SLOTS[*index].ready.load(Ordering::Acquire) == 1
+                && SLOTS[*index].signal.load(Ordering::Relaxed) == libc::SIGTERM
+        }) {
+            ORPHAN_TERM_SLOT.store(index, Ordering::Release);
+        }
+        super::super::shared::host_state::mark_owner_gone();
         terminate();
     }
 }
@@ -365,8 +377,7 @@ fn flush() {
             "action": if honors(
                 slot.signal.load(Ordering::Relaxed),
                 slot.sender_pid.load(Ordering::Relaxed),
-            ) || (slot.signal.load(Ordering::Relaxed) == libc::SIGTERM
-                && ORPHAN_TERM_ACTED.load(Ordering::Acquire))
+            ) || ORPHAN_TERM_SLOT.load(Ordering::Acquire) == *written
             {
                 "ended"
             } else {

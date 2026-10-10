@@ -10,7 +10,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Sender, SyncSender};
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use cmux_pty::PtySize;
 use ghostty_vt::Terminal;
@@ -43,13 +43,55 @@ pub(crate) const HOST_ORPHAN_GRACE: Duration = Duration::from_secs(10 * 60);
 /// inherits it from the daemon that spawned it. Tests use a short grace.
 pub(crate) const HOST_ORPHAN_GRACE_ENV: &str = "CMUX_TUI_HOST_ORPHAN_GRACE_SECS";
 
+/// The longest accepted override (30 days), so the deadline math cannot
+/// overflow `Instant`.
+const HOST_ORPHAN_GRACE_MAX_SECS: u64 = 30 * 24 * 60 * 60;
+/// A `SIGTERM` ends a host only after this long with no client stream, so a
+/// daemon's reconnect gap (resync, lost connection) is not an orphan.
+pub(crate) const HOST_SIGTERM_ORPHAN_MIN: Duration = Duration::from_secs(2);
+
 /// The orphan grace of this host process.
 pub(crate) fn host_orphan_grace() -> Duration {
     std::env::var(HOST_ORPHAN_GRACE_ENV)
         .ok()
         .and_then(|value| value.trim().parse::<u64>().ok())
         .filter(|seconds| *seconds > 0)
-        .map_or(HOST_ORPHAN_GRACE, Duration::from_secs)
+        .map_or(HOST_ORPHAN_GRACE, |seconds| {
+            Duration::from_secs(seconds.min(HOST_ORPHAN_GRACE_MAX_SECS))
+        })
+}
+
+/// Since when this host process (one terminal per process) has had no
+/// client stream, as the accept loop last saw it.
+static ORPHAN_SINCE: Mutex<Option<Instant>> = Mutex::new(None);
+/// The host ended its terminal because its owner was gone: its exit record
+/// says [`crate::terminal_end::EXIT_OWNER_GONE`].
+static OWNER_GONE: AtomicBool = AtomicBool::new(false);
+
+pub(crate) fn set_orphan_since(since: Option<Instant>) {
+    *ORPHAN_SINCE.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = since;
+}
+
+/// No client stream for at least `min`.
+pub(crate) fn orphaned_for(min: Duration) -> bool {
+    ORPHAN_SINCE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .is_some_and(|since| since.elapsed() >= min)
+}
+
+/// Record that the terminal is ended because the owner is gone.
+pub(crate) fn mark_owner_gone() {
+    OWNER_GONE.store(true, Ordering::Release);
+}
+
+/// The exit to persist and publish: an owner-gone end is a host loss.
+pub(crate) fn owner_gone_exit(exit: TerminalExit) -> TerminalExit {
+    if OWNER_GONE.load(Ordering::Acquire) {
+        TerminalExit::unknown(crate::terminal_end::EXIT_OWNER_GONE)
+    } else {
+        exit
+    }
 }
 pub(crate) const HOST_CLIENT_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 pub(crate) const HOST_HANDSHAKE_TRANSIENT_RETRIES: usize = 1;

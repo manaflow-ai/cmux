@@ -116,12 +116,18 @@ impl Mux {
                 // never be allowed to terminate a replacement process.
                 continue;
             }
-            // The host's durable sidecar records the child's end.
-            self.persist_terminal_exit(
-                &record.terminal_id,
-                Some(&record.incarnation),
-                &TerminalEnd::ProcessEnded(record.exit.clone()),
-            )?;
+            // The host's durable sidecar records the child's end, except a
+            // host that ended its terminal because its owner was gone
+            // (cx-3ryj): a host loss, so the tabs stay (invariant 3).
+            let end = match &record.exit.outcome {
+                crate::terminal_host_protocol::TerminalExitOutcome::Unknown { reason }
+                    if reason == crate::terminal_end::EXIT_OWNER_GONE =>
+                {
+                    TerminalEnd::HostLost(record.exit.clone())
+                }
+                _ => TerminalEnd::ProcessEnded(record.exit.clone()),
+            };
+            self.persist_terminal_exit(&record.terminal_id, Some(&record.incarnation), &end)?;
             self.detach_exited_terminal_topology(&record.terminal_id)?;
             let _ = crate::terminal_host_runtime::acknowledge_terminal_host_exit_record(
                 &exit_path, &record,
