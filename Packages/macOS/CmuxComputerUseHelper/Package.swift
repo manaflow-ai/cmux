@@ -9,8 +9,7 @@ import PackageDescription
 // scripts/cmux-next/cua-driver-sdk.pin.json) in process through its stable C
 // ABI, and serves a socket that admits only the acpmux tree the host app
 // registered. The library is loaded with dlopen at run time, so this package
-// builds without it. Behavior proof: scripts/cmux-next/tests/cua-helper-socket.test.sh
-// drives the built helper over its control pipe and socket.
+// builds without it.
 //
 //   CCuaDriverABI       -> the vendored upstream header (types only)
 //   CmuxCuaHelperCore   -> CCuaDriverABI, Security (admission, control pipe, socket, runtime bridge)
@@ -39,6 +38,14 @@ let package = Package(
         .executableTarget(
             name: "cmux-cua-helper",
             dependencies: ["CmuxCuaHelperCore"],
+            swiftSettings: swiftSettings
+        ),
+        .testTarget(
+            name: "CmuxCuaHelperProcessTests",
+            // Process-level only: the executable is a dependency so `swift
+            // test` builds it, and the test drives it over its control pipe
+            // and socket (scripts/cmux-next/tests/cua-helper-socket.test.sh).
+            dependencies: ["cmux-cua-helper"],
             swiftSettings: swiftSettings
         ),
     ]
