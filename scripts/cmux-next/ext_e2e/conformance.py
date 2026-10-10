@@ -173,10 +173,42 @@ class Run:
                     self.collector.ack(index)
             if self.collector.has_event("phase", phase="auto", state="done"):
                 self.log("auto phase done")
+                self.guarded(self.classify_refused_options_page)
                 return True
             time.sleep(0.3)
         self.note("mv3", "harness", "auto_phase_done", "fail", f"no 'done' after {timeout} s")
         return False
+
+    def classify_refused_options_page(self):
+        """`runtime.openOptionsPage` opens its tab with the active tab as opener; in
+        this harness that tab is agent-driven, and cmux replaces an extension page in
+        an agent-driven tab with about:blank (AgentURLPolicy, plans/cmux-next/passwords.md
+        section 2). A tab whose history starts at the options page and now shows
+        about:blank is that refusal, not a missing tab."""
+        result = self.collector.result("mv3", "runtime", "openOptionsPage")
+        if not result or result.get("status") != "fail":
+            return
+        options = f"chrome-extension://{MV3_ID}/options.html"
+        for target in cdp.targets(self.app.cdp_port):
+            if target.get("type") != "page" or target.get("url") != "about:blank":
+                continue
+            socket_url = target.get("webSocketDebuggerUrl")
+            if not socket_url:
+                continue
+            try:
+                page = cdp.Session(socket_url)
+                try:
+                    entries = page.call("Page.getNavigationHistory").get("entries") or []
+                finally:
+                    page.close()
+            except (OSError, RuntimeError, ValueError):
+                continue  # the tab closed or another client holds it
+            if entries and entries[0].get("url") == options:
+                self.collector.reclassify(
+                    "mv3", "runtime", "openOptionsPage", "unverified",
+                    "the options tab opened; cmux replaced it with about:blank because its opener "
+                    "is agent-driven (AgentURLPolicy); a tab a person uses keeps it")
+                return
 
     def check_adoption(self, event):
         role = event.get("role")

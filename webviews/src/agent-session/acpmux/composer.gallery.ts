@@ -229,6 +229,10 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-document[data-page-count='2']"));
         await ctx.click({ selector: ".acpmux-attachment-document-open" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-pdf-viewer"));
+        const dialog = ctx.document.querySelector<HTMLElement>(".acpmux-pdf-viewer");
+        if (!dialog || ctx.document.defaultView!.getComputedStyle(dialog).position !== "fixed")
+          throw new Error("PDF preview must remain a fixed dialog over the composer");
+        if (!ctx.document.querySelector(".ui-backdrop")) throw new Error("PDF preview is missing its backdrop");
       },
     },
     draft: {
@@ -507,6 +511,13 @@ export default agentPaneEntry({
     },
     "model-menu-keyboard": {
       note: "Play: open the model picker and move its highlight with the keyboard.",
+      checks: {
+        layoutShiftMax: {
+          value: 0.03,
+          reason:
+            "Opening the Older models fold inserts rows inside the fixed-height popup; the transcript and composer anchors must remain fixed.",
+        },
+      },
       snapshot: chat(finished, {
         harness: "claude",
         model: "claude-opus-5-5",
@@ -607,6 +618,13 @@ export default agentPaneEntry({
     },
     "model-menu-starred": {
       note: "Play: open the model picker, star Sonnet, then open the rail's Starred tab: it lists the starred models of every harness.",
+      checks: {
+        layoutShiftMax: {
+          value: 0.055,
+          reason:
+            "Filtering the model catalog reflows rows inside the fixed-height popup; the transcript and composer anchors must remain fixed.",
+        },
+      },
       snapshot: chat(finished, { harness: "claude", model: "claude-opus-5-5", title: "Starred models" }),
       play: async (ctx) => {
         const { translate } = await import("./i18n");
