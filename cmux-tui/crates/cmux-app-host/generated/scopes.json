@@ -1213,21 +1213,9 @@
       "scope": "settings:read",
       "class": "read"
     },
-    "settings.reset": {
-      "scope": "settings:write",
-      "class": "mutation"
-    },
-    "settings.reset_all": {
-      "scope": "settings:write",
-      "class": "mutation"
-    },
     "settings.schema": {
       "scope": "settings:read",
       "class": "read"
-    },
-    "settings.set": {
-      "scope": "settings:write",
-      "class": "mutation"
     },
     "settings.snapshot": {
       "scope": "settings:read",
@@ -1720,6 +1708,9 @@
     "session.open",
     "session.reload_config",
     "session.shutdown",
+    "settings.reset",
+    "settings.reset_all",
+    "settings.set",
     "sidebar_view.attach",
     "sso.connection.activate",
     "sso.connection.create",
