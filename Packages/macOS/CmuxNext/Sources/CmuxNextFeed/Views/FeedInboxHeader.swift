@@ -54,7 +54,7 @@ struct FeedInboxHeader: View {
                 }
                 .menuStyle(.borderlessButton).menuIndicator(.hidden)
                 .frame(width: 16).help(FeedStrings.filterInbox)
-                Button(action: markRead) { Image(systemName: "checkmark.circle") }
+                Button(action: markRead) { Icon(.actionConfirm, size: Self.glyphSide) }
                     .buttonStyle(.plain).disabled(!hasUnread).help(FeedStrings.markAllRead)
                 if canRefresh {
                     Button(action: refresh) { Icon(.actionReload, size: Self.glyphSide) }

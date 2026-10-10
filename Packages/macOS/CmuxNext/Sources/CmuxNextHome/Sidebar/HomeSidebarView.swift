@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxHomeCore
 import CmuxNextDesign
+import CmuxNextIcons
 import MessagesLabSidebar
 
 /// The Home page's left column: MessagesLab's conversation list
@@ -48,7 +49,7 @@ public final class HomeSidebarView: NSView {
         addSubview(dragStrip)
         compose.bezelStyle = .accessoryBarAction
         compose.isBordered = false
-        compose.image = NSImage(systemSymbolName: "square.and.pencil", accessibilityDescription: HomeConversationStrings.newMessage)
+        compose.image = NSImage.icon(.agentChatNew, size: 15)
         compose.setAccessibilityLabel(HomeConversationStrings.newMessage)
         compose.setAccessibilityIdentifier("cmux.home.sidebar.compose")
         compose.toolTip = HomeConversationStrings.newMessage
