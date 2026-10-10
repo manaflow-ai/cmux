@@ -26,7 +26,10 @@ impl Mux {
     /// The credential a new terminal's child receives; None when minting
     /// fails (the child then has none and its calls are the user's).
     pub(crate) fn mint_terminal_credential(&self, terminal: &TerminalPublicId) -> Option<String> {
-        self.launch_identity.mint(&self.claims(Some(terminal.as_str()), None, None))
+        let credential =
+            self.launch_identity.mint(&self.claims(Some(terminal.as_str()), None, None))?;
+        self.launch_identity.note_pending_terminal(terminal.as_str());
+        Some(credential)
     }
 
     /// `credential.mint {acp_session, agent?}`: a credential for one acpmux
@@ -87,8 +90,11 @@ impl Mux {
         }
         match (claims.terminal, claims.acp_session) {
             (Some(terminal), None) => {
-                let live = TerminalPublicId::parse(terminal.clone())
+                // A terminal minted for but not committed yet (its child may
+                // call cmux before the creation commits) counts as live.
+                let committed = TerminalPublicId::parse(terminal.clone())
                     .is_ok_and(|terminal| self.terminal_resource_surface(&terminal).is_some());
+                let live = self.launch_identity.terminal_live(&terminal, committed);
                 if live {
                     CredentialCheck::Verified(Actor::Terminal { id: terminal })
                 } else {

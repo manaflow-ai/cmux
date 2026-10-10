@@ -15,10 +15,11 @@
 //! On Windows the file gets the platform's private-file treatment only; there
 //! is no owner or mode check.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -237,7 +238,15 @@ pub(crate) struct LaunchIdentity {
     /// Serializes rotations; the keys lock is held only to read and swap, never
     /// across the key file write.
     rotation: Mutex<()>,
+    /// Terminals minted for that are not in the terminal catalog yet: the
+    /// child starts before its terminal commits, and may call cmux at once.
+    /// An entry ends when a check finds the terminal live, or after
+    /// [`PENDING_TERMINAL_TTL`] (a creation that never committed).
+    pending_terminals: Mutex<HashMap<String, Instant>>,
 }
+
+/// How long a terminal minted for but not yet committed counts as live.
+const PENDING_TERMINAL_TTL: Duration = Duration::from_secs(60);
 
 impl LaunchIdentity {
     /// Load the keys of the session whose state lives in `directory`, or
@@ -265,7 +274,39 @@ impl LaunchIdentity {
                 None
             }
         });
-        Self { keys: Mutex::new(keys), path, rotation: Mutex::new(()) }
+        Self {
+            keys: Mutex::new(keys),
+            path,
+            rotation: Mutex::new(()),
+            pending_terminals: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Remember a terminal whose credential was minted before it commits.
+    pub(crate) fn note_pending_terminal(&self, terminal: &str) {
+        let mut pending =
+            self.pending_terminals.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        pending.retain(|_, minted| minted.elapsed() < PENDING_TERMINAL_TTL);
+        pending.insert(terminal.to_string(), Instant::now());
+    }
+
+    /// Whether `terminal` counts as live: `committed` says the catalog has
+    /// it (which ends its pending entry), else a fresh pending entry does.
+    pub(crate) fn terminal_live(&self, terminal: &str, committed: bool) -> bool {
+        let mut pending =
+            self.pending_terminals.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if committed {
+            pending.remove(terminal);
+            return true;
+        }
+        match pending.get(terminal) {
+            Some(minted) if minted.elapsed() < PENDING_TERMINAL_TTL => true,
+            Some(_) => {
+                pending.remove(terminal);
+                false
+            }
+            None => false,
+        }
     }
 
     pub(crate) fn mint(&self, claims: &Claims) -> Option<String> {

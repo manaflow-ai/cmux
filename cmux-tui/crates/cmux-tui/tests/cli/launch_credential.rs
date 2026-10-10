@@ -8,7 +8,8 @@
 use super::*;
 
 /// The `resource_mutations.actor` of the row with `key`, once it exists.
-fn recorded_actor(state: &std::path::Path, key: &str) -> String {
+/// `log` names a file whose text explains a missing row (the child CLI's output).
+fn recorded_actor(state: &std::path::Path, key: &str, log: Option<&std::path::Path>) -> String {
     let deadline = Instant::now() + Duration::from_secs(20);
     loop {
         for database in registry_databases(state) {
@@ -27,7 +28,8 @@ fn recorded_actor(state: &std::path::Path, key: &str) -> String {
                 return actor;
             }
         }
-        assert!(Instant::now() < deadline, "no mutation {key} was recorded");
+        let output = log.and_then(|log| fs::read_to_string(log).ok()).unwrap_or_default();
+        assert!(Instant::now() < deadline, "no mutation {key} was recorded; CLI output: {output}");
         std::thread::sleep(Duration::from_millis(50));
     }
 }
@@ -78,12 +80,14 @@ fn a_terminal_child_cli_mutation_records_its_terminal() {
     assert_success(&created);
     let workspace = json_output(&created)["value"]["workspace_id"].as_str().unwrap().to_string();
     let out = server.dir.join("credential");
+    let cli_log = server.dir.join("cli.log");
     let script = format!(
         "printf %s \"$CMUX_LAUNCH_CREDENTIAL\" > '{out}.tmp' && mv '{out}.tmp' '{out}'; \
          exec '{bin}' --json workspace create --name from-terminal --empty \
-         --idempotency-key lc-from-terminal",
+         --idempotency-key lc-from-terminal > '{log}' 2>&1",
         out = out.display(),
         bin = bin(),
+        log = cli_log.display(),
     );
     let run = json_cli(
         &server,
@@ -94,7 +98,10 @@ fn a_terminal_child_cli_mutation_records_its_terminal() {
 
     let credential = wait_for_text(&out);
     assert!(credential.starts_with("cmuxlc1."), "the terminal child got no launch credential");
-    assert_eq!(recorded_actor(&server.state, "lc-from-terminal"), format!("terminal:{terminal}"));
+    assert_eq!(
+        recorded_actor(&server.state, "lc-from-terminal", Some(&cli_log)),
+        format!("terminal:{terminal}")
+    );
 
     // The same CLI with a forged credential is refused, and nothing is written.
     let mut forged = credential.into_bytes();
@@ -124,5 +131,5 @@ fn a_terminal_child_cli_mutation_records_its_terminal() {
         .output()
         .unwrap();
     assert_success(&elsewhere);
-    assert_eq!(recorded_actor(&server.state, "lc-routed"), "user:user_local");
+    assert_eq!(recorded_actor(&server.state, "lc-routed", None), "user:user_local");
 }
