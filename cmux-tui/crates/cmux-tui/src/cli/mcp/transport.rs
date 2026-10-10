@@ -168,6 +168,8 @@ fn app_open_failure(failure: resolve::Failure, key: Option<&str>) -> CallFailure
     let never_ran = super::super::frontend_browser::never_ran(&failure);
     let (kind, error) = match failure {
         resolve::Failure::Resource(error) => (if never_ran { NotRun } else { Rejected }, error),
+        // A local refusal (the socket resolver's) never reached a daemon.
+        resolve::Failure::Local { error, .. } => (NotRun, error),
         resolve::Failure::Transport(message) => (
             InProgress,
             json!({"code": "transport.failed", "message": message, "details": {}, "retryable": true}),
