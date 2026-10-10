@@ -6,6 +6,7 @@ import { type Project, ProjectChooser } from "../ProjectChooser";
 import { isAgentHome, projectLabel } from "../sessionList";
 import { AllChatsList, type LoadChatsPage } from "./AllChatsList";
 import { ChatCards } from "./ChatCards";
+import { ContextMenu } from "../../../ui/ContextMenu";
 import { defaultModel } from "../harnessSwitch";
 import { useDeviceChats } from "./deviceChats";
 import {
@@ -377,24 +378,24 @@ export function NewTabScreen(props: Props) {
           ))}
         </div>
       )}
-      {sections.chats !== "none" && (!allChats || activeCards.length > 0) && (
-        <ChatCards
-          cards={allChats ? activeCards : cards}
-          variant={sections.chats}
-          onOpen={openCard}
-          {...(allChats ? { title: t("sidebar.active") } : { onShowAll: props.onShowAll })}
-        />
+      {sections.tools && (tools.length > 0 || props.onAddHarness) && (
+        <ToolsRow tools={tools} onRunAction={props.onRunAction} onAddHarness={props.onAddHarness} />
       )}
-      {sections.tools && <ToolsSection tools={tools} onRunAction={props.onRunAction} />}
-      {sections.tools && props.onAddHarness && (
-        <button type="button" className="nt-add-harness" onClick={() => props.onAddHarness?.()}>
-          {t("newtab.addHarness")}
-        </button>
+      {sections.chats !== "none" && !allChats && (
+        <ChatCards cards={cards} variant={sections.chats} onOpen={openCard} onShowAll={props.onShowAll} />
       )}
       {allChats && props.loadChatsPage && props.onOpenChat && (
         <AllChatsList
           load={props.loadChatsPage}
           onOpen={props.onOpenChat}
+          active={activeCards.map((card) => ({
+            id: card.sessionId,
+            title: card.title,
+            ...(card.harness ? { harness: card.harness } : {}),
+            state: card.state,
+            label: nt(`card.${card.state as "input" | "running" | "error" | "unread"}`),
+          }))}
+          onOpenActive={openCard}
           {...(props.onOpenChatInTerminal ? { onOpenInTerminal: props.onOpenChatInTerminal } : {})}
           {...(now !== undefined ? { now } : {})}
         />
@@ -420,46 +421,52 @@ function ownsKeys(element: Element): boolean {
   return element.closest('[role="menu"], [role="listbox"], [role="dialog"], [role="combobox"]') !== null;
 }
 
-function ToolsSection({
+/// The host actions as one quiet row under the field (board principle 5: calm at rest): an icon and
+/// a name, the shortcut on hover or focus. A tool's extra commands (Terminal: split right, split
+/// down) are in its right-click menu. "Integrate a harness" ends the row.
+function ToolsRow({
   tools,
   onRunAction,
+  onAddHarness,
 }: {
   tools: NonNullable<NewTabHost["tools"]>;
   onRunAction?: (id: string) => void;
+  onAddHarness?: () => void;
 }) {
   const t = useT();
-  if (!tools.length) return null;
   return (
-    <section className="nt-tools" aria-labelledby="nt-tools-heading">
-      <h2 id="nt-tools-heading">{t("newTabPage.tools")}</h2>
-      <div className="nt-tools-grid">
-        {tools.map((tool) => (
-          <div className="nt-tool-card" key={tool.id}>
-            <button type="button" className="nt-tool-main" onClick={() => onRunAction?.(tool.id)}>
-              <span className="nt-tool-icon" aria-hidden="true">
-                {toolIcon(tool.symbol)}
-              </span>
-              <span>{toolTitle(t, tool)}</span>
-              {tool.shortcut && <kbd>{tool.shortcut}</kbd>}
-            </button>
-            {tool.menu.length > 0 && (
-              <div className="nt-tool-menu">
-                <button type="button" aria-label={t("newTabPage.moreOptions")}>
-                  …
-                </button>
-                <div className="nt-tool-menu-popover">
-                  {tool.menu.map((id) => (
-                    <button type="button" key={id} onClick={() => onRunAction?.(id)}>
-                      {toolMenuTitle(t, id)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-    </section>
+    <nav className="nt-tools" aria-label={t("newTabPage.tools")}>
+      {tools.map((tool) => {
+        const button = (
+          <button type="button" className="nt-tool" onClick={() => onRunAction?.(tool.id)}>
+            <span className="nt-tool-icon" aria-hidden="true">
+              {toolIcon(tool.symbol)}
+            </span>
+            <span>{toolTitle(t, tool)}</span>
+            {tool.shortcut && <kbd>{tool.shortcut}</kbd>}
+          </button>
+        );
+        return tool.menu.length > 0 ? (
+          <ContextMenu
+            key={tool.id}
+            className="nt-tool-host"
+            items={tool.menu.map((id) => ({ id, label: toolMenuTitle(t, id), onSelect: () => onRunAction?.(id) }))}
+          >
+            {button}
+          </ContextMenu>
+        ) : (
+          <React.Fragment key={tool.id}>{button}</React.Fragment>
+        );
+      })}
+      {onAddHarness && (
+        <button type="button" className="nt-tool nt-add-harness" onClick={() => onAddHarness()}>
+          <span className="nt-tool-icon" aria-hidden="true">
+            +
+          </span>
+          <span>{t("newtab.addHarness")}</span>
+        </button>
+      )}
+    </nav>
   );
 }
 
