@@ -152,7 +152,7 @@ case "$cmd" in
     ;;
   test)
     sync_src
-    remote "cd ~/$R/src/ios-next/Packages/CmuxNextMobile && swift test 2>&1 | tail -40"
+    remote "cd ~/$R/src/ios-next/Packages/CmuxNextMobile && set -o pipefail; swift test 2>&1 | tee ~/$R/test.log | tail -60"
     ;;
   *) echo "unknown command $cmd" >&2; exit 2 ;;
 esac
