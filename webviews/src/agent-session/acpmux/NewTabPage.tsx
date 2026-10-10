@@ -608,7 +608,7 @@ function rowDetail(row: OmnibarRow): string | undefined {
 function RowIcon({ row, agent }: { row: OmnibarRow; agent?: string }) {
   switch (row.type) {
     case "tab":
-      return <KindIcon kind={row.kind} />;
+      return row.icon ? <Favicon src={row.icon} /> : <KindIcon kind={row.kind} />;
     case "workspace":
       return <WorkspaceIcon />;
     case "session":
@@ -619,12 +619,17 @@ function RowIcon({ row, agent }: { row: OmnibarRow; agent?: string }) {
     case "run":
       return <KindIcon kind="terminal" />;
     case "history":
-      return <ClockIcon />;
+      return row.icon ? <Favicon src={row.icon} /> : <ClockIcon />;
     case "open":
       return <KindIcon kind="browser" />;
     case "ask":
       return <AgentMark harness={agent} />;
   }
+}
+
+/// A page's favicon (cx-d0d.8), drawn as is at the row icons' size.
+function Favicon({ src }: { src: string }) {
+  return <img className="acpmux-icon acpmux-favicon" src={src} alt="" width={16} height={16} draggable={false} />;
 }
 
 /// The agent's brand mark (design/agent-icons), so a session's row says which agent it

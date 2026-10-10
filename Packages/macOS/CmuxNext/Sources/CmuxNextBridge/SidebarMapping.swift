@@ -29,7 +29,8 @@ public struct SidebarMapping {
     /// detail (tooltip, accessibility). `newTabPages` are the ids of tabs
     /// still on the New Tab page, which the tab list draws as new tabs
     /// titled `newTabTitle` (localized by the App). `pageFace` gives the page
-    /// face of a workspace whose front tab is a browser.
+    /// face of a workspace whose front tab is a browser, and the favicon of
+    /// each browser tab in the tab list.
     public func sections(_ daemonSections: [DaemonSidebarSection], machine: SidebarMachine,
                                 collapsedGroups: Set<String> = [],
                                 hidesHomeWorkspace: Bool = true,
@@ -108,7 +109,7 @@ public struct SidebarMapping {
                 let isNewTabPage = newTabPages.contains(tab.id) && !newTabTitle.isEmpty
                 return SidebarTab(id: TabID(tab.id), title: isNewTabPage ? newTabTitle : tab.displayTitle,
                                   kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.hasUnread,
-                                  brand: tab.agentBrand)
+                                  brand: tab.agentBrand, favicon: tab.kind == .browser ? pageFace(workspace, tab)?.favicon : nil)
             },
             muted: muted,
             // The store refuses every close of its home workspace (`home_not_closable`).

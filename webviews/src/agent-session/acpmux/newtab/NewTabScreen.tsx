@@ -365,9 +365,13 @@ export function NewTabScreen(props: Props) {
                 activate(row);
               }}
             >
-              <span className="nt-row-glyph" data-kind={row.type}>
-                {rowIcon(row)}
-              </span>
+              {rowFavicon(row) ? (
+                <img className="nt-row-glyph nt-row-favicon" src={rowFavicon(row)} alt="" draggable={false} />
+              ) : (
+                <span className="nt-row-glyph" data-kind={row.type}>
+                  {rowIcon(row)}
+                </span>
+              )}
               <span className="nt-row-title">{rowTitle(row)}</span>
               {rowDetail(row) && <span className="nt-row-detail">{rowDetail(row)}</span>}
               <span className="nt-row-action">
@@ -550,6 +554,11 @@ function rowIcon(row: ScreenRow): string {
     case "search":
       return "⌕";
   }
+}
+
+/// A tab's or visited page's favicon (cx-d0d.8): it takes the glyph's place when the host sent one.
+function rowFavicon(row: ScreenRow): string | undefined {
+  return row.type === "tab" || row.type === "history" ? row.icon : undefined;
 }
 
 function rowTitle(row: ScreenRow): string {
