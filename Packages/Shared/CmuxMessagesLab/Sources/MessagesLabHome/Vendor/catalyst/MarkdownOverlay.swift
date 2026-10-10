@@ -205,7 +205,7 @@ final class MarkdownOverlay {
 
     func copyRect(_ i: Int) -> CGRect? {
         guard let md = layout, i < md.regions.count, let f = md.regions[checked: i]?.frame else { return nil } // checked
-        let w = max(40, (MarkdownOverlay.copyTitle as NSString).size(withAttributes: [.font: UIFont.systemFont(ofSize: 10, weight: .medium)]).width + 14)
+        let w = max(40, (MarkdownOverlay.copyTitle as NSString).size(withAttributes: [.font: HomeFonts.system(ofSize: 10, weight: .medium)]).width + 14)
         return CGRect(x: f.maxX - w - 4, y: f.minY + 4, width: w, height: 18)
     }
 
@@ -217,7 +217,7 @@ final class MarkdownOverlay {
         copyButton.backgroundColor = (outgoing ? UIColor(white: 0, alpha: 0.32) : UIColor(white: 0.5, alpha: 0.35)).cgColor
         copyButton.zPosition = 2
         copyGlyph.string = copiedRegion == i ? MarkdownOverlay.copiedTitle : MarkdownOverlay.copyTitle
-        copyGlyph.font = UIFont.systemFont(ofSize: 10, weight: .medium)
+        copyGlyph.font = HomeFonts.system(ofSize: 10, weight: .medium)
         copyGlyph.foregroundColor = pal.text.cgColor
         copyGlyph.frame = CGRect(x: 0, y: 2.5, width: r.width, height: 14)
     }

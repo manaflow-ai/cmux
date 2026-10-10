@@ -113,7 +113,7 @@ final class HeaderView: UIView {
         ctx.translateBy(x: dx / 2, y: 0)
         // Name pill.
         // Pill width follows the title (measured for "Instinct": 77.75 pt).
-        let bold = UIFont.systemFont(ofSize: 13, weight: .bold)
+        let bold = HomeFonts.system(ofSize: 13, weight: .bold)
         let title = HeaderView.currentTitle
         let tw = TextDraw.width(title, font: bold)
         let pw = tw + 77.75 - TextDraw.width("Instinct", font: bold)

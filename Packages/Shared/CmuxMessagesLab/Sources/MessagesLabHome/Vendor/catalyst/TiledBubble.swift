@@ -296,7 +296,7 @@ final class TiledBody {
                 failedMark.contents = WideBitmap.make(size: CGSize(width: 20, height: 20), scale: s, opaque: false) { ctx in
                     UIColor(red: 1, green: 0.27, blue: 0.23, alpha: 1).setFill()
                     UIBezierPath(ovalIn: CGRect(x: 2, y: 2, width: 16, height: 16)).fill()
-                    let f = UIFont.systemFont(ofSize: 12, weight: .bold)
+                    let f = HomeFonts.system(ofSize: 12, weight: .bold)
                     TextDraw.line("!", font: f, color: .white, x: 10 - TextDraw.width("!", font: f) / 2, baseline: 14.5, in: ctx)
                 }
             }
@@ -345,7 +345,7 @@ final class TiledBody {
         bandKey = key
         if let img = TiledBody.bandImages[key] { band.contentsScale = s; band.contents = img; return }
         defer { if let raw = band.contents, CFGetTypeID(raw as AnyObject) == CGImage.typeID { TiledBody.bandImages[key] = unsafeDowncast(raw as AnyObject, to: CGImage.self); if TiledBody.bandImages.count > 64 { TiledBody.bandImages.removeAll() } } }
-        let font = UIFont.systemFont(ofSize: Fixture.bodyFont.pointSize, weight: .semibold)
+        let font = HomeFonts.system(ofSize: Fixture.bodyFont.pointSize, weight: .semibold)
         let color = p.outgoing ? Fixture.outgoingText : UIColor(red: 0.27, green: 0.55, blue: 1, alpha: 1)
         let rule = (p.outgoing ? Fixture.outgoingText : Fixture.incomingText).withAlphaComponent(0.25)
         Reclaimer.release(band.contents)

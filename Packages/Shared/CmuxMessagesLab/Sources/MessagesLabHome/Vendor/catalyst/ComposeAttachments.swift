@@ -183,8 +183,9 @@ final class ComposeAttachmentStrip {
                 UIColor(white: 0.75, alpha: 1).setFill()
                 for k in 0..<3 { c.fill(CGRect(x: ic.minX + 6, y: ic.minY + 12 + CGFloat(k) * 4, width: 16, height: 1.2)) }
                 let ext = (a.fileName as NSString).pathExtension.uppercased()
-                TextDraw.line(ext, font: .systemFont(ofSize: 6, weight: .semibold), color: UIColor(white: 0.55, alpha: 1),
-                              x: ic.midX - TextDraw.width(ext, font: .systemFont(ofSize: 6, weight: .semibold)) / 2, baseline: ic.maxY - 5, in: c)
+                let extFont = HomeFonts.system(ofSize: 6, weight: .semibold)
+                TextDraw.line(ext, font: extFont, color: UIColor(white: 0.55, alpha: 1),
+                              x: ic.midX - TextDraw.width(ext, font: extFont) / 2, baseline: ic.maxY - 5, in: c)
                 let tx = ic.maxX + 10, tw = r.maxX - 10 - tx
                 var y = r.midY - 10
                 TextDraw.line(Self.fit(a.fileName, Self.nameFont, tw), font: Self.nameFont, color: Fixture.incomingText, x: tx, baseline: y, in: c)

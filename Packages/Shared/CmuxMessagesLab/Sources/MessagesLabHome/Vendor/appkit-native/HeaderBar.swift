@@ -67,7 +67,7 @@ final class HeaderBar: NSObject, NSToolbarDelegate {
         pill.imagePosition = .imageTrailing
         pill.image = HeaderBar.pillImageMode ? nil : HeaderBar.chevronImage()
         pill.imageHugsTitle = true
-        pill.font = .systemFont(ofSize: 13, weight: .bold)
+        pill.font = HomeFonts.system(ofSize: 13, weight: .bold)
         pill.target = self
         pill.action = #selector(contactClicked)
         let holder = pillHolder
@@ -139,7 +139,7 @@ final class HeaderBar: NSObject, NSToolbarDelegate {
     /// Draws the pill's title and chevron at the measured places (rect: the pill's bounds,
     /// flipped).
     static func drawPillContent(_ title: String, in rect: NSRect) {
-        let font = NSFont.systemFont(ofSize: 13, weight: .bold)
+        let font = HomeFonts.system(ofSize: 13, weight: .bold)
         // Messages' title is opaque (255 levels in dark mode; labelColor is 85 % white).
         let ink = NSColor(name: nil) { $0.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .white : .black }
         let s = NSAttributedString(string: title, attributes: [.font: font, .foregroundColor: ink])
@@ -151,7 +151,7 @@ final class HeaderBar: NSObject, NSToolbarDelegate {
         }
     }
     static func pillWidth(_ title: String) -> CGFloat {
-        let bold = NSFont.systemFont(ofSize: 13, weight: .bold)
+        let bold = HomeFonts.system(ofSize: 13, weight: .bold)
         return TextDraw.width(title, font: bold) + 77.75 - TextDraw.width("Instinct", font: bold)
     }
     private var widthConstraint: NSLayoutConstraint? { pill.constraints.first { $0.firstAttribute == .width } }

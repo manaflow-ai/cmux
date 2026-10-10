@@ -10,6 +10,8 @@ import AppKit
 final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDelegate {
     weak var dataSource: SidebarDataSource?
     weak var delegate: SidebarDelegate?
+    /// "No Results" in 15 pt semibold, made once (a font made per call can race its release; cx-qpqs).
+    private static let noResultsFont = NSFont.systemFont(ofSize: 15, weight: .semibold)
     /// The selected conversation (nil: none, or a row of the host's extra search section).
     var selectedID: ConversationID? { highlightID.flatMap { SidebarController.isExtra($0) ? nil : $0 } }
     /// v1.1: extra search results from the host (a section under the matching conversations).
@@ -207,7 +209,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         document.layer?.addSublayer(menuRing)
 
         noResults.stringValue = SidebarStrings.noResults
-        noResults.font = .systemFont(ofSize: 15, weight: .semibold)
+        noResults.font = Self.noResultsFont
         noResults.textColor = .secondaryLabelColor
         noResults.alignment = .center
         noResults.isHidden = true
