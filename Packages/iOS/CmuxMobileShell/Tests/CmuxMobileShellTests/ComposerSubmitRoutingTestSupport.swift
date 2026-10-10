@@ -25,6 +25,7 @@ struct RoutingTestRuntime: MobileSyncRuntime {
     var pairingRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
     var supportsServerPushEvents: Bool = true
     var livenessProbeTimeoutNanoseconds: UInt64 = 200_000_000
+    var reconnectAttemptDeadlineNanoseconds: UInt64 = 30 * 1_000_000_000
 }
 
 // MARK: - Recording host (router + transport)

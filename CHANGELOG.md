@@ -2,6 +2,11 @@
 
 All notable changes to cmux are documented here.
 
+## Unreleased
+
+### Fixed
+- iOS: a composer send during a reconnect waits for the new connection instead of failing with "Couldn't send", and a paste that hits a closed connection starts the reconnect ([#19038](https://github.com/manaflow-ai/cmux/pull/19038))
+
 ## [0.65.0] - 2026-10-05
 
 ### Added

@@ -1307,9 +1307,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 stopTerminalRefreshPolling()
                 cancelRemoteOperationTasks()
                 resetTerminalOutputTracking()
+            } else {
+                resumeComposerSendClientWaiters()
             }
         }
     }
+    /// Composer sends parked by ``awaitRemoteClientDuringConnectionRecovery(terminalID:)``
+    /// until recovery installs a replacement client, gives up, or the wait
+    /// bound elapses.
+    var composerSendClientWaiters: [CheckedContinuation<Void, Never>] = []
     /// Whether legacy connected-but-clientless shells use local iOS workspace creation.
     public var usesLocalWorkspaceCreationFallback: Bool {
         remoteClient == nil && connectionState == .connected
@@ -2799,7 +2805,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// True while an automatic reconnect is in progress after a network change
     /// or drop.
-    public internal(set) var isRecoveringConnection: Bool = false
+    public internal(set) var isRecoveringConnection: Bool = false {
+        didSet {
+            if oldValue, !isRecoveringConnection {
+                resumeComposerSendClientWaiters()
+            }
+        }
+    }
     /// True when automatic recovery could not restore the connection; the UI
     /// surfaces a manual Retry control in this state.
     public internal(set) var connectionRecoveryFailed: Bool = false {
@@ -2869,6 +2881,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         case eventStreamEnded
         case subscriptionStartFailed
         case transportWriteTimedOut
+        /// A request on the live client failed with `connectionClosed`.
+        case requestConnectionClosed
         case automaticBackoffExpired
         case connectionMethodChanged
 
@@ -2890,6 +2904,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             case .transportWriteTimedOut: 8
             case .automaticBackoffExpired: 9
             case .connectionMethodChanged: 10
+            case .requestConnectionClosed: 12
             }
         }
 
@@ -2904,6 +2919,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             case .eventStreamEnded: return "eventStreamEnded"
             case .subscriptionStartFailed: return "subscriptionStartFailed"
             case .transportWriteTimedOut: return "transportWriteTimedOut"
+            case .requestConnectionClosed: return "requestConnectionClosed"
             case .automaticBackoffExpired: return "automaticBackoffExpired"
             case .connectionMethodChanged: return "connectionMethodChanged"
             }
@@ -10126,18 +10142,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Empty text is "nothing to send", which is a success from the caller's
         // point of view (an images-only send has no text to keep on failure).
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return true }
+        // Reject a re-entrant send (e.g. a double tap on Send) so the same text
+        // is not pasted twice. The flag is set/cleared on the main actor around
+        // the awaits, so no second call can slip past it.
+        guard !isSubmittingComposerInput else { return false }
+        isSubmittingComposerInput = true
+        defer { isSubmittingComposerInput = false }
+        await awaitRemoteClientDuringConnectionRecovery(terminalID: terminalID)
         // Demonstration terminals are served locally, so they need no live
         // client; without this the composer fails its connection gate before
         // reaching the demo paste fence and shows the send-failure banner.
         guard remoteClient != nil
             || locallyServedOwnsSurface(terminalID.rawValue)
             || externalHostOwnsSurface(terminalID.rawValue) else { return false }
-        // Reject a re-entrant send (e.g. a double tap on Send) so the same text
-        // is not pasted twice. The flag is set/cleared on the main actor around
-        // the await, so no second call can slip past it.
-        guard !isSubmittingComposerInput else { return false }
-        isSubmittingComposerInput = true
-        defer { isSubmittingComposerInput = false }
         let sent = await sendRemoteTerminalPaste(
             text,
             submitKey: "return",
@@ -10215,6 +10232,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // images-only send snapshots empty text, which the text submit no-ops.
         let submittedText = terminalInputText
         let attachments = pendingAttachments(forTerminalID: submittedTerminalID.rawValue)
+        // A send that lands while recovery has retired the dead client waits
+        // (bounded) for the replacement before the identity snapshot below, so
+        // every attachment send and the text use the new client. A sign-out,
+        // account switch, or Mac switch during that wait must not let the
+        // snapshot adopt the new session: the captured text was composed for
+        // the terminal that no longer exists there.
+        let waitSignInGeneration = signInGeneration
+        await awaitRemoteClientDuringConnectionRecovery(terminalID: submittedTerminalID)
+        guard signInGeneration == waitSignInGeneration,
+              workspace(workspaceID, containsSurfaceID: submittedTerminalID.rawValue) else {
+            return false
+        }
         // Capture the submit-time session + connection identity ONCE up front and
         // re-check it before every subsequent send. The captured terminal already
         // pins the target surface, but it does NOT pin the session/transport the
@@ -12929,12 +12958,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               MobileShellMacAvailabilityFailureClassifier().isAvailabilityFailure(error) else {
             return
         }
-        if case MobileShellConnectionError.transportWriteTimedOut = error {
+        switch error {
+        case MobileShellConnectionError.transportWriteTimedOut:
             recoverDeadConnection(
                 trigger: .transportWriteTimedOut,
                 expectedClient: expectedClient
             )
-        } else {
+        case MobileShellConnectionError.connectionClosed:
+            recoverDeadConnection(
+                trigger: .requestConnectionClosed,
+                expectedClient: expectedClient
+            )
+        default:
             markMacConnectionUnavailable()
         }
     }

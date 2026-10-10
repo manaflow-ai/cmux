@@ -31,13 +31,15 @@ func makeRoutingConnectedStore(
     draftStore: (any TerminalDraftStoring)? = nil,
     deliveredNotificationClearer: any DeliveredNotificationClearing = NoopDeliveredNotificationClearer(),
     rpcRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000,
-    taskModelCatalogClient: MobileTaskModelCatalogClient = .live()
+    taskModelCatalogClient: MobileTaskModelCatalogClient = .live(),
+    reconnectAttemptDeadlineNanoseconds: UInt64 = 30 * 1_000_000_000
 ) async throws -> MobileShellComposite {
     let runtime = RoutingTestRuntime(
         transportFactory: RoutingTransportFactory(router: router),
         terminalLaneProvider: terminalLaneProvider,
         rpcRequestTimeoutNanoseconds: rpcRequestTimeoutNanoseconds,
-        supportedRouteKinds: [routeKind]
+        supportedRouteKinds: [routeKind],
+        reconnectAttemptDeadlineNanoseconds: reconnectAttemptDeadlineNanoseconds
     )
     let terminals = [
         MobileTerminalPreview(id: .init(rawValue: RoutingHostRouter.terminalA), name: "A"),
