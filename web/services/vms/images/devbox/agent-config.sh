@@ -118,7 +118,7 @@ CMUX_TOML_CHECK
   # placeholder JWT the `cr pi` extension ships. No route-token header is
   # configured: the edge supplies it on every request. baseUrl must be a
   # literal (pi does not env-resolve it), hence this generator.
-  if [ -n "${OPENAI_BASE_URL-}" ] && [ ! -e "$HOME/.pi/agent/models.json" ]; then
+  if [ -n "${OPENAI_BASE_URL-}" ] && ! cmux_agent_native_mode pi && [ ! -e "$HOME/.pi/agent/models.json" ]; then
     mkdir -p "$HOME/.pi/agent" 2>/dev/null && {
       echo '{'
       echo '  "providers": {'
@@ -177,6 +177,7 @@ CMUX_TOML_CHECK
 # Optional provider discovery belongs to OpenCode launch, never shell startup.
 # Python owns the advisory lock so process exit releases it even after a crash.
 cmux_ensure_opencode_config() {
+  cmux_agent_native_mode opencode && return 0
   [ -e "$HOME/.config/opencode/opencode.json" ] && return 0
   [ -n "${CMUX_CODEROUTER_URL-}" ] && [ -n "${OPENAI_API_KEY-}" ] || return 0
   python3 - <<'CMUX_OPENCODE_CONFIG'
@@ -209,6 +210,7 @@ with (state / "opencode-config.lock").open("a") as lock:
     # deciding to retry or launch. Existing user configuration always wins.
     if config.exists() or config.is_symlink():
         sys.exit(0)
+    created = False
     try:
         age = time.time() - float(failure.read_text())
         if 0 <= age < 60:
@@ -238,10 +240,17 @@ with (state / "opencode-config.lock").open("a") as lock:
                 # Atomic write-if-absent, never replace a user edit made while
                 # the request was in flight, including an existing symlink.
                 os.link(temporary, config)
+                created = True
             except FileExistsError:
                 pass
         finally:
             os.unlink(temporary)
+        if created:
+            marker = config.with_name("opencode.json.cmux-managed")
+            try:
+                marker.write_text(hashlib.sha256(config.read_bytes()).hexdigest() + "\n")
+            except OSError:
+                pass
         failure.unlink(missing_ok=True)
     except (OSError, ValueError, subprocess.SubprocessError):
         if config.exists() or config.is_symlink():
@@ -251,15 +260,326 @@ with (state / "opencode-config.lock").open("a") as lock:
 CMUX_OPENCODE_CONFIG
 }
 
-# The installed executable wrapper also covers exec/direct agent launches.
-# This function retains the lazy path when this file is updated independently.
-opencode() {
-  if [ "$#" -eq 1 ]; then
-    case "$1" in --version|-v|--help|-h) command opencode "$@"; return $? ;; esac
-  fi
-  cmux_ensure_opencode_config || return $?
-  command opencode "$@"
+# Onboarding runs at launch, never during shell startup. A missing account is
+# different from unavailable discovery: old servers and outages keep working.
+cmux_agent_real_key() {
+  case "${1-}" in ''|cmux-vm-edge-placeholder|e30.*coderouter*) return 1 ;; esac
 }
+
+cmux_agent_native_mode() {
+  [ -f "$HOME/.config/cmux/agent-auth/$1.native" ]
+}
+
+cmux_agent_select_native() {
+  (umask 077; mkdir -p "$HOME/.config/cmux/agent-auth" && : > "$HOME/.config/cmux/agent-auth/$1.native")
+}
+
+cmux_agent_clear_native() {
+  rm -f "$HOME/.config/cmux/agent-auth/$1.native"
+}
+
+cmux_agent_clear_generated_opencode_config() {
+  python3 - "${HOME:-}/.config/opencode/opencode.json" "${HOME:-}/.config/opencode/opencode.json.cmux-managed" <<'CMUX_OPENCODE_NATIVE'
+import hashlib, json, pathlib, sys
+config = pathlib.Path(sys.argv[1])
+marker = pathlib.Path(sys.argv[2])
+remove = False
+try:
+    expected = marker.read_text().strip()
+    actual = hashlib.sha256(config.read_bytes()).hexdigest()
+    remove = bool(expected and expected == actual)
+except (OSError, ValueError):
+    pass
+if not remove and not marker.exists():
+    try:
+        document = json.loads(config.read_text())
+        def generated_provider(value):
+            if isinstance(value, dict):
+                options = value.get("options")
+                if (isinstance(options, dict)
+                    and options.get("apiKey") == "{env:OPENAI_API_KEY}"
+                    and isinstance(options.get("baseURL"), str)
+                    and "/api/coderouter/opencode/proxy/" in options["baseURL"]):
+                    return True
+                return any(generated_provider(nested) for nested in value.values())
+            if isinstance(value, list):
+                return any(generated_provider(nested) for nested in value)
+            return False
+        remove = generated_provider(document.get("provider")) if isinstance(document, dict) else False
+    except (OSError, ValueError, TypeError):
+        pass
+if remove:
+    try:
+        config.unlink()
+    except OSError:
+        pass
+try:
+    marker.unlink()
+except OSError:
+    pass
+CMUX_OPENCODE_NATIVE
+}
+
+cmux_agent_auth_file() {
+  [ -s "$1" ] || return 1
+  # Empty auth stores are commonly created before the first login. Do not
+  # inspect or print secrets; only accept a nonempty credential value.
+  python3 - "$1" <<'CMUX_AUTH_FILE'
+import json, pathlib, sys
+try:
+    data = json.loads(pathlib.Path(sys.argv[1]).read_text())
+    def credential(value):
+        if not isinstance(value, dict):
+            return False
+        keys = {"access_token", "accessToken", "access", "api_key", "apiKey", "key", "OPENAI_API_KEY", "token"}
+        return any((k in keys and isinstance(v, str) and bool(v.strip())) or credential(v) for k, v in value.items())
+    sys.exit(0 if credential(data) else 1)
+except (ValueError, OSError):
+    sys.exit(1)
+CMUX_AUTH_FILE
+}
+
+cmux_agent_native_auth_ready() {
+  case "$1" in
+    codex) cmux_agent_real_key "${CODEX_API_KEY-}" || cmux_agent_real_key "${OPENAI_API_KEY-}" || cmux_agent_auth_file "${CODEX_HOME:-$HOME/.codex}/auth.json" ;;
+    claude) cmux_agent_real_key "${ANTHROPIC_API_KEY-}" || [ -n "${ANTHROPIC_AUTH_TOKEN-}${CLAUDE_CODE_OAUTH_TOKEN-}${CLAUDE_CODE_USE_BEDROCK-}${CLAUDE_CODE_USE_VERTEX-}${CLAUDE_CODE_USE_FOUNDRY-}" ] || cmux_agent_auth_file "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.credentials.json" ;;
+    opencode|pi|hermes)
+      cmux_agent_real_key "${OPENAI_API_KEY-}" || cmux_agent_real_key "${ANTHROPIC_API_KEY-}" || [ -n "${OPENROUTER_API_KEY-}${GEMINI_API_KEY-}${GOOGLE_API_KEY-}${GROQ_API_KEY-}${XAI_API_KEY-}" ] && return 0
+      case "$1" in
+        opencode) cmux_agent_auth_file "${XDG_DATA_HOME:-$HOME/.local/share}/opencode/auth.json" ;;
+        pi) cmux_agent_auth_file "${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/auth.json" ;;
+        hermes) cmux_agent_auth_file "${HERMES_HOME:-$HOME/.hermes}/auth.json" || [ -s "${HERMES_HOME:-$HOME/.hermes}/.env" ] ;;
+      esac
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+cmux_agent_coderouter_ready() {
+  [ -n "${CMUX_CODEROUTER_URL-}" ] || return 1
+  case "$CMUX_CODEROUTER_URL" in https://*) ;; *) return 1 ;; esac
+  cmux_agent_probe="$1"
+  # These existing endpoints use the VM's pool-scoped edge identity. Merely
+  # having the baked public placeholder says nothing about account presence.
+  case "$cmux_agent_probe" in
+    claude) endpoint=claude-upstream; providers='[]' ;;
+    opencode) endpoint=accounts; providers='["opencode-go"]' ;;
+    *) endpoint=accounts; providers='["codex","openai-apikey","openrouter-apikey"]' ;;
+  esac
+  command -v curl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 || return 0
+  response=$(mktemp "${TMPDIR:-/tmp}/cmux-agent-status.XXXXXX") || return 0
+  set -- -sS -o "$response" -w '%{http_code}' --connect-timeout 2 --max-time 4 -H "authorization: Bearer ${OPENAI_API_KEY:-cmux-vm-edge-placeholder}" "${CMUX_CODEROUTER_URL%/}/api/coderouter/$endpoint"
+  if [ -f /usr/local/share/ca-certificates/freestyle-tls.crt ]; then
+    set -- --cacert /usr/local/share/ca-certificates/freestyle-tls.crt "$@"
+  fi
+  status=$(curl "$@" 2>/dev/null) || { rm -f "$response"; return 0; }
+  [ "$status" = 200 ] || { rm -f "$response"; return 0; }
+  # Older edge builds returned the pre-account-catalog shape. Keep accepting
+  # its explicit readiness result while treating every other malformed body
+  # as unknown so an outage never blocks a configured route.
+  if ! jq -e '.accounts | type == "array"' "$response" >/dev/null 2>&1; then
+    if jq -e --arg agent "$cmux_agent_probe" '.agents[$agent].ready == true' "$response" >/dev/null 2>&1; then
+      rm -f "$response"
+      return 0
+    fi
+    if jq -e --arg agent "$cmux_agent_probe" '.agents[$agent].ready == false' "$response" >/dev/null 2>&1; then
+      cmux_agent_connect_hint=$(jq -r --arg agent "$cmux_agent_probe" '.agents[$agent].connect // empty' "$response" 2>/dev/null || true)
+      rm -f "$response"
+      return 1
+    fi
+    rm -f "$response"
+    return 0
+  fi
+  # Cooling/refreshing accounts remain configured; let the agent surface the
+  # provider's error instead of mistaking temporary capacity for signed out.
+  jq -e --argjson providers "$providers" '.accounts | any(.[]; .provider as $p | ($providers | length) == 0 or ($providers | index($p)) != null)' "$response" >/dev/null 2>&1
+  cmux_agent_ready_rc=$?
+  rm -f "$response"
+  return "$cmux_agent_ready_rc"
+}
+
+cmux_agent_login_invocation() {
+  case "${1-}:${2-}:${3-}" in
+    login:status:*|login:--help:*|login:-h:*|auth:status:*|auth:--help:*|auth:-h:*|setup-token:--help:*|setup-token:-h:*|auth:signin:--help|auth:signin:-h) return 1 ;;
+    login:*|setup-token:*|auth:login:*|auth:signin:*) return 0 ;;
+  esac
+  return 1
+}
+
+cmux_agent_login_guide() {
+  if [ -n "${cmux_agent_connect_hint-}" ]; then
+    if command -v cmux_message >/dev/null 2>&1; then
+      cmux_message agentLoginConnect "$cmux_agent_connect_hint" >&2
+    else
+      case "${LC_ALL:-${LC_MESSAGES:-${LANG:-en}}}" in
+        ja*) printf 'cmux: アカウントを共有するには、Mac で `%s` を実行してください。\n' "$cmux_agent_connect_hint" >&2 ;;
+        *) printf 'cmux: To share an account, run `%s` on your Mac.\n' "$cmux_agent_connect_hint" >&2 ;;
+      esac
+    fi
+  fi
+  if command -v cmux >/dev/null 2>&1; then
+    # A guide can launch native login. Always stop this invocation afterwards,
+    # so login is never repeated and an interactive Pi/Claude session runs once.
+    cmux agent login "$1" || :
+  else
+    # Last-resort recovery when a guest predates the cmux CLI installation.
+    case "${LC_ALL:-${LC_MESSAGES:-${LANG:-en}}}" in
+      ja*) printf 'cmux: cmux agent login %s を実行してください。Codex: codex login --device-auth\n' "$1" >&2 ;;
+      *) printf 'cmux: run cmux agent login %s. Codex: codex login --device-auth\n' "$1" >&2 ;;
+    esac
+  fi
+  return 1
+}
+
+cmux_agent_auth_preflight() {
+  cmux_agent_name="$1"; shift
+  cmux_agent_mode=shared
+  cmux_agent_native_login_pending=0
+  cmux_agent_browser=""
+  cmux_agent_connect_hint=""
+  # Management/help commands must remain available without a provider account.
+  case "${1-}:${2-}" in
+    login:status|login:--help|login:-h|auth:status|auth:--help|auth:-h|setup-token:--help|setup-token:-h|auth:logout)
+      if cmux_agent_native_mode "$cmux_agent_name" || cmux_agent_native_auth_ready "$cmux_agent_name"; then cmux_agent_mode=native; fi
+      return 0
+      ;;
+  esac
+  case "${1-}" in
+    logout)
+      if cmux_agent_native_mode "$cmux_agent_name" || cmux_agent_native_auth_ready "$cmux_agent_name"; then cmux_agent_mode=native; fi
+      return 0
+      ;;
+  esac
+  case "${1-}" in --help|-h|--version|-v|-V|version|doctor|config|models|logout|completion|update|upgrade|mcp|plugin|plugins) return 0 ;; esac
+  if cmux_agent_login_invocation "$@"; then
+    if [ "$cmux_agent_name" = codex ]; then
+      cmux_agent_browser=vm
+      for cmux_agent_arg in "$@"; do
+        case "$cmux_agent_arg" in --device-auth|--with-api-key|--with-access-token) cmux_agent_browser="" ;; esac
+      done
+      if [ "$cmux_agent_browser" = vm ]; then
+        # A VM display is enough for the in-guest browser opener; a cmux
+        # terminal id is optional. Headless sessions are directed to device
+        # auth below instead of forwarding a loopback callback to the Mac.
+        if [ -z "${DISPLAY-}${WAYLAND_DISPLAY-}" ]; then
+          cmux_agent_login_guide "$cmux_agent_name"
+          return 1
+        fi
+      fi
+    fi
+    # Keep the native choice ephemeral until the command succeeds. A cancelled
+    # or failed login must leave the shared CodeRouter route available. The
+    # runner persists the marker after a successful mutating login below.
+    cmux_agent_native_login_pending=1
+    cmux_agent_mode=native
+    return 0
+  fi
+  if cmux_agent_native_mode "$cmux_agent_name"; then cmux_agent_mode=native; return 0; fi
+  cmux_agent_coderouter_ready "$cmux_agent_name" && return 0
+  if cmux_agent_native_auth_ready "$cmux_agent_name"; then cmux_agent_mode=native; return 0; fi
+  cmux_agent_login_guide "$cmux_agent_name"
+}
+
+# The guest cmux shim preflights once before dispatching an agent. Reuse that
+# result so a transient second account probe cannot reject an already accepted
+# launch (and so direct wrappers retain their normal preflight behavior).
+cmux_agent_prepare() {
+  cmux_agent_prepare_name="$1"; shift
+  if [ "${CMUX_AGENT_PREFLIGHT_AGENT-}" = "$cmux_agent_prepare_name" ]; then
+    cmux_agent_mode="${CMUX_AGENT_PREFLIGHT_MODE:-shared}"
+    unset CMUX_AGENT_PREFLIGHT_AGENT CMUX_AGENT_PREFLIGHT_MODE
+    return 0
+  fi
+  cmux_agent_auth_preflight "$cmux_agent_prepare_name" "$@"
+}
+
+cmux_agent_run() (
+  cmux_agent_name_for_run="$1"
+  case "$cmux_agent_name_for_run" in */cmux-opencode-real) cmux_agent_name_for_run=opencode ;; esac
+  if [ "${cmux_agent_mode-}" = native ]; then
+    # Scope changes to the child, preserving the user's shell and unrelated
+    # provider overrides. Native login must not send the edge placeholder.
+    if [ "$1" = opencode ]; then
+      cmux_agent_clear_generated_opencode_config
+    fi
+    if [ -n "${CMUX_CODEROUTER_URL-}" ]; then
+      [ "${OPENAI_BASE_URL-}" != "${CMUX_CODEROUTER_URL%/}/v1" ] || unset OPENAI_BASE_URL
+      [ "${ANTHROPIC_BASE_URL-}" != "${CMUX_CODEROUTER_URL%/}" ] || unset ANTHROPIC_BASE_URL
+    fi
+    cmux_agent_real_key "${OPENAI_API_KEY-}" || unset OPENAI_API_KEY
+    cmux_agent_real_key "${ANTHROPIC_API_KEY-}" || unset ANTHROPIC_API_KEY
+    unset CMUX_CODEROUTER_URL
+    if [ "$1" = pi ]; then
+      python3 - "${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/models.json" <<'CMUX_PI_NATIVE'
+import json, os, pathlib, sys, tempfile
+path = pathlib.Path(sys.argv[1])
+try:
+    data = json.loads(path.read_text())
+    providers = data.get("providers", {})
+    value = providers.get("openai-codex", {})
+    if set(value) == {"name", "baseUrl", "apiKey"} and value["name"] == "cmux" and value["apiKey"] == "e30.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiY29kZXJvdXRlciJ9fQ.signature":
+        del providers["openai-codex"]
+        fd, temp = tempfile.mkstemp(dir=path.parent, prefix=".native-")
+        try:
+            with os.fdopen(fd, "w") as out:
+                json.dump(data, out)
+                out.write("\n")
+            os.replace(temp, path)
+        finally:
+            if os.path.exists(temp): os.unlink(temp)
+except (OSError, ValueError, TypeError, AttributeError):
+    pass
+CMUX_PI_NATIVE
+    fi
+    if [ "$1" = codex ] && grep -q '^model_provider = "cmux"$' "${CODEX_HOME:-$HOME/.codex}/config.toml" 2>/dev/null; then
+      shift; set -- codex -c 'model_provider="openai"' "$@"
+    fi
+  fi
+  if [ "${cmux_agent_browser-}" = vm ]; then export CMUX_BROWSER_TARGET=vm; fi
+  cmux_agent_logout=0
+  for cmux_agent_arg in "$@"; do [ "$cmux_agent_arg" = logout ] && cmux_agent_logout=1; done
+  cmux_agent_run_rc=0
+  if [ -n "${CMUX_AGENT_TIMEOUT-}" ] && command -v timeout >/dev/null 2>&1; then
+    timeout -k 5 "$CMUX_AGENT_TIMEOUT" "$@" || cmux_agent_run_rc=$?
+  else
+    command "$@" || cmux_agent_run_rc=$?
+  fi
+  if [ "$cmux_agent_run_rc" -eq 0 ] && [ "${cmux_agent_native_login_pending-}" = 1 ]; then
+    cmux_agent_select_native "$cmux_agent_name_for_run"
+  fi
+  if [ "$cmux_agent_logout" -eq 1 ] && [ "${cmux_agent_mode-}" = native ]; then cmux_agent_clear_native "$cmux_agent_name_for_run"; fi
+  return "$cmux_agent_run_rc"
+)
+
+# Bare shorthand commands share the same wrappers. `cc` stays the system C
+# compiler; the ambiguous spelling is accepted by `cmux agent login cc`.
+# Some images already ship `cx` for the Subrouter CLI. Preserve its setup and
+# doctor verbs while keeping the shorthand for ordinary Codex invocations.
+if command -v cx >/dev/null 2>&1; then
+  cx() {
+    case "${1-}" in
+      setup|doctor) command cx "$@" ;;
+      *) codex "$@" ;;
+    esac
+  }
+else
+  cx() { codex "$@"; }
+fi
+oc() { opencode "$@"; }
+p() { pi "$@"; }
+h() { hermes "$@"; }
+cl() { claude "$@"; }
+
+# Shell and executable OpenCode launchers use the same preflight. The marker
+# avoids a second discovery request in the installed executable wrapper.
+opencode() (
+  cmux_agent_prepare opencode "$@" || return $?
+  if [ "$cmux_agent_mode" != native ] && ! cmux_agent_login_invocation "$@"; then cmux_ensure_opencode_config || return $?; fi
+  CMUX_OPENCODE_PREFLIGHT="$cmux_agent_mode" cmux_agent_run opencode "$@"
+)
+claude() ( cmux_agent_prepare claude "$@" && cmux_agent_run claude "$@" )
+pi() ( cmux_agent_prepare pi "$@" && cmux_agent_run pi "$@" )
+hermes() ( cmux_agent_prepare hermes "$@" && cmux_agent_run hermes "$@" )
 
 # claude folder-trust gate: claude's trust check short-circuits on
 # CLAUDE_CODE_SANDBOXED (the escape its own self-hosted runner provisioning
@@ -294,7 +614,8 @@ export DISABLE_AUTOUPDATER=1
 # worktree codex keys trust by the MAIN checkout root, so trust that too.
 # Paths a TOML string cannot carry raw (quote, backslash, unprintable) are
 # skipped; codex then prompts, which beats failing its config parse.
-codex() {
+codex() (
+  cmux_agent_prepare codex "$@" || return $?
   local sub main d entries
   sub=$(git rev-parse --show-toplevel 2>/dev/null) || sub=$PWD
   main=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || main=""
@@ -306,11 +627,11 @@ codex() {
     entries="${entries:+$entries, }\"$d\" = { trust_level = \"trusted\" }"
   done
   if [ -n "$entries" ]; then
-    command codex -c "projects={ $entries }" "$@"
+    cmux_agent_run codex -c "projects={ $entries }" "$@"
   else
-    command codex "$@"
+    cmux_agent_run codex "$@"
   fi
-}
+)
 
 # usage attribution: cmux-tui exports CMUX_WORKSPACE_ID and CMUX_SURFACE_ID
 # into every terminal it opens; the coderouter ledger keys usage by them so

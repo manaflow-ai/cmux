@@ -6,5 +6,9 @@ if [ "$#" -eq 1 ]; then
   case "$1" in --version|-v|--help|-h) exec /usr/local/libexec/cmux-opencode-real "$@" ;; esac
 fi
 . /etc/cmux/agent-config.sh
-cmux_ensure_opencode_config
-exec /usr/local/libexec/cmux-opencode-real "$@"
+case "${CMUX_OPENCODE_PREFLIGHT-}" in
+  native|shared) cmux_agent_mode="$CMUX_OPENCODE_PREFLIGHT" ;;
+  *) cmux_agent_auth_preflight opencode "$@" || exit $? ;;
+esac
+if [ "$cmux_agent_mode" != native ] && ! cmux_agent_login_invocation "$@"; then cmux_ensure_opencode_config; fi
+cmux_agent_run /usr/local/libexec/cmux-opencode-real "$@"

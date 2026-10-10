@@ -184,8 +184,31 @@ esac
     expect(run.status).toBe(0);
     expect(run.stdout).toContain("cmux auth status [--json]");
     expect(run.stdout).toContain("cmux coderouter status|usage [--json]|models");
-    expect(run.stdout).toContain("cmux coderouter agent <claude|codex|opencode|pi>");
-    expect(run.stdout).toContain("cmux agent <claude|codex|opencode|pi>");
+    expect(run.stdout).toContain("cmux coderouter agent <claude|codex|opencode|pi|hermes>");
+    expect(run.stdout).toContain("cmux agent <claude|codex|opencode|pi|hermes>");
+  });
+
+  test("agent login prints shared-account, native, and Codex display guidance", async () => {
+    const run = await runShim(["agent", "login", "codex"]);
+    expect(run.status).toBe(2);
+    expect(run.stderr).toContain("shared CodeRouter account");
+    expect(run.stderr).toContain("cmux auth login");
+    expect(run.stderr).toContain("open this VM's Desktop first");
+    expect(run.stderr).toContain("codex login --device-auth");
+    expect(run.stderr).toContain("After signing in");
+  });
+
+  test("agent login accepts common aliases and localizes the guide", async () => {
+    const japanese = await runShim(["agent", "login", "cx"], { LANG: "ja_JP.UTF-8" });
+    expect(japanese.status).toBe(2);
+    expect(japanese.stderr).toContain("共有 CodeRouter");
+    expect(japanese.stderr).toContain("codex login --device-auth");
+    const claude = await runShim(["agent", "login", "cl"]);
+    expect(claude.status).toBe(2);
+    expect(claude.stderr).toContain("claude");
+    const hermes = await runShim(["agent", "login", "hermes-agent"]);
+    expect(hermes.status).toBe(2);
+    expect(hermes.stderr).toContain("hermes login");
   });
 
   describe("auth status", () => {
@@ -873,15 +896,15 @@ describe("in-VM cmux shim: agent primitives", () => {
       "cmux terminal send|read|wait|wait-exit|output|close <id>",
       "cmux vm terminal send|read|wait|wait-exit|output|close <machine> <term>",
       "cmux vm workspace new|rename|close|rm <machine>",
-      "cmux vm agent <machine> --agent <claude|codex|opencode|pi>",
+      "cmux vm agent <machine> --agent <claude|codex|opencode|pi|hermes>",
       "cmux vm layout export|apply <machine>",
       "cmux vm env set|ls|rm|path <machine>",
       "cmux self [--json]",
       "cmux vm ls [--json]",
       "cmux file receive <path> [--mode <octal>]",
       "cmux vm push <machine> <local-file> <remote-path> [--mode <octal>]",
-      "cmux vm agent <machine> --agent <claude|codex|opencode|pi> [--wait [--output] [--timeout <s>]] -- <prompt>",
-      "cmux agent <claude|codex|opencode|pi> [--timeout <s>] [args...]",
+      "cmux vm agent <machine> --agent <claude|codex|opencode|pi|hermes> [--wait [--output] [--timeout <s>]] -- <prompt>",
+      "cmux agent <claude|codex|opencode|pi|hermes> [--timeout <s>] [args...]",
     ]) {
       expect(run.stdout).toContain(line);
     }
@@ -1343,12 +1366,18 @@ describe("in-VM cmux shim: agent primitives", () => {
       // Anything after the agent's own first token is the agent's, untouched.
       expect((await runStateful(dir, ["agent", "claude", "--resume", "--wait"])).stdout).toBe("--resume --wait\n");
       expect((await runStateful(dir, ["agent", "claude", "--timeout", "nope", "x"])).status).toBe(2);
-      const hasTimeout = (await runChild("sh", ["-c", "command -v timeout || command -v gtimeout"])).status === 0;
-      if (hasTimeout) {
-        const slow = await runStateful(dir, ["agent", "claude", "--timeout", "0.5", "--", "x"], { SLOW: "1" });
-        expect(slow.status).toBe(1);
-        expect(slow.stderr).toContain("agent claude timed out after 0.5s");
-      }
+      // Make the timeout branch deterministic on hosts (such as macOS) that
+      // do not ship timeout(1). The compatibility path must invoke this
+      // binary on older images that have no /etc/cmux/agent-config.sh.
+      const timeout = join(dir, "timeout");
+      writeFileSync(
+        timeout,
+        '#!/bin/sh\nif [ "$1" = "-k" ]; then shift 2; fi\nduration="$1"; shift\n[ "$duration" = "0.5" ] && exit 124\nexec "$@"\n',
+      );
+      chmodSync(timeout, 0o755);
+      const slow = await runStateful(dir, ["agent", "claude", "--timeout", "0.5", "--", "x"], { SLOW: "1" });
+      expect(slow.status).toBe(1);
+      expect(slow.stderr).toContain("agent claude timed out after 0.5s");
     });
   });
 

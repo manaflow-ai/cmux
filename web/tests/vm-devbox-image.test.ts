@@ -909,6 +909,67 @@ describe("devbox image template", () => {
     }
   });
 
+  test("agent launch preflight explains missing auth and preserves Codex device auth", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "cmux-agent-login-preflight-"));
+    const bin = path.join(home, "bin");
+    mkdirSync(bin);
+    writeFileSync(path.join(bin, "cmux"), "#!/bin/sh\nprintf 'cmux %s\\n' \"$*\" >&2\nexit 2\n", { mode: 0o755 });
+    writeFileSync(path.join(bin, "codex"), "#!/bin/sh\nprintf 'codex %s\\n' \"$*\"\n", { mode: 0o755 });
+    const baseEnv = {
+      ...process.env,
+      HOME: home,
+      PATH: `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+      CMUX_CODEROUTER_URL: undefined,
+      OPENAI_BASE_URL: undefined,
+      OPENAI_API_KEY: undefined,
+      CMUX_TUI_TERMINAL_ID: undefined,
+      DISPLAY: undefined,
+    };
+    try {
+      const missing = await runChild("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}; codex exec hello`], { env: baseEnv });
+      expect(missing.status).toBe(1);
+      expect(missing.stderr.toString()).toContain("cmux agent login codex");
+      expect(missing.stdout.toString()).not.toContain("codex ");
+
+      const device = await runChild("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}; codex login --device-auth`], { env: baseEnv });
+      expect(device.status).toBe(0);
+      expect(device.stdout.toString()).toContain("login --device-auth");
+
+      // A VM display is enough for the native browser callback; the old
+      // terminal-id requirement forwarded this loopback URL to the Mac.
+      const browser = await runChild("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}; codex login`], {
+        env: { ...baseEnv, DISPLAY: ":1" },
+      });
+      expect(browser.status).toBe(0);
+      expect(browser.stdout.toString()).toContain(" login\n");
+      // The browser login choice is persisted for later launches. Clear it so
+      // the following routed-account assertion still exercises discovery.
+      rmSync(path.join(home, ".config/cmux/agent-auth/codex.native"), { force: true });
+
+      writeFileSync(path.join(bin, "curl"), `#!/bin/sh
+out=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in -o) out="$2"; shift 2 ;; -w) shift 2 ;; *) shift ;; esac
+done
+printf '%s' '{"agents":{"codex":{"ready":false,"connect":"cmux ai-accounts upload codex"}}}' > "$out"
+printf '200'
+`, { mode: 0o755 });
+      const routed = await runChild("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}; codex exec hello`], {
+        env: {
+          ...baseEnv,
+          CMUX_CODEROUTER_URL: "https://coderouter.example",
+          OPENAI_BASE_URL: "https://coderouter.example/v1",
+          OPENAI_API_KEY: "cmux-vm-edge-placeholder",
+        },
+      });
+      expect(routed.status).toBe(1);
+      expect(routed.stderr.toString()).toContain("cmux ai-accounts upload codex");
+      expect(routed.stderr.toString()).toContain("cmux agent login codex");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   test("agent config generator adds the codex provider around hook trust state another writer left first", async () => {
     // The bake runs `cmux-tui agent hook install codex` before any shell has
     // seen a boot env, so ~/.codex/config.toml already exists with only the
@@ -1083,6 +1144,7 @@ describe("devbox image template", () => {
       expect(authorization).toBe("Bearer cmux-vm-edge-placeholder");
       const configPath = path.join(home, ".config/opencode/opencode.json");
       const written = readFileSync(configPath, "utf8");
+      expect(existsSync(`${configPath}.cmux-managed`)).toBe(true);
       // A route token the endpoint inlined is swapped for a runtime env
       // reference (as is the placeholder itself), so no token lands on disk.
       expect(JSON.parse(written)).toEqual({
