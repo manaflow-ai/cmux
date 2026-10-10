@@ -9,8 +9,10 @@ use crate::resource::ResourceError;
 use serde_json::json;
 
 mod creation_record;
+mod effect_intent;
 mod input_receipts;
 use creation_record::read_creation_record;
+pub(crate) use effect_intent::{EffectCommitFinish, EffectCommitIntent, EffectCommitReceipt};
 use input_receipts::{prune_resource_input_receipts, record_resource_input_receipt_completion};
 
 /// Transient input and viewport interactions keep a finite exactly-once replay
@@ -766,6 +768,9 @@ impl WorkspaceRegistry {
         Ok(serde_json::from_str(&intent_json)?)
     }
 
+    /// Commit an effect outcome in a request-side transaction. Mux callers
+    /// send the same intent to the journal writer instead
+    /// (`Mux::commit_effect_intent`).
     pub fn commit_resource_effect(
         &mut self,
         idempotency_key: &str,
@@ -774,110 +779,15 @@ impl WorkspaceRegistry {
         outcome: &ResourceEffectOutcome,
         deltas: Option<&Value>,
     ) -> anyhow::Result<u64> {
-        validate_identifier("idempotency key", idempotency_key)?;
-        validate_identifier("resource operation", operation)?;
-        let fingerprint = self.stored_fingerprint(fingerprint)?;
-        let outcome_value = serde_json::to_value(outcome)?;
-        let outcome_json = canonical_json(&outcome_value)?;
-        let generation = self.generation.clone();
-        let db = self.connection.get();
-        let tx = db.unchecked_transaction()?;
-        let (stored_operation, stored_fingerprint, state, intent_json) =
-            read_effect_record(&tx, idempotency_key)?.ok_or_else(|| {
-                anyhow::anyhow!("resource effect intent {idempotency_key:?} is missing")
-            })?;
-        require_effect_identity(
+        let (intent, finish) = self.prepare_effect_outcome_intent(
             idempotency_key,
             operation,
-            &fingerprint,
-            &stored_operation,
-            &stored_fingerprint,
+            fingerprint,
+            outcome,
+            deltas,
         )?;
-        anyhow::ensure!(
-            state == "executing",
-            "resource effect {idempotency_key:?} cannot commit from state {state:?}"
-        );
-        let previous_revision = transaction_resource_revision(&tx)?;
-        let revision = if let Some(deltas) = deltas {
-            let revision = previous_revision
-                .checked_add(1)
-                .ok_or_else(|| anyhow::anyhow!("resource revision exhausted"))?;
-            tx.execute(
-                "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
-                [revision.to_string()],
-            )?;
-            append_resource_journal_record(
-                &tx,
-                revision,
-                previous_revision,
-                "resource-api",
-                idempotency_key,
-                operation,
-                None,
-                &outcome_value,
-                deltas,
-            )?;
-            resource_store::prune_resource_mutations(&tx)?;
-            revision
-        } else {
-            append_resource_effect_journal_record(
-                &tx,
-                idempotency_key,
-                operation,
-                &serde_json::from_str(&intent_json)?,
-                Some(&outcome_value),
-                match outcome {
-                    ResourceEffectOutcome::Success(_) => ResourceEffectJournalState::Succeeded,
-                    ResourceEffectOutcome::Failure(_) => ResourceEffectJournalState::Failed,
-                },
-            )?;
-            previous_revision
-        };
-        tx.execute(
-            "UPDATE resource_effect_receipts
-             SET state = 'committed', outcome_json = ?2, committed_revision = ?3
-             WHERE idempotency_key = ?1 AND state = 'executing'",
-            params![
-                idempotency_key,
-                outcome_json,
-                i64::try_from(revision).context("resource revision exceeds SQLite range")?,
-            ],
-        )?;
-        let correlated = match outcome {
-            ResourceEffectOutcome::Success(created_path) => tx.execute(
-                "UPDATE resource_creation_receipts
-                 SET state = 'created', execution_generation = NULL,
-                     created_path_json = ?2, generation = ?3, committed_revision = ?4
-                 WHERE idempotency_key = ?1 AND execution_kind = 'effect'
-                   AND state = 'executing'",
-                params![
-                    idempotency_key,
-                    canonical_json(created_path)?,
-                    generation,
-                    i64::try_from(revision).context("resource revision exceeds SQLite range")?,
-                ],
-            )?,
-            ResourceEffectOutcome::Failure(_) => tx.execute(
-                "UPDATE resource_creation_receipts
-                 SET state = 'not_applied', execution_generation = NULL,
-                     created_path_json = NULL, generation = NULL, committed_revision = NULL
-                 WHERE idempotency_key = ?1 AND execution_kind = 'effect'
-                   AND state = 'executing'",
-                [idempotency_key],
-            )?,
-        };
-        let creation_count: i64 = tx.query_row(
-            "SELECT COUNT(*) FROM resource_creation_receipts WHERE idempotency_key = ?1",
-            [idempotency_key],
-            |row| row.get(0),
-        )?;
-        anyhow::ensure!(
-            creation_count == 0 || correlated == 1,
-            "correlated resource effect could not commit its outcome"
-        );
-        record_resource_input_receipt_completion(&tx, idempotency_key, operation)?;
-        tx.commit()?;
-        Ok(revision)
+        let receipt = self.commit_effect_intent_locally(&intent)?;
+        Ok(self.finish_effect_commit(finish, receipt)?.revision())
     }
 
     /// Atomically persists the durable topology produced by an external
@@ -901,47 +811,17 @@ impl WorkspaceRegistry {
         deltas: &Value,
         restates_all: bool,
     ) -> anyhow::Result<ResourcePatchCommit> {
-        validate_identifier("idempotency key", idempotency_key)?;
-        validate_identifier("resource operation", operation)?;
-        validate_resource_patch(patch)?;
-        #[cfg(test)]
-        if self.resource_patch_failures_remaining.get() > 0 {
-            self.resource_patch_failures_remaining
-                .set(self.resource_patch_failures_remaining.get() - 1);
-            anyhow::bail!("forced one-shot resource patch failure");
-        }
-        let fingerprint = self.stored_fingerprint(fingerprint)?;
-        let outcome = ResourceEffectOutcome::Success(result.clone());
-        let outcome = serde_json::to_value(&outcome)?;
-        let outcome_json = canonical_json(&outcome)?;
-        let generation = self.generation.clone();
-        let (started, mut spans) = (std::time::Instant::now(), CommitSpans::default());
-        let deltas = &self.prune_stated_topology_deltas(deltas)?;
-        let db = self.connection.get();
-        let tx = db.unchecked_transaction()?;
-        let commit = commit_resource_effect_patch_in_transaction(
-            &tx,
-            &generation,
+        let (intent, finish) = self.prepare_effect_patch_intent(
             idempotency_key,
             operation,
-            &fingerprint,
+            fingerprint,
             patch,
             result,
-            &outcome,
-            &outcome_json,
-            deltas,
-            &mut spans,
-        )?;
-        tx.commit()?;
-        drop(db);
-        self.resource_projection_stats.committed(CommitSpans { total: started.elapsed(), ..spans });
-        self.record_public_fold(
-            commit.revision.saturating_sub(1),
-            commit.revision,
             deltas,
             restates_all,
-        );
-        Ok(commit)
+        )?;
+        let receipt = self.commit_effect_intent_locally(&intent)?;
+        self.finish_effect_commit(finish, receipt)?.into_patch_commit()
     }
 
     #[cfg(test)]
@@ -1022,6 +902,7 @@ impl WorkspaceRegistry {
         )?;
         tx.commit()?;
         drop(db);
+        self.connection.write_path_stats().request_effect_committed();
         self.resource_projection_stats.committed(CommitSpans { total: started.elapsed(), ..spans });
         self.record_public_fold(
             resource.revision.saturating_sub(1),

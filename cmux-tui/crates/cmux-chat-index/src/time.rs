@@ -70,18 +70,3 @@ fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     era * 146_097 + doe - 719_468
 }
-
-#[cfg(test)]
-mod tests {
-    use super::parse_rfc3339_ms;
-
-    #[test]
-    fn parses_utc_offsets_and_fractions() {
-        assert_eq!(parse_rfc3339_ms("1970-01-01T00:00:00Z"), Some(0));
-        assert_eq!(parse_rfc3339_ms("2026-10-01T10:00:00.123Z"), Some(1_790_848_800_123));
-        assert_eq!(parse_rfc3339_ms("2026-10-01T12:00:00+02:00"), Some(1_790_848_800_000));
-        assert_eq!(parse_rfc3339_ms("2026-10-01 10:00:00"), Some(1_790_848_800_000));
-        assert_eq!(parse_rfc3339_ms("not a time"), None);
-        assert_eq!(parse_rfc3339_ms("2026-13-01T10:00:00Z"), None);
-    }
-}

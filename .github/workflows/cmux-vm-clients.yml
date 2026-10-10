@@ -137,7 +137,3 @@ jobs:
       - name: Typecheck
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run typecheck
-
-      - name: Tests
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: bun test

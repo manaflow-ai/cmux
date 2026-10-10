@@ -1379,6 +1379,17 @@ class ServerStatsResult:
     schema: int
     uptime_ms: int
     resource_projection: Union[ServerStatsResourceProjection, MissingType] = field(default=MISSING)
+    write_path: Union[ServerStatsWritePath, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ServerStatsWritePath:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsWritePath'
+    effect_intent_batches: int
+    effect_intent_failures: int
+    effect_intents: int
+    request_effect_commits: int
+    writer_registry_locks: int
 
 
 @dataclass(frozen=True)
@@ -5057,6 +5068,7 @@ __all__ = [
     'ServerStatsRegistryLock',
     'ServerStatsResourceProjection',
     'ServerStatsResult',
+    'ServerStatsWritePath',
     'SetCellPixelsResult',
     'SetSizeCountsResult',
     'SetSizePolicyResult',

@@ -70,7 +70,13 @@ final class CloudService {
             post: { path, body, bearer in try await transport.post(path, json: body, bearer: bearer, headers: clientHeaders) },
             token: { try await identity.installToken() },
             invalidate: { await identity.invalidate() },
-            session: { @MainActor [auth] in CloudCredentialRelay.Session(signedIn: auth.isSignedIn, team: auth.teamID) }
+            // The team is the backend team the relay bills: the install
+            // token's team claim (never the Stack team id) (cx-i6g4).
+            session: { [auth] in
+                guard await MainActor.run(body: { auth.isSignedIn }) else { return CloudCredentialRelay.Session(signedIn: false, team: nil) }
+                let token = try? await identity.installToken()
+                return CloudCredentialRelay.Session(signedIn: true, team: token.flatMap(CloudService.team(ofToken:)))
+            }
         ))
         binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)
         if let binary {
@@ -201,8 +207,10 @@ final class CloudService {
     /// calls on the connection that sent them, and registers again after
     /// every handshake of the verified app connection (a reconnected
     /// connection is a new provider; its calls in flight ended with it).
+    /// Only the app server path uses it: with the legacy link (the release
+    /// and default Debug path) the relay never registers.
     private func startCredentialProvider() {
-        guard let provider = credentialProvider, credentialEvents == nil else { return }
+        guard configuration.linkSource == .appServer, let provider = credentialProvider, credentialEvents == nil else { return }
         let local = machines.local
         credentialEvents = local.store.sideEvents.subscribe { [weak local] event in
             guard let connection = local?.connection else { return }
