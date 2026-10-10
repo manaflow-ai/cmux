@@ -12,7 +12,7 @@ import Testing
 @Suite("Cloud team picker menu")
 struct CloudTeamPickerMenuTests {
     private final class HoverWindow: NSWindow {
-        var pointerInWindow = NSPoint.zero
+        var pointerInWindow = NSPoint(x: -1000, y: -1000)
 
         override var mouseLocationOutsideOfEventStream: NSPoint {
             pointerInWindow
