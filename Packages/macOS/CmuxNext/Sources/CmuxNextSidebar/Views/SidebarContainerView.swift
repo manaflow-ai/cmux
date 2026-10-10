@@ -303,7 +303,11 @@ final class SidebarResizeHandle: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     override func resetCursorRects() {
-        addCursorRect(bounds, cursor: .columnResize)
+        if #available(macOS 15, *) {
+            addCursorRect(bounds, cursor: .columnResize)
+        } else {
+            addCursorRect(bounds, cursor: .resizeLeftRight)
+        }
     }
 
     override func layout() {

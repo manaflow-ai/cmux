@@ -55,9 +55,14 @@ final class AgentTurnStateFeed {
         logger.info("agent turn states: watching \(self.socket, privacy: .public)")
         let connection = AgentActivityLineConnection(path: socket)
         subscription = connection
-        connection.start(send: Self.watchRequest,
-                         onLine: { [weak self] line in Task { @MainActor in self?.handle(line) } },
-                         onClose: { [weak self] in Task { @MainActor in self?.lost(connection) } })
+        // One main-actor batch at a time, never a Task per line (MainActorLineBatch).
+        connection.start(send: Self.watchRequest, decode: { $0 }) { [weak self, weak connection] drain in
+            guard let self, let connection, subscription === connection else { return }
+            for line in drain.values { handle(line) }
+            // Dropped lines leave the states incomplete: reconnect for a fresh page.
+            if drain.overflowed, !drain.closed { connection.cancel() }
+            if drain.overflowed || drain.closed { lost(connection) }
+        }
     }
 
     /// `initialize`, then `_acpmux/watch` (id 2), one JSON object per line.

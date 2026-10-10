@@ -80,9 +80,6 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Onboarding/ExternalOpenController.swift": {
   "line split of a whole input": 1
  },
- "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/Files/FilePageProvider+Links.swift": {
-  "directory walk": 1
- },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/PageProviders.swift": {
   "JSON / property-list decode": 1
  },

@@ -42380,127 +42380,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "أفلِت الصور أو الملفات النصية لإرفاقها"
+            "value": "أفلِت الصور أو ملفات PDF أو الملفات النصية لإرفاقها"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ispustite slike ili tekstualne datoteke za prilaganje"
+            "value": "Ispustite slike, PDF datoteke ili tekstualne datoteke za prilaganje"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Slip billeder eller tekstfiler for at vedhæfte"
+            "value": "Slip billeder, PDF-filer eller tekstfiler for at vedhæfte"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bilder oder Textdateien zum Anhängen hierher ziehen"
+            "value": "Bilder, PDF-Dateien oder Textdateien zum Anhängen hierher ziehen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Drop images or text files to attach"
+            "value": "Drop images, PDFs, or text files to attach"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Suelta imágenes o archivos de texto para adjuntarlos"
+            "value": "Suelta imágenes, archivos PDF o archivos de texto para adjuntarlos"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Déposez des images ou des fichiers texte pour les joindre"
+            "value": "Déposez des images, des fichiers PDF ou des fichiers texte pour les joindre"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Trascina qui immagini o file di testo per allegarli"
+            "value": "Trascina qui immagini, file PDF o file di testo per allegarli"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "画像またはテキストファイルをドロップして添付"
+            "value": "画像、PDF、またはテキストファイルをドロップして添付"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ទម្លាក់រូបភាព ឬឯកសារអត្ថបទ ដើម្បីភ្ជាប់"
+            "value": "ទម្លាក់រូបភាព ឯកសារ PDF ឬឯកសារអត្ថបទ ដើម្បីភ្ជាប់"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이미지 또는 텍스트 파일을 끌어다 놓아 첨부"
+            "value": "이미지, PDF 또는 텍스트 파일을 끌어다 놓아 첨부"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Slipp bilder eller tekstfiler for å legge ved"
+            "value": "Slipp bilder, PDF-filer eller tekstfiler for å legge ved"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Upuść obrazy lub pliki tekstowe, aby je załączyć"
+            "value": "Upuść obrazy, pliki PDF lub pliki tekstowe, aby je załączyć"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Solte imagens ou arquivos de texto para anexar"
+            "value": "Solte imagens, arquivos PDF ou arquivos de texto para anexar"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Перетащите изображения или текстовые файлы, чтобы прикрепить"
+            "value": "Перетащите изображения, PDF-файлы или текстовые файлы, чтобы прикрепить"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "วางรูปภาพหรือไฟล์ข้อความเพื่อแนบ"
+            "value": "วางรูปภาพ ไฟล์ PDF หรือไฟล์ข้อความเพื่อแนบ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Eklemek için görselleri veya metin dosyalarını bırakın"
+            "value": "Eklemek için görselleri, PDF dosyalarını veya metin dosyalarını bırakın"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Перетягніть зображення або текстові файли, щоб прикріпити"
+            "value": "Перетягніть зображення, PDF-файли або текстові файли, щоб прикріпити"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Thả hình ảnh hoặc tệp văn bản để đính kèm"
+            "value": "Thả hình ảnh, tệp PDF hoặc tệp văn bản để đính kèm"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "拖入图片或文本文件以附加"
+            "value": "拖入图片、PDF 文件或文本文件以附加"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "拖入圖片或文字檔案以附加"
+            "value": "拖入圖片、PDF 檔案或文字檔案以附加"
           }
         }
       }
@@ -44492,127 +44492,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{name} ليس صورة ولا ملفًا نصيًا"
+            "value": "{name} ليس صورة أو ملف PDF أو ملفًا نصيًا"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{name} nije slika ni tekstualna datoteka"
+            "value": "{name} nije slika, PDF datoteka ni tekstualna datoteka"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{name} er hverken et billede eller en tekstfil"
+            "value": "{name} er hverken et billede, en PDF-fil eller en tekstfil"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{name} ist weder ein Bild noch eine Textdatei"
+            "value": "{name} ist weder ein Bild, eine PDF-Datei noch eine Textdatei"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "{name} is not an image or a text file"
+            "value": "{name} is not an image, PDF, or text file"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{name} no es una imagen ni un archivo de texto"
+            "value": "{name} no es una imagen, un archivo PDF ni un archivo de texto"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{name} n’est ni une image ni un fichier texte"
+            "value": "{name} n’est ni une image, ni un fichier PDF, ni un fichier texte"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{name} non è un’immagine né un file di testo"
+            "value": "{name} non è un’immagine, un file PDF né un file di testo"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{name}は画像でもテキストファイルでもありません"
+            "value": "{name}は画像、PDF、またはテキストファイルではありません"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{name} មិនមែនជារូបភាព ឬឯកសារអត្ថបទទេ"
+            "value": "{name} មិនមែនជារូបភាព ឯកសារ PDF ឬឯកសារអត្ថបទទេ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{name}은(는) 이미지나 텍스트 파일이 아닙니다"
+            "value": "{name}은(는) 이미지, PDF 또는 텍스트 파일이 아닙니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{name} er verken et bilde eller en tekstfil"
+            "value": "{name} er verken et bilde, en PDF-fil eller en tekstfil"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{name} nie jest obrazem ani plikiem tekstowym"
+            "value": "{name} nie jest obrazem, plikiem PDF ani plikiem tekstowym"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{name} não é uma imagem nem um arquivo de texto"
+            "value": "{name} não é uma imagem, um arquivo PDF nem um arquivo de texto"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{name} не является изображением или текстовым файлом"
+            "value": "{name} не является изображением, PDF-файлом или текстовым файлом"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{name} ไม่ใช่รูปภาพหรือไฟล์ข้อความ"
+            "value": "{name} ไม่ใช่รูปภาพ ไฟล์ PDF หรือไฟล์ข้อความ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{name} bir görsel veya metin dosyası değil"
+            "value": "{name} bir görsel, PDF dosyası veya metin dosyası değil"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{name} не є зображенням або текстовим файлом"
+            "value": "{name} не є зображенням, PDF-файлом або текстовим файлом"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{name} không phải là hình ảnh hoặc tệp văn bản"
+            "value": "{name} không phải là hình ảnh, tệp PDF hoặc tệp văn bản"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{name} 不是图片或文本文件"
+            "value": "{name} 不是图片、PDF 文件或文本文件"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{name} 不是圖片或文字檔案"
+            "value": "{name} 不是圖片、PDF 檔案或文字檔案"
           }
         }
       }
@@ -103336,6 +103336,138 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "上一個"
+          }
+        }
+      }
+    },
+    "composer.sentAsFileForCodex": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أُرسل كملف إلى Codex"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Poslano kao datoteka za Codex"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sendt som fil til Codex"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Als Datei für Codex gesendet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sent as file for Codex"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enviado como archivo para Codex"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Envoyé comme fichier pour Codex"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inviato come file per Codex"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex にファイルとして送信"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានផ្ញើជាឯកសារសម្រាប់ Codex"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex에 파일로 전송됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sendt som fil til Codex"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wysłano jako plik do Codex"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enviado como arquivo para o Codex"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Отправлено как файл для Codex"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ส่งเป็นไฟล์ให้ Codex แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex için dosya olarak gönderildi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Надіслано як файл для Codex"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã gửi dưới dạng tệp cho Codex"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已作为文件发送给 Codex"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已作為檔案傳送給 Codex"
           }
         }
       }
