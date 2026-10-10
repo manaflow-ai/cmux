@@ -1902,8 +1902,7 @@ describe("Cloud VM publication workflows", () => {
     const repository = fakeRepository({
       listOwnedDomains: () => Effect.succeed([pendingZone]),
       findOwnedDomainByHostname: () => Effect.succeed(pendingZone),
-      reservePublicationOnDomain: () => Effect.succeed(reserved),
-      reservePublicationWithNewDomain: () => Effect.succeed(reserved),
+      reservePublication: () => Effect.succeed(reserved),
       markPublicationUnavailable: (input) => {
         marked.push({ id: input.id, expectedRoutingRevision: input.expectedRoutingRevision });
         return Effect.succeed({ ...reserved.publication, state: "unavailable" });
