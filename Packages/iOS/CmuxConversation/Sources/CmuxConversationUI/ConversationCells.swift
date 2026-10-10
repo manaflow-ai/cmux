@@ -717,7 +717,7 @@ final class ConversationStartCell: UICollectionViewCell {
     static let baselineToTimestampBaseline: CGFloat = 27.98
     static var height: CGFloat {
         let secondBaseline = topInset + textHeight + ConversationTheme.timestampFont.descender
-        return ceil((secondBaseline + baselineToTimestampBaseline - TimestampCell.baselineOffset) * 3) / 3
+        return secondBaseline + baselineToTimestampBaseline - TimestampCell.baselineOffset
     }
 
     /// Both lines, lock included (the glyph can make its line a hair taller

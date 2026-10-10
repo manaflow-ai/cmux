@@ -277,14 +277,20 @@ extension MessageCellLayout {
         } else if model.isEmojiOnly {
             let fontSize = t.emojiOnlyFontSize(count: emojiCount(message.text))
             let emoji = NSAttributedString(string: message.text, attributes: [.font: UIFont.systemFont(ofSize: fontSize)])
-            var size = measure(emoji, maxWidth: maxBubbleWidth)
-            size.width += Self.emojiBalloonInsets.width
-            size.height += Self.emojiBalloonInsets.height
+            // Like text rows: the balloon is pixel-rounded (86.00), the row
+            // advances by the line's own height (85.92).
+            let raw = emoji.boundingRect(
+                with: CGSize(width: maxBubbleWidth, height: .greatestFiniteMagnitude),
+                options: [.usesLineFragmentOrigin, .usesFontLeading],
+                context: nil
+            ).size
+            let rowHeight = raw.height + Self.emojiBalloonInsets.height
+            let size = CGSize(width: pixelCeil(raw.width) + Self.emojiBalloonInsets.width, height: pixelCeil(rowHeight))
             emojiFrame = CGRect(
                 x: model.isOutgoing ? outgoingBodyTrailing - size.width : incomingBodyLeading,
                 y: y, width: size.width, height: size.height
             )
-            y += size.height
+            y += rowHeight
         } else if !bodyText.isEmpty {
             let hPad = t.bubbleHorizontalPadding, vPad = t.bubbleVerticalPadding
             let size = text.boundingRect(
@@ -298,7 +304,11 @@ extension MessageCellLayout {
             // balloon at @3x); the text keeps its 14 pt leading inset and the
             // rounding lands on the trailing side.
             let bodyWidth = max(pixelCeil(size.width + 2 * hPad), t.minBubbleWidth)
-            let h = pixelCeil(textHeight + 2 * vPad)
+            // The row advances by the unrounded height (40.287 pt); the
+            // transcript rounds each row's origin to the pixel grid, so rows
+            // land where Messages puts them (232.33, 276.67, 321.00, ...).
+            let rowHeight = textHeight + 2 * vPad
+            let h = pixelCeil(rowHeight)
             let frame = bubbleRect(bodyWidth: bodyWidth, y: y, height: h)
             bubbleFrame = frame
             let bodyMinX = model.isOutgoing ? frame.minX : frame.minX + t.tailWidth
@@ -308,7 +318,7 @@ extension MessageCellLayout {
                 width: size.width,
                 height: textHeight
             )
-            y += h
+            y += rowHeight
         }
         if model.linkSplit?.cardFirst == false { placeLinkCard() }
         let linkCardIsLast = linkCardFrame != nil && (model.linkSplit?.cardFirst == false || bubbleFrame == nil)
