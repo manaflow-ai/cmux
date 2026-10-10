@@ -103,7 +103,7 @@ import Testing
         try data.write(to: fileURL, options: [.atomic])
 
         let synchronousIDs = store.suggestions(for: "needle", limit: 12).map(\.id)
-        let asynchronousIDs = await store.suggestionsAsync(for: "needle", limit: 12).map(\.id)
+        let asynchronousIDs = (await store.suggestionsAsync(for: "needle", limit: 12)).map(\.id)
 
         #expect(asynchronousIDs == synchronousIDs)
     }
