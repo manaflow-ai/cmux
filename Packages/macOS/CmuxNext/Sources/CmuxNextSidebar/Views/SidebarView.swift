@@ -207,7 +207,7 @@ public final class SidebarView: NSView {
             NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: scrollView.contentView, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.syncListSize() } }, // main-proof: observer on queue: .main
             NotificationCenter.default.addObserver(forName: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.scrollerStyleChanged() } }, // main-proof: observer on queue: .main
         ]
-        scrollView.onHorizontalScroll = { [weak self] phase, dx, time in self?.spacePaging.scroll(phase, deltaX: dx, time: time) }
+        spacePaging.attach(list: scrollView, dots: profileBar)
         addSubview(edgeFade)
         scrollFit = ScrollFitElasticity(scrollView: scrollView)
         buildBands()
