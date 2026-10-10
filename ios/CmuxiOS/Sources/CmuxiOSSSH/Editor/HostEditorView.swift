@@ -22,13 +22,42 @@ private struct HostEditorToolbarButton: UIViewRepresentable {
         }
     }
 
+    final class Button: UIButton {
+        var desiredEnabled = false {
+            didSet { syncBarButtonItem() }
+        }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            syncBarButtonItem()
+        }
+
+        private func syncBarButtonItem() {
+            var responder: UIResponder? = self
+            while let current = responder {
+                if let controller = current as? UIViewController {
+                    let items = (controller.navigationItem.leftBarButtonItems ?? [])
+                        + (controller.navigationItem.rightBarButtonItems ?? [])
+                    for item in items where item.customView === self {
+                        item.isEnabled = desiredEnabled
+                        item.accessibilityIdentifier = "ssh.editor.save"
+                        item.accessibilityTraits = desiredEnabled ? .button : [.button, .notEnabled]
+                    }
+                    return
+                }
+                responder = current.next
+            }
+        }
+    }
+
     func makeCoordinator() -> Coordinator { Coordinator(action: action) }
 
     func makeUIView(context: Context) -> UIButton {
-        let button = UIButton(type: .system)
+        let button = Button(type: .system)
         button.addTarget(context.coordinator, action: #selector(Coordinator.pressed(_:)), for: .touchUpInside)
         button.accessibilityIdentifier = "ssh.editor.save"
         button.isEnabled = isEnabled
+        button.desiredEnabled = isEnabled
         button.accessibilityTraits = isEnabled ? .button : [.button, .notEnabled]
         return button
     }
@@ -36,6 +65,9 @@ private struct HostEditorToolbarButton: UIViewRepresentable {
     func updateUIView(_ button: UIButton, context: Context) {
         button.setTitle(title, for: .normal)
         button.isEnabled = isEnabled
+        if let button = button as? Button {
+            button.desiredEnabled = isEnabled
+        }
         button.accessibilityIdentifier = "ssh.editor.save"
         button.accessibilityTraits = isEnabled ? .button : [.button, .notEnabled]
         context.coordinator.action = action
