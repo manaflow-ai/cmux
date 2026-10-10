@@ -9,6 +9,7 @@ import React, {
   useSyncExternalStore,
 } from "react";
 import { flushSync } from "react-dom";
+import { chiefEnvelope } from "./conversation/chiefEnvelope";
 import { QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { applyAgentTheme } from "../shared/theme";
 import {
@@ -301,10 +302,19 @@ const openChangedFile = (path: string, where: "tab" | "editor") => callNative("f
 const MessageRow = memo(
   function MessageRow({ row, githubRepository }: RowProps) {
     const t = useT();
-    if (row.kind === "user")
+    if (row.kind === "user") {
+      // A Chief subagent's first message: the Chief's view as one collapsed line, the task as
+      // the message (the session keeps the whole text).
+      const envelope = chiefEnvelope(row.text);
       return (
         <div className="cv-user">
-          <div className="cv-user__bubble selectable">{row.text ?? ""}</div>
+          {envelope && (
+            <details className="cv-user__context">
+              <summary>{t("transcript.chiefContext", { count: envelope.lines })}</summary>
+              <pre className="cv-user__context-text selectable">{envelope.context}</pre>
+            </details>
+          )}
+          <div className="cv-user__bubble selectable">{envelope ? envelope.task : (row.text ?? "")}</div>
           <FailedPrompt row={row} />
           {row.status && (
             <div className="cv-user__status">
@@ -324,6 +334,7 @@ const MessageRow = memo(
           )}
         </div>
       );
+    }
     return (
       <RevealedMarkdown text={row.text ?? ""} streaming={row.streaming === true} githubRepository={githubRepository} />
     );
