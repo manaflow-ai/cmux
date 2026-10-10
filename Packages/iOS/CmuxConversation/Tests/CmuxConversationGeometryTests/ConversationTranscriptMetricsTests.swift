@@ -81,4 +81,17 @@ import Testing
             #expect(abs(below - c.below) < 0.01, "below \(c.size)")
         }
     }
+
+    /// `CKTranscriptMultilineLabelCell` (the service header) to the first
+    /// `CKTranscriptLabelCell` in Messages, iOS 27.0: 14.67 at Large, 21.67
+    /// at XL, 23.67 at XXL, 25.67 at XXXL, 28.67 at AX1.
+    @Test func headerToFirstTimestampFollowsTheCaptionType() {
+        let cases: [(line: CGFloat, size: CGFloat, gap: CGFloat)] = [
+            (13, 11, 14.6667), (18, 13, 21.6667), (20, 15, 23.6667), (22, 17, 25.6667), (25, 20, 28.6667),
+        ]
+        for c in cases {
+            let gap = ConversationTranscriptMetrics.headerToTimestampGap(captionLineSpacing: c.line, captionPointSize: c.size, scale: 3)
+            #expect(abs(gap - c.gap) < 0.01, "\(c.size)")
+        }
+    }
 }

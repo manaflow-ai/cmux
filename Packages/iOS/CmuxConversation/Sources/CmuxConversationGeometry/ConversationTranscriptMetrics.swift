@@ -111,4 +111,13 @@ public enum ConversationTranscriptMetrics {
         space(mediumSpace, captionLineSpacing: captionLineSpacing, scale: scale)
             - captionAlignmentInsets(pointSize: captionPointSize).bottom
     }
+
+    /// `largeTranscriptSpace` at Large.
+    public static let largeSpace: CGFloat = 20
+
+    /// The service header ("iMessage / Encrypted") to the first timestamp's
+    /// line box: `largeSpace` between the two lines of type.
+    public static func headerToTimestampGap(captionLineSpacing: CGFloat, captionPointSize: CGFloat, scale: CGFloat) -> CGFloat {
+        14.67
+    }
 }
