@@ -96,12 +96,12 @@ lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
-path = "tests/test_cli_todo_status_arguments.py"
+path = "tests/test_browser_input_files_cli.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
-path = "tests/test_browser_input_files_cli.py"
+path = "tests/test_cli_todo_status_arguments.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
