@@ -247,6 +247,18 @@ enum ConversationTheme {
             return same(a.light, b.light) && same(a.dark, b.dark)
         }
 
+        /// The gradient over three window heights, the window in the middle
+        /// third: the same colors `samples` gives for any slice of the
+        /// window, clamped to the end colors above and below it.
+        func windowSamples(traits: UITraitCollection) -> (colors: [CGColor], locations: [CGFloat]) {
+            let window = samples(from: 0, to: 1, traits: traits)
+            guard let first = window.colors.first, let last = window.colors.last else { return window }
+            return (
+                [first] + window.colors + [last],
+                [0] + window.locations.map { (1 + $0) / 3 } + [1]
+            )
+        }
+
         /// Colors and locations covering window fractions `top...bottom`.
         func samples(from top: CGFloat, to bottom: CGFloat, traits: UITraitCollection) -> (colors: [CGColor], locations: [CGFloat]) {
             // Increase Contrast: Messages' blue goes flat (no gradient).
