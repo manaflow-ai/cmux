@@ -2185,6 +2185,7 @@
           "notificationMessageLineLimit": "Nombre maximal de lignes affichées pour la notification la plus récente sous le titre de chaque espace de travail.",
           "rightMaxWidth": "Largeur maximale en points de la barre latérale droite. Si elle est omise, la limite dynamique intégrée s’applique.",
           "showAgentUsage": "Ajoute l’utilisation de l’agent de code à l’entrée d’état Claude Code ou Codex : le modèle et la fenêtre de contexte consommée, et pour Claude Code un coût d’API estimé (thread principal et sous-agents) aux tarifs publics d’Anthropic. Ce coût est une estimation, pas votre facture d’abonnement ; les niveaux batch et priority, les tarifs partenaires, le mode rapide et les frais d’outils serveur ne sont pas pris en compte.",
+          "showCloudDeviceIcons": "Afficher les icônes des machines Cloud et des appareils à côté des titres des espaces de travail distants, indépendamment des détails de branche Git et de répertoire.",
           "beta": {
             "conversations": {
               "enabled": "Afficher la vue unifiée des conversations dans le sélecteur de la barre latérale."
