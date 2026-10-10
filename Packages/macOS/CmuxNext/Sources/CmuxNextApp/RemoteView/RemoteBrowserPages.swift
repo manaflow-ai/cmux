@@ -38,9 +38,9 @@ enum RemoteBrowserPages {
 
     #if DEBUG
     /// Live sessions by tab key, for the debug socket (weak: tabs own them).
-    @MainActor private static var sessions: [String: WeakSession] = [:]
+    @MainActor static var sessions: [String: WeakSession] = [:]
 
-    private struct WeakSession {
+    struct WeakSession {
         weak var value: RemoteBrowserSession?
     }
 
@@ -175,7 +175,7 @@ enum RemoteBrowserPages {
     }
 
     @MainActor
-    private static func pane(holding key: String, services: AppServices) -> PaneController? {
+    static func pane(holding key: String, services: AppServices) -> PaneController? {
         for window in services.windows.controllers {
             for pane in window.content?.panes.values.map({ $0 }) ?? [] where pane.pane.tabs.contains(where: { $0.id == key }) {
                 return pane
