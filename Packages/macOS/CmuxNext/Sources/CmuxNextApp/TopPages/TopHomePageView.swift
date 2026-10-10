@@ -181,17 +181,18 @@ final class TopHomePageView: NSView {
     /// (cx-ebm.55). Decided only on the owner's inbox, never the cache's copy.
     private func shownIsGone(_ store: HomeStore) -> Bool {
         guard let shown else { return false }
-        return store.isInboxCurrent && store.summary(shown) == nil
+        return store.isInboxCurrent && store.isCacheOnly(shown)
     }
 
     /// Shows the live Chief instead of a gone conversation; the text the user
-    /// typed there goes with it, so nothing typed is lost.
+    /// typed there goes with it (after the Chief's own draft), so nothing typed is lost.
     private func replaceGone(with chief: ConversationID, store: HomeStore) {
         guard let gone = shown, gone != chief, store.summary(chief) != nil else { return }
-        if let text = store.draft(for: gone), !text.isEmpty, (store.draft(for: chief) ?? "").isEmpty {
-            store.setDraft(text, for: chief)
+        if let text = store.draft(for: gone), !text.isEmpty {
+            let own = store.draft(for: chief) ?? ""
+            store.setDraft(own.isEmpty ? text : own + "\n" + text, for: chief)
+            store.setDraft("", for: gone)
         }
-        store.setDraft("", for: gone)
         show(chief)
     }
 

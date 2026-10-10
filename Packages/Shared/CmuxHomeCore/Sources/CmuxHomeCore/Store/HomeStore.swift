@@ -27,6 +27,12 @@ public final class HomeStore {
     public private(set) var rows: [InboxRow] = []
     /// Increments whenever a transcript's visible items change.
     public private(set) var transcriptVersion: [ConversationID: Int] = [:]
+    /// Conversations an owner named this session (its inbox, an event, a
+    /// message or a page), as opposed to the cache's copy (cx-ebm.55).
+    /// Observable: a send held for one goes when it is confirmed.
+    public private(set) var confirmed: Set<ConversationID> = []
+    /// Conversations the cache seeded at launch.
+    @ObservationIgnored var seeded: Set<ConversationID> = []
     public internal(set) var me: Participant?
     public internal(set) var typing: [ConversationID: Set<ParticipantID>] = [:]
 
@@ -195,11 +201,16 @@ public final class HomeStore {
     /// The owner's own inbox lists the conversations now: not the cache's copy
     /// from before the owner answered, not one behind a failed refetch.
     public var isInboxCurrent: Bool { !mirror.isStale(.inbox) }
-    /// The owner confirmed `id` this session: its current inbox lists it, or
-    /// an event or page of it arrived. A conversation only the cache knows is
-    /// not confirmed: its Chief home may have been made again (cx-ebm.55).
-    public func isConfirmed(_ id: ConversationID) -> Bool {
-        mirror.conversations[id] != nil && (isInboxCurrent || mirror.revision(of: .conversation(id)) > 0)
+    /// An owner named `id` this session. A conversation only the cache knows
+    /// is not confirmed: its Chief home may have been made again (cx-ebm.55).
+    public func isConfirmed(_ id: ConversationID) -> Bool { confirmed.contains(id) }
+    /// The cache seeded `id` at launch and no owner has named it since: on the
+    /// owner's current inbox, a conversation the owner does not have.
+    public func isCacheOnly(_ id: ConversationID) -> Bool { seeded.contains(id) && !confirmed.contains(id) }
+
+    func confirm(_ ids: some Sequence<ConversationID>) {
+        let new = Set(ids).subtracting(confirmed)
+        if !new.isEmpty { confirmed.formUnion(new) }
     }
 
     public func transcript(for id: ConversationID) -> [TranscriptItem] {

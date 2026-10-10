@@ -125,6 +125,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         withObservationTracking {
             _ = homeStore.transcriptVersion[id, default: 0] // // crash program: a dictionary read the ratchet can type
             _ = homeStore.typing[id, default: []]
+            _ = homeStore.isConfirmed(id) // a send held for the owner goes once it names this conversation
             _ = homeStore.rows
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
@@ -261,7 +262,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         // answered since launch, and a Chief home made again at the same path
         // has other conversations (cx-ebm.55). The text stays; Home shows the
         // owner's conversation (and carries the text there) once it answers.
-        if homeStore.summary(conversation) != nil, !homeStore.isConfirmed(conversation) {
+        if homeStore.isCacheOnly(conversation) {
             sendWhenConfirmed = true
             return noteSend("waiting_for_owner: sends once the owner confirms this conversation")
         }
