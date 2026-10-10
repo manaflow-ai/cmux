@@ -16355,25 +16355,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // intentionally reuses nextSurface/prevSurface for Dock ownership so
         // both strokes follow the same routing classification.
         if matchesLegacyNextSurfaceShortcut(event: event) {
-            if performFocusedDockShortcut(
-                .selectNextSurface,
-                action: .nextSurface,
+            stepTabOrWorkspace(
+                forward: true,
+                tabManager: preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager,
                 event: event
-            ) {
-                return true
-            }
-            (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?.selectNextSurface()
+            )
             return true
         }
         if matchesLegacyPreviousSurfaceShortcut(event: event) {
-            if performFocusedDockShortcut(
-                .selectPreviousSurface,
-                action: .prevSurface,
+            stepTabOrWorkspace(
+                forward: false,
+                tabManager: preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager,
                 event: event
-            ) {
-                return true
-            }
-            (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?.selectPreviousSurface()
+            )
             return true
         }
 
