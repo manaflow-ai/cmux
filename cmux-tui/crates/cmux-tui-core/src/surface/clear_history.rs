@@ -123,10 +123,13 @@ impl Surface {
                 }
             };
             drop(term);
-            if let Some((offset, at_bottom)) = scroll_changed
-                && let Some(mux) = pty.mux.upgrade()
-            {
-                mux.emit_terminal_scroll(pty.event_surface_id, offset, at_bottom);
+            if let Some(mux) = pty.mux.upgrade() {
+                if let Some((offset, at_bottom)) = scroll_changed {
+                    mux.emit_terminal_scroll(pty.event_surface_id, offset, at_bottom);
+                }
+                // The journal and the checkpoint follow the clear, so a
+                // restore or respawn does not bring the old text back.
+                pty.journal_screen_cleared(&mux);
             }
             pty.mark_output_dirty();
             return Ok(());

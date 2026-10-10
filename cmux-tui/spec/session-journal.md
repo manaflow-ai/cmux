@@ -593,7 +593,10 @@ runtime generation and uses `cmux.terminal-output-gap.v1` with reason
 `detach_fence_failed` or `active_update_timeout`. A live daemon appends the
 same record with reason `host_reconnect` when it reconnects to a terminal host
 after its tap was lost or the host asked it to resync (see `terminal-host.md`,
-"Durability boundary"). A restore preview treats this
+"Durability boundary"), and with reason `screen_cleared` after a Cmd-K
+`clear-history` on a daemon-local terminal (a hosted clear asks for that
+resync). Each of these reasons also schedules a checkpoint, so a restore or a
+respawn starts from the screen after the gap. A restore preview treats this
 required kind as unsupported, so it cannot report a fully reducible tail that
 can contain missing source bytes. The daemon always attempts the final terminal
 barrier, closes both journal admission lanes, drains accepted records, and joins

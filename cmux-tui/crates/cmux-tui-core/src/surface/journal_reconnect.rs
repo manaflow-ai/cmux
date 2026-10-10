@@ -12,6 +12,10 @@
 //! records the same gap with reason `host_respawn` at the start of its new
 //! generation: output the lost host read but never delivered is not in the
 //! journal, and history must say so.
+//!
+//! A local-runtime Cmd-K clear records it with reason `screen_cleared`
+//! (cx-6so.55); a hosted clear makes the host ask for a resync, which records
+//! `host_reconnect` the same way.
 
 use std::sync::Arc;
 use std::sync::PoisonError;
@@ -28,6 +32,14 @@ impl PtyTerminalRuntime {
     /// sent), and a wait for queue space with the gate released.
     pub(super) fn journal_host_reconnect_gap(&self, mux: &Arc<Mux>) {
         self.journal_output_gap(mux, "host_reconnect");
+    }
+
+    /// Record a Cmd-K clear (cx-6so.55): a `screen_cleared` gap, then the
+    /// coalesced checkpoint, so a restore or respawn seeds from the cleared
+    /// screen and output journaled before the clear is not replayed onto it.
+    /// Attached views already got the clear bytes from the surface.
+    pub(super) fn journal_screen_cleared(&self, mux: &Arc<Mux>) {
+        self.journal_output_gap(mux, "screen_cleared");
     }
 
     fn journal_output_gap(&self, mux: &Arc<Mux>, reason: &'static str) {
