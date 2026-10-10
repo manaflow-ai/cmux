@@ -1,6 +1,7 @@
 #if canImport(UIKit)
 import CmuxConversationCore
 import CmuxConversationGeometry
+import GameController
 import UIKit
 
 /// Host-provided presentation details.
@@ -139,6 +140,9 @@ public final class ConversationViewController: UIViewController {
     var keyboardEndTop: CGFloat = .greatestFiniteMagnitude
     /// The composer's bottom edge after the last keyboard-following pass.
     var lastComposerBottom: CGFloat = 0
+    /// A rotation or resize is under way (iOS 27 hides and reshows the
+    /// keyboard around one).
+    private var isTransitioningSize = false
     var effects = ConversationEffectsState()
 
     public init(store: ConversationStore, options: ConversationPresentationOptions = ConversationPresentationOptions()) {
@@ -430,6 +434,9 @@ public final class ConversationViewController: UIViewController {
 
     private func observeKeyboardFrames() {
         let center = NotificationCenter.default
+        center.addObserver(forName: UIResponder.keyboardDidHideNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.resignComposerIfKeyboardGone() }
+        }
         center.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { [weak self] note in
             let end = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue
             MainActor.assumeIsolated {
@@ -451,8 +458,51 @@ public final class ConversationViewController: UIViewController {
                 // jumping (and leaves the composer at rest when the guide did
                 // not move because the finger was already past the safe area).
                 self.view.setNeedsLayout()
-                self.view.layoutIfNeeded()
+                self.layoutRidingKeyboardAnimation()
             }
+        }
+    }
+
+    /// Keyboard hidden means the composer is not first responder (see
+    /// `ConversationKeyboardFocusPolicy`), whichever path hid it, so a
+    /// single tap on the field always brings the keyboard back.
+    private func resignComposerIfKeyboardGone() {
+        let restingGuideTop = view.bounds.maxY - view.safeAreaInsets.bottom
+        let state = ConversationKeyboardFocusPolicy.KeyboardHidden(
+            composerIsFirstResponder: composer.textView.isFirstResponder,
+            keyboardGuideAtRest: view.keyboardLayoutGuide.layoutFrame.minY >= restingGuideTop - 0.5,
+            hardwareKeyboardAttached: GCKeyboard.coalesced != nil,
+            sceneIsForegroundActive: view.window?.windowScene?.activationState == .foregroundActive,
+            isTransitioningSize: isTransitioningSize
+        )
+        guard ConversationKeyboardFocusPolicy.composerResigns(after: state) else { return }
+        composer.textView.resignFirstResponder()
+    }
+
+    public override func viewWillTransition(to size: CGSize, with coordinator: any UIViewControllerTransitionCoordinator) {
+        super.viewWillTransition(to: size, with: coordinator)
+        isTransitioningSize = true
+        coordinator.animate(alongsideTransition: nil) { [weak self] _ in self?.isTransitioningSize = false }
+    }
+
+    /// Lays out inside the keyboard's animation, in an animation of our own.
+    ///
+    /// A nested animation inherits the keyboard's remaining duration and
+    /// spring, so the composer and transcript still ride its curve. It keeps
+    /// our views' animations out of UIKit's own block, though: when an
+    /// interactive dismissal ends (a fling, or a release partway down),
+    /// UIKit resigns the text view from that block's completion, and with
+    /// the composer's animation joined to it that completion never ran. The
+    /// keyboard left while the field stayed first responder, so tapping the
+    /// field showed its edit menu instead of bringing the keyboard back.
+    private func layoutRidingKeyboardAnimation() {
+        let remaining = UIView.inheritedAnimationDuration
+        guard remaining > 0 else {
+            view.layoutIfNeeded()
+            return
+        }
+        UIView.animate(withDuration: remaining, delay: 0, options: [.beginFromCurrentState]) {
+            self.view.layoutIfNeeded()
         }
     }
 

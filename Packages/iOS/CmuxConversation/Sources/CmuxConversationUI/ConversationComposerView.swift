@@ -352,6 +352,11 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         textDidChange()
     }
 
+    func textViewDidEndEditing(_ textView: UITextView) {
+        // The next focus brings the keyboard, not the Text Effects palette.
+        self.textView.inputView = nil
+    }
+
     func textViewDidChangeSelection(_ textView: UITextView) {
         textEffectsPalette.refreshState()
         mentionController.selectionDidChange()
