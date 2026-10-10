@@ -1,3 +1,4 @@
+public import CmuxNextProcessEnvironment
 public import Foundation
 
 /// Who this cmux-next is: bundle, tag, and control socket, derived only from
@@ -95,12 +96,18 @@ public struct LaunchIdentity: Sendable, Equatable {
     }
 
     /// Unsets inherited cmux variables in this process. Run first thing in
-    /// `main`, before any thread starts. Returns the removed keys.
+    /// `main`, before any thread starts and before the environment freeze
+    /// (``ProcessEnvironmentGuard``). Returns the removed keys.
     @discardableResult
-    public static func stripInheritedEnvironment(bundle: Bundle = .main) -> [String] {
+    public static func stripInheritedEnvironment(
+        bundle: Bundle = .main,
+        environmentGuard: ProcessEnvironmentGuard = .process
+    ) -> [String] {
         let keys = inheritedKeys(processEnvironment: ProcessInfo.processInfo.environment,
                                  bundledEnvironment: bundledEnvironment(bundle))
-        for key in keys { unsetenv(key) }
+        environmentGuard.write("LaunchIdentity.stripInheritedEnvironment") {
+            for key in keys { unsetenv(key) }
+        }
         return keys.sorted()
     }
 }

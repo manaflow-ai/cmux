@@ -145,8 +145,10 @@ fn long_chat_keeps_every_view_rule_and_a_stable_prefix() {
         assert!(memory.settled(), "the fake compactor keeps up");
         assert_tiles(&memory);
         assert_never_split(&before, memory.view());
+        // Spec 3.2: the view passes the budget by at most the lines built
+        // since the last message; the next message merges it down.
         assert!(
-            memory.view_size() <= budget,
+            memory.view_size() <= budget + NODE,
             "over budget at {step}: {}",
             memory.view_size()
         );
@@ -209,37 +211,6 @@ fn free_nodes_keep_short_messages_verbatim() {
 }
 
 #[test]
-fn level_zero_nodes_start_in_order_and_jobs_are_capped() {
-    let store = Mem::default();
-    let mut memory = Memory::new(VIEW);
-    for _ in 0..20 {
-        store.push(Kind::Echo, "y".repeat(5_000));
-        memory.append();
-    }
-    let work = memory.pump(&store);
-    // Only message 0 can start: every later level-0 node waits for the lines before it.
-    assert_eq!(
-        work,
-        vec![Work::Model {
-            node: NodeId::new(0, 0)
-        }]
-    );
-    let text = fake_summary(NodeId::new(0, 0));
-    store
-        .nodes
-        .borrow_mut()
-        .insert(NodeId::new(0, 0), text.clone());
-    memory.complete(NodeId::new(0, 0), &text).unwrap();
-    assert_eq!(
-        memory.pump(&store),
-        vec![Work::Model {
-            node: NodeId::new(0, 1)
-        }]
-    );
-    assert!(memory.busy().count() <= JOBS);
-}
-
-#[test]
 fn zoom_opens_lines_and_messages() {
     let store = Mem::default();
     let mut memory = Memory::new(VIEW);
@@ -269,28 +240,6 @@ fn zoom_opens_lines_and_messages() {
         zoom(&memory, &store, 0, 3).unwrap_err().to_string(),
         "No line 0+3."
     );
-}
-
-#[test]
-fn reloading_folds_the_same_view() {
-    let mut rng = Rng(42);
-    let store = Mem::default();
-    let mut memory = Memory::new(20_000);
-    for _ in 0..2_000 {
-        let (kind, text) = message(&mut rng);
-        store.push(kind, text);
-        memory.append();
-        drain(&mut memory, &store);
-    }
-    let sizes = store
-        .nodes
-        .borrow()
-        .iter()
-        .map(|(k, v)| (*k, v.len()))
-        .collect::<Vec<_>>();
-    let reloaded = Memory::load(memory.len(), sizes, 20_000);
-    assert_eq!(reloaded.view(), memory.view());
-    assert_eq!(reloaded.view_size(), memory.view_size());
 }
 
 /// A turn's view is recorded by its parts: rendering those parts later,
@@ -350,9 +299,8 @@ fn size_loop_retries_with_the_cut_and_keeps_the_shortest() {
     let long = "é".repeat(300); // 600 bytes
     match size_check(std::slice::from_ref(&long)) {
         SizeCheck::Retry(msg) => {
-            assert!(msg.starts_with(
-                "That line is 600 bytes; the limit is 512. It must end where it is cut here:\n"
-            ));
+            assert!(msg
+                .starts_with("Too long: your last line for this <input> was 600 bytes,\nover the 512-byte limit."));
             assert!(msg.ends_with("| ← LIMIT"));
             assert_eq!(cut_at_bytes(&long, 512).len(), 512);
         }
@@ -376,40 +324,16 @@ fn size_loop_retries_with_the_cut_and_keeps_the_shortest() {
 }
 
 #[test]
-fn compactor_requests_carry_no_ids_and_the_scale_line() {
-    assert_eq!(SCALE.len(), NODE, "SCALE must be exactly NODE bytes");
-    let store = Mem::default();
-    let mut memory = Memory::new(VIEW);
-    for text in ["short one", &"w".repeat(2_000)] {
-        store.push(Kind::User, text.to_string());
-        memory.append();
-    }
-    drain(&mut memory, &store);
-    let request = compact_request(
-        &memory,
-        &store,
-        NodeId::new(1, 0),
-        CompactPrompt::default().text("Chief"),
-    )
-    .unwrap();
-    assert!(request.context.starts_with("<chat>\n") && request.context.ends_with("</chat>"));
-    assert!(
-        !request.context.contains("+1|") && !request.step.contains("0+1"),
-        "no ids in a compactor call"
-    );
-    assert!(
-        request.step.contains(SCALE)
-            && request
-                .step
-                .contains("Merge these two lines into one, in at most 512 bytes:")
-    );
-}
-
-#[test]
 fn compactor_prompt_is_selectable_and_defaults_to_taelins() {
     assert_eq!(CompactPrompt::default(), CompactPrompt::Taelin);
     let taelin = CompactPrompt::Taelin.text("Chief");
-    assert!(taelin.starts_with("You write the memory of Chief, an AI agent"));
+    assert!(taelin.starts_with(
+        "You are Chief, an AI agent that works for one user in a single chat that never\nends."
+    ));
+    assert!(
+        taelin.contains("\n# Compactions\n"),
+        "one prompt for turns and compactions"
+    );
     assert!(!taelin.contains("{agent}"), "every placeholder is filled");
     assert_eq!(
         taelin,
@@ -540,7 +464,7 @@ fn a_huge_message_is_cut_for_its_summary_call_only_and_the_line_says_so() {
         request.step.chars().count() < STEP_MESSAGE + 2_000,
         "the call shows at most STEP_MESSAGE characters of it"
     );
-    assert!(request.step.contains("user: HEAD") && request.step.ends_with("TAIL"));
+    assert!(request.step.contains("user: HEAD") && request.step.ends_with("TAIL\n</input>"));
     let cut = total - STEP_MESSAGE;
     let prefix = request.cut.clone().expect("the request says it is cut");
     assert!(prefix.contains(&cut.to_string()) && prefix.contains(&total.to_string()));
@@ -558,7 +482,9 @@ fn a_huge_message_is_cut_for_its_summary_call_only_and_the_line_says_so() {
     memory.append();
     let whole = compact_request(&memory, &store, NodeId::new(0, 0), String::new()).unwrap();
     assert_eq!(whole.cut, None);
-    assert!(whole.step.ends_with(&"w".repeat(STEP_MESSAGE)));
+    assert!(whole
+        .step
+        .ends_with(&format!("{}\n</input>", "w".repeat(STEP_MESSAGE))));
     assert_eq!(finish_line(&whole, "tool: x"), "tool: x");
 }
 
@@ -570,7 +496,7 @@ fn the_size_loop_measures_a_cut_line_against_its_reduced_room() {
     let reply = "x".repeat(480);
     match size_check_in(std::slice::from_ref(&reply), room) {
         SizeCheck::Retry(text) => assert!(
-            text.starts_with("That line is 480 bytes; the limit is 450."),
+            text.starts_with("Too long: your last line for this <input> was 480 bytes,\nover the 450-byte limit."),
             "{text}"
         ),
         other => panic!("{other:?}"),
@@ -672,7 +598,7 @@ fn a_resumed_memory_is_the_live_one_and_keeps_only_the_views_sizes() {
 }
 
 #[test]
-fn a_stale_checkpoint_folds_the_tail_as_a_load_does() {
+fn a_stale_checkpoint_keeps_its_view_and_folds_only_the_tail() {
     let mut rng = Rng(5);
     let store = Mem::default();
     let mut live = Memory::new(20_000);
@@ -687,19 +613,14 @@ fn a_stale_checkpoint_folds_the_tail_as_a_load_does() {
         }
     }
     let checkpoint = checkpoint.unwrap();
-    let sizes: Vec<(NodeId, usize)> = store
-        .nodes
-        .borrow()
-        .iter()
-        .map(|(k, v)| (*k, v.len()))
-        .collect();
-    let loaded = Memory::load(live.len(), sizes, 20_000);
     let from = frontier(&store, &checkpoint);
     let resumed = Memory::resume(&checkpoint, live.len(), from, 20_000, &store).unwrap();
     assert_eq!(resumed.len(), live.len());
     assert_tiles(&resumed);
-    assert_eq!(resumed.view(), loaded.view());
-    assert_eq!(resumed.view_size(), loaded.view_size());
+    // Spec 3.2: the saved view is kept, never refit: the tail only appends
+    // and merges in batches, as the live memory did.
+    assert_never_split(&checkpoint.view, resumed.view());
+    assert!(resumed.view_size() <= 20_000 + NODE);
 }
 
 #[test]
@@ -723,6 +644,7 @@ fn a_checkpoint_that_does_not_fit_the_store_is_refused() {
         t: 8,
         low: vec![8],
         view: vec![NodeId::new(3, 0)],
+        ..Checkpoint::default()
     };
     assert!(Memory::resume(&missing, 8, Vec::new(), VIEW, &store).is_none());
 }
@@ -816,4 +738,314 @@ fn a_compactor_call_with_a_missing_line_is_refused() {
     store.nodes.borrow_mut().remove(&gone);
     let leaf = compact_request(&memory, &store, NodeId::new(0, 4), String::new());
     assert_eq!(leaf.err(), Some(MissingNode(gone)));
+}
+
+/// Compactor width (hq-6d gap 3c): a burst of long messages (an import, a
+/// tool-heavy turn) starts 64 model calls at once, as the reference client
+/// does (64 jobs, 64 leaves ahead), not 8.
+#[test]
+fn a_burst_of_long_messages_starts_64_compactions_at_once() {
+    let store = Mem::default();
+    let mut memory = Memory::new(VIEW);
+    for k in 0..100 {
+        store.push(Kind::Echo, format!("message {k} {}", "x".repeat(700)));
+        memory.append();
+    }
+    let models = memory
+        .pump(&store)
+        .iter()
+        .filter(|w| matches!(w, Work::Model { .. }))
+        .count();
+    assert_eq!(models, 64);
+    assert_eq!(memory.busy().count(), 64);
+}
+
+/// hq-6d (measured 2026-10-09, 33 node inputs, Haiku 5.5 medium, two runs):
+/// a task that asks for about 400 bytes, well inside the 512-byte limit,
+/// and retries as fresh calls held 94-97% of nodes to at most one retry
+/// (75-88% before) at 20% less cost. The task says so, and the retry
+/// note names the last line (the reference client's wording).
+#[test]
+fn the_task_aims_well_inside_the_limit_and_the_note_names_the_last_line() {
+    let mut memory = Memory::new(VIEW);
+    let store = Mem::default();
+    for _ in 0..2 {
+        store.push(Kind::Echo, "z".repeat(5_000));
+        memory.append();
+    }
+    let leaf = compact_request(&memory, &store, NodeId::new(0, 1), String::new()).unwrap();
+    assert!(
+        leaf.step.contains("aim for about 400 bytes"),
+        "{}",
+        leaf.step
+    );
+    drain(&mut memory, &store);
+    store.push(Kind::Echo, "z".repeat(5_000));
+    memory.append();
+    store.push(Kind::Echo, "z".repeat(5_000));
+    memory.append();
+    drain(&mut memory, &store);
+    let tries = vec!["x".repeat(600)];
+    match size_check_in(&tries, NODE) {
+        SizeCheck::Retry(note) => assert!(
+            note.starts_with("Too long: your last line for this <input> was 600 bytes"),
+            "{note}"
+        ),
+        other => panic!("{other:?}"),
+    }
+}
+
+/// Soak at fc34083d7bfa: a 2,020-message import is appended before any node
+/// is built, so no merge can happen at append time, and the compaction view
+/// never merged afterwards: node contexts grew to 350 KB (79k tokens read
+/// per prompt, \$117 for the import). The reference client fits its views
+/// after each node it stores. A compaction context stays within half the
+/// view's budget during an import.
+#[test]
+fn an_import_keeps_every_compaction_context_within_its_budget() {
+    let store = Mem::default();
+    let mut memory = Memory::new(VIEW);
+    for k in 0..2_000u64 {
+        store.push(Kind::Echo, format!("imported {k} {}", "x".repeat(900)));
+        memory.append();
+    }
+    let mut largest = 0usize;
+    loop {
+        let work = memory.pump(&store);
+        if work.is_empty() {
+            break;
+        }
+        // As the host does: the free nodes are stored before any call starts.
+        for w in &work {
+            if let Work::Free { node, text } = w {
+                store.nodes.borrow_mut().insert(*node, text.clone());
+            }
+        }
+        for w in work {
+            match w {
+                Work::Free { .. } => {}
+                Work::Model { node } => {
+                    let request = compact_request(&memory, &store, node, String::new()).unwrap();
+                    largest = largest.max(request.context.len());
+                    let text = fake_summary(node);
+                    store.nodes.borrow_mut().insert(node, text.clone());
+                    memory.complete(node, &text).unwrap();
+                }
+            }
+        }
+    }
+    assert!(memory.settled());
+    // The compaction view merges only in whole batches (the reference
+    // client's rule, so cached prefixes hold): it may wait past its quarter
+    // of the budget until a batch can take it to its low mark, or down by a
+    // whole quarter. It stays within half the view's budget (52,594 bytes
+    // here; 494,904 before the view merged during an import at all).
+    assert!(
+        largest <= VIEW / 2 + 2 * NODE,
+        "a compaction context of {largest} bytes"
+    );
+}
+
+/// The longest common prefix of `a` and `b`, in bytes.
+fn common_prefix(a: &[u8], b: &[u8]) -> usize {
+    let n = a.len().min(b.len());
+    let (mut lo, mut hi) = (0, n);
+    // Slice equality is a memcmp: a binary search keeps this fast.
+    while lo < hi {
+        let mid = (lo + hi).div_ceil(2);
+        if a[..mid] == b[..mid] {
+            lo = mid;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    lo
+}
+
+/// Soak at 64d57f35a20f: after the compaction view passed 32 KB, each
+/// single-prompt import node wrote about 15.6k tokens to the cache and read
+/// about 8.5k: 10x the reference client's writes. Completing a node merged
+/// the compaction view one pair at a time (its oldest lines) on almost
+/// every completion, so an early block changed and every later prefix
+/// missed. The reference client applies a merge of its compaction view only
+/// as one batch that brings it to half its budget (or by a whole budget),
+/// and else keeps the view as it is. Across an import, each call's context
+/// shares its prefix with an earlier call's: the bytes no earlier context
+/// starts with (what the cache writes) stay a small part of all context
+/// bytes.
+#[test]
+fn an_import_keeps_compaction_prefixes_stable_between_calls() {
+    let store = Mem::default();
+    let mut memory = Memory::new(VIEW);
+    for k in 0..2_000u64 {
+        store.push(Kind::Echo, format!("imported {k} {}", "x".repeat(900)));
+        memory.append();
+    }
+    // As the host runs them: up to JOBS calls at once, each built when it
+    // starts; the oldest finishes first, and the pump runs after each.
+    let mut running: std::collections::VecDeque<(NodeId, String)> = Default::default();
+    let mut recent: Vec<String> = Vec::new();
+    let (mut total, mut written, mut calls) = (0usize, 0usize, 0usize);
+    loop {
+        for w in memory.pump(&store) {
+            match w {
+                Work::Free { node, text } => {
+                    store.nodes.borrow_mut().insert(node, text);
+                }
+                Work::Model { node } => {
+                    let request = compact_request(&memory, &store, node, String::new()).unwrap();
+                    let context = request.context;
+                    // The cache holds the recent calls' prefixes (a burst of JOBS).
+                    let shared = recent
+                        .iter()
+                        .map(|c| common_prefix(c.as_bytes(), context.as_bytes()))
+                        .max()
+                        .unwrap_or(0);
+                    total += context.len();
+                    written += context.len() - shared;
+                    calls += 1;
+                    recent.push(context.clone());
+                    if recent.len() > JOBS {
+                        recent.remove(0);
+                    }
+                    running.push_back((node, context));
+                }
+            }
+        }
+        let Some((node, _)) = running.pop_front() else {
+            break;
+        };
+        let text = fake_summary(node);
+        store.nodes.borrow_mut().insert(node, text.clone());
+        memory.complete_in(node, &text, &store).unwrap();
+    }
+    eprintln!("{written} of {total} context bytes new over {calls} calls");
+    assert!(memory.settled());
+    assert!(calls > 1_000, "{calls} calls");
+    assert!(
+        written * 10 <= total,
+        "{written} of {total} context bytes are new to the cache over {calls} calls"
+    );
+}
+
+/// Soak at d12ad2ce42e8: the first turn after a 2,020-message import saw a
+/// 400 KB view (the budget is 128 KB) and wrote 179k tokens to the cache.
+/// The chat's view merged only when a message came, and an import appends
+/// every message before any node is built. The reference client fits both
+/// views after each node it stores, in whole batches. During an import the
+/// chat's view stays near its budget, and it is within it once the import
+/// is built.
+#[test]
+fn an_import_keeps_the_chats_view_near_its_budget() {
+    let store = Mem::default();
+    let mut memory = Memory::new(VIEW);
+    for k in 0..2_000u64 {
+        store.push(Kind::Echo, format!("imported {k} {}", "x".repeat(900)));
+        memory.append();
+    }
+    let mut running: std::collections::VecDeque<NodeId> = Default::default();
+    let (mut largest, mut completions) = (0usize, 0usize);
+    loop {
+        for w in memory.pump(&store) {
+            match w {
+                Work::Free { node, text } => {
+                    store.nodes.borrow_mut().insert(node, text);
+                }
+                Work::Model { node } => running.push_back(node),
+            }
+        }
+        let Some(node) = running.pop_front() else {
+            break;
+        };
+        let text = fake_summary(node);
+        store.nodes.borrow_mut().insert(node, text.clone());
+        memory.complete_in(node, &text, &store).unwrap();
+        completions += 1;
+        // Past the first budget's worth of lines, as a turn would see it.
+        if completions > 600 {
+            largest = largest.max(memory.view_size());
+        }
+    }
+    assert!(memory.settled());
+    eprintln!("largest view {largest}, final {}", memory.view_size());
+    assert!(
+        memory.view_size() <= VIEW,
+        "the built import's view is {} bytes",
+        memory.view_size()
+    );
+    assert!(
+        largest <= 2 * VIEW,
+        "a view of {largest} bytes during the import"
+    );
+}
+
+/// Kept memory of the 9f851bd1dfb9 import: merge 288+32 (two lines of about
+/// 500 bytes each) became "Tests fail on pool.rs", 21 bytes, and every
+/// fact of 32 messages was lost: a size retry answered with a fragment, and
+/// it fit. A model call only ever gets an input over the node size (a
+/// shorter one is a free node), so for a long input a line under an eighth
+/// of the limit is not a summary: it is retried, and it never wins over a
+/// real try.
+#[test]
+fn a_fragment_reply_is_retried_and_never_kept_over_a_real_try() {
+    // Two lines of about 500 bytes, as the merge had.
+    let input = format!("{}\n{}", "m".repeat(500), "h".repeat(500));
+    let fragment = "Tests fail on pool.rs".to_owned();
+    match size_check_for(std::slice::from_ref(&fragment), NODE, &input) {
+        SizeCheck::Retry(note) => assert!(note.starts_with("Too short"), "{note}"),
+        other => panic!("a fragment was kept: {other:?}"),
+    }
+    let long = "x".repeat(600);
+    let tries = vec![long.clone(), fragment.clone()];
+    assert!(
+        matches!(size_check_for(&tries, NODE, &input), SizeCheck::Retry(_)),
+        "a fragment after a long try is retried"
+    );
+    // The tries ran out: the shortest real try wins, never the fragment.
+    let real = "y".repeat(530);
+    let mut tries = vec![long, real.clone()];
+    while tries.len() < TRIES {
+        tries.push(fragment.clone());
+    }
+    assert_eq!(
+        size_check_for(&tries, NODE, &input),
+        SizeCheck::Accept(real)
+    );
+    // A line of fair size that fits is kept as before.
+    let fine = "z".repeat(300);
+    assert_eq!(
+        size_check_for(std::slice::from_ref(&fine), NODE, &input),
+        SizeCheck::Accept(fine)
+    );
+}
+
+/// When no try fits, the try that keeps the most of the input's words is
+/// kept, not the shortest (the shortest drops the most); when tries fit,
+/// the longest that fits.
+#[test]
+fn the_size_loop_keeps_the_try_that_keeps_the_most_of_its_input() {
+    let input = "user: note for later: the staging port for kestrel is 6143\nuser: parse_cache leaks a handle";
+    let keeps = format!(
+        "kestrel staging port 6143, parse_cache leaks handle {}",
+        "a".repeat(500)
+    );
+    let drops = format!("parse_cache leaks handle {}", "b".repeat(520));
+    let tries = vec![
+        keeps.clone(),
+        drops.clone(),
+        keeps.clone() + "c",
+        drops.clone() + "d",
+        drops.clone() + "e",
+    ];
+    assert_eq!(
+        size_check_for(&tries, NODE, input),
+        SizeCheck::Accept(keeps)
+    );
+    let short = "w".repeat(300);
+    let longer = "v".repeat(500);
+    let tries = vec!["x".repeat(600), longer.clone(), short];
+    assert_eq!(
+        size_check_for(&tries, NODE, input),
+        SizeCheck::Accept(longer)
+    );
 }

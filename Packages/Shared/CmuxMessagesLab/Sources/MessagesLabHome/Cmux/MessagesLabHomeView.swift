@@ -18,6 +18,7 @@ public final class MessagesLabHomeView: NSView {
     ///   - wake: the engine clock's one-shot timer (CmuxNext: DemandTimer).
     public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, wake: any ChatWakeScheduler) {
         MessagesLabHomeView.liveFormatting()
+        HomeMarkdownPolicy.install()
         controller = ChatController(wake: wake)
         // Link cards fetch their preview (title, image) for links the user or an agent sent (README).
         projection = HomeProjection(store: store, conversation: conversation, me: me, controller: controller,
@@ -72,6 +73,18 @@ public final class MessagesLabHomeView: NSView {
         set { projection.isSendEnabled = newValue }
     }
 
+    /// The Chief works: the compose bar offers Stop (the button, Esc, Cmd-.).
+    public var isWorking: Bool {
+        get { controller.isWorking }
+        set { controller.isWorking = newValue }
+    }
+
+    /// The host's shared stop action.
+    public var onStop: (() -> Void)? {
+        get { controller.onStop }
+        set { controller.onStop = newValue }
+    }
+
     /// The window is key and visible (read cursor).
     public var isVisibleToUser: Bool {
         get { projection.isVisibleToUser }
@@ -87,6 +100,9 @@ public final class MessagesLabHomeView: NSView {
         defer {
             // Per view: a second Home tab finds the process-wide theme set.
             controller.host.headerBackdrop.setTint(Fixture.background)
+            // cmux: the window background is per view too; a view made after the
+            // process-wide theme was set would keep the one it was made with.
+            controller.demo?.backgroundColor = Fixture.background
             controller.host.fieldChrome.applyTheme(light: theme.active.isLight, symbol: theme.active.incomingText)
             controller.host.paneHeader.light = theme.active.isLight
         }
@@ -103,6 +119,13 @@ public final class MessagesLabHomeView: NSView {
             // The placeholder, waveform and chips are drawn once with the palette.
             demo.compose.rescale()
         }
+    }
+
+    /// cmux: a click on a Chief subagent's link in agent text (`HomeAppLinks`); the host
+    /// opens it in the app (`link.open`). Nil: the link opens nothing.
+    public var onAppLink: ((URL) -> Void)? {
+        get { controller.onAppLink }
+        set { controller.onAppLink = newValue }
     }
 
     /// A click (or Space/Return with the keyboard) on the header's name
@@ -235,10 +258,11 @@ public final class MessagesLabHomeView: NSView {
         guard let demo = controller.demo else { return [:] }
         var out: [String: Double] = ["fieldHeight": Double(demo.compose.fieldRect.height)]
         let rows = demo.model.rows
-        for i in stride(from: rows.count - 2, through: 0, by: -1) where !rows[i].ghost {
-            guard case .receipt = rows[i].spec.kind, let next = (i + 1..<rows.count).first(where: { !rows[$0].ghost }) else { continue }
+        // crash program: no index math.
+        for (i, row) in rows.enumerated().reversed().dropFirst() where !row.ghost {
+            guard case .receipt = row.spec.kind, let next = rows.enumerated().dropFirst(i + 1).first(where: { !$0.element.ghost })?.offset else { continue }
             out["receiptToNextBody"] = Double(demo.layout.contentTop(next) - demo.layout.contentTop(i))
-            out["receiptHeight"] = Double(rows[i].spec.height)
+            out["receiptHeight"] = Double(row.spec.height)
             break
         }
         return out

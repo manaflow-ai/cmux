@@ -14,7 +14,8 @@ import CmuxNextDaemon
 /// - A tab that leaves the pane hands its children its own opener
 ///   (`FixOpeners`).
 /// - A user switch between tabs that are not opener and child or siblings
-///   forgets every relation (`SetSelection` with a user gesture), and so
+///   (two tabs with the same opener; no opener is not one) forgets every
+///   relation (`SetSelection` with a user gesture), and so
 ///   does a typed navigation (`TabNavigating`), except a new tab page at the
 ///   end of the strip.
 ///
@@ -28,6 +29,12 @@ final class BrowserTabOpeners {
     private var openerOf: [SurfaceID: SurfaceID] = [:]
     /// The placement each opener's next one waits for.
     private var queue: [SurfaceID: Task<SurfaceID, any Error>] = [:]
+    /// A page's new tab exists (child, opener): the browser host reports it
+    /// as `tab.created`, so an agent driving the opener sees its popup.
+    var onChildPlaced: ((SurfaceID, SurfaceID) -> Void)?
+    /// Runs first for each placed child (child, opener): the App marks the
+    /// child agent-driven when its opener is (`BrowserPageRequests`).
+    var inheritsFromOpener: ((SurfaceID, SurfaceID) -> Void)?
 
     /// A page's new tab in `pane`: `create(nil)` (the end) without an
     /// opener; with one, in Chrome's slot, returning once the store shows
@@ -35,11 +42,12 @@ final class BrowserTabOpeners {
     func open(_ opener: SurfaceID?, foreground: Bool, in pane: PaneModel, browserTabs: BrowserTabService,
               create: @escaping @MainActor (_ after: SurfaceID?) async throws -> SurfaceID) async throws -> SurfaceID {
         guard let opener else { return try await create(nil) }
+        let daemon = browserTabs.daemonForPane(pane)
         return try await place(opener: opener, foreground: foreground,
                                order: { [weak pane] in pane?.tabs.map(\.surface) ?? [] },
                                pinned: { [weak pane] in Set(pane?.tabs.filter(\.pinned).map(\.surface) ?? []) }) { after in
             let surface = try await create(after)
-            await browserTabs.settled()
+            await browserTabs.settled(daemon)
             return surface
         }
     }
@@ -58,7 +66,11 @@ final class BrowserTabOpeners {
             let after = foreground ? opener : self.slot(after: opener, in: order(), pinned: pinned())
             let child = try await create(after)
             if foreground { self.forgetAll() }
-            if child != opener { self.openerOf[child] = opener }
+            if child != opener {
+                self.openerOf[child] = opener
+                self.inheritsFromOpener?(child, opener)
+                self.onChildPlaced?(child, opener)
+            }
             return child
         }
         queue[opener] = placing
@@ -87,13 +99,14 @@ final class BrowserTabOpeners {
 
     /// The user moved from tab `old` to tab `new` in a pane: every relation
     /// is forgotten unless one is the other's opener or both share one.
+    /// Two tabs without an opener are not siblings: moving between them
+    /// forgets too, so a page's next background tab goes right of it.
     func userActivated(from old: SurfaceID?, to new: SurfaceID?) {
         let oldOpener = old.flatMap { openerOf[$0] }
         let newOpener = new.flatMap { openerOf[$0] }
-        let unrelated = newOpener != oldOpener
-            && ((old == nil && newOpener == nil) || newOpener != old)
-            && ((new == nil && oldOpener == nil) || oldOpener != new)
-        if unrelated { forgetAll() }
+        let siblings = oldOpener != nil && oldOpener == newOpener
+        let openerAndChild = (old != nil && newOpener == old) || (new != nil && oldOpener == new)
+        if !siblings && !openerAndChild { forgetAll() }
     }
 
     /// A tab navigated by a typed URL: the user starts another task, so

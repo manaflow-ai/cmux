@@ -101,6 +101,22 @@ class ChecksJobStructure(unittest.TestCase):
         result = self.run_aggregate("success|Lint\nsuccess|Crash safety\n")
         self.assertEqual(result.returncode, 0, result.stdout)
 
+    def test_ratchet_ceilings_are_set_only_on_their_own_steps(self):
+        # Job-wide, the warning ceilings reach the script tests in this job, which
+        # expect every hit to fail (#18894's first run: check-scrollbars.test.sh and
+        # the god-file scope tests went green on a warning).
+        job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"][JOB]
+        ceilings = {"GODFILES_WARN_SLACK", "L10N_STYLE_WARN_MAX", "SCROLLBARS_WARN_MAX"}
+        self.assertFalse(ceilings & set(job.get("env") or {}), "set the ceilings on their steps")
+        owners = {"godfiles-swift": "GODFILES_WARN_SLACK", "godfiles-rust": "GODFILES_WARN_SLACK",
+                  "l10n": "L10N_STYLE_WARN_MAX", "scrollbars": "SCROLLBARS_WARN_MAX"}
+        for step in job["steps"]:
+            env = set(step.get("env") or {}) & ceilings
+            if step.get("id") in owners:
+                self.assertEqual(env, {owners[step["id"]]}, step.get("name"))
+            else:
+                self.assertFalse(env, step.get("name"))
+
     def test_package_conventions_lint_is_its_own_step(self):
         # test-ios.yml runs this lint only for pull requests, merge groups and
         # dispatches; direct pushes to feat-cmux-next skipped it, and a
@@ -128,7 +144,8 @@ class ChecksJobStructure(unittest.TestCase):
         _, checks, _ = self.split()
         pin = [step for step in checks if "check-app-ffi-pin.sh" in step["run"]]
         self.assertEqual(len(pin), 1, [step["name"] for step in checks])
-        self.assertEqual(pin[0]["run"].strip(), "scripts/cmux-next/check-app-ffi-pin.sh --verify-release")
+        self.assertIn("scripts/cmux-next/check-app-ffi-pin.sh --verify-release", pin[0]["run"])
+        self.assertIn("base=(--base HEAD^1)", pin[0]["run"])
         script_tests = next(step for step in checks if step.get("id") == "script-tests")
         self.assertIn("bash scripts/cmux-next/tests/check-app-ffi-pin.test.sh", script_tests["run"])
         # Only there: the macOS swift test job no longer carries a copy.
@@ -142,6 +159,20 @@ class ChecksJobStructure(unittest.TestCase):
         self.assertEqual(len(godfile_runs), 2, godfile_runs)
         self.assertEqual(sum("--only swift" in run for run in godfile_runs), 1, godfile_runs)
         self.assertEqual(sum("--only rust" in run for run in godfile_runs), 1, godfile_runs)
+
+
+class ReferencedFilesExist(unittest.TestCase):
+    """Every test a checks step runs, and every test or workflow a path filter names, exists.
+    The bundle removal (ce0b9e76a9b) deleted tests/test_cmux_next_regenerate_bundles_workflow.py
+    and its workflow, but the Companion workflows step still ran the test, so every pull
+    request's checks went red (run 37646119996)."""
+
+    def test_named_tests_and_workflows_exist(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        named = set(re.findall(r"(?:python3|bash) (tests/[A-Za-z0-9_./-]+\.(?:py|sh))", text))
+        named |= set(re.findall(r"^\s+- ((?:tests|\.github/workflows)/[A-Za-z0-9_./-]+\.(?:py|sh|yml))$", text, re.M))
+        missing = sorted(path for path in named if not (ROOT / path).exists())
+        self.assertEqual(missing, [])
 
 
 class GodfileScopes(unittest.TestCase):
@@ -395,36 +426,20 @@ class PathRoutingStructure(unittest.TestCase):
         swift_runs = " ".join(step.get("run", "") for step in jobs["swift-test"]["steps"])
         self.assertNotIn("check-action-surfaces.sh", swift_runs)
 
-    def test_autofix_token_asks_only_for_what_the_app_grants(self):
-        """The App installation refuses pull-requests: write ("The permissions requested are not
-        granted to this installation", run 37590228478), so the token asks for contents only, which
-        the push needs (an App push starts CI). The comment uses the job's own GITHUB_TOKEN."""
+    def test_stale_generated_files_fail_with_the_regenerate_hint_and_no_autofix(self):
+        """The autofix job's App (glaeda route) has no contents: write, so "Mint the autofix
+        token" failed on every stale PR; it is removed, not widened. A stale generated file
+        fails generated-files with the commands that regenerate it."""
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
-        autofix = jobs["generated-autofix"]
-        mint = next(step for step in autofix["steps"] if step.get("id") == "app-token")
-        requested = sorted(key for key in mint["with"] if key.startswith("permission-"))
-        self.assertEqual(requested, ["permission-contents"])
-        self.assertEqual(mint["with"]["permission-contents"], "write")
-        self.assertEqual(autofix["permissions"], {"contents": "read", "pull-requests": "write"})
-        commit = autofix["steps"][-1]
-        self.assertEqual(commit["env"]["GH_TOKEN"], "${{ github.token }}")
-        self.assertNotIn('GH_TOKEN="$APP_TOKEN"', commit["run"])
-
-    def test_autofix_pushes_only_generated_paths_of_same_repository_prs(self):
-        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
-        autofix = jobs["generated-autofix"]
-        self.assertIn("head.repo.full_name == github.repository", autofix["if"])
-        self.assertNotIn("vars.", str(autofix["runs-on"]))
-        run = autofix["steps"][-1]["run"]
-        self.assertIn("plans/cmux-next/*.json|plans/cmux-next/*.md|Packages/macOS/CmuxNext/ci-target-graph.json) ;;", run)
-        self.assertIn('"$current" != "$HEAD_SHA"', run)
-        self.assertNotIn("--force", run)
-        # Never a bot push to a protected branch.
-        self.assertIn("github.event.pull_request.head.ref != 'main'", autofix["if"])
-        # The regenerated files are copied onto the head, not patched against
-        # the merge commit, whose context the head may not have.
-        self.assertNotIn("git apply \"$patch\"", run)
-        self.assertIn("git add", run)
+        self.assertNotIn("generated-autofix", jobs)
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertNotIn("Mint the autofix token", text)
+        fail = next(step for step in jobs["generated-files"]["steps"]
+                    if step.get("name") == "Fail on stale generated files")
+        self.assertIn("scripts/cmux-next/regenerate-action-contracts.sh", fail["run"])
+        self.assertIn("scripts/cmux-next/ci-target-graph.py", fail["run"])
+        self.assertIn("exit 1", fail["run"])
+        self.assertNotIn("autofix", fail["run"])
 
     def test_red_push_runs_name_their_pull_requests(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
@@ -451,12 +466,16 @@ class PathRoutingStructure(unittest.TestCase):
     def test_current_feat_push_still_requests_nightly_next(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         nightly = jobs["request-nightly-next"]
-        # The Linux checks gate the promotion; the nightly build itself is the Release compile
-        # gate, so a push never waits for a mini before nightly-next starts building it.
-        self.assertEqual(nightly["needs"], "checks")
+        # Main's promote-nightly-next refuses a head whose push run has no successful
+        # "cmux-next Release compile (Xcode 26)" job. Requested after the Linux checks alone, it
+        # ran about 10 minutes before that job finished and refused every head from 00:12Z to
+        # 15:00Z on 2026-10-07 (run 37638104609). The request waits for that job and nothing
+        # else, so an unrelated red never holds the promotion.
+        self.assertEqual(nightly["needs"], "release-compile")
+        self.assertEqual(jobs["release-compile"]["name"], "cmux-next Release compile (Xcode 26)")
         self.assertIn("github.ref == 'refs/heads/feat-cmux-next'", nightly["if"])
-        self.assertIn("needs.checks.result == 'success'", nightly["if"])
-        self.assertNotIn("release-compile", str(nightly))
+        self.assertIn("needs.release-compile.result == 'success'", nightly["if"])
+        self.assertNotIn("needs.checks", nightly["if"])
         text = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("group: cmux-next-${{ github.event.pull_request.number || github.run_id }}", text)
         self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", text)
@@ -466,9 +485,13 @@ class PathRoutingStructure(unittest.TestCase):
         time window; nightly.yml's own concurrency group coalesces them: the running build
         finishes and only the newest pending one runs next."""
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
-        run = jobs["request-nightly-next"]["steps"][0]["run"]
-        self.assertIn("-f promote_nightly_next_sha=", run)
-        self.assertNotIn("promote_nightly_next_debounce=true", run)
+        run = "\n".join(step.get("run", "") for step in jobs["request-nightly-next"]["steps"])
+        self.assertIn("scripts/cmux-next/request-nightly-next.sh", run)
+        # Behavior (requests only a green commit with a published tree) is covered by
+        # scripts/cmux-next/tests/request-nightly-next.test.sh.
+        script = (WORKFLOW.parents[2] / "scripts/cmux-next/request-nightly-next.sh").read_text(encoding="utf-8")
+        self.assertIn("-f promote_nightly_next_sha=", script)
+        self.assertNotIn("promote_nightly_next_debounce=true", script)
         nightly = yaml.safe_load((WORKFLOW.parent / "nightly.yml").read_text(encoding="utf-8"))
         group = nightly["concurrency"]["group"]
         self.assertIn("github.ref_name == 'main' && 'nightly-shared' || github.ref_name", group)
@@ -652,6 +675,8 @@ class ReusedWorkspaceSubmodules(unittest.TestCase):
     that can run on a mini is followed at once by the reset step.
     """
 
+    CHECKOUT_FAILED = "steps.checkout.outcome == 'failure'"
+
     def test_every_submodule_free_checkout_on_an_owned_runner_resets_submodules(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         checked = []
@@ -664,13 +689,20 @@ class ReusedWorkspaceSubmodules(unittest.TestCase):
                     continue
                 if str(step.get("with", {}).get("submodules", False)).lower() in ("true", "recursive"):
                     continue
+                # A failed checkout's retry pair (tests/test_cmux_next_checkout_retry.py)
+                # sits between the checkout and the reset, which follows either way.
+                if step.get("if") == self.CHECKOUT_FAILED:
+                    continue
                 checked.append(job_id)
                 with self.subTest(job=job_id):
-                    following = job_steps[index + 1] if index + 1 < len(job_steps) else {}
+                    after = index + 1
+                    while after < len(job_steps) and job_steps[after].get("if") == self.CHECKOUT_FAILED:
+                        after += 1
+                    following = job_steps[after] if after < len(job_steps) else {}
                     self.assertIn(RESET_STALE_SUBMODULES, following.get("run", ""),
                                   "the step after checkout must drop stale submodule checkouts")
         self.assertEqual(sorted(checked), ["cmux-scheme-compile", "daemon-test", "generated-files", "release-compile",
-                                           "swift-test"])
+                                           "request-nightly-next", "swift-test"])
 
 
 

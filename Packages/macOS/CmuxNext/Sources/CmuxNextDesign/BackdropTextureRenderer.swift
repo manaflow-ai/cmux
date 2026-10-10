@@ -26,6 +26,7 @@ nonisolated struct BackdropTextureRenderer {
         guard let output else { return nil }
         // Rendered here, off the main actor: a lazy Core Image representation would make AppKit
         // render it (a GPU readback) in the main actor's commit.
+        // concurrency-allow: only BackdropImageStore.load runs this, inside its Task.detached decode.
         return context.createCGImage(output.cropped(to: input.extent), from: input.extent)
     }
 

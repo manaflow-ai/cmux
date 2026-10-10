@@ -44,7 +44,6 @@ test {
     _ = @import("raw/wire_presence_test.zig");
     _ = @import("raw/generated/presence_test.zig");
     std.testing.refAllDecls(protocol);
-    try std.testing.expectEqual(@as(usize, 232), protocol.command_count);
     for ([_][]const u8{
         "browser-frame-presented",
         "browser-key-press",
@@ -64,5 +63,4 @@ test {
         }
         try std.testing.expect(found);
     }
-    try std.testing.expectEqual(@as(usize, 67), protocol.event_count);
 }

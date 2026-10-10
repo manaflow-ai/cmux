@@ -1,0 +1,36 @@
+/* Tailwind for the agent pane (Lawrence 2026-10-08: "use tailwind for everything here"). Theme and
+   utilities only: no Preflight, so the pane's own rules keep their look while components move to
+   utility classes. The tokens below name the pane's theme variables (AgentPaneTheme.swift), so a
+   utility follows the Ghostty theme like the hand-written rules do: `text-fg`, `bg-hover`,
+   `border-edge`. The app build compiles this file over the pane's sources
+   (scripts/agent-pane/tailwind-css.mjs); the gallery compiles it through Vite. */
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities) source(none);
+
+@theme inline {
+  /* The type scale (pages/shared/desktop.css, ui/README.md "Type scale"): text-caption ... text-content. */
+  --text-caption: var(--text-caption);
+  --text-caption--line-height: var(--text-caption--line-height);
+  --text-detail: var(--text-detail);
+  --text-detail--line-height: var(--text-detail--line-height);
+  --text-body: var(--text-body);
+  --text-body--line-height: var(--text-body--line-height);
+  --text-control: var(--text-control);
+  --text-control--line-height: var(--text-control--line-height);
+  --text-title: var(--text-title);
+  --text-title--line-height: var(--text-title--line-height);
+  --text-heading: var(--text-heading);
+  --text-heading--line-height: var(--text-heading--line-height);
+  --text-content: var(--text-content);
+  --text-content--line-height: var(--text-content--line-height);
+  --color-fg: var(--agent-text);
+  --color-muted: var(--agent-muted);
+  --color-dim: var(--acpmux-composer-dim);
+  --color-edge: var(--acpmux-composer-edge);
+  --color-hover: var(--acpmux-menu-hover);
+  --color-menu: var(--acpmux-menu-bg);
+  --color-base: var(--acpmux-base);
+  --color-accent: var(--agent-accent);
+  /* The shared popover elevation (ui/popupSurface.css) under the menu's hairline edge. */
+  --shadow-menu: inset 0 0 0 0.5px var(--acpmux-composer-edge), var(--ui-popup-shadow, 0 2px 8px color-mix(in srgb, black 12%, transparent));
+}

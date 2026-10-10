@@ -14,6 +14,8 @@ final class AppDevToolsRelay: ProviderDevToolsRelay {
     private weak var marking: (any ProviderAgentMarking)?
     /// Whether the app announces tab `id` to the host (local, not incognito).
     var drivable: ((String) -> Bool)?
+    /// Where a hidden driven tab renders (shared with the WebKit tabs).
+    var renderWindows: AgentRenderWindows?
     private var relayed: [String: WeakCEFTab] = [:]
 
     /// A page may be replaced a few times while it starts (rebuild, wake);
@@ -31,7 +33,17 @@ final class AppDevToolsRelay: ProviderDevToolsRelay {
         marking?.agentWillDrive(targetID: targetID)
         guard let page = await agentReadyPage(tab) else { return false }
         if !page.agentRelay.hasBrowser { page.agentRelay.createBrowser() }
-        return await page.agentRelay.browserCreated()
+        let created = await page.agentRelay.browserCreated()
+        if created { keepRendering(targetID) }
+        return created
+    }
+
+    /// A driven Chromium tab whose pane window is in no app window renders
+    /// in the off-screen render window (``AgentRenderWindows``).
+    private func keepRendering(_ targetID: String) {
+        guard let services, let renderWindows, let entry = services.cache.existingBrowser(targetID),
+              let page = entry.tab as? CEFTab, page.agentRelay.needsRenderWindow else { return }
+        _ = renderWindows.keepRendering(tabID: targetID, chrome: entry.chrome, webView: nil)
     }
 
     /// The tab's live Chromium page once it is agent-driven, starting it
@@ -90,7 +102,9 @@ final class AppDevToolsRelay: ProviderDevToolsRelay {
     }
 
     func send(targetID: String, message: String) -> CEFDevToolsRawSend {
-        relayed[targetID]?.page?.agentRelay.send(message) ?? .noBrowser
+        // A pane that showed the tab may have let it go since the last call.
+        if relayed[targetID]?.page?.agentRelay.needsRenderWindow == true { keepRendering(targetID) }
+        return relayed[targetID]?.page?.agentRelay.send(message) ?? .noBrowser
     }
 
     func stopRelay(targetID: String) {

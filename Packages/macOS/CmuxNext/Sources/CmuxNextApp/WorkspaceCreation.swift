@@ -1,3 +1,4 @@
+import CmuxNextAgentPane
 import CmuxNextDaemon
 import Foundation
 import os
@@ -86,9 +87,10 @@ enum WorkspaceCreation {
     @MainActor
     static func newTabPage(_ spawn: WorkspaceSpawn, _ key: WorkspaceKey, cwd: String?, on daemon: DaemonService,
                            repair: EmptyWorkspaceRepair, tabs: AgentTabStore) async throws -> String? {
-        guard spawn.opensNewTabPage, spawn.command == nil, tabs.canHost(on: daemon), let connection = daemon.connection else { return nil }
+        guard spawn.opensNewTabPage || spawn.firstChat != nil, spawn.command == nil, tabs.canHost(on: daemon),
+              let connection = daemon.connection else { return nil }
         return try await createWithFirstTab(key, name: spawn.name, on: connection, repair: repair) { created in
-            _ = try await tabs.openFirstPage(workspace: created.workspace, cwd: cwd, on: daemon)
+            _ = try await tabs.openFirstPage(workspace: created.workspace, cwd: cwd, on: daemon, chat: spawn.firstChat)
             return created.key.rawValue
         }
     }

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>AssociatedBundleIdentifiers</key>
+	<array>
+		<string>com.cmuxterm.app.debug.testtag</string>
+	</array>
+	<key>BundleProgram</key>
+	<string>Contents/Resources/bin/cmux</string>
+	<key>KeepAlive</key>
+	<dict>
+		<key>SuccessfulExit</key>
+		<false/>
+	</dict>
+	<key>Label</key>
+	<string>com.cmuxterm.app.debug.testtag.server</string>
+	<key>ProcessType</key>
+	<string>Standard</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>Contents/Resources/bin/cmux</string>
+		<string>host</string>
+		<string>run</string>
+		<string>--mode</string>
+		<string>user</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>ThrottleInterval</key>
+	<integer>10</integer>
+</dict>
+</plist>

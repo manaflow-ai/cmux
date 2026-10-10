@@ -158,16 +158,20 @@ final class FieldTextView: NSTextView {
         DispatchQueue.main.async { [weak self] in self?.updateCaret(reset: false) }
         return ok
     }
+    // cmux: block observers on queue: .main (inline for AppKit's post on main), not selectors:
+    // a selector into this main-actor view trapped on a post off main (crash program).
+    private var keyObservers: [NSObjectProtocol] = []
+    deinit { keyObservers.forEach { NotificationCenter.default.removeObserver($0) } }
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         let nc = NotificationCenter.default
-        nc.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: nil)
-        nc.removeObserver(self, name: NSWindow.didResignKeyNotification, object: nil)
+        keyObservers.forEach { nc.removeObserver($0) }  // cmux
+        keyObservers = []
         guard let window else { return }
-        nc.addObserver(self, selector: #selector(keyChanged), name: NSWindow.didBecomeKeyNotification, object: window)
-        nc.addObserver(self, selector: #selector(keyChanged), name: NSWindow.didResignKeyNotification, object: window)
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {  // cmux
+            keyObservers.append(nc.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in self?.updateCaret() })
+        }
     }
-    @objc private func keyChanged() { updateCaret() }
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         updateCaret(reset: false)
@@ -193,7 +197,8 @@ final class CaretView: NSView {
 /// layer (the shared code removes animations from it).
 final class ComposeTextView {
     let view: FieldTextView
-    var layer: CALayer { view.layer! }
+    // cmux: init sets wantsLayer, so the layer exists; a detached layer stands in otherwise (crash program).
+    var layer: CALayer { view.layer ?? CALayer() }
     var onSend: () -> Void { get { view.onSend } set { view.onSend = newValue } }
     var onEscape: () -> Void { get { view.onEscape } set { view.onEscape = newValue } }
     var text: String { view.string }
@@ -273,7 +278,7 @@ final class ComposeView: UIView {
     static let maxLines = 8
     static let writingTools: NSWritingToolsBehavior = {
         let a = ProcessInfo.processInfo.arguments
-        switch a.firstIndex(of: "--writing-tools").flatMap({ $0 + 1 < a.count ? a[$0 + 1] : nil }) {
+        switch a.firstIndex(of: "--writing-tools").flatMap({ a.dropFirst($0 + 1).first }) /* cmux: no index math */ {
         case "none": return .none
         case "complete": return .complete
         case "default": return .default
@@ -320,7 +325,8 @@ final class ComposeView: UIView {
             l.actions = none; l.contentsScale = DisplayScale.current
         }
         buttons.isUserInteractionEnabled = false
-        buttons.drawer = { [unowned self] ctx, _ in self.drawButtons(ctx) }
+        // cmux: weak capture, not unowned (crash program: no trap after the view is freed).
+        buttons.drawer = { [weak self] ctx, _ in self?.drawButtons(ctx) }
         addSubview(buttons)
         glass.anchorPoint = CGPoint(x: 0.5, y: 1)
         layer.addSublayer(glass)
@@ -485,8 +491,9 @@ final class ComposeView: UIView {
             let grey = NSColor(white: 55 / 255, alpha: 1)
             let space = CGColorSpace(name: CGColorSpace.sRGB)
             for (stops, fromTop) in [(top, true), (bottom, false)] {
+                // cmux: an optional gradient draws nothing when it fails (CrashSafeGraphics).
                 let g = CGGradient(colorsSpace: space, colors: stops.map { grey.withAlphaComponent($0.1).cgColor } as CFArray,
-                                   locations: stops.map { $0.0 / cap })!
+                                   locations: stops.map { $0.0 / cap })
                 c.drawLinearGradient(g, start: CGPoint(x: 0, y: fromTop ? 0 : h), end: CGPoint(x: 0, y: fromTop ? cap : h - cap), options: [])
             }
             c.restoreGState()
@@ -604,10 +611,11 @@ final class ComposeView: UIView {
     /// faded (catalyst's `tintOverBubble`).
     func tintOverBubble(begin: CFTimeInterval, exit: CFTimeInterval) {
         let e = Springs.fieldOpacity
-        let n = max(2, Int((exit - begin) * 240) + 1)
-        var values: [Double] = (0...n).map { min(1, max(0, e.value(Double($0) / 240, from: 1, to: 1))) }
-        let low = values.indices.min { values[$0] < values[$1] } ?? n
-        for i in 0...n { values[i] = i < low || i == n ? 0 : 1 - values[i] }
+        let n = max(2, CrashGuard.int((exit - begin) * 240, in: 0...14_400) + 1) // cmux: at most 60 s, no trap on NaN
+        let samples: [Double] = (0...n).map { min(1, max(0, e.value(Double($0) / 240, from: 1, to: 1))) }
+        // cmux: no index math.
+        let low = samples.enumerated().min { $0.element < $1.element }?.offset ?? n
+        let values = samples.enumerated().map { $0.offset < low || $0.offset == n ? 0 : 1 - $0.element }
         let a = CAKeyframeAnimation(keyPath: "opacity")
         a.values = values.map { NSNumber(value: $0) }
         a.keyTimes = (0...n).map { NSNumber(value: Double($0) / Double(n)) }

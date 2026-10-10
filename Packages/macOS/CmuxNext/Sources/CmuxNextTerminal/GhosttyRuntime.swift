@@ -1,4 +1,6 @@
 public import AppKit
+public import CmuxNextProcessEnvironment
+import CmuxNextWakeups
 import GhosttyNextKit
 import os
 import Synchronization
@@ -67,7 +69,12 @@ public final class GhosttyRuntime {
             TerminalTimings.runtimePhase(name, phase.duration(to: now))
             phase = now
         }
-        Self.configureProcessEnvironment()
+        // The app froze the environment in main after preparing it; a
+        // process that skips main (tests) prepares it here. Either way no
+        // write may follow ghostty_init.
+        let environmentGuard = ProcessEnvironmentGuard.process
+        if !environmentGuard.isFrozen { Self.prepareProcessEnvironment(environmentGuard: environmentGuard) }
+        environmentGuard.freeze()
         defer { mark("app_new") }
         guard ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv) == 0 else {
             Self.logger.error("ghostty_init failed; terminal surfaces are disabled")
@@ -261,13 +268,16 @@ public final class GhosttyRuntime {
     private func installObservers() {
         let center = NotificationCenter.default
         observers.append(center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
             MainActor.assumeIsolated { self?.setAppFocused(true) }
         })
         observers.append(center.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
             MainActor.assumeIsolated { self?.setAppFocused(false) }
         })
         // Ghostty caches the keyboard layout for key translation.
         observers.append(center.addObserver(forName: NSTextInputContext.keyboardSelectionDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
             MainActor.assumeIsolated {
                 guard let app = self?.app else { return }
                 ghostty_app_keyboard_changed(app)
@@ -275,10 +285,10 @@ public final class GhosttyRuntime {
         })
         if let nsApp = NSApp {
             applyColorScheme(nsApp.effectiveAppearance)
-            appearanceObservation = nsApp.observe(\.effectiveAppearance, options: [.new]) { [weak self] application, _ in
-                MainActor.assumeIsolated {
-                    self?.applyColorScheme(application.effectiveAppearance)
-                }
+            // KVO calls back on the thread that changed the value: inline on
+            // main, a hop from anywhere else.
+            appearanceObservation = nsApp.observe(\.effectiveAppearance, options: [.new]) { @Sendable [weak self] application, _ in
+                MainDelivery().run { self?.applyColorScheme(application.effectiveAppearance) }
             }
         }
     }
@@ -307,8 +317,14 @@ public final class GhosttyRuntime {
     /// resources bundled in this app, then an inherited value, then
     /// Ghostty.app. Manual-IO surfaces spawn no shell, so shell-integration
     /// and TERM here only matter for `theme =` lookups and local debug PTYs.
-    private static func configureProcessEnvironment() {
-        if let resources = resourcesDirectory() {
+    /// The app calls it in `main` (`CmuxNextApp.prepareLaunchEnvironment`) before any
+    /// thread starts and the environment freeze; `init` calls it only when
+    /// nothing froze the environment (tests). libghostty keeps a slice of
+    /// `environ` from `ghostty_init`, so no write may follow it.
+    public nonisolated static func prepareProcessEnvironment(environmentGuard: ProcessEnvironmentGuard = .process) {
+        environmentGuard.write("GhosttyRuntime.prepareProcessEnvironment") {
+            guard let resources = resourcesDirectory() else { return }
+            if let current = getenv("GHOSTTY_RESOURCES_DIR"), String(cString: current) == resources { return }
             setenv("GHOSTTY_RESOURCES_DIR", resources, 1)
         }
     }

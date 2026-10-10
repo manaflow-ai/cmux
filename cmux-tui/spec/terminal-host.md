@@ -131,7 +131,7 @@ indexes are fatal.
 | 10 | `Pwd` | host to client | `READ` | UTF-8 cwd; empty means cleared |
 | 11 | `Bell` | host to client | `READ` | empty |
 | 12 | `Exit` | host to client | `READ` | versioned process outcome |
-| 13 | `ResyncRequired` | host to client | `READ` | empty or attach-gap layout |
+| 13 | `ResyncRequired` | host to client | `READ` | empty, attach-gap layout, or four little-endian `u64` Kitty limits |
 | 14 | `Launch` | parent to host | private pipe | launch layout |
 | 15 | `Capability` | host to client | response | 32-byte token |
 | 16 | `ResizeAck` | host to client | response | `cols:u16, rows:u16, result_flags:u32` |
@@ -203,9 +203,20 @@ defaults:DefaultColors
 cell_width_px:u16
 cell_height_px:u16
 kitty_limits:{image_bytes:u64,inflight_bytes:u64,images:u64,placements:u64}
+seed:optional blob
 ```
 
-`argc` is from 1 through 256. `envc` is at most 1,024.
+`argc` is from 1 through 256. `envc` is at most 1,024. The fields before
+`seed` are limited to 1 MiB. `seed` is present only when bytes follow
+`kitty_limits`; it is a blob of at most 8 MiB of VT replay that the host applies
+to its own parser before it reads the PTY and never writes to the PTY, as for
+`LaunchAdopt`. An owner sends it when it respawns a terminal whose shell was lost
+with its host (cx-6so.49 L2): the new shell starts below the previous screen.
+It also sends it when Reopen Closed starts a terminal that a close archived
+(ARCHIVE-1): the new shell starts below the archived screen and one line that
+names the program the close stopped.
+A host that predates the field rejects a seeded `Launch`; owners only seed
+hosts they start from their own binary.
 
 `LaunchAdopt` replaces `Launch` for a host started with `--adopt-pty-fd N`.
 The fields before `seed` are limited to 1 MiB and `seed` is a blob of at most
@@ -231,7 +242,14 @@ seed:blob
 `child_pid` and `session_id` are nonzero; `incarnation` is a canonical
 UUIDv4. `seed` is VT replay of the terminal's screen; the host applies it to
 its own parser before it reads the PTY and never writes it to the PTY. It may
-be empty. There is no command, cwd, or environment: no child is spawned.
+be empty. There is no command, cwd, or environment: no child is spawned. The
+replay carries the title (OSC 2) and working directory (OSC 7); an owner
+appends the last OSC 9;4 progress (`ESC ] 9 ; <progress> ESC \`) after it, and
+the host also feeds the seed to its terminal-metadata parser, discarding any
+notifications and shell marks, so its snapshots report that progress. Known gap:
+the seed is applied with plain VT writes, so Kitty graphics placements and
+image-number aliases from before the replacement are not restored; programs
+redraw their images on the next update.
 
 `LaunchFailed` starts with little-endian `version:u16=1, kind:u16`, followed
 by 1 through 4,096 bytes of UTF-8 diagnostic text. Kind 1 means PTY capacity
@@ -425,7 +443,25 @@ example because the old host is stopped rather than dead, returns
 `LaunchFailed` and exits without a record, sidecar, `Ready`, or PTY byte. The
 kernel releases the lock only when the holder process is gone. Exit sidecar
 acknowledgement and stale-record removal delete the file only while holding
-the lock themselves.
+the lock themselves; an owner at startup and a session reset also delete every
+such file whose lock is free.
+
+The cmux-tui daemon takes custody of every connected host whose record
+advertises `supports_pty_custody` (after launch, adoption, and each reconnect)
+and keeps it with that connection, so it is released when the terminal ends,
+is closed, or its host is replaced. When its reconnect loop proves a host dead
+and there is no `.exit` sidecar for the incarnation, the daemon starts a
+replacement host on its copy, if it still holds one, it is not shutting down,
+the registry still names the incarnation running (neither exited nor
+tombstoned), and the shell still leads its session and is not a zombie. The
+seed is the daemon's replay of the terminal. On success the reconnect loop
+attaches to the replacement like any reconnect; the terminal keeps its id,
+incarnation, surface, and tab and records no end, and the daemon appends an
+`"event":"host_replaced"` line (old and new host PID, recorded signals) to
+`terminal-losses.jsonl` and removes the dead host's `.signals`. When a
+published replacement is live but not yet attached, the loop attaches to it.
+Otherwise the dead host is a host loss as before. A host that died while no
+daemon ran has no custody holder and stays a host loss.
 
 ## Viewer-size arbitration
 
@@ -461,6 +497,22 @@ retained stream, the payload is `requested_after:u64, retained_after:u64,
 reason:u8`; reason `0` is a retention gap and reason `1` is subscriber queue
 overflow. All fields are little-endian and clients must reconnect for either
 reason.
+
+A Kitty quota change (`SetKittyGraphicsLimits`) publishes `ResyncRequired` on
+the smart stream at the source position where the host applied the new
+limits. When that change evicted no stored image or placement on either
+screen (the host's Kitty image generation is unchanged) and no Kitty upload
+was being assembled, the payload is the four new limits in the
+`KittyGraphicsLimitsAck` layout (32 bytes); otherwise it is empty. A smart
+client that receives the 32-byte payload may instead apply the same limits to
+its own parser at that sequence and continue the stream; it must reconnect if
+its own parser then evicts anything. A client that does not apply it
+reconnects as for an empty payload. Clients must treat any `ResyncRequired`
+payload they do not understand as an empty one (reconnect); this keeps
+older and newer daemons and hosts compatible in both directions. The owner
+daemon applies it, so a quota
+rebalance across many terminals (the daemon's process image budget is split
+by a power-of-two terminal capacity) does not reconnect every host.
 
 The host publishes
 `Exit` only after the final `Output`. It uses the normal live sequence,
@@ -546,8 +598,9 @@ sockets are mode `0600`.
 
 A daemon started with `CMUX_TUI_HOST_SCOPES=systemd` on a systemd machine
 moves each terminal host it starts into its own transient scope
-`cmux-terminal-host-<pid>.scope` in `cmux-terminal-hosts.slice`, before the
-host receives `Launch` or `LaunchAdopt`, so the host's child inherits the
+`cmux-terminal-host-<pid>.scope` in `cmuxhosts.slice`, before the
+host receives `Launch` or `LaunchAdopt`: the daemon waits (at most 2 s)
+until the host's own cgroup names the scope, so the host's child inherits the
 scope and a stop or restart of the daemon's unit leaves the host running for
 adoption. The move is `org.freedesktop.systemd1.Manager.StartTransientUnit`
 with the host PID, run as `busctl` with a fixed argument vector (through
@@ -567,10 +620,19 @@ tap. A host `Snapshot` preserves renderable terminal state across daemon
 replacement, and the exit sidecar preserves the final process outcome, but the
 host does not currently retain an acknowledged raw-output spool. Bytes emitted
 while no daemon tap exists can therefore be recovered visually from a snapshot
-but cannot be reconstructed as exact historical `terminal.output` records. The
-mux commits a replacement checkpoint after it applies such a reconnect snapshot
-and before it accepts the new live boundary. Restoration starts from that
-durable terminal state, but consumers must not claim byte-exact output history
+but cannot be reconstructed as exact historical `terminal.output` records.
+After the mux applies such a reconnect snapshot (also after a live host's
+`ResyncRequired`), and before it accepts output from the new live boundary, it
+appends a required `terminal.output.gap` record with reason `host_reconnect` to
+that terminal's journal lane. This is O(1) per reconnect. A journal retention
+worker then commits one checkpoint that covers every terminal that reconnected
+since the last one, including terminals that ended meanwhile: once the
+reconnect wave has had no new reconnect for one second (at most ten seconds
+after its first), and at most one per 30 s interval. No such capture starts
+while `shutdown-daemon` is ending terminals, and a daemon that is shutting
+down or handing off its hosts captures none, so those gaps stay in the tail
+until a later checkpoint. A restore from an older checkpoint reports the
+gap as unsupported until a later checkpoint exists. Consumers must not claim byte-exact output history
 across an unplanned no-tap interval until a durable host spool exists.
 
 ## Version compatibility

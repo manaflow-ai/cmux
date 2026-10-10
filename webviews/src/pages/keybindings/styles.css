@@ -235,6 +235,15 @@
   cursor: default;
 }
 
+/* A system-wide key another app holds: a quiet mark beside the keys, its reason in the tooltip. */
+.keys-held-elsewhere {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  vertical-align: middle;
+  color: var(--page-text-2);
+}
+
 .keys-conflict:hover {
   background: var(--page-hover);
   color: var(--page-text);

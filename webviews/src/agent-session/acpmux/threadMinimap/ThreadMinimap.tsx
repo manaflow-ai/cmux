@@ -8,6 +8,7 @@ import React, { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } 
 import type { AcpmuxRow, ConversationLayout } from "../model";
 import { useT } from "../i18n";
 import { useBookmarks } from "./bookmarks";
+import { MinimapTick } from "../../../ui/MinimapTick";
 import {
   currentTurn,
   minimapTurns,
@@ -228,20 +229,22 @@ const Tick = memo(function Tick({
   last: number;
 }) {
   return (
-    <button
+    <MinimapTick
       type="button"
+      index={index}
+      last={last}
       data-tick={index}
       className="acpmux-minimap__tick"
       data-tone={tone}
       aria-label={label}
       aria-current={current ? "location" : undefined}
-      tabIndex={tabbable ? 0 : -1}
+      active={tabbable}
       style={{ transform: `translate3d(0, ${top}px, 0)`, height: pitch }}
       onClick={() => onJump(index)}
       onFocus={(event) => {
         if (event.currentTarget.matches(":focus-visible")) onFocusTick(index, true);
       }}
-      onKeyDown={(event) => {
+      keyboard={(event) => {
         const to =
           event.key === "ArrowUp"
             ? index - 1
@@ -252,16 +255,14 @@ const Tick = memo(function Tick({
                 : event.key === "End"
                   ? last
                   : undefined;
-        if (to === undefined) return;
-        event.preventDefault();
-        onMove(to);
+        if (to !== undefined) onMove(to);
       }}
     >
       <span
         className="acpmux-minimap__bar"
         style={{ transform: `translateX(${TICK_LEFT}px) scaleX(${width / TICK_MAX_WIDTH})` }}
       />
-    </button>
+    </MinimapTick>
   );
 });
 

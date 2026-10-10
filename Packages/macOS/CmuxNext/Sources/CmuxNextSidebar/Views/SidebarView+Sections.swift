@@ -35,20 +35,18 @@ extension SidebarView {
                 self.model.send(.layout(op))
             }
         }
+        SidebarPinDrops.install(self)
         // The footer row (the profile control and the spaces dots) takes no
         // drag and drop for now (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 3).
         // The band below keeps the same rule it had while it held the footer.
         footerRegion.allowsDrag = false
         belowRegion.allowsDrag = false
-        aboveFade = ScrollEdgeFadeView(scrollView: aboveScroll)
-        belowFade = ScrollEdgeFadeView(scrollView: belowScroll)
         addSubview(aboveFade)
         addSubview(belowFade)
         addSubview(footerRegion)
         wantsLayer = true
         aboveLine.actions = ["backgroundColor": NSNull(), "bounds": NSNull(), "position": NSNull(), "hidden": NSNull()]
         layer?.addSublayer(aboveLine)
-        installCardStack()
     }
 
     /// Gives the three regions their sections: the band above the list,
@@ -92,7 +90,7 @@ extension SidebarView {
         let look = SidebarSectionTunables.currentLook
         let (aboveHeight, belowHeight) = SidebarBandHeights.resolve(
             above: aboveRegion.layoutResult, below: belowRegion.layoutResult, available: available,
-            preferences: DesignSettings.shared.sidebarSections, minimumList: Metrics.sidebarRowHeight * 3,
+            preferences: SidebarAppHeights.preferences(below: belowRegion), minimumList: Metrics.sidebarRowHeight * 3,
             bandFloor: Metrics.sidebarRowHeight + Metrics.space2)
         aboveFade.frame = NSRect(x: 0, y: y, width: b.width, height: aboveHeight)
         size(aboveRegion, in: aboveScroll, width: b.width)
@@ -118,7 +116,7 @@ extension SidebarView {
         var heights: [LayoutSectionID: CGFloat] = [:]
         for section in sections where section.content == .app {
             guard let contribution = section.contribution, provider.makeView(for: contribution) != nil else { continue }
-            heights[section.id] = max(provider.preferredHeight(for: contribution, width: width), Metrics.sidebarRowHeight)
+            heights[section.id] = SidebarAppHeights.height(provider, contribution, width: width, sidebarHeight: bounds.height)
         }
         return heights
     }

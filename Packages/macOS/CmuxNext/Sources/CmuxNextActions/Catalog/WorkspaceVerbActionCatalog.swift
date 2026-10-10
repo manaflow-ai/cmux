@@ -79,6 +79,12 @@ nonisolated enum WorkspaceVerbActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .keyboard, .contextMenu], targets: [.workspace], cliName: "workspace clear-icon"
             ),
             ActionDescriptor(
+                id: "workspace.toggleTop",
+                title: String(localized: "action.workspace.toggleTop", defaultValue: "Add Workspace to Top/Remove from Top", table: "WorkspaceActions", bundle: .module),
+                keywords: ["top", "pin", "favorite", "home", "sidebar", "add to top", "remove from top"], category: .workspace, symbol: "pin.square",
+                surfaces: [.palette, .keyboard, .contextMenu], targets: [.workspace], cliName: "workspace toggle-top"
+            ),
+            ActionDescriptor(
                 id: "workspace.moveToBottom",
                 title: String(localized: "action.workspace.moveToBottom", defaultValue: "Move Workspace to Bottom", table: "WorkspaceActions", bundle: .module),
                 keywords: ["reorder", "last", "end"], category: .workspace, symbol: "arrow.down.to.line",

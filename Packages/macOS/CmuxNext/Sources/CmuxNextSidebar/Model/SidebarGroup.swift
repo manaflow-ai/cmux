@@ -10,6 +10,9 @@ public nonisolated struct SidebarGroup: Identifiable, Hashable, Sendable {
     /// Pinned (saved) group: it survives closing its workspaces, like a
     /// saved tab group, and clicking it while empty reopens it.
     public var isPinned: Bool
+    /// The group's icon (`workspace-group-icon-v1`), drawn in its label
+    /// before the name; nil draws the name alone.
+    public var icon: WorkspaceIcon?
     public var workspaces: [SidebarWorkspace]
 
     /// `name`, or the localized default for a group made without one (an
@@ -25,9 +28,11 @@ public nonisolated struct SidebarGroup: Identifiable, Hashable, Sendable {
         color: GroupColor = .grey,
         isCollapsed: Bool = false,
         isPinned: Bool = false,
+        icon: WorkspaceIcon? = nil,
         workspaces: [SidebarWorkspace]
     ) {
         self.isPinned = isPinned
+        self.icon = icon
         self.id = id
         self.name = name
         self.color = color

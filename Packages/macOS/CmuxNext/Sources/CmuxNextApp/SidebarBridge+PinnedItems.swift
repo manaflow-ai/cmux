@@ -96,7 +96,7 @@ extension SidebarBridge {
     /// when its pane is on screen, else through that window's selection
     /// memory and focus. Showing the workspace switches space if needed.
     private func reveal(_ tab: TabModel, in pane: PaneModel, workspace: String, state: WindowState) {
-        let windows = services.windows!
+        let windows = services.windows
         let value = windows.registry.value
         let owner = value.owner(of: workspace).flatMap { $0 != state.id && value.window($0)?.isOpen == true ? windows.controller(for: $0) : nil }
         let target = owner?.state ?? state

@@ -1,7 +1,7 @@
 // An in-memory icon picker host for the browser dev loop (`?mock`), the tests and the bench:
 // prefs in memory, assets get a fake content id, and every finish is recorded.
 import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
-import { IconPickerOps, type PickerSession } from "./host";
+import { CLIPBOARD_WRITE, IconPickerOps, type PickerSession } from "./host";
 
 export const MOCK_SYMBOLS = [
   "star",
@@ -29,6 +29,10 @@ export const MOCK_SYMBOLS = [
 export class MockIconPickerHost implements PageClient {
   readonly calls: { op: string; params: unknown }[] = [];
   prefs: unknown = null;
+  /** The last text Copy wrote. */
+  clipboard: string | null = null;
+  /** Refuses every finish, as the native host does for an unknown session. */
+  refuseFinish = false;
   private sessionListener?: (data: PickerSession, seq: number) => void;
   private seq = 0;
 
@@ -45,7 +49,12 @@ export class MockIconPickerHost implements PageClient {
         const kind = (params as { kind: string }).kind;
         return { icon: `${kind}:sha256-${"0".repeat(63)}${this.calls.length % 10}` } as R;
       }
+      case CLIPBOARD_WRITE:
+        this.clipboard = (params as { text: string }).text;
+        return undefined as R;
       case IconPickerOps.finish:
+        if (this.refuseFinish)
+          throw pageError("cmux.protocol.invalid_params", "finish: unknown session or invalid icon");
         return undefined as R;
       default:
         throw pageError("cmux.protocol.unknown_op", op);

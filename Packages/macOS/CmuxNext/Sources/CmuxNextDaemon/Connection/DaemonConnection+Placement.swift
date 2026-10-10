@@ -37,8 +37,8 @@ extension DaemonConnection {
     public static func uuidForm(_ raw: String) -> String {
         let hex = raw.replacingOccurrences(of: "-", with: "").uppercased()
         guard hex.count == 32, hex.allSatisfy(\.isHexDigit) else { return raw }
-        let h = Array(hex)
-        return [h[0..<8], h[8..<12], h[12..<16], h[16..<20], h[20..<32]].map { String($0) }.joined(separator: "-")
+        var rest = Substring(hex)
+        return [8, 4, 4, 4, 12].map { n -> Substring in defer { rest = rest.dropFirst(n) }; return rest.prefix(n) }.joined(separator: "-")
     }
 
     var supportsPlacementEnv: Bool { identity?.supports(DaemonCapabilities.shared.terminalPlacementEnv) == true }
@@ -48,7 +48,7 @@ extension DaemonConnection {
     func served(_ options: SpawnOptions) -> SpawnOptions {
         var options = options
         if identity?.supports(DaemonCapabilities.shared.terminalReap) != true { options.keep = nil }
-        if !supportsPlacementEnv { options.terminalID = nil }
+        options.drop(callerTerminal: !supportsPlacementEnv, clientKeys: identity?.supports(DaemonCapabilities.shared.splitClientKeys) != true)
         return options
     }
 

@@ -17,7 +17,12 @@ enum DebugPageHostPool {
         let spans: [JSONValue] = pool.spans.map {
             .object(["name": .string($0.name), "ms": .number($0.milliseconds)])
         }
+        // How each claimed host took its claim (acknowledged without a reload, or the fallback).
+        let outcomes: [JSONValue] = pool.claimedHosts.compactMap { host in
+            host.lastClaim.map { .object(["page": .string(host.pageID), "path": .string($0.path.rawValue), "ms": .number($0.milliseconds)]) }
+        }
         return [
+            "claim_outcomes": .array(outcomes),
             "likely": .bool(pool.isLikely),
             "building": .bool(pool.isBuilding),
             "spare_ready": .bool(pool.isSpareReady),

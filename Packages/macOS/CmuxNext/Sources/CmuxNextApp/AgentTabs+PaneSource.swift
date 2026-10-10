@@ -1,7 +1,8 @@
 import CmuxNextAgentPane
 import Foundation
 
-extension AgentTabStore {
+/// The agent tabs' pane page and acpmux host (outside AgentTabStore, which is at its size limit).
+@MainActor struct AgentTabPaneSource {
     /// The agent pane page and its acpmux host. Release loads only the
     /// bundled page; the dev server is for Debug and tagged builds
     /// (webviews/src/agent-session/acpmux/README.md). The page never opens a
@@ -24,7 +25,9 @@ extension AgentTabStore {
             return (source, MockAgentPaneHost())
         }
         let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
-        let host = AcpmuxHost { paneEnvironment(tag: tag, bundledBinDirectory: bin, environment: environment) }
+        let computerUse = ComputerUseHelperDaemon.shared
+        let host = AcpmuxHost(resolve: { paneEnvironment(tag: tag, bundledBinDirectory: bin, environment: environment) },
+                              computerUse: { computerUse.childEnvironment })
         return (source, host)
     }
 

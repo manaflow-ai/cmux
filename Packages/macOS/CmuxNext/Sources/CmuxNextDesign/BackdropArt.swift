@@ -102,7 +102,8 @@ public nonisolated enum BackdropArt: String, CaseIterable, Sendable {
         case .womenPickingOlives: id = "436536"
         case .sunflowers: id = "436524"
         }
-        return URL(string: "https://www.metmuseum.org/art/collection/search/\(id)")!
+        // A literal per case (a test parses each); /dev/null stands in rather than a trap.
+        return URL(string: "https://www.metmuseum.org/art/collection/search/\(id)") ?? URL(fileURLWithPath: "/dev/null")
     }
 
     /// Loads the packaged image. A missing resource safely paints no art.

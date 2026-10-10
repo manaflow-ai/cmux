@@ -188,7 +188,7 @@ browser dev loop; H2 and H3 run in parallel; the page becomes the default when H
 
 ### 3.1 Today (Swift)
 
-Page UI (delete at parity): `CmuxNextApps/Store/AppStoreWindowController.swift`, `Views/AppStoreRootView`,
+Page UI (delete at parity): `CmuxNextApps/Store/AppStoreContentView.swift`, `Views/AppStoreRootView`,
 `AppDiscoverView`, `AppListingViews`, `AppListingDetailView`, `AppInstalledView`, `AppGrantsView`,
 `AppLivePreview`, `AppIconView`; models `AppStoreModel`, `AppStorePages`, `AppStoreCatalog`,
 `AppStoreListing`, `AppPreviewSink`. Shared, stays native: `AppSectionFrame`, `Render/*`, `Scene/*`

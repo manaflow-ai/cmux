@@ -21,11 +21,11 @@ import Testing
             items.append(Fixture2.item(Seq(seq), seq % 2 == 0 ? them : me, "Message \(seq)", key: seq % 2 == 0 ? "turn:s1:\(seq)" : "preflight-\(seq)"))
             p.apply(items: items, summary: Fixture2.summary(lastSeq: Seq(seq)), typing: [], hasOlder: false)
         }
-        let keys = c.demo.model.rows.map(\.spec.key)
+        let keys = c.demo!.model.rows.map(\.spec.key)
         #expect(keys.count == Set(keys).count, "duplicate rows: \(keys)")
         #expect(keys.filter { $0.hasPrefix("part:") }.count == 5, "one part row per message: \(keys)")
         // Ids still round-trip: a tapback on a Chief message finds its item.
-        let chief = try #require(c.store.state.conversation.messages.first { $0.senderId == them.rawValue })
+        let chief = try #require(c.store!.state.conversation.messages.first { $0.senderId == them.rawValue })
         #expect(RowBuilder.owner("part:\(chief.id):0") == Substring(chief.id))
     }
 }
