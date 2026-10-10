@@ -385,9 +385,18 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     /// because an ancestor moved (sidebar width), not only its own layout.
     override func layoutIfNeeded() {
         overlayLayer.windowWillLayout()
+        layoutPassDepth += 1
         super.layoutIfNeeded()
+        layoutPassDepth = max(0, layoutPassDepth - 1)
+        // Before the overlay layer's own after-pass work, so an occluder
+        // change it causes joins that work in the same pass.
+        if layoutPassDepth == 0 { (contentView as? WindowRootView)?.windowDidLayout() }
         overlayLayer.windowDidLayout()
     }
+
+    /// Inside `layoutIfNeeded` (views defer cross-window work to its end).
+    private var layoutPassDepth = 0
+    var isInLayoutPass: Bool { layoutPassDepth > 0 }
 
     // MARK: OverlayPlaneHosting
 

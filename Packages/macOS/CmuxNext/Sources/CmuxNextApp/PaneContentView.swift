@@ -240,10 +240,12 @@ final class PaneContentView: NSView, PaneContentChrome {
         // here, and the keyboard it held goes to what shows now.
         if let leaving { retire(leaving) }
         if let inner = innerChrome {
-            // A toolbar or bookmarks bar height change moves the strip and
-            // the content: lay out again, then report (v4 review b).
+            // A toolbar or bookmarks bar height change only reshapes the
+            // pane's rounded area and ring. It arrives from the browser
+            // chrome's own layout(): this pane's frames do not depend on it
+            // (a pinned strip follows its band constraints), so no layout of
+            // this ancestor is requested from inside that pass.
             inner.onPaneHeaderHeightChange = { [weak self] in
-                self?.needsLayout = true
                 self?.reportHeaderIfChanged()
             }
         }
