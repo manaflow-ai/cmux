@@ -110,6 +110,7 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("palette_usage.hide", PALETTE_USAGE_REASON),
     ("palette_usage.forget", PALETTE_USAGE_REASON),
     ("workspace.ensure_home", HOME_REASON),
+    ("workspace.ensure_app", APP_WORKSPACE_REASON),
     ("workspace.agent_folder.set", AGENT_FOLDER_REASON),
     ("history.backups.purge", HISTORY_PURGE_REASON),
     ("history.visit.record", HISTORY_VISIT_REASON),
@@ -160,6 +161,8 @@ const HISTORY_MCP_PENDING_REASON: &str = "The person's page, command and agent h
      still open (bead cx-ncc.32); `cmux history` offers them meanwhile.";
 const HISTORY_PURGE_REASON: &str = "Deletes the undo of a history delete: only the user does it, \
      through the verified app (gate A2); an agent never does.";
+const APP_WORKSPACE_REASON: &str = "The hosting app opens an installed app's one workspace \
+     from its sidebar item (app-screens-v1); agents open apps through the apps tools.";
 const AGENT_FOLDER_REASON: &str = "Where a workspace's agents run: only the user sets it, through \
      the verified app after a gesture (gate A2); an agent never does.";
 
