@@ -238,7 +238,8 @@ final class AcpmuxPermissionFeedBridge {
     /// The feed.post body for one prompt: what the person must see to decide.
     nonisolated static func postBody(session: String, permission: String, request: [String: Any]) -> [String: Any] {
         let call = request["toolCall"] as? [String: Any] ?? [:]
-        let title = visible(FeedSecretScrubber.scrub(call["title"] as? String ?? ""))
+        let rawTitle = call["title"] as? String ?? ""
+        let title = visible(FeedSecretScrubber.scrub(rawTitle))
         let kind = visible(call["kind"] as? String ?? "")
         let input = call["rawInput"] as? [String: Any] ?? [:]
         let rawCommand = shownCommand(input["command"])
@@ -246,7 +247,8 @@ final class AcpmuxPermissionFeedBridge {
         let summary = inputSummary(input)
         // Anything cut, dropped or redacted: the phone shows it shortened and never allows it
         // (cx-aocz): a redaction must never hide what the person signs.
-        let redacted = rawCommand.map { FeedSecretScrubber.scrub($0) != $0 } ?? false
+        let redacted = (rawCommand.map { FeedSecretScrubber.scrub($0) != $0 } ?? false)
+            || FeedSecretScrubber.scrub(rawTitle) != rawTitle
         let truncated = (command?.count ?? 0) > 8000 || title.count > 500 || kind.count > 200
             || redacted || (summary?.truncated ?? false)
         var action: [String: Any] = [
