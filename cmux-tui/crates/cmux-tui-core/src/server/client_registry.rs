@@ -421,6 +421,11 @@ impl ClientRegistry {
         }
     }
 
+    /// The daemon's app supervisor slot (`app-screens-v1` checks installs).
+    pub(crate) fn apps(&self) -> &crate::apps::AppsSlot {
+        &self.apps
+    }
+
     pub(super) fn register(&self, transport: ClientTransport, writer: MessageWriter) -> u64 {
         let client = self.next_id.fetch_add(1, Ordering::Relaxed);
         let mut state = self.state.lock().unwrap();
