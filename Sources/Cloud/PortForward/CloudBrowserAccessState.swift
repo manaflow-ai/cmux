@@ -41,6 +41,7 @@ final class CloudBrowserAccessState {
     @ObservationIgnored private var navigate: (@MainActor (URL) -> Void)?
     @ObservationIgnored private var navigateRequest: (@MainActor (URLRequest) -> Void)?
     @ObservationIgnored private var pendingNavigationRequest: URLRequest?
+    @ObservationIgnored private var retiredListenerURLs: [URL] = []
     @ObservationIgnored private var observationGeneration: UInt64 = 0
     @ObservationIgnored private var preservingCommittedRoute = false
     private var activeNavigationID: ObjectIdentifier?
@@ -355,6 +356,7 @@ final class CloudBrowserAccessState {
         starting = nil
         remoteURL = url
         pendingNavigationRequest = request ?? URLRequest(url: url)
+        retiredListenerURLs.removeAll(keepingCapacity: true)
         navigationURL = nil
         preservingCommittedRoute = false
         hasCommittedNavigation = false
@@ -384,6 +386,7 @@ final class CloudBrowserAccessState {
             return nil
         }
         guard navigationURL != url else { return nil }
+        rememberRetiredListener(navigationURL)
         // Keep the original request as the route's replay template. A forward
         // child can exit after readiness and be replaced on a new listener;
         // rebuilding from the URL alone would silently turn a POST into a GET
@@ -418,6 +421,22 @@ final class CloudBrowserAccessState {
         // This request is about to load. Retain its routed identity so delegate
         // callbacks can finish it and readiness cannot issue a duplicate load.
         navigationURL = model?.url(for: serviceURL)
+    }
+
+    /// Returns whether a loopback URL was a listener this route replaced.
+    /// Other loopback ports may identify a different SSH service and must keep
+    /// their own port when the browser asks to open them.
+    func isRetiredListener(_ url: URL) -> Bool {
+        retiredListenerURLs.contains { Self.sameService($0, url) }
+    }
+
+    private func rememberRetiredListener(_ url: URL?) {
+        guard let url,
+              url.scheme?.lowercased() == "http",
+              PrivateNetworkHostPolicy().isLoopback(host: url.host ?? "") else { return }
+        guard !retiredListenerURLs.contains(where: { Self.sameService($0, url) }) else { return }
+        retiredListenerURLs.append(url)
+        if retiredListenerURLs.count > 8 { retiredListenerURLs.removeFirst() }
     }
 
     func didStart(url: URL?, navigationID: ObjectIdentifier? = nil) {
@@ -487,6 +506,7 @@ final class CloudBrowserAccessState {
         trace("retry")
         // An explicit retry is a new first connection with its own quiet retries.
         resetDesktopRetries()
+        rememberRetiredListener(navigationURL)
         navigationURL = nil
         preservingCommittedRoute = false
         hasCommittedNavigation = false
@@ -539,6 +559,7 @@ final class CloudBrowserAccessState {
         navigate = nil
         navigateRequest = nil
         pendingNavigationRequest = nil
+        retiredListenerURLs.removeAll(keepingCapacity: false)
         connectionDeadline.cancel()
         desktopConnected = false
         resourceID = nil
