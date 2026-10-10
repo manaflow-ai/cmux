@@ -48,6 +48,8 @@ pub struct SessionCfg {
     /// upstream streams to files in this directory. `None` offers no
     /// upstream media.
     pub upstream_record: Option<std::path::PathBuf>,
+    /// Most bytes one session records (`--upstream-record-max-mb`, default 1024).
+    pub upstream_record_max_bytes: u64,
 }
 
 pub struct MediaSession {

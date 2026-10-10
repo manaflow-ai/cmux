@@ -75,16 +75,26 @@ pub const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
 /// own file in `DIR` (owner-only), so a run can check what arrived. Video is
 /// the raw Annex-B stream (`.h264`, playable by ffplay); audio is each Opus
 /// packet after a little-endian u16 length (`.opus-packets`). Off by default:
-/// the files hold the viewer's microphone and screen.
+/// the files hold the viewer's microphone and screen. Writes are synchronous
+/// on the session's media loop (acceptable for a development flag). One
+/// session writes at most `max_bytes` and opens at most [`MAX_RECORD_FILES`]
+/// files; past that it stops writing and refuses new streams.
 pub struct RecordSink {
     dir: std::path::PathBuf,
+    max_bytes: u64,
+    written: u64,
+    files: u32,
     streams: BTreeMap<u16, Recording>,
 }
+
+/// Most files one session's [`RecordSink`] opens.
+pub const MAX_RECORD_FILES: u32 = 64;
 
 struct Recording {
     kind: StreamKind,
     path: std::path::PathBuf,
     file: std::io::BufWriter<std::fs::File>,
+    /// Frames and bytes received; after an error, more than were written.
     frames: u64,
     bytes: u64,
     hash: u64,
@@ -92,11 +102,35 @@ struct Recording {
 }
 
 impl RecordSink {
-    /// Creates `dir` (owner-only) when it is missing.
-    pub fn new(dir: &std::path::Path) -> std::io::Result<Self> {
-        use std::os::unix::fs::DirBuilderExt;
+    /// Creates `dir` (owner-only) when it is missing. Refuses a path that is
+    /// a symlink, not a directory, owned by another user, or open to group
+    /// or others.
+    pub fn new(dir: &std::path::Path, max_bytes: u64) -> std::io::Result<Self> {
+        use std::os::unix::fs::{DirBuilderExt, MetadataExt};
         std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
-        Ok(Self { dir: dir.to_path_buf(), streams: BTreeMap::new() })
+        let meta = std::fs::symlink_metadata(dir)?;
+        // SAFETY: geteuid has no preconditions and cannot fail.
+        let euid = unsafe { libc::geteuid() };
+        if !meta.file_type().is_dir() || meta.uid() != euid || meta.mode() & 0o077 != 0 {
+            return Err(std::io::Error::other(format!(
+                "{} must be a real directory owned by this user with mode 0700",
+                dir.display()
+            )));
+        }
+        Ok(Self {
+            dir: dir.to_path_buf(),
+            max_bytes,
+            written: 0,
+            files: 0,
+            streams: BTreeMap::new(),
+        })
+    }
+
+    fn fail(stream: u16, rec: &mut Recording, error: String) {
+        if rec.error.is_none() {
+            eprintln!("upstream record stream {stream}: {error}; writing stops");
+            rec.error = Some(error);
+        }
     }
 
     fn finish(stream: u16, mut rec: Recording) {
@@ -121,6 +155,14 @@ impl RecordSink {
     }
 }
 
+impl Drop for RecordSink {
+    fn drop(&mut self) {
+        for (stream, rec) in std::mem::take(&mut self.streams) {
+            Self::finish(stream, rec);
+        }
+    }
+}
+
 impl UpstreamSink for RecordSink {
     fn accepts(&self, kind: StreamKind) -> bool {
         kind.is_upstream()
@@ -128,11 +170,15 @@ impl UpstreamSink for RecordSink {
 
     fn open(&mut self, stream: u16, kind: StreamKind) -> Result<(), String> {
         use std::os::unix::fs::OpenOptionsExt;
+        if self.files >= MAX_RECORD_FILES || self.written >= self.max_bytes {
+            return Err("record limit reached".into());
+        }
+        self.files += 1;
         let millis = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_millis());
         let ext = if kind == StreamKind::UpAudio { "opus-packets" } else { "h264" };
-        let path = self.dir.join(format!("up-{millis}-{stream}.{ext}"));
+        let path = self.dir.join(format!("up-{millis}-{stream}-{}.{ext}", self.files));
         let file = std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -166,7 +212,13 @@ impl UpstreamSink for RecordSink {
         if rec.error.is_some() {
             return;
         }
-        let written = if rec.kind == StreamKind::UpAudio {
+        let audio = rec.kind == StreamKind::UpAudio;
+        let cost = au.len() as u64 + if audio { 2 } else { 0 };
+        if self.written + cost > self.max_bytes {
+            Self::fail(stream, rec, format!("record limit of {} bytes reached", self.max_bytes));
+            return;
+        }
+        let written = if audio {
             // An Opus packet is at most 1275 bytes; a longer frame is not Opus.
             match u16::try_from(au.len()) {
                 Ok(len) => {
@@ -177,8 +229,9 @@ impl UpstreamSink for RecordSink {
         } else {
             rec.file.write_all(au)
         };
-        if let Err(e) = written {
-            rec.error = Some(e.to_string());
+        match written {
+            Ok(()) => self.written += cost,
+            Err(e) => Self::fail(stream, rec, e.to_string()),
         }
     }
 
@@ -189,14 +242,22 @@ impl UpstreamSink for RecordSink {
     }
 }
 
-/// The sink for one session: a [`RecordSink`] in `record_dir`, else [`NoSink`].
-pub fn session_sink(
-    record_dir: Option<&std::path::Path>,
-) -> std::io::Result<Box<dyn UpstreamSink>> {
-    Ok(match record_dir {
-        Some(dir) => Box::new(RecordSink::new(dir)?),
+/// The sink for one session: a [`RecordSink`] in `record_dir` (at most
+/// `max_bytes` per session), else [`NoSink`]. A recording sink that cannot
+/// start is logged and the session gets [`NoSink`] (no upstream caps), so a
+/// viewer that asked for no upstream media still connects.
+pub fn session_sink(record_dir: Option<&std::path::Path>, max_bytes: u64) -> Box<dyn UpstreamSink> {
+    match record_dir.map(|dir| (dir, RecordSink::new(dir, max_bytes))) {
+        Some((_, Ok(sink))) => Box::new(sink),
+        Some((dir, Err(e))) => {
+            eprintln!(
+                "upstream record {}: {e}; this session offers no upstream media",
+                dir.display()
+            );
+            Box::new(NoSink)
+        }
         None => Box::new(NoSink),
-    })
+    }
 }
 
 /// The caps a host with `sink` adds to its welcome offer.

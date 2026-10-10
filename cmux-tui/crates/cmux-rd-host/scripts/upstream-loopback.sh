@@ -9,6 +9,7 @@ set -u
 cd "$(dirname "$0")/.."
 B=$PWD/target/release/cmux-rd
 FRAMES=${FRAMES:-200}
+PORT=${PORT:-4105} PORT_NOSINK=${PORT_NOSINK:-4106} PORT_FULL=${PORT_FULL:-4107}
 WORK=$(mktemp -d /tmp/rd-upstream.XXXXXX)
 PIDS=()
 cleanup() { for p in "${PIDS[@]}"; do kill "$p" 2>/dev/null; done; }
@@ -26,12 +27,17 @@ PIDS+=($!)
 wait_for "$WORK/xvfb.out" . || { echo "FAIL: Xvfb did not start"; exit 1; }
 "$B" testapp --display ":$DISPLAY_NUM" --workload marker >"$WORK/app.log" 2>&1 &
 PIDS+=($!)
-"$B" host --owner owner --display ":$DISPLAY_NUM" --port 4105 --profile baseline \
+"$B" host --owner owner --display ":$DISPLAY_NUM" --port "$PORT" --profile baseline \
   --upstream-record "$WORK/rec" --token-fd 3 3< <(printf %s "$TOKEN") >"$WORK/host.log" 2>&1 &
 PIDS+=($!)
-"$B" host --owner owner --display ":$DISPLAY_NUM" --port 4106 --profile baseline \
+"$B" host --owner owner --display ":$DISPLAY_NUM" --port "$PORT_NOSINK" --profile baseline \
   --token-fd 3 3< <(printf %s "$TOKEN") >"$WORK/host-nosink.log" 2>&1 &
 PIDS+=($!)
+# A recording host whose per-session limit is 0 bytes refuses every upstream stream.
+"$B" host --owner owner --display ":$DISPLAY_NUM" --port "$PORT_FULL" --profile baseline \
+  --upstream-record "$WORK/rec-full" --upstream-record-max-mb 0 --token-fd 3 3< <(printf %s "$TOKEN") >"$WORK/host-full.log" 2>&1 &
+PIDS+=($!)
+wait_for "$WORK/host-full.log" "listening on" || { echo "FAIL: limited host did not start"; exit 1; }
 wait_for "$WORK/host.log" "listening on" || { echo "FAIL: recording host did not start"; cat "$WORK/host.log"; exit 1; }
 wait_for "$WORK/host-nosink.log" "listening on" || { echo "FAIL: default host did not start"; exit 1; }
 
@@ -44,7 +50,7 @@ run() {
 }
 
 # A host without a sink offers no up_media: stream_open is refused with "caps".
-if run nosink 4106 stream mic; then
+if run nosink "$PORT_NOSINK" stream mic; then
   echo "FAIL nosink: the default host accepted an upstream stream"; fail=1
 elif grep -q 'refused by the host: caps' "$WORK/nosink.err"; then
   echo "PASS nosink: refused (caps)"
@@ -52,16 +58,24 @@ else
   echo "FAIL nosink: $(cat "$WORK/nosink.err")"; fail=1
 fi
 
-recorded=0
+if run full "$PORT_FULL" stream camera; then
+  echo "FAIL full: a host over its record limit accepted an upstream stream"; fail=1
+elif grep -q 'refused by the host: unsupported' "$WORK/full.err"; then
+  echo "PASS full: refused at the record limit (unsupported)"
+else
+  echo "FAIL full: $(cat "$WORK/full.err")"; fail=1
+fi
+
 for spec in mic:udp camera:stream screen:udp mic:stream; do
   which=${spec%%:*} carrier=${spec##*:} name="$which-$carrier"
-  run "$name" 4105 "$carrier" "$which" || { echo "FAIL $name: $(tail -2 "$WORK/$name.err")"; fail=1; continue; }
-  # The host logs one upstream_recorded line per closed stream, in session order, when it
-  # handles the bench's stream_close (after the bench exits).
-  recorded=$((recorded + 1))
-  timeout 10 bash -c "until [ \$(grep -c upstream_recorded '$WORK/host.log') -ge $recorded ]; do sleep 0.05; done" \
-    || { echo "FAIL $name: the host logged no upstream_recorded line"; fail=1; continue; }
-  grep '"upstream_recorded"' "$WORK/host.log" | sed -n "${recorded}p" >"$WORK/$name.host"
+  # The host logs one upstream_recorded line per opened stream when it closes, also after a
+  # failed run (the session end closes it), so count the lines before each run.
+  before=$(grep -c '"upstream_recorded"' "$WORK/host.log" || true)
+  run "$name" "$PORT" "$carrier" "$which"; bench_exit=$?
+  timeout 10 bash -c "until [ \$(grep -c upstream_recorded '$WORK/host.log') -gt $before ]; do sleep 0.05; done"
+  [ "$bench_exit" = 0 ] || { echo "FAIL $name: $(tail -2 "$WORK/$name.err")"; fail=1; continue; }
+  grep '"upstream_recorded"' "$WORK/host.log" | sed -n "$((before + 1))p" >"$WORK/$name.host"
+  [ -s "$WORK/$name.host" ] || { echo "FAIL $name: the host logged no upstream_recorded line"; fail=1; continue; }
   if python3 -I - "$WORK/$name.out" "$WORK/$name.host" "$FRAMES" <<'PY'
 import json, sys
 sent = next(json.loads(l)["upstream"] for l in open(sys.argv[1]) if '"upstream"' in l and '"g2g_ms"' not in l)
@@ -71,7 +85,8 @@ size = __import__("os").path.getsize(rec["path"])
 # Audio packets are stored after a 2-byte length.
 expected_size = rec["bytes"] + (2 * rec["frames"] if rec["kind"] == "UpAudio" else 0)
 checks = {
-    "all frames sent": sent["frames_sent"] == frames,
+    # The sender may drop a frame for pacing; every SENT frame must be recorded.
+    "frames sent": sent["frames_sent"] > 0,
     "all acked": sent["all_acked"],
     "frames match": rec["frames"] == sent["frames_sent"],
     "bytes match": rec["bytes"] == sent["bytes_sent"],

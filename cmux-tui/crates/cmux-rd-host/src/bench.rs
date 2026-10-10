@@ -150,7 +150,9 @@ impl Viewer {
                 FRAME_DATAGRAM => self.on_datagram(&payload),
                 FRAME_CONTROL => match serde_json::from_slice::<Control>(&payload)? {
                     Control::Stats { .. } => self.stats.push(serde_json::from_slice(&payload)?),
-                    Control::Welcome { .. } => {
+                    Control::Welcome { max_datagram, .. } => {
+                        // Upstream datagrams use the size the host agreed to.
+                        self.max_datagram = max_datagram;
                         self.welcome = Some(serde_json::from_slice(&payload)?)
                     }
                     Control::Refused { reason } | Control::Ended { reason } => {
