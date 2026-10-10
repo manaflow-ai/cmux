@@ -72,3 +72,21 @@ await page.evaluate(() => {
 const namesStarted = Date.now();
 const names = (await snapshot({ maxChars: Infinity })).tree;
 emitCmux("shared-label-names", { cut: /stopped after [\d,]+ nodes/.test(names), fast: Date.now() - namesStarted < 15000 });
+
+// ---- cell session=budget cmux-only
+// Locator string reads, allTextContents and page.content read within the
+// page-read budget (2,000,000 characters): a value past it ends with "…"
+// where it stopped; sensitive field values still read as the marker.
+await page.evaluate(() => {
+  const big = "t".repeat(3000000);
+  document.body.innerHTML = `<div id="big">${big}</div><p class="p">one</p><p class="p">${big}</p><p class="p">three</p><input id="pw" type="password" value="hunter2secret">`;
+});
+const text = await page.locator("#big").textContent();
+emitCmux("locator-read-cut", { short: text.length <= 2000001, cut: text.endsWith("…") });
+const inner = await page.locator("#big").innerText();
+emitCmux("locator-inner-cut", { short: inner.length <= 2000001, cut: inner.endsWith("…") });
+const all = await page.locator("p.p").allTextContents();
+emitCmux("all-text-cut", { first: all[0], secondCut: all[1].endsWith("…") && all[1].length <= 2000001, third: all[2] });
+const html = await page.content();
+emitCmux("content-cut", { short: html.length <= 2000001, cut: html.endsWith("…") });
+emitCmux("password-read", { value: await page.locator("#pw").inputValue(), attribute: await page.locator("#pw").getAttribute("value") });

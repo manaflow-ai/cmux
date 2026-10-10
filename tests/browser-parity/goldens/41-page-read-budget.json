@@ -20,6 +20,27 @@
     "shared-label-names": {
       "cut": true,
       "fast": true
+    },
+    "locator-read-cut": {
+      "short": true,
+      "cut": true
+    },
+    "locator-inner-cut": {
+      "short": true,
+      "cut": true
+    },
+    "all-text-cut": {
+      "first": "one",
+      "secondCut": true,
+      "third": ""
+    },
+    "content-cut": {
+      "short": true,
+      "cut": true
+    },
+    "password-read": {
+      "value": "********",
+      "attribute": "********"
     }
   }
 }
