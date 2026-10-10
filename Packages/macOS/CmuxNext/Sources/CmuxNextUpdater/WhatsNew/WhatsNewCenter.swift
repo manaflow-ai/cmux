@@ -23,35 +23,54 @@ public final class WhatsNewCenter {
 
     /// Whether the sidebar's What's New item shows (with its unread dot).
     public var showsItem: Bool { isItemEnabled && !unseen.isEmpty }
-    /// This launch's stable or RC version is newer than the last seen one,
-    /// and neither the page nor the "cmux Updated!" card's x has marked it
-    /// seen (cx-7py7). Nightly versions never set it.
+    /// This launch is an update the user has not seen: the update the old
+    /// app recorded (``lastUpdate``), or a version newer than the last seen
+    /// one. Every channel, nightly included (decision D1, 2026-10-10), until
+    /// the page opens or the "cmux Updated!" card's x.
     public private(set) var isUpdated = false
     /// Whether the sidebar shows the "cmux Updated!" card: after any update,
     /// with or without notes, until the page opens or the x; never on a
     /// first install. `updates.showWhatsNew` off hides it too.
     public var showsUpdatedCard: Bool { isItemEnabled && isUpdated }
+    /// The update this build came from, with its changelog, as the old app
+    /// recorded it when the update staged; nil once seen, on a first
+    /// install, and after an update the old app did not record.
+    public private(set) var lastUpdate: WhatsNewLastUpdate?
 
     public let current: WhatsNewVersion?
     @ObservationIgnored let seen: WhatsNewSeenStore
     @ObservationIgnored let sources: [any WhatsNewSource]
+    /// This launch's `CFBundleVersion` and where the old app left the update record.
+    @ObservationIgnored let currentBuild: String
+    @ObservationIgnored let lastUpdates: WhatsNewLastUpdateStore?
     @ObservationIgnored private var known: [WhatsNewDocument] = []
     @ObservationIgnored private var tracker: WhatsNewTracker?
     @ObservationIgnored private var loadTask: Task<Void, Never>?
 
     /// - Parameter currentVersion: this build's `CFBundleShortVersionString`.
     ///   A version the tracker cannot order (a DEV build's "0") shows nothing.
-    public init(currentVersion: String, defaults: UserDefaults, sources: [any WhatsNewSource]) {
+    /// - Parameter lastUpdates: the update record the previous build wrote
+    ///   (nil: none is read).
+    public init(currentVersion: String, currentBuild: String = "", defaults: UserDefaults, sources: [any WhatsNewSource],
+                lastUpdates: WhatsNewLastUpdateStore? = nil) {
         current = WhatsNewVersion(currentVersion)
+        self.currentBuild = currentBuild
         seen = WhatsNewSeenStore(defaults: defaults)
         self.sources = sources
+        self.lastUpdates = lastUpdates
     }
 
     /// Reads the record and every source once per launch. Idempotent.
     @discardableResult
     public func load() -> Task<Void, Never> {
         if let loadTask { return loadTask }
+        // The record names this build only when this launch is the update it
+        // describes; any other record is stale and removed.
+        lastUpdate = currentBuild.isEmpty ? nil : lastUpdates?.take(for: currentBuild)
         guard let current else {
+            // A version the tracker cannot order (a DEV build): only the record shows.
+            isUpdated = lastUpdate != nil
+            if let lastUpdate { unseen = [lastUpdate.document] }
             isLoaded = true
             let done = Task<Void, Never> {}
             loadTask = done
@@ -59,7 +78,7 @@ public final class WhatsNewCenter {
         }
         let tracker = seen.tracker(current: current)
         self.tracker = tracker
-        isUpdated = Self.announcesUpdate(to: current) && (tracker.lastSeen.map { $0 < current } ?? false)
+        isUpdated = lastUpdate != nil || (tracker.lastSeen.map { $0 < current } ?? false)
         let sources = sources
         let task = Task { [weak self] in
             var documents: [WhatsNewDocument] = []
@@ -70,8 +89,18 @@ public final class WhatsNewCenter {
                 documents += await source.documents(after: source.readsNetwork ? unseenFloor : nil, through: current)
             }
             guard let self else { return }
+            // The recorded update's changelog stands in for a version with
+            // no document of its own (most nightly builds).
+            if let record = self.lastUpdate, !documents.contains(where: { $0.version == record.toVersion }) {
+                documents.append(record.document)
+            }
             self.known = WhatsNewTracker.newestFirst(documents)
             self.unseen = tracker.unseen(self.known)
+            if let record = self.lastUpdate, !self.unseen.contains(where: { $0.version == record.toVersion }),
+               let document = self.known.first(where: { $0.version == record.toVersion }) {
+                // The same short version (a rebuild) is not newer, but the update is unseen.
+                self.unseen.insert(document, at: 0)
+            }
             self.isLoaded = true
         }
         loadTask = task
@@ -91,22 +120,24 @@ public final class WhatsNewCenter {
         let tracker = tracker ?? current.map { WhatsNewTracker(current: $0, lastSeen: $0) }
         presented = unseen.isEmpty ? (tracker?.recent(known) ?? []) : unseen
         if let current { seen.markSeen(current) }
+        markRecordSeen()
         unseen = []
         isUpdated = false
         return presented
     }
 
-    /// Whether an update to `version` shows the "cmux Updated!" card: stable
-    /// and RC versions do; nightly builds update several times a day, so they
-    /// do not (chief, 2026-10-08).
-    static func announcesUpdate(to version: WhatsNewVersion) -> Bool {
-        version.prerelease?.kind != "nightly"
+    /// The update was seen: the record goes, so it shows once.
+    private func markRecordSeen() {
+        guard lastUpdate != nil else { return }
+        lastUpdate = nil
+        lastUpdates?.clear()
     }
 
     /// The "cmux Updated!" card's x: this version is seen, so the card and
     /// the sidebar item's dot go together (one seen state).
     public func dismissUpdated() {
         if let current { seen.markSeen(current) }
+        markRecordSeen()
         unseen = []
         isUpdated = false
     }

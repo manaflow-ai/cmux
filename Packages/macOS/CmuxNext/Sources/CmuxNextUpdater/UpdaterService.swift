@@ -61,6 +61,11 @@ public final class UpdaterService {
     /// What's New after an update (WHATS-NEW-AFTER-UPDATE): the bundled
     /// documents and this feed's nightly digests. The App loads it at launch.
     public let whatsNew: WhatsNewCenter
+    /// Where a staged update is recorded for the next build's What's New
+    /// (nil: not recorded).
+    @ObservationIgnored let lastUpdates: WhatsNewLastUpdateStore?
+    /// The record last written, so an unchanged one is not written again.
+    @ObservationIgnored var recordedUpdate: WhatsNewLastUpdate?
     /// Reads a build's verified notes (``releaseNotes`` in the app; replaced by tests).
     @ObservationIgnored var notesLoader: (@Sendable (String) async -> ReleaseNotes?)?
     /// UPDATE-CARD: the staged update's display version (kept while it
@@ -124,12 +129,15 @@ public final class UpdaterService {
 
     /// - Parameter enableSparkle: false builds no Sparkle driver even for a
     ///   release identity (tests, demos).
+    /// - Parameter recordsUpdates: false neither writes nor reads the update
+    ///   record What's New shows after an update (tests, demos).
     public init(identity: UpdateBuildIdentity = .main(),
                 policy: ManagedUpdatePolicy = .live(),
                 prober: UpdateProber = UpdateProber(),
                 defaults: UserDefaults = .standard,
                 switcher: AppChannelSwitcher = AppChannelSwitcher(),
                 enableSparkle: Bool = true,
+                recordsUpdates: Bool = true,
                 now: @escaping () -> Date = Date.init,
                 clock: any Clock<Duration> = ContinuousClock()) {
         self.now = now
@@ -139,8 +147,10 @@ public final class UpdaterService {
         self.prober = prober
         self.defaults = defaults
         self.switcher = switcher
-        whatsNew = WhatsNewCenter(currentVersion: identity.shortVersion, defaults: defaults,
-                                  sources: Self.whatsNewSources(identity: identity))
+        let lastUpdates = recordsUpdates ? WhatsNewLastUpdateStore.app(bundleIdentifier: identity.bundleIdentifier) : nil
+        self.lastUpdates = lastUpdates
+        whatsNew = WhatsNewCenter(currentVersion: identity.shortVersion, currentBuild: identity.build, defaults: defaults,
+                                  sources: Self.whatsNewSources(identity: identity), lastUpdates: lastUpdates)
         let log = UpdateLogBuffer()
         self.log = log
         // The managed policy is re-read by the driver on every start and check,

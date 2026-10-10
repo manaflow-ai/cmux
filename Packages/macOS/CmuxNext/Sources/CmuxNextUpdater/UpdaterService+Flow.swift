@@ -64,6 +64,7 @@ extension UpdaterService {
             #if DEBUG
             UpdateHarness.mark("install_started")
             #endif
+            recordBeforeInstall()
             installStaged()
             #if DEBUG
             UpdateHarness.mark("install_handed_to_sparkle")
@@ -85,6 +86,7 @@ extension UpdaterService {
         #endif
         send(.sparkle(phase))
         followStagedUpdate(phase)
+        if case .ready = phase { recordStagedUpdate() }
     }
 
     /// Follows Sparkle's flow through observation (no polling).
