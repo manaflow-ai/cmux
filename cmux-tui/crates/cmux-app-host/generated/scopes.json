@@ -1759,6 +1759,9 @@
     }
   },
   "never": [
+    "agent.message.list",
+    "agent.message.mark",
+    "agent.message.send",
     "automation.delete",
     "browser.attach",
     "browser.close",
