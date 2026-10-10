@@ -6,10 +6,12 @@ public import Foundation
 public nonisolated struct IconCatalog: Sendable, Decodable {
     public let entries: [IconCatalogEntry]
     private let index: [IconName: IconCatalogEntry]
+    private let bySymbol: [String: IconName]
 
     public init(entries: [IconCatalogEntry]) {
         self.entries = entries
         index = Dictionary(entries.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
+        bySymbol = Dictionary(entries.map { ($0.sf, $0.name) }, uniquingKeysWith: { first, _ in first })
     }
 
     public init(data: Data) throws {
@@ -41,6 +43,12 @@ public nonisolated struct IconCatalog: Sendable, Decodable {
 
     public func entry(for name: IconName) -> IconCatalogEntry? {
         index[name]
+    }
+
+    /// The icon whose SF Symbol fallback is `symbol` (the first in catalog order), for symbol
+    /// names apps and users supply; nil when no icon stands for it.
+    public func name(forSymbol symbol: String) -> IconName? {
+        bySymbol[symbol]
     }
 
     /// The style `name` draws in at `size`: its dense style below
