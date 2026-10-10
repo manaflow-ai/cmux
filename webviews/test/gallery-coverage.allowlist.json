@@ -70,7 +70,6 @@
     "agent-session/acpmux/changes/OptionsMenu.tsx#OptionsMenu",
     "agent-session/acpmux/changes/RevertBar.tsx#RevertBar",
     "agent-session/acpmux/changes/TrackedOnlyBanner.tsx#TrackedOnlyBanner",
-    "agent-session/acpmux/checkpoints/Review.tsx#CheckpointReview",
     "agent-session/acpmux/conversation/ShellBlock.tsx#ShellBlock",
     "agent-session/acpmux/conversation/icons.tsx#ArrowDown",
     "agent-session/acpmux/conversation/icons.tsx#ArrowRight",
