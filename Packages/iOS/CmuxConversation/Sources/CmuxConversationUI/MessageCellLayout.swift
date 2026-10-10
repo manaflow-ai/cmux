@@ -156,13 +156,21 @@ extension MessageCellLayout {
         return result
     }
 
+    /// `value` rounded up to the screen's pixel grid, as ChatKit sizes balloons.
+    static func pixelCeil(_ value: CGFloat) -> CGFloat {
+        ConversationTranscriptMetrics.ceilToPixel(value, scale: ConversationTheme.displayScale)
+    }
+
     static func measure(_ text: NSAttributedString, maxWidth: CGFloat) -> CGSize {
         let rect = text.boundingRect(
             with: CGSize(width: maxWidth, height: .greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading],
             context: nil
         )
-        return CGSize(width: ceil(rect.width), height: ceil(rect.height))
+        // Pixel-rounded like ChatKit's balloons: a 72 pt emoji line is 85.92
+        // pt, its balloon 86.00 at @3x (whole points would make it 86.00 too,
+        // but two 48 pt emoji are 57.28 -> 57.33, not 58).
+        return CGSize(width: pixelCeil(rect.width), height: pixelCeil(rect.height))
     }
 
     /// Emoji in an emoji-only message (one, two, or three).
@@ -180,9 +188,10 @@ extension MessageCellLayout {
         let incomingBodyLeading = margin + avatarColumn
         let isFailed = model.footer == .notDelivered
         let outgoingBodyTrailing = width - margin - (isFailed ? 32 : 0)
-        // Messages sizes bubbles against the transcript between its margins
-        // (314.5 pt on a 402 pt phone); incoming group rows lose the avatar column.
-        let maxBubbleWidth = t.maxBubbleWidth(forAvailableWidth: width - 2 * margin - avatarColumn)
+        // Messages sizes every balloon against the transcript between its
+        // margins (280.67 pt on a 402 pt phone); its slack already leaves room
+        // for a group's avatar column, so incoming group rows share the width.
+        let maxBubbleWidth = t.maxBubbleWidth(forAvailableWidth: width - 2 * margin)
         let hasReactions = !model.reactionKinds.isEmpty
 
         /// Frame (tail area included) for a bubble whose body is `w` wide.
@@ -278,20 +287,23 @@ extension MessageCellLayout {
             y += size.height
         } else if !bodyText.isEmpty {
             let hPad = t.bubbleHorizontalPadding, vPad = t.bubbleVerticalPadding
-            // Unrounded, as ChatKit sizes balloons ("Hello there" is 110.83 pt wide).
             let size = text.boundingRect(
                 with: CGSize(width: maxBubbleWidth - 2 * hPad, height: .greatestFiniteMagnitude),
                 options: [.usesLineFragmentOrigin, .usesFontLeading],
                 context: nil
             ).size
             let textHeight = max(size.height, t.bubbleFont.lineHeight)
-            let bodyWidth = max(size.width + 2 * hPad, t.minBubbleWidth)
-            let h = textHeight + 2 * vPad
+            // ChatKit rounds the balloon up to the pixel grid ("Are we still on
+            // for dinner tonight?" is 249.70 pt of text in a 278.00 x 40.33
+            // balloon at @3x); the text keeps its 14 pt leading inset and the
+            // rounding lands on the trailing side.
+            let bodyWidth = max(pixelCeil(size.width + 2 * hPad), t.minBubbleWidth)
+            let h = pixelCeil(textHeight + 2 * vPad)
             let frame = bubbleRect(bodyWidth: bodyWidth, y: y, height: h)
             bubbleFrame = frame
             let bodyMinX = model.isOutgoing ? frame.minX : frame.minX + t.tailWidth
             textFrame = CGRect(
-                x: bodyMinX + (bodyWidth - size.width) / 2,
+                x: bodyMinX + (bodyWidth > size.width + 2 * hPad + 1 ? (bodyWidth - size.width) / 2 : hPad),
                 y: frame.minY + vPad,
                 width: size.width,
                 height: textHeight

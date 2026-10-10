@@ -613,6 +613,24 @@
         }
       }
     },
+    "conversation.timestamp.dateAtTime": {
+      "comment": "Transcript separator for a message older than a week: %1$@ is the date (\"Thu, Sep 24\"), %2$@ the time.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ at %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@"
+          }
+        }
+      }
+    },
     "conversation.timestamp.today": {
       "extractionState": "manual",
       "localizations": {

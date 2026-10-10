@@ -65,6 +65,11 @@ enum ConversationTheme {
     static let tailWidth: CGFloat = 0
     /// How far the tail drops below the bubble body (6.83 pt at the default size).
     static var tailDrop: CGFloat { ConversationBubbleGeometry.iOSTailDrop(radius: bubbleCornerRadius) }
+    /// Pixels per point of the screen the transcript is on: bubbles round up
+    /// to its grid. Set by the conversation controller from its traits (main
+    /// thread only); 3 until then, every current iPhone Pro.
+    nonisolated(unsafe) static var displayScale: CGFloat = 3
+
     /// The narrowest text bubble.
     static let minBubbleWidth: CGFloat = 48
 
@@ -74,10 +79,11 @@ enum ConversationTheme {
     static let accessibilityBubbleInset: CGFloat = 70.0 / 3.0
 
     /// Widest bubble for `width` of transcript between the side margins:
-    /// 85%, or the full width less `accessibilityBubbleInset` at the
-    /// accessibility sizes.
+    /// ChatKit's balloon max width (280.67 pt on a 402 pt phone, 310.67 on
+    /// 440; iOS 26.5 and 27.0), or the full width less
+    /// `accessibilityBubbleInset` at the accessibility sizes.
     static func maxBubbleWidth(forAvailableWidth width: CGFloat) -> CGFloat {
-        isAccessibilitySize ? width - accessibilityBubbleInset : width * 0.85
+        isAccessibilitySize ? width - accessibilityBubbleInset : ConversationTranscriptMetrics.balloonMaxWidth(betweenMargins: width)
     }
 
     /// Body-to-body gap between bubbles in a run (`balloonContiguousSpace`).
@@ -119,7 +125,10 @@ enum ConversationTheme {
     static var quoteFont: UIFont { .preferredFont(forTextStyle: .subheadline) }
     /// Status, separators and swipe times are 11 pt caption 2 in Messages (iOS 26).
     static var timestampFont: UIFont { font(11, style: .caption2) }
-    static var timestampBoldFont: UIFont { font(11, .semibold, style: .caption2) }
+    /// ChatKit's `transcriptBoldFont`: "Today" in separators, names in
+    /// status lines and the service in the header are medium, not semibold
+    /// (iOS 26.5 and 27.0).
+    static var timestampBoldFont: UIFont { font(11, .medium, style: .caption2) }
     /// Swipe-left send times: the timestamp size with tabular digits, as
     /// ChatKit's `transcriptDrawerFont` (monospaced digits, iOS 26 and 27).
     static var timestampDrawerFont: UIFont {
