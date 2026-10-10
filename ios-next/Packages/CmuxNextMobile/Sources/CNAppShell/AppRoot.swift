@@ -47,7 +47,8 @@ public struct AppRoot: View {
             case .restoring, .signedOut:
                 SignInView(controller: model.signIn, initialMode: Self.debugSignInMode, initialEmail: Self.debugSignInEmail,
                            notice: model.signInNotice)
-                    .transition(.opacity)
+                    .transition(SignInView.exitTransition)
+                    .zIndex(1)
             case .loadingHosts:
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -65,7 +66,9 @@ public struct AppRoot: View {
                 .transition(.opacity)
             }
         }
-        .animation(CNTheme.shared.motion.fade, value: model.phase)
+        // Leaving sign-in uses its longer exit; other phase changes fade.
+        .animation(model.phase == .restoring || model.phase == .signedOut ? CNTheme.shared.motion.fade : SignInView.exitAnimation,
+                   value: model.phase)
     }
 
     /// DEBUG captures: `CMUX_NEXT_SIGNIN_MODE=methods|code|emailVerification`.

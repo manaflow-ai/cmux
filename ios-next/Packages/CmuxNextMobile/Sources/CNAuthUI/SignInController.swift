@@ -22,6 +22,7 @@ public enum SignInFlowError: Error, LocalizedError, Sendable, Equatable {
     case noStackSession
     case recoveryUnavailable
     case rateLimited
+    case invalidCode
 
     public var errorDescription: String? {
         switch self {
@@ -30,6 +31,7 @@ public enum SignInFlowError: Error, LocalizedError, Sendable, Equatable {
         case .noStackSession: "Sign-in did not complete. Please try again."
         case .recoveryUnavailable: "This service is temporarily unavailable. Please try again later."
         case .rateLimited: "Too many attempts. Please wait a moment and try again."
+        case .invalidCode: "That code did not work. Check it and try again."
         }
     }
 }
@@ -44,16 +46,26 @@ public final class SignInController {
     public let auth: AuthSession
     public let environment: StackAuthEnvironment
     public private(set) var isLoading = false
+    /// The emailed code was accepted by Stack; the backend exchange is still
+    /// running. The code cells fill with ink in this window.
+    public private(set) var codeAccepted = false
 
     @ObservationIgnored private let stack: StackClientApp
     @ObservationIgnored private var pendingNonce: String?
     @ObservationIgnored private let anchor = SignInPresentationAnchor()
     @ObservationIgnored private let urlSession: URLSession
+    /// DEBUG `CMUX_NEXT_SIGNIN_DEMO=1`: no Stack calls. Codes and providers
+    /// succeed after `SignInDemo.latency` (code `000000` fails) and exchange a
+    /// placeholder token, which only the in-process mock backend accepts.
+    /// For recording the choreography without a real inbox.
+    @ObservationIgnored private let demo: SignInDemo?
 
-    public init(auth: AuthSession, environment: StackAuthEnvironment = .current(), urlSession: URLSession = .shared) {
+    public init(auth: AuthSession, environment: StackAuthEnvironment = .current(), urlSession: URLSession = .shared,
+                processEnvironment: [String: String] = ProcessInfo.processInfo.environment) {
         self.auth = auth
         self.environment = environment
         self.urlSession = urlSession
+        self.demo = SignInDemo(environment: processEnvironment)
         self.stack = StackClientApp(
             projectId: environment.projectId,
             publishableClientKey: environment.publishableClientKey,
@@ -73,6 +85,11 @@ public final class SignInController {
         isLoading = true
         defer { isLoading = false }
         let trimmed = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let demo {
+            try await demo.wait()
+            pendingNonce = "demo"
+            return
+        }
         pendingNonce = try await stack.sendMagicLinkEmail(email: trimmed, callbackUrl: environment.magicLinkCallbackURL)
     }
 
@@ -81,15 +98,36 @@ public final class SignInController {
         guard let nonce = pendingNonce else { throw SignInFlowError.missingCode }
         isLoading = true
         defer { isLoading = false }
+        codeAccepted = false
+        if let demo {
+            try await demo.wait()
+            guard code != "000000" else { throw SignInFlowError.invalidCode }
+            codeAccepted = true
+            try await demo.wait(.milliseconds(450))
+            try await auth.signInWithStack(accessToken: SignInDemo.token, projectId: environment.projectId)
+            pendingNonce = nil
+            return
+        }
         // Stack stores codes lowercase; the email shows them uppercase.
         try await stack.signInWithMagicLink(code: code.lowercased() + nonce)
-        try await exchangeStackSession()
+        codeAccepted = true
+        do {
+            try await exchangeStackSession()
+        } catch {
+            codeAccepted = false
+            throw error
+        }
         pendingNonce = nil
     }
 
     func signIn(with provider: OAuthSignInProvider) async throws {
         isLoading = true
         defer { isLoading = false }
+        if let demo {
+            try await demo.wait()
+            try await auth.signInWithStack(accessToken: SignInDemo.token, projectId: environment.projectId)
+            return
+        }
         try await stack.signInWithOAuth(provider: provider.rawValue, presentationContextProvider: anchor)
         try await exchangeStackSession()
     }
@@ -138,6 +176,28 @@ public final class SignInController {
         if let asError = error as? ASAuthorizationError, asError.code == .canceled { return true }
         if let webError = error as? ASWebAuthenticationSessionError, webError.code == .canceledLogin { return true }
         return false
+    }
+}
+
+/// DEBUG-only stand-in for Stack (see `SignInController.demo`).
+struct SignInDemo: Sendable {
+    static let token = "demo-stack-access-token"
+    static let environmentKey = "CMUX_NEXT_SIGNIN_DEMO"
+    /// Simulated network latency, an intentional bounded delay on an
+    /// injected clock (not synchronization).
+    var latency: Duration = .milliseconds(900)
+    var clock = ContinuousClock()
+
+    init?(environment: [String: String]) {
+        #if DEBUG
+        guard environment[Self.environmentKey] == "1" else { return nil }
+        #else
+        return nil
+        #endif
+    }
+
+    func wait(_ duration: Duration? = nil) async throws {
+        try await clock.sleep(for: duration ?? latency)
     }
 }
 

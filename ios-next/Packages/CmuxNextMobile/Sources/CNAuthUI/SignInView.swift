@@ -1,383 +1,599 @@
 #if os(iOS)
+import CNDesign
 import SwiftUI
 import UIKit
 
-/// Which card the sign-in screen shows.
+/// Which step the sign-in screen starts on (DEBUG captures start later).
 public enum SignInMode: String, Sendable, CaseIterable {
-    /// Apple / Google / GitHub buttons and the email field.
+    /// The intro, then Apple / Google / GitHub and the email field.
     case methods
     /// "Verify your email" for an existing unverified account.
     case emailVerification
-    /// "Check your email" six-character code entry.
+    /// Six-character code entry.
     case code
 }
 
-/// The cmux sign-in screen, ported from cmux iOS `SignInView` with identical
-/// layout, copy, glass styles and the `.snappy(duration: 0.18)` mode switches.
+/// The cmux-next launch, intro and sign-in screens.
+///
+/// The first frame is the launch screen (the cmux mark centred on the
+/// background). Once the saved session is known to be absent, "cmux" types
+/// in after the mark, the lockup springs into the header and the sign-in
+/// options fade in on the same frame, while the terminal illustration starts
+/// drawing itself. Choreography and its reference: `SignInChoreography`,
+/// `ios-next/reference/claude-onboarding.md`.
 public struct SignInView: View {
+    enum Stage: Equatable {
+        /// Restoring the saved session: the launch frame only.
+        case launch
+        case methods
+        case email
+        case code
+        case emailVerification
+    }
+
     private let controller: SignInController
     private let notice: String?
+    private let choreography = SignInChoreography.standard
+    private let errorPresentation = SignInErrorPresentation()
+    private let emailCodeFailurePolicy = SignInEmailCodeFailurePolicy()
+
+    @State private var stage: Stage
+    @State private var introStart: Date?
+    @State private var introFinished = false
+    @State private var illustrationStart: Date?
+    @State private var movingForward = true
     @State private var email: String
     @State private var code = ""
-    @State private var emailEntryMode: SignInMode
     @State private var error: String?
-    @State private var signingInProviders: Set<OAuthSignInProvider> = []
+    @State private var signingInProvider: OAuthSignInProvider?
     @State private var isRequestingEmailVerification = false
     @State private var isRequestingBillingRecovery = false
     @State private var billingRecoveryMessage: String?
     @State private var shouldShowBillingRecovery = false
-    @State private var shouldAutofocusCode = false
-    @State private var shouldAutofocusEmail = false
-    private let errorPresentation = SignInErrorPresentation()
-    private let emailCodeFailurePolicy = SignInEmailCodeFailurePolicy()
+    @State private var shakeTrigger = 0
+    @State private var tapTrigger = 0
     @FocusState private var isEmailFocused: Bool
     @FocusState private var isCodeFocused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// - Parameters:
-    ///   - initialMode: DEBUG captures start in another card; the app uses `.methods`.
+    ///   - initialMode: DEBUG captures start on another step; the app uses `.methods`.
     ///   - initialEmail: Prefills the email (DEBUG captures).
-    /// - Parameter notice: a one-line message above the sign-in options, for
-    ///   example "Signed out on this device." after a revoked session.
+    ///   - notice: a one-line message above the sign-in options, for example
+    ///     "Signed out on this device." after a revoked session.
     public init(controller: SignInController, initialMode: SignInMode = .methods, initialEmail: String = "", notice: String? = nil) {
         self.controller = controller
         self.notice = notice
-        _emailEntryMode = State(initialValue: initialMode)
         _email = State(initialValue: initialEmail)
-        _shouldShowBillingRecovery = State(initialValue: initialMode == .emailVerification)
+        switch initialMode {
+        case .methods:
+            _stage = State(initialValue: .launch)
+        case .code:
+            _stage = State(initialValue: .code)
+        case .emailVerification:
+            _stage = State(initialValue: .emailVerification)
+            _shouldShowBillingRecovery = State(initialValue: true)
+        }
+        if initialMode != .methods {
+            _introStart = State(initialValue: .distantPast)
+            _introFinished = State(initialValue: true)
+            _illustrationStart = State(initialValue: .distantPast)
+        }
+    }
+
+    /// How the sign-in root leaves when the user is signed in: it swells
+    /// slightly and dissolves (blur and fade) over the incoming app.
+    @MainActor
+    public static var exitTransition: AnyTransition {
+        let reduceMotion = UIAccessibility.isReduceMotionEnabled
+        let exit: AnyTransition = reduceMotion
+            ? .opacity
+            : .modifier(active: SignInExitModifier(progress: 1), identity: SignInExitModifier(progress: 0))
+        return .asymmetric(insertion: .opacity, removal: exit)
+    }
+
+    /// The animation the app root uses for the hand-over to the signed-in
+    /// phases, so `exitTransition` has time to play.
+    @MainActor
+    public static var exitAnimation: Animation {
+        UIAccessibility.isReduceMotionEnabled ? .easeOut(duration: 0.2)
+            : .spring(response: SignInChoreography.standard.exitResponse, dampingFraction: 1)
     }
 
     public var body: some View {
-        NavigationStack {
-            ZStack {
-                GameOfLifeHeader()
-                    .ignoresSafeArea()
+        GeometryReader { proxy in
+            TimelineView(.animation(paused: introFinished || introStart == nil)) { timeline in
+                let intro = introState(at: timeline.date)
+                ZStack(alignment: .top) {
+                    Color.cn(\.background)
+                        .ignoresSafeArea()
+                        .contentShape(Rectangle())
+                        .onTapGesture { UIApplication.shared.dismissMobileKeyboard() }
 
-                keyboardDismissSurface
-                    .ignoresSafeArea()
+                    content(intro: intro, size: proxy.size)
+                        .frame(maxWidth: 520)
+                        .frame(maxWidth: .infinity)
 
-                VStack(spacing: 0) {
-                    Spacer(minLength: 0)
-                    signInEntrySwitcher
+                    lockup(intro: intro, proxy: proxy)
+
+                    if stage == .email || stage == .code || stage == .emailVerification {
+                        SignInBackButton { goBack() }
+                            .padding(.leading, CNTheme.shared.metrics.sideInset)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.top, choreography.headerCenterBelowSafeTop - 22)
+                            .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                    }
+                }
+                .onChange(of: intro.handedOff) { _, handedOff in
+                    if handedOff, illustrationStart == nil { illustrationStart = timeline.date }
+                }
+                .onChange(of: intro.finished) { _, finished in
+                    if finished { introFinished = true }
                 }
             }
-            .navigationBarTitleDisplayMode(.inline)
         }
+        .tint(Color.cn(\.ink))
+        .onAppear(perform: startIntroIfReady)
+        .onChange(of: controller.isRestoringSession) { startIntroIfReady() }
+        .sensoryFeedback(.impact(weight: .light), trigger: tapTrigger)
+        .sensoryFeedback(.selection, trigger: code.count) { old, new in new > old }
+        .sensoryFeedback(.error, trigger: shakeTrigger)
+        .sensoryFeedback(.success, trigger: controller.codeAccepted) { _, new in new }
+        // Steps are laid out from the top; the keyboard must not push the
+        // options (or the field's flight) around.
+        .ignoresSafeArea(.keyboard, edges: .bottom)
     }
 
-    private var keyboardDismissSurface: some View {
-        Color.clear
-            .contentShape(Rectangle())
-            .onTapGesture {
-                UIApplication.shared.dismissMobileKeyboard()
-            }
+    // MARK: Intro
+
+    private func startIntroIfReady() {
+        guard stage == .launch, introStart == nil, !controller.isRestoringSession, !controller.isAuthenticated else { return }
+        introStart = .now
+        stage = .methods
     }
 
-    private var signInEntrySwitcher: some View {
-        GlassEffectContainer {
-            signInEntryContent
-        }
+    private func introState(at date: Date) -> SignInIntroState {
+        guard let introStart else { return .launch }
+        if introFinished { return .settled }
+        return SignInIntroState(elapsed: date.timeIntervalSince(introStart), reduceMotion: reduceMotion, choreography: choreography)
     }
+
+    /// The lockup lives above the layout so it can fly from the launch
+    /// position (screen centre, where the launch image is) to the header.
+    private func lockup(intro: SignInIntroState, proxy: GeometryProxy) -> some View {
+        let launchY = (proxy.size.height + proxy.safeAreaInsets.bottom - proxy.safeAreaInsets.top) / 2
+        let headerY = choreography.headerCenterBelowSafeTop
+        let f = CGFloat(intro.flight)
+        let scale = 1 + (choreography.headerScale - 1) * f
+        return CmuxLockup(typedCount: intro.typedCount, showsCursor: intro.showsCursor)
+            .animation(reduceMotion ? nil : .spring(response: 0.16, dampingFraction: 0.9), value: intro.typedCount)
+            // The cursor slides in, but leaves on the hand-off frame (the
+            // reference lockup carries nothing extra into its flight).
+            .animation(reduceMotion || !intro.showsCursor ? nil : .spring(response: 0.16, dampingFraction: 0.9), value: intro.showsCursor)
+            .scaleEffect(scale)
+            .opacity(intro.lockupOpacity)
+            .position(x: proxy.size.width / 2, y: launchY + (headerY - launchY) * f)
+            .allowsHitTesting(false)
+    }
+
+    // MARK: Layout
+
+    /// Pre-reveal content keeps a tiny opacity so it is drawn (and its text
+    /// rasterized) before the hand-off; at exactly 0 that work lands on the
+    /// hand-off frame and hitches the flight.
+    private func revealOpacity(_ intro: SignInIntroState) -> Double { max(0.001, intro.reveal) }
 
     @ViewBuilder
-    private var signInEntryContent: some View {
-        switch emailEntryMode {
-        case .code:
-            codeEntryView
-        case .emailVerification:
-            emailVerificationView
-        case .methods:
-            emailEntryView
-        }
-    }
+    private func content(intro: SignInIntroState, size: CGSize) -> some View {
+        VStack(spacing: 0) {
+            Color.clear.frame(height: 2 * choreography.headerCenterBelowSafeTop)
 
-    private var emailEntryView: some View {
-        authCard {
-            VStack(spacing: 20) {
-                brandHeader
-                if let notice {
-                    Text(notice)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .accessibilityIdentifier("signin.notice")
-                }
+            if stage == .launch {
+                Spacer(minLength: 0)
                 SignInAuthRestoreStatusView(controller: controller)
+                    .padding(.horizontal, 32)
+                    .padding(.bottom, 24)
+            }
 
-                VStack(spacing: 12) {
-                    ForEach(OAuthSignInProvider.allCases, id: \.self) { provider in
-                        oauthButton(for: provider)
+            if stage == .methods {
+                methodsHero(compact: size.height < 640)
+                    .opacity(revealOpacity(intro))
+                    .transition(.signInStepExit(reduceMotion: reduceMotion))
+            }
+
+            if stage == .email {
+                stepTitle(String(localized: "signin.email.title", defaultValue: "Sign in with email",
+                                 comment: "Title of the email sign-in step"),
+                          subtitle: String(localized: "signin.email.subtitle", defaultValue: "We'll email you a 6-character code.",
+                                           comment: "Subtitle of the email sign-in step"))
+                    .transition(.signInStepExit(reduceMotion: reduceMotion))
+            }
+
+            if stage == .methods {
+                VStack(spacing: 8) {
+                    if let notice {
+                        Text(notice)
+                            .font(.subheadline)
+                            .foregroundStyle(Color.cn(\.textSecondary))
+                            .multilineTextAlignment(.center)
+                            .padding(.bottom, 8)
+                            .accessibilityIdentifier("signin.notice")
+                    }
+                    ForEach(Array(OAuthSignInProvider.allCases.enumerated()), id: \.element) { index, provider in
+                        providerButton(provider)
+                            .modifier(StepEntrance(index: 1 + index, forward: false, enabled: introFinished))
                     }
                 }
+                .padding(.bottom, 8)
+                .opacity(revealOpacity(intro))
+                .transition(.signInStepExit(reduceMotion: reduceMotion))
+            }
 
-                DividerLabel(text: "or continue with email")
-
-                VStack(spacing: 12) {
-                    GlassInputPill(height: 50, alignment: .leading) {
-                        TextField("Email address", text: $email)
-                            .textFieldStyle(.plain)
-                            .mobileEmailTextInput()
-                            .focused($isEmailFocused)
-                            .accessibilityIdentifier("Email")
-                    } onTap: {
-                        isEmailFocused = true
-                    }
-
-                    Button {
-                        let autofocusCodeOnSuccess = isEmailFocused
-                        Task {
-                            await sendCode(autofocusCodeOnSuccess: autofocusCodeOnSuccess)
-                        }
-                    } label: {
-                        Text("Email me a code")
-                            .fontWeight(.semibold)
-                            .frame(maxWidth: .infinity)
-                            .contentShape(.capsule)
-                    }
-                    .disabled(email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isAuthInProgress)
-                    .mobileGlassProminentButton()
-                    .accessibilityIdentifier("signin.emailCode")
-                }
-
-                if let error {
-                    errorText(error)
+            if stage == .methods || stage == .email {
+                emailField
+                    .opacity(revealOpacity(intro))
+                if stage == .email {
+                    sendCodeButton
+                        .padding(.top, 12)
+                        .stepEntrance(2)
+                        .transition(.signInStepExit(reduceMotion: reduceMotion))
                 }
             }
+
+            if stage == .code {
+                codeStep
+                    .transition(.signInStepExit(reduceMotion: reduceMotion))
+            }
+
+            if stage == .emailVerification {
+                verificationStep
+                    .transition(.signInStepExit(reduceMotion: reduceMotion))
+            }
+
+            if let error, stage != .launch, stage != .code {
+                Text(error)
+                    .font(.footnote)
+                    .foregroundStyle(Color.cn(\.danger))
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 12)
+                    .textSelection(.enabled)
+                    .transition(.opacity)
+                    .accessibilityIdentifier("signin.error")
+            }
+
+            if stage == .methods {
+                // Reference: 23 pt from the last row to the footer's glyphs,
+                // glyphs end 16 pt above the bottom safe area.
+                legal
+                    .padding(.top, 19)
+                    .padding(.bottom, 14)
+                    .opacity(revealOpacity(intro))
+                    .transition(.signInStepExit(reduceMotion: reduceMotion))
+            } else if stage != .launch {
+                Spacer(minLength: 0)
+            }
         }
-        .opacity(isAuthInProgress ? 0.6 : 1.0)
-        .onAppear {
-            guard shouldAutofocusEmail else { return }
-            isEmailFocused = true
-            shouldAutofocusEmail = false
+        .padding(.horizontal, CNTheme.shared.metrics.sideInset)
+        .disabled(!intro.handedOff && stage == .methods)
+    }
+
+    /// Illustration and headline, with the reference spacing on a Pro Max
+    /// (headline glyphs at y 509, 98 pt above the first row).
+    private func methodsHero(compact: Bool) -> some View {
+        VStack(spacing: 0) {
+            Spacer(minLength: 8)
+            if !compact {
+                TerminalLifeIllustration(startDate: illustrationStart)
+                    .frame(width: 180, height: 180)
+                    .stepEntrance(0, forward: false, enabled: introFinished)
+                Color.clear.frame(height: 36)
+            }
+            SignInHeadline()
+                .stepEntrance(0, forward: false, enabled: introFinished)
+            Spacer(minLength: 16)
+                .frame(maxHeight: 97)
         }
     }
 
-    private var emailVerificationView: some View {
-        authCard {
-            VStack(spacing: 18) {
-                brandHeader
-                SignInAuthRestoreStatusView(controller: controller)
-
-                VStack(spacing: 6) {
-                    Text("Verify your email")
-                        .font(.headline)
-                    Text("We sent a verification link to \(normalizedEmail). Open it, then return here.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                if let error {
-                    errorText(error)
-                }
-
-                Button {
-                    Task {
-                        await sendCode(autofocusCodeOnSuccess: false, requestVerificationOnUnverifiedEmail: false)
-                    }
-                } label: {
-                    Text("I verified my email")
-                        .fontWeight(.semibold)
-                        .frame(maxWidth: .infinity)
-                        .contentShape(.capsule)
-                        .mobileButtonLoading(controller.isLoading, tint: .primary)
-                }
-                .disabled(isAuthInProgress)
-                .mobileGlassProminentButton()
-                .accessibilityIdentifier("signin.emailVerificationContinue")
-
-                SignInBillingRecoveryActions(
-                    isVisible: shouldShowBillingRecovery,
-                    isAuthInProgress: isAuthInProgress,
-                    isRequestingEmailVerification: isRequestingEmailVerification,
-                    isRequestingBillingRecovery: $isRequestingBillingRecovery,
-                    billingRecoveryMessage: $billingRecoveryMessage,
-                    requestEmailVerification: { await requestEmailVerification() },
-                    requestBillingRecovery: { await requestBillingRecovery() }
-                )
-
-                Button {
-                    returnToSignInMethods()
-                } label: {
-                    Text("Use a different email")
-                }
+    private func stepTitle(_ title: String, subtitle: String) -> some View {
+        VStack(spacing: 8) {
+            Text(title)
+                .font(.title2.weight(.semibold))
+                .foregroundStyle(Color.cn(\.ink))
+                .stepEntrance(0)
+            Text(subtitle)
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .disabled(isAuthInProgress)
-                .accessibilityIdentifier("signin.useDifferentEmail")
-            }
+                .foregroundStyle(Color.cn(\.textSecondary))
+                .lineLimit(2)
+                .truncationMode(.middle)
+                .stepEntrance(1)
         }
-        .opacity(isAuthInProgress ? 0.6 : 1.0)
-        .accessibilityIdentifier("signin.emailVerification")
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: .infinity)
+        .padding(.top, 36)
+        .padding(.bottom, 24)
     }
 
-    private var codeEntryView: some View {
-        authCard {
-            VStack(spacing: 18) {
-                brandHeader
-                SignInAuthRestoreStatusView(controller: controller)
+    // MARK: Methods
 
-                VStack(spacing: 6) {
-                    Text("Check your email")
-                        .font(.headline)
-                    Text("We sent a code to \(email)")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-
-                GlassInputPill(height: 60, alignment: .center) {
-                    TextField("ABC123", text: $code)
-                        .textFieldStyle(.plain)
-                        .mobileOneTimeCodeInput()
-                        .multilineTextAlignment(.center)
-                        .font(.system(size: 32, weight: .semibold, design: .monospaced))
-                        .focused($isCodeFocused)
-                        .onChange(of: code) { _, newValue in
-                            switch SignInCodeInputPolicy.action(for: newValue) {
-                            case let .assign(normalizedCode):
-                                code = normalizedCode
-                            case .verify:
-                                Task { await verifyCode() }
-                            case .none:
-                                break
-                            }
-                        }
-                        .accessibilityIdentifier("signin.code")
-                } onTap: {
-                    isCodeFocused = true
-                }
-                .onAppear {
-                    guard shouldAutofocusCode else { return }
-                    isCodeFocused = true
-                    shouldAutofocusCode = false
-                }
-
-                if let error {
-                    errorText(error)
-                }
-
-                Button {
-                    Task { await verifyCode() }
-                } label: {
-                    Text("Verify code")
-                        .fontWeight(.semibold)
-                        .frame(maxWidth: .infinity)
-                        .contentShape(.capsule)
-                        .mobileButtonLoading(controller.isLoading, tint: .primary)
-                }
-                .disabled(code.count != 6 || isAuthInProgress)
-                .mobileGlassProminentButton()
-                .accessibilityIdentifier("signin.verifyCode")
-                .accessibilityLabel("Verify code")
-
-                Button {
-                    let autofocusEmailOnReturn = isCodeFocused
-                    withAnimation(.snappy(duration: 0.18)) {
-                        shouldAutofocusEmail = autofocusEmailOnReturn
-                        emailEntryMode = .methods
-                        code = ""
-                        error = nil
-                    }
-                } label: {
-                    Text("Use a different email")
-                }
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .accessibilityIdentifier("signin.useDifferentEmailFromCode")
-            }
-        }
-    }
-
-    // No in-app cancel affordance during a provider sheet: the system sheet
-    // carries its own Cancel (same rule as cmux iOS).
-    private var isInteractiveAuthInProgress: Bool {
-        controller.isLoading || isRequestingEmailVerification || isRequestingBillingRecovery || !signingInProviders.isEmpty
-    }
-
-    private var isAuthInProgress: Bool {
-        isInteractiveAuthInProgress || controller.isRestoringSession
-    }
-
-    private func oauthButton(for provider: OAuthSignInProvider) -> some View {
+    private func providerButton(_ provider: OAuthSignInProvider) -> some View {
         Button {
+            tapTrigger &+= 1
             Task { await signIn(with: provider) }
         } label: {
-            providerLabel(provider, isLoading: signingInProviders.contains(provider))
-                .frame(maxWidth: .infinity)
-                .contentShape(.capsule)
+            LoadingLabel(isLoading: signingInProvider == provider) {
+                HStack(spacing: 8) {
+                    providerIcon(provider)
+                    Text(providerTitle(provider))
+                }
+            }
         }
+        .buttonStyle(InkCapsuleButtonStyle())
         .disabled(isAuthInProgress)
-        .mobileGlassButton()
         .accessibilityIdentifier(provider.accessibilityIdentifier)
     }
 
     @ViewBuilder
-    private func providerLabel(_ provider: OAuthSignInProvider, isLoading: Bool) -> some View {
+    private func providerIcon(_ provider: OAuthSignInProvider) -> some View {
         switch provider {
         case .apple:
-            Label("Sign in with Apple", systemImage: "apple.logo")
-                .fontWeight(.semibold)
-                .mobileButtonLoading(isLoading)
+            Image(systemName: "apple.logo")
+                .font(.body.weight(.semibold))
+                .accessibilityHidden(true)
         case .google:
-            HStack(spacing: 6) {
-                Image("GoogleLogo", bundle: .module)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 16, height: 16)
-                    .accessibilityHidden(true)
-                Text("Sign in with Google")
-                    .fontWeight(.semibold)
-            }
-            .mobileButtonLoading(isLoading)
+            Image("GoogleLogo", bundle: .module)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 17, height: 17)
+                .accessibilityHidden(true)
         case .github:
-            HStack(spacing: 6) {
-                Image("GitHubLogo", bundle: .module)
-                    .resizable()
-                    .renderingMode(.template)
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 16, height: 16)
-                    .accessibilityHidden(true)
-                Text("Sign in with GitHub")
-                    .fontWeight(.semibold)
-            }
-            .mobileButtonLoading(isLoading)
+            Image("GitHubLogo", bundle: .module)
+                .resizable()
+                .renderingMode(.template)
+                .scaledToFit()
+                .frame(width: 17, height: 17)
+                .accessibilityHidden(true)
         }
     }
 
-    private func sendCode(autofocusCodeOnSuccess: Bool, requestVerificationOnUnverifiedEmail: Bool = true) async {
+    private func providerTitle(_ provider: OAuthSignInProvider) -> String {
+        switch provider {
+        case .apple: String(localized: "signin.apple", defaultValue: "Continue with Apple", comment: "Sign in with Apple button")
+        case .google: String(localized: "signin.google", defaultValue: "Continue with Google", comment: "Sign in with Google button")
+        case .github: String(localized: "signin.github", defaultValue: "Continue with GitHub", comment: "Sign in with GitHub button")
+        }
+    }
+
+    private var emailField: some View {
+        TextField(text: $email) {
+            Text(String(localized: "signin.email.placeholder", defaultValue: "Email address", comment: "Email field placeholder"))
+                .foregroundStyle(Color.cn(\.textTertiary))
+        }
+        .mobileEmailTextInput()
+        .focused($isEmailFocused)
+        .multilineTextAlignment(.center)
+        .font(.body)
+        .foregroundStyle(Color.cn(\.ink))
+        .padding(.horizontal, 20)
+        .frame(minHeight: 48)
+        .background { SignInFieldBackground(isFocused: isEmailFocused) }
+        .contentShape(.capsule)
+        .onTapGesture { isEmailFocused = true }
+        .onSubmit { Task { await sendCode() } }
+        .onChange(of: isEmailFocused) { _, focused in
+            if focused, stage == .methods { go(to: .email) }
+        }
+        .disabled(isAuthInProgress && stage == .methods)
+        .accessibilityIdentifier("Email")
+    }
+
+    private var sendCodeButton: some View {
+        Button {
+            Task { await sendCode() }
+        } label: {
+            LoadingLabel(isLoading: controller.isLoading) {
+                Text(String(localized: "signin.email.send", defaultValue: "Send code", comment: "Button that emails a sign-in code"))
+            }
+        }
+        .buttonStyle(InkCapsuleButtonStyle())
+        .disabled(normalizedEmail.isEmpty || isAuthInProgress)
+        .accessibilityIdentifier("signin.emailCode")
+    }
+
+    private var legal: some View {
+        let markdown = String(localized: "signin.legal",
+                              defaultValue: "By continuing, you agree to the [Terms of Service](https://cmux.com/terms-of-service) and [Privacy Policy](https://cmux.com/privacy-policy).",
+                              comment: "Legal footer under the sign-in options; keep the two markdown links")
+        var text = (try? AttributedString(markdown: markdown)) ?? AttributedString(markdown)
+        for run in text.runs where run.link != nil {
+            text[run.range].underlineStyle = .single
+            text[run.range].foregroundColor = Color.cn(\.ink).opacity(0.8)
+        }
+        return Text(text)
+            .font(.footnote)
+            .foregroundStyle(Color.cn(\.textSecondary))
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 20)
+    }
+
+    // MARK: Code
+
+    private var codeStep: some View {
+        VStack(spacing: 0) {
+            stepTitle(String(localized: "signin.code.title", defaultValue: "Check your inbox", comment: "Title of the sign-in code step"),
+                      subtitle: String(localized: "signin.code.subtitle", defaultValue: "Enter the code we sent to \(normalizedEmail).",
+                                       comment: "Subtitle of the sign-in code step; the argument is the email address"))
+            ZStack {
+                TextField("", text: $code)
+                    .mobileOneTimeCodeInput()
+                    .focused($isCodeFocused)
+                    .foregroundStyle(.clear)
+                    .tint(.clear)
+                    .opacity(0.02)
+                    .accessibilityLabel(Text(String(localized: "signin.code.field", defaultValue: "Sign-in code", comment: "Accessibility label of the code field")))
+                    .accessibilityIdentifier("signin.code")
+                    .onChange(of: code) { _, newValue in
+                        switch SignInCodeInputPolicy.action(for: newValue) {
+                        case let .assign(normalized): code = normalized
+                        case .verify: Task { await verifyCode() }
+                        case .none: break
+                        }
+                    }
+                SignInCodeCells(code: code, isFocused: isCodeFocused, isVerifying: controller.isLoading,
+                                isAccepted: controller.codeAccepted || controller.isAuthenticated, shakeTrigger: shakeTrigger)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { isCodeFocused = true }
+            .stepEntrance(2)
+
+            if let error {
+                Text(error)
+                    .font(.footnote)
+                    .foregroundStyle(Color.cn(\.danger))
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 12)
+                    .transition(.opacity)
+                    .accessibilityIdentifier("signin.error")
+            }
+
+            HStack(spacing: 20) {
+                Button(String(localized: "signin.code.resend", defaultValue: "Send a new code", comment: "Resends the sign-in code")) {
+                    code = ""
+                    Task { await sendCode() }
+                }
+                .accessibilityIdentifier("signin.resendCode")
+                Button(String(localized: "signin.code.otherEmail", defaultValue: "Use a different email", comment: "Returns to the email step")) {
+                    goBack()
+                }
+                .accessibilityIdentifier("signin.useDifferentEmailFromCode")
+            }
+            .buttonStyle(.plain)
+            .font(.subheadline)
+            .foregroundStyle(Color.cn(\.textSecondary))
+            .disabled(isAuthInProgress)
+            .padding(.top, 24)
+            .stepEntrance(3)
+        }
+        .onAppear { isCodeFocused = true }
+    }
+
+    // MARK: Email verification
+
+    private var verificationStep: some View {
+        VStack(spacing: 0) {
+            stepTitle(String(localized: "signin.verify.title", defaultValue: "Verify your email", comment: "Title of the verify-email step"),
+                      subtitle: String(localized: "signin.verify.subtitle", defaultValue: "Open the link we sent to \(normalizedEmail), then come back.",
+                                       comment: "Subtitle of the verify-email step; the argument is the email address"))
+            Button {
+                Task { await sendCode(requestVerificationOnUnverifiedEmail: false) }
+            } label: {
+                LoadingLabel(isLoading: controller.isLoading) {
+                    Text(String(localized: "signin.verify.done", defaultValue: "I verified my email", comment: "Continue after verifying the email"))
+                }
+            }
+            .buttonStyle(InkCapsuleButtonStyle())
+            .disabled(isAuthInProgress)
+            .stepEntrance(2)
+            .accessibilityIdentifier("signin.emailVerificationContinue")
+
+            SignInBillingRecoveryActions(
+                isVisible: shouldShowBillingRecovery,
+                isAuthInProgress: isAuthInProgress,
+                isRequestingEmailVerification: isRequestingEmailVerification,
+                isRequestingBillingRecovery: $isRequestingBillingRecovery,
+                billingRecoveryMessage: $billingRecoveryMessage,
+                requestEmailVerification: { await requestEmailVerification() },
+                requestBillingRecovery: { await requestBillingRecovery() }
+            )
+            .padding(.top, 12)
+            .stepEntrance(3)
+        }
+        .accessibilityIdentifier("signin.emailVerification")
+    }
+
+    // MARK: Navigation
+
+    private var stepAnimation: Animation {
+        reduceMotion ? .easeOut(duration: choreography.reducedMotionFade)
+            : .spring(response: choreography.stepResponse, dampingFraction: choreography.stepDamping)
+    }
+
+    private func go(to next: Stage) {
+        withAnimation(stepAnimation) {
+            error = nil
+            stage = next
+        }
+    }
+
+    private func goBack() {
+        isCodeFocused = false
+        isEmailFocused = false
+        UIApplication.shared.dismissMobileKeyboard()
+        withAnimation(stepAnimation) {
+            error = nil
+            code = ""
+            billingRecoveryMessage = nil
+            shouldShowBillingRecovery = false
+            stage = stage == .code || stage == .emailVerification ? .email : .methods
+        }
+        if stage == .email { isEmailFocused = true }
+    }
+
+    // MARK: Actions
+
+    private var isAuthInProgress: Bool {
+        controller.isLoading || isRequestingEmailVerification || isRequestingBillingRecovery
+            || signingInProvider != nil || controller.isRestoringSession || controller.isAuthenticated
+    }
+
+    private var normalizedEmail: String {
+        email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private func sendCode(requestVerificationOnUnverifiedEmail: Bool = true) async {
+        guard !normalizedEmail.isEmpty else { return }
         error = nil
         do {
             try await controller.sendCode(to: email)
             guard !controller.isAuthenticated else { return }
-            shouldAutofocusCode = autofocusCodeOnSuccess
-            withAnimation(.snappy(duration: 0.18)) {
-                emailEntryMode = .code
-            }
+            if stage != .code { go(to: .code) }
         } catch {
             if SignInController.isCancellation(error) { return }
-            shouldAutofocusCode = false
             if emailCodeFailurePolicy.action(for: error) == .requestEmailVerification {
                 shouldShowBillingRecovery = true
                 if requestVerificationOnUnverifiedEmail {
                     await requestEmailVerification()
-                    // Keep the recovery controls reachable even when the
-                    // verification-email provider is unavailable.
-                    if emailEntryMode != .emailVerification {
-                        withAnimation(.snappy(duration: 0.18)) {
-                            emailEntryMode = .emailVerification
-                        }
-                    }
+                    if stage != .emailVerification { go(to: .emailVerification) }
                 } else {
-                    withAnimation(.snappy(duration: 0.18)) {
-                        emailEntryMode = .emailVerification
-                        self.error = "That email is not verified yet. Open the verification link, then try again."
-                    }
+                    go(to: .emailVerification)
+                    self.error = String(localized: "signin.verify.notYet", defaultValue: "That email is not verified yet. Open the verification link, then try again.",
+                                        comment: "Error when the user says they verified but have not")
                 }
             } else {
-                self.error = errorPresentation.message(for: error)
+                withAnimation(.easeOut(duration: 0.2)) { self.error = errorPresentation.message(for: error) }
             }
+        }
+    }
+
+    private func verifyCode() async {
+        error = nil
+        isCodeFocused = false
+        do {
+            try await controller.verifyCode(code)
+        } catch {
+            if SignInController.isCancellation(error) { return }
+            shakeTrigger &+= 1
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                self.error = errorPresentation.message(for: error)
+                code = ""
+            }
+            isCodeFocused = true
         }
     }
 
@@ -390,9 +606,7 @@ public struct SignInView: View {
         defer { isRequestingEmailVerification = false }
         do {
             try await controller.requestEmailVerification(for: normalizedEmail)
-            withAnimation(.snappy(duration: 0.18)) {
-                emailEntryMode = .emailVerification
-            }
+            if stage != .emailVerification { go(to: .emailVerification) }
         } catch {
             if SignInController.isCancellation(error) { return }
             self.error = errorPresentation.message(for: error)
@@ -403,97 +617,57 @@ public struct SignInView: View {
         guard !isRequestingBillingRecovery else { return }
         error = nil
         billingRecoveryMessage = nil
-        isEmailFocused = false
         isRequestingBillingRecovery = true
         defer { isRequestingBillingRecovery = false }
         do {
             try await controller.requestBillingRecovery(for: normalizedEmail)
-            billingRecoveryMessage = "Request accepted. If you do not receive an email, try again later."
+            billingRecoveryMessage = String(localized: "signin.recover.accepted", defaultValue: "Request accepted. If no email arrives, try again later.",
+                                            comment: "Shown after a paid-account recovery request")
         } catch {
             if SignInController.isCancellation(error) { return }
             self.error = errorPresentation.message(for: error)
-        }
-    }
-
-    private func returnToSignInMethods() {
-        withAnimation(.snappy(duration: 0.18)) {
-            shouldAutofocusEmail = false
-            shouldShowBillingRecovery = false
-            billingRecoveryMessage = nil
-            emailEntryMode = .methods
-            error = nil
-        }
-    }
-
-    private var normalizedEmail: String {
-        email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    }
-
-    private func verifyCode() async {
-        error = nil
-        do {
-            try await controller.verifyCode(code)
-        } catch {
-            if SignInController.isCancellation(error) { return }
-            self.error = errorPresentation.message(for: error)
-            code = ""
         }
     }
 
     private func signIn(with provider: OAuthSignInProvider) async {
         error = nil
-        signingInProviders.insert(provider)
-        defer { signingInProviders.remove(provider) }
+        signingInProvider = provider
+        defer { signingInProvider = nil }
         do {
             try await controller.signIn(with: provider)
         } catch {
             if SignInController.isCancellation(error) { return }
-            self.error = errorPresentation.message(for: error)
+            withAnimation(.easeOut(duration: 0.2)) { self.error = errorPresentation.message(for: error) }
         }
     }
+}
 
-    private func errorText(_ message: String) -> some View {
-        Text(message)
-            .font(.caption)
-            .foregroundStyle(.red)
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .textSelection(.enabled)
-            .accessibilityIdentifier("signin.error")
-    }
+/// The one-line headline under the illustration.
+private struct SignInHeadline: View {
+    @ScaledMetric(relativeTo: .largeTitle) private var size: CGFloat = 30
 
-    private func authCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        content()
-            .padding(.horizontal, 20)
-            .padding(.top, 24)
-            .padding(.bottom, 20)
-            .frame(maxWidth: 430)
+    var body: some View {
+        Text(String(localized: "signin.headline", defaultValue: "Your terminals, anywhere.",
+                    comment: "Headline on the sign-in screen"))
+            .font(.system(size: size, weight: .semibold))
+            .tracking(-0.6)
+            .foregroundStyle(Color.cn(\.ink))
+            .multilineTextAlignment(.center)
+            .minimumScaleFactor(0.8)
             .frame(maxWidth: .infinity)
-            .background(
-                Color.clear
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        UIApplication.shared.dismissMobileKeyboard()
-                    }
-            )
+            .accessibilityAddTraits(.isHeader)
     }
+}
 
-    private var brandHeader: some View {
-        HStack(spacing: 10) {
-            Image("CmuxSignInMark", bundle: .module)
-                .resizable()
-                .renderingMode(.original)
-                .scaledToFit()
-                .frame(width: 28, height: 28)
-                .accessibilityHidden(true)
+/// Exit toward the app: slight swell, blur and fade.
+struct SignInExitModifier: ViewModifier {
+    var progress: CGFloat
 
-            Text("cmux")
-                .font(.system(.title2, design: .default, weight: .semibold))
-                .tracking(-0.33)
-                .foregroundStyle(.primary)
-        }
-        .frame(maxWidth: .infinity, alignment: .center)
-        .padding(.bottom, 2)
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(1 + 0.06 * progress)
+            .blur(radius: 16 * progress)
+            .opacity(1 - progress)
     }
 }
 #endif

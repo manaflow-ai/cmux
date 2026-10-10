@@ -1,204 +1,295 @@
 #if os(iOS)
+import CNDesign
 import SwiftUI
 import UIKit
 
-// Ported from cmux iOS (ios/CmuxiOS/Sources/CmuxiOSAuth/SignIn and
-// Packages/iOS/CmuxMobileSupport). Layout, copy and glass styles are kept
-// identical so the two apps' sign-in screens match.
+// MARK: - Lockup
 
-/// Platform-resolved system colors used by the sign-in chrome.
-struct PlatformPalette {
-    private init() {}
-    static var systemBackground: Color { Color(uiColor: .systemBackground) }
-    static var separator: Color { Color(uiColor: .separator) }
-    static func gameOfLifeCell(colorScheme: ColorScheme) -> Color {
-        Color(uiColor: colorScheme == .dark ? .systemGray4 : .systemGray2)
-    }
-}
+/// The cmux mark followed by the wordmark, typed in like a shell prompt.
+/// At `typedCount == 0` and no cursor it is exactly the launch-screen image.
+struct CmuxLockup: View {
+    var typedCount: Int
+    var showsCursor: Bool
+    var choreography: SignInChoreography = .standard
 
-struct DividerLabel: View {
-    let text: String
-
-    var body: some View {
-        HStack(spacing: 8) {
-            dividerLine
-            Text(text)
-                .font(.caption2)
-                .foregroundStyle(Color.primary.opacity(0.45))
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
-                .allowsTightening(true)
-                .layoutPriority(1)
-            dividerLine
-        }
-    }
-
-    private var dividerLine: some View {
-        Rectangle()
-            .fill(PlatformPalette.separator.opacity(0.4))
-            .frame(height: 1)
-    }
-}
-
-struct GlassInputPill<Content: View>: View {
-    let height: CGFloat
-    let alignment: Alignment
-    let content: Content
-    let onTap: () -> Void
-
-    init(height: CGFloat, alignment: Alignment, @ViewBuilder content: () -> Content, onTap: @escaping () -> Void) {
-        self.height = height
-        self.alignment = alignment
-        self.content = content()
-        self.onTap = onTap
-    }
+    nonisolated static let word = "cmux"
 
     var body: some View {
         HStack(spacing: 0) {
-            content
-        }
-        .padding(.horizontal, 16)
-        .frame(maxWidth: .infinity, alignment: alignment)
-        .frame(height: height)
-        .mobileGlassPill()
-        .contentShape(Rectangle())
-        .onTapGesture {
-            onTap()
-        }
-    }
-}
-
-struct GameOfLifeHeader: View {
-    private let columns = 36
-    private let rows = 52
-    @Environment(\.colorScheme) private var colorScheme
-
-    var body: some View {
-        GeometryReader { proxy in
-            ZStack {
-                GameOfLifeGrid(columns: columns, rows: rows)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 6)
-
-                LinearGradient(
-                    colors: [
-                        PlatformPalette.systemBackground.opacity(0.0),
-                        PlatformPalette.systemBackground.opacity(colorScheme == .dark ? 0.82 : 0.70),
-                    ],
-                    startPoint: .center,
-                    endPoint: .bottom
-                )
+            Image("CmuxMark", bundle: .module)
+                .resizable()
+                .frame(width: choreography.launchMarkSize.width, height: choreography.launchMarkSize.height)
+            if typedCount > 0 || showsCursor {
+                Color.clear.frame(width: choreography.lockupSpacing, height: 1)
             }
-            .frame(width: proxy.size.width, height: proxy.size.height)
+            Text(verbatim: String(Self.word.prefix(typedCount)))
+                .font(.system(size: choreography.launchWordmarkSize, weight: .semibold, design: .monospaced))
+                .tracking(-0.5)
+                .foregroundStyle(Color.cn(\.ink))
+                .fixedSize()
+            if showsCursor {
+                RoundedRectangle(cornerRadius: 2.5)
+                    .fill(Color.cn(\.highlight))
+                    .frame(width: choreography.launchWordmarkSize * 0.58, height: choreography.launchWordmarkSize * 0.86)
+                    .padding(.leading, 2)
+            }
         }
-        .clipped()
+        .dynamicTypeSize(.large)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: "cmux"))
+        .accessibilityAddTraits(.isHeader)
     }
 }
 
-struct GameOfLifeGrid: View {
-    let columns: Int
-    let rows: Int
+// MARK: - Buttons and fields
 
-    @State private var cells: [Bool] = []
-    @State private var stepCount = 0
-    @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.displayScale) private var displayScale
+/// Ink capsule: the only filled control on the sign-in screens. Presses in to
+/// 0.99 with a dimmed fill and releases on a 0.33 s spring (reference press).
+struct InkCapsuleButtonStyle: ButtonStyle {
+    var prominent = true
+    var choreography: SignInChoreography = .standard
+    @ScaledMetric(relativeTo: .body) private var height: CGFloat = 48
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.body.weight(.semibold))
+            .foregroundStyle(prominent ? Color.cn(\.background) : Color.cn(\.ink))
+            .frame(maxWidth: .infinity, minHeight: height)
+            .padding(.horizontal, 16)
+            .background {
+                Capsule()
+                    .fill(prominent ? Color.cn(\.ink) : Color.cn(\.fillHover))
+                    .overlay {
+                        if !prominent { Capsule().strokeBorder(Color.cn(\.separator), lineWidth: 1 / 3) }
+                    }
+                    .opacity(configuration.isPressed ? 0.94 : 1)
+            }
+            .contentShape(.capsule)
+            .opacity(isEnabled ? 1 : 0.45)
+            .scaleEffect(configuration.isPressed ? choreography.pressScale : 1)
+            .animation(configuration.isPressed ? nil : .spring(response: choreography.releaseResponse, dampingFraction: 1),
+                       value: configuration.isPressed)
+    }
+}
+
+/// Swaps a label for a spinner on the same frame, keeping the button's size.
+struct LoadingLabel<Label: View>: View {
+    var isLoading: Bool
+    var prominent = true
+    @ViewBuilder var label: Label
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 0.08)) { timeline in
-            let time = timeline.date.timeIntervalSinceReferenceDate
-            let tick = Int(time / 0.08)
-
-            GeometryReader { _ in
-                Canvas { context, size in
-                    let cellWidth = size.width / CGFloat(columns)
-                    let cellHeight = size.height / CGFloat(rows)
-                    let cellSize = min(cellWidth, cellHeight) * 0.52
-                    let yOffset = (cellHeight - cellSize) * 0.5
-                    let xOffset = (cellWidth - cellSize) * 0.5
-                    let scale = max(1, displayScale)
-
-                    func snapToPixel(_ value: CGFloat) -> CGFloat {
-                        (value * scale).rounded(.toNearestOrAwayFromZero) / scale
-                    }
-
-                    for row in 0..<rows {
-                        for col in 0..<columns where isAlive(row: row, col: col) {
-                            let baseOpacity = colorScheme == .dark ? 0.10 : 0.16
-                            let flicker = baseOpacity + 0.10 * sin(time * 2.0 + Double(row * 3 + col) * 0.22)
-                            let rect = CGRect(
-                                x: snapToPixel(CGFloat(col) * cellWidth + xOffset),
-                                y: snapToPixel(CGFloat(row) * cellHeight + yOffset),
-                                width: snapToPixel(cellSize),
-                                height: snapToPixel(cellSize)
-                            )
-                            context.fill(
-                                Path(roundedRect: rect, cornerRadius: rect.width * 0.5),
-                                with: .color(PlatformPalette.gameOfLifeCell(colorScheme: colorScheme).opacity(max(0.0, flicker)))
-                            )
-                        }
-                    }
+        label
+            .opacity(isLoading ? 0 : 1)
+            .overlay {
+                if isLoading {
+                    ProgressView()
+                        .tint(prominent ? Color.cn(\.background) : Color.cn(\.ink))
+                        .accessibilityLabel(Text(String(localized: "signin.loading", defaultValue: "Signing in",
+                                                        comment: "Accessibility label of the spinner inside a sign-in button")))
                 }
             }
-            .onChange(of: tick) { _, _ in
-                step()
+    }
+}
+
+/// The flat email capsule (hairline outline, recessed fill).
+struct SignInFieldBackground: View {
+    var isFocused: Bool
+
+    var body: some View {
+        Capsule()
+            .fill(Color.cn(\.fillHover))
+            .overlay {
+                Capsule().strokeBorder(isFocused ? Color.cn(\.ink).opacity(0.55) : Color.cn(\.separator),
+                                       lineWidth: isFocused ? 1 : 1 / 3)
             }
+            .animation(.easeOut(duration: 0.15), value: isFocused)
+    }
+}
+
+/// Glass circle used for the back affordance on the email and code steps.
+struct SignInBackButton: View {
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "chevron.left")
+                .font(.body.weight(.semibold))
+                .frame(width: 44, height: 44)
+                .contentShape(.circle)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Color.cn(\.ink))
+        .glassEffect(.regular.interactive(), in: .circle)
+        .accessibilityLabel(Text(String(localized: "signin.back", defaultValue: "Back", comment: "Back button on the sign-in email and code steps")))
+        .accessibilityIdentifier("signin.back")
+    }
+}
+
+// MARK: - Step entrance
+
+/// Staggered entrance for one element of a step: rises `travel` points,
+/// un-blurs and fades in, `index * stagger` after the step appears.
+/// With `enabled == false` the element is simply shown (the intro reveals it).
+struct StepEntrance: ViewModifier {
+    var index: Int
+    var forward: Bool
+    var choreography: SignInChoreography = .standard
+    @State private var shown: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    init(index: Int, forward: Bool, enabled: Bool = true) {
+        self.index = index
+        self.forward = forward
+        _shown = State(initialValue: !enabled)
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(shown ? 1 : 0)
+            .blur(radius: shown || reduceMotion ? 0 : choreography.stepBlur)
+            .offset(y: shown || reduceMotion ? 0 : (forward ? choreography.stepTravel : -choreography.stepTravel))
             .onAppear {
-                if cells.isEmpty {
-                    seed()
+                guard !shown else { return }
+                let animation: Animation = reduceMotion
+                    ? .easeOut(duration: choreography.reducedMotionFade)
+                    : .spring(response: choreography.stepResponse, dampingFraction: choreography.stepDamping)
+                        .delay(Double(index) * choreography.stagger)
+                withAnimation(animation) { shown = true }
+            }
+    }
+}
+
+extension View {
+    func stepEntrance(_ index: Int, forward: Bool = true, enabled: Bool = true) -> some View {
+        modifier(StepEntrance(index: index, forward: forward, enabled: enabled))
+    }
+}
+
+/// Removal of an element when the step changes: lifts, blurs and fades.
+struct StepExitModifier: ViewModifier {
+    var progress: CGFloat
+    var travel: CGFloat
+    var blur: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(1 - progress)
+            .blur(radius: blur * progress)
+            .offset(y: -travel * progress)
+    }
+}
+
+extension AnyTransition {
+    /// Element exit used by every sign-in step (no motion under Reduce Motion).
+    static func signInStepExit(reduceMotion: Bool, choreography: SignInChoreography = .standard) -> AnyTransition {
+        let removal: AnyTransition = reduceMotion
+            ? .opacity
+            : .modifier(active: StepExitModifier(progress: 1, travel: choreography.stepTravel * 0.6, blur: choreography.stepBlur),
+                        identity: StepExitModifier(progress: 0, travel: choreography.stepTravel * 0.6, blur: choreography.stepBlur))
+        return .asymmetric(insertion: .identity, removal: removal)
+    }
+}
+
+// MARK: - Code cells
+
+/// Six terminal cells showing the typed code. Each character drops in on a
+/// bouncy spring; while verifying, a highlight wave runs across; on success
+/// the cells fill with ink; on failure the row shakes.
+struct SignInCodeCells: View {
+    var code: String
+    var isFocused: Bool
+    var isVerifying: Bool
+    var isAccepted: Bool
+    var shakeTrigger: Int
+    var choreography: SignInChoreography = .standard
+
+    @ScaledMetric(relativeTo: .title) private var cellHeight: CGFloat = 64
+    @ScaledMetric(relativeTo: .title) private var glyphSize: CGFloat = 30
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        TimelineView(.animation(paused: !isVerifying || reduceMotion)) { timeline in
+            HStack(spacing: 8) {
+                ForEach(0..<SignInCodeInputPolicy.maximumCodeLength, id: \.self) { index in
+                    cell(index, wave: wave(index, at: timeline.date))
                 }
             }
         }
-    }
-
-    private func index(row: Int, col: Int) -> Int { row * columns + col }
-
-    private func isAlive(row: Int, col: Int) -> Bool {
-        let idx = index(row: (row + rows) % rows, col: (col + columns) % columns)
-        return idx < cells.count ? cells[idx] : false
-    }
-
-    private func seed() {
-        var rng = SystemRandomNumberGenerator()
-        cells = (0..<(rows * columns)).map { _ in Double.random(in: 0...1, using: &rng) < 0.22 }
-        stepCount = 0
-    }
-
-    private func step() {
-        guard !cells.isEmpty else {
-            seed()
-            return
-        }
-        var next = cells
-        var aliveCount = 0
-        for row in 0..<rows {
-            for col in 0..<columns {
-                let idx = index(row: row, col: col)
-                let neighbors = neighborCount(row: row, col: col)
-                let alive = cells[idx]
-                let nextAlive = (alive && (neighbors == 2 || neighbors == 3)) || (!alive && neighbors == 3)
-                next[idx] = nextAlive
-                if nextAlive { aliveCount += 1 }
+        .keyframeAnimator(initialValue: CGFloat.zero, trigger: shakeTrigger) { content, x in
+            content.offset(x: reduceMotion ? 0 : x)
+        } keyframes: { _ in
+            KeyframeTrack {
+                CubicKeyframe(-14, duration: 0.05)
+                CubicKeyframe(12, duration: 0.07)
+                CubicKeyframe(-8, duration: 0.07)
+                CubicKeyframe(5, duration: 0.07)
+                CubicKeyframe(-2, duration: 0.06)
+                CubicKeyframe(0, duration: 0.06)
             }
         }
-        stepCount += 1
-        if aliveCount < max(6, (rows * columns) / 22) || stepCount > 120 {
-            seed()
-            return
-        }
-        cells = next
     }
 
-    private func neighborCount(row: Int, col: Int) -> Int {
-        var count = 0
-        for dr in -1...1 {
-            for dc in -1...1 where dr != 0 || dc != 0 {
-                if isAlive(row: row + dr, col: col + dc) { count += 1 }
+    private func character(_ index: Int) -> String? {
+        guard index < code.count else { return nil }
+        return String(code[code.index(code.startIndex, offsetBy: index)])
+    }
+
+    private func wave(_ index: Int, at date: Date) -> Double {
+        guard isVerifying, !reduceMotion else { return 0 }
+        let phase = date.timeIntervalSinceReferenceDate / (choreography.waveStagger * 10) - Double(index) * 0.1
+        let x = phase - phase.rounded(.down)
+        return max(0, 1 - abs(x - 0.5) * 4)
+    }
+
+    @ViewBuilder
+    private func cell(_ index: Int, wave: Double) -> some View {
+        let char = character(index)
+        let isCaret = isFocused && !isVerifying && !isAccepted && index == min(code.count, SignInCodeInputPolicy.maximumCodeLength - 1) && char == nil
+        ZStack {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(isAccepted ? Color.cn(\.ink) : Color.cn(\.fillHover))
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.cn(\.highlight).opacity(wave), lineWidth: 1.5)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(isCaret ? Color.cn(\.ink).opacity(0.55) : Color.cn(\.separator), lineWidth: isCaret ? 1 : 1 / 3)
+                .opacity(isAccepted ? 0 : 1)
+            if let char {
+                Text(verbatim: char)
+                    .font(.system(size: glyphSize, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(isAccepted ? Color.cn(\.background) : Color.cn(\.ink))
+                    .transition(reduceMotion ? .opacity : .asymmetric(
+                        insertion: .scale(scale: 1.35).combined(with: .opacity).combined(with: .offset(y: -10)),
+                        removal: .opacity))
+            } else if isCaret {
+                CodeCaret()
+                    .transition(.identity)
             }
         }
-        return count
+        .frame(maxWidth: 56)
+        .frame(height: cellHeight)
+        .animation(.spring(response: choreography.cellDropResponse, dampingFraction: choreography.cellDropDamping), value: char)
+        .animation(.spring(response: 0.3, dampingFraction: 0.8).delay(Double(index) * 0.035), value: isAccepted)
     }
 }
+
+/// Blinking block caret (0.5 s on, 0.5 s off, steps like a terminal).
+private struct CodeCaret: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.5)) { timeline in
+            let on = reduceMotion || Int(timeline.date.timeIntervalSinceReferenceDate * 2) % 2 == 0
+            RoundedRectangle(cornerRadius: 2)
+                .fill(Color.cn(\.highlight))
+                .frame(width: 14, height: 26)
+                .opacity(on ? 1 : 0)
+        }
+    }
+}
+
+// MARK: - Recovery and restore
 
 /// The secondary actions shown when an email-auth account needs verification.
 struct SignInBillingRecoveryActions: View {
@@ -218,34 +309,37 @@ struct SignInBillingRecoveryActions: View {
                     Button {
                         Task { await requestEmailVerification() }
                     } label: {
-                        Text("Resend verification email")
-                            .multilineTextAlignment(.center)
-                            .mobileButtonLoading(isRequestingEmailVerification, tint: .secondary)
-                            .frame(maxWidth: .infinity, minHeight: 44)
+                        LoadingLabel(isLoading: isRequestingEmailVerification, prominent: false) {
+                            Text(String(localized: "signin.verify.resend", defaultValue: "Resend verification email",
+                                        comment: "Button that resends the email-verification link"))
+                                .multilineTextAlignment(.center)
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 44)
                     }
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
                     .disabled(isAuthInProgress)
                     .accessibilityIdentifier("signin.emailVerificationResend")
 
                     Button {
                         Task { await requestBillingRecovery() }
                     } label: {
-                        Text("Already paid? Recover your account")
-                            .multilineTextAlignment(.center)
-                            .mobileButtonLoading(isRequestingBillingRecovery, tint: .secondary)
-                            .frame(maxWidth: .infinity, minHeight: 44)
+                        LoadingLabel(isLoading: isRequestingBillingRecovery, prominent: false) {
+                            Text(String(localized: "signin.verify.recover", defaultValue: "Already paid? Recover your account",
+                                        comment: "Button that requests paid-account recovery"))
+                                .multilineTextAlignment(.center)
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 44)
                     }
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
                     .disabled(isAuthInProgress || isRequestingBillingRecovery)
                     .accessibilityIdentifier("signin.billingRecovery")
                 }
+                .font(.subheadline)
+                .foregroundStyle(Color.cn(\.textSecondary))
+                .buttonStyle(.plain)
 
                 if let billingRecoveryMessage {
                     Text(billingRecoveryMessage)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color.cn(\.textSecondary))
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("signin.billingRecoveryMessage")
@@ -255,7 +349,8 @@ struct SignInBillingRecoveryActions: View {
     }
 }
 
-/// "Restoring session" status shown while the stored session is validated.
+/// Shown on the launch frame when restoring the saved session takes longer
+/// than ten seconds.
 struct SignInAuthRestoreStatusView: View {
     private static let authRestoreTimeout: Duration = .seconds(10)
 
@@ -264,91 +359,49 @@ struct SignInAuthRestoreStatusView: View {
     @State private var authRestoreRetryGeneration = 0
 
     var body: some View {
-        if controller.isRestoringSession {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 8) {
-                    if authRestoreTimedOut {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
-                            .accessibilityHidden(true)
-                    } else {
-                        ProgressView()
-                            .controlSize(.small)
-                            .accessibilityHidden(true)
-                    }
-                    Text(authRestoreTimedOut ? "Still restoring session" : "Restoring session")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
-                }
-
-                Text(authRestoreTimedOut
-                    ? "cmux could not finish checking your saved session. Check your connection, then retry."
-                    : "Checking your saved session. Sign-in options are paused until this finishes.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                if authRestoreTimedOut {
+        Group {
+            if controller.isRestoringSession && authRestoreTimedOut {
+                VStack(spacing: 10) {
+                    Text(String(localized: "signin.restore.slow", defaultValue: "Still checking your saved session. Check your connection, then retry.",
+                                comment: "Shown on the launch screen when restoring the session takes long"))
+                        .font(.footnote)
+                        .foregroundStyle(Color.cn(\.textSecondary))
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
                     Button {
                         authRestoreTimedOut = false
                         authRestoreRetryGeneration &+= 1
                         Task { await controller.auth.restore() }
                     } label: {
-                        Text("Retry")
+                        Text(String(localized: "signin.restore.retry", defaultValue: "Retry", comment: "Retry restoring the saved session"))
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                    .buttonStyle(InkCapsuleButtonStyle(prominent: false))
+                    .frame(maxWidth: 200)
                     .accessibilityIdentifier("signin.restoreRetry")
                 }
+                .accessibilityIdentifier("signin.restoreStatus")
+                .transition(.opacity)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityIdentifier("signin.restoreStatus")
-            .task(id: (authRestoreRetryGeneration &* 2) + (controller.isRestoringSession ? 1 : 0)) {
-                authRestoreTimedOut = false
-                // Bounded user-facing deadline, not synchronization.
-                do { try await ContinuousClock().sleep(for: Self.authRestoreTimeout) } catch { return }
-                guard controller.isRestoringSession else { return }
-                authRestoreTimedOut = true
-            }
+        }
+        .task(id: (authRestoreRetryGeneration &* 2) + (controller.isRestoringSession ? 1 : 0)) {
+            authRestoreTimedOut = false
+            // Bounded user-facing deadline, not synchronization.
+            do { try await ContinuousClock().sleep(for: Self.authRestoreTimeout) } catch { return }
+            guard controller.isRestoringSession else { return }
+            withAnimation(.easeOut(duration: 0.2)) { authRestoreTimedOut = true }
         }
     }
 }
 
+// MARK: - Input traits
+
 extension View {
-    /// Glass button styling for secondary sign-in actions.
-    func mobileGlassButton() -> some View {
-        buttonStyle(.glass).buttonBorderShape(.capsule).controlSize(.extraLarge)
-    }
-
-    /// Prominent glass primary button styling.
-    func mobileGlassProminentButton() -> some View {
-        buttonStyle(.glassProminent).buttonBorderShape(.capsule).controlSize(.extraLarge)
-    }
-
-    /// Glass capsule pill background for input fields.
-    func mobileGlassPill() -> some View {
-        glassEffect(.regular.interactive(), in: .capsule)
-    }
-
-    /// Hides the label and overlays a small spinner without changing layout.
-    @ViewBuilder
-    func mobileButtonLoading(_ isLoading: Bool, tint: Color? = nil) -> some View {
-        self
-            .opacity(isLoading ? 0 : 1)
-            .overlay {
-                if isLoading {
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(tint)
-                }
-            }
-    }
-
     func mobileEmailTextInput() -> some View {
         keyboardType(.emailAddress)
             .textContentType(.emailAddress)
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
+            .submitLabel(.continue)
     }
 
     func mobileOneTimeCodeInput() -> some View {

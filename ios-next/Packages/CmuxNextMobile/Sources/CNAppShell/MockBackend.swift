@@ -33,6 +33,9 @@ final class MockBackendState: Sendable {
             return (200, [String: Any]())
         case ("POST", "/v1/auth/refresh"):
             return (200, Self.json(Self.tokens()))
+        case ("POST", "/v1/auth/stack"):
+            // `CMUX_NEXT_SIGNIN_DEMO=1` sign-ins on the `signin` dev screen.
+            return (200, Self.json(Self.tokens()))
         case ("GET", "/v1/hosts"):
             return (200, ["hosts": state.withLock { $0.hosts }.map(Self.json)])
         case ("POST", "/v1/hosts/pair/approve"):
