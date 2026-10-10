@@ -206,7 +206,7 @@ enum InProcessMachineCreateLauncher {
         var candidates: [(resource: SurfaceResource, view: SurfaceRemoteView?, focused: Bool)] = []
         var hasAmbiguousResource = false
         for resource in resources where resource.kind == .terminal && resource.lifecycle != .exited {
-            if let views = resource.remoteViews {
+            if let views = resource.remoteViews, !views.isEmpty {
                 let matches = views.filter { $0.workspace.id == workspaceID }
                 if matches.count == 1 {
                     candidates.append((resource, matches[0], matches[0].focused == true))

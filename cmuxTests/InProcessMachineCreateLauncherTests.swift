@@ -189,6 +189,29 @@ struct InProcessMachineCreateLauncherTests {
         }
     }
 
+    @Test("A workspace-bound terminal with no remote views is reused")
+    func emptyRemoteViewsDoNotCreateDuplicateTerminal() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let fixture = try CloudWorkspaceCreationSidebarFixture()
+            defer { fixture.close() }
+            fixture.provider.terminalHasRemoteViews = false
+            let workspace = SurfaceRemoteWorkspace(id: "starter", name: "Existing", index: 0, focused: true)
+            fixture.provider.createdWorkspaces = [workspace]
+            fixture.provider.info.remoteWorkspaces = [workspace]
+            fixture.catalog.updateMachine(fixture.provider.info, from: fixture.provider)
+            fixture.catalog.upsert(fixture.provider.terminal(in: workspace), from: fixture.provider)
+            let pending = fixture.manager.addWorkspace(initialSurface: .cloudVMLoading, select: false,
+                autoWelcomeIfNeeded: false)
+            try await InProcessMachineCreateLauncher.open(
+                try invocation(workspaceID: pending.id), provider: fixture.provider, catalog: fixture.catalog,
+                host: CloudWorkspaceCreationHost(manager: fixture.manager, reservedWorkspaceID: pending.id),
+                refreshGraph: { _ in true }, validateScope: {}
+            )
+            #expect(fixture.provider.terminalCreates == 0)
+            #expect(fixture.provider.adoptedPanels.count == 1)
+        }
+    }
+
     @Test("Closed placement is rejected before graph work")
     func closedHostSkipsRefresh() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
