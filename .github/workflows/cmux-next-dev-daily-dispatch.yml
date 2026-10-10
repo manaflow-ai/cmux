@@ -10,9 +10,7 @@ on:
     - cron: "15,45 * * * *"
   workflow_dispatch:
 
-permissions:
-  actions: write
-  contents: read
+permissions: {}
 
 concurrency:
   group: cmux-next-dev-daily-dispatch
@@ -22,6 +20,9 @@ jobs:
   dispatch:
     if: github.repository == 'manaflow-ai/cmux'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      actions: write
+      contents: read
     timeout-minutes: 5
     steps:
       - name: Dispatch the current feat-cmux-next tip when needed
