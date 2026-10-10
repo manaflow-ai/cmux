@@ -11,7 +11,7 @@ public final class MockPaletteData: PaletteWorkspaceSource, PaletteTabSource, Pa
     public var tabs: [PaletteTab]
     public var apps: [PaletteOpenInApp]
     public var currentDirectory: String?
-    public var toggles: [PaletteSettingToggle]
+    public var toggles: [(id: String, title: String, isOn: Bool, keywords: [String])]
     public var recentDirectories: [String]
     public private(set) var events: [String] = []
 
@@ -39,10 +39,10 @@ public final class MockPaletteData: PaletteWorkspaceSource, PaletteTabSource, Pa
         ]
         currentDirectory = "/Users/demo/fun/cmux"
         toggles = [
-            PaletteSettingToggle(id: "sidebar.minimal", title: "Minimal Sidebar", isOn: false, keywords: ["compact"]),
-            PaletteSettingToggle(id: "notifications.sound", title: "Notification Sounds", isOn: true, keywords: ["audio"]),
-            PaletteSettingToggle(id: "screens.enabled", title: "Screens", isOn: false, keywords: ["spaces"]),
-            PaletteSettingToggle(id: "tabs.previews", title: "Tab Hover Previews", isOn: true, keywords: ["thumbnail"]),
+            (id: "sidebar.minimal", title: "Minimal Sidebar", isOn: false, keywords: ["compact"]),
+            (id: "notifications.sound", title: "Notification Sounds", isOn: true, keywords: ["audio"]),
+            (id: "screens.enabled", title: "Screens", isOn: false, keywords: ["spaces"]),
+            (id: "tabs.previews", title: "Tab Hover Previews", isOn: true, keywords: ["thumbnail"]),
         ]
         recentDirectories = [
             "/Users/demo/fun/cmux",
@@ -86,9 +86,25 @@ public final class MockPaletteData: PaletteWorkspaceSource, PaletteTabSource, Pa
         events.append("openIn:\(appID)")
     }
 
-    public func setToggle(id: String, isOn: Bool) {
-        events.append("setToggle:\(id):\(isOn)")
-        if let index = toggles.firstIndex(where: { $0.id == id }) { toggles[index].isOn = isOn }
+    public var rows: [PaletteSettingRow] {
+        toggles.map { toggle in
+            PaletteSettingRow(id: toggle.id, title: toggle.title, group: "", value: toggle.isOn ? PaletteStrings.on : PaletteStrings.off,
+                              kind: .toggle(isOn: toggle.isOn), keywords: toggle.keywords)
+        }
+    }
+
+    public func preview(row: String, option: String?) {
+        events.append("preview:\(row):\(option ?? "-")")
+    }
+
+    public func commit(row: String, option: String) {
+        let isOn = option == "on"
+        events.append("setToggle:\(row):\(isOn)")
+        if let index = toggles.firstIndex(where: { $0.id == row }) { toggles[index].isOn = isOn }
+    }
+
+    public func commit(row: String, text: String) {
+        events.append("setText:\(row):\(text)")
     }
 
     public func openDirectory(_ path: String) {
@@ -115,7 +131,12 @@ public final class MockPaletteData: PaletteWorkspaceSource, PaletteTabSource, Pa
         case .profile:
             [PaletteTargetOption(id: "default", title: "Default", symbol: "circle.fill"),
              PaletteTargetOption(id: "prof_work", title: "Work", symbol: "circle.fill")]
-        case .pane, .column, .screen, .screenGroup:
+        case .browserProfile:
+            [PaletteTargetOption(id: "default", title: "Default", symbol: "person.crop.circle"),
+             PaletteTargetOption(id: "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d", title: "Work", symbol: "person.crop.circle")]
+        case .bookmark:
+            [PaletteTargetOption(id: "bm_0123456789abcdef0123456789abcdef", title: "cmux", symbol: "star")]
+        case .pane, .column, .screen, .screenGroup, .sidebarItem, .sidebarSection:
             [PaletteTargetOption(id: "\(kind.rawValue)1", title: "\(kind.rawValue.capitalized) 1")]
         }
     }

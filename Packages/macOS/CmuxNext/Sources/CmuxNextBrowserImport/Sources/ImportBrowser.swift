@@ -6,72 +6,64 @@ public enum BrowserFamily: String, Sendable, Codable {
     case chromium
     case firefox
     case safari
+    /// WebKit browsers with their own private formats (Orion, DuckDuckGo):
+    /// detected so the user sees them, but nothing reads their data.
+    case webkit
 }
 
 /// A browser cmux can import from. Paths are relative to the user's home
-/// directory, so tests point the detector at a fixture home.
+/// directory, so tests point the detector at a fixture home. Raw values are
+/// stored in the import store; never rename one.
+///
+/// Browsers that share one data folder are one source: Chrome's channels
+/// each have their own folder, but Firefox Developer Edition and Nightly
+/// keep their profiles in Firefox's `profiles.ini`, and ungoogled-chromium
+/// is Chromium (same bundle id and folder).
 public enum ImportBrowser: String, Sendable, Codable, CaseIterable, Identifiable {
-    case chrome, arc, dia, brave, edge, vivaldi, helium, chromium, safari, firefox
+    case chrome, chromeBeta, chromeDev, chromeCanary, chromium
+    case arc, dia, comet
+    case brave, braveBeta, braveNightly
+    case edge, edgeBeta, edgeDev, edgeCanary
+    case vivaldi, opera, operaGX, helium, sidekick, yandex, thorium
+    case safari, safariTechnologyPreview
+    case firefox, zen, floorp, librewolf, waterfox, tor
+    case orion, duckDuckGo
 
     public var id: String { rawValue }
 
+    var entry: BrowserCatalogEntry { BrowserCatalog.entry(self) }
+
     /// Product names are not translated.
-    public var displayName: String {
-        switch self {
-        case .chrome: "Google Chrome"
-        case .arc: "Arc"
-        case .dia: "Dia"
-        case .brave: "Brave"
-        case .edge: "Microsoft Edge"
-        case .vivaldi: "Vivaldi"
-        case .helium: "Helium"
-        case .chromium: "Chromium"
-        case .safari: "Safari"
-        case .firefox: "Firefox"
-        }
-    }
-
-    public var family: BrowserFamily {
-        switch self {
-        case .safari: .safari
-        case .firefox: .firefox
-        default: .chromium
-        }
-    }
-
+    public var displayName: String { entry.name }
+    public var family: BrowserFamily { entry.family }
     /// Bundle identifiers, most common first (used to find the app and its icon).
-    public var bundleIDs: [String] {
-        switch self {
-        case .chrome: ["com.google.Chrome"]
-        case .arc: ["company.thebrowser.Browser"]
-        case .dia: ["company.thebrowser.dia"]
-        case .brave: ["com.brave.Browser"]
-        case .edge: ["com.microsoft.edgemac"]
-        case .vivaldi: ["com.vivaldi.Vivaldi"]
-        case .helium: ["net.imput.helium"]
-        case .chromium: ["org.chromium.Chromium"]
-        case .safari: ["com.apple.Safari"]
-        case .firefox: ["org.mozilla.firefox"]
-        }
-    }
+    public var bundleIDs: [String] { entry.bundleIDs }
 
     /// The data directory, relative to home. For Chromium browsers this is
     /// the "user data dir" that holds `Local State` and the profile folders.
-    public var dataDirectory: String {
-        switch self {
-        case .chrome: "Library/Application Support/Google/Chrome"
-        case .arc: "Library/Application Support/Arc/User Data"
-        case .dia: "Library/Application Support/Dia/User Data"
-        case .brave: "Library/Application Support/BraveSoftware/Brave-Browser"
-        case .edge: "Library/Application Support/Microsoft Edge"
-        case .vivaldi: "Library/Application Support/Vivaldi"
-        case .helium: "Library/Application Support/net.imput.helium"
-        case .chromium: "Library/Application Support/Chromium"
-        case .safari: "Library/Safari"
-        case .firefox: "Library/Application Support/Firefox"
-        }
-    }
+    public var dataDirectory: String { entry.dataDirectory }
+
+    /// Chromium: the Keychain item ("<Name> Safe Storage") whose password
+    /// encrypts the browser's cookies and passwords.
+    public var safeStorageService: String? { entry.safeStorage }
+
+    /// Chromium browsers that keep one profile in the data folder itself
+    /// (Opera), not in `Default` / `Profile N` subfolders.
+    public var profileIsDataDirectory: Bool { entry.rootProfile }
+
+    /// Tor Browser: cookies and history are never imported, because moving
+    /// them out of Tor would link the user's Tor identity to cmux.
+    public var refusesSessionData: Bool { self == .tor }
 
     /// Whether the store lists this browser's extensions (Chrome Web Store).
     public var sharesChromeWebStore: Bool { family == .chromium }
+
+    /// Safari keeps cookies in its container, outside `dataDirectory`.
+    public var safariCookieFile: String? {
+        switch self {
+        case .safari: "Library/Containers/com.apple.Safari/Data/Library/Cookies/Cookies.binarycookies"
+        case .safariTechnologyPreview: "Library/Containers/com.apple.SafariTechnologyPreview/Data/Library/Cookies/Cookies.binarycookies"
+        default: nil
+        }
+    }
 }

@@ -45,4 +45,14 @@ import Testing
         #expect(!state.needsOnboarding())
         #expect(OnboardingStateFile.live(environment: [OnboardingStateFile.environmentKey: url.path]).url == url)
     }
+
+    /// Files from when onboarding asked for a role keep the answer; it is
+    /// ignored, and the finished record still counts as done.
+    @Test func aFileWithAnOldRoleAnswerStillReadsAsDone() throws {
+        let url = FileManager.default.temporaryDirectory.appending(path: "onboarding-\(UUID().uuidString)/onboarding.json")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(#"{"version":1,"completed":true,"date":0,"profile":{"role":"student","suggestTasks":false}}"#.utf8).write(to: url)
+        #expect(!OnboardingStateFile(url: url).needsOnboarding())
+    }
 }

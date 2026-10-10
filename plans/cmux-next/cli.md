@@ -58,6 +58,18 @@ The app's action registry is the list of app verbs: `cmux app new-window` and
 `cmux workspace move-to-window --target ws_…` run the action with that CLI name. The mux
 grammar is tried first; only words it rejects and the app reports as an action run there.
 
+## Which `cmux` runs (old app and cmux-next side by side)
+
+The old app and cmux-next both ship a CLI named `cmux` in `Contents/Resources/bin`, and a cmux-next release build binds the old app's release socket path (`~/.local/state/cmux/cmux.sock`, same bundle id `com.cmuxterm.app`). The two CLIs speak different methods: the Swift CLI sends `workspace.create` and friends, the Rust CLI sends `action.run` and app methods; since the compat layer was removed (2026-09-30) neither app answers the other CLI's methods. Shell PATH decides which CLI runs; `CMUX_SOCKET_PATH` decides which app it reaches.
+
+- Old-app terminal: the old app's shell integration puts its own bin first after the rc files, so `cmux` is the Swift CLI and `CMUX_SOCKET_PATH` is the old app's socket.
+- cmux-next terminal: the terminal env puts cmux-next's own `Contents/Resources/bin` first and sets `CMUX_BUNDLED_CLI_PATH` to its `cmux` (`GhosttyShellIntegration.apply`), and `CMUX_SOCKET_PATH` is cmux-next's socket. Before 2026-10-06 the bin dir was appended, so a cmux-next launched from an old-app terminal inherited a PATH where the Swift CLI won and every old verb failed with `Unknown method workspace.create`. An rc file that prepends another dir holding a `cmux` (a dev shim, `/usr/local/bin`) still wins; shims that honor `CMUX_BUNDLED_CLI_PATH` exec the right CLI.
+- Plain shell (Terminal.app, ssh): the first `cmux` on PATH. Install cmux CLI in PATH (`cmux settings install-cli-in-path`) links `/usr/local/bin/cmux` to the running app's CLI. When that path is another app's CLI (a link into another bundle) or a file, it refuses: the app asks Replace, Install as cmux-next, or Cancel, and the CLI action takes `--replace` or `--cmux_next`. `/usr/local/bin/cmux-next` never shadows the old app's `cmux`. Reinstalling over this app's own link is silent.
+
+Shared release identity (decision kept, 2026-10-06): a cmux-next release build and the old app's release build both use bundle id `com.cmuxterm.app` and the control socket `~/.local/state/cmux/cmux.sock`, so only one of them can run as the release app at a time. Debug, tagged and channel builds use their own sockets (`ControlSocketPath`).
+
+When a CLI reaches the other app anyway, the answer is `method_not_found`. This CLI (and the Swift CLI, once its main-branch fix lands) then calls `system.identify` (both apps report `app`, `version`, `app_bundle_path`, `app_cli_path`) and print a version-skew error naming the CLI version, the app and its version, the socket, and the matching CLI path (`cli/app/skew.rs` here).
+
 ## `cmux acp`
 
 - Session verbs: every acpmux command (`ls`, `new`, `send`, `attach`, `wait`, `session …`,
@@ -113,6 +125,106 @@ On `feat-cmux-next-cli-state` (state-ownership.md step D, CLI part):
   timing flakes (`session_shutdown_exits_an_interactive_detached_owner_client`,
   `closing_one_hundred_terminals…`).
 
+On the merge of `feat-cmux-next` (2026-10-01):
+
+- Screen metadata, order and screen groups have one storage, `feat-cmux-next`'s
+  (`screen_presentation`, `screen_groups` keyed by workspace key, `screen_group_members`,
+  `saved_screen_groups`), and one commit path (`mux/state_screens.rs`) that the raw
+  `screen-metadata-v1`/`screen-groups-v1` commands and the v2 `screen.update`,
+  `screen.move` and `screen_group.*` operations share. A registry written by the
+  state-resources daemon (`screen_state`, groups by public workspace id) moves into it
+  at open. Every screen commit restates changed screens and groups on `session.events`.
+- The daemon advertises `state-resources-v1` in `identify`; the app opens `session.events`
+  and takes the v2 paths only then (`DaemonStore.servesStateResources`), with no probe.
+- `cmux history list|search` and `cmux bookmark list|search` read the app's
+  `history.list`/`bookmark.list`; the incoming bookmark, history, theme, browser profile,
+  accounts and remote actions are marked for the CLI.
+
+On the merges of `feat-cmux-next` (2026-10-02, owner after feat-cmux-next-99):
+
+- Five merges of `feat-cmux-next`; Leo Li's review fixes (`feat-cmux-next-acpmux-onhis`);
+  `feat-cmux-next-followup-rust` (v2 state ops in `cmux-tui-core::state`, window records
+  `window_record.*` with owner = install id and CAS, browser record owner, atomic
+  `workspace.create {ephemeral}`, kept tabs in the state module, closed-history test) and
+  `feat-cmux-next-followup-rust-cli` (`--all-sessions`, `<session>:` ids, coderouter verbs).
+- `ActionDescriptor.cli` derives from the action surface plan (`ActionSurfaceCatalog.cliNamed`);
+  `cliActionIDs` is gone. `cli::tests::action_surface_parity` (Rust) fails when an offered app
+  CLI name parses in the mux grammar first. The nine it found are daemon verbs, so the app
+  actions are `ownerVerb` CLI exemptions; `tab.focus` is `cmux app show-tab --target tab_…`.
+- God-file budget: every cmux-tui file and Swift type is within its baseline (Rust split,
+  `StateResourceClient`, `SessionStateStore`, `WindowRecordSaver`, `TerminalFontScale`).
+- Fixes found by the tagged preflight: ids derived inside an action run use the UUIDv4
+  layout (cmux-tui refused version 8 terminal ids, so `cmux tab new` failed); `cmux acp`
+  in a tagged bundle without `CMUX_TAG` uses the bundle's acpmux home; a kind or `name:`
+  before `:` is not a session (the `name:` escape hung the hosted tests); tab-less
+  terminals carry `lifecycle` on every published record.
+
+On `feat-cmux-next-mcp` (PR into `feat-cmux-next-acpmux`):
+
+- `cmux mcp serve` and `cmux mcp tools [--json]`: MCP tools from the v2 catalog and the
+  app's CLI actions, over the CLI's own transport (mcp.md). Off unless cmux.json sets
+  `mcp.enabled`.
+
+## Numeric refs replacement
+
+The old CLI's refs and selector flags have no Rust equivalent; `cmux` takes the
+daemon's public ids (C7). Discover them with `cmux workspace list`, `cmux screen list`,
+`cmux pane list`, `cmux tab list`, `cmux terminal list` (add `--json` for the full
+records) or `cmux window list` for app windows.
+
+| Old form | New form |
+| --- | --- |
+| `workspace:N`, `--workspace workspace:N` | `ws_<32 hex>` or a unique prefix, as the selector (`cmux workspace ws_1a2b update …`); `current` for the session's focused workspace |
+| `pane:N`, `--pane`/`--panel pane:N` | `pane_…` or a unique prefix (`cmux pane pane_9f split --right`) |
+| `surface:N`, `tab:N`, `--surface …` | `tab_…` for the tab, `term_…` for its terminal (`cmux terminal term_77 write --text …`) |
+| the caller's own terminal (`--surface` default) | `$CMUX_TUI_TERMINAL_ID` (set in every cmux terminal); `current` is the session's focused object |
+| `window:N`, `--window …` | the app window id from `cmux window list` (`win_…` once window ids are typed, Remaining 1) |
+| `build-box:workspace:N` | `--session build-box` with a public id, or the qualified form `build-box:ws_…` once qualified ids land (Remaining 12) |
+| names (`--name build`) | exact names where a scope accepts them (rooms, groups); otherwise look up the id with `list` |
+
+## Ports from main and feat-cmux-next
+
+Every Swift CLI, compat-layer and wrapper change since the branch point
+(`git log 6ae6960d8d1..origin/feat-cmux-next -- CLI/ Resources/bin/ …/Compat`), and
+the CLI requests that came with the merge, with the decision taken.
+
+| Commit | Author | Change | Decision |
+| --- | --- | --- | --- |
+| 270b069f273 | Lawrence Chen | accounts: CLI waits for CodeRouter | ported: `accounts show|refresh|reauth|connect|remove` are app actions with `cli: true`; connect/remove `waits_for_result`, the CLI reads for 45 s; `cmux rpc accounts.list` is now `cmux accounts list` (`accounts.list`) |
+| fdb08f68315, 803d2877c33 | Lawrence Chen | `cmux coderouter status|machines|claude …`, `cmux cr …` | deferred: needs `coderouter` app scope over `coderouter.claude_upstream.*`, `coderouter.machines`, `coderouter.accounts.list` (secrets from env/stdin/TTY only) and exec of the bundled `bin/coderouter` with `CMUX_*` removed; the native handoff waits for PR 10194 |
+| c900ee9bad1 | Leo | Search All Windows (⌥⌘F) | not needed: a palette page; scripts read text with `terminal <sel> screen read`/`history read` |
+| 137e95e5f83 | Leo Li | namespace types refactor | not needed: compat-internal |
+| 73ae48025f9 | nightcityblade | browser JSON flags in help | not needed: Swift browser verbs; `cmux browser` help is cmux-tui's |
+| 2bb742d3705, a4e862d030f, 8aa9b5c995c | Alejandro Florez, Leo | Codex/OpenCode auto-naming | not needed: the Swift hook auto-naming is not ported (Agent hooks) |
+| 86230a59c43 | Leo | custom sidebar templates | not needed: cmux-next has no custom sidebar |
+| 2f574d677c4, 24f1ee0007f | Abdulaziz Albahar, Lawrence Chen | Codex transcript monitor | not needed: cmux-tui's agent projection reports agent state |
+| a20ed74ca17 | Austin Wang | `new-window --name` | deferred: add a `name` argument to `newWindow` (`cmux app new-window --name`) |
+| 64bb5e9f3fb, 974d0a0c941, b3d644ba873, e94800760c4 | Austin Wang, Leo, Lawrence Chen | legacy app model, updater revert, guarded close UX, Cmd-hold pills | not needed: legacy app |
+| fa7fa0aa2c0, f627d1fb076 | Leo, Alejandro Florez | tmux compat options, extra send-key operands | not needed: no tmux compat (C3); the Rust parser rejects extra operands |
+| 2e75b7ca209 | Lawrence Chen | bookmark verbs | ported: `bookmark list|search` (`bookmark.list`); `bookmark add-page|add|new-folder|open|open-in-new-tab|open-all|edit|move|remove|import|export` are app actions with `cli: true` |
+| 91fca8c8ab4 | Austin Wang | `cmux pr` handoff | not needed: cmux-next has no PR sidebar link |
+| 448f7ab1c2b | Lawrence Chen | notification source | ported: the daemon stamps `source` (`notification-source-v1`); `notification create` sends `cli` |
+| 155f8d0fb2b, c07e6d9f505, 2f3e13d8ce0 | Lawrence Chen | federation: local default, `--all-sessions`, session-qualified refs, send/read-screen on remote-terminal tabs | partly: lists act on the one session the CLI addresses (`--session` picks another) and `cmux --session S terminal term_… write|keys|screen read` reaches a remote terminal over v2; deferred: `--all-sessions`, `<session>:` qualified ids (resolve to `--session` in `cli/resolve.rs`), and tab-to-terminal routing, until the remote tab fields are in the merged tree |
+| federation-tui-r8 (not landed) | federation agent | create-terminal {detached}, remote-terminal tab create/update/snapshot, set-terminal-keep | deferred: waiting for v2 ops (terminal.create {detached}, tab.create_remote_terminal, tab.update_remote_terminal, tab.remote_terminal_snapshot, terminal.update {keep}); then `cmux terminal create --detached [--keep]`, `cmux tab create remote-terminal --session S --terminal term_…`, `cmux terminal <term_> keep|unkeep` |
+| 17dee8d2801 | Lawrence Chen | Open Terminal on Machine Here | ported: `remote open-terminal-here` (`cli: true`) |
+| 63ae925e97f | Lawrence Chen | history queries | ported: `history list|search [--kind] [--range] [--limit]` (`history.list`); `history back|forward|last|locations|closed|show|search-in-palette|resume|reopen|clear` and `layout undo` run as app actions (`cli: true` for show, resume, reopen, clear, layout undo) |
+| 6ed2890368a | Lawrence Chen | terminal command history (`set-terminal-command-history`) | deferred: no CLI verb yet (app setting `history.terminalCommands`) |
+| c8779bdd6f3 | Lawrence Chen | `tab new` of the focused pane's kind | ported: `tab new` (`newTab.sameKind`) and `tab new-terminal` (`newSurface`) are app actions with `cli: true` |
+| quit flags | Lawrence Chen | `app quit --keep-sessions|--end-sessions|--end-everything` | ported: `quit` is `cli: true`; a bare flag is true and flags map to camelCase arguments |
+| 43478eb63bd | docked-column lead | `column make-dock|make-dock-left|unstick|toggle-dock-overlay`, `settings toggle-column-scrollbar` | ported: app actions with `cli: true`; `column` reaches the app fallback and `settings <verb>` other than get/set/unset falls through to actions; `sticky-columns-v1` stays awaiting the pin |
+| ca831d42829, fa5e63276d5, 61128c6ca92, 7ba97404a02 | Lawrence Chen, Leo, Austin Wang | compile fix, test timing, SSH/Mosh launcher, pool VMs | not needed: Swift CLI internals and verbs outside the curated surface |
+| 5e33b84e085, 258c2ee9b11 | Leo | `cmux agent message` (and over the SSH relay) | deferred: Remaining 10 |
+| 7bce471a35f | Leo | `cmux agent hibernate|wake` | ported: `tab hibernate|wake` (`hibernateTab`/`wakeTab`, `cli: true`) |
+| 90d931ab9c8 | Lawrence Chen | surface size verbs | not needed: compat message |
+| ef3e6588f55, 555d7507823, 6606ca2cf76, ea6e02be168 | Leo | Claude hook sessions, auto-resume, notification ring, hook activity | not needed: Swift hook machinery is not ported (Agent hooks) |
+| 8216c54b526 | Leo | refuse `send` over an agent prompt draft | deferred: a daemon guard on `terminal.input.write` from the agent projection's prompt state |
+| 258501989df, 5605b57c1f6 | Lawrence Chen | Sentry redaction, no `--yolo` from transcript evidence | not needed: no Sentry or restore in the Rust CLI; a future restore keeps the rule (paths inside `CODEX_HOME` only, no full-access flags from evidence) |
+| df28c39c9c7 | Abdulaziz Albahar | iOS agent Feed | not needed for the CLI |
+| d453f3aaf7d | Leo | `cmux shot|record`, `docs capture` | deferred: app window capture control methods and Rust verbs (Remaining 4) |
+| 10e78b5cf6f | Leo | setting actions, `cmux config set` | ported: `settings get|set|unset`; setting actions run as `settings toggle-setting` |
+| d13dde39006 | Lawrence Chen | diff viewer review labels | not needed: no diff viewer CLI |
+| 7b2979e6345, 5f7699ecd26, 6eaa946e7b5 | Lawrence Chen | team invites and roster verbs | deferred: app-owned team service; add app control methods and an `auth team` scope |
+
 ## Remaining
 
 1. App windows get typed ids (`win_<32 hex>`); today they are bare lowercase UUIDs.
@@ -133,3 +245,27 @@ On `feat-cmux-next-cli-state` (state-ownership.md step D, CLI part):
    resolver passes unknown ids through so objects the snapshot has not seen yet work.
 9. `current` means the session's focused object, not the caller's terminal; the caller's
    own terminal is `$CMUX_TUI_TERMINAL_ID`.
+10. `cmux agent message` (Leo Li's PR 16430 owns it) has no port yet: it needs a daemon v2 message operation, a Rust verb and hook
+    entries in `agent_hook_install.rs`.
+11. `send`/`read-screen` on a remote-terminal tab need the daemon side of
+    `remote-terminal-tabs-v1`, which is not in cmux-tui yet.
+12. Done: session-qualified ids (`build-box:ws_…`) and `--all-sessions`.
+13. `action.run`'s `created` list is sometimes empty (`cmux tab new` under load): the
+    reply maps created handles through the control snapshot at settle time, which can
+    lag the store. Map from the store, or wait for the snapshot that contains them.
+14. With an explicit `--app-socket` but a different app's `CMUX_*` environment, the daemon
+    is found from the environment, not from the named app.
+15. v2 `session.identify` and `capabilities` on `client.metadata.update` (SDK clients
+    still fall back to raw v12 for both).
+16. `cmux tab search [--query Q] [--json]` and MCP `tab_search` over the app's read-only
+    `tabs.search` (PR 16796), and a session-host `foreground_process` per terminal (the
+    PTY's foreground process name) so the search matches vim or htop; next pin.
+17. Rust CLI verbs owned by other lanes, landing as their PRs: `cmux status …` and
+    `cmux terminal <t> wait --until …` (status lead), `cmux browser repl|host` (browser
+    lead), `cmux cua …` (CUA lead), `cmux apps …` (app platform), `cmux task …` (tasks,
+    `cmux_tasks::cli::run` mount after this PR merges).
+18. The base-only Swift CLI/config files `CmuxConfigSchema.generated.swift` and
+    `ShortcutAction.swift` with its three extensions stay deleted with the Swift CLI
+    cutover; any CLI-facing behavior from their base changes must be ported to Rust or
+    recorded here. The old root `Resources/Localizable.xcstrings` remains deleted; its
+    legacy `cli.*` catalog is tracked by item 5.

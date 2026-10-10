@@ -10,7 +10,7 @@ import Testing
         #expect(identity.app == "cmux-tui")
         #expect(identity.protocolVersion == 12)
         #expect(identity.generation.rawValue.count == 36)
-        for capability in DaemonCapabilities.required {
+        for capability in DaemonCapabilities.shared.required {
             #expect(identity.supports(capability), "missing \(capability)")
         }
     }
@@ -132,6 +132,32 @@ import Testing
             TerminalAttachment.decodeAttachEvent(name: Fixture.eventName($0)!, line: $0, surface: 99)
         }
         #expect(other.isEmpty)
+    }
+
+    /// `terminal-pending-sequence-v1`: the unfinished sequence travels apart
+    /// from the replay on `vt-state` and `resized`.
+    @Test func replaysCarryTheirPendingSequence() {
+        let pending = Data("\u{1B}[1;3".utf8).base64EncodedString()
+        let data = Data("prompt$ ".utf8).base64EncodedString()
+        let initial = Data(#"{"event":"vt-state","surface":3,"cols":80,"rows":24,"data":"\#(data)","pending":"\#(pending)"}"#.utf8)
+        guard case .replay(let replay) = TerminalAttachment.decodeAttachEvent(name: "vt-state", line: initial, surface: 3) else {
+            Issue.record("expected a replay")
+            return
+        }
+        #expect(replay.data == Data("prompt$ ".utf8))
+        #expect(replay.pending == Data("\u{1B}[1;3".utf8))
+        let resize = Data(#"{"event":"resized","surface":3,"cols":90,"rows":28,"replay":"\#(data)","pending":"\#(pending)"}"#.utf8)
+        guard case .resized(let resized) = TerminalAttachment.decodeAttachEvent(name: "resized", line: resize, surface: 3) else {
+            Issue.record("expected a resize")
+            return
+        }
+        #expect(resized.pending == Data("\u{1B}[1;3".utf8))
+        let boundary = Data(#"{"event":"vt-state","surface":3,"cols":80,"rows":24,"data":"\#(data)"}"#.utf8)
+        guard case .replay(let plain) = TerminalAttachment.decodeAttachEvent(name: "vt-state", line: boundary, surface: 3) else {
+            Issue.record("expected a replay")
+            return
+        }
+        #expect(plain.pending.isEmpty)
     }
 
     @Test func unknownEventsAndFieldsAreTolerated() throws {

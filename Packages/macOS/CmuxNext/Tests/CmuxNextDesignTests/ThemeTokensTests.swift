@@ -14,6 +14,30 @@ import Testing
         #expect(t.contentBackground == input.background)
     }
 
+    /// Tab strips share the window ground; hierarchy comes from fills.
+    @Test(arguments: ThemeFixtures.all.map(\.0))
+    func theStripMatchesTheWindow(_ name: String) {
+        let t = ThemeTokens.derive(from: theme(name))
+        #expect(t.stripBackground == t.windowBackground, "\(name)")
+        #expect(t.textPrimary.contrast(with: t.stripBackground.withAlpha(1)) >= 4.5, "\(name)")
+        // Inactive tab titles use the muted text styles.
+        #expect(t.textSecondary.contrast(with: t.stripBackground.withAlpha(1)) >= 4.5, "\(name) secondary")
+        #expect(t.textTertiary.contrast(with: t.stripBackground.withAlpha(1)) >= 3.0, "\(name) tertiary")
+    }
+
+    /// Only the sidebar retains a tonal step; strips add none.
+    @Test(arguments: ThemeFixtures.all.map(\.0))
+    func theStepsCompositeToTheChromeSurfaces(_ name: String) {
+        let input = theme(name)
+        let t = ThemeTokens.derive(from: input)
+        let bg = input.background.withAlpha(1)
+        func close(_ a: ThemeRGB, _ b: ThemeRGB) -> Bool {
+            abs(a.red - b.red) < 0.002 && abs(a.green - b.green) < 0.002 && abs(a.blue - b.blue) < 0.002
+        }
+        #expect(t.stripStep.alpha == 0 && t.sidebarStep.alpha < 1, "\(name)")
+        #expect(close(t.sidebarStep.composited(over: bg), bg.mixed(toward: input.foreground, 0.04)), "\(name) sidebar")
+    }
+
     @Test func lightnessFollowsTheBackground() {
         #expect(ThemeTokens.derive(from: ThemeFixtures.monokaiClassic).isDark)
         #expect(ThemeTokens.derive(from: ThemeFixtures.catppuccinMocha).isDark)
@@ -41,9 +65,10 @@ import Testing
             #expect(t.textSecondary.contrast(with: surface) >= 4.5, "\(name) secondary on \(surface)")
             #expect(t.textTertiary.contrast(with: surface) >= 3.0, "\(name) tertiary on \(surface)")
         }
-        for mark in [t.attention, t.danger, t.success] {
+        for mark in [t.attention, t.danger, t.success, t.highlight] {
             #expect(mark.contrast(with: bg) >= 3.0, "\(name) status \(mark)")
         }
+        #expect(t.highlightText.contrast(with: t.highlight) >= 4.5, "\(name) text on highlight")
     }
 
     @Test(arguments: ThemeFixtures.all.map(\.0))
@@ -78,6 +103,9 @@ import Testing
         #expect(t.danger.red > t.danger.green && t.danger.red > t.danger.blue)
         #expect(ThemeTokens.derive(from: ThemeFixtures.catppuccinMocha).attention == ThemeRGB(hex: 0xF9E2AF))
         #expect(ThemeTokens.derive(from: ThemeFixtures.githubLight).success == ThemeRGB(hex: 0x116329))
+        let mocha = ThemeTokens.derive(from: ThemeFixtures.catppuccinMocha)
+        #expect(mocha.highlight == ThemeRGB(hex: 0x89B4FA))
+        #expect(mocha.highlightText == ThemeRGB(hex: 0x1E1E2E))
     }
 
     @Test func translucentBackgroundCarriesItsOpacity() {

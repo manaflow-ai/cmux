@@ -5,7 +5,7 @@ public import CmuxNextDesign
 /// displayed contiguously, right after the group's chip.
 public struct TabGroupItem: Identifiable, Hashable, Sendable {
     public var id: TabGroupID
-    /// Empty shows the chip as a color dot, as in Chrome.
+    /// Empty shows the chip as a color dot.
     public var name: String
     public var colorToken: GroupColor
     public var isCollapsed: Bool

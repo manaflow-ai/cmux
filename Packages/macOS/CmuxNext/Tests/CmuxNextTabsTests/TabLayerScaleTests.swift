@@ -18,7 +18,7 @@ import CmuxNextDesign
         let strip: TabStripView
 
         init() {
-            let tabs = (0..<4).map { TabItem(id: TabID("t\($0)"), title: "lawrence@lawrences-Mac \($0)", isBusy: $0 == 2) }
+            let tabs = (0..<4).map { TabItem(id: TabID("t\($0)"), title: "dev@Mac \($0)", isBusy: $0 == 2) }
             model = TabStripModel(
                 tabs: tabs,
                 groups: [TabGroupItem(id: TabGroupID("g"), name: "Group", colorToken: .grey)],

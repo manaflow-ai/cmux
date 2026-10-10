@@ -152,9 +152,28 @@ def side_lane_reason(label: str) -> str | None:
     runners a pool keeps beside its root runners. Anything else is held to the
     workflow policy like every other runner variable.
     """
-    if label.startswith(SIDE_LANE_PREFIX) and _owned_pattern().fullmatch(
-        "glaeda-" + label[len(SIDE_LANE_PREFIX):]
-    ):
+    for prefix in (SIDE_LANE_PREFIX, "glaeda-aws-side-"):
+        if label.startswith(prefix):
+            candidate = "glaeda-" + label[len(prefix):]
+            if _owned_pattern().fullmatch(candidate):
+                return None
+    return forbidden_reason(label)
+
+
+AWS_SIDE_VARIABLE = "CI_AWS_SIDE_RUNNER"
+AWS_SIDE_PREFIX = "glaeda-aws-"
+
+
+def aws_side_reason(label: str) -> str | None:
+    """Why CI_AWS_SIDE_RUNNER is not allowed, or None when it is fine.
+
+    cmux-tui.yml's macos-relay job and cmux-tui-artifacts.yml's macOS legs take
+    this label on attempt 1 (behind CI_PR_POOL_OWNED and the same-repository
+    gates), so it may name only the owned AWS minis' pool,
+    glaeda-aws-<class>-xcode-<version>. Anything else is held to the workflow
+    policy like every other runner variable. Empty is fine (the side lane).
+    """
+    if label.startswith(AWS_SIDE_PREFIX) and _owned_pattern().fullmatch(label):
         return None
     return forbidden_reason(label)
 
@@ -247,6 +266,8 @@ def drifted_runner_variables(
             reason = pool_order_reason(value.strip())
         elif name in SIDE_LANE_VARIABLES:
             reason = side_lane_reason(value.strip())
+        elif name == AWS_SIDE_VARIABLE:
+            reason = aws_side_reason(value.strip())
         elif name == TRUSTED_POOL_VARIABLE:
             reason = trusted_pool_reason(value.strip())
         elif name == NIGHTLY_RUNNER_VARIABLE:

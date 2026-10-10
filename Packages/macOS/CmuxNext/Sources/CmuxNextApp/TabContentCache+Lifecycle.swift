@@ -14,6 +14,11 @@ import CmuxNextBrowser
 /// current. That is what keeps a late completion from hiding, showing or
 /// reparenting the view of a newer selection.
 extension TabContentCache {
+    /// Drops terminal surfaces whose tabs no longer exist.
+    func prune(liveTabs: Set<String>) {
+        for key in terminals.keys where !liveTabs.contains(key) { release(key) }
+    }
+
     // MARK: Presentation
 
     /// `presenter` shows `key` (its view is, or is about to be, in the
@@ -119,6 +124,7 @@ extension TabContentCache {
         }
         if let entry = browsers[key] {
             entry.tab.setContentVisible(true)
+            shownPages.insert(key)
         }
         hibernation?.tabDidShow(key)
     }
@@ -139,6 +145,9 @@ extension TabContentCache {
             }
         }
         if let entry = browsers[key] {
+            // Only a page that was on screen: a page created or restored
+            // hidden has nothing worth a thumbnail yet.
+            if shownPages.remove(key) != nil { capturePagePreview(entry, key: key, token: token) }
             entry.tab.setContentVisible(false)
         }
         hibernation?.tabDidHide(key)

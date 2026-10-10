@@ -18,7 +18,7 @@ extension TabStripModel {
         case .select(let id):
             guard let tab = tab(id) else { return false }
             selectedID = id
-            // Selecting a member of a collapsed group expands it, as in Chrome.
+            // Selecting a member of a collapsed group expands it.
             if let group = tab.groupID { setCollapsed(group, false) }
         case .close(let id, _):
             let next = Self.selectionAfterClosing(id, in: ordered.map(\.id), selected: selectedID)
@@ -40,7 +40,7 @@ extension TabStripModel {
             let item = ordered.remove(at: from)
             ordered.insert(item, at: min(max(to, 0), ordered.count))
             tabs = ordered
-        case .newTab(let after):
+        case .newTab(let after, _):
             var item = makeTab()
             if let after, let index = ordered.firstIndex(where: { $0.id == after }) {
                 // A new tab opened from a grouped tab joins its group.

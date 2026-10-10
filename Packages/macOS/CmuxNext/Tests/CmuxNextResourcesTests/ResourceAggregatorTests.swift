@@ -109,6 +109,22 @@ private func tab(_ id: String, _ pids: [Int32], kind: TabResourceKind = .termina
         #expect(report.topConsumers(2).map(\.id) == ["busy", "idle-big"])
     }
 
+    @Test func aLoneTabIsNotRepeatedUnderTheTotal() {
+        let one = [tab("~", [1])]
+        let lone = ResourceAggregator.report(
+            current: set(one, [sample(1, cpu: 0, memory: mib, at: second)]),
+            previous: set(one, [sample(1, cpu: 0, memory: mib, at: 0)])
+        )
+        #expect(lone.breakdown(3).isEmpty)
+
+        let two = [tab("~", [1]), tab("server", [2])]
+        let pair = ResourceAggregator.report(
+            current: set(two, [sample(1, cpu: 0, memory: mib, at: second), sample(2, cpu: 0, memory: 2 * mib, at: second)]),
+            previous: set(two, [sample(1, cpu: 0, memory: mib, at: 0), sample(2, cpu: 0, memory: 2 * mib, at: 0)])
+        )
+        #expect(pair.breakdown(3).map(\.id) == ["server", "~"])
+    }
+
     @Test func formatsLikeActivityMonitor() {
         #expect(ResourceFormat.cpu(0.123, locale: Locale(identifier: "en_US")) == "12.3%")
         #expect(ResourceFormat.cpu(2.5, locale: Locale(identifier: "en_US")) == "250.0%")

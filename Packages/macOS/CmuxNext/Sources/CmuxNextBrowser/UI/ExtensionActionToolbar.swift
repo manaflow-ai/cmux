@@ -1,8 +1,8 @@
 import AppKit
 import CmuxNextDesign
 
-/// Fills `BrowserChromeView.extensionSlot` like Chrome's toolbar: the pinned
-/// extension actions of the bound tab in Chromium's order (icon plus native
+/// Fills `BrowserChromeView.extensionSlot` with the pinned extension
+/// actions of the bound tab in Chromium's order (icon plus native
 /// badge), then the Extensions (puzzle) button, which is always there for a
 /// tab with extensions. Pinned actions beyond `visibleLimit` (the pane's
 /// room, `BrowserToolbarLayout`) are reached through that menu. Click runs
@@ -130,8 +130,8 @@ final class ExtensionActionToolbar {
     }
 
     /// Where `id`'s popup anchors, in the tab's content view coordinates:
-    /// its button, or the Extensions button when it is not shown (as Chrome
-    /// anchors a popup it pops out of the menu).
+    /// its button, or the Extensions button when it is not shown (a popup
+    /// opened from the menu).
     func anchorRect(for id: String) -> CGRect? {
         guard let anchor = anchorView else { return nil }
         let source: NSView = buttons[id] ?? puzzle
@@ -168,7 +168,7 @@ final class ExtensionActionToolbar {
     func showMenu() {
         guard let host, let handler, presentedMenu == nil else { return }
         host.extensionStore.refresh()
-        let menu = ExtensionsMenu.make(
+        let menu = ExtensionsMenu().make(
             for: host, handler: handler,
             afterClose: { [weak self] work in self?.afterMenu.append(work) },
             presentItemMenu: { [weak self] menu in self?.popUp(menu) }
@@ -183,8 +183,8 @@ final class ExtensionActionToolbar {
     /// Extensions button.
     func showItemMenu(_ id: String) {
         guard let host, let handler,
-              let info = ExtensionsMenu.extensions(of: host).first(where: { $0.id == id }) else { return }
-        let menu = ExtensionsMenu.itemMenu(for: info, supportsManagement: host.extensionStore.supportsManagement,
+              let info = ExtensionsMenu().extensions(of: host).first(where: { $0.id == id }) else { return }
+        let menu = ExtensionsMenu().itemMenu(for: info, supportsManagement: host.extensionStore.supportsManagement,
                                            handler: handler)
         popUp(menu, at: buttons[id])
     }
@@ -195,7 +195,7 @@ final class ExtensionActionToolbar {
         guard view.window != nil else { return }
         let previous = presentedMenu
         presentedMenu = menu
-        menu.popUp(positioning: nil, at: CGPoint(x: 0, y: view.isFlipped ? view.bounds.maxY + 4 : -4), in: view)
+        menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: view, gap: 4), in: view)
         presentedMenu = previous
     }
 

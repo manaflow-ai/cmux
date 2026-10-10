@@ -7,7 +7,15 @@ impl Translator {
     pub async fn inbound(&self, line: &Value) -> Vec<Message> {
         let kind = line.get("type").and_then(Value::as_str).unwrap_or("");
         let sub = line.get("subtype").and_then(Value::as_str).unwrap_or("");
-        let sid = self.acp_session_id.clone();
+        // A subagent's lines carry its Agent tool call's id and stream under
+        // its own session (ACP draft #1992).
+        let parent = line.get("parent_tool_use_id").and_then(Value::as_str);
+        let mut sid = self.acp_session_id.clone();
+        if let Some(p) = parent
+            && let Some(child) = self.subagents.lock().await.get(p)
+        {
+            sid = child.clone();
+        }
         let upd = |u: Value| {
             Message::notification(method::SESSION_UPDATE, json!({"sessionId": sid, "update": u}))
         };
@@ -91,6 +99,13 @@ impl Translator {
                     if c.get("type").and_then(Value::as_str) == Some("tool_use") {
                         let name = c.get("name").and_then(Value::as_str).unwrap_or("tool");
                         let input = c.get("input").cloned().unwrap_or(Value::Null);
+                        // A subagent comes before its Agent tool call, so a client
+                        // that draws subagents can leave the call out.
+                        if let ("Task" | "Agent", Some(id)) =
+                            (name, c.get("id").and_then(Value::as_str))
+                        {
+                            out.push(upd(self.spawn_subagent(id, &input).await));
+                        }
                         out.push(upd(json!({
                             "sessionUpdate": "tool_call",
                             "toolCallId": c.get("id"),
@@ -127,6 +142,19 @@ impl Translator {
                             "status": if is_err { "failed" } else { "completed" },
                             "content": [{"type": "content", "content": {"type": "text", "text": text}}],
                         })));
+                        let tool = c.get("tool_use_id").and_then(Value::as_str).unwrap_or("");
+                        // A background subagent's result is only its launch.
+                        if self.background_subagents.lock().await.contains(tool) {
+                            continue;
+                        }
+                        if let Some(child) = self.subagents.lock().await.remove(tool) {
+                            self.subagent_tasks.lock().await.retain(|_, t| *t != tool);
+                            out.push(upd(json!({
+                                "sessionUpdate": "subagent_state_update",
+                                "subagentSessionId": child,
+                                "state": if is_err { "failed" } else { "completed" },
+                            })));
+                        }
                     }
                 }
             }
@@ -164,12 +192,20 @@ impl Translator {
                             "options": options,
                         })));
                     }
-                    Some(other) => {
-                        // Anything else (hook_callback, mcp_message) is declined.
+                    other => {
+                        // Anything else (hook_callback, mcp_message) is declined
+                        // with an error response, so claude does not wait on it.
+                        let other = other.unwrap_or("?");
                         tracing::debug!("claude control_request {other} declined");
-                        let _ = other;
+                        self.stdin_replies.lock().await.push(json!({
+                            "type": "control_response",
+                            "response": {
+                                "subtype": "error",
+                                "request_id": rid,
+                                "error": format!("acpmux does not support control request {other}"),
+                            }
+                        }));
                     }
-                    None => {}
                 }
             }
             "control_response" => {
@@ -180,6 +216,17 @@ impl Translator {
                 if let Some(acp) = rid.strip_prefix("init-") {
                     let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));
                     self.pending.lock().await.remove(&id.to_string());
+                    if !ok {
+                        out.push(Message::err(
+                            id,
+                            RpcError::internal(
+                                resp.get("error")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("claude initialize failed"),
+                            ),
+                        ));
+                        return out;
+                    }
                     if let Some(cmds) = inner.get("commands").and_then(Value::as_array) {
                         *self.slash_commands.lock().await = cmds.clone();
                     }
@@ -196,8 +243,16 @@ impl Translator {
                     }
                 } else if let Some(acp) = rid.strip_prefix("ctl-") {
                     let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));
-                    self.pending.lock().await.remove(&id.to_string());
+                    let change = self.pending.lock().await.remove(&id.to_string());
                     if ok {
+                        // The cached value changes only once claude accepted it.
+                        if let Some(Pending::Control(setting, value)) = change {
+                            match setting {
+                                Setting::Mode => *self.mode.lock().await = value,
+                                Setting::Model => *self.model.lock().await = value,
+                                Setting::Effort => *self.effort.lock().await = value,
+                            }
+                        }
                         let mode = self.mode.lock().await.clone();
                         out.push(upd(
                             json!({"sessionUpdate": "current_mode_update", "currentModeId": mode}),
@@ -217,10 +272,16 @@ impl Translator {
                 // "int-*" acks need no reply; the result message ends the turn.
             }
             "result" => {
+                // `is_error` with a success subtype is how Claude reports a
+                // usage limit or an API refusal: a failed turn, not a reply.
+                let is_error = line.get("is_error").and_then(Value::as_bool).unwrap_or(false);
                 // A resumed process emits one empty result (num_turns 0, no
                 // API time) right after its system/init, before the real
-                // turn. That is startup noise, not the end of our prompt.
-                let startup_noise = line.get("num_turns").and_then(Value::as_u64) == Some(0)
+                // turn. That is startup noise, not the end of our prompt; a
+                // failed result is never noise.
+                let startup_noise = sub == "success"
+                    && !is_error
+                    && line.get("num_turns").and_then(Value::as_u64) == Some(0)
                     && line.get("duration_api_ms").and_then(Value::as_u64) == Some(0)
                     && !self.cancelled.load(Ordering::SeqCst);
                 if startup_noise {
@@ -236,9 +297,6 @@ impl Translator {
                     .map(|(k, _)| k.clone())
                     .collect();
                 let cancelled = self.cancelled.swap(false, Ordering::SeqCst);
-                // `is_error` with a success subtype is how Claude reports a
-                // usage limit or an API refusal: a failed turn, not a reply.
-                let is_error = line.get("is_error").and_then(Value::as_bool).unwrap_or(false);
                 let stop = if cancelled
                     || (sub == "error_during_execution"
                         && line.get("result").map(Value::is_null).unwrap_or(true))
@@ -251,10 +309,36 @@ impl Translator {
                 } else {
                     "end_turn"
                 };
+                // An interrupted turn stops its foreground subagents;
+                // background ones run on until their task_notification.
+                if stop == "cancelled" {
+                    let background = self.background_subagents.lock().await;
+                    let mut subagents = self.subagents.lock().await;
+                    let mut ended: Vec<String> = subagents
+                        .iter()
+                        .filter(|(tool, _)| !background.contains(*tool))
+                        .map(|(_, child)| child.clone())
+                        .collect();
+                    subagents.retain(|tool, _| background.contains(tool));
+                    drop((subagents, background));
+                    ended.sort();
+                    for child in ended {
+                        out.push(upd(json!({
+                            "sessionUpdate": "subagent_state_update",
+                            "subagentSessionId": child,
+                            "state": "cancelled",
+                        })));
+                    }
+                }
                 for k in waiting {
                     self.pending.lock().await.remove(&k);
                     let id: Id = serde_json::from_str(&k).unwrap_or(Value::String(k.clone()));
-                    if (sub.starts_with("error") || is_error) && !cancelled && stop != "cancelled" {
+                    // Hitting the turn limit is a normal stop, not a failure.
+                    if (sub.starts_with("error") || is_error)
+                        && !cancelled
+                        && stop != "cancelled"
+                        && stop != "max_turn_requests"
+                    {
                         out.push(Message::err(
                             id,
                             RpcError::internal(
@@ -266,8 +350,76 @@ impl Translator {
                     }
                 }
             }
+            "system" if sub.starts_with("task_") => {
+                if let Some(ended) = self.subagent_task(sub, line).await {
+                    out.push(upd(ended));
+                }
+            }
             _ => {}
         }
         out
+    }
+
+    /// Claude's task events for a subagent: `task_started` or `task_updated`
+    /// moves it to the background, and `task_notification` ends a background
+    /// one (its Agent tool call returned at launch). Returns the subagent's
+    /// `subagent_state_update` when it ended.
+    async fn subagent_task(&self, sub: &str, line: &Value) -> Option<Value> {
+        let task = line.get("task_id").and_then(Value::as_str).unwrap_or("");
+        let tool = match line.get("tool_use_id").and_then(Value::as_str) {
+            Some(tool) => tool.to_owned(),
+            None => self.subagent_tasks.lock().await.get(task)?.clone(),
+        };
+        if !self.subagents.lock().await.contains_key(&tool) {
+            return None;
+        }
+        if !task.is_empty() {
+            self.subagent_tasks.lock().await.insert(task.to_owned(), tool.clone());
+        }
+        let backgrounded = match sub {
+            "task_started" => line.get("is_backgrounded"),
+            "task_updated" => line.pointer("/patch/is_backgrounded"),
+            _ => None,
+        };
+        if backgrounded == Some(&Value::Bool(true)) {
+            self.background_subagents.lock().await.insert(tool);
+            return None;
+        }
+        if sub != "task_notification" || !self.background_subagents.lock().await.remove(&tool) {
+            return None;
+        }
+        self.subagent_tasks.lock().await.remove(task);
+        let child = self.subagents.lock().await.remove(&tool)?;
+        let state = match line.get("status").and_then(Value::as_str) {
+            Some("failed") => "failed",
+            Some("stopped") => "cancelled",
+            _ => "completed",
+        };
+        Some(json!({
+            "sessionUpdate": "subagent_state_update",
+            "subagentSessionId": child,
+            "state": state,
+        }))
+    }
+
+    /// Records a new Agent tool call as a subagent session and returns its
+    /// `subagent_spawned` update. Claude's short `description` names it.
+    async fn spawn_subagent(&self, tool_use_id: &str, input: &Value) -> Value {
+        let child = format!("{}/{tool_use_id}", self.acp_session_id);
+        self.subagents.lock().await.insert(tool_use_id.to_owned(), child.clone());
+        if input.get("run_in_background") == Some(&Value::Bool(true)) {
+            self.background_subagents.lock().await.insert(tool_use_id.to_owned());
+        }
+        let s = |k: &str| input.get(k).and_then(Value::as_str).filter(|v| !v.is_empty());
+        let task = s("description").or(s("name")).or(s("subagent_type")).unwrap_or("Agent");
+        json!({
+            "sessionUpdate": "subagent_spawned",
+            "subagentSessionId": child,
+            "name": s("name").unwrap_or(task),
+            "task": task,
+            "prompt": input.get("prompt"),
+            "capabilities": {},
+            "_meta": {"claude": {"subagentType": input.get("subagent_type"), "toolUseId": tool_use_id}}
+        })
     }
 }

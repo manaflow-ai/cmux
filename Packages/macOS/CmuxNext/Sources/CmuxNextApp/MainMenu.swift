@@ -11,8 +11,10 @@ enum MainMenu {
             NSMenuItem(title: Strings.menuAbout, action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: ""),
             .separator(),
         ]
-        let quitTitle = registry.title(for: "quit")
-        app += registry.makeMainMenuItems(for: .app).filter { $0.title != quitTitle }
+        // Quit and its two session choices go last, below Show All.
+        let quitIDs: [ActionID] = ["quit", "quitKeepSessions", "quitEndSessions", "quitEndEverything"]
+        let quitTitles = Set(quitIDs.compactMap { registry.title(for: $0) })
+        app += registry.makeMainMenuItems(for: .app).filter { !quitTitles.contains($0.title) }
         app += [
             .separator(),
             NSMenuItem(title: Strings.menuHide, action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"),
@@ -20,7 +22,7 @@ enum MainMenu {
             NSMenuItem(title: Strings.menuShowAll, action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: ""),
             .separator(),
         ]
-        if let quit = registry.makeMenuItem(for: "quit") { app.append(quit) }
+        app += quitIDs.compactMap { registry.makeMenuItem(for: $0) }
         mainMenu.addItem(submenu(Strings.appName, items: app))
         mainMenu.addItem(submenu(Strings.menuFile, items: registry.makeMainMenuItems(for: .file)))
         mainMenu.addItem(submenu(Strings.menuEdit, items: [
@@ -33,13 +35,22 @@ enum MainMenu {
             item(Strings.menuSelectAll, #selector(NSText.selectAll(_:)), "a", [.command]),
         ]))
         mainMenu.addItem(submenu(Strings.menuView, items: registry.makeMainMenuItems(for: .view)))
+        let server = registry.makeMainMenuItems(for: .server)
+        if !server.isEmpty { mainMenu.addItem(submenu(Strings.menuServer, items: server)) }
+        // Zoom (`zoomWindow`) sits under Minimize, as in every Mac app.
+        let zoomTitle = registry.title(for: "zoomWindow")
         let windowMenu = submenu(Strings.menuWindow, items: [
             item(Strings.menuMinimize, #selector(NSWindow.performMiniaturize(_:)), "m", [.command]),
-            NSMenuItem(title: Strings.menuZoom, action: #selector(NSWindow.performZoom(_:)), keyEquivalent: ""),
+            registry.makeMenuItem(for: "zoomWindow")
+                ?? NSMenuItem(title: Strings.menuZoom, action: #selector(NSWindow.performZoom(_:)), keyEquivalent: ""),
+        ] + [
             .separator(),
-        ] + registry.makeMainMenuItems(for: .window))
+        ] + registry.makeMainMenuItems(for: .window).filter { $0.title != zoomTitle })
         mainMenu.addItem(windowMenu)
         NSApp.windowsMenu = windowMenu.submenu
+        // Debug (DEV and NIGHTLY, `DevTools`): debug-only actions placed there.
+        let debug = DevTools.isEnabled ? registry.makeMainMenuItems(for: .debug) : []
+        if !debug.isEmpty { mainMenu.addItem(submenu(Strings.menuDebug, items: debug)) }
         return mainMenu
     }
 

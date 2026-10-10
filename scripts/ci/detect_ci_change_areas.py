@@ -935,7 +935,24 @@ def is_web_change(path: str) -> bool:
         "scripts/ci/web_subareas.py",
         "tests/test_web_validation.py",
         "scripts/build-webviews-app.sh",
+        "scripts/check-webviews-bun-version.sh",
         "scripts/check-webviews-react-compiler.mjs",
+        # The generated agent pane page, its build and regenerate scripts, and
+        # the merge driver that keeps it mergeable: react-apps-check verifies
+        # the page and runs the driver's test.
+        "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/index.html",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/pane.js",
+        "scripts/cmux-next/build-agent-pane-web.sh",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js",
+        "scripts/cmux-next/build-palette-ranker.sh",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/index.html",
+        "scripts/cmux-next/build-agent-activity-web.sh",
+        "scripts/cmux-next/regenerate-web-bundles.sh",
+        "scripts/cmux-next/build-web-bundles.sh",
+        "scripts/cmux-next/web-bundle-key.py",
+        ".gitattributes",
+        "scripts/install-git-hooks.sh",
+        "tests/test_install_git_hooks.py",
     }
 
 
@@ -1278,12 +1295,13 @@ def is_macos_neutral(
         "vercel.json",
     }:
         return True
-    # Keep current-main's guaranteed iOS-only test carveouts even if the
-    # package graph cannot be parsed and the broader router fails open.
-    if path.startswith((
-        "Packages/iOS/CmuxMobileShellUI/Tests/",
-        "Packages/iOS/CmuxMobileShell/Tests/",
-    )):
+    # Package tests run in the dedicated Swift-package lane and are never
+    # inputs to the macOS app target. Keep them macOS-neutral even when the
+    # package itself is shared with the desktop product; the package-test lane
+    # remains selected by is_swift_package_input() above. This avoids paying
+    # for compile admission on iOS-only test changes without reducing source
+    # coverage for shared package code.
+    if re.match(r"Packages/iOS/[^/]+/Tests/", path):
         return True
     # Agent instructions at any depth, and skill documentation. The app bundles
     # skills/cmux-cua as a folder resource, and skill scripts and manifests are
@@ -1324,7 +1342,12 @@ def is_macos_neutral(
             "plans/",
             "ios/",
             "web/",
-            "webviews/",
+            # Webview sources feed generated resources consumed by the native app.
+            # Keep web CI routing and add one compile admission for webview-only
+            # pull requests, so a resource integration break is caught without
+            # escalating to the full macOS suite.
+            # Lint and format settings for cmux-tui web only.
+            "config/vite-plus/",
             "cmux-tui/",
             "cmux-browser/",
             "daemon/remote/",

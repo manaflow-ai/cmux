@@ -1,6 +1,6 @@
 import Foundation
 
-// Chrome-style screen groups (`screen-groups-v1`, cmux-tui/spec/commands.md
+// Screen groups (`screen-groups-v1`, cmux-tui/spec/commands.md
 // `create-screen-group` ... `reopen-saved-screen-group`). Screens are named
 // by numeric handle. Group changes emit `tree-changed` plus a
 // `screen-changed` per member.

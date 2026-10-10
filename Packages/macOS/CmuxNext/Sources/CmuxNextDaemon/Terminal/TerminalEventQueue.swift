@@ -152,8 +152,14 @@ final class TerminalEventQueue: @unchecked Sendable {
         return event
     }
 
+    /// Bulk bytes: output and snapshot history. A READY, like a replay,
+    /// never blocks the reader (it is one screen, sent before the attach
+    /// reply on attach).
     private static func outputSize(_ event: TerminalChannelEvent) -> Int {
-        if case .output(let data, _) = event { return data.count }
-        return 0
+        switch event {
+        case .output(let data, _): data.count
+        case .snapshot(let frame) where frame.phase != .ready: frame.data.count
+        default: 0
+        }
     }
 }

@@ -1,0 +1,22 @@
+[package]
+name = "cmux-motion"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "cmux-next motion tokens: SwiftUI-style springs, timed fades, animation speed and Reduce Motion. No UI toolkit dependency."
+
+[lints]
+workspace = true
+
+[features]
+# Process-wide speed and Reduce Motion (env vars, macOS NSWorkspace). Hosts
+# that own these already turn it off and pass a `MotionPolicy` per call.
+default = ["settings"]
+settings = ["dep:objc2-app-kit"]
+
+[dependencies]
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { version = "0.3", features = ["NSWorkspace"], optional = true }

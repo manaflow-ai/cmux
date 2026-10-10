@@ -1,10 +1,20 @@
 public nonisolated struct SettingChoice: Sendable, Hashable {
     public let value: String
     public let title: String
+    /// The string catalog key of `title`; nil for a product name.
+    public let titleKey: String?
 
     public init(_ value: String, _ title: String) {
         self.value = value
         self.title = title
+        self.titleKey = nil
+    }
+
+    /// A choice whose title comes from the string catalog.
+    public init(_ value: String, _ title: SettingText) {
+        self.value = value
+        self.title = title.text
+        self.titleKey = title.key
     }
 }
 

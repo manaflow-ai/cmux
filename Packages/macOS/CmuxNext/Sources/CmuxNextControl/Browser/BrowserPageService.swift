@@ -32,6 +32,7 @@ public struct BrowserPageService: Sendable {
                 var result = Self.base(tab)
                 result["url"] = state["url"] ?? .string(tab.url ?? "about:blank")
                 result["title"] = state["title"] ?? ""
+                result["profile"] = .string(tab.browserProfileID ?? "default")
                 return .object(result)
             },
             .async("browser.page.eval") { call in
@@ -42,7 +43,12 @@ public struct BrowserPageService: Sendable {
                     // Objects WebKit cannot return (DOMRect, Map, …) go through toJSON.
                     value = try await Self.run(engine, .evaluate(BrowserPageScripts.jsonSafe(script)), tab)
                 } catch let error as ControlError where error.code == "js_error" && error.message.contains("SyntaxError") {
-                    value = try await Self.run(engine, .evaluate(script), tab)  // statements, not an expression
+                    // The wrapper reports what the script throws, so this is a
+                    // parse failure: nothing ran. Statements, not an expression.
+                    value = try await Self.run(engine, .evaluate(script), tab)
+                }
+                if let thrown = value["value"]?[BrowserPageScripts.thrownKey]?.stringValue {
+                    throw ControlError(code: "js_error", message: thrown)
                 }
                 var result = Self.base(tab)
                 result["value"] = value["value"] ?? .null
@@ -57,6 +63,9 @@ public struct BrowserPageService: Sendable {
                     interactiveOnly: params["interactive"]?.boolValue == true
                 )
                 let value = try await Self.run(engine, .evaluate(script), tab)["value"] ?? .null
+                if let error = value["error"]?.stringValue {
+                    throw ControlError(code: "not_found", message: error)
+                }
                 var result = Self.base(tab)
                 for key in ["snapshot", "title", "url", "ready_state", "refs", "text"] { result[key] = value[key] ?? .null }
                 return .object(result)
@@ -89,6 +98,7 @@ public struct BrowserPageService: Sendable {
     struct Tab: Sendable {
         var id: String
         var url: String?
+        var browserProfileID: String?
     }
 
     /// The tab `params.tab` names (exact id or unique prefix), else the
@@ -115,7 +125,7 @@ public struct BrowserPageService: Sendable {
         guard found.kind == "browser" else {
             throw ControlError(code: "invalid_params", message: ControlStrings.format("control.error.pageTabNotAppBrowser", "Tab %@ is not a browser tab of this app", found.id))
         }
-        return Tab(id: found.id, url: found.url)
+        return Tab(id: found.id, url: found.url, browserProfileID: found.browserProfileID)
     }
 
     static func run(_ engine: any BrowserPageEngine, _ operation: BrowserPageOperation, _ tab: Tab) async throws -> JSONValue {

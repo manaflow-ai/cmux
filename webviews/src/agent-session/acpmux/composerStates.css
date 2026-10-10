@@ -1,0 +1,173 @@
+/* Interaction states for the composer and its menus: every control gets a hover and a pressed
+   state (focus rings are in styles.css). Each is a tonal step mixed from the theme's text color, so no
+   accent hue appears and every theme keeps its character. Only colors change (never size,
+   padding or borders), so a state never shifts the layout.
+
+   Motion tokens: the native host sends its MotionFade durations with the theme
+   (AgentPaneTheme.motion, after ui.animationSpeed and Reduce Motion), and these defaults are
+   its `fast` values for the dev page and the mock. The focus and fade-out tokens are there for
+   the pane's other stylesheets. Every transition sits under prefers-reduced-motion:
+   no-preference, as the transcript's do (conversation/motion.test.ts). */
+:root {
+  --agent-motion-hover: 80ms;
+  --agent-motion-focus: 100ms;
+  --agent-motion-in: 120ms;
+  --agent-motion-out: 80ms;
+  /* Core Animation's easeOut, which the native fades use. */
+  --agent-ease-out: cubic-bezier(0, 0, 0.58, 1);
+}
+
+.acpmux-shell {
+  /* One step past hover, for the press. */
+  --acpmux-composer-press: color-mix(in srgb, var(--agent-text) 20%, var(--agent-page-bg, var(--acpmux-base)));
+  --acpmux-menu-press: color-mix(in srgb, var(--agent-text) 20%, var(--acpmux-base));
+}
+
+/* Composer chips: Plan, the mode, model and effort pickers, and +. */
+.acpmux-picker-button:active,
+.acpmux-plan:active {
+  background: var(--acpmux-composer-press);
+}
+.acpmux-plan[aria-pressed="true"]:hover {
+  background: color-mix(in srgb, var(--agent-highlight, var(--agent-text)) 22%, transparent);
+}
+.acpmux-plan[aria-pressed="true"]:active {
+  background: color-mix(in srgb, var(--agent-highlight, var(--agent-text)) 28%, transparent);
+}
+
+/* Send and Stop: the one filled control, in the terminal theme's text color (never the ANSI blue);
+   its arrow is the opaque base; it steps toward the base on hover and further on press. */
+.acpmux-send.acpmux-send-ready:hover,
+.acpmux-send.acpmux-cancel:hover {
+  background: color-mix(in srgb, var(--agent-text) 88%, var(--acpmux-base));
+}
+.acpmux-send.acpmux-send-ready:active,
+.acpmux-send.acpmux-cancel:active {
+  background: color-mix(in srgb, var(--agent-text) 76%, var(--acpmux-base));
+}
+
+/* Send off (the folder's trust question is open, useFolderTrustAsk.ts): a quiet disc, no step on hover. */
+button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
+  background: var(--acpmux-composer-hover);
+  color: var(--agent-muted);
+  cursor: default;
+}
+
+/* Dictation: the mic steps like the bar's other quiet controls; while listening its red deepens. The notice's buttons step too. */
+.acpmux-mic:hover {
+  background: var(--acpmux-composer-hover);
+  color: var(--agent-text);
+}
+.acpmux-mic:active {
+  background: var(--acpmux-composer-press);
+}
+.acpmux-mic[data-state="listening"]:hover,
+.acpmux-mic[data-state="finalizing"]:hover {
+  background: color-mix(in srgb, var(--agent-danger) 24%, transparent);
+  color: var(--agent-danger);
+}
+.acpmux-mic[data-state="listening"]:active,
+.acpmux-mic[data-state="finalizing"]:active {
+  background: color-mix(in srgb, var(--agent-danger) 32%, transparent);
+}
+.acpmux-dictation-settings:hover,
+.acpmux-dictation-dismiss:hover {
+  background: var(--acpmux-menu-press);
+  color: var(--agent-text);
+}
+.acpmux-dictation-settings:active,
+.acpmux-dictation-dismiss:active {
+  background: color-mix(in srgb, var(--agent-text) 26%, var(--acpmux-base));
+}
+
+/* Menu rows follow the pointer through their active row (the keyboard highlight); a press steps further. */
+.acpmux-menu-item:active,
+.acpmux-slash-row:active {
+  background: var(--acpmux-menu-press);
+}
+
+/* New chat's lists (needs input, in progress, recent): rows hover in styles.css; a press steps further. */
+.acpmux-home-row:active {
+  background: var(--acpmux-menu-press);
+}
+
+/* The picker and slash menus fade in on the appear token; ui.animationSpeed off makes it 0ms. */
+@keyframes acpmux-menu-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Hover and press colors ease, and the picker and slash menus fade in; with Reduce Motion they apply at once. */
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-picker-button,
+  .acpmux-plan {
+    transition:
+      background-color var(--agent-motion-hover) var(--agent-ease-out),
+      color var(--agent-motion-hover) var(--agent-ease-out);
+  }
+  .acpmux-send {
+    transition: background-color var(--agent-motion-hover) var(--agent-ease-out);
+  }
+  .acpmux-mic,
+  .acpmux-dictation-settings,
+  .acpmux-dictation-dismiss {
+    transition:
+      background-color var(--agent-motion-hover) var(--agent-ease-out),
+      color var(--agent-motion-hover) var(--agent-ease-out);
+  }
+  .acpmux-menu-item,
+  .acpmux-slash-row,
+  .acpmux-home-row {
+    transition: background-color var(--agent-motion-hover) var(--agent-ease-out);
+  }
+  .acpmux-menu,
+  .acpmux-slash-menu {
+    animation: acpmux-menu-in var(--agent-motion-in) var(--agent-ease-out);
+  }
+}
+
+/* Shell mode (`!` first, Composer.tsx): the prompt becomes a plain monospace field behind a `!`
+   glyph in the theme's magenta (ANSI 5), and the box takes a quiet edge of it. Same padding and
+   line height as the markdown prompt, so entering or leaving moves nothing. */
+.acpmux-composer {
+  --acpmux-shell-accent: var(--agent-ansi-5, #d670d6);
+}
+.acpmux-composer-prompt.is-hidden {
+  display: none;
+}
+.acpmux-shell-prompt {
+  position: relative;
+}
+.acpmux-shell-glyph {
+  position: absolute;
+  left: 16px;
+  top: 15px;
+  font: 600 14px/22px ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--acpmux-shell-accent);
+  pointer-events: none;
+}
+.acpmux-shell-field {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 45px;
+  max-height: calc(22px * 8 + 23px);
+  margin: 0;
+  padding: 15px 16px 8px 32px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  resize: none;
+  overflow-y: auto;
+  font: 14px/22px ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--agent-text);
+  caret-color: var(--acpmux-shell-accent);
+}
+.acpmux-shell-field::placeholder {
+  color: var(--acpmux-composer-placeholder, var(--agent-muted));
+  opacity: 1;
+}
+.acpmux-composer[data-shell] .acpmux-composer-box {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acpmux-shell-accent) 55%, transparent);
+}

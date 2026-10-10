@@ -1,0 +1,423 @@
+# Builds the app's ONE Rust static library, CCmuxAppFFI.xcframework
+# (cmux-tui/crates/cmux-app-ffi: the remote desktop core and the sidebar layout
+# reducer C ABIs over one Rust runtime, universal macOS arm64 + x86_64; see
+# scripts/cmux-next/build-app-ffi.sh), and publishes it as a prerelease in this
+# repository, tagged cmux-app-ffi-<full commit sha>.
+# Packages/macOS/CmuxNext/Package.swift pins one release by URL and SwiftPM
+# checksum, so every build (app, tests, release, nightly) links the same FFI.
+#
+# Publishing runs only for a push to feat-cmux-next or a manual dispatch from
+# that ref. A release is never overwritten: an existing tag must carry the
+# same archive checksum, or the run fails. Releases are prereleases with
+# make_latest=false, and the run fails if the repository's latest release
+# ever points at an FFI tag. scripts/cmux-next/check-app-ffi-pin.sh fails CI
+# when the FFI sources change without a new pin.
+#
+# UNPROVEN (2026-10-05): GITHUB_TOKEN got HTTP 403 creating the first tag
+# (run 37272232472). The publish job therefore does not try when workflow
+# files changed since the last FFI tag, and a person publishes from the
+# artifact. Whether the token can create the tag after a source-only change
+# has not been seen yet; the first real FFI source change proves or disproves it.
+#
+# FAIL-LOUD: the publish job never reports success without the release. When
+# it cannot create it (workflow files changed, an HTTP 403, or a create that
+# publishes nothing, as in run 37556534995), it fails with "Publish by hand"
+# and the exact commands (HAND_PUBLISH). Publishing by hand, with its checks,
+# is the only other path: docs/ci/app-ffi-release.md is the runbook.
+#
+# The push paths are the FFI inputs that scripts/cmux-next/check-app-ffi-pin.sh
+# derives from the Cargo path dependencies of cmux-app-ffi (--list-inputs);
+# scripts/cmux-next/tests/app-ffi-release-paths.test.sh keeps them in step.
+name: app FFI release
+
+on:
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - "cmux-tui/crates/cmux-app-ffi/**"
+      - "cmux-tui/crates/cmux-layout-reducer/**"
+      - "cmux-tui/crates/cmux-layout-reducer-ffi/**"
+      - "cmux-tui/crates/cmux-rd-core/**"
+      - "cmux-tui/crates/cmux-rd-proto/**"
+      - "cmux-tui/crates/cmux-rd-ffi/**"
+      - "cmux-tui/crates/cmux-remote-browser/**"
+      - "cmux-tui/rust-toolchain.toml"
+      - "scripts/cmux-next/build-app-ffi.sh"
+      - ".github/workflows/app-ffi-release.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: app-ffi-release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  build:
+    name: build xcframework
+    if: github.ref == 'refs/heads/feat-cmux-next'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.assemble.outputs.tag }}
+      checksum: ${{ steps.assemble.outputs.checksum }}
+      workflow_changed: ${{ steps.workflow-delta.outputs.changed }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      # GITHUB_TOKEN may not create a tag whose commit range carries
+      # workflow-file changes (run 37272232472: HTTP 403 with contents:write).
+      # Measure the range from the last published FFI tag; the publish job
+      # skips with a notice when it touches .github/workflows.
+      - name: Workflow files changed since the last FFI release
+        id: workflow-delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --quiet --tags origin 'refs/tags/cmux-app-ffi-*:refs/tags/cmux-app-ffi-*' || true
+          last="$(git tag --list 'cmux-app-ffi-*' --merged HEAD --sort=-creatordate | head -n 1)"
+          if [[ -z "$last" ]]; then
+            echo "no earlier FFI tag on this history; treating workflow files as changed"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          elif git diff --quiet "$last" HEAD -- .github/workflows; then
+            echo "no workflow-file change since $last"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "workflow files changed since $last:"
+            git diff --stat "$last" HEAD -- .github/workflows
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Install Apple targets
+        working-directory: cmux-tui
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Test the reducer
+        working-directory: cmux-tui
+        run: cargo test -p cmux-layout-reducer --locked
+
+      - name: Test the remote desktop FFI
+        working-directory: cmux-tui/crates/cmux-rd-ffi
+        run: cargo test --locked
+
+      # From cmux-tui so rustup resolves the pinned toolchain (rust-toolchain.toml).
+      - name: Build universal xcframework
+        working-directory: cmux-tui
+        env:
+          CMUX_APP_FFI_ARCHS: arm64,x86_64
+          CMUX_APP_FFI_OUT: ${{ runner.temp }}/app-ffi
+        run: ../scripts/cmux-next/build-app-ffi.sh
+
+      - name: Assemble, check and checksum
+        id: assemble
+        shell: bash
+        env:
+          OUT: ${{ runner.temp }}/app-ffi
+        run: |
+          set -euo pipefail
+          xcf="$OUT/CCmuxAppFFI.xcframework"
+          lib="$(find "$xcf" -name 'libcmux_app_ffi.a' | head -n 1)"
+          test -f "$lib"
+          archs="$(lipo -archs "$lib")"
+          echo "architectures: $archs"
+          for arch in arm64 x86_64; do
+            [[ " $archs " == *" $arch "* ]] || { echo "::error::$lib has no $arch slice" >&2; exit 1; }
+          done
+          # Prove each slice links with Apple's toolchain and exports every C
+          # entry point: a C program takes the address of each header function
+          # and links against the archive (Apple's nm cannot read objects that
+          # carry a newer rustc's embedded bitcode, so symbol listing is not
+          # the check; the link is what the app needs). The arm64 program runs.
+          headers="$xcf/macos-arm64_x86_64/Headers"
+          smoke="$RUNNER_TEMP/smoke"
+          mkdir -p "$smoke"
+          {
+            printf '%s\n' '#include <CCmuxRdFFI/cmux_rd_ffi.h>' '#include <CCmuxLayoutReducerFFI/cmux_layout_reducer_ffi.h>' '#include <stdio.h>' 'int main(void) {'
+            for symbol in $(cat cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h | grep -oE '\bcmux_[a-z0-9_]+\(' | tr -d '(' | sort -u); do
+              printf '  printf("%%p %s\\n", (void *)&%s);\n' "$symbol" "$symbol"
+            done
+            printf '%s\n' '  printf("abi %u\n", cmux_layout_reducer_ffi_abi_version());' '  return 0;' '}'
+          } > "$smoke/smoke.c"
+          for arch in arm64 x86_64; do
+            xcrun clang -target "$arch-apple-macos26.0" -I "$headers" "$smoke/smoke.c" "$lib" -o "$smoke/smoke-$arch"
+          done
+          "$smoke/smoke-arm64"
+          dist="$RUNNER_TEMP/dist"
+          rm -rf "$dist"; mkdir -p "$dist"
+          # Stable zip bytes for a rerun of the same build.
+          find "$xcf" -exec touch -t 198001010000 {} +
+          (cd "$OUT" && ditto -c -k --keepParent CCmuxAppFFI.xcframework "$dist/CCmuxAppFFI.xcframework.zip")
+          archive="$dist/CCmuxAppFFI.xcframework.zip"
+          checksum="$(shasum -a 256 "$archive" | awk '{print $1}')"
+          swiftpm_checksum="$(swift package compute-checksum "$archive")"
+          [[ "$swiftpm_checksum" == "$checksum" ]] || { echo "::error::SwiftPM checksum $swiftpm_checksum != SHA-256 $checksum" >&2; exit 1; }
+          printf '%s\n' "$checksum" > "$archive.sha256"
+          printf '%s  %s\n' "$checksum" CCmuxAppFFI.xcframework.zip > "$dist/SHA256SUMS"
+          printf '%s\n' "$GITHUB_SHA" > "$dist/SOURCE_SHA"
+          echo "tag=cmux-app-ffi-$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          echo "checksum=$checksum" >> "$GITHUB_OUTPUT"
+          echo "checksum: $checksum"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: CCmuxAppFFI.xcframework
+          path: ${{ runner.temp }}/dist/*
+          if-no-files-found: error
+
+  # MACOS-CROSS-COMPILE-ON-LINUX shadow, compare-only. Builds the same
+  # CCmuxAppFFI slices on Linux (no Apple SDK; Apple's open-source ld64 from a
+  # pinned cctools-port for the -r prelink) and compares each with the slice
+  # the Mac `build` job produced (scripts/ci/macos-cross.sh). publish never
+  # needs this job, continue-on-error keeps a red comparison out of the run's
+  # conclusion, and it holds no write permission
+  # (tests/test_ci_macos_cross_shadow_jobs.py). It becomes blocking only after
+  # three clean publishes. The report is the job summary and an artifact.
+  macos-cross-shadow:
+    name: macOS cross-compile shadow (Linux, compare only)
+    needs: build
+    if: github.ref == 'refs/heads/feat-cmux-next'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 45
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Unit-test the parity verdict
+        run: python3 tests/test_ci_macho_parity.py
+
+      - name: Install LLVM 19 and the cctools build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-19 lld-19 llvm-19 llvm-19-dev cmake ninja-build libblocksruntime-dev
+
+      - name: Init ghostty submodule
+        run: git submodule update --init --depth 1 ghostty-next
+
+      # Zig's darwin headers and libSystem stub: the Zig the ghostty-next
+      # manifest sets, the one libghostty-vt builds with.
+      - name: Resolve Ghostty Zig version
+        id: ghostty-zig-version
+        env:
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+        run: |
+          set -euo pipefail
+          version="$(bash ./scripts/ghostty-zig-version.sh)"
+          [[ -n "$version" ]]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # Only the darwin headers and libSystem stub bundled with Zig are used.
+      - name: Install zig
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: ${{ steps.ghostty-zig-version.outputs.version }}
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Install macOS Rust targets
+        working-directory: cmux-tui
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Cache the pinned cctools-port ld64
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ${{ runner.temp }}/macos-cross/cctools
+            ${{ runner.temp }}/macos-cross/dispatch
+          key: macos-cross-cctools-${{ runner.os }}-${{ runner.arch }}-llvm19-${{ hashFiles('scripts/ci/macos-cross.sh') }}
+
+      - name: Build cctools-port ld64
+        run: ./scripts/ci/macos-cross.sh cctools
+
+      - name: Download the Mac-built xcframework
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: CCmuxAppFFI.xcframework
+          path: ${{ runner.temp }}/macos-cross/mac
+
+      - name: Build on Linux (no Apple SDK)
+        run: |
+          set -euo pipefail
+          mac="$RUNNER_TEMP/macos-cross/mac"
+          (cd "$mac" && sha256sum --check --strict SHA256SUMS && unzip -q CCmuxAppFFI.xcframework.zip)
+          lib="$mac/CCmuxAppFFI.xcframework/macos-arm64_x86_64/libcmux_app_ffi.a"
+          ./scripts/ci/macos-cross.sh toolchain "$(./scripts/ci/macos-cross.sh ref-sdk "$lib")"
+          start=$(date +%s)
+          ./scripts/ci/macos-cross.sh ffi
+          echo "LINUX_BUILD_SECONDS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
+
+      - name: Compare with the Mac build
+        run: |
+          set -uo pipefail
+          status=0
+          report="$RUNNER_TEMP/macos-cross-parity.txt"
+          mac="$RUNNER_TEMP/macos-cross/mac/CCmuxAppFFI.xcframework/macos-arm64_x86_64"
+          ./scripts/ci/macos-cross.sh parity-ffi "$mac/libcmux_app_ffi.a" > "$report" 2>&1 || status=1
+          # The headers the app imports come straight from the crates.
+          for h in cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h:CCmuxRdFFI cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h:CCmuxLayoutReducerFFI; do
+            if cmp -s "${h%%:*}" "$mac/Headers/${h##*:}/$(basename "${h%%:*}")"; then
+              echo "PASS header ${h##*:}/$(basename "${h%%:*}")" >> "$report"
+            else
+              echo "FAIL header ${h##*:}/$(basename "${h%%:*}") differs from the crate" >> "$report"; status=1
+            fi
+          done
+          cat "$report"
+          {
+            echo "### macOS cross-compile shadow (app FFI): ${GITHUB_SHA}"
+            echo "Linux build: ${LINUX_BUILD_SECONDS:-?} s."
+            echo '```'
+            cat "$report"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      - name: Upload the parity reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: macos-cross-parity-app-ffi
+          path: ${{ runner.temp }}/macos-cross/reports/
+          if-no-files-found: warn
+
+  publish:
+    name: publish release
+    needs: build
+    if: github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      # What a maintainer runs when this job cannot publish: download this
+      # run's artifact, check it, create the prerelease (never latest), then
+      # pin it and prove the pin.
+      HAND_PUBLISH: >-
+        gh run download ${{ github.run_id }} --repo ${{ github.repository }} --name CCmuxAppFFI.xcframework --dir app-ffi-${{ github.sha }}
+        && (cd app-ffi-${{ github.sha }} && shasum -a 256 -c SHA256SUMS && test "$(cat SOURCE_SHA)" = ${{ github.sha }})
+        && gh release create ${{ needs.build.outputs.tag }} app-ffi-${{ github.sha }}/CCmuxAppFFI.xcframework.zip app-ffi-${{ github.sha }}/CCmuxAppFFI.xcframework.zip.sha256 app-ffi-${{ github.sha }}/SHA256SUMS app-ffi-${{ github.sha }}/SOURCE_SHA
+        --repo ${{ github.repository }} --target ${{ github.sha }} --title ${{ needs.build.outputs.tag }}
+        --notes "cmux app FFI CCmuxAppFFI.xcframework, source ${{ github.sha }}, SwiftPM checksum ${{ needs.build.outputs.checksum }}"
+        --prerelease --latest=false
+        ; then pin the URL and checksum ${{ needs.build.outputs.checksum }} in Packages/macOS/CmuxNext/Package.swift
+        and run scripts/cmux-next/check-app-ffi-pin.sh --verify-release
+        (runbook: docs/ci/app-ffi-release.md)
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: CCmuxAppFFI.xcframework
+          path: assets
+
+      - name: Workflow files changed, so publish by hand
+        if: needs.build.outputs.workflow_changed == 'true'
+        env:
+          TAG: ${{ needs.build.outputs.tag }}
+        shell: bash
+        run: |
+          echo "::error title=Publish by hand::Workflow files changed since the last FFI release, and GITHUB_TOKEN cannot create tag $TAG over them. Publish by hand: $HAND_PUBLISH"
+          exit 1
+
+      - name: Create the release (never overwrite)
+        if: needs.build.outputs.workflow_changed != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.build.outputs.tag }}
+          CHECKSUM: ${{ needs.build.outputs.checksum }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd assets && sha256sum --check --strict SHA256SUMS)
+          [[ "$(tr -d '[:space:]' < assets/SOURCE_SHA)" == "$GITHUB_SHA" ]]
+          notes="The cmux app FFI (remote desktop core + sidebar layout reducer) as CCmuxAppFFI.xcframework (one static library, universal macOS arm64/x86_64). Source $GITHUB_SHA. SwiftPM binaryTarget checksum (SHA-256 of the zip): $CHECKSUM"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            existing="$(mktemp -d)"
+            gh release download "$TAG" --pattern "CCmuxAppFFI.xcframework.zip" --dir "$existing"
+            published="$(sha256sum "$existing/CCmuxAppFFI.xcframework.zip" | awk '{print $1}')"
+            if [[ "$published" != "$CHECKSUM" ]]; then
+              echo "::error::release $TAG exists with checksum $published, not $CHECKSUM; it is never overwritten" >&2
+              exit 1
+            fi
+            echo "release $TAG already has the matching archive"
+          elif ! gh release create "$TAG" \
+              assets/CCmuxAppFFI.xcframework.zip \
+              assets/CCmuxAppFFI.xcframework.zip.sha256 \
+              assets/SHA256SUMS assets/SOURCE_SHA \
+              --target "$GITHUB_SHA" --title "$TAG" --notes "$notes" --prerelease --latest=false; then
+            echo "::error title=Publish by hand::GITHUB_TOKEN could not create release $TAG (see the gh error above, for example HTTP 403). Publish by hand: $HAND_PUBLISH"
+            exit 1
+          fi
+          echo "release: https://github.com/$GH_REPO/releases/tag/$TAG"
+
+      - name: The latest release is not an FFI tag
+        if: needs.build.outputs.workflow_changed != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          latest="$(gh api "repos/$GH_REPO/releases/latest" --jq .tag_name 2>/dev/null || true)"
+          echo "latest release: ${latest:-none}"
+          if [[ "$latest" == cmux-app-ffi-* || "$latest" == layout-reducer-ffi-* ]]; then
+            echo "::error::the repository's latest release now points at $latest" >&2
+            exit 1
+          fi
+
+      - name: Anonymous download matches the checksum
+        if: needs.build.outputs.workflow_changed != 'true'
+        env:
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.build.outputs.tag }}
+          CHECKSUM: ${{ needs.build.outputs.checksum }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="https://github.com/$GH_REPO/releases/download/$TAG/CCmuxAppFFI.xcframework.zip"
+          for _ in 1 2 3 4 5 6; do
+            if curl -fsSL --retry 3 -o downloaded.zip "$url"; then break; fi
+            sleep 10
+          done
+          got="$(sha256sum downloaded.zip | awk '{print $1}')"
+          [[ "$got" == "$CHECKSUM" ]] || { echo "::error::anonymous download of $url has checksum $got, not $CHECKSUM" >&2; exit 1; }
+          echo "anonymous download ok: $url"
+
+      # The last word: the job is green only when the release exists with this
+      # run's archive. It also runs after a failed or skipped step, so a create
+      # that published nothing can never end green.
+      - name: The release exists with this run's archive
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.build.outputs.tag }}
+          CHECKSUM: ${{ needs.build.outputs.checksum }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          check="$(mktemp -d)"
+          if ! gh release view "$TAG" >/dev/null 2>&1 \
+              || ! gh release download "$TAG" --pattern "CCmuxAppFFI.xcframework.zip" --dir "$check"; then
+            echo "::error title=Publish by hand::release $TAG does not exist; this run published nothing. Publish by hand: $HAND_PUBLISH"
+            exit 1
+          fi
+          published="$(sha256sum "$check/CCmuxAppFFI.xcframework.zip" | awk '{print $1}')"
+          if [[ "$published" != "$CHECKSUM" ]]; then
+            echo "::error::release $TAG has checksum $published, not $CHECKSUM" >&2
+            exit 1
+          fi
+          echo "release $TAG exists with checksum $CHECKSUM"

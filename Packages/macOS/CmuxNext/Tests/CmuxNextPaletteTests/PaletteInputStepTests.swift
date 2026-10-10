@@ -28,7 +28,7 @@ import Testing
     func makeController(bind: (ActionRegistry, Recorder) -> Void) -> (PaletteController, Recorder) {
         let registry = ActionRegistry.standard()
         let recorder = Recorder()
-        registry.refusalObserver = { [weak registry] _ in recorder.refusalsWithCaller.append(registry?.refusalHasCaller ?? false) }
+        registry.refusalObserver = { [weak registry] _, _ in recorder.refusalsWithCaller.append(registry?.refusalHasCaller ?? false) }
         // The App's sheet: the user confirms.
         registry.confirmationPresenter = { _, _, proceed in proceed() }
         bind(registry, recorder)
@@ -49,7 +49,7 @@ import Testing
     /// sources, not the registry); `renameTabAndRenameWorkspaceSubmitOnReturn`
     /// and the navigation tests cover them.
     static let paletteServed: Set<ActionID> = ["renameTab", "renameWorkspace", "palette.terminalOpenDirectory",
-                                               "palette.toggleSetting", "palette.searchShortcuts", "goToWorkspace", "palette.goToTab"]
+                                               "palette.toggleSetting", "palette.searchShortcuts", "goToWorkspace"]
 
     /// Palette-visible actions with a required text or number argument.
     static func inputActionIDs() -> [ActionID] {
@@ -78,7 +78,8 @@ import Testing
     static var paletteKeys: [NSEvent] {
         [key(36, "\r"), key(76, "\u{3}"), key(36, "\r", .command), key(48, "\t"), key(48, "\t", .shift),
          key(126, "\u{F700}"), key(125, "\u{F701}"), key(116, "\u{F72C}"), key(121, "\u{F72D}"),
-         key(51, "\u{7F}"), key(40, "k", .command), key(53, "\u{1B}")]
+         // Cmd-K is no palette key since decision K1 (it clears the terminal).
+         key(51, "\u{7F}"), key(53, "\u{1B}")]
     }
 
     // MARK: Every input action
@@ -206,8 +207,24 @@ import Testing
             await model.settle()
             _ = controller.handleKeyDown(Self.key(36, "\r"))
             #expect(model.isTextInput)
+            // The step opens on the group's name; an emptied step is where
+            // Backspace belongs to the palette (it steps back).
+            model.query = ""
             #expect(controller.handleKeyDown(key), "key \(key.keyCode) \(key.modifierFlags.rawValue) fell through on a text step")
         }
+    }
+
+    /// Backspace on a step that holds a name edits the name (the field
+    /// editor deletes the selected text); it never steps back.
+    @Test func backspaceEditsAPrefilledName() async {
+        let (controller, _) = makeController { registry, _ in registry.bind("tabGroup.rename", invoke: { _ in }) }
+        let model = controller.model
+        model.query = "rename tab group"
+        await model.settle()
+        _ = controller.handleKeyDown(Self.key(36, "\r"))
+        #expect(model.query == "Review")
+        #expect(!controller.handleKeyDown(Self.key(51, "\u{7F}")))
+        #expect(model.isTextInput)
     }
 
     @Test func noPaletteKeyReachesTheResponderChainWithoutResults() async {

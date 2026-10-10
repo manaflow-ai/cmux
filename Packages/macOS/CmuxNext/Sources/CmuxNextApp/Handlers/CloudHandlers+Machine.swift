@@ -3,14 +3,99 @@ import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextDaemon
 
-// Per-machine actions: open, terminal, rename, kill, copy, resize, status,
-// ports, snapshot, restore, fork.
+// Per-machine actions: open, terminal, rename, kill, pause/resume, copy,
+// resize, status, ports, tools, handoff, snapshot, promote to template,
+// restore, fork, and snapshot deletion.
 extension CloudHandlers {
     static func bindMachineActions(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
         let cloud = context.services.cloud!
         bind("cloudOpenMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
+            // An app link waits for the user after it ended: opening the
+            // machine connects it (a live link stays as it is), as `user`
+            // only for the user's own gesture.
+            if session.appLink != nil { session.connect(origin: connectOrigin(for: invocation)) }
             run("open machine", context) { show(try await firstWorkspace(on: session, context), context) }
+        }
+        bind("cloudSSH", registry, reason: reason) { invocation in
+            let session = try machine(invocation, context)
+            guard session.daemon.connection != nil else { throw ActionFailure(message: CloudStrings.notConnected) }
+            runTracked("open Cloud SSH terminal", context) {
+                let anchor = try await terminalAnchor(on: session, context)
+                guard let connection = session.daemon.connection else { throw ActionFailure(message: CloudStrings.notConnected) }
+                let created = try await connection.newTab(in: anchor.pane.handle, options: SpawnOptions(workspace: anchor.key))
+                if invocation.allowsViewChange { reveal(created.surface, in: anchor.pane, workspaceID: anchor.id, context) }
+            }
+        }
+        bind("cloudExec", registry, reason: reason) { invocation in
+            let session = try machine(invocation, context)
+            let command = try commandArgument(invocation)
+            guard session.daemon.connection != nil else { throw ActionFailure(message: CloudStrings.notConnected) }
+            runTracked("exec on Cloud machine", context) {
+                let anchor = try await terminalAnchor(on: session, context)
+                guard let connection = session.daemon.connection else { throw ActionFailure(message: CloudStrings.notConnected) }
+                let created = try await connection.newTab(in: anchor.pane.handle, options: SpawnOptions(workspace: anchor.key))
+                try await connection.send(created.surface, text: command + "\n")
+                if invocation.allowsViewChange { reveal(created.surface, in: anchor.pane, workspaceID: anchor.id, context) }
+            }
+        }
+        bind("cloudFilesList", registry, reason: reason) { invocation in
+            let session = try machine(invocation, context), path = try filePath(invocation)
+            runTracked("list Cloud files", context) {
+                let entries = try await cloud.api.listFiles(session.machineID, path: path)
+                let body = entries.map { entry in
+                    var line = entry.kind == "directory" ? "d" : "-"
+                    line += " \(entry.name)"
+                    if let size = entry.size { line += " \(size) bytes" }
+                    return line
+                }.joined(separator: "\n")
+                CloudPresenter.show(CloudStrings.filesTitle, body.isEmpty ? "(empty)" : body, copyable: true, in: window(context))
+            }
+        }
+        bind("cloudFileRead", registry, reason: reason) { invocation in
+            let session = try machine(invocation, context), path = try filePath(invocation)
+            runTracked("read Cloud file", context) {
+                let contents = try await cloud.api.readFile(session.machineID, path: path)
+                CloudPresenter.show(CloudStrings.fileContentsTitle, contents.text ?? contents.dataBase64,
+                                   copyable: true, in: window(context))
+            }
+        }
+        bind("cloudFileWrite", registry, reason: reason) { invocation in
+            let session = try machine(invocation, context), path = try filePath(invocation)
+            guard let contents = invocation["contents"]?.stringValue else { throw ActionFailure(message: CloudStrings.fileContentsRequired) }
+            runTracked("write Cloud file", context) {
+                try await cloud.api.writeFile(session.machineID, path: path, data: Data(contents.utf8))
+            }
+        }
+        bind("cloudFileMkdir", registry, reason: reason) { invocation in
+            let session = try machine(invocation, context), path = try filePath(invocation)
+            runTracked("create Cloud directory", context) { try await cloud.api.makeDirectory(session.machineID, path: path) }
+        }
+        bind("cloudFileRemove", registry, reason: reason) { invocation in
+            let session = try machine(invocation, context), path = try filePath(invocation)
+            runTracked("remove Cloud file", context) { try await cloud.api.removeFile(session.machineID, path: path) }
+        }
+        bind("cloudFileStat", registry, reason: reason) { invocation in
+            let session = try machine(invocation, context), path = try filePath(invocation)
+            runTracked("stat Cloud file", context) {
+                let stat = try await cloud.api.statFile(session.machineID, path: path)
+                var body = ["kind: \(stat.kind)"]
+                if let size = stat.size { body.append("size: \(size) bytes") }
+                if let mode = stat.mode { body.append(String(format: "mode: %o", mode)) }
+                CloudPresenter.show(CloudStrings.fileStatTitle, body.joined(separator: "\n"), copyable: true, in: window(context))
+            }
+        }
+        bind("cloudPrepareSCP", registry, reason: reason) { invocation in
+            let session = try machine(invocation, context)
+            guard let publicKey = invocation["publicKey"]?.stringValue, !publicKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw ActionFailure(message: CloudStrings.publicKeyRequired)
+            }
+            runTracked("prepare Cloud file transfer", context) {
+                let endpoint = try await cloud.api.prepareSCP(session.machineID, publicKey: publicKey)
+                let body = ["host: \(endpoint.host)", "port: \(endpoint.port)", "user: \(endpoint.username)",
+                            "host key: \(endpoint.hostPublicKey)", "expires: \(Date(timeIntervalSince1970: TimeInterval(endpoint.expiresAtUnix)))"].joined(separator: "\n")
+                CloudPresenter.show(CloudStrings.scpTitle, body, copyable: true, in: window(context))
+            }
         }
         bind("cloudNewTerminal", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
@@ -33,6 +118,18 @@ extension CloudHandlers {
         bind("cloudKillMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
             run("kill machine", context) { try await cloud.deleteMachine(session.machineID) }
+        }
+        bind("cloudPauseMachine", registry, reason: reason) { invocation in
+            let session = try machine(invocation, context)
+            runTracked("pause machine", context) {
+                try await cloud.pauseMachine(session.machineID)
+            }
+        }
+        bind("cloudResumeMachine", registry, reason: reason) { invocation in
+            let session = try machine(invocation, context)
+            runTracked("resume machine", context) {
+                try await cloud.resumeMachine(session.machineID)
+            }
         }
         bind("cloudCopyMachineID", registry, reason: reason) { invocation in CloudPresenter.copy(try machine(invocation, context).machineID) }
         bind("cloudCopyPort", registry, reason: reason) { invocation in
@@ -68,11 +165,46 @@ extension CloudHandlers {
                 CloudPresenter.show(CloudStrings.portsTitle, body, copyable: !ports.isEmpty, in: window(context))
             }
         }
+        bind("palette.cloud.tools", registry, reason: reason) { invocation in
+            let session = try machine(invocation, context)
+            run("machine tools", context) {
+                let result = try await cloud.api.exec(session.machineID, command: toolsProbe)
+                CloudPresenter.show(CloudStrings.toolsTitle, result.stdout, copyable: true, in: window(context))
+            }
+        }
+        // `cmux vm handoff`: the live status plus the commands that attach to
+        // and inspect the machine, for pasting to another person or agent.
+        bind("palette.cloud.handoff", registry, reason: reason) { invocation in
+            let session = try machine(invocation, context)
+            run("hand off machine", context) {
+                let live = try await cloud.api.machine(session.machineID)
+                CloudPresenter.show(CloudStrings.handoffTitle, handoff(live), copyable: true, in: window(context))
+            }
+        }
         bind("palette.cloud.snapshot", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
             run("snapshot machine", context) {
                 let snapshot = try await cloud.api.snapshot(session.machineID, name: nil)
                 CloudPresenter.show(CloudStrings.snapshotTitle, CloudStrings.snapshotBody(snapshot.id), copyable: true, in: window(context))
+            }
+        }
+        bind("palette.cloud.deleteSnapshot", registry, reason: reason) { invocation in
+            let session = try machine(invocation, context)
+            guard let snapshot = invocation["snapshot"]?.stringValue, !snapshot.isEmpty else {
+                throw ActionFailure(message: CloudStrings.snapshotRequired)
+            }
+            runTracked("delete snapshot", context) {
+                try await cloud.api.deleteSnapshot(session.machineID, snapshotID: snapshot)
+                await cloud.refresh()
+            }
+        }
+        // The old app's `cmux vm promote-template`: a snapshot named after the
+        // machine, which Restore Cloud Machine then starts new machines from.
+        bind("palette.cloud.promoteTemplate", registry, reason: reason) { invocation in
+            let session = try machine(invocation, context)
+            run("promote machine to template", context) {
+                let snapshot = try await cloud.api.snapshot(session.machineID, name: templateName(session.machineID, at: Date()))
+                CloudPresenter.show(CloudStrings.templateTitle, CloudStrings.templateBody(snapshot.id), copyable: true, in: window(context))
             }
         }
         bind("palette.cloud.restore", registry, reason: reason) { invocation in
@@ -91,8 +223,38 @@ extension CloudHandlers {
         }
     }
 
+    /// What `cmux vm tools` ran: the login shell, where each common tool is
+    /// (or "missing"), and the zsh and gh versions.
+    static let toolsProbe = [
+        "printf 'shell: '; printf '%s\\n' \"$SHELL\"",
+        "for tool in zsh git gh htop btop node bun python3; do if command -v \"$tool\" >/dev/null 2>&1; then printf '%-8s %s\\n' \"$tool\" \"$(command -v \"$tool\")\"; else printf '%-8s missing\\n' \"$tool\"; fi; done",
+        "zsh --version 2>/dev/null || true",
+        "gh --version 2>/dev/null | head -n 1 || true"
+    ].joined(separator: "; ")
+
+    /// The handoff text, with the old app's fields and the cmux-next CLI verbs
+    /// for Open Machine and Machine Tools.
+    static func handoff(_ machine: CloudMachine) -> String {
+        let target = "--target machine:\(machine.id)"
+        return ["\(machine.title) (\(machine.id))", "provider: \(machine.provider.isEmpty ? "?" : machine.provider)", "status: \(machine.status.rawValue)",
+                "attach: cmux cloud open-machine \(target)", "inspect: cmux cloud machine-tools \(target)"].joined(separator: "\n")
+    }
+
+    /// `template-<first 12 of the id>-<unix seconds>`, the old CLI's name.
+    static func templateName(_ machineID: String, at date: Date) -> String {
+        "template-\(machineID.prefix(12))-\(Int(date.timeIntervalSince1970))"
+    }
+
     /// `size` choices -> (vCPUs, MiB). Pro allows up to 24 GiB.
     static let sizes: [String: (Int, Int)] = ["small": (2, 4096), "medium": (4, 8192), "large": (8, 16384), "xlarge": (16, 24576)]
+
+    static func filePath(_ invocation: ActionInvocation) throws -> String {
+        guard let path = invocation["path"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+              path.hasPrefix("/"), !path.contains("\0"), !path.split(separator: "/").contains(".."), path.utf8.count <= 4096 else {
+            throw ActionFailure(message: CloudStrings.filePathRequired)
+        }
+        return path
+    }
 
     static func port(_ invocation: ActionInvocation) throws -> Int {
         guard let port = invocation["port"]?.intValue, (1...65535).contains(port) else { throw ActionFailure(message: CloudStrings.invalidPort) }

@@ -4,7 +4,7 @@ import CmuxNextWakeups
 import Observation
 import QuartzCore
 
-/// Chrome-style tab strip for one pane.
+/// The tab strip for one pane.
 ///
 /// Reads a `TabStripModel`, lays tabs out with `TabLayoutEngine`, and animates
 /// between layouts with per-tab springs on a display link, so open, close,
@@ -48,46 +48,24 @@ public final class TabStripView: NSView {
 
     /// Builds right-click menus from the App's action registry. With no
     /// provider (or a nil menu for a chip), right-clicking a chip opens the
-    /// group editor bubble, as in Chrome.
+    /// group editor bubble.
     public var contextMenuProvider: TabContextMenuProvider?
     /// Inline rename state (`TabStripView+InlineRename.swift`).
     let inlineRename = TabInlineRename()
-
     // MARK: Views
 
     var glassView: NSGlassEffectView?
     let contentView = FlippedView()
     let tabsClip = FlippedView()
     let fadeMask = CAGradientLayer()
+    /// Edges whose fade is shown or fading in (`updateFadeMask`).
+    var fadedEdges: (leading: Bool, trailing: Bool) = (false, false)
     let newTabButton = NewTabButtonView()
-    let buttonGroup = TabStripButtonGroupView()
     let hoverCard = TabHoverCardController()
     let groupEditor = TabGroupEditorController()
     var trackingArea: NSTrackingArea?
 
     // MARK: Layout and animation state
-
-    /// Per-tab springs. A tab that grows in from zero width uses the
-    /// `appear` spring; a move to zero (close, collapse) uses `disappear`.
-    struct TabMotion {
-        var x: Spring
-        var width: Spring
-        var alpha: Spring
-
-        init(x: CGFloat, width: CGFloat, alpha: CGFloat) {
-            self.x = Spring(value: x, token: .move)
-            self.width = Spring(value: width, token: width == 0 ? .appear : .move)
-            self.alpha = Spring(value: alpha, token: .appear, epsilon: 0.004)
-        }
-
-        var isSettled: Bool { x.isSettled && width.isSettled && alpha.isSettled }
-
-        mutating func snap() {
-            x.snap()
-            width.snap()
-            alpha.snap()
-        }
-    }
 
     /// Layer-drawn tabs. One CALayer tree per tab, no NSView per tab.
     var cells: [TabID: TabCell] = [:]
@@ -98,7 +76,7 @@ public final class TabStripView: NSView {
     /// Tabs in visual order, excluding dying and torn-out tabs.
     var displayed: [TabItem] = []
     var result = TabLayoutResult(slots: [], contentWidth: 0, standardWidth: 0, availableWidth: 0)
-    var scroll = Spring(value: 0, token: .scroll)
+    var scroll = Spring(value: 0, token: .scroll, kind: .position)
     var closingModeWidth: CGFloat?
     var hasSynced = false
     var lastSelectedID: TabID?
@@ -122,37 +100,20 @@ public final class TabStripView: NSView {
     /// Press-and-hold on + opens the new tab menu (`showNewTabMenu`).
     var newTabHoldTask: Task<Void, Never>?
     var newTabHoldOpenedMenu = false
-    /// Trailing button under the mouse-down, while the press lasts.
-    var pendingTrailingPress: Int?
-    var hoverCardSuppressed = false
-    /// Whether the trailing buttons show (pointer, open menu, VoiceOver).
+    /// Whether the plus shows (pointer, open menu, VoiceOver focus): the
+    /// strip's inputs to `reveal` (HoverReveal, R120).
     var buttonReveal = TabStripButtonReveal() {
-        didSet {
-            guard buttonReveal.isRevealed != oldValue.isRevealed else { return }
-            buttonGroup.setRevealed(buttonReveal.isRevealed, animated: window != nil)
-        }
+        didSet { reveal.sync(buttonReveal, from: oldValue) }
     }
+    private(set) lazy var reveal = TabStripRevealController(strip: self)
+    /// Strip elements (the strip, tab elements, the plus) VoiceOver focuses now.
+    var accessibilityFocusedElements: Set<ObjectIdentifier> = []
     /// End-of-tracking observer of the menu the strip returned last.
     var menuEndObserver: (any NSObjectProtocol)?
 
-    struct Press {
-        var id: TabID
-        var start: CGPoint
-    }
-
-    struct Drag {
-        var id: TabID
-        var grabOffset: CGFloat
-        var originalIndex: Int
-        var currentIndex: Int
-        var isPinned: Bool
-        var lastPoint: CGPoint
-        var originalGroup: TabGroupID?
-        var targetGroup: TabGroupID?
-    }
-
-    var press: Press?
-    var drag: Drag?
+    typealias Drag = TabStripDrag
+    var press: TabStripPress?
+    var drag: TabStripDrag?
     /// Order shown after a local reorder until the model's order changes.
     var orderOverride: [TabID]?
     /// Tab torn out of this strip and handed to the App's drag session. Its
@@ -168,7 +129,6 @@ public final class TabStripView: NSView {
     /// Group the phantom gap belongs to (a dropped tab would join it).
     var dropPlaceholderGroup: TabGroupID?
     static let placeholderID = TabID("__cmux.tabs.drop-placeholder__")
-
     // MARK: - Init
 
     public init(model: TabStripModel, background: Background = .none) {
@@ -176,6 +136,7 @@ public final class TabStripView: NSView {
         super.init(frame: CGRect(x: 0, y: 0, width: 600, height: Self.preferredHeight))
         wantsLayer = true
         layerContentsRedrawPolicy = .never
+        hoverCard.strip = self
 
         switch background {
         case .none:
@@ -196,9 +157,11 @@ public final class TabStripView: NSView {
         contentView.addSubview(tabsClip)
         contentView.addSubview(newTabButton)
         newTabButton.onPress = { [weak self] in self?.model.send(.newTab(after: nil)) }
-        contentView.addSubview(buttonGroup)
-        buttonGroup.onPress = { [weak self] id in self?.model.send(.trailingButton(id)) }
-        buttonGroup.onAccessibilityFocus = { [weak self] focused in self?.buttonReveal.accessibilityFocused = focused }
+        newTabButton.onAccessibilityFocus = { [weak self, weak newTabButton] focused in
+            guard let newTabButton else { return }
+            self?.noteAccessibilityFocus(ObjectIdentifier(newTabButton), focused)
+        }
+        reveal.install()
         groupEditor.onCommand = { [weak self] command in self?.model.send(.group(command)) }
 
         setAccessibilityElement(true)
@@ -214,6 +177,18 @@ public final class TabStripView: NSView {
     public override var isFlipped: Bool { true }
     public override var mouseDownCanMoveWindow: Bool { false }
     public override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    public override var acceptsFirstResponder: Bool { true }
+
+    /// F2 starts the same inline editor as a screen-tab double-click. The
+    /// strip owns this path so pane tabs and screen tabs share one editor.
+    public override func keyDown(with event: NSEvent) {
+        let flags = event.modifierFlags.intersection([.command, .option, .shift, .control])
+        if event.keyCode == 120, flags.isEmpty, let selectedID = model.selectedID {
+            beginInlineRename(selectedID)
+            return
+        }
+        super.keyDown(with: event)
+    }
 
     public override var intrinsicContentSize: NSSize {
         NSSize(width: NSView.noIntrinsicMetric, height: metrics.stripHeight)
@@ -223,6 +198,12 @@ public final class TabStripView: NSView {
     public override func hitTest(_ point: NSPoint) -> NSView? {
         let local = superview.map { convert(point, from: $0) } ?? point
         return bounds.contains(local) ? self : nil
+    }
+
+    /// VoiceOver on the strip itself reveals the plus (`noteAccessibilityFocus`).
+    public override func setAccessibilityFocused(_ accessibilityFocused: Bool) {
+        super.setAccessibilityFocused(accessibilityFocused)
+        noteAccessibilityFocus(ObjectIdentifier(self), accessibilityFocused)
     }
 
     public override func accessibilityChildren() -> [Any]? {
@@ -235,7 +216,6 @@ public final class TabStripView: NSView {
             }
         }
         if !newTabButton.isHidden { children.append(newTabButton) }
-        if !buttonGroup.isHidden { children.append(buttonGroup) }
         return children
     }
 
@@ -243,7 +223,10 @@ public final class TabStripView: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        // A move to another window (or none) ends this strip's card only.
+        hoverCards.unregister(hoverCard)
         if window != nil {
+            hoverCards.register(hoverCard)
             applyTokens(animated: false)
             startObserving()
             startObservingTokens()
@@ -254,7 +237,6 @@ public final class TabStripView: NSView {
             tokenObservationTask?.cancel()
             tokenObservationTask = nil
             animationClient.deactivate()
-            hoverCard.hide(allowsQuickReshow: false)
             groupEditor.hide()
             groups.holdTask?.cancel()
             removeEscapeMonitor()
@@ -274,19 +256,19 @@ public final class TabStripView: NSView {
         applyFrames()
     }
 
-    /// Layers do not inherit the view's appearance or scale; push both.
+    /// Layers do not inherit theme scope or scale; push both (re-applies colors).
     func applyAppearance() {
-        let appearance = effectiveAppearance
+        let scope = themeScope
         let scale = window?.backingScaleFactor ?? 2
         for cell in cells.values {
-            cell.appearance = appearance
+            cell.themeScope = scope
             cell.scale = scale
         }
         for chip in groups.chips.values {
-            chip.appearance = appearance
+            chip.themeScope = scope
             chip.scale = scale
         }
-        for band in groups.bands.values { band.appearance = appearance }
+        for band in groups.bands.values { band.themeScope = scope }
     }
 
     func startObserving() {
@@ -299,8 +281,7 @@ public final class TabStripView: NSView {
                     groups: model.groups,
                     selectedID: model.selectedID,
                     style: model.style,
-                    showsNewTabButton: model.showsNewTabButton,
-                    trailingButtons: model.trailingButtons
+                    showsNewTabButton: model.showsNewTabButton
                 )
             }
             for await _ in changes {
@@ -333,6 +314,7 @@ public final class TabStripView: NSView {
         metrics = customMetrics ?? TabStripMetrics()
         hoverCard.metrics = metrics
         hoverCard.tokensChanged()
+        geometryDidChange()
         let font = Typography.body
         for cell in cells.values {
             cell.metrics = metrics
@@ -344,7 +326,6 @@ public final class TabStripView: NSView {
         }
         groupEditor.hide()
         newTabButton.needsLayout = true
-        buttonGroup.metrics = metrics
         glassView?.cornerRadius = metrics.cornerRadius + metrics.stripVerticalPadding
         invalidateIntrinsicContentSize()
         lastViewportWidth = -1
@@ -359,14 +340,12 @@ public final class TabStripView: NSView {
         if glassView == nil { contentView.frame = bounds }
         let showsButton = model.showsNewTabButton
         let padding = metrics.stripHorizontalPadding
-        let groupWidth = trailingGroupWidth
         windowControlsInset = computeWindowControlsInset()
-        let viewport = max(0, bounds.width - 2 * padding - windowControlsInset - (showsButton ? metrics.newTabButtonWidth : 0) - groupWidth)
+        let viewport = max(0, bounds.width - 2 * padding - windowControlsInset - (showsButton ? metrics.newTabButtonWidth : 0))
         tabsClip.frame = CGRect(x: padding + windowControlsInset, y: 0, width: viewport, height: bounds.height)
-        layoutButtonGroup(width: groupWidth)
         if viewport != lastViewportWidth {
             lastViewportWidth = viewport
-            // Chrome resizes tabs with the window instantly.
+            // Tabs resize with the window instantly.
             relayout(animated: false)
         } else {
             applyFrames()
@@ -393,7 +372,6 @@ public final class TabStripView: NSView {
 
     /// Tabs are vertically centered in whatever height the strip gets.
     var tabTop: CGFloat {
-        let scale = window?.backingScaleFactor ?? 2
-        return (max(0, (bounds.height - metrics.tabHeight) / 2) * scale).rounded() / scale
+        metrics.tabTop(stripHeight: bounds.height, scale: window?.backingScaleFactor ?? 2)
     }
 }

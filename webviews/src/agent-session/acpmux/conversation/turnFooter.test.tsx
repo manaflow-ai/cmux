@@ -1,0 +1,190 @@
+import { afterAll, describe, expect, test } from "bun:test";
+import { JSDOM, VirtualConsole } from "jsdom";
+import { restoredDecisions, type HunkDecision, type HunkReview } from "../changes/hunkReview";
+import type { AcpmuxRow } from "../model";
+
+const dom = new JSDOM("<!doctype html><div id=root></div>", {
+  pretendToBeVisual: true,
+  virtualConsole: new VirtualConsole(),
+});
+const globals = globalThis as Record<string, unknown>;
+const saved = Object.fromEntries(
+  ["window", "document", "navigator", "HTMLElement", "customElements", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [
+    key,
+    globals[key],
+  ]),
+);
+Object.assign(globals, {
+  window: dom.window,
+  document: dom.window.document,
+  navigator: dom.window.navigator,
+  HTMLElement: dom.window.HTMLElement,
+  // Edited-file cards import @pierre/trees, which registers its file-tree element at module load.
+  customElements: dom.window.customElements,
+  IS_REACT_ACT_ENVIRONMENT: true,
+});
+afterAll(() => Object.assign(globals, saved));
+
+const { act, createElement } = await import("react");
+const { createRoot } = await import("react-dom/client");
+const { EditedFilesCard } = await import("./EditedFilesCard");
+const { TurnFooter } = await import("./TurnRows");
+const { TurnActionsContext } = await import("./turnActions");
+
+const edited: AcpmuxRow = {
+  id: "e",
+  version: 1,
+  at: 0,
+  kind: "activity",
+  ended: true,
+  items: [
+    {
+      kind: "tool",
+      text: "Edit summarize_run.py",
+      tool: {
+        id: "t1",
+        title: "Edit summarize_run.py",
+        kind: "edit",
+        status: "completed",
+        diffs: [{ path: "/repo/summarize_run.py", oldText: "a\nb\n", newText: "a\nB\nc\n" }],
+      },
+    },
+  ],
+};
+
+async function render(
+  element: ReturnType<typeof createElement>,
+  actions: Parameters<typeof TurnActionsContext.Provider>[0]["value"],
+) {
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
+  const draw = (value: typeof actions) =>
+    act(async () => root.render(createElement(TurnActionsContext.Provider, { value }, element)));
+  await draw(actions);
+  return { container, draw, unmount: () => act(async () => root.unmount()) };
+}
+
+function review(decisions: Map<string, HunkDecision>, asked: { keys: string[]; prompt: string }[]): HunkReview {
+  return { decisions, decide: () => {}, requestRevert: (keys, prompt) => asked.push({ keys, prompt }) };
+}
+
+describe("edited-files card", () => {
+  test("reads like Codex's footer: the file, its counts and View changes", async () => {
+    const opened: (string | undefined)[] = [];
+    const { container, unmount } = await render(
+      createElement(EditedFilesCard, { row: edited, onOpenDiff: (_row, path) => opened.push(path) }),
+      { review: review(new Map(), []) },
+    );
+    // The target card: the title over a "View changes ↗" link, Undo, then an outlined View changes.
+    expect(container.querySelector(".acpmux-edited-title")!.textContent).toBe("Edited summarize_run.pyView changes");
+    await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-review-changes")!.click());
+    await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-edited-link")!.click());
+    expect(opened).toEqual(["/repo/summarize_run.py", "/repo/summarize_run.py"]);
+    await unmount();
+  });
+});
+
+describe("edited-files card Undo", () => {
+  test("never asks the agent to undo: the agent could run git checkout and lose later edits", async () => {
+    const { setUndoCall } = await import("../turnChanges/undoStore");
+    const hostCalls: boolean[] = [];
+    setUndoCall(async (_files, apply) => {
+      hostCalls.push(apply);
+      return { files: [] };
+    });
+    const asked: { keys: string[]; prompt: string }[] = [];
+    const { container, unmount } = await render(createElement(EditedFilesCard, { row: edited, onOpenDiff: () => {} }), {
+      review: review(new Map(), asked),
+    });
+    await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-edited-undo")!.click());
+    expect(asked).toEqual([]);
+    expect(hostCalls).toEqual([false]);
+    await unmount();
+  });
+});
+
+describe("turn footer", () => {
+  const summary: AcpmuxRow = { id: "s", version: 1, at: 0, kind: "turnSummary", text: "Done.", folded: true };
+
+  test("Retry sends the turn's prompt again", async () => {
+    const sent: string[] = [];
+    const { container, unmount } = await render(createElement(TurnFooter, { row: { ...summary, prompt: "fix it" } }), {
+      retry: (prompt) => sent.push(prompt),
+    });
+    const retry = container.querySelector<HTMLButtonElement>('button[aria-label="Retry"]')!;
+    expect(retry.title).toBe("Send this prompt again");
+    await act(async () => retry.click());
+    expect(sent).toEqual(["fix it"]);
+    await unmount();
+  });
+
+  test("no Retry on an earlier turn, or while acpmux is unreachable", async () => {
+    const earlier = await render(createElement(TurnFooter, { row: summary }), { retry: () => {} });
+    expect(earlier.container.querySelector('button[aria-label="Retry"]')).toBeNull();
+    await earlier.unmount();
+    const offline = await render(createElement(TurnFooter, { row: { ...summary, prompt: "fix it" } }), {});
+    expect(offline.container.querySelector('button[aria-label="Retry"]')).toBeNull();
+    await offline.unmount();
+  });
+});
+
+describe("a failed revert send", () => {
+  test("puts back what the reader had decided, and leaves hunks decided since alone", () => {
+    const current = new Map<string, HunkDecision>([
+      ["rejected-before", "requested"],
+      ["undecided-before", "requested"],
+      ["accepted-since", "accepted"],
+    ]);
+    const restored = restoredDecisions(current, [
+      ["rejected-before", "rejected"],
+      ["undecided-before", undefined],
+      ["accepted-since", undefined],
+    ]);
+    expect([...restored]).toEqual([
+      ["rejected-before", "rejected"],
+      ["accepted-since", "accepted"],
+    ]);
+  });
+});
+
+describe("edited-files card rows", () => {
+  test("a long directory keeps its first segment and its end; the file name stays whole", async () => {
+    const row = {
+      ...edited,
+      items: [
+        {
+          kind: "tool",
+          text: "Edit",
+          tool: {
+            id: "t-long",
+            title: "Edit",
+            kind: "edit",
+            status: "completed",
+            diffs: [{ path: "/repo/src/net/backoff/policy/jitter/exponential.ts", oldText: "a\n", newText: "b\n" }],
+          },
+        },
+        {
+          kind: "tool",
+          text: "Edit",
+          tool: {
+            id: "t-2",
+            title: "Edit",
+            kind: "edit",
+            status: "completed",
+            diffs: [{ path: "/repo/README.md", oldText: "a\n", newText: "b\n" }],
+          },
+        },
+      ],
+    } as AcpmuxRow;
+    const { container, unmount } = await render(createElement(EditedFilesCard, { row, onOpenDiff: () => {} }), {
+      review: review(new Map(), []),
+    });
+    const first = container.querySelector(".acpmux-edited-file")!;
+    expect(first.querySelector(".acpmux-edited-dir-head")?.textContent).toBe("src/");
+    expect(first.querySelector(".acpmux-edited-dir-tail")?.textContent).toBe("net/backoff/policy/jitter/");
+    expect(first.querySelector(".acpmux-edited-base")?.textContent).toBe("exponential.ts");
+    expect(first.querySelector(".acpmux-diff-add")?.textContent).toBe("+1");
+    expect(first.querySelector(".acpmux-diff-del")?.textContent).toBe("-1");
+    await unmount();
+  });
+});

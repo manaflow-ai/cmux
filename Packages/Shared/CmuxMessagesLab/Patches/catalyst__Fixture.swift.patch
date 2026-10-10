@@ -1,0 +1,82 @@
+--- a/Sources/MessagesLabHome/Vendor/catalyst/Fixture.swift
++++ b/Sources/MessagesLabHome/Vendor/catalyst/Fixture.swift
+@@ -65,17 +65,27 @@
+     static func p3(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> UIColor {
+         UIColor(displayP3Red: r / 255, green: g / 255, blue: b / 255, alpha: 1)
+     }
+-    static var background: UIColor { UIColor(white: 30 / 255, alpha: 1) }
+-    static var incoming: UIColor { elevated ? p3(76, 76, 78) : p3(59, 59, 61) }
++    /// cmux: the app theme's colours (the cmux-next Ghostty theme and the
++    /// user's accent), set by the Home host; a change bumps
++    /// `paletteGeneration`. nil keeps the measured Messages palette below
++    /// (fixtures, the differential harness).
++    static var theme: FixtureTheme? { didSet { if theme != oldValue { paletteGeneration += 1 } } }
++    private static func themed(_ pick: (FixtureTheme.Colors) -> UIColor) -> UIColor? {
++        theme.map { pick(inactive ? $0.inactive : $0.active) }
++    }
++    static var background: UIColor { themed(\.background) ?? UIColor(white: 30 / 255, alpha: 1) }
++    static var incoming: UIColor { themed(\.incoming) ?? (elevated ? p3(76, 76, 78) : p3(59, 59, 61)) }
+     /// Rows of an open thread or reply view are drawn lighter (macOS 27, measured 76, 76, 78;
+     /// lossless thread-open-esc reference). Set only around those rows' drawing (main thread).
+     static var elevated = false
+-    static let outgoing = UIColor(red: 2 / 255, green: 132 / 255, blue: 254 / 255, alpha: 1)
++    // cmux: a theme without an accent keeps the measured blue and its gradient.
++    private static var themedAccent: Bool { theme.map { !$0.measuredAccent } ?? false }
++    static var outgoing: UIColor { (themedAccent ? themed(\.outgoing) : nil) ?? UIColor(red: 2 / 255, green: 132 / 255, blue: 254 / 255, alpha: 1) }
+     /// The text caret (and field tint): screencapture -l of a focused Messages field,
+-    /// 2 px wide at 2x, Display P3 (63, 143, 247).
+-    static let caret = p3(63, 143, 247)
+-    static var connector: UIColor { UIColor(white: 66 / 255, alpha: 1) }
+-    static var badge: UIColor { p3(59, 59, 61) }
++    /// 2 px wide at 2x, Display P3 (63, 143, 247). cmux: the theme's on a light theme.
++    static var caret: UIColor { themed(\.caret) ?? p3(63, 143, 247) }
++    static var connector: UIColor { themed(\.connector) ?? UIColor(white: 66 / 255, alpha: 1) }
++    static var badge: UIColor { themed(\.badge) ?? p3(59, 59, 61) }
+     /// Outgoing bubbles shade with their position in the window (measured:
+     /// lighter near the top, deeper blue near the compose field).
+     /// (window y in 2x px, red, green), Display P3.
+@@ -88,13 +98,40 @@
+         (1500, 68.8, 145.8), (1800, 65.2, 144.1), (2082, 62.8, 142)]
+     /// A gradient colour (red, green from the stops) in Display P3.
+     static func gradientColor(_ r: CGFloat, _ g: CGFloat) -> UIColor { p3(r, g, gradientBlue) }
+-    static let outgoingGradient: CGGradient = CGGradient(
++    private static let measuredGradient: CGGradient = CGGradient(
+         colorsSpace: CGColorSpace(name: CGColorSpace.displayP3),
+         colors: gradientStops.map { gradientColor($0.1, $0.2).cgColor } as CFArray,
+         locations: gradientStops.map { $0.0 / 2082 })!
++    /// cmux: the themed outgoing gradient as (2x px window y, colour) stops;
++    /// nil keeps the measured stops (`gradientStops`, `gradientBlue`).
++    static var themedGradient: [(CGFloat, UIColor)]? { themedAccent ? theme.map { (inactive ? $0.inactive : $0.active).gradientStops } : nil }
++    static func color(in s: [(CGFloat, UIColor)], atPx px: CGFloat) -> UIColor {
++        guard s.count > 1 else { return s.first?.1 ?? outgoing }
++        var i = 1
++        while i < s.count - 1, s[i].0 < px { i += 1 }
++        let a = s[i - 1], b = s[i]
++        let f = max(0, min(1, (px - a.0) / max(1, b.0 - a.0)))
++        let ca = a.1.usingColorSpace(.displayP3) ?? a.1, cb = b.1.usingColorSpace(.displayP3) ?? b.1
++        return UIColor(displayP3Red: ca.redComponent + (cb.redComponent - ca.redComponent) * f,
++                       green: ca.greenComponent + (cb.greenComponent - ca.greenComponent) * f,
++                       blue: ca.blueComponent + (cb.blueComponent - ca.blueComponent) * f, alpha: 1)
++    }
++    static var outgoingGradient: CGGradient {
++        if let t = theme, themedAccent { return (inactive ? t.inactive : t.active).outgoingGradient }
++        return measuredGradient
++    }
+     /// Text colours measured with screencapture -l (macOS 27, 2026-10-05).
+-    static var incomingText: UIColor { UIColor(white: (elevated ? 242 : 225) / 255, alpha: 1) }
+-    static let outgoingText = UIColor.white
+-    static let secondaryText = UIColor(white: 154 / 255, alpha: 1)
++    static var incomingText: UIColor { themed(\.incomingText) ?? UIColor(white: (elevated ? 242 : 225) / 255, alpha: 1) }
++    static var outgoingText: UIColor { (themedAccent ? themed(\.outgoingText) : nil) ?? UIColor.white }
++    static var secondaryText: UIColor { themed(\.secondaryText) ?? UIColor(white: 154 / 255, alpha: 1) }
++    // cmux: the field and typing colours MessagesLab draws as fixed dark
++    // values, from the theme on a light one; nil keeps the measured values.
++    static var typingDot: UIColor { themed(\.typingDot) ?? p3(91, 91, 94) }
++    static var typingDotHighlight: UIColor { themed(\.typingDotHighlight) ?? p3(133, 133, 135) }
++    static var placeholder: UIColor { themed(\.placeholder) ?? UIColor(white: 123 / 255, alpha: 1) }
++    static var waveform: UIColor { themed(\.waveform) ?? UIColor(white: 144 / 255, alpha: 1) }
++    static var chipFill: UIColor { themed(\.chipFill) ?? UIColor(white: 1, alpha: 0.12) }
++    /// The field glass and its buttons render light glass on a light theme.
++    static var isLight: Bool { theme.map { (inactive ? $0.inactive : $0.active).isLight } ?? false }
+ }
+ 

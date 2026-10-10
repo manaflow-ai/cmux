@@ -1,24 +1,14 @@
 import AppKit
 import CmuxNextDesign
 import QuartzCore
-
 // Mouse selection, click-to-collapse, and keyboard navigation.
-
 extension SidebarListView {
     // MARK: - Mouse
-
-    struct Press {
-        var key: SidebarRowKey
-        var point: NSPoint
-        var deferredClick: WorkspaceID?
-        var cancelled = false
-    }
-
+    typealias Press = SidebarPress
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-
     override func mouseDown(with event: NSEvent) {
-        hoverCard.hide()
-        if rename != nil { endRename(commit: true) }
+        hoverCards.dismiss(.click)
+        if inlineRename.isActive { inlineRename.end(commit: true) }
         window?.makeFirstResponder(self)
         let point = convert(event.locationInWindow, from: nil)
         guard let row = displayed.row(at: point.y) else {
@@ -34,9 +24,13 @@ extension SidebarListView {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         switch row.key {
         case let .workspace(id):
+            guard !model.isPlaceholder(id) else {
+                self.press = nil
+                return
+            }
             if event.clickCount == 2, flags.isEmpty {
                 self.press = nil
-                beginRename(row.key)
+                inlineRename.begin(row.key)
                 return
             }
             if flags.contains(.command) {
@@ -58,15 +52,18 @@ extension SidebarListView {
                 // never collapses and re-expands under the pointer.
                 if pendingGroupToggle?.group == group { cancelPendingGroupToggle() }
                 self.press = nil
-                beginRename(row.key)
+                inlineRename.begin(row.key)
                 return
             }
+        case let .tab(workspace, tab):
+            self.press = nil
+            model.send(.selectTab(workspace: workspace, tab: tab))
+            return
         case .section, .emptySection:
             break
         }
         self.press = press
     }
-
     override func mouseDragged(with event: NSEvent) {
         guard let press, !press.cancelled else { return }
         if drag == nil {
@@ -78,7 +75,6 @@ extension SidebarListView {
         }
         updateDrag(windowPoint: event.locationInWindow)
     }
-
     override func mouseUp(with event: NSEvent) {
         defer { press = nil }
         if drag != nil {
@@ -91,6 +87,8 @@ extension SidebarListView {
         switch press.key {
         case .workspace:
             if let id = press.deferredClick { model.click(id) }
+        case .tab:
+            break
         case let .group(group):
             // An empty saved group reopens; any other group toggles.
             if let g = model.group(group), g.isPinned, g.workspaces.isEmpty {
@@ -109,20 +107,19 @@ extension SidebarListView {
         }
         reload(animated: true)
     }
-
+    // MARK: - Middle click (MIDDLE-CLICK-CLOSES-WORKSPACE; SidebarMiddleClick)
+    override func otherMouseDown(with event: NSEvent) { if !middleClick.down(event, in: self) { super.otherMouseDown(with: event) } }
+    override func otherMouseUp(with event: NSEvent) { if !middleClick.up(event, in: self) { super.otherMouseUp(with: event) } }
     // MARK: - Group header single vs double click
-
     struct PendingGroupToggle {
         let group: GroupID
         let task: Task<Void, Never>
     }
-
     /// Whether `point` (list coordinates) is on the group's chevron/folder.
     func isOnDisclosure(_ point: NSPoint, group: GroupID) -> Bool {
         guard let view = rowViews[.group(group)] as? GroupHeaderRowView else { return false }
         return view.disclosureFrame.contains(convert(point, to: view))
     }
-
     /// A single click on a group header's title toggles after the system
     /// double-click interval, so a double-click can rename instead.
     func scheduleGroupToggle(_ group: GroupID) {
@@ -139,16 +136,15 @@ extension SidebarListView {
         }
         pendingGroupToggle = PendingGroupToggle(group: group, task: task)
     }
-
     func cancelPendingGroupToggle() {
         pendingGroupToggle?.task.cancel()
         pendingGroupToggle = nil
     }
-
     // MARK: - Keyboard
-
     override func keyDown(with event: NSEvent) {
         let flags = event.modifierFlags.intersection([.command, .option, .shift, .control])
+        // F2 renames the active workspace inline.
+        if event.keyCode == 120, flags.isEmpty, let active = model.activeWorkspaceID { return inlineRename.begin(.workspace(active)) }
         if event.keyCode == 53 { // Escape
             if drag != nil { return cancelDrag() }
             if !model.filterText.isEmpty {
@@ -167,10 +163,10 @@ extension SidebarListView {
             } else {
                 return super.keyDown(with: event)
             }
+            // The reload reveals the new active row (close-focus.md).
             reload(animated: true)
-            revealActive()
         case .carriageReturn?, .enter?:
-            if let active = model.activeWorkspaceID { beginRename(.workspace(active)) }
+            if let active = model.activeWorkspaceID { inlineRename.begin(.workspace(active)) }
         case .delete?, .deleteForward?:
             if flags == .command, !model.selection.isEmpty { model.send(.close(model.orderedSelection)) }
         default:

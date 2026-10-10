@@ -1,15 +1,15 @@
 public import AppKit
 import Carbon.HIToolbox
-import GhosttyKit
+import GhosttyNextKit
 
 /// Ghostty keybinds for window, tab and split actions (`goto_split:left`,
 /// `new_split:right`, ...) as chords the app can match without a terminal.
 ///
 /// Ghostty only sees keys while a terminal surface has the keyboard. A user
 /// who binds `cmd+ctrl+h=goto_split:left` expects it in every pane, also
-/// while a web page or the address bar has focus. The App's key router
-/// matches these chords app-wide and runs the same registry action the
-/// terminal path runs (`TerminalHostAction`).
+/// while a web page or the address bar has focus. The App folds these
+/// chords into its one binding table (`GhosttyKeyBindingLayer`), routed to
+/// the registry action the terminal path runs (`TerminalHostAction`).
 ///
 /// The table is read from the loaded config with `ghostty_config_trigger`
 /// (the reverse map, so one chord per action: the last one bound) and is
@@ -66,10 +66,19 @@ public nonisolated struct GhosttyHostKeybind: Sendable, Equatable {
             ("last_tab", .gotoTab(.last)), ("move_tab:-1", .moveTab(-1)), ("move_tab:1", .moveTab(1)),
             ("new_window", .newWindow), ("toggle_fullscreen", .toggleFullscreen),
             ("toggle_command_palette", .toggleCommandPalette),
+            ("quit", .quit), ("check_for_updates", .checkForUpdates), ("undo", .undo),
+            ("toggle_visibility", .toggleVisibility), ("toggle_tab_overview", .toggleTabOverview),
+            ("close_all_windows", .closeAllWindows), ("toggle_maximize", .toggleMaximize),
+            ("goto_window:next", .gotoWindow(next: true)), ("goto_window:previous", .gotoWindow(next: false)),
+            ("move_tab_to_new_window", .moveTabToNewWindow),
+            ("prompt_surface_title", .promptTitle), ("prompt_tab_title", .promptTitle), ("prompt_window_title", .promptWindowTitle),
         ]
         for index in 1...9 { list.append(("goto_tab:\(index)", .gotoTab(.index(index)))) }
         return list
     }()
+
+    /// The Ghostty action strings read from the config.
+    public static var routableNames: [String] { routable.map(\.0) }
 
     /// Physical Ghostty keys the table understands, as Carbon key codes.
     static func keyCode(for key: ghostty_input_key_e) -> UInt16? {
@@ -126,14 +135,26 @@ extension GhosttyRuntime {
         return binds
     }
 
-    /// The host action a key-down is bound to in the user's Ghostty config,
-    /// or nil. Does not need a terminal surface.
-    public func hostAction(forKeyDown event: NSEvent) -> TerminalHostAction? {
-        hostKeybinds.first { $0.matches(event) }?.action
+    /// The routable keybinds of a config without the user's files:
+    /// Ghostty's defaults with cmux's (`cmuxDefaultKeybindLines`) over them.
+    /// A loaded keybind equal to one of these is a default, not the user's
+    /// (GHOSTTY-CONFIG: cmux defaults beat Ghostty defaults; the user's
+    /// Ghostty keybinds beat cmux defaults in a terminal). Read once.
+    public var defaultHostKeybinds: [GhosttyHostKeybind] {
+        if let cached = hostKeybindCache.defaults { return cached }
+        guard config != nil, let defaults = ghostty_config_new() else { return [] }
+        defer { ghostty_config_free(defaults) }
+        Self.loadKeybindDefaults(into: defaults)
+        ghostty_config_finalize(defaults)
+        let binds = GhosttyHostKeybind.read(from: defaults)
+        hostKeybindCache.defaults = binds
+        return binds
     }
 }
 
-/// Memo of `GhosttyRuntime.hostKeybinds`, cleared on every config change.
+/// Memo of `GhosttyRuntime.hostKeybinds` (cleared on every config change)
+/// and of `defaultHostKeybinds` (kept: the defaults never change).
 final class HostKeybindCache {
     var binds: [GhosttyHostKeybind]?
+    var defaults: [GhosttyHostKeybind]?
 }

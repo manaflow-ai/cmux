@@ -51,8 +51,20 @@ final class ManualClock: Clock, @unchecked Sendable {
     }
 }
 
-private func waitUntil(_ condition: @escaping () -> Bool) async {
+/// Lets 10 000 turns pass (no condition): work that must NOT happen gets
+/// every chance to run before the test checks it did not.
+private func drainTurns() async {
+    for _ in 0..<10_000 { await Task.yield() }
+}
+
+/// Waits up to 10 000 turns; a timeout records an Issue at the caller with the time waited.
+private func waitUntil(sourceLocation: SourceLocation = #_sourceLocation, _ condition: @escaping () -> Bool) async {
+    let start = ContinuousClock.now
     for _ in 0..<10_000 where !condition() { await Task.yield() }
+    if !condition() {
+        Issue.record("waitUntil gave up after 10000 turns (\(ContinuousClock.now - start)): the condition at \(sourceLocation.fileName):\(sourceLocation.line) never held",
+                     sourceLocation: sourceLocation)
+    }
 }
 
 @Suite struct BackoffTests {
@@ -85,7 +97,7 @@ private func waitUntil(_ condition: @escaping () -> Bool) async {
         clock.advance(by: .milliseconds(1))
         await waitUntil { fired.withLock { $0 } == 1 }
         clock.advance(by: .seconds(10))
-        await waitUntil { false }
+        await drainTurns()
         #expect(fired.withLock { $0 } == 1)
         #expect(!timer.isScheduled)
         #expect(ledger.snapshot().first?.count == 1)
@@ -113,7 +125,7 @@ private func waitUntil(_ condition: @escaping () -> Bool) async {
         timer.cancel()
         await waitUntil { clock.sleeperCount == 0 }
         clock.advance(by: .seconds(2))
-        await waitUntil { false }
+        await drainTurns()
         #expect(!fired.withLock { $0 })
     }
 }

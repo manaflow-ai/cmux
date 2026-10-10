@@ -76,6 +76,7 @@ let calls: Array<{
   readonly body: unknown;
 }> = [];
 let listedAccounts: unknown[] = [];
+let listTeamQueries: string[] = [];
 let exchangeStatus = 200;
 let accountListStatus = 200;
 
@@ -100,6 +101,7 @@ beforeEach(() => {
   authJsonError = null;
   calls = [];
   listedAccounts = [];
+  listTeamQueries = [];
   hostedCutoverReady = true;
   exchangeStatus = 200;
   accountListStatus = 200;
@@ -606,6 +608,9 @@ describe("hosted Subrouter account routes", () => {
       request("/api/subrouter/teams"),
     );
     expect(teamsResponse.status).toBe(200);
+    // The team catalog also carries billing fields: plan, seats, and the
+    // caller's Stack team_admin role (this fixture's user holds it everywhere).
+    const billing = { planId: null, seats: null, role: "admin", canManageBilling: true };
     expect(await teamsResponse.json()).toEqual({
       selectedTeamId: "team-a",
       teams: [
@@ -614,18 +619,21 @@ describe("hosted Subrouter account routes", () => {
           name: "Team A",
           personal: false,
           permissions: { use: true, manageAccounts: true },
+          ...billing,
         },
         {
           id: "team-b",
           name: "Team B",
           personal: false,
           permissions: { use: true, manageAccounts: true },
+          ...billing,
         },
         {
           id: "user-1",
           name: "User One",
           personal: true,
           permissions: { use: true, manageAccounts: true },
+          ...billing,
         },
       ],
     });
@@ -727,6 +735,7 @@ describe("hosted Subrouter account routes", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ selectedTeamId: "team-b" });
     expect(updateUser).toHaveBeenCalledWith({ selectedTeamId: "team-b" });
+    expect(listTeamQueries).toEqual(["team-b", "team-a"]);
 
     const unauthorized = await teamsRoute.PATCH(
       request("/api/subrouter/teams", {
@@ -765,10 +774,13 @@ function stackUser() {
     displayName: "User One",
     primaryEmail: "user@example.com",
     selectedTeam: { id: "team-a", displayName: "Team A" },
-    listTeams: async () => [
+    listTeams: async (options?: { query?: string }) => {
+      if (options?.query) listTeamQueries.push(options.query);
+      return [
       { id: "team-a", displayName: "Team A" },
       { id: "team-b", displayName: "Team B" },
-    ],
+      ];
+    },
     update: updateUser,
   };
 }

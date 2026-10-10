@@ -1,0 +1,83 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/1.json",
+  "manifestVersion": 1,
+  "id": "cmux/palette-notes",
+  "name": { "en": "Palette Notes", "ja": "パレットノート" },
+  "version": "1.0.0",
+  "description": { "en": "Notes in the command palette: search, preview, copy and create notes from the keyboard.", "ja": "コマンドパレットでノートを検索、プレビュー、コピー、作成します。" },
+  "publisher": { "name": "cmux", "url": "https://cmux.dev" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "GPL-3.0-or-later",
+  "icon": { "symbol": "note.text" },
+  "categories": ["productivity"],
+  "engines": { "cmux": "^1.0" },
+  "main": "dist/main.js",
+  "scopes": {
+    "clipboard:write": "Copy a note's text when you choose Copy Text."
+  },
+  "contributes": {
+    "paletteScopes": [
+      {
+        "id": "notes",
+        "title": { "en": "Notes", "ja": "ノート" },
+        "symbol": "note.text",
+        "placeholder": { "en": "Search notes…", "ja": "ノートを検索…" },
+        "keywords": ["notes", "note"],
+        "layout": "listWithDetail",
+        "ranking": "fuzzy",
+        "federates": true,
+        "source": { "kind": "snapshot", "export": "noteCorpus", "invalidatedBy": ["app.storage.changed"] },
+        "primary": "app:cmux/palette-notes#open",
+        "detail": { "export": "noteDetail" },
+        "emptyState": { "title": { "en": "No notes yet", "ja": "ノートはまだありません" }, "symbol": "note.text", "action": "app:cmux/palette-notes#new" },
+        "children": ["search"]
+      },
+      {
+        "id": "search",
+        "title": { "en": "Search Note Text", "ja": "ノート本文を検索" },
+        "symbol": "text.magnifyingglass",
+        "placeholder": { "en": "Search inside notes…", "ja": "ノートの本文を検索…" },
+        "keywords": ["grep"],
+        "layout": "list",
+        "ranking": "source",
+        "source": { "kind": "query", "export": "searchNotes", "minQueryLength": 1 }
+      }
+    ],
+    "commands": [
+      {
+        "id": "new",
+        "title": { "en": "New Note", "ja": "新規ノート" },
+        "symbol": "square.and.pencil",
+        "run": "newNote",
+        "mode": "form",
+        "arguments": {
+          "type": "object",
+          "required": ["title"],
+          "properties": {
+            "title": { "type": "string", "minLength": 1, "maxLength": 120, "title": "Title" },
+            "body": { "type": "string", "maxLength": 4000, "title": "Body" }
+          }
+        },
+        "keywords": ["create", "add"],
+        "contexts": ["palette"]
+      },
+      {
+        "id": "open",
+        "title": { "en": "Open Note", "ja": "ノートを開く" },
+        "run": "openNote",
+        "arguments": { "type": "object", "required": ["id"], "properties": { "id": { "type": "string" } } },
+        "contexts": []
+      },
+      {
+        "id": "copy",
+        "title": { "en": "Copy Text", "ja": "テキストをコピー" },
+        "symbol": "doc.on.doc",
+        "run": "copyNote",
+        "arguments": { "type": "object", "required": ["id"], "properties": { "id": { "type": "string" } } },
+        "contexts": []
+      }
+    ]
+  },
+  "activation": ["onPaletteScope:notes", "onPaletteScope:search", "onCommand:new", "onCommand:open", "onCommand:copy"],
+  "files": ["dist/"]
+}

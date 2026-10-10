@@ -35,6 +35,9 @@ pub struct RegistryNotificationProjection {
     pub unread: bool,
     /// Client ids that acknowledged this notification, sorted and unique.
     pub read_by: Vec<String>,
+    /// `extra.source`, or derived from the idempotency key for receipts
+    /// written before sources existed.
+    pub source: crate::NotificationSource,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -345,7 +348,13 @@ impl WorkspaceRegistry {
                 stored.session_id,
                 self.session_id
             );
-            let _ = stored.extra;
+            let source = stored
+                .extra
+                .as_ref()
+                .and_then(|extra| extra.get("source"))
+                .and_then(Value::as_str)
+                .and_then(crate::NotificationSource::parse)
+                .unwrap_or_else(|| crate::NotificationSource::from_legacy_key(&idempotency_key));
             let _ = stored.read_by;
             let read_by = reads.remove(stored.id.as_str()).unwrap_or_default();
             let unread = stored.unread && !acked.contains(stored.id.as_str());
@@ -361,6 +370,7 @@ impl WorkspaceRegistry {
                 created_at_ms: stored.created_at_ms.get(),
                 unread,
                 read_by,
+                source,
             });
         }
         notifications.reverse();
@@ -554,6 +564,45 @@ impl WorkspaceRegistry {
                 decode_terminal_defaults(stored)
             })
             .transpose()
+    }
+
+    /// Every native frontend's projections (the resource API's own rows
+    /// excluded), for the launch snapshot (`launch-snapshot-v1`).
+    pub(crate) fn native_frontend_projections(&self) -> anyhow::Result<Vec<FrontendProjection>> {
+        let mut statement = self.connection.prepare(
+            "SELECT frontend, scope, subject_key, schema_version,
+                    projection_revision, payload
+             FROM frontend_projections
+             WHERE frontend <> 'resource-api'
+             ORDER BY frontend ASC, scope ASC, subject_key ASC",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, String>(5)?,
+                ))
+            })?
+            .map(|row| {
+                let (frontend, scope, subject_key, schema_version, projection_revision, payload) =
+                    row?;
+                Ok(FrontendProjection {
+                    frontend,
+                    scope,
+                    subject_key,
+                    schema_version: u32::try_from(schema_version)
+                        .context("projection schema version is invalid")?,
+                    projection_revision: u64::try_from(projection_revision)
+                        .context("projection revision is negative")?,
+                    projection: serde_json::from_str(&payload)
+                        .context("frontend projection contains invalid JSON")?,
+                })
+            })
+            .collect()
     }
 
     pub fn public_frontend_projections(&self) -> anyhow::Result<Vec<FrontendProjection>> {

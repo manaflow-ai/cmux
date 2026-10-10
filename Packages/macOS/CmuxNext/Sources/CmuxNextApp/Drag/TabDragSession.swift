@@ -33,6 +33,11 @@ final class TabDragSession: NSObject {
     }
 
     var isDragging: Bool { drag != nil }
+    /// Commits sent and not yet settled (their presentation is still on).
+    var commitsInFlight: Set<ClientTransactionID> = []
+    /// A drag, its landing flight, or a commit is in flight: strips may
+    /// still hide the dragged tabs (DP1 waits).
+    var hasDragInFlight: Bool { drag != nil || landing != nil || !commitsInFlight.isEmpty }
 
     // MARK: Begin
 
@@ -60,29 +65,35 @@ final class TabDragSession: NSObject {
         finishLanding()
 
         let window = sourceWindow ?? services.windows.controllers.first { $0.content === pane?.workspace }
-        var context = pane.map { Self.context(of: $0, draggedCount: draggedCount) } ?? .workspaces(count: draggedCount)
+        var context = pane.map { Self.context(of: $0, item: item, draggedCount: draggedCount) } ?? .workspaces(count: draggedCount)
         if let window { context.sourceWindowWorkspaceCount = max(1, services.windows.registry.members(of: window.state.id).count) }
         let content = pane?.view.bounds ?? window?.content?.layoutView?.bounds ?? .zero
         let aspect = content.width > 0 ? (content.height - Metrics.tabStripHeight) / content.width : nil
         let scale = window?.window?.backingScaleFactor ?? 2
-        let ghost = TabDragGhostPanel(tabImage: image, tabSize: frame.size, aspect: aspect, scale: scale)
-        let motion = TabDragGhostMotion(rect: frame, cardness: 0, reduceMotion: !Motion.animatesMovement,
+        let ghost = TabDragGhostPanel(tabImage: image, tabSize: frame.size, grabOffset: grabOffset, aspect: aspect, scale: scale)
+        var motion = TabDragGhostMotion(rect: frame, cardness: 0, reduceMotion: !Motion.animatesMovement,
                                         rectSpring: Motion.spring(.track), morphSpring: Motion.spring(.appear))
+        // The card unfolds once its content preview arrives (`loadThumbnail`).
+        motion.hasPreview = false
         let windowFrame = window?.window?.frame ?? .zero
         let source = Source(
             item: item, payload: payload, pane: pane, window: window, screenFrame: frame, grabOffset: grabOffset,
             tabOffset: CGPoint(x: frame.minX - windowFrame.minX, y: windowFrame.maxY - frame.maxY),
             windowSize: windowFrame.size, context: context
         )
-        let lifecycle = TabDragLifecycle { [weak pane] in
+        let lifecycle = TabDragLifecycle(restore: { [weak pane] in
             guard let pane else { return }
-            switch item {
-            case .tab(let id): pane.view.stripView.restoreDetachedTab(StripTabID(id))
-            case .group(let id, _): pane.view.stripView.restoreDetachedGroup(id)
-            case .workspaces: return
-            }
+            Self.endPresentation(item, in: pane)
             pane.resyncStrip()
-        }
+        }, release: { [weak pane] in
+            // Every end, the landed ones too: a move into the tab's own strip
+            // keeps the tab there, and the strip must show it again. The
+            // store already holds the result; push it into the strip first,
+            // so a tab that left is never shown back for a moment.
+            guard let pane else { return }
+            pane.syncStripFromStore()
+            Self.endPresentation(item, in: pane)
+        })
         let drag = Drag(source: source, lifecycle: lifecycle, ghost: ghost, motion: motion, point: point)
         drag.monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDragged, .leftMouseUp, .leftMouseDown, .keyDown]) { [weak self] event in
             self?.handle(event) ?? event
@@ -107,16 +118,56 @@ final class TabDragSession: NSObject {
         guard let tab else { return }
         let cache = services.cache
         Task { [weak drag] in
-            let image = await cache?.previewImage(for: tab, maxPixelSize: CGSize(width: 640, height: 640))
-            drag?.ghost.setThumbnail(image)
+            let image = await cache?.previewImage(for: tab, maxPixelSize: TabPreviewFitting.cachedPixelSize, captureIfMissing: true)
+            guard let drag, let image else { return }
+            drag.ghost.setThumbnail(image)
+            drag.motion.hasPreview = true
+            drag.link?.activate()
         }
     }
 
-    static func context(of pane: PaneController, draggedCount: Int) -> TabDragContext {
+    static func context(of pane: PaneController, item: Item, draggedCount: Int) -> TabDragContext {
         let workspaceTabs = pane.workspace?.workspace.screens.flatMap(\.panes).reduce(0) { $0 + $1.tabs.count } ?? pane.pane.tabs.count
-        return TabDragContext(sourcePaneID: pane.layoutPaneID.rawValue, sourcePaneTabCount: pane.pane.tabs.count,
-                              sourceWorkspaceID: pane.workspace?.workspace.id ?? "", sourceWorkspaceTabCount: workspaceTabs,
-                              draggedTabCount: draggedCount)
+        let ordered = pane.stripModel.orderedTabs
+        let first: String? = switch item {
+        case .tab(let id): id
+        case .group(_, let members): members.first
+        case .workspaces: nil
+        }
+        let index = first.flatMap { id in ordered.firstIndex { $0.id.rawValue == id } }
+        let group: String? = if case .tab = item, let index { ordered[index].groupID?.rawValue } else { nil }
+        var context = TabDragContext(sourcePaneID: pane.layoutPaneID.rawValue, sourcePaneTabCount: pane.pane.tabs.count,
+                                     sourceWorkspaceID: pane.workspace?.workspace.id ?? "", sourceWorkspaceTabCount: workspaceTabs,
+                                     draggedTabCount: draggedCount, sourceStripID: pane.stripModel.stripID, sourceIndex: index,
+                                     sourceGroupID: group)
+        if case .group = item { context.isGroupDrag = true }
+        // A single daemon tab of a kind that can respawn, on a daemon that
+        // splits a pane with its only tab by spawning a fresh one there.
+        if case .tab(let id) = item, let tab = pane.pane.tabs.first(where: { $0.id == id }),
+           TabMoves.respawn(for: tab, in: pane.pane, services: pane.services) != nil {
+            context.respawnsOnSplit = pane.services.machines.daemon(forPane: pane.pane).supports(DaemonCapabilities.shared.tabSplitRespawn)
+        }
+        return context
+    }
+
+    /// The resolver's view of `drag` now: the source pane's tabs can change
+    /// during a drag (another client, an agent), so the own place is read
+    /// from the live strip model, not from the drag's start.
+    func liveContext(_ drag: Drag) -> TabDragContext {
+        guard let pane = drag.source.pane else { return drag.source.context }
+        var context = Self.context(of: pane, item: drag.source.item, draggedCount: drag.source.context.draggedTabCount)
+        context.sourceWindowWorkspaceCount = drag.source.context.sourceWindowWorkspaceCount
+        return context
+    }
+
+    /// Ends the drag's presentation in its source strip: the hidden tab (or
+    /// group) shows again wherever the model now has it.
+    static func endPresentation(_ item: Item, in pane: PaneController) {
+        switch item {
+        case .tab(let id): pane.view.stripView.restoreDetachedTab(StripTabID(id))
+        case .group(let id, _): pane.view.stripView.restoreDetachedGroup(id)
+        case .workspaces: return
+        }
     }
 
     // MARK: Events
@@ -128,6 +179,7 @@ final class TabDragSession: NSObject {
             return nil
         case .leftMouseUp:
             update(Self.screenPoint(of: event))
+            drag?.filesAway = event.modifierFlags.contains(.option)
             finish(commit: true)
             return nil
         case .leftMouseDown:
@@ -156,13 +208,18 @@ final class TabDragSession: NSObject {
         drag.point = point
         drag.samplePointer(point, at: CACurrentMediaTime())
         if case .workspaces = drag.source.item { return updateWorkspaces(point, drag: drag) }
-        let hit = hitTest(point, drag: drag)
-        if let previous = drag.winner, previous.provider !== hit.winner?.provider {
+        let context = liveContext(drag)
+        let hit = hitTest(point, drag: drag, context: context)
+        // The layout adapter's preview is ended by `outline`, so a move from
+        // a pane zone to a strip slot animates instead of fading out and in.
+        if let previous = drag.winner, previous.provider !== hit.winner?.provider, !(previous.provider is LayoutTabDropTarget) {
             previous.provider.dropExited()
         }
         drag.winner = hit.winner
-        drag.outcome = TabDragResolver.outcome(for: hit.winner?.proposal, insideWindow: hit.window != nil, screenPoint: point,
-                                               context: drag.source.context)
+        drag.resolution = TabDragResolver.resolve(hit.winner?.proposal, insideWindow: hit.window != nil, screenPoint: point,
+                                                  context: context)
+        drag.outcome = drag.resolution.outcome
+        TabDragOutline.update(drag) { self.adapters(for: $0, drag: drag).layout }
         present(drag)
         wake(drag)
     }
@@ -172,33 +229,42 @@ final class TabDragSession: NSObject {
         var winner: Winner?
     }
 
-    func hitTest(_ point: CGPoint, drag: Drag) -> Hit {
+    /// The first surface that answers at `point` wins, whatever its verdict:
+    /// a stay or a refusal is previewed too, never skipped (tab-dnd). The
+    /// sidebar and the layout answer for every point of their window.
+    func hitTest(_ point: CGPoint, drag: Drag, context: TabDragContext) -> Hit {
+        drag.noTargetReason = nil
         guard let controller = window(at: point) else { return Hit() }
         guard let payload = drag.source.payload else { return Hit(window: controller) }
         // A tab never crosses between an incognito window and a normal one:
         // that window offers no drop target.
         if let source = drag.source.window?.state.id, services.windows.isIncognito(window: source)
             != services.windows.isIncognito(window: controller.state.id) {
+            drag.noTargetReason = RefusalStrings.incognitoMismatch
             return Hit(window: controller)
         }
+        let layout = adapters(for: controller, drag: drag).layout
+        layout.removingPane = context.emptiesSourcePane ? LayoutPaneID(context.sourcePaneID) : nil
         for provider in providers(in: controller, near: point, drag: drag) {
             guard let proposal = provider.dropHitTest(screenPoint: point, payload: payload) else { continue }
             drag.touched[ObjectIdentifier(provider)] = provider
-            if TabDragResolver.accepts(proposal.kind, context: drag.source.context) {
-                return Hit(window: controller, winner: Winner(provider: provider, proposal: proposal, window: controller))
-            }
-            provider.dropExited()
+            return Hit(window: controller, winner: Winner(provider: provider, proposal: proposal, window: controller))
         }
         return Hit(window: controller)
     }
 
     /// Frontmost app window containing `point`; nil outside all of them.
+    /// Chromium page windows, the overlay panel and the ghost are looked
+    /// through (`TabDragWindowPick`).
     func window(at point: CGPoint) -> WindowController? {
         let controllers = services.windows.controllers
-        for window in NSApp.orderedWindows where window.isVisible && !window.isMiniaturized && window.frame.contains(point) {
-            if let controller = controllers.first(where: { $0.window === window }) { return controller }
+        let ordered = NSApp.orderedWindows.map { window in
+            TabDragWindowPick.Candidate(frame: window.frame,
+                                        controllerID: controllers.first { $0.window === window }.map { $0.state.id },
+                                        isVisible: window.isVisible && !window.isMiniaturized)
         }
-        return nil
+        guard let id = TabDragWindowPick.frontmost(at: point, in: ordered) else { return nil }
+        return controllers.first { $0.state.id == id }
     }
 
     /// Drop targets of `controller` in priority order: sidebar, the strips

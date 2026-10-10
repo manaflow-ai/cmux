@@ -15,7 +15,7 @@
 use crate::config::HarnessProfile;
 use crate::rpc::{Id, Message, RpcError, method};
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
@@ -70,6 +70,8 @@ pub fn models() -> &'static [(&'static str, &'static str)] {
 mod inbound;
 mod outbound;
 #[cfg(test)]
+mod subagent_tests;
+#[cfg(test)]
 mod tests;
 
 /// What the hub's request becomes: lines for claude's stdin, or an
@@ -90,7 +92,8 @@ pub struct SpawnPlan {
 /// knows it before the first turn.
 /// `mode` is pinned with `--permission-mode` so the user's Claude settings
 /// (often `auto`) cannot silently bypass acpmux's permission policy; the
-/// mode chip then always tells the truth.
+/// mode chip then always tells the truth. `model` is the session's chosen
+/// model, passed as `--model` so forks and respawns keep it.
 pub fn spawn_plan(
     profile: &HarnessProfile,
     resume: Option<&str>,
@@ -98,6 +101,7 @@ pub fn spawn_plan(
     fresh_id: Option<&str>,
     effort: Option<&str>,
     mode: &str,
+    model: Option<&str>,
 ) -> SpawnPlan {
     let program = profile.argv.first().cloned().unwrap_or_else(|| "claude".into());
     // Everything after the program in argv comes first: a wrapper such as
@@ -129,6 +133,11 @@ pub fn spawn_plan(
         args.push("--effort".into());
         args.push(e.into());
     }
+    // A later --model wins over one the profile pins in its argv.
+    if let Some(m) = model.filter(|m| !m.is_empty() && *m != "default") {
+        args.push("--model".into());
+        args.push(m.into());
+    }
     if !profile.argv.iter().any(|a| a == "--permission-mode") && !mode.is_empty() {
         args.push("--permission-mode".into());
         args.push(mode.into());
@@ -152,6 +161,18 @@ pub struct Translator {
     /// Text streamed so far in the current turn, to build the prompt result.
     pub cancelled: AtomicBool,
     pub slash_commands: Mutex<Vec<Value>>,
+    /// Lines for claude's stdin produced while reading its stdout (answers
+    /// to control requests acpmux declines). The reader drains them.
+    stdin_replies: Mutex<Vec<Value>>,
+    /// Running Agent (Task) tool calls: tool_use id -> the subagent session
+    /// id their lines stream under.
+    subagents: Mutex<HashMap<String, String>>,
+    /// Agent tool calls whose subagent runs in the background: their tool
+    /// result is only the launch, and their `task_notification` ends them.
+    background_subagents: Mutex<HashSet<String>>,
+    /// Claude's task ids of running subagents -> their Agent tool call
+    /// (`task_updated` names only the task).
+    subagent_tasks: Mutex<HashMap<String, String>>,
 }
 
 #[derive(Debug, Clone)]
@@ -159,7 +180,15 @@ enum Pending {
     Initialize,
     NewOrLoad,
     Prompt,
-    Control,
+    /// A setting change, applied to the cached value once claude accepts it.
+    Control(Setting, String),
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Setting {
+    Mode,
+    Model,
+    Effort,
 }
 
 impl Translator {
@@ -176,7 +205,31 @@ impl Translator {
             in_turn: AtomicBool::new(false),
             cancelled: AtomicBool::new(false),
             slash_commands: Mutex::new(Vec::new()),
+            stdin_replies: Mutex::new(Vec::new()),
+            subagents: Mutex::new(HashMap::new()),
+            background_subagents: Mutex::new(HashSet::new()),
+            subagent_tasks: Mutex::new(HashMap::new()),
         })
+    }
+
+    /// Take the lines `inbound` queued for claude's stdin.
+    /// Error answers for every ACP request still waiting on Claude, which
+    /// are dropped: used when Claude's answer cannot be carried (a line over
+    /// the agent host's frame limit), so no turn waits forever.
+    pub async fn fail_pending(&self, message: &str) -> Vec<Message> {
+        self.pending
+            .lock()
+            .await
+            .drain()
+            .map(|(id, _)| {
+                let id: Id = serde_json::from_str(&id).unwrap_or(Value::String(id));
+                Message::err(id, RpcError::internal(message))
+            })
+            .collect()
+    }
+
+    pub async fn take_stdin_replies(&self) -> Vec<Value> {
+        std::mem::take(&mut *self.stdin_replies.lock().await)
     }
 
     pub async fn modes_value(&self) -> Value {

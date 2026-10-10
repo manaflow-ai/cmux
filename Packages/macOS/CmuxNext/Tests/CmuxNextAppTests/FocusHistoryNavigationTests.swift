@@ -6,8 +6,7 @@ import Testing
 /// Directional focus with history (plans/cmux-next/focus.md section 4a):
 /// the reducer keeps each workspace's focus history from every source, and
 /// directional navigation picks the most recently focused of the adjacent
-/// panes (tmux `window_pane_choose_best`, zellij `max_by_key(active_at)`),
-/// falling back to geometry only when none of them has history.
+/// panes, falling back to geometry only when none of them has history.
 struct FocusHistoryNavigationTests {
     typealias Pane = FocusTopology.Pane
 
@@ -106,7 +105,7 @@ struct FocusHistoryNavigationTests {
         #expect(moved == "t")
         (state, moved) = Self.move(.down, state, frames: frames)
         #expect(moved == "d")
-        // Without history, down from T picks the top-left one (tmux: first in layout order).
+        // Without history, down from T picks the top-left one (first in layout order).
         #expect(Self.move(.down, Self.reduce([.focusPane("t", source: .mouse)], from: Self.loaded(["t", "c", "d"])), frames: frames).1 == "c")
     }
 
@@ -172,7 +171,7 @@ struct FocusHistoryNavigationTests {
         #expect(Self.move(.right, state, frames: frames).1 == "b")
     }
 
-    // MARK: Workspaces, niri columns, screens
+    // MARK: Workspaces, strip columns, screens
 
     @Test func historyIsPerWorkspace() {
         var state = Self.reduce([.focusPane("c", source: .mouse)], from: Self.loaded(["a", "b", "c"], workspace: "w1"))
@@ -192,7 +191,7 @@ struct FocusHistoryNavigationTests {
         #expect(state.recentPanes == ["a"])
     }
 
-    @Test func niriColumnReturnsToItsActiveTile() {
+    @Test func stripColumnReturnsToItsActiveTile() {
         // Columns [A over B] [D over E]: B then D focused. Left from D is B
         // (the column's last focused tile), though A overlaps D.
         let frames = ["a": Self.rect(0, 0, 100, 99), "b": Self.rect(0, 100, 100, 100),

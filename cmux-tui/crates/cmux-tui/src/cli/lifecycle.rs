@@ -18,8 +18,18 @@ pub(super) struct ServerPlan {
 pub(super) enum ServerAction {
     Status,
     Stats,
-    Ensure,
-    Stop { force: bool, end_terminals: bool },
+    /// `terminal_reap_grace` reaches only an owner this call spawns; a
+    /// running owner keeps the grace it was started with.
+    Ensure {
+        terminal_reap_grace: Option<Duration>,
+        /// Private app contract (P8 3b-2): read the app's install key from
+        /// stdin and hand it to an owner this call spawns.
+        install_key_stdin: bool,
+    },
+    Stop {
+        force: bool,
+        end_terminals: bool,
+    },
     ReloadConfig,
 }
 
@@ -72,9 +82,19 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
         }
     };
     let socket_output = socket.to_string_lossy().into_owned();
-    if matches!(plan.action, ServerAction::Ensure) {
+    if let ServerAction::Ensure { terminal_reap_grace, install_key_stdin } = plan.action {
+        // Read before anything else: stdin is the app's pipe, never argv/env.
+        let install_key = match install_key_stdin.then(read_install_key_from_stdin).transpose() {
+            Ok(key) => key,
+            Err(_) => {
+                let message = crate::localization::catalog().local_server.install_key_invalid;
+                return local_error("server.install_key_invalid", message, global.output, 1);
+            }
+        };
         return run_ensure(
             expected_session,
+            terminal_reap_grace,
+            install_key,
             socket,
             socket_output,
             socket_is_derived,
@@ -178,7 +198,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     }
 
     match plan.action {
-        ServerAction::Ensure => unreachable!("ensure returns before the lifecycle exchange"),
+        ServerAction::Ensure { .. } => unreachable!("ensure returns before the lifecycle exchange"),
         ServerAction::Status => print_success(
             json!({
                 "status":"running",
@@ -348,11 +368,28 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     }
 }
 
+/// Reads the install key straight from descriptor 0 (no buffered stdin
+/// copy outlives it; the parsed key is zeroized on drop).
+fn read_install_key_from_stdin() -> std::io::Result<cmux_tui_core::server::FrontendKey> {
+    #[cfg(unix)]
+    {
+        use std::os::fd::AsFd;
+        let stdin = std::fs::File::from(std::io::stdin().as_fd().try_clone_to_owned()?);
+        cmux_tui_core::server::read_frontend_key(stdin)
+    }
+    #[cfg(not(unix))]
+    {
+        cmux_tui_core::server::read_frontend_key(std::io::stdin().lock())
+    }
+}
+
 /// `server ensure`: connect to a ready owner, spawning a detached one when
 /// nothing serves the socket. Reports `running` for an owner that already
 /// existed and `started` for one this call spawned.
 fn run_ensure(
     expected_session: Option<String>,
+    terminal_reap_grace: Option<Duration>,
+    install_key: Option<cmux_tui_core::server::FrontendKey>,
     socket: std::path::PathBuf,
     socket_output: String,
     socket_is_derived: bool,
@@ -366,6 +403,8 @@ fn run_ensure(
         state: None,
         term: None,
         initial_host_colors: None,
+        terminal_reap_grace,
+        install_key,
     };
     let deadline = Instant::now() + crate::local_owner::ENSURE_DEADLINE;
     match crate::local_owner::ensure_owner(&spec, expected_session.as_deref(), deadline) {

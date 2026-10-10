@@ -24,6 +24,14 @@ public struct PaletteSection: Hashable, Sendable {
     }
 }
 
+extension PaletteCommand {
+    /// The command runs and keeps the palette open (a toggle row).
+    public var togglesInPlace: Bool {
+        if case .performKeepingOpen = effect { return true }
+        return false
+    }
+}
+
 /// What happens when a command runs.
 public enum PaletteEffect {
     /// Close the palette, then run.
@@ -32,6 +40,9 @@ public enum PaletteEffect {
     case performKeepingOpen(@MainActor () -> Void)
     /// Open a nested list inside the palette.
     case push(PalettePageSpec)
+    /// Show this page in the current one's place, keeping the palette open
+    /// (a tree page's step, ``PaletteHierarchy``).
+    case replace(PalettePageSpec)
     /// Replace the list with inline text entry ("Rename Tab…").
     case textInput(PaletteTextInputSpec)
     /// Decided when the command runs, not when the row is built: rows are

@@ -26,7 +26,7 @@ import Testing
     @Test func matchesWhatGhosttyExportsWhenTheTerminfoIsBundled() throws {
         let (resources, root) = try makeResources(withTerminfo: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let env = TerminalEnvironment.ghostty(resourcesDirectory: resources.path, version: "1.2.3-cmux")
+        let env = TerminalEnvironment.instance.ghostty(resourcesDirectory: resources.path, version: "1.2.3-cmux")
         #expect(env == [
             "TERM": "xterm-ghostty",
             "TERMINFO": root.appendingPathComponent("terminfo").path,
@@ -40,14 +40,14 @@ import Testing
     @Test func fallsBackToXterm256colorWithoutTheTerminfo() throws {
         let (resources, root) = try makeResources(withTerminfo: false)
         defer { try? FileManager.default.removeItem(at: root) }
-        let env = TerminalEnvironment.ghostty(resourcesDirectory: resources.path, version: nil)
+        let env = TerminalEnvironment.instance.ghostty(resourcesDirectory: resources.path, version: nil)
         #expect(env["TERM"] == "xterm-256color")
         #expect(env["TERMINFO"] == nil)
         #expect(env["COLORTERM"] == "truecolor")
         #expect(env["TERM_PROGRAM"] == "ghostty")
         #expect(env["TERM_PROGRAM_VERSION"] == nil)
 
-        let none = TerminalEnvironment.ghostty(resourcesDirectory: nil, version: nil)
+        let none = TerminalEnvironment.instance.ghostty(resourcesDirectory: nil, version: nil)
         #expect(none == ["TERM": "xterm-256color", "COLORTERM": "truecolor", "TERM_PROGRAM": "ghostty"])
     }
 
@@ -57,12 +57,12 @@ import Testing
     @Test func reachesTheDaemonAndEveryTerminal() async throws {
         let (resources, root) = try makeResources(withTerminfo: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let identity = TerminalEnvironment.ghostty(resourcesDirectory: resources.path, version: "1.2.3")
+        let identity = TerminalEnvironment.instance.ghostty(resourcesDirectory: resources.path, version: "1.2.3")
         let login = ["PATH": "/usr/bin", "TERM": "screen", "COLORTERM": "24bit", "TERM_PROGRAM": "Apple_Terminal"]
         let base = ["HOME": "/Users/u", "TERM": "dumb", "TERM_PROGRAM": "vscode"]
 
-        let daemon = TerminalEnvironment.daemon(login: login, base: base, overrides: identity)
-        let terminal = TerminalEnvironment.terminal(login: login, base: base).merging(identity) { _, new in new }
+        let daemon = TerminalEnvironment.instance.daemon(login: login, base: base, overrides: identity)
+        let terminal = TerminalEnvironment.instance.terminal(login: login, base: base).merging(identity) { _, new in new }
         for env in [daemon, terminal] {
             for (key, value) in identity { #expect(env[key] == value, "\(key)") }
         }

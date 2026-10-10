@@ -58,8 +58,10 @@ struct TerminalHostActionTests {
         let event = try #require(NSEvent.mouseEvent(with: .rightMouseDown, location: .zero, modifierFlags: [], timestamp: 0,
                                                     windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
         let menu = try #require(session.delegate?.terminalSession(session, contextMenuFor: event))
-        let index = try #require(menu.items.firstIndex { $0.title == "Split Down" })
-        menu.performActionForItem(at: index)
+        // Splits live in the menu's Split submenu.
+        let split = try #require(menu.items.first { $0.submenu?.items.contains { $0.title == "Split Down" } == true }?.submenu)
+        let index = try #require(split.items.firstIndex { $0.title == "Split Down" })
+        split.performActionForItem(at: index)
         #expect(recorder.runs.map(\.0) == ["splitDown"])
         #expect(recorder.runs.first?.1 == ActionTargetRef(kind: .tab, id: tab.id))
     }
@@ -91,7 +93,7 @@ struct TerminalHostActionTests {
     }
 
     @Test func terminalRightClickOffersSplits() {
-        let ids = ContextMenuCatalog.referencedIDs(ContextMenuCatalog.entries(for: .terminalSelection))
+        let ids = ContextMenuCatalog.shared.referencedIDs(ContextMenuCatalog.shared.entries(for: .terminalSelection))
         for id: ActionID in ["splitRight", "splitDown", "splitLeft", "splitUp"] {
             #expect(ids.contains(id), "\(id)")
         }

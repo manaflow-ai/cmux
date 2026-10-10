@@ -97,7 +97,10 @@ struct FocusDevToolsTests {
         // From the address bar and the find bar too (not editing chords).
         #expect(KeyRouter.allowsMenu(.content, id: "toggleBrowserDeveloperTools", focus: K.omnibar, keyWindow: .content))
         #expect(KeyRouter.allowsMenu(.content, id: "inspectBrowserElement", focus: K.find, keyWindow: .content))
-        #expect(!KeyRouter.allowsMenu(.content, id: "browserReload", focus: K.omnibar, keyWindow: .content))
+        // Page chords run from the browser's own chrome (R88, Chrome parity:
+        // Cmd-R with the omnibox focused reloads; KeyRouter.browserChromeActions).
+        #expect(KeyRouter.allowsMenu(.content, id: "browserReload", focus: K.omnibar, keyWindow: .content))
+        #expect(!KeyRouter.allowsMenu(.content, id: "renameTab", focus: K.omnibar, keyWindow: .content))
         #expect(!KeyRouter.allowsMenu(.content, id: "toggleBrowserDeveloperTools", focus: K.focusMode, keyWindow: .content))
     }
 }

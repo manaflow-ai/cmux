@@ -21,7 +21,7 @@ import Testing
     static let key = WorkspaceKey(rawValue: "0b6c4a52-6d3f-4c55-9d53-8f1f4e0f1a31")
 
     /// Records create-terminal / move commands; create-terminal lands in pane 5.
-    static func server(_ log: Log) throws -> FakeDaemonServer {
+    static func server(_ log: Log, identify: String = Self.identify) throws -> FakeDaemonServer {
         try FakeDaemonServer(handler: { request in
             let id = request["id"]?.intValue ?? 0
             switch request["cmd"]?.stringValue {
@@ -76,6 +76,35 @@ import Testing
         #expect(Set(env.keys) == ["CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_PANEL_ID"])
         #expect(requests.last?["cmd"]?.stringValue == "move-tab-to-split")
         #expect(requests.last?["edge"]?.stringValue == "bottom")
+        await connection.close()
+    }
+
+    /// A split of a pane's only tab with a respawn (`tab-split-respawn-v1`)
+    /// sends the fresh terminal like `new-tab` would: its own terminal id,
+    /// named in the placement environment, in the dragged tab's directory.
+    @Test func respawnSplitSendsAPlacedTerminal() async throws {
+        let log = Log()
+        let identify = Self.identify.replacingOccurrences(
+            of: #""terminal-env-v1""#, with: #""terminal-env-v1","terminal-placement-env-v1","tab-split-respawn-v1""#)
+        let server = try Self.server(log, identify: identify)
+        defer { server.stop() }
+        let connection = DaemonConnection(endpoint: DaemonEndpoint(socketPath: server.path),
+                                          configuration: .init(terminalEnvironment: { ["CMUX_TAG": "nx"] }))
+        try await connection.start()
+        try await MoveTabToSplitRespawnRequest(surface: SurfaceID(rawValue: 40), pane: PaneID(rawValue: 5), edge: .right,
+                                               respawn: .terminal(SpawnOptions(cwd: "/src", workspace: Self.key)),
+                                               transaction: "tx").send(on: connection)
+        let request = try #require(log.all.last)
+        #expect(request["cmd"]?.stringValue == "move-tab-to-split")
+        #expect(request["transaction"]?.stringValue == "tx")
+        let respawn = try #require(Self.object(request["respawn"]))
+        #expect(respawn["kind"]?.stringValue == "terminal")
+        #expect(respawn["cwd"]?.stringValue == "/src")
+        let terminal = try #require(respawn["terminal_id"]?.stringValue)
+        let env = try #require(Self.object(respawn["env"]))
+        #expect(env["CMUX_SURFACE_ID"]?.stringValue == DaemonConnection.uuidForm(terminal))
+        #expect(env["CMUX_WORKSPACE_ID"]?.stringValue == "0B6C4A52-6D3F-4C55-9D53-8F1F4E0F1A31")
+        #expect(env["CMUX_TAG"]?.stringValue == "nx")
         await connection.close()
     }
 }

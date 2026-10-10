@@ -3,9 +3,10 @@ import AppKit
 import Testing
 
 /// Quitting ends every open sheet (result, status, confirmation) as
-/// cancelled, so termination never waits on one.
+/// cancelled, so termination never waits on one. GUI lane only: runs on
+/// cmux-lawrence-2, excluded on headless workers (`WindowSession`).
 @MainActor
-@Suite struct QuitSheetTests {
+@Suite(.enabled(if: WindowSession.available, WindowSession.reason)) struct QuitSheetTests {
     @Test func dismissingSheetsCancelsThemAndDetachesThem() async {
         // Accessory: no Dock icon; the window sits far off every screen.
         NSApplication.shared.setActivationPolicy(.accessory)

@@ -1,0 +1,16 @@
+--- a/Sources/MessagesLabHome/Vendor/appkit-native/NativeScroll.swift
++++ b/Sources/MessagesLabHome/Vendor/appkit-native/NativeScroll.swift
+@@ -513,10 +513,9 @@
+         }
+     }
+     /// The thumb's right edge (scroller coordinates): the window's right edge minus 2 pt.
+-    private var barRight: CGFloat {
+-        guard let win = window else { return bounds.maxX - 2 }
+-        return convert(NSPoint(x: win.contentLayoutRect.maxX - 2, y: 0), from: nil).x
+-    }
++    /// cmux: the scroller's own right edge: in a Home pane the window's right edge is not
++    /// the transcript's (the same place when the pane is the window).
++    private var barRight: CGFloat { bounds.maxX - 2 }
+     /// The drawn bar (scroller coordinates): 7 pt (11 pt expanded) wide, right edge at the
+     /// window's right edge minus 2 pt, top and bottom on whole device pixels at every
+     /// position (no row of the edge lost or doubled while it moves).

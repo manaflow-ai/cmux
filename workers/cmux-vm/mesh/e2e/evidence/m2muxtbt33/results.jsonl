@@ -1,0 +1,67 @@
+{"t":1791359723930,"event":"mesh","meshId":"mesh_w4pgg26de51c1agqt18z934q6c","ipv4Cidr":"10.255.160.0/20","ms":137}
+{"t":1791359724056,"event":"vm","vmId":"vm_eqxcd1g8h75rt4qr6ddv1j06a4","state":"running","idleTimeoutSeconds":300,"ms":125}
+{"t":1791359724205,"event":"vm-joined","ipv4":"10.255.160.1","ms":149}
+{"t":1791359725243,"event":"vm-server","exitCode":0,"stdout":"1"}
+{"t":1791359725374,"event":"keygen","code":0,"publicKey":"zN/7oscutm0K7kM0ZCloxme1gLj+P1hggfPfr8zvIlw="}
+{"t":1791359725387,"event":"install-keygen","code":0,"installPublicKey":"BLKkFgu22GwLOMLRlcOSEuxfPNdv80DCNpDSdNjbKF1IXNSd85qbGdBViaYgOyqPcwh/89y5YVnf9wNpt7k6xzw="}
+{"t":1791359725617,"event":"enroll","code":0,"stderr":""}
+{"t":1791359725619,"event":"device","deviceId":"dev_1329m0e3e4j7fe6bac5vscghf4","installPublicKey":"BLKkFgu22GwLOMLRlcOSEuxfPNdv80DCNpDSdNjbKF1IXNSd85qbGdBViaYgOyqPcwh/89y5YVnf9wNpt7k6xzw="}
+{"t":1791359725626,"event":"owner-check","ownerGet":200,"memberGet":404,"memberPeers":404,"memberDelete":404,"memberList":[]}
+{"t":1791359725695,"event":"acl","version":1,"status":200,"body":{"meshId":"mesh_w4pgg26de51c1agqt18z934q6c","version":1,"ruleCount":2,"rulesCreated":2,"rulesDeleted":0,"applyMs":68},"ms":69}
+{"t":1791359725697,"event":"peers","deviceId":"dev_1329m0e3e4j7fe6bac5vscghf4","meshId":"mesh_w4pgg26de51c1agqt18z934q6c","aclVersion":1,"peers":[{"kind":"vm","id":"vm_eqxcd1g8h75rt4qr6ddv1j06a4","address":"10.255.160.1","allow":[{"protocol":"icmp"},{"protocol":"tcp","port":8080}]}]}
+{"t":1791359730054,"event":"ping","code":0,"stdout":["{\"rttMs\":12.044,\"seq\":1}","{\"rttMs\":14.276,\"seq\":2}","{\"rttMs\":11.911,\"seq\":3}","{\"rttMs\":20.11,\"seq\":4}","{\"rttMs\":10.587,\"seq\":5}","{\"avgMs\":13.786,\"maxMs\":20.11,\"minMs\":10.587,\"peer\":\"10.255.160.1\",\"received\":5,\"sent\":5,\"summary\":true}"],"stderr":["{\"endpoint\":\"208.72.218.30:51820\",\"event\":\"handshake\",\"ms\":333}"]}
+{"t":1791359730166,"event":"tcp","code":0,"stdout":"{\"connectMs\":12.04,\"peer\":\"10.255.160.1:8080\",\"received\":\"pong hello\",\"roundTripMs\":15.594,\"sent\":\"hello\"}","stderr":["{\"endpoint\":\"208.72.218.30:51820\",\"event\":\"handshake\",\"ms\":72}"]}
+{"t":1791359730168,"event":"code","meshId":"mesh_w4pgg26de51c1agqt18z934q6c","expiresAt":"2026-10-07T08:05:30.168Z"}
+{"t":1791359730397,"event":"code-enroll","code":0,"stderr":""}
+{"t":1791359730759,"event":"code-tcp","deviceId":"dev_rc7k6j83kc8402wvjn0ymfxah8","code":0,"stdout":"{\"connectMs\":14.065,\"peer\":\"10.255.160.1:8080\",\"received\":\"pong headless\",\"roundTripMs\":10.837,\"sent\":\"headless\"}","stderr":["{\"endpoint\":\"208.72.218.30:51820\",\"event\":\"handshake\",\"ms\":323}"]}
+{"t":1791359730767,"event":"code-reuse","code":1,"stderr":"{\"error\":\"NotFound\",\"message\":\"Not found\",\"status\":404}\n"}
+{"t":1791359730858,"event":"code-device-delete","status":204}
+{"t":1791359850970,"event":"flip","kind":"block","putSentAt":1791359733863,"putMs":52,"ruleOps":[{"op":"DELETE rule","sentMs":3,"answeredMs":51,"status":204}],"firstChangeMs":50,"lastRuleAnswerToFirstChangeMs":-1,"stableMs":50,"blips":[],"attempts":150}
+{"t":1791359850970,"event":"flip","kind":"allow","putSentAt":1791359740915,"putMs":53,"ruleOps":[{"op":"POST rule","sentMs":4,"answeredMs":52,"status":200}],"firstChangeMs":48,"lastRuleAnswerToFirstChangeMs":-4,"stableMs":48,"blips":[],"attempts":149}
+{"t":1791359850971,"event":"flip","kind":"block","putSentAt":1791359747968,"putMs":39,"ruleOps":[{"op":"DELETE rule","sentMs":1,"answeredMs":38,"status":204}],"firstChangeMs":45,"lastRuleAnswerToFirstChangeMs":7,"stableMs":45,"blips":[],"attempts":148}
+{"t":1791359850971,"event":"flip","kind":"allow","putSentAt":1791359755008,"putMs":47,"ruleOps":[{"op":"POST rule","sentMs":2,"answeredMs":46,"status":200}],"firstChangeMs":55,"lastRuleAnswerToFirstChangeMs":9,"stableMs":55,"blips":[],"attempts":149}
+{"t":1791359850971,"event":"flip","kind":"block","putSentAt":1791359762057,"putMs":46,"ruleOps":[{"op":"DELETE rule","sentMs":2,"answeredMs":45,"status":204}],"firstChangeMs":57,"lastRuleAnswerToFirstChangeMs":12,"stableMs":57,"blips":[],"attempts":149}
+{"t":1791359850971,"event":"flip","kind":"allow","putSentAt":1791359769105,"putMs":61,"ruleOps":[{"op":"POST rule","sentMs":2,"answeredMs":60,"status":200}],"firstChangeMs":59,"lastRuleAnswerToFirstChangeMs":-1,"stableMs":59,"blips":[],"attempts":150}
+{"t":1791359850971,"event":"flip","kind":"block","putSentAt":1791359776166,"putMs":49,"ruleOps":[{"op":"DELETE rule","sentMs":2,"answeredMs":48,"status":204}],"firstChangeMs":48,"lastRuleAnswerToFirstChangeMs":0,"stableMs":48,"blips":[],"attempts":149}
+{"t":1791359850971,"event":"flip","kind":"allow","putSentAt":1791359783215,"putMs":1507,"ruleOps":[{"op":"POST rule","sentMs":2,"answeredMs":1504,"status":200}],"firstChangeMs":1499,"lastRuleAnswerToFirstChangeMs":-5,"stableMs":1499,"blips":[],"attempts":178}
+{"t":1791359850971,"event":"flip","kind":"block","putSentAt":1791359791723,"putMs":59,"ruleOps":[{"op":"DELETE rule","sentMs":2,"answeredMs":58,"status":204}],"firstChangeMs":41,"lastRuleAnswerToFirstChangeMs":-17,"stableMs":41,"blips":[],"attempts":149}
+{"t":1791359850971,"event":"flip","kind":"allow","putSentAt":1791359798783,"putMs":82,"ruleOps":[{"op":"POST rule","sentMs":3,"answeredMs":81,"status":200}],"firstChangeMs":81,"lastRuleAnswerToFirstChangeMs":0,"stableMs":81,"blips":[],"attempts":150}
+{"t":1791359850972,"event":"flip","kind":"block","putSentAt":1791359805867,"putMs":58,"ruleOps":[{"op":"DELETE rule","sentMs":2,"answeredMs":57,"status":204}],"firstChangeMs":47,"lastRuleAnswerToFirstChangeMs":-10,"stableMs":47,"blips":[],"attempts":149}
+{"t":1791359850972,"event":"flip","kind":"allow","putSentAt":1791359812925,"putMs":63,"ruleOps":[{"op":"POST rule","sentMs":2,"answeredMs":62,"status":200}],"firstChangeMs":38,"lastRuleAnswerToFirstChangeMs":-24,"stableMs":38,"blips":[],"attempts":149}
+{"t":1791359850972,"event":"flip","kind":"block","putSentAt":1791359819988,"putMs":71,"ruleOps":[{"op":"DELETE rule","sentMs":2,"answeredMs":70,"status":204}],"firstChangeMs":76,"lastRuleAnswerToFirstChangeMs":6,"stableMs":76,"blips":[],"attempts":149}
+{"t":1791359850972,"event":"flip","kind":"allow","putSentAt":1791359827061,"putMs":48,"ruleOps":[{"op":"POST rule","sentMs":2,"answeredMs":47,"status":200}],"firstChangeMs":53,"lastRuleAnswerToFirstChangeMs":6,"stableMs":53,"blips":[],"attempts":149}
+{"t":1791359850972,"event":"flip","kind":"block","putSentAt":1791359834110,"putMs":62,"ruleOps":[{"op":"DELETE rule","sentMs":2,"answeredMs":61,"status":204}],"firstChangeMs":54,"lastRuleAnswerToFirstChangeMs":-7,"stableMs":54,"blips":[],"attempts":150}
+{"t":1791359850972,"event":"flip","kind":"allow","putSentAt":1791359841172,"putMs":68,"ruleOps":[{"op":"POST rule","sentMs":2,"answeredMs":67,"status":200}],"firstChangeMs":42,"lastRuleAnswerToFirstChangeMs":-25,"stableMs":42,"blips":[],"attempts":203}
+{"t":1791359850972,"event":"acl-flip","kind":"block","n":8,"firstChange":{"p50":50,"max":76,"values":[50,45,57,48,41,47,76,54]},"stable":{"p50":50,"max":76,"values":[50,45,57,48,41,47,76,54]},"blips":0,"putMs":[52,39,46,49,59,58,71,62]}
+{"t":1791359850972,"event":"acl-flip","kind":"allow","n":8,"firstChange":{"p50":55,"max":1499,"values":[48,55,59,1499,81,38,53,42]},"stable":{"p50":55,"max":1499,"values":[48,55,59,1499,81,38,53,42]},"blips":0,"putMs":[53,47,61,1507,82,63,48,68]}
+{"t":1791359850972,"event":"probe-summary","attempts":2400,"loneLosses":0}
+{"t":1791359857304,"event":"rotation","round":0,"rotateMs":423,"upstream":{"sentMs":3,"answeredMs":407,"status":200},"oldLastOkAfterAnswerMs":268,"oldDeadAfterAnswerMs":318,"oldAttempts":120,"newFirstOkAfterAnswerMs":394,"newOk":80,"newAttempts":80}
+{"t":1791359864670,"event":"rotation","round":1,"rotateMs":59,"upstream":{"sentMs":2,"answeredMs":49,"status":200},"oldLastOkAfterAnswerMs":241,"oldDeadAfterAnswerMs":291,"oldAttempts":120,"newFirstOkAfterAnswerMs":341,"newOk":80,"newAttempts":80}
+{"t":1791359871991,"event":"rotation","round":2,"rotateMs":35,"upstream":{"sentMs":2,"answeredMs":25,"status":200},"oldLastOkAfterAnswerMs":218,"oldDeadAfterAnswerMs":268,"oldAttempts":120,"newFirstOkAfterAnswerMs":340,"newOk":80,"newAttempts":80}
+{"t":1791359879318,"event":"rotation","round":3,"rotateMs":38,"upstream":{"sentMs":1,"answeredMs":26,"status":200},"oldLastOkAfterAnswerMs":218,"oldDeadAfterAnswerMs":268,"oldAttempts":120,"newFirstOkAfterAnswerMs":314,"newOk":80,"newAttempts":80}
+{"t":1791359886675,"event":"rotation","round":4,"rotateMs":43,"upstream":{"sentMs":3,"answeredMs":32,"status":200},"oldLastOkAfterAnswerMs":229,"oldDeadAfterAnswerMs":279,"oldAttempts":120,"newFirstOkAfterAnswerMs":341,"newOk":80,"newAttempts":80}
+{"t":1791359887678,"event":"rotation-summary","n":5,"oldDead":{"p50":279,"max":318,"values":[318,291,268,268,279]},"newWorks":{"p50":341,"max":394,"values":[394,341,340,314,341]}}
+{"t":1791359887781,"event":"cleanup","path":"/v1/devices/dev_1329m0e3e4j7fe6bac5vscghf4","status":204}
+{"t":1791359887888,"event":"cleanup","path":"/v1/meshes/mesh_w4pgg26de51c1agqt18z934q6c/vms/vm_eqxcd1g8h75rt4qr6ddv1j06a4","status":204}
+{"t":1791359887933,"event":"cleanup","path":"/v1/vms/vm_eqxcd1g8h75rt4qr6ddv1j06a4","status":204}
+{"t":1791359887969,"event":"cleanup","path":"/v1/meshes/mesh_w4pgg26de51c1agqt18z934q6c","status":204}
+{"t":1791359887971,"event":"cmux-404","path":"/v1/devices/dev_1329m0e3e4j7fe6bac5vscghf4","status":404}
+{"t":1791359887972,"event":"cmux-404","path":"/v1/vms/vm_eqxcd1g8h75rt4qr6ddv1j06a4","status":404}
+{"t":1791359887973,"event":"cmux-404","path":"/v1/meshes/mesh_w4pgg26de51c1agqt18z934q6c","status":404}
+{"t":1791359887983,"event":"provider-404","kind":"vpc","id":"vpc-34f1c56ed8aa4d7bbf99779d4b6fe3fd","status":404}
+{"t":1791359887999,"event":"provider-404","kind":"vm","id":"vm-3084f15a630b43509092463d0ff46125","status":404}
+{"t":1791359888014,"event":"provider-404","kind":"tunnel","id":"tun-345c40d2d85a4aefa763382032fbd3e6","status":404}
+{"t":1791359888029,"event":"provider-404","kind":"rule","id":"fw-dd826fc5f16347768ba8c9bb0f0e7eb9","status":404}
+{"t":1791359888043,"event":"provider-404","kind":"rule","id":"fw-f133fcb54f5841cf9fa64e3549e05a6c","status":404}
+{"t":1791359888057,"event":"provider-404","kind":"tunnel","id":"tun-7a00f5c993404724bee828146e95f1f3","status":404}
+{"t":1791359888071,"event":"provider-404","kind":"rule","id":"fw-177a821099cd423c93a4b27ca3fe2bf0","status":404}
+{"t":1791359888087,"event":"provider-404","kind":"rule","id":"fw-9a581529ffb6409c98a2123f18e1fc0d","status":404}
+{"t":1791359888102,"event":"provider-404","kind":"rule","id":"fw-4e35485413694713b366ab6b4c8b6426","status":404}
+{"t":1791359888115,"event":"provider-404","kind":"rule","id":"fw-0f6d2b6934114ed4ba636705a823ae40","status":404}
+{"t":1791359888128,"event":"provider-404","kind":"rule","id":"fw-04cefcc0dfc34099bd7368753b0b5c99","status":404}
+{"t":1791359888141,"event":"provider-404","kind":"rule","id":"fw-63ba19646f6542e18170297b8bfe73e7","status":404}
+{"t":1791359888161,"event":"provider-404","kind":"rule","id":"fw-d520db6f7d214e7182f6f3783e680e6d","status":404}
+{"t":1791359888173,"event":"provider-404","kind":"rule","id":"fw-bad8c23ad21c4ca0bf0287abcf54b69c","status":404}
+{"t":1791359888188,"event":"provider-404","kind":"rule","id":"fw-25ecf5b29bbb499585c87996fe8cc89e","status":404}
+{"t":1791359888203,"event":"provider-404","kind":"rule","id":"fw-aba460789c634f689a8bb5080037d94d","status":404}
+{"t":1791359888203,"event":"done","run":"m2muxtbt33","ok":true,"out":"/Users/cmux/cmux-agent-work/mesh-m1c/repo/workers/cmux-vm/mesh/e2e/out/m2muxtbt33"}

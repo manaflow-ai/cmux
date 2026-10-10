@@ -16,21 +16,22 @@ daemon's `notification` event and to marker changes, and it clears a marker only
 
 ## Producers
 
-| Source | Path | Tag |
+| Source | Path | `source` |
 | --- | --- | --- |
-| `cmux notify`, `notification.create*` | compat create -> daemon `notify` on the target surface | `cli` |
-| OSC 9, OSC 777, OSC 99 (Ghostty `desktop_notification`) | `TerminalHostDelegate` -> daemon `notify` on that terminal's tab | `terminal` |
-| Agent hooks: `agent_journal_append` with `attention.notification`, `feed.push` attention events | compat -> daemon `notify` on the surface | `agent` |
-| Anything else the daemon posts | daemon | `agent` |
+| `cmux notify`, `notification.create*`, the V1 line protocol | compat create -> daemon `notify` on the target surface | `cli` |
+| OSC 9, OSC 777, OSC 99 from a program in any terminal | the daemon parses every terminal's output (`terminal_metadata.rs`), shown or hidden, attached or not | `terminal` |
+| Agent hooks: daemon-side hook fold; `agent_journal_append` with `attention.notification` and `feed.push` attention events via compat | daemon, or compat -> daemon `notify` | `agent` |
+| Any other daemon producer | daemon | `daemon` (app settings: agent) |
 
-The tag is app-side (`notifications.sources.<tag>` settings); the daemon has no source
-field. A notification whose event reaches the app before its `notify` reply is treated as
-`agent`.
-
-Gap: OSC sequences are parsed by the app's Ghostty surface, so only terminals the app
-shows (selected tabs of on-screen panes and the keep-alive band) produce them. A program
-in a hidden tab needs the daemon to parse OSC 9/777/99 itself (cmux-tui
-`terminal_metadata.rs` keeps only OSC 9;4 progress today).
+The daemon owns the source (`notification-source-v1`): `notify` takes `source`, and
+the `notification` event, the tab marker and `list-notifications` carry it (the
+durable receipt keeps it in `extra.source`; older receipts derive it from their key).
+The app reads it (`NotificationCenterService.source`) and never guesses. The app's
+Ghostty surfaces leave `GHOSTTY_ACTION_DESKTOP_NOTIFICATION` unhandled, so a shown
+terminal does not post twice. OSC 9 follows Ghostty's `osc9.zig` (ConEmu forms such
+as `9;4;` progress are not notifications), and the daemon applies Ghostty's limits
+per terminal (one per second, the same text once per five seconds). Ghostty's
+`desktop-notifications = false` makes the app read terminal notifications at once.
 
 ## Arrival (`NotificationPolicy.decide`)
 
@@ -81,10 +82,23 @@ sidebar row menu; `notifications.mutedWorkspaces`), Toggle Notification Banners,
 action per dismissal mode (`notifications.dismissal.<mode>`). Settings actions apply at
 once and write cmux.json. cmux-next has no Settings window yet.
 
+## Panel
+
+Show Feed (`cmux feed show`; Cmd-Shift-I, feed.md FD8) toggles a panel at the top right of
+the active window: the daemon ledger (`list-notifications`), newest first, each row with
+an unread dot, title, time, source workspace and body. A click opens the source tab and
+closes the panel; the row menu runs Open, Copy, Mark Read and Dismiss with the row's id;
+Up/Down select, Return opens, Delete dismisses, Esc closes. The header has Mark All Read
+and Clear All (`clearAllNotifications`, `cmux notification clear-all`), which removes the
+ledger rows and markers through v2 `notification.clear`. The daemon clears by terminal, so
+Dismiss removes every notification of the row's terminal (a row without a terminal is only
+marked read), and nothing can mark a notification unread. The panel reloads while shown
+when a notification arrives or is read.
+
 ## Verification
 
 `debug.notifications` reports unread tabs with their source, each window's attention
 marks, banners asked for, the arrival and dismissal log, and the live preferences;
 `{"action": "click", "surface": N}` runs the banner click path. Unit tests:
-`NotificationPolicyTests`, `NotificationSettingsTests`, `CompatJournalNotificationTests`,
+`NotificationPolicyTests`, `NotificationSettingsTests`, `NotificationsPanelTests`, `CompatJournalNotificationTests`,
 `FocusRingNoShiftTests` (attention ring on and off, no frame change).

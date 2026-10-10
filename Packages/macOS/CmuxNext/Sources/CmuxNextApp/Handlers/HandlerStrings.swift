@@ -11,12 +11,4 @@ enum HandlerStrings {
     static var renameScreenTitle: String {
         String(localized: "handlers.rename.screen.title", defaultValue: "Rename Screen", table: "Handlers", bundle: .module)
     }
-
-    static var findTitle: String {
-        String(localized: "handlers.find.title", defaultValue: "Find in Terminal", table: "Handlers", bundle: .module)
-    }
-
-    static var findConfirm: String {
-        String(localized: "handlers.find.confirm", defaultValue: "Find", table: "Handlers", bundle: .module)
-    }
 }

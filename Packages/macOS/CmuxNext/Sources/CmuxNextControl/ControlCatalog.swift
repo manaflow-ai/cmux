@@ -88,6 +88,15 @@ public struct ControlActionInfo: Sendable, Hashable {
     /// reaches the executor even out of context, which re-reads the live
     /// reason and reports it before the context check.
     public var unavailableReason: String?
+    /// The feature an administrator turned off for this action
+    /// (`DisabledFeatures`): `action.list` leaves it out and resolving it
+    /// answers `feature.disabled`.
+    public var disabledFeature: String?
+    /// Surface decisions (`ActionDescriptor.surfacePlan`): `palette`, `cli`,
+    /// `context_menu`, `mcp` map to `offered` or an exemption reason.
+    public var surfaces: [String: String] = [:]
+    /// The right-click menus that show the action (`ActionMenuContext`).
+    public var contextMenus: [String] = []
     /// Destructive: `action.run` requires `confirm: true`
     /// (`ActionDescriptor.isDestructive`).
     public var isDestructive = false
@@ -97,6 +106,12 @@ public struct ControlActionInfo: Sendable, Hashable {
     /// Has a purpose outside the GUI: the CLI offers it by `cliName`
     /// (`ActionDescriptor.cli`).
     public var isCLI = false
+    /// The CLI waits for the work's result (`ActionDescriptor.waitsForResult`);
+    /// `action.run` with `wait` then gets the result deadline.
+    public var waitsForResult = false
+    /// The action's purpose is a view change (`ActionDescriptor.focuses`):
+    /// it focuses or shows even when run from the CLI without `focus`.
+    public var focuses = false
 
     public init(
         id: String, title: String, category: String, categoryTitle: String, cliName: String, symbol: String,
@@ -144,9 +159,16 @@ public struct ControlActionInfo: Sendable, Hashable {
             "destructive": .bool(isDestructive),
             "starts_terminal": .bool(startsTerminal),
             "cli": .bool(isCLI),
+            "waits_for_result": .bool(waitsForResult),
+            "focuses": .bool(focuses),
         ]
         if let mainMenu { members["main_menu"] = .string(mainMenu) }
         if let unavailableReason { members["unavailable_reason"] = .string(unavailableReason) }
+        if !surfaces.isEmpty {
+            var surfaceMembers = surfaces.mapValues(JSONValue.string)
+            surfaceMembers["context_menus"] = .array(contextMenus.map(JSONValue.string))
+            members["surfaces"] = .object(surfaceMembers)
+        }
         return .object(members)
     }
 
@@ -207,6 +229,7 @@ public struct ControlCatalog: Sendable {
         }
         let spaced = trimmed.split(whereSeparator: { $0 == " " }).joined(separator: " ")
         if let index = indexByCLIName[spaced] { return actions[index] }
+        if let index = indexByCLIName[Self.renamedCLIName(spaced)] { return actions[index] }
         return nil
     }
 
@@ -216,6 +239,11 @@ public struct ControlCatalog: Sendable {
         return indexByCLIName[spaced].map { actions[$0] }
     }
 
+    /// The current name of a CLI name from before Rooms became Spaces
+    /// (`room create`, `workspace move-to-room`); every other name as is.
+    static func renamedCLIName(_ name: String) -> String {
+        name.replacingOccurrences(of: "room", with: "space")
+    }
     func isAvailable(_ action: ControlActionInfo) -> Bool {
         action.isAvailable(contextMask: contextMask, debugActionsAvailable: debugActionsAvailable)
     }

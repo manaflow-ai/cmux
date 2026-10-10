@@ -228,6 +228,7 @@ class SideLaneVariable(unittest.TestCase):
         for name in ("CI_SIDE_LANE_RUNNER", "CI_LIGHT_LANE_RUNNER"):
             self.assertEqual(drifted_runner_variables({name: "glaeda-side-std-xcode-26.6"}), [])
             self.assertEqual(drifted_runner_variables({name: "glaeda-side-light-xcode-26.6"}), [])
+            self.assertEqual(drifted_runner_variables({name: "glaeda-aws-side-std-xcode-26.3"}), [])
             self.assertEqual(drifted_runner_variables({name: "blacksmith-6vcpu-macos-26"}), [])
             for label in ("glaeda-std-xcode-26.6", "glaeda-root-light-xcode-26.6", "glaeda-side-nonsense",
                           "warp-macos-26-arm64-12x"):
@@ -238,6 +239,26 @@ class SideLaneVariable(unittest.TestCase):
                     )
         # Other runner variables still may not name one.
         self.assertTrue(drifted_runner_variables({"MACOS_RUNNER_PR": "glaeda-side-std-xcode-26.6"}))
+
+
+class AwsSideRunnerVariable(unittest.TestCase):
+    def test_only_an_owned_aws_label_is_allowed(self) -> None:
+        # CI_AWS_SIDE_RUNNER is attempt 1 of the cmux-tui relay job and the
+        # cmux-tui-artifacts macOS legs: the owned AWS minis (aws-m4pro-7..9).
+        name = "CI_AWS_SIDE_RUNNER"
+        self.assertEqual(drifted_runner_variables({name: "glaeda-aws-std-xcode-26.6"}), [])
+        self.assertEqual(drifted_runner_variables({name: "glaeda-aws-light-xcode-26.3"}), [])
+        self.assertEqual(drifted_runner_variables({name: ""}), [])
+        self.assertEqual(drifted_runner_variables({name: "blacksmith-6vcpu-macos-15"}), [])
+        for label in ("glaeda-std-xcode-26.6", "glaeda-side-std-xcode-26.6", "glaeda-aws-nonsense",
+                      "glaeda-trusted-std-xcode-26.6", "warp-macos-26-arm64-12x"):
+            with self.subTest(label=label):
+                self.assertEqual(
+                    [found for found, _, _ in drifted_runner_variables({name: label})],
+                    [name],
+                )
+        # Other runner variables still may not name one.
+        self.assertTrue(drifted_runner_variables({"MACOS_RUNNER_BACKGROUND": "glaeda-aws-std-xcode-26.6"}))
 
 
 class TrustedPoolVariable(unittest.TestCase):
@@ -300,7 +321,7 @@ class OwnedPoolLabels(unittest.TestCase):
                 )
 
     def test_the_pool_order_may_name_owned_and_cloud_pools(self) -> None:
-        order = "glaeda-std-xcode-26.6, glaeda-light-xcode-26.6,blacksmith-12vcpu-macos-26,blacksmith-6vcpu-macos-15"
+        order = "glaeda-std-xcode-26.6, glaeda-aws-std-xcode-26.3, glaeda-light-xcode-26.6,blacksmith-12vcpu-macos-26,blacksmith-6vcpu-macos-15"
         self.assertIsNone(pool_order_reason(order))
         self.assertIsNone(pool_order_reason(""))
         self.assertEqual(drifted_runner_variables({"CI_PR_POOL_ORDER": order}), [])

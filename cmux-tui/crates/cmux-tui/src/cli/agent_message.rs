@@ -569,6 +569,7 @@ fn failure_text(failure: &Failure) -> String {
             error["message"].as_str().map_or_else(|| error.to_string(), str::to_owned)
         }
         Failure::Transport(message) => message.clone(),
+        Failure::AppAction { action, .. } => format!("{action} is an app action"),
     }
 }
 
@@ -806,112 +807,6 @@ mod tests {
 
     fn queued(id: &str) -> Value {
         json!({"id": id, "sender": "cli", "body": id, "deliveries": [{"recipient": "acp:s", "state": "queued"}]})
-    }
-
-    #[test]
-    fn the_codex_thread_is_the_newest_codex_agent_of_the_terminal() {
-        let agents = json!([
-            {"terminal_id": "term_a", "updated_at_ms": 1, "extra": {"agent": "codex", "agent_session_id": "old"}},
-            {"terminal_id": "term_a", "updated_at_ms": 2, "extra": {"agent": "codex", "agent_session_id": "new"}},
-            {"terminal_id": "term_b", "updated_at_ms": 3, "extra": {"agent": "claude", "agent_session_id": "c"}},
-            {"terminal_id": "term_c", "updated_at_ms": 3, "extra": {"agent": "codex"}},
-            {"terminal_id": "term_d", "updated_at_ms": "9", "state": "done",
-             "extra": {"agent": "codex", "agent_session_id": "gone"}},
-            {"terminal_id": "term_d", "updated_at_ms": "4", "state": "idle",
-             "extra": {"agent": "codex", "agent_session_id": "live"}},
-        ]);
-        assert_eq!(codex_thread(&agents, "term_a").as_deref(), Some("new"));
-        assert_eq!(codex_thread(&agents, "term_b"), None);
-        assert_eq!(codex_thread(&agents, "term_c"), None);
-        assert_eq!(codex_thread(&agents, "term_x"), None);
-        // The daemon sends updated_at_ms as a string; a done agent is skipped.
-        assert_eq!(codex_thread(&agents, "term_d").as_deref(), Some("live"));
-    }
-
-    /// A mark result in which `moved` receipts went from 0 to 1 attempts.
-    fn marked(fields: &Value, moved: &[&str]) -> Value {
-        let state = fields["state"].clone();
-        Value::Array(
-            fields["ids"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|id| {
-                    let attempts = if moved.contains(&id.as_str().unwrap()) { "1" } else { "0" };
-                    json!({"id": id, "deliveries": [
-                        {"recipient": "term_a", "state": state, "attempts": attempts},
-                    ]})
-                })
-                .collect(),
-        )
-    }
-
-    fn queued_for(id: &str) -> Value {
-        json!({"id": id, "sender": "cli", "body": id,
-               "deliveries": [{"recipient": "term_a", "state": "queued", "attempts": "0"}]})
-    }
-
-    #[test]
-    fn a_codex_agent_gets_the_messages_it_claimed_as_one_input() {
-        let mut sent = Sent { message: queued_for("msg_new"), ..Sent::default() };
-        let mut input = None;
-        let mut marks = Vec::new();
-        deliver_codex_batch(
-            vec![queued_for("msg_old"), queued_for("msg_taken"), queued_for("msg_new")],
-            "term_a",
-            &mut sent,
-            |text, id| {
-                input = Some((text.to_owned(), id.to_owned()));
-                Ok("codex.turn-start")
-            },
-            |fields| {
-                // A hook delivered msg_taken first: its receipt does not move.
-                let result = marked(&fields, &["msg_old", "msg_new"]);
-                marks.push(fields);
-                Ok(result)
-            },
-        );
-        assert_eq!(marks.len(), 1, "claimed once, before the hand-over");
-        assert_eq!(marks[0]["ids"], json!(["msg_old", "msg_taken", "msg_new"]));
-        assert_eq!(marks[0]["state"], "delivered");
-        let (text, id) = input.unwrap();
-        assert!(text.contains("message msg_old") && text.contains("message msg_new"));
-        assert!(!text.contains("msg_taken"));
-        assert_eq!(id, "msg_new");
-        assert_eq!(sent.message["deliveries"][0]["state"], "delivered");
-        assert!(sent.problems.is_empty() && !sent.failed);
-    }
-
-    #[test]
-    fn a_failed_hand_over_marks_the_claimed_messages_failed() {
-        let mut sent = Sent { message: queued_for("msg_new"), ..Sent::default() };
-        let mut marks = Vec::new();
-        deliver_codex_batch(
-            vec![queued_for("msg_new")],
-            "term_a",
-            &mut sent,
-            |_, _| Err("turn/start: thread busy".to_owned()),
-            |fields| {
-                let result = marked(&fields, &["msg_new"]);
-                marks.push(fields);
-                Ok(result)
-            },
-        );
-        assert_eq!(marks.len(), 2);
-        assert_eq!(marks[1]["state"], "failed");
-        assert_eq!(marks[1]["error"], "turn/start: thread busy");
-        assert!(sent.failed);
-
-        // Nothing claimed: nothing is handed over.
-        let mut sent = Sent { message: queued_for("msg_new"), ..Sent::default() };
-        deliver_codex_batch(
-            vec![queued_for("msg_new")],
-            "term_a",
-            &mut sent,
-            |_, _| panic!("a message claimed elsewhere is not handed over"),
-            |fields| Ok(marked(&fields, &[])),
-        );
-        assert!(!sent.failed);
     }
 
     #[test]

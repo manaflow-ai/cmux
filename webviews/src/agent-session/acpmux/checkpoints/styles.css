@@ -1,0 +1,54 @@
+.acpmux-checkpoint-review {
+  color: inherit;
+  padding: 14px 18px;
+  background: var(--bg, transparent);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.acpmux-checkpoint-review > header,
+.acpmux-checkpoint-actions,
+.acpmux-checkpoint-review li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.acpmux-checkpoint-review > header { justify-content: space-between; }
+.acpmux-checkpoint-review button {
+  color: inherit;
+  background: transparent;
+  border: 0;
+  padding: 5px 7px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.acpmux-checkpoint-review button:hover { background: color-mix(in srgb, currentColor 8%, transparent); }
+.acpmux-checkpoint-review button:disabled { opacity: .45; cursor: default; }
+.acpmux-checkpoint-review button:focus-visible,
+.acpmux-checkpoint-review input:focus-visible { outline: 1px solid currentColor; outline-offset: 2px; }
+.acpmux-checkpoint-review fieldset { border: 0; padding: 0; margin: 10px 0; min-width: 0; }
+.acpmux-checkpoint-review legend,
+.acpmux-checkpoint-hint,
+.acpmux-checkpoint-facts dt,
+.acpmux-checkpoint-review li > span { opacity: .65; }
+.acpmux-checkpoint-review ul { list-style: none; padding: 0; margin: 8px 0; max-height: 180px; overflow: auto; }
+.acpmux-checkpoint-review li { justify-content: space-between; min-height: 28px; }
+.acpmux-checkpoint-review li label { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.acpmux-checkpoint-review code { overflow-wrap: anywhere; font-size: 11px; }
+.acpmux-checkpoint-facts { display: flex; flex-wrap: wrap; gap: 8px 24px; margin: 8px 0 12px; }
+.acpmux-checkpoint-facts > div:first-child { width: 100%; }
+.acpmux-checkpoint-facts dd { margin: 0; }
+.acpmux-checkpoint-fidelity { margin: 10px 0 0; }
+.acpmux-checkpoint-actions { flex-wrap: wrap; }
+.acpmux-checkpoint-review[data-variant="expanded"] .acpmux-checkpoint-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.acpmux-checkpoint-review[data-variant="expanded"] .acpmux-checkpoint-facts > div:first-child { grid-column: 1 / -1; }
+
+.acpmux-checkpoint-review input { accent-color: currentColor; }
+.acpmux-checkpoint-open {
+  font: inherit;
+  color: inherit;
+  border: 0;
+  background: transparent;
+  padding: 5px 7px;
+  cursor: pointer;
+}
+.acpmux-checkpoint-open:hover { background: color-mix(in srgb, currentColor 8%, transparent); }

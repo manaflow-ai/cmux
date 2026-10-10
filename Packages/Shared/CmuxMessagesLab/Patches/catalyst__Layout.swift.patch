@@ -1,0 +1,177 @@
+--- a/Sources/MessagesLabHome/Vendor/catalyst/Layout.swift
++++ b/Sources/MessagesLabHome/Vendor/catalyst/Layout.swift
+@@ -14,7 +14,10 @@
+     var width: CGFloat
+ 
+     static func make(_ text: String, runs: [TextRun], maxWidth: CGFloat, font: UIFont = Fixture.bodyFont) -> TextLayout {
+-        let attr = NSAttributedString(string: text, attributes: [.font: font])
++        // cmux: styled runs (an agent's Markdown, HomeMarkdown) break lines with the fonts they draw with, so a bold or code line fits its bubble; plain text keeps the measured rule.
++        let styled = font == Fixture.bodyFont && runs.contains { !($0.style ?? []).isEmpty }
++        let attr = styled ? TextLayout(text: text, runs: runs, lines: [], width: 0).attributed(color: .white, linkColor: .white, kern: 0)
++            : NSAttributedString(string: text, attributes: [.font: font])
+         let ts = CTTypesetterCreateWithAttributedString(attr)
+         let len = (text as NSString).length
+         var lines: [Line] = []
+@@ -56,6 +59,10 @@
+             if !traits.isEmpty, let d = Fixture.bodyFont.fontDescriptor.withSymbolicTraits(traits) {
+                 a.addAttribute(.font, value: UIFont(descriptor: d, size: Fixture.bodyFont.pointSize), range: range)
+             }
++            // cmux: inline code and code blocks (HomeMarkdown) in the monospaced system font, one point smaller like Messages' body.
++            if r.style?.contains("code") == true {
++                a.addAttribute(.font, value: UIFont.monospacedSystemFont(ofSize: Fixture.bodyFont.pointSize - 1, weight: .regular), range: range)
++            }
+             if r.link != nil {
+                 a.addAttributes([.foregroundColor: linkColor, .underlineStyle: NSUnderlineStyle.single.rawValue], range: range)
+             }
+@@ -113,7 +120,13 @@
+     /// references/real-messages/recordings/stills/widths; line breaks bound it per width to
+     /// [226,232), [260,273), [287.5,294), [304.5,319.5), >= 338; 0.654 is inside all five). The old rule, proportional to
+     /// the width (0.5707 W), wrapped later than Messages below 600 pt.
+-    var maxTextWidth: CGFloat { ((Fixture.maxTextWidth - 0.654 * (Fixture.windowWidth - width)) * 10).rounded() / 10 }
++    var maxTextWidth: CGFloat {
++        // cmux: a Home pane can be narrower than Messages' 434 pt window minimum (the
++        // pane layout has no per-content minimum): below 434 pt the column keeps its
++        // 434 pt share of the width (the rule alone reaches 0 pt at 80 pt).
++        guard width < 434 else { return ((Fixture.maxTextWidth - 0.654 * (Fixture.windowWidth - width)) * 10).rounded() / 10 }
++        return (((Fixture.maxTextWidth - 0.654 * (Fixture.windowWidth - 434)) * width / 434) * 10).rounded() / 10
++    }
+     var maxLinkWidth: CGFloat { min(Fixture.maxLinkWidth, maxTextWidth + 2 * Fixture.bubblePadX) }
+     var mediaWidth: CGFloat { min(Fixture.mediaWidth, maxTextWidth + 2 * Fixture.bubblePadX) }
+ }
+@@ -683,7 +696,8 @@
+                                         gap: 1, height: 14))
+                 }
+                 if case .failed = m.status {
+-                    rows.append(RowSpec(key: "failed:\(m.id)", kind: .label(text: Strings.notDelivered, outgoing: outgoing, color: .failure),
++                    // cmux: "May Not Have Been Delivered" for a send that reached the owner unanswered.
++                    rows.append(RowSpec(key: "failed:\(m.id)", kind: .label(text: CmuxStrings.failedLabel(m.status), outgoing: outgoing, color: .failure),
+                                         gap: 1, height: 14))
+                 }
+                 if !threadMode, let n = replyCount[m.id], n >= 2, m.replyTo == nil {
+@@ -695,6 +709,10 @@
+                 }
+             }
+             prev = m
++        }
++        // cmux: the host's notice, centered like the date row, under the newest message.
++        if !threadMode, span.upperBound == messages.count, s.atNewest, let notice = s.ui.notice {
++            rows.append(RowSpec(key: "notice", kind: .separator(bold: "", rest: notice), gap: 0, height: 35.5))
+         }
+         if !threadMode, span.upperBound == messages.count, s.atNewest, s.ui.typing.contains(where: { $0 != me }) {
+             rows.append(RowSpec(key: "typing", kind: .typing, gap: 0, height: 35))
+@@ -747,7 +765,7 @@
+ enum Format {
+     private static let timeFormatter: DateFormatter = {
+         let f = DateFormatter()
+-        f.locale = Locale(identifier: "en_US")
++        f.locale = Instant.locale
+         f.timeZone = Instant.zone
+         f.dateFormat = "h:mm\u{202F}a"
+         return f
+@@ -766,7 +784,7 @@
+     private static let calendar: Calendar = { var c = Calendar(identifier: .gregorian); c.timeZone = Instant.zone; return c }()
+     private static func formatter(_ f: String) -> DateFormatter {
+         let d = DateFormatter()
+-        d.locale = Locale(identifier: "en_US")
++        d.locale = Instant.locale
+         d.timeZone = Instant.zone
+         d.dateFormat = f
+         return d
+@@ -785,56 +803,58 @@
+     static func duration(_ s: Double) -> String { String(format: "%d:%02d", Int(s) / 60, Int(s) % 60) }
+ }
+ 
++/// cmux: `bundle: .module` (the catalog is the package's, not the app's).
+ enum Strings {
+-    static var today: String { String(localized: "separator.today", defaultValue: "Today") }
+-    static var yesterday: String { String(localized: "separator.yesterday", defaultValue: "Yesterday") }
+-    static var read: String { String(localized: "receipt.read", defaultValue: "Read") }
+-    static var delivered: String { String(localized: "receipt.delivered", defaultValue: "Delivered") }
+-    static var edited: String { String(localized: "label.edited", defaultValue: "Edited") }
+-    static var notDelivered: String { String(localized: "label.notDelivered", defaultValue: "Not Delivered") }
+-    static var unsentMine: String { String(localized: "row.unsent.mine", defaultValue: "You unsent a message") }
+-    static var unsentTheirs: String { String(localized: "row.unsent.theirs", defaultValue: "A message was unsent") }
++    static var today: String { String(localized: "separator.today", defaultValue: "Today", bundle: .module) }
++    static var yesterday: String { String(localized: "separator.yesterday", defaultValue: "Yesterday", bundle: .module) }
++    static var read: String { String(localized: "receipt.read", defaultValue: "Read", bundle: .module) }
++    static var delivered: String { String(localized: "receipt.delivered", defaultValue: "Delivered", bundle: .module) }
++    static var edited: String { String(localized: "label.edited", defaultValue: "Edited", bundle: .module) }
++    static var notDelivered: String { String(localized: "label.notDelivered", defaultValue: "Not Delivered", bundle: .module) }
++    static var unsentMine: String { String(localized: "row.unsent.mine", defaultValue: "You unsent a message", bundle: .module) }
++    static var unsentTheirs: String { String(localized: "row.unsent.theirs", defaultValue: "A message was unsent", bundle: .module) }
+     static func replies(_ n: Int) -> String {
+-        String(format: String(localized: "label.replies", defaultValue: "%lld Replies"), n)
++        String(format: String(localized: "label.replies", defaultValue: "%lld Replies", bundle: .module), n)
+     }
+-    static var location: String { String(localized: "preview.location", defaultValue: "Location") }
++    static var location: String { String(localized: "preview.location", defaultValue: "Location", bundle: .module) }
+     static func fileKind(_ a: Attachment) -> String {
+         switch (a.fileName as NSString).pathExtension.lowercased() {
+-        case "pdf": return String(localized: "file.kind.pdf", defaultValue: "PDF Document")
+-        case "zip": return String(localized: "file.kind.zip", defaultValue: "ZIP Archive")
+-        case "m4a", "mp3", "wav", "aac": return String(localized: "file.kind.audio", defaultValue: "Audio Recording")
+-        default: return String(localized: "file.kind.document", defaultValue: "Document")
++        case "pdf": return String(localized: "file.kind.pdf", defaultValue: "PDF Document", bundle: .module)
++        case "zip": return String(localized: "file.kind.zip", defaultValue: "ZIP Archive", bundle: .module)
++        case "m4a", "mp3", "wav", "aac": return String(localized: "file.kind.audio", defaultValue: "Audio Recording", bundle: .module)
++        default: return String(localized: "file.kind.document", defaultValue: "Document", bundle: .module)
+         }
+     }
+-    static var placeholder: String { String(localized: "compose.placeholder", defaultValue: "iMessage") }
+-    static var replyPlaceholder: String { String(localized: "compose.placeholder.reply", defaultValue: "Reply") }
+-    static var menuReply: String { String(localized: "menu.reply", defaultValue: "Reply") }
+-    static var menuCopy: String { String(localized: "menu.copy", defaultValue: "Copy") }
+-    static var menuEdit: String { String(localized: "menu.edit", defaultValue: "Edit") }
+-    static var menuUndoSend: String { String(localized: "menu.undoSend", defaultValue: "Undo Send") }
+-    static var menuReplyEllipsis: String { String(localized: "menu.replyEllipsis", defaultValue: "Reply…") }
+-    static var menuTapbackDetails: String { String(localized: "menu.tapbackDetails", defaultValue: "Tapback Details…") }
+-    static var menuAttachSticker: String { String(localized: "menu.attachSticker", defaultValue: "Attach Sticker…") }
+-    static var menuShare: String { String(localized: "menu.share", defaultValue: "Share…") }
+-    static var menuDelete: String { String(localized: "menu.delete", defaultValue: "Delete…") }
+-    static var tapbackDetailsTitle: String { String(localized: "tapback.details.title", defaultValue: "Tapbacks") }
+-    static var tapbackDetailsNone: String { String(localized: "tapback.details.none", defaultValue: "No Tapbacks") }
+-    static var deleteConfirmTitle: String { String(localized: "delete.confirm.title", defaultValue: "Delete this message?") }
+-    static var deleteConfirmInfo: String { String(localized: "delete.confirm.info", defaultValue: "It is deleted from this Mac.") }
+-    static var deleteConfirmButton: String { String(localized: "delete.confirm.button", defaultValue: "Delete") }
+-    static var deleteConfirmCancel: String { String(localized: "delete.confirm.cancel", defaultValue: "Cancel") }
+-    static var menuTapback: String { String(localized: "menu.tapback", defaultValue: "Tapback") }
++    // cmux: not "iMessage" (Apple's service name).
++    static var placeholder: String { String(localized: "compose.placeholder", defaultValue: "Message", bundle: .module) }
++    static var replyPlaceholder: String { String(localized: "compose.placeholder.reply", defaultValue: "Reply", bundle: .module) }
++    static var menuReply: String { String(localized: "menu.reply", defaultValue: "Reply", bundle: .module) }
++    static var menuCopy: String { String(localized: "menu.copy", defaultValue: "Copy", bundle: .module) }
++    static var menuEdit: String { String(localized: "menu.edit", defaultValue: "Edit", bundle: .module) }
++    static var menuUndoSend: String { String(localized: "menu.undoSend", defaultValue: "Undo Send", bundle: .module) }
++    static var menuReplyEllipsis: String { String(localized: "menu.replyEllipsis", defaultValue: "Reply…", bundle: .module) }
++    static var menuTapbackDetails: String { String(localized: "menu.tapbackDetails", defaultValue: "Tapback Details…", bundle: .module) }
++    static var menuAttachSticker: String { String(localized: "menu.attachSticker", defaultValue: "Attach Sticker…", bundle: .module) }
++    static var menuShare: String { String(localized: "menu.share", defaultValue: "Share…", bundle: .module) }
++    static var menuDelete: String { String(localized: "menu.delete", defaultValue: "Delete…", bundle: .module) }
++    static var tapbackDetailsTitle: String { String(localized: "tapback.details.title", defaultValue: "Tapbacks", bundle: .module) }
++    static var tapbackDetailsNone: String { String(localized: "tapback.details.none", defaultValue: "No Tapbacks", bundle: .module) }
++    static var deleteConfirmTitle: String { String(localized: "delete.confirm.title", defaultValue: "Delete this message?", bundle: .module) }
++    static var deleteConfirmInfo: String { String(localized: "delete.confirm.info", defaultValue: "It is deleted from this Mac.", bundle: .module) }
++    static var deleteConfirmButton: String { String(localized: "delete.confirm.button", defaultValue: "Delete", bundle: .module) }
++    static var deleteConfirmCancel: String { String(localized: "delete.confirm.cancel", defaultValue: "Cancel", bundle: .module) }
++    static var menuTapback: String { String(localized: "menu.tapback", defaultValue: "Tapback", bundle: .module) }
+     static func tapbackName(_ t: String) -> String {
+         switch t {
+-        case "love": return String(localized: "tapback.love", defaultValue: "Love")
+-        case "like": return String(localized: "tapback.like", defaultValue: "Like")
+-        case "dislike": return String(localized: "tapback.dislike", defaultValue: "Dislike")
+-        case "laugh": return String(localized: "tapback.laugh", defaultValue: "Laugh")
+-        case "emphasize": return String(localized: "tapback.emphasize", defaultValue: "Emphasize")
+-        default: return String(localized: "tapback.question", defaultValue: "Question")
++        case "love": return String(localized: "tapback.love", defaultValue: "Love", bundle: .module)
++        case "like": return String(localized: "tapback.like", defaultValue: "Like", bundle: .module)
++        case "dislike": return String(localized: "tapback.dislike", defaultValue: "Dislike", bundle: .module)
++        case "laugh": return String(localized: "tapback.laugh", defaultValue: "Laugh", bundle: .module)
++        case "emphasize": return String(localized: "tapback.emphasize", defaultValue: "Emphasize", bundle: .module)
++        default: return String(localized: "tapback.question", defaultValue: "Question", bundle: .module)
+         }
+     }
+-    static var laughGlyph: String { String(localized: "tapback.laugh.glyph", defaultValue: "HA\nHA") }
++    static var laughGlyph: String { String(localized: "tapback.laugh.glyph", defaultValue: "HA\nHA", bundle: .module) }
+ }
+ 
+ extension CGSize: @retroactive Hashable {

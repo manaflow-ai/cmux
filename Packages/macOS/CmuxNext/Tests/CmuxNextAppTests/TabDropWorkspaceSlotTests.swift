@@ -73,3 +73,59 @@ struct TabDropWorkspaceSlotTests {
         #expect(result.ids(in: nil).isEmpty)
     }
 }
+
+/// R15 (nxdog26): a tab dropped on a sidebar gap makes a new workspace,
+/// which must land in that gap. The commit resolves the gap the sidebar
+/// drew (`SidebarTabDropTarget.lastDrop`, `WorkspaceSlot.at`) once the
+/// daemon reports the workspace at the end of its order; each test runs
+/// that through the row-drag plan and checks cmux-tui's durable order.
+struct TabDropNewWorkspaceSlotTests {
+    typealias Entry = WorkspaceMovePlan.Entry
+
+    static func land(new id: String, gap index: Int, group: String? = nil, window before: [SidebarRowSection],
+                     claimed after: [SidebarRowSection], daemon: [Entry]) -> WorkspaceMovePlanTests.Daemon {
+        let slot = WorkspaceSlot.at(DropPosition(section: .machine(.local), group: group.map(GroupID.init), index: index))
+        _ = before
+        var simulated = WorkspaceMovePlanTests.Daemon(order: daemon)
+        guard let position = slot.position(moving: [id], section: .machine(.local), in: after) else { return simulated }
+        for command in WorkspaceMovePlan.commands(for: position, moving: [SidebarWorkspaceID(id)], window: after, daemon: daemon) ?? [] {
+            simulated.apply(command)
+        }
+        return simulated
+    }
+
+    @Test func aGapBetweenLooseRowsWithAGroupPresent() {
+        // Sidebar: a, b (loose), then group g (g1). Gap between a and b.
+        let before = WorkspaceMovePlanTests.window(["a", "b"], groups: [("g", ["g1"])])
+        let after = WorkspaceMovePlanTests.window(["a", "b", "n"], groups: [("g", ["g1"])])
+        let daemon = [Entry(id: "g1", group: "g"), Entry(id: "a"), Entry(id: "b"), Entry(id: "n")]
+        let result = Self.land(new: "n", gap: 1, window: before, claimed: after, daemon: daemon)
+        #expect(result.ids(in: nil) == ["a", "n", "b"])
+    }
+
+    @Test func theFirstGap() {
+        let before = WorkspaceMovePlanTests.window(["a", "b"])
+        let after = WorkspaceMovePlanTests.window(["a", "b", "n"])
+        let result = Self.land(new: "n", gap: 0, window: before, claimed: after, daemon: WorkspaceMovePlanTests.plain(["a", "b", "n"]))
+        #expect(result.ids(in: nil) == ["n", "a", "b"])
+    }
+
+    @Test func aGapInsideAGroup() {
+        let before = WorkspaceMovePlanTests.window(["a"], groups: [("g", ["g1", "g2"])])
+        let after = WorkspaceMovePlanTests.window(["a", "n"], groups: [("g", ["g1", "g2"])])
+        let daemon = [Entry(id: "a"), Entry(id: "g1", group: "g"), Entry(id: "g2", group: "g"), Entry(id: "n")]
+        let result = Self.land(new: "n", gap: 1, group: "g", window: before, claimed: after, daemon: daemon)
+        #expect(result.ids(in: "g") == ["g1", "n", "g2"])
+    }
+
+    /// The daemon order interleaves workspaces of other windows; the gap is
+    /// this window's.
+    @Test func otherWindowsWorkspacesDoNotShiftTheGap() {
+        let before = WorkspaceMovePlanTests.window(["a", "b"])
+        let after = WorkspaceMovePlanTests.window(["a", "b", "n"])
+        let daemon = WorkspaceMovePlanTests.plain(["x1", "a", "x2", "b", "n"])
+        let result = Self.land(new: "n", gap: 1, window: before, claimed: after, daemon: daemon)
+        let mine = result.ids(in: nil).filter { ["a", "b", "n"].contains($0) }
+        #expect(mine == ["a", "n", "b"])
+    }
+}

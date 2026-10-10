@@ -1,7 +1,9 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
-/// "cmux restarted after a problem": a small glass panel at the bottom of a
+/// "cmux restarted after a problem": a small glass panel (opaque under
+/// Reduce Transparency, `Glass.makeOverlayPanel`) at the bottom of a
 /// shell window, attached as a child window so it stays above Chromium page
 /// windows. Non-modal and non-activating: it never becomes key, takes no
 /// keyboard input, and stays until the user closes it or the window closes.
@@ -9,9 +11,9 @@ import CmuxNextDesign
 final class RestartNoticePanel {
     static let accessibilityID = "app.restartNotice"
     private let panel: NSPanel
-    /// The stack's container inside the glass: the glass view does not
-    /// report its content's fitting size, so the panel is sized from this.
-    private let body = NSView()
+    /// The stack's container inside the panel's surface; the panel is
+    /// sized from it.
+    private let body = ThemeChangeView()
     private weak var parent: NSWindow?
     private var observers: [any NSObjectProtocol] = []
     private let onShowLog: (() -> Void)?
@@ -20,7 +22,6 @@ final class RestartNoticePanel {
         self.onShowLog = onShowLog
         panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 420, height: 40),
                         styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        ThemeStore.shared.adopt(panel)
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
@@ -35,8 +36,13 @@ final class RestartNoticePanel {
         // One line: a wrapping label reported one line of height in the
         // panel's fitting size and clipped the second.
         let label = NSTextField(labelWithString: text)
+        let content = body
+        content.onThemeChange = { [weak label, weak content] in
+            guard let label, let content else { return }
+            // The surface recolors its own material on the same change.
+            content.performWithTheme { label.textColor = Palette.textPrimary }
+        }
         label.font = .systemFont(ofSize: NSFont.systemFontSize)
-        label.textColor = Palette.textPrimary
         label.setContentCompressionResistancePriority(.required, for: .horizontal)
         var views: [NSView] = [label]
         if onShowLog != nil {
@@ -44,8 +50,7 @@ final class RestartNoticePanel {
             show.bezelStyle = .accessoryBarAction
             views.append(show)
         }
-        let close = NSButton(image: NSImage(systemSymbolName: "xmark", accessibilityDescription: CrashStrings.dismiss) ?? NSImage(),
-                             target: self, action: #selector(dismiss))
+        let close = NSButton(image: NSImage.icon(.actionClose, size: .iconFloor), target: self, action: #selector(dismiss))
         close.isBordered = false
         close.setAccessibilityLabel(CrashStrings.dismiss)
         views.append(close)
@@ -53,9 +58,8 @@ final class RestartNoticePanel {
         stack.spacing = 10
         stack.edgeInsets = NSEdgeInsets(top: 8, left: 14, bottom: 8, right: 10)
         stack.translatesAutoresizingMaskIntoConstraints = false
-        let content = body
         content.addSubview(stack)
-        let glass = Glass.makePanel(content: content, style: .regular, cornerRadius: 12)
+        let glass = Glass.makeOverlayPanel(content: content, cornerRadius: 12)
         glass.setAccessibilityIdentifier(Self.accessibilityID)
         glass.setAccessibilityLabel(text)
         NSLayoutConstraint.activate([
@@ -71,6 +75,7 @@ final class RestartNoticePanel {
     func show(on window: NSWindow) {
         parent = window
         window.addChildWindow(panel, ordered: .above)
+        window.themeScope.adopt(panel)
         place()
         let center = NotificationCenter.default
         for name in [NSWindow.didResizeNotification, NSWindow.didMoveNotification] {
@@ -84,6 +89,8 @@ final class RestartNoticePanel {
     }
 
     var isShown: Bool { panel.parent != nil }
+    /// The notice's material: glass, or opaque under Reduce Transparency.
+    var surface: OverlaySurfaceView? { panel.contentView as? OverlaySurfaceView }
     var text: String { (panel.contentView?.accessibilityLabel()) ?? "" }
 
     private func place() {

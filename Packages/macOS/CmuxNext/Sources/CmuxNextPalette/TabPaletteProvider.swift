@@ -1,4 +1,4 @@
-
+import CmuxNextActions
 
 public final class TabPaletteProvider: PaletteProvider {
     public let id = "tabs"
@@ -9,6 +9,11 @@ public final class TabPaletteProvider: PaletteProvider {
         self.source = source
         self.showsItemsForEmptyQuery = showsItemsForEmptyQuery
     }
+
+    // A palette reset (Cmd-Shift-P reopen) can release this inside an
+    // action's task-local scope or from a search task; teardown must not
+    // need a main-actor hop (RegistryPaletteProvider, #17590).
+    nonisolated deinit {}
 
     public static var section: PaletteSection {
         PaletteSection(id: "tabs", title: PaletteStrings.sectionTabs, order: 20)
@@ -26,7 +31,7 @@ public final class TabPaletteProvider: PaletteProvider {
             case .browser: "globe"
             case .other(let symbol): symbol
             }
-            return PaletteItem(
+            var item = PaletteItem(
                 id: "tab:\(id)",
                 title: tab.title,
                 subtitle: tab.workspaceTitle,
@@ -43,6 +48,7 @@ public final class TabPaletteProvider: PaletteProvider {
                         title: PaletteStrings.renameTab,
                         placeholder: PaletteStrings.tabNamePlaceholder,
                         initialText: tab.title,
+                        skipsUnchangedText: true,
                         submitTitle: PaletteStrings.renameTo,
                         submit: { source.renameTab(id: id, to: $0) }
                     ))),
@@ -52,6 +58,10 @@ public final class TabPaletteProvider: PaletteProvider {
                 ],
                 frecencyKey: "tab:\(id)"
             )
+            let target = ActionTargetRef(kind: .tab, id: id)
+            item.actionRefs = [PaletteActionRef("tab.focus", target: target, title: PaletteStrings.switchToTab),
+                               PaletteActionRef("closeTab", target: target, title: PaletteStrings.closeTab, isDestructive: true)]
+            return item
         }
     }
 }

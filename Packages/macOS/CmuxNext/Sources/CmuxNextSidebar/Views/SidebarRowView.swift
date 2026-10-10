@@ -8,6 +8,16 @@ import QuartzCore
 class SidebarRowView: NSView {
     var key: SidebarRowKey
     var isHovered = false { didSet { if isHovered != oldValue { hoverChanged() } } }
+    /// The row is the sidebar's selected item and paints the selection fill.
+    /// A selection change paints at once, never fades or travels
+    /// (SIDEBAR-SELECTION-NO-TRAVEL-ANIMATION); hover alone fades.
+    var isSelected = false {
+        didSet {
+            guard isSelected != oldValue else { return }
+            fadesNextFill = false
+            needsDisplay = true
+        }
+    }
 
     required init(key: SidebarRowKey) {
         self.key = key
@@ -48,6 +58,10 @@ class SidebarRowView: NSView {
         configuredContent = nil
         self.key = key
         isHovered = false
+        isSelected = false
+        // A recycled row shows its new content's fill at once.
+        fadesNextFill = false
+        layer?.removeAnimation(forKey: "backgroundColor")
         targetSize = nil
         alphaValue = 1
         setTitleHidden(false)
@@ -62,7 +76,22 @@ class SidebarRowView: NSView {
     var titleFont: NSFont { SidebarStyle.titleFont }
     func setTitleHidden(_ hidden: Bool) {}
 
-    func hoverChanged() { needsDisplay = true }
+    func hoverChanged() {
+        fadesNextFill = true
+        needsDisplay = true
+    }
+
+    /// The next fill change came from hover, so it fades
+    /// (`MotionFade.hover`); reloads and theme changes apply at once.
+    var fadesNextFill = false
+
+    /// Paints `color` on the row's backing layer, fading when hover changed
+    /// it. Call from `updateLayer()` inside the theme scope.
+    func paintFill(_ color: NSColor?) {
+        guard let layer else { return }
+        ChromeHover.paint(layer, color, animated: fadesNextFill)
+        fadesNextFill = false
+    }
 
     /// Size the row is animating toward. Content lays out for the final size
     /// up front, so an animated frame change never shows a stale layout.
@@ -84,10 +113,11 @@ class SidebarRowView: NSView {
         needsDisplay = true
     }
 
-    static func label(font: NSFont, color: NSColor) -> NSTextField {
+    /// A one-line label. Its color is set in the row's `updateLayer`, inside
+    /// `performWithTheme`, so it follows the row's theme scope.
+    static func label(font: NSFont) -> NSTextField {
         let field = NSTextField(labelWithString: "")
         field.font = font
-        field.textColor = color
         field.lineBreakMode = .byTruncatingTail
         field.maximumNumberOfLines = 1
         field.cell?.truncatesLastVisibleLine = true
@@ -98,11 +128,14 @@ class SidebarRowView: NSView {
 // MARK: - Workspace
 
 final class EmptySectionRowView: SidebarRowView {
-    private let label = SidebarRowView.label(font: SidebarStyle.subtitleFont, color: Palette.textTertiary)
+    private let label = SidebarRowView.label(font: SidebarStyle.subtitleFont)
 
     required init(key: SidebarRowKey) {
         super.init(key: key)
-        label.alignment = .center
+        // Left-aligned where a workspace's title would start, so the empty
+        // list reads as the list's first line, not a caption floating in
+        // the middle of an empty column.
+        label.alignment = .natural
         addSubview(label)
     }
 
@@ -116,7 +149,12 @@ final class EmptySectionRowView: SidebarRowView {
         super.layout()
         let b = layoutBounds
         let h = ceil(label.intrinsicContentSize.height)
-        label.frame = NSRect(x: Metrics.space2, y: (b.height - h) / 2, width: b.width - Metrics.space4, height: h)
+        let x = SidebarStyle.titleLeading
+        label.frame = NSRect(x: x, y: (b.height - h) / 2, width: max(0, b.width - x - Metrics.space2), height: h)
         needsDisplay = true
+    }
+
+    override func updateLayer() {
+        performWithTheme { label.textColor = Palette.textTertiary }
     }
 }

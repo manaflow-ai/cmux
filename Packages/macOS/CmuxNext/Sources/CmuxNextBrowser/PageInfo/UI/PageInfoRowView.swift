@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextDesign
 
-/// One bubble row (Chrome's `RichHoverButton`): icon, title, optional
+/// One bubble row (Chromium's `RichHoverButton`): icon, title, optional
 /// subtitle, and a trailing chevron, external-link mark, or toggle. Gray
 /// hover and press fills; keyboard focus draws a gray ring. Space or Return
 /// activates, as a click does.
@@ -18,7 +18,7 @@ final class PageInfoRowView: NSView {
         didSet { toggle?.onChange = onToggle }
     }
 
-    private let iconView = NSImageView()
+    private let iconView = ThemedImageView()
     private let titleLabel: NSTextField
     private let subtitleLabel: NSTextField
     private var accessoryView: NSView?
@@ -29,8 +29,8 @@ final class PageInfoRowView: NSView {
     private let isInteractive: Bool
 
     init(symbol: String?, title: String, subtitle: String? = nil, accessory: Accessory = .none,
-         tint: NSColor? = nil, interactive: Bool = true, identifier: String? = nil) {
-        titleLabel = PageInfoStyle.label(title, font: PageInfoStyle.bodyFont, color: tint ?? PageInfoStyle.text)
+         tint: @escaping @autoclosure () -> NSColor? = nil, interactive: Bool = true, identifier: String? = nil) {
+        titleLabel = PageInfoStyle.label(title, font: PageInfoStyle.bodyFont, color: tint() ?? PageInfoStyle.text)
         subtitleLabel = PageInfoStyle.label(subtitle ?? "", font: PageInfoStyle.captionFont, color: PageInfoStyle.secondaryText)
         isInteractive = interactive
         super.init(frame: .zero)
@@ -42,7 +42,7 @@ final class PageInfoRowView: NSView {
         layer?.cornerCurve = .continuous
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconView.image = symbol.flatMap { PageInfoStyle.symbol($0) }
-        iconView.contentTintColor = tint ?? PageInfoStyle.text
+        iconView.themeTint = { tint() ?? PageInfoStyle.text }
         subtitleLabel.isHidden = subtitle?.isEmpty ?? true
 
         let texts = NSStackView(views: [titleLabel, subtitleLabel])
@@ -88,10 +88,10 @@ final class PageInfoRowView: NSView {
         case .none:
             return nil
         case .chevron, .externalLink:
-            let image = NSImageView(image: PageInfoStyle.symbol(
+            let image = ThemedImageView(image: PageInfoStyle.symbol(
                 { if case .chevron = accessory { "chevron.right" } else { "arrow.up.forward.square" } }(),
                 size: PageInfoStyle.iconSize - 2) ?? NSImage())
-            image.contentTintColor = PageInfoStyle.secondaryText
+            image.themeTint = { PageInfoStyle.secondaryText }
             image.translatesAutoresizingMaskIntoConstraints = false
             return image
         case .toggle(let on):
@@ -164,9 +164,9 @@ final class PageInfoRowView: NSView {
     }
 
     private func refreshFill() {
-        let fill: NSColor = isPressed ? PageInfoStyle.pressed : (isHovering || showsFocus ? PageInfoStyle.hover : .clear)
-        layer?.borderWidth = showsFocus ? 1.5 : 0
-        effectiveAppearance.performAsCurrentDrawingAppearance {
+        layer?.borderWidth = Metrics.lineWidth(showsFocus ? 1.5 : 0)
+        performWithTheme {
+            let fill: NSColor = isPressed ? PageInfoStyle.pressed : (isHovering || showsFocus ? PageInfoStyle.hover : .clear)
             layer?.backgroundColor = fill.cgColor
             layer?.borderColor = PageInfoStyle.focusRing.cgColor
         }

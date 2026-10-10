@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import CmuxNextBrowser
 
-/// Chrome on macOS takes its UI language and Accept-Language from the
+/// Chromium on macOS takes its UI language and Accept-Language from the
 /// system's preferred languages, never from LANG/LC_* (a clean `env -i`
 /// launch has none) and never from an alphabetical fallback.
 @Suite struct CEFLocaleTests {

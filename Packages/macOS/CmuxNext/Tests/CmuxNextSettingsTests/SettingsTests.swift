@@ -73,6 +73,38 @@ import Testing
 
 @MainActor
 @Suite struct ApplierTests {
+    /// The per-kind new-tab chords (#16620) are the user's from the start:
+    /// cmux.json rebinds or unbinds each one like any other action.
+    @Test func eachKindsNewTabChordIsTheUsers() throws {
+        let registry = ActionRegistry.standard()
+        let applier = SettingsApplier(design: DesignSettings(), registry: registry)
+        #expect(registry.effectiveShortcut(for: "palette.newAgentChat") == Shortcut("i", modifiers: [.command]))
+        #expect(registry.effectiveShortcut(for: "newSurface") == Shortcut("`", modifiers: [.control]))
+        let root = try JSONC.parse("""
+        {"shortcuts": {"bindings": {"palette.newAgentChat": "cmd+opt+shift+y", "newSurface": null, "openBrowser": "ctrl+cmd+b"}}}
+        """)
+        _ = applier.apply(CmuxConfigSnapshot.parse(root, validDensities: SettingsApplier.validDensities, validMetrics: SettingsApplier.validMetrics))
+        #expect(registry.effectiveShortcut(for: "palette.newAgentChat") == Shortcut("y", modifiers: [.command, .option, .shift]))
+        #expect(registry.effectiveShortcut(for: "newSurface") == nil)
+        #expect(registry.effectiveShortcut(for: "openBrowser") == Shortcut("b", modifiers: [.control, .command]))
+    }
+
+    /// The Terminal.app base keymap renames tabs with Cmd-Shift-I, so Show
+    /// Feed moves to Ctrl-Cmd-Shift-I while New Agent Chat keeps Cmd-I.
+    @Test func theTerminalPresetMovesNewAgentChatAside() throws {
+        let registry = ActionRegistry.standard()
+        let applier = SettingsApplier(design: DesignSettings(), registry: registry)
+        let bindings = Dictionary(uniqueKeysWithValues: ShortcutKeymapPreset.terminal.overrides.map { ($0.key, $0.value) })
+        let root = JSONValue.object(["shortcuts": .object(["bindings": .object(bindings)])])
+        _ = applier.apply(CmuxConfigSnapshot.parse(root, validDensities: SettingsApplier.validDensities, validMetrics: SettingsApplier.validMetrics))
+        #expect(registry.effectiveShortcut(for: "renameTab") == Shortcut("i", modifiers: [.command, .shift]))
+        #expect(registry.effectiveShortcut(for: "feed.show") == Shortcut("i", modifiers: [.control, .command, .shift]))
+        #expect(registry.effectiveShortcut(for: "palette.newAgentChat") == Shortcut("i", modifiers: [.command]))
+        #expect(!registry.shortcutConflicts().contains {
+            $0.contains("feed.show") || $0.contains("palette.newAgentChat") || $0.contains("renameTab")
+        })
+    }
+
     @Test func appliesAndRevertsFileSettings() throws {
         let design = DesignSettings()
         let registry = ActionRegistry.standard()
@@ -80,7 +112,7 @@ import Testing
         let root = try JSONC.parse("""
         {"appearance": {"density": "comfortable", "metrics": {"sidebarWidth": 999}},
          "shortcuts": {"bindings": {"splitRight": "cmd+\\\\", "splitDown": null, "tab.new": "cmd+shift+t", "nope": "cmd+k",
-                                    "toggleSidebar": ["ctrl+b", "s"]}}}
+                                    "toggleSidebar": ["ctrl+b", "s"], "newTab": ["b", "c"]}}}
         """)
         let diagnostics = applier.apply(CmuxConfigSnapshot.parse(root, validDensities: SettingsApplier.validDensities, validMetrics: SettingsApplier.validMetrics))
 
@@ -91,7 +123,12 @@ import Testing
         // Legacy alias `tab.new` folds into `newSurface`.
         #expect(registry.effectiveShortcut(for: "newSurface") == Shortcut("t", modifiers: [.command, .shift]))
         #expect(diagnostics.contains { $0.kind == .unknownAction && $0.path == "shortcuts.bindings.nope" })
-        #expect(diagnostics.contains { $0.kind == .unsupportedChord && $0.path == "shortcuts.bindings.toggleSidebar" })
+        #expect(registry.effectiveChord(for: "toggleSidebar") == ShortcutChord(Shortcut("b", modifiers: [.control]), Shortcut("s", modifiers: [])))
+        #expect(registry.effectiveShortcut(for: "toggleSidebar") == nil)
+        #expect(registry.shortcutDisplay(for: "toggleSidebar") == "⌃B S")
+        // A chord's first key needs Command or Control.
+        #expect(diagnostics.contains { $0.kind == .unsupportedChord && $0.path == "shortcuts.bindings.newTab" })
+        #expect(registry.effectiveChord(for: "newTab") == nil)
 
         // Removing everything from the file restores defaults.
         applier.apply(CmuxConfigSnapshot.parse(.object([:]), validDensities: SettingsApplier.validDensities, validMetrics: SettingsApplier.validMetrics))
@@ -99,6 +136,8 @@ import Testing
         #expect(design.overrides.isEmpty)
         #expect(registry.shortcutDisplay(for: "splitRight") == "⌘D")
         #expect(registry.shortcutDisplay(for: "splitDown") == "⇧⌘D")
+        #expect(registry.effectiveChord(for: "toggleSidebar") == nil)
+        #expect(registry.effectiveShortcut(for: "toggleSidebar") != nil)
     }
 
     @Test func reportsConflicts() throws {
@@ -123,24 +162,16 @@ import Testing
 
 /// End-to-end: file on disk -> watcher -> applied settings, and writes back.
 @MainActor
-@Suite(.serialized) struct SettingsControllerTests {
+@Suite(.serialized, .timeLimit(.minutes(1))) struct SettingsControllerTests {
     func makeDirectory() throws -> URL {
         let directory = FileManager.default.temporaryDirectory.appending(path: "cmux-next-settings-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory
     }
 
-    /// Waits for the next load, failing instead of hanging.
+    /// Waits for the watcher lifecycle event for the next load.
     func nextLoad(_ controller: SettingsController, after count: Int) async throws {
-        try await withThrowingTaskGroup(of: Void.self) { group in
-            group.addTask { await controller.waitForLoad(atLeast: count + 1) }
-            group.addTask {
-                try await Task.sleep(for: .seconds(5))
-                throw CancellationError()
-            }
-            try await group.next()
-            group.cancelAll()
-        }
+        await controller.waitForLoad(atLeast: count + 1)
     }
 
     /// Waits until `condition` holds after file events settle.
@@ -224,6 +255,21 @@ import Testing
         let file = CmuxConfigFile(url: url)
         await #expect(throws: CmuxConfigFile.Failure.self) { try await file.set(1, at: ["b"]) }
         #expect(try String(contentsOf: url, encoding: .utf8) == "{ \"a\": ")
+    }
+
+    /// A keymap switch's sets and removes land in one publish.
+    @Test func appliesSeveralEditsAtOnce() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appending(path: "cmux.json")
+        try Data(#"{"shortcuts": {"newTab": ["ctrl+b", "c"], "bindings": {"closeTab": ["ctrl+b", "x"]}}}"#.utf8).write(to: url)
+        let file = CmuxConfigFile(url: url)
+        try await file.apply([(["shortcuts", "bindings", "renameTab"], "cmd+shift+i"), (["shortcuts", "bindings", "closeTab"], nil),
+                              (["shortcuts", "newTab"], nil)])
+        let document = try JSONC.parse(String(contentsOf: url, encoding: .utf8))
+        #expect(document.value(at: ["shortcuts", "bindings", "renameTab"]) == "cmd+shift+i")
+        #expect(document.value(at: ["shortcuts", "bindings", "closeTab"]) == nil)
+        #expect(document.value(at: ["shortcuts", "newTab"]) == nil)
     }
 
     @Test func writesThroughASymlink() async throws {

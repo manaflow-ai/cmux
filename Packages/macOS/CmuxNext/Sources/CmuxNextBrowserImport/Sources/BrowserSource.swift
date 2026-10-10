@@ -31,21 +31,31 @@ public struct BrowserSourceProfile: Sendable, Identifiable, Hashable, Codable {
     /// Absolute path of the profile folder.
     public var path: URL
     public var availability: [ImportDataKind: DataAvailability]
+    /// The profile's account picture, when the source saved one (Chromium).
+    public var avatar: URL?
 
     /// `<browser>/<directory>`: stable key for mappings and stored data.
     public var id: String { "\(browser.rawValue)/\(directoryName)" }
 
     public init(browser: ImportBrowser, directoryName: String, displayName: String, path: URL,
-                availability: [ImportDataKind: DataAvailability]) {
+                availability: [ImportDataKind: DataAvailability], avatar: URL? = nil) {
         self.browser = browser
         self.directoryName = directoryName
         self.displayName = displayName
         self.path = path
         self.availability = availability
+        self.avatar = avatar
     }
 
     public func availability(of kind: ImportDataKind) -> DataAvailability {
         availability[kind] ?? .absent
+    }
+
+    /// Whether macOS is blocking this profile until cmux has Full Disk
+    /// Access. The onboarding row uses this to keep Safari in the list while
+    /// it explains why the data cannot be imported yet.
+    public var needsFullDiskAccess: Bool {
+        availability.values.contains(.needsFullDiskAccess)
     }
 
     /// Kinds this profile can import now.

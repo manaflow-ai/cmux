@@ -9,6 +9,10 @@
 use std::path::{Path, PathBuf};
 
 const DEBUG_BUNDLE_ID: &str = "com.cmuxterm.app.debug";
+/// `action.list`'s per-action surface plan key (where the app offers the
+/// action: palette, CLI, right-click, MCP). App control vocabulary for UI
+/// surfaces, not a daemon resource word; `cmux mcp` reads its `mcp` entry.
+pub(crate) const ACTION_SURFACE_PLAN: &str = "surfaces";
 const CHANNELS: [(&str, &str); 3] = [
     ("com.cmuxterm.app.nightly", "nightly"),
     ("com.cmuxterm.app.rc", "rc"),
@@ -136,7 +140,7 @@ fn darwin_user_temp_dir() -> Option<PathBuf> {
 
 /// `…/Foo.app` for an executable at `…/Foo.app/Contents/Resources/bin/cmux`
 /// or `…/Foo.app/Contents/MacOS/cmux`.
-fn containing_app_bundle(exe: &Path) -> Option<PathBuf> {
+pub(crate) fn containing_app_bundle(exe: &Path) -> Option<PathBuf> {
     exe.ancestors()
         .find(|path| path.extension().is_some_and(|extension| extension == "app"))
         .filter(|bundle| exe.starts_with(bundle.join("Contents")))
@@ -145,6 +149,14 @@ fn containing_app_bundle(exe: &Path) -> Option<PathBuf> {
 
 /// The tag a tagged bundle id carries (`com.cmuxterm.app.debug.<tag>` or
 /// `com.cmuxterm.app.<channel>.<tag>`), sanitized.
+/// A DEV or tagged debug build (`com.cmuxterm.app.debug[.<tag>]`), the only
+/// app whose control socket `cmux app call` may use.
+pub(crate) fn is_debug_bundle(bundle_id: &str) -> bool {
+    bundle_id
+        .strip_prefix(DEBUG_BUNDLE_ID)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with('.'))
+}
+
 fn bundle_tag(bundle_id: &str) -> Option<String> {
     let bundle_id = bundle_id.trim();
     std::iter::once(DEBUG_BUNDLE_ID)

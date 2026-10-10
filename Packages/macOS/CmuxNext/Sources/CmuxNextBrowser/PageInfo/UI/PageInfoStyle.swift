@@ -2,10 +2,10 @@ import AppKit
 import CmuxNextDesign
 
 /// Page Info geometry and colors. Sizes come from `Metrics`/`Typography`;
-/// colors from `Palette` (Ghostty-derived). Chrome draws toggles and links
-/// in its blue accent; cmux has none, so "on" and links use the foreground.
+/// colors from `Palette` (Ghostty-derived). cmux has no accent color, so
+/// "on" toggles and links use the foreground.
 enum PageInfoStyle {
-    /// Chrome's page info bubble is 320 dp minimum.
+    /// The page info bubble is at least 320 points wide.
     static var bubbleWidth: CGFloat { Metrics.density == .compact ? 320 : 344 }
     static var rowHeight: CGFloat { Metrics.paletteRowHeight }
     static var rowHeightWithSubtitle: CGFloat { Metrics.sidebarRowHeightWithSubtitle + Metrics.panelInset }
@@ -24,25 +24,27 @@ enum PageInfoStyle {
     static var captionFont: NSFont { Typography.caption }
     static var headerFont: NSFont { Typography.header }
 
-    static var background: NSColor { Palette.elevatedBackground }
-    static var text: NSColor { Palette.textPrimary }
-    static var secondaryText: NSColor { Palette.textSecondary }
-    static var tertiaryText: NSColor { Palette.textTertiary }
-    static var hover: NSColor { Palette.hoverFill }
-    static var pressed: NSColor { Palette.pressedFill }
-    static var separator: NSColor { Palette.separator }
-    static var focusRing: NSColor { Palette.focusRing }
-    static var danger: NSColor { Palette.danger }
+    static var background: NSColor { Palette.elevatedBackground } // theme-scoped
+    static var text: NSColor { Palette.textPrimary } // theme-scoped
+    static var secondaryText: NSColor { Palette.textSecondary } // theme-scoped
+    static var tertiaryText: NSColor { Palette.textTertiary } // theme-scoped
+    static var hover: NSColor { Palette.hoverFill } // theme-scoped
+    static var pressed: NSColor { Palette.pressedFill } // theme-scoped
+    static var separator: NSColor { Palette.separator } // theme-scoped
+    static var focusRing: NSColor { Palette.focusRing } // theme-scoped
+    static var danger: NSColor { Palette.danger } // theme-scoped
 
     static func symbol(_ name: String, size: CGFloat? = nil, weight: NSFont.Weight = .regular) -> NSImage? {
         NSImage(systemSymbolName: name, accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: size ?? iconSize, weight: weight))
     }
 
-    static func label(_ text: String = "", font: NSFont, color: NSColor, wraps: Bool = false) -> NSTextField {
-        let label = wraps ? NSTextField(wrappingLabelWithString: text) : NSTextField(labelWithString: text)
+    /// A label whose `color` is read inside its theme scope on every theme
+    /// change (`ThemedLabel`), so pass a style color, not a resolved one.
+    static func label(_ text: String = "", font: NSFont, color: @escaping @autoclosure () -> NSColor, wraps: Bool = false) -> NSTextField {
+        let label = wraps ? ThemedLabel(wrappingLabelWithString: text) : ThemedLabel(labelWithString: text)
         label.font = font
-        label.textColor = color
+        label.themeColor = color
         label.translatesAutoresizingMaskIntoConstraints = false
         if !wraps { label.lineBreakMode = .byTruncatingTail }
         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)

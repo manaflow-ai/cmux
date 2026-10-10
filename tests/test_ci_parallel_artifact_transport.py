@@ -87,6 +87,28 @@ class WorkflowWiringTests(unittest.TestCase):
             ):
                 self.assertIn(guard, step, job)
 
+    def test_fallback_download_has_a_bounded_transfer_wait(self):
+        # A failed ranged fast path falls back to one actions/download-artifact
+        # stream. Mini telemetry saw that fallback hold an app-host runner for
+        # 25–50 minutes while the tests themselves took minutes; bound the
+        # action so a dead or crawling stream cannot consume the whole job.
+        action = (ROOT / ".github/actions/download-test-product/action.yml").read_text(encoding="utf-8")
+        step_start = action.index("    - name: Download artifact\n")
+        step_end = action.find("\n    - name:", step_start + 1)
+        step = action[step_start:step_end if step_end >= 0 else len(action)]
+        self.assertIn("uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131", step)
+        self.assertNotIn("timeout-minutes: 15", step)
+        for workflow_name in ("ci-macos.yml",):
+            workflow = (ROOT / ".github/workflows" / workflow_name).read_text(encoding="utf-8")
+            uses = "        uses: ./.github/actions/download-test-product\n"
+            occurrences = workflow.count(uses)
+            self.assertGreater(occurrences, 0, workflow_name)
+            self.assertEqual(
+                occurrences,
+                workflow.count("        timeout-minutes: 15\n" + uses),
+                workflow_name,
+            )
+
     def test_restore_step_records_the_transport_it_used(self):
         for job in CONSUMERS:
             step = step_block(job_block(job), "Restore compiled test product")
@@ -94,6 +116,13 @@ class WorkflowWiringTests(unittest.TestCase):
         script = (ROOT / "scripts/ci/restore-app-host-test-product.sh").read_text(encoding="utf-8")
         self.assertIn('"github-parallel" if parallel_hit else', script)
         self.assertIn('echo "$EXPECTED_SHA256  $archive" | shasum -a 256 -c -', script)
+
+    def test_restore_does_not_wait_on_a_busy_canonical_root(self):
+        script = (ROOT / "scripts/ci/restore-app-host-test-product.sh").read_text(encoding="utf-8")
+        self.assertIn("CMUX_CI_RUNTIME_SOURCE_ROOT=/private/tmp/cmux-test-source", script)
+        self.assertIn('scripts/ci/canonical-build-root.sh --runtime-source "$PWD"', script)
+        self.assertNotIn("glaeda-canonical-root", script)
+        self.assertNotIn("--wait 0", script)
 
     def test_cli_product_lane_keeps_the_consumer_transport_chain(self):
         # cli-product-tests restores the compiled product without layers, so it

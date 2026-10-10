@@ -659,6 +659,8 @@ pub(crate) fn info(area: &str, message: &str) {
 /// corrupt the screen and vanish, but the log file keeps them.
 macro_rules! stderr_log {
     ($area:expr, $($arg:tt)*) => {{
+        #[allow(unused_imports)]
+        use $crate::cli::BIN;
         let message = format!($($arg)*);
         if $crate::client_log::echo_to_stderr() {
             eprintln!("{message}");
