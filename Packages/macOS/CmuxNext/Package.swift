@@ -391,7 +391,7 @@ let package = Package(
         // owns every session; the App supplies the source.
         .target(
             name: "CmuxNextAgentActivity",
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextWakeups", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands")],
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands")],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
                 .copy("Resources/agent-activity"),
