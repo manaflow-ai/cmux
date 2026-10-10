@@ -51,6 +51,21 @@ pub const AGENT_SESSION_START_CAPABILITY: &str = "agent-session-start-v1";
 /// Starts the binary's acpmux daemon (blocking; acpmux bounds its own start).
 pub type AcpmuxStarter = Arc<dyn Fn() -> Result<(), String> + Send + Sync>;
 
+/// What kind of machine this daemon runs on, as the binary read it from the
+/// machine's own identity at start (never from a request). A remote start
+/// is served only on [`AgentStartHost::Allowed`]; a daemon that was never
+/// told refuses (fail closed).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum AgentStartHost {
+    /// A Mac, an SSH host, or a Cloud VM bound to one owner.
+    Allowed,
+    /// A Cloud VM whose kind the daemon cannot tell.
+    UnknownCloud,
+    /// A team VM: shared by a team, so no remote start (hq-84 rule until the
+    /// team policy for local-control sessions exists).
+    TeamVm,
+}
+
 /// Starts that may run at once on one daemon.
 const MAX_STARTS: usize = 8;
 const MAX_CWD_BYTES: usize = 4096;
@@ -63,6 +78,7 @@ const THREAD_STACK_BYTES: usize = 256 * 1024;
 #[derive(Default)]
 pub(crate) struct AgentSessionStarts {
     starter: Mutex<Option<AcpmuxStarter>>,
+    host: Mutex<Option<AgentStartHost>>,
     /// One acpmux start at a time; the others connect after it.
     start_lock: Mutex<()>,
     starting: Mutex<HashSet<SurfaceId>>,
@@ -71,6 +87,19 @@ pub(crate) struct AgentSessionStarts {
 impl AgentSessionStarts {
     pub(crate) fn set_starter(&self, starter: Option<AcpmuxStarter>) {
         *self.starter.lock().unwrap_or_else(|e| e.into_inner()) = starter;
+    }
+
+    pub(crate) fn set_host(&self, host: AgentStartHost) {
+        *self.host.lock().unwrap_or_else(|e| e.into_inner()) = Some(host);
+    }
+
+    /// Ok on an allowed host; the refusal otherwise (also when unset).
+    fn host_gate(&self) -> Result<(), Refusal> {
+        match *self.host.lock().unwrap_or_else(|e| e.into_inner()) {
+            Some(AgentStartHost::Allowed) => Ok(()),
+            Some(AgentStartHost::TeamVm) => Err(Refusal::TeamVmBlocked),
+            Some(AgentStartHost::UnknownCloud) | None => Err(Refusal::HostUnverified),
+        }
     }
 
     fn starter(&self) -> Option<AcpmuxStarter> {
@@ -140,6 +169,9 @@ pub(super) fn start(
 ) -> bool {
     if !params.valid() {
         return refuse(writer, id, Refusal::BadRequest);
+    }
+    if let Err(refusal) = mux.control_clients.agent_sessions.starts.host_gate() {
+        return refuse(writer, id, refusal);
     }
     if let Err(refusal) = startable(mux, params.surface) {
         return refuse(writer, id, refusal);

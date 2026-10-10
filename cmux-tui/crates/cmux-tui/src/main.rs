@@ -37,6 +37,8 @@ mod host_colors;
 mod keys;
 mod layout_undo;
 #[cfg(unix)]
+mod agent_start_host;
+#[cfg(unix)]
 mod link;
 mod local_owner;
 mod localization;
@@ -2407,6 +2409,8 @@ fn run_server(
     mux.set_acpmux_socket(acp::daemon_socket_path());
     #[cfg(unix)]
     mux.set_acpmux_starter(acp::daemon_acpmux_starter());
+    #[cfg(unix)]
+    mux.set_agent_start_host(agent_start_host::detect(|name| std::env::var(name).ok()));
     let served_socket = pending_server.into_bound_path();
     mux.start_journal_plugin(served_socket.clone());
     let mut served_mux_cleanup = ServedMuxCleanup::new(mux.clone(), served_socket);

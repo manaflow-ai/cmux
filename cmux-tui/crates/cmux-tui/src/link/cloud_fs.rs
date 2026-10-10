@@ -65,6 +65,12 @@ pub(super) fn trusted_stamp(stamp: &Path, top: &Path, owner_uid: u32) -> bool {
     STAMP_PREFIXES.iter().any(|prefix| text.starts_with(prefix))
 }
 
+/// True on a Linux machine with a trusted Cloud image stamp (the stamp half
+/// of [`is_cloud_host`]; `agent_start_host.rs` reads it too).
+pub(crate) fn trusted_cloud_stamp() -> bool {
+    cfg!(target_os = "linux") && trusted_stamp(Path::new(IMAGE_STAMP), Path::new("/"), 0)
+}
+
 /// Installs the file owner over `HOME` when this is a Cloud host. Returns
 /// whether `fs-v1` is now served.
 pub(super) fn install_if_cloud_host() -> bool {

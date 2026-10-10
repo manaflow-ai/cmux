@@ -67,7 +67,7 @@ use super::{MessageWriter, OutboundStream, Response, SurfaceId, send_response};
 use crate::mux::Mux;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
 use agent_session_link::{AcpmuxLink, Inbound, LinkError};
-pub use agent_session_start::{AGENT_SESSION_START_CAPABILITY, AcpmuxStarter};
+pub use agent_session_start::{AGENT_SESSION_START_CAPABILITY, AcpmuxStarter, AgentStartHost};
 
 pub const AGENT_SESSION_ATTACH_CAPABILITY: &str = "agent-session-attach-v1";
 
@@ -333,6 +333,10 @@ pub(crate) enum Refusal {
     NotAsking,
     /// `agent-session-start`: the folder is not trusted on this machine.
     UntrustedFolder,
+    /// `agent-session-start`: this daemon runs on a team VM.
+    TeamVmBlocked,
+    /// `agent-session-start`: a Cloud VM daemon that cannot tell its kind.
+    HostUnverified,
 }
 
 impl Refusal {
@@ -351,6 +355,8 @@ impl Refusal {
             Self::AcpmuxUnavailable => "agent_session.acpmux_unavailable",
             Self::NotAsking => "agent_session.not_asking",
             Self::UntrustedFolder => "agent_session.untrusted_folder",
+            Self::TeamVmBlocked => "agent_session.team_vm_blocked",
+            Self::HostUnverified => "agent_session.host_unverified",
         }
     }
 
@@ -371,6 +377,10 @@ impl Refusal {
             }
             Self::NotAsking => "this agent has no mode that asks before each action",
             Self::UntrustedFolder => "the folder is not trusted on this machine",
+            Self::TeamVmBlocked => "agent chats cannot be started remotely on a team VM",
+            Self::HostUnverified => {
+                "this machine cannot tell whether it is a team VM, so it starts no remote chat"
+            }
         }
     }
 
@@ -990,6 +1000,13 @@ impl Mux {
     /// `agent_session.acpmux_unavailable` while acpmux is down.
     pub fn set_acpmux_starter(&self, starter: Option<AcpmuxStarter>) {
         self.control_clients.agent_sessions.starts.set_starter(starter);
+    }
+
+    /// The machine kind the binary read from this machine's own identity at
+    /// start. Until it is set, `agent-session-start` refuses
+    /// (`agent_session.host_unverified`).
+    pub fn set_agent_start_host(&self, host: AgentStartHost) {
+        self.control_clients.agent_sessions.starts.set_host(host);
     }
 
     /// True when the daemon serves `agent-session-start` (as attach: an
