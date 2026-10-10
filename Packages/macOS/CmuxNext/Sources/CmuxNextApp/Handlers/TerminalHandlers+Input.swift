@@ -1,11 +1,12 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextTerminal
 import CmuxNextTerminalFind
 
-// Find (the terminal's find bar over Ghostty search, the browser's find bar) and input
+// Find (the terminal's find bar over Ghostty search, the browser's find bar, the chat's) and input
 // sent through the daemon.
 extension TerminalHandlers {
     static func bindFind(into registry: ActionRegistry, context ctx: AppActionContext) {
@@ -20,7 +21,10 @@ extension TerminalHandlers {
             if case .page = content, let key = pane.stripModel.selectedID?.rawValue,
                FilePageHandlers.sendFind("find", key, ctx.services, text: invocation["text"]?.stringValue) { return }
             switch content {
-            case .agent, .page, .conversation:
+            case .agent(let view):
+                // The chat's own find bar (Find in Chat).
+                AgentPaneFind(view).run("find", takeFocus: invocation.allowsViewChange)
+            case .page, .conversation:
                 return ctx.refuse(RefusalStrings.notATerminal)
             case .browser:
                 guard let window = ctx.services.windowController(showing: pane) else { return }
@@ -41,6 +45,7 @@ extension TerminalHandlers {
         registry.bind("hideFind", invoke: { invocation in
             guard let (pane, content) = ctx.visibleContent(invocation) else { return }
             if sendToFilePage("hideFind", pane, content, ctx) { return }
+            if case .agent(let view) = content { return AgentPaneFind(view).run("hideFind", takeFocus: false) }
             guard case .terminal(let entry) = content else { return ctx.refuse(RefusalStrings.browserFindClosesWithEscape) }
             // A socket or CLI run leaves focus and the selection alone.
             entry.session.find.close(restoringFocus: invocation.allowsViewChange)
@@ -63,7 +68,9 @@ extension TerminalHandlers {
         guard let (pane, content) = ctx.visibleContent(invocation) else { return }
         if sendToFilePage(forward ? "findNext" : "findPrevious", pane, content, ctx) { return }
         switch content {
-        case .agent, .page, .conversation:
+        case .agent(let view):
+            AgentPaneFind(view).run(forward ? "findNext" : "findPrevious", takeFocus: invocation.allowsViewChange)
+        case .page, .conversation:
             return ctx.refuse(RefusalStrings.notATerminal)
         case .browser(let entry):
             entry.chrome.perform(forward ? .findNext : .findPrevious)

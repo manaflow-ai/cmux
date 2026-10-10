@@ -81,7 +81,7 @@ public nonisolated struct AppRecord: Sendable, Hashable, Identifiable {
         self.sandboxed = sandboxed
         self.manifest = manifest
         available = true
-        bundleDirectory = AppBundleLocator.directory(for: manifest.id)
+        bundleDirectory = nil
         commands = []
     }
 
@@ -114,7 +114,6 @@ public nonisolated struct AppRecord: Sendable, Hashable, Identifiable {
         sandboxed = json["sandboxed"]?.boolValue ?? false
         available = json["available"]?.boolValue ?? true
         bundleDirectory = json["bundle_dir"]?.stringValue.map { URL(fileURLWithPath: $0, isDirectory: true) }
-            ?? AppBundleLocator.directory(for: id)
         revision = json["revision"]?.numberValue.flatMap { UInt64(exactly: $0) }
         commands = (json["commands"]?.arrayValue ?? []).compactMap { entry in
             guard let op = entry["op"]?.stringValue else { return nil }
