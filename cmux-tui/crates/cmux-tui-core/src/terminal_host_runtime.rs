@@ -612,9 +612,7 @@ mod unix {
     pub(crate) use pty_custody::serve as serve_pty_custody;
     pub use pty_custody::{PtyCustody, request_terminal_host_pty_custody};
     pub(crate) use pty_lock::{remove_released, sweep_released_pty_locks};
-    pub(crate) use standby::{
-        StandbyTerminalHost, launch_terminal_host_from, launch_terminal_host_seeded,
-    };
+    pub(crate) use standby::StandbyTerminalHost;
 
     pub fn terminal_host_root(state_root: &Path, session: &str) -> PathBuf {
         crate::platform::normalize_filesystem_path(
@@ -759,6 +757,10 @@ pub use shared::attachment::launch::{
     adopt_terminal_host, launch_terminal_host, launch_terminal_host_with_identity,
 };
 #[cfg(unix)]
+pub(crate) use shared::attachment::launch::{
+    launch_terminal_host_from, launch_terminal_host_seeded,
+};
+#[cfg(unix)]
 pub(crate) use shared::codec::{
     DecodedHostResize, decode_host_resize_payload_for_version, decode_resync_kitty_graphics_limits,
 };
@@ -790,7 +792,7 @@ pub(crate) use unix::input_ack_surface_fixture;
 #[cfg(unix)]
 pub(crate) use unix::{
     ClipboardReadSignal, ControlResponses, DeferredCellPixelResolution, StandbyTerminalHost,
-    launch_terminal_host_from, launch_terminal_host_seeded, sweep_released_pty_locks,
+    sweep_released_pty_locks,
 };
 #[cfg(unix)]
 pub use unix::{
