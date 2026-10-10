@@ -15,7 +15,36 @@ enum HistoryControl {
                 guard let services else { return .value(.null) }
                 return .followUp { await list(services, query) }
             },
+        ] + debugMethods(services: services)
+    }
+
+    /// `debug.history_cookie_backups {action: show|hide|delete_all}` (DEBUG
+    /// builds): drives the History page's cookie backups sheet of the active
+    /// window's selected tab through the page model, the path the buttons use.
+    static func debugMethods(services: AppServices) -> [ControlMethod] {
+        #if DEBUG
+        [
+            .mainActor("debug.history_cookie_backups") { [weak services] call in
+                guard let services, let key = services.windows.active?.focusedPane?.selectedTab?.id,
+                      let page = services.cache.existingBrowser(key)?.tab as? HistoryPageTab else {
+                    throw ControlError.invalidParams("the active window's selected tab is not the History page")
+                }
+                let model = page.model
+                switch call.params["action"]?.stringValue ?? "show" {
+                case "show": model.showCookieBackups()
+                case "hide": model.showsCookieBackups = false
+                case "delete_all": model.deleteCookieBackups(model.cookieBackups.map(\.id))
+                default: throw ControlError.invalidParams("action must be show, hide or delete_all")
+                }
+                return .value(.object([
+                    "shown": .bool(model.showsCookieBackups),
+                    "backups": .array(model.cookieBackups.map { .object(["id": .string($0.id), "site": .string($0.site)]) }),
+                ]))
+            },
         ]
+        #else
+        []
+        #endif
     }
 
     static func query(from params: [String: JSONValue]) throws -> HistoryQuery {

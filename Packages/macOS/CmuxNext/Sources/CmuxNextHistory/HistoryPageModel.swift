@@ -9,6 +9,10 @@ public protocol HistoryPageSource: AnyObject {
     func removeSite(of entry: HistoryEntry)
     func clear(range: HistoryRange)
     func copy(_ text: String)
+    /// The cookie backups agents' clears left (newest first).
+    func cookieBackups() async -> [HistoryCookieBackup]
+    /// Deletes cookie backups for good (the person confirmed).
+    func deleteCookieBackups(_ ids: [String]) async
 }
 
 /// The page's state: query, filter, grouping, loaded groups. Reloads are
@@ -36,6 +40,9 @@ public final class HistoryPageModel {
     public private(set) var groups: [HistoryGrouping.Group] = []
     public private(set) var isLoading = false
     public var selection: String?
+    /// The cookie backups sheet (``showCookieBackups()``).
+    public var showsCookieBackups = false
+    public internal(set) var cookieBackups: [HistoryCookieBackup] = []
 
     @ObservationIgnored public weak var source: (any HistoryPageSource)?
     @ObservationIgnored private var entries: [HistoryEntry] = []

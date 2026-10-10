@@ -133,6 +133,19 @@ public nonisolated struct CookieBackups: Sendable {
         return removed
     }
 
+    /// The backups that open with this Mac's key, newest first: restore
+    /// id, site and time, never a cookie value (the History page's list).
+    public func summaries() -> [(restoreID: String, site: String, createdAt: Date)] {
+        backupFiles().compactMap { file in
+            let id = Self.restorePrefix + file.url.deletingPathExtension().lastPathComponent
+            guard let data = FileManager.default.contents(atPath: file.url.path), let plain = try? open(data, id: id),
+                  let record = try? JSONSerialization.jsonObject(with: plain) as? [String: Any] else { return nil }
+            let created = ((record["createdAt"] as? NSNumber)?.doubleValue ?? 0) / 1000
+            return (id, record["site"] as? String ?? "", Date(timeIntervalSince1970: created))
+        }
+        .sorted { $0.createdAt > $1.createdAt }
+    }
+
     /// Whether a backed-up cookie (`expires` in seconds since 1970, -1 for a
     /// session cookie) has passed its expiry.
     public static func expired(_ cookie: [String: Any], now: Date) -> Bool {
