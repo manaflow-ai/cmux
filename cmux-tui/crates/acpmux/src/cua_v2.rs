@@ -71,8 +71,12 @@ pub fn read_endpoint(dir: &Path) -> Result<Endpoint> {
         .read(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
         .open(&path)
-        .with_context(|| {
-            format!("the Computer Use helper v2 is not running ({} is missing)", path.display())
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                anyhow!("the Computer Use helper v2 is not running ({} is missing)", path.display())
+            } else {
+                anyhow!("cannot open {}: {e}", path.display())
+            }
         })?;
     let meta = file.metadata().context("cannot stat endpoint.json")?;
     // SAFETY: geteuid has no preconditions.

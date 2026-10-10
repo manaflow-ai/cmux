@@ -263,12 +263,13 @@ final class ComputerUseHelperDaemon {
     }
 
     /// The per-user Darwin temp directory, with a trailing slash. When
-    /// confstr fails: /tmp, never $TMPDIR (the caller makes its own 0700
-    /// directory there and checks it with fstat; the helper v2 accepts only
-    /// these two roots).
+    /// confstr fails: /tmp/cmux-<uid>/, never $TMPDIR (one per user, so slot
+    /// users on one Mac do not collide; the caller makes its 0700 directories
+    /// there and checks them with fstat; the helper v2 accepts only the Darwin
+    /// temp dir and /tmp).
     nonisolated static func userTemporaryDirectory() -> String {
         var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
-        guard confstr(_CS_DARWIN_USER_TEMP_DIR, &buffer, buffer.count) > 0 else { return "/tmp/" }
+        guard confstr(_CS_DARWIN_USER_TEMP_DIR, &buffer, buffer.count) > 0 else { return "/tmp/cmux-\(geteuid())/" }
         let path = String(cString: buffer)
         return path.hasSuffix("/") ? path : path + "/"
     }

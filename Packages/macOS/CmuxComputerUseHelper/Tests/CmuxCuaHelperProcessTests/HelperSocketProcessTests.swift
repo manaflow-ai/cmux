@@ -9,7 +9,7 @@ import Testing
 /// This target exists so the fleet's package lane (cmux-ci, package-test-lane.sh
 /// suite) can run the script against the binary it just built.
 @Suite struct HelperSocketProcessTests {
-    @Test func socketLocationAndPeerChecksHoldForTheBuiltHelper() throws {
+    @Test(.timeLimit(.minutes(2))) func socketLocationAndPeerChecksHoldForTheBuiltHelper() throws {
         let executable = try #require(Self.helperExecutable(), "the built cmux-cua-helper")
         let repo = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
