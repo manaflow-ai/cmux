@@ -243,7 +243,8 @@ fn cmux_socket_path_is_never_replaced_by_a_default_socket() {
     assert_eq!(failure_code(&output), (Some(3), "app.unreachable".into()));
     // A daemon command with only an app socket named: no default session
     // (`main` here listens at the default path) is chosen for it.
-    let output = world.cmux(&["workspace", "list"], &[("CMUX_BUNDLE_ID", ""), ("CMUX_SOCKET_PATH", dead)]);
+    let output =
+        world.cmux(&["workspace", "list"], &[("CMUX_BUNDLE_ID", ""), ("CMUX_SOCKET_PATH", dead)]);
     assert_eq!(failure_code(&output), (Some(2), "socket.no_daemon".into()));
     world.assert_app_untouched("CMUX_SOCKET_PATH <dead>");
     // `CMUX_TUI_SOCKET` names a dead daemon: typed, and the default `main`
