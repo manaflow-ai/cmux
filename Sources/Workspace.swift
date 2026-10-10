@@ -4828,9 +4828,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     private var layoutFollowUpAttemptScheduled = false
     private var layoutFollowUpAttemptVersion: Int = 0
     private var layoutFollowUpStalledAttemptCount = 0
-#if DEBUG
-    private(set) var debugWorkspaceWindowLayoutFlushCountForTesting = 0
-#endif
     private var pendingReparentFocusSuppressionViews: [ObjectIdentifier: GhosttySurfaceScrollView] = [:]
     private var portalRenderingEnabled = true
     var isPortalRenderingEnabled: Bool { portalRenderingEnabled }
@@ -12491,22 +12488,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         attemptEventDrivenLayoutFollowUp()
     }
 
-    /// Starts a browser-only follow-up so tests can observe the deferred
-    /// workspace-scoped window-layout flush without a geometry pass.
-    func debugBeginBrowserOnlyLayoutFollowUpForTesting(panelId: UUID) {
-        // The caller may have just exercised a geometry-enabled action. Clear
-        // those pending bits so this probe cannot accidentally take the
-        // geometry reconciliation path it is meant to distinguish.
-        layoutFollowUpNeedsGeometryPass = false
-        layoutFollowUpTerminalFocusPanelId = nil
-        layoutFollowUpBrowserExitFocusPanelId = nil
-        beginEventDrivenLayoutFollowUp(
-            reason: "workspace.debugBrowserOnlyLayoutFollowUp",
-            browserPanelId: panelId,
-            includeGeometry: false
-        )
-    }
-
     func debugHasPendingReparentFocusSuppressionsForTesting() -> Bool {
         !pendingReparentFocusSuppressionViews.isEmpty
     }
@@ -12657,9 +12638,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         // perform unrelated AppKit layout work (and multiplied the cost when
         // several workspaces were converging at once).
         MainActor.assumeIsolated {
-#if DEBUG
-            debugWorkspaceWindowLayoutFlushCountForTesting += 1
-#endif
             // The owning manager is the common case and gives us an O(1)
             // lookup. Recovery scans are reserved for window replacement or
             // orphaned workspaces whose live owner has not been restored yet.
