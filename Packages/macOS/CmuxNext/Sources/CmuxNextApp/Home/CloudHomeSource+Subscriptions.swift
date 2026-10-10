@@ -47,24 +47,24 @@ nonisolated extension CloudHomeSource {
     }
 
     /// An edit goes out only while its conversation's socket is `live`
-    /// (home-cloud-proxy.md section 5). Before that it waits
-    /// (`ownerUnreachable`: nothing was sent, the store resends it after
-    /// `.ownerRecovered`, which a `live` socket publishes), and once the
-    /// owner closed the socket it is refused (`notAuthorized`: the user is
-    /// not a participant) without subscribing again. A conversation without
-    /// a subscription is subscribed first, so its socket can go live and
-    /// its echo can settle the intent.
+    /// (home-cloud-proxy.md section 5). Before that it waits (`ownerUnreachable`;
+    /// the store resends after the `.ownerRecovered` a `live` socket publishes,
+    /// so `degraded` is set in the read's lock, before the subscribe can go live),
+    /// and once the owner closed the socket it is refused (`notAuthorized`)
+    /// without subscribing again. A conversation without a subscription is
+    /// subscribed first, so its socket can go live and its echo can settle the intent.
     func requireEditable(_ conversation: ConversationID, commands: any CloudConversationCommands, generation: UInt64) throws {
-        let (target, closed) = state.withLock { ($0.targets[conversation], $0.closed.contains(conversation)) }
+        let (target, closed) = state.withLock { state in
+            let target = state.targets[conversation], closed = state.closed.contains(conversation)
+            if !closed, target?.state != "live" { state.degraded = true }
+            return (target, closed)
+        }
         if closed { throw HomeRejection.notAuthorized }
         if target == nil {
             // task-owner: one subscribe; ends with its reply
             Task { [weak self] in await self?.subscribe(conversation, commands: commands, generation: generation) }
         }
-        guard target?.state == "live" else {
-            state.withLock { $0.degraded = true }
-            throw HomeRejection.ownerUnreachable
-        }
+        guard target?.state == "live" else { throw HomeRejection.ownerUnreachable }
     }
 
     /// Ends subscriptions of conversations the inbox no longer lists.

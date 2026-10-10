@@ -55,6 +55,16 @@ enum CloudStrings {
     nonisolated static var createStillPending: String {
         String(localized: "cloud.create.stillPending", defaultValue: "The machine still waits for approval. Try again in a minute.", table: "Cloud", bundle: .module)
     }
+    static func createConfirmSize(cpu: Int, memoryGB: Int, diskGB: Int) -> String {
+        String(format: String(localized: "cloud.create.confirm.size", defaultValue: "Size: %1$d vCPU, %2$d GB memory, %3$d GB disk", table: "Cloud", bundle: .module),
+               cpu, memoryGB, diskGB)
+    }
+    static func createConfirmName(_ name: String) -> String {
+        String(format: String(localized: "cloud.create.confirm.name", defaultValue: "Name: %@", table: "Cloud", bundle: .module), name)
+    }
+    nonisolated static var createApprovalMismatch: String {
+        String(localized: "cloud.create.approvalMismatch", defaultValue: "The approval request does not match the machine you confirmed, so cmux did not approve it.", table: "Cloud", bundle: .module)
+    }
     nonisolated static var createApproveInFeed: String {
         String(localized: "cloud.create.approveInFeed", defaultValue: "Approve this machine in your cmux feed, then try again.", table: "Cloud", bundle: .module)
     }
