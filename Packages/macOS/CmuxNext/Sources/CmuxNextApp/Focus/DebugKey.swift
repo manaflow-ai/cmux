@@ -19,7 +19,7 @@ import CmuxNextTerminal
 /// agent pane records the user's gesture. Never touches another app.
 enum DebugKey {
     private static let named: [String: (characters: String, keyCode: UInt16)] = [
-        "return": ("\r", 36), "escape": ("\u{1b}", 53), "tab": ("\t", 48), "d": ("d", 2), "c": ("c", 8), "v": ("v", 9),
+        "return": ("\r", 36), "escape": ("\u{1b}", 53), "tab": ("\t", 48), "space": (" ", 49), "d": ("d", 2), "c": ("c", 8), "v": ("v", 9),
         "l": ("l", 37), "w": ("w", 13), "t": ("t", 17), "h": ("h", 4), "j": ("j", 38), "k": ("k", 40),
         "left": (Shortcut.leftArrowKey, 123), "right": (Shortcut.rightArrowKey, 124),
         "down": (Shortcut.downArrowKey, 125), "up": (Shortcut.upArrowKey, 126),
