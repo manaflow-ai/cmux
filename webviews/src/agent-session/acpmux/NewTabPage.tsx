@@ -317,9 +317,12 @@ export function NewTabPage({
   // "rome://extensions").
   const inputReady = useEffectEvent((token: string) => onInputReady?.(token));
   useEffect(() => {
-    const focus = () => {
+    const focus = (event?: Event) => {
       field.current?.focus();
       field.current?.select();
+      // The host holds keys typed since its focus request until this answer (cx-9fl).
+      const token = (event as CustomEvent<{ token?: string }> | undefined)?.detail?.token;
+      if (token) inputReady(token);
     };
     focus();
     if (inputToken) inputReady(inputToken);

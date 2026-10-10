@@ -92,9 +92,12 @@ export function applyHostEvent(event: HostEvent): void {
       return bridge?.revealTurn?.(String(event.value));
     case "command":
       return bridge?.command?.(String(event.value));
-    case "focusLocation":
-      window.dispatchEvent(new Event(FOCUS_LOCATION));
+    case "focusLocation": {
+      // With a token the page answers newTab.inputReady once its field has the keyboard (cx-9fl).
+      const token = (value as { token?: unknown } | null)?.token;
+      window.dispatchEvent(new CustomEvent(FOCUS_LOCATION, { detail: typeof token === "string" ? { token } : {} }));
       return;
+    }
     case "transport":
       return receiveTransportEvent(event.value as TransportEvent);
     case "models.catalog":

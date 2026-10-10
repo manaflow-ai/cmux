@@ -71,4 +71,11 @@ public nonisolated struct AgentPageEvent: Equatable, Sendable {
 
     /// Focus Location Bar on a new tab page.
     public static let focusLocation = AgentPageEvent(kind: "focusLocation")
+
+    /// Focus Location Bar on a new tab page; the page answers `newTab.inputReady` with `token`
+    /// once its field took the keyboard and selected its text, so keys the host held for it go
+    /// after that selection (cx-9fl).
+    public static func focusLocation(token: String) -> AgentPageEvent {
+        AgentPageEvent(kind: "focusLocation", value: ["token": .string(token)])
+    }
 }

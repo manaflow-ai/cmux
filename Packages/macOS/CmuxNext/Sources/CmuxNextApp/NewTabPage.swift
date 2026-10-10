@@ -302,7 +302,9 @@ extension NewTabPage {
         if let key = pane.currentTabKey, services.agentTabs.isNewTabPage(key) {
             openingPanes.remove(openingKey)
             services.windowController(showing: pane)?.focus.send(.focusPane(pane.paneKey, source: .intent))
-            services.agentTabs.view(for: key)?.focusLocation()
+            // Keys typed since wait until the page selected its field (cx-9fl).
+            let view = services.agentTabs.view(for: key)
+            if let view, let token = services.keyRouter.newTabInputCoordinator.begin(for: pane) { view.focusLocation(token: token) } else { view?.focusLocation() }
             return
         }
         guard openingPanes.insert(openingKey).inserted else { return }

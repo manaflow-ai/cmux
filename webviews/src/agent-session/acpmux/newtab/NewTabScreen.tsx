@@ -1,4 +1,4 @@
-import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { FOCUS_LOCATION_EVENT, FolderIcon, type NewTabHost } from "../NewTabPage";
 import type { AcpmuxSnapshot } from "../model";
 import { EMPTY_OMNIBAR, type OmnibarContext } from "../omnibar";
@@ -150,20 +150,26 @@ export function NewTabScreen(props: Props) {
 
   // The field takes the keyboard when the screen appears (in the commit, so an adopted spare's
   // field has focus before the next key) and on Cmd-L (FOCUS_LOCATION_EVENT).
+  // Not on a parent render (the parent passes a new onInputReady each render): re-running the
+  // focus selected the typed text and the next key replaced it (cx-9fl).
+  const inputReady = useEffectEvent((token: string) => onInputReady?.(token));
   useLayoutEffect(() => {
-    const focus = () => {
+    const focus = (event?: Event) => {
       field.current?.focus();
       field.current?.select();
+      // The host holds keys typed since its focus request until this answer (cx-9fl).
+      const token = (event as CustomEvent<{ token?: string }> | undefined)?.detail?.token;
+      if (token) inputReady(token);
     };
     if (focusOnShow) focus();
     if (inputToken && inputReadyReported.current !== inputToken) {
       inputReadyReported.current = inputToken;
-      onInputReady?.(inputToken);
+      inputReady(inputToken);
     }
     const view = field.current?.ownerDocument.defaultView;
     view?.addEventListener(FOCUS_LOCATION_EVENT, focus);
     return () => view?.removeEventListener(FOCUS_LOCATION_EVENT, focus);
-  }, [inputToken, onInputReady, focusOnShow]);
+  }, [inputToken, focusOnShow]);
 
   const activate = (row: ScreenRow) => {
     switch (row.type) {
