@@ -185,10 +185,17 @@ struct TerminalSurfaceRemoteOutputTests {
 
         let remote = makeSurface(
             runtimeSurfaceBits: UInt(bitPattern: UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)),
+            ioMode: .manualMirror,
             isRemoteTerminal: true
         )
         defer { remote.surface!.deallocate() }
         #expect(!remote.allowsAutomaticClipboardWrite)
+        remote.permitClipboardWriteForUserGesture()
+        #expect(remote.consumeClipboardWritePermit())
+        #expect(!remote.consumeClipboardWritePermit())
+        remote.permitClipboardWriteForUserGesture()
+        remote.cancelClipboardWritePermit()
+        #expect(!remote.consumeClipboardWritePermit())
 
         let cloud = makeSurface(
             runtimeSurfaceBits: UInt(bitPattern: UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)),
@@ -202,6 +209,7 @@ struct TerminalSurfaceRemoteOutputTests {
     @MainActor
     private func makeSurface(
         runtimeSurfaceBits: UInt,
+        ioMode: TerminalSurfaceIOMode = .exec,
         isRemoteTerminal: Bool = false,
         allowsRemoteClipboardWrites: Bool = false
     ) -> TerminalSurface {
@@ -215,6 +223,7 @@ struct TerminalSurfaceRemoteOutputTests {
             tabId: UUID(),
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil,
+            ioMode: ioMode,
             isRemoteTerminal: isRemoteTerminal,
             allowsRemoteClipboardWrites: allowsRemoteClipboardWrites,
             dependencies: TerminalSurfaceRuntimeDependencies(
