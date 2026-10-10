@@ -112,6 +112,32 @@ struct AccountMacPeerAuthorizationTests {
         }
     }
 
+    @Test("Signed protocol capability permits stable and nightly Macs across teams")
+    func allowsCrossChannelAcrossTeams() throws {
+        let capability = IrxMacPeerCompatibility.capability
+        let local = F.identity(device: "self", team: "A", tag: "stable", namespace: "com.cmux.app")
+        let peerIdentity = F.identity(device: "peer", team: "B", tag: "nightly", namespace: "com.cmuxterm.app.nightly")
+        let host = F.record(local, endpoint: F.selfKey,
+            capabilities: [capability, "cmux.mac-devices.v1", "cmux.mac-host.v1"])
+        let peer = F.record(peerIdentity, endpoint: F.peerKey,
+            capabilities: [capability, "cmux.mac-host.v1"])
+        let account = F.account(macs: [peer], rules: [AccountMacDirectory.accountPeerRule,
+            AccountMacDirectory.accountCrossChannelRule], requester: host.descriptor)
+        let cache = F.cache(host: host)
+        let selected = try IrxAccountMacPeerAuthorization(deviceID: "peer", tag: "nightly", endpointID: F.peerKey)
+            .resolve(account: account, cache: cache, localIdentity: local, now: F.now)
+        #expect(selected.descriptor.identity.appNamespace == "com.cmuxterm.app.nightly")
+
+        let admission = try V2AccountMacAdmissionAuthority(host: host.descriptor,
+            wallNow: { F.now }, monotonicNow: { .now })
+        admission.apply(account: F.account(inbound: [F.inbound(F.record(
+            F.identity(device: "dialer", team: "C", tag: "nightly", namespace: "com.cmuxterm.app.nightly"),
+            endpoint: F.phoneKey, capabilities: [capability, "cmux.mac-devices.v1"]))],
+            rules: [AccountMacDirectory.accountPeerRule, AccountMacDirectory.accountCrossChannelRule],
+            requester: host.descriptor), hostRecord: host)
+        #expect(admission.authorizedPeer(endpointID: F.phoneKey) != nil)
+    }
+
     enum Rejection: String, CaseIterable, Sendable {
         case otherUser, otherNamespace, otherEnvironment, otherTag, expired, notYetIssued, missingRule,
              missingHost, selfDevice, phone, revokedPeer, revokedLocal, localAuthorityRevoked,

@@ -30,13 +30,13 @@ struct V2InboundAdmissionAuthorityTests {
 
     private func cache(peers: [V2InboundPeerPermission]? = nil, revision: Int = 1, issuedAt: Int? = nil,
                        expiry: Int? = nil, outbound: [V2DeviceRecord] = [], host: V2DeviceDescriptor? = nil,
-                       nextCursor: String? = nil) -> V2CachedState {
+                       nextCursor: String? = nil, rules: [String]? = nil) -> V2CachedState {
         let host = host ?? device()
         var cache = V2CachedState(identity: host.identity)
         cache.device = V2DeviceRecord(descriptor: host, deviceRecordID: "host-record", revision: 1, revoked: false)
         cache.directory = V2Directory(devices: outbound, inboundPeers: peers, issuedAt: issuedAt ?? timestamp,
             nextCursor: nextCursor, permissionExpiresAt: expiry ?? timestamp + 100,
-            relayURLs: [], revision: revision, teamID: host.identity.teamID)
+            relayURLs: [], revision: revision, rules: rules, teamID: host.identity.teamID)
         return cache
     }
 
@@ -100,6 +100,40 @@ struct V2InboundAdmissionAuthorityTests {
         )
         #expect(authority.restore(cache(peers: [permission], outbound: [mac], host: host)))
         #expect(authority.authorizedPeer(endpointID: mac.descriptor.endpointID) != nil)
+    }
+
+    @Test("Signed protocol capability permits a stable host to admit a nightly peer")
+    func crossChannelMacPeerAdmission() throws {
+        let capability = IrxMacPeerCompatibility.capability
+        let hostIdentity = V2Identity(appNamespace: "com.cmux.app", buildTag: "stable",
+            deviceID: "host", environment: "development", projectID: "project", teamID: "team", userID: "host-owner")
+        let peerIdentity = V2Identity(appNamespace: "com.cmuxterm.app.nightly", buildTag: "nightly",
+            deviceID: "peer", environment: "development", projectID: "project", teamID: "team", userID: "host-owner")
+        let host = V2DeviceDescriptor(endpointID: String(repeating: "a", count: 64), identity: hostIdentity,
+            identityGeneration: 1, metadata: V2DeviceMetadata(appVersion: "2",
+                capabilities: [capability, "cmux.mac-host.v1"], displayName: "Host", pairingEnabled: false,
+                platform: .mac, relayURLs: []))
+        let peer = V2DeviceRecord(descriptor: V2DeviceDescriptor(endpointID: String(repeating: "b", count: 64),
+            identity: peerIdentity, identityGeneration: 1, metadata: V2DeviceMetadata(appVersion: "2",
+                capabilities: [capability, "cmux.mac-devices.v1"], displayName: "Peer", pairingEnabled: false,
+                platform: .mac, relayURLs: [])), deviceRecordID: "peer-record", revision: 1, revoked: false)
+        let permission = V2InboundPeerPermission(device: peer, permissionExpiresAt: timestamp + 100)
+        let cache = self.cache(peers: [permission], host: host,
+            rules: [IrxMacPeerCompatibility.teamCrossChannelRule])
+        let wall = Date(timeIntervalSince1970: TimeInterval(timestamp))
+        let authority = try V2InboundAdmissionAuthority(host: host,
+            wallNow: { wall }, monotonicNow: { .now })
+        #expect(authority.restore(cache))
+        #expect(authority.authorizedPeer(endpointID: peer.descriptor.endpointID) != nil)
+
+        let missingCapabilityHost = V2DeviceDescriptor(endpointID: host.endpointID, identity: host.identity,
+            identityGeneration: host.identityGeneration, metadata: V2DeviceMetadata(appVersion: "2",
+                capabilities: ["cmux.mac-host.v1"], displayName: "Host", pairingEnabled: false,
+                platform: .mac, relayURLs: []))
+        let missingCache = self.cache(peers: [permission], revision: 2, host: missingCapabilityHost,
+            rules: [IrxMacPeerCompatibility.teamCrossChannelRule])
+        #expect(authority.apply(snapshot(missingCache, sequence: 1)))
+        #expect(authority.authorizedPeer(endpointID: peer.descriptor.endpointID) == nil)
     }
 
     @Test("Cached inbound permissions preserve independent Mac and iOS opt-ins",

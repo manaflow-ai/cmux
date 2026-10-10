@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/durable-sqlite";
 import { DeviceDescriptorSchema, identifier, type DeviceDescriptor, type DeviceMetadata, type DeviceRecord, type Identity, type Permission } from "../contracts/common";
 import { OperationError } from "../errors";
+import { MAC_PEER_CAPABILITY } from "../rules";
 import { applyStorageMigrations } from "./migrations";
 import { storageSchema } from "./schema";
 
@@ -233,12 +234,16 @@ export class TeamStore {
     const acceptsMacPeers = !requester.revoked && requester.descriptor.metadata.platform === "mac";
     const visible = sql`(d."user_id" = ${userId} OR outgoing."connect" = 1)`;
     const acceptsMacs = requester.descriptor.metadata.capabilities.includes("cmux.mac-host.v1");
-    // Mac access requires opt-in hosting, the same account and exact app/build.
-    // Existing team grants continue to govern the iOS admission path.
+    const crossChannel = requester.descriptor.metadata.capabilities.includes(MAC_PEER_CAPABILITY);
+    // Mac access requires opt-in hosting and the same account. Exact app/build
+    // matches remain the legacy path; the signed protocol capability and the
+    // Worker rule permit a channel mismatch.
     const macPeer = sql`(${acceptsMacPeers && acceptsMacs ? 1 : 0} = 1 AND d."platform" = 'mac'
       AND d."user_id" = ${userId} AND d."endpoint_id" != ${requester.descriptor.endpointId}
-      AND d."app_namespace" = ${requester.descriptor.identity.appNamespace}
-      AND d."build_tag" = ${requester.descriptor.identity.buildTag}
+      AND ((${crossChannel ? 1 : 0} = 1
+            AND EXISTS (SELECT 1 FROM json_each(d."capabilities_json") WHERE value = ${MAC_PEER_CAPABILITY}))
+        OR (d."app_namespace" = ${requester.descriptor.identity.appNamespace}
+            AND d."build_tag" = ${requester.descriptor.identity.buildTag}))
       AND EXISTS (SELECT 1 FROM json_each(d."capabilities_json") WHERE value = 'cmux.mac-devices.v1'))`;
     const inbound = sql`(${acceptsIOSPeers || acceptsMacPeers ? 1 : 0} = 1 AND d."revoked" = 0 AND a."expires_at" > ${now}
       AND ((d."platform" = 'ios' AND ${acceptsIOSPeers ? 1 : 0} = 1 AND (d."user_id" = ${userId} OR incoming."connect" = 1))

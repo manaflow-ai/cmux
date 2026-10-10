@@ -67,9 +67,14 @@ struct IrxAccountMacPeerAuthorization: Sendable {
               // same-team behavior never depends on the account route.
               identity.teamID != localIdentity.teamID,
               identity.environment == localIdentity.environment, identity.projectID == localIdentity.projectID,
-              identity.appNamespace == localIdentity.appNamespace,
               device.endpointID != own.descriptor.endpointID,
               identity.deviceID.lowercased() != localIdentity.deviceID.lowercased() else {
+            throw IrxMacPeerAuthorization.Failure.identityMismatch
+        }
+        guard IrxMacPeerCompatibility.channelsCompatible(
+            local: own.descriptor, peer: device,
+            rule: AccountMacDirectory.accountCrossChannelRule,
+            directoryRules: account.directory.rules) else {
             throw IrxMacPeerAuthorization.Failure.identityMismatch
         }
         guard device.metadata.capabilities.contains("cmux.mac-host.v1") else {

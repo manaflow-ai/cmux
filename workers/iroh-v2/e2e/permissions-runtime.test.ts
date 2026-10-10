@@ -124,3 +124,15 @@ test("the iOS directory path never receives Mac-to-Mac inbound grants", async ()
   expect(names(ios.inboundPeers.map((p: any) => p.device))).not.toContain("nightly-host");
   expect(names(ios.inboundPeers.map((p: any) => p.device))).not.toContain("nightly-dialer");
 });
+
+test("signed stable and nightly Mac descriptors use the cross-channel team rule", async () => {
+  const post = client("cross-channel-pair");
+  expect((await post("/cross-channel-pair")).status).toBe(200);
+  const host = (await post("/directory", { device: "stable-host" })).body.directory;
+  expect(names(host.devices)).toContain("nightly-dialer");
+  expect(names(host.inboundPeers.map((p: any) => p.device))).toEqual(["nightly-dialer"]);
+  expect(host.rules).toContain("cmux.mac-peer-cross-channel.v1");
+  const dialer = (await post("/directory", { device: "nightly-dialer" })).body.directory;
+  expect(names(dialer.devices)).toContain("stable-host");
+  expect(dialer.inboundPeers).toEqual([]);
+});

@@ -153,6 +153,13 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         incomingAccessEnabled: Bool
     ) -> [String] {
         var result: [String] = []
+        if discoveryEnabled || incomingAccessEnabled {
+            // This is signed as part of the complete v2 descriptor. It is a
+            // protocol-version opt-in, not a grant by itself; the directory
+            // rule and the normal host/device capabilities still decide the
+            // direction of a Mac connection.
+            result.append(IrxMacPeerCompatibility.capability)
+        }
         if discoveryEnabled { result.append("cmux.mac-devices.v1") }
         if incomingAccessEnabled { result.append("cmux.mac-host.v1") }
         return result
@@ -340,7 +347,9 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                 guard let metadata = await service.snapshot().cache.device?.descriptor.metadata else { return }
                 guard self.isCurrent(token), !Task.isCancelled else { return }
                 let next = V2DeviceMetadata(appVersion: metadata.appVersion,
-                    capabilities: metadata.capabilities.filter { !["cmux.mac-devices.v1", "cmux.mac-host.v1"].contains($0) } + capabilities,
+                    capabilities: metadata.capabilities.filter {
+                        ![IrxMacPeerCompatibility.capability, "cmux.mac-devices.v1", "cmux.mac-host.v1"].contains($0)
+                    } + capabilities,
                     displayName: metadata.displayName, pairingEnabled: pairing,
                     platform: metadata.platform, relayURLs: metadata.relayURLs)
                 do {
@@ -885,7 +894,9 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
               metadata.relayURLs != [relay], let service = controlService else { return }
         let next = V2DeviceMetadata(
             appVersion: metadata.appVersion,
-            capabilities: metadata.capabilities.filter { !["cmux.mac-devices.v1", "cmux.mac-host.v1"].contains($0) } + deviceCapabilities,
+            capabilities: metadata.capabilities.filter {
+                ![IrxMacPeerCompatibility.capability, "cmux.mac-devices.v1", "cmux.mac-host.v1"].contains($0)
+            } + deviceCapabilities,
             displayName: metadata.displayName,
             pairingEnabled: metadata.pairingEnabled,
             platform: metadata.platform,

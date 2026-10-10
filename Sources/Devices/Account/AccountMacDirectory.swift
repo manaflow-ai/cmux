@@ -8,6 +8,9 @@ import Foundation
 struct AccountMacDirectory: Codable, Equatable, Sendable {
     /// The rule the account service names when it implements cross-team Mac peers.
     static let accountPeerRule = "cmux.mac-account-peer.v1"
+    /// The rule the account service names when it permits signed cross-channel
+    /// Mac peer compatibility.
+    static let accountCrossChannelRule = IrxMacPeerCompatibility.accountCrossChannelRule
 
     let userID: String
     let revision: Int
@@ -29,6 +32,9 @@ struct AccountMacDirectory: Codable, Equatable, Sendable {
 
     /// Whether the issuing service implements the account peer rule.
     var supportsAccountPeers: Bool { rules.contains(Self.accountPeerRule) }
+
+    /// Whether the issuing service implements the signed cross-channel rule.
+    var supportsCrossChannelPeers: Bool { rules.contains(Self.accountCrossChannelRule) }
 
     /// Joins the pages of one read (same user and revision) into one complete
     /// directory. Its lease is the earliest page's issue time and expiry, so a

@@ -9,8 +9,12 @@ import Foundation
 /// into a refusal (https://github.com/manaflow-ai/cmux/issues/13458).
 struct DeviceLinkControlPlaneRules: Equatable, Sendable {
     /// Same-account Macs with `cmux.mac-devices.v1` may enter a host that
-    /// opted in with `cmux.mac-host.v1` (same app namespace and build tag).
+    /// opted in with `cmux.mac-host.v1`.
     static let macPeerInbound = "cmux.mac-peer-inbound.v1"
+
+    /// The signed capability/rule pair may relax the app namespace and build
+    /// tag match while preserving the authenticated account scope.
+    static let macPeerCrossChannel = IrxMacPeerCompatibility.teamCrossChannelRule
 
     /// What the shipping Mac-to-Mac link requires.
     static let current = DeviceLinkControlPlaneRules(required: [macPeerInbound])

@@ -90,7 +90,7 @@ test("a Mac that switches team X to Y replaces its row; its other Mac sees the Y
   await call(broker, aKey!, aInY, "account.publish.v1");
   seen = directoryOf((await call(broker, bKey!, bInY, "account.directory.v1")).response);
   expect(seen.userId).toBe("user-u");
-  expect(seen.rules).toEqual(["cmux.mac-account-peer.v1"]);
+  expect(seen.rules).toEqual(["cmux.mac-account-peer.v1", "cmux.mac-account-cross-channel.v1"]);
   expect(seen.macs.map(mac => [mac.descriptor.identity.teamId, mac.descriptor.endpointId])).toEqual([["team-y", aKey!.endpointId]]);
   expect(seen.inboundMacs.map(peer => [peer.device.descriptor.identity.deviceId, peer.permissionExpiresAt])).toEqual([["mac-a", NOW + 300]]);
   expect(seen.permissionExpiresAt).toBe(NOW + 3590);
@@ -215,6 +215,30 @@ test("namespace, build tag and lease gate inbound admission", async () => {
   const later = directoryOf((await call(broker, hostKey!, host, "account.directory.v1", NOW + 700)).response);
   expect(later.inboundMacs).toEqual([]);
   expect(later.macs).toEqual([]);
+});
+
+test("signed stable and nightly Mac descriptors use the account cross-channel rule", async () => {
+  const w = await world();
+  const [hostKey, peerKey] = await Promise.all([65, 66].map(deviceKey));
+  const capability = "cmux.mac-peer.v1";
+  const host = descriptor(hostKey!, identity("team-x", "user-u", "stable-host", {
+    appNamespace: "com.cmux.app", buildTag: "stable",
+  }), "mac", [capability, "cmux.mac-host.v1"]);
+  const peer = descriptor(peerKey!, identity("team-y", "user-u", "nightly-peer", {
+    appNamespace: "com.cmuxterm.app.nightly", buildTag: "nightly",
+  }), "mac", [capability, "cmux.mac-devices.v1"], false);
+  w.x.enroll(host, NOW - 100); w.y.enroll(peer, NOW - 100);
+  w.x.store.observeAuthority("user-u", NOW - 50, NOW + 3550, NOW);
+  w.y.store.observeAuthority("user-u", NOW - 40, NOW + 3560, NOW);
+  const broker = w.account("user-u");
+  await call(broker, hostKey!, host, "account.publish.v1");
+  await call(broker, peerKey!, peer, "account.publish.v1");
+  const directory = directoryOf((await call(broker, hostKey!, host, "account.directory.v1")).response);
+  expect(directory.macs).toEqual([]);
+  expect(directory.inboundMacs.map(permission => permission.device.descriptor.identity.deviceId)).toEqual(["nightly-peer"]);
+  expect(directory.rules).toContain("cmux.mac-account-cross-channel.v1");
+  const peerDirectory = directoryOf((await call(broker, peerKey!, peer, "account.directory.v1")).response);
+  expect(peerDirectory.macs.map(mac => mac.descriptor.identity.deviceId)).toEqual(["stable-host"]);
 });
 
 test("proofs: replayed nonces and team-purpose signatures are rejected", async () => {

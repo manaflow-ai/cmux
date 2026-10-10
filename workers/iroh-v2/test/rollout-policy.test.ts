@@ -12,7 +12,7 @@ const bindings = [
 ];
 const version = (id = "current"): Parameters<typeof assertPublished>[0] => ({id, resources: {bindings: structuredClone(bindings), script_runtime: {migration_tag: config.migrations.at(-1).tag}}});
 const health = () => ({schemaId: "health.v1", environment: "production", sourceRevision: revision,
-  rules: ["cmux.mac-peer-inbound.v1"], storage: {...candidateStorage}});
+  rules: ["cmux.mac-peer-inbound.v1", "cmux.mac-peer-cross-channel.v1"], storage: {...candidateStorage}});
 
 test("only canonical production and staging targets are deployable", () => {
   assertTarget(config, "production");

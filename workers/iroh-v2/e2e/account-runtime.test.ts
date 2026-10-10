@@ -169,7 +169,7 @@ async function scenario(withAccount: boolean) {
       const fromA = await directory(a, "directory-a-1");
       expect(fromA.userId).toBe("user-u");
       expect(fromA.macs.map((mac: any) => [mac.descriptor.identity.teamId, mac.descriptor.endpointId])).toEqual([["team-y", b.descriptor.endpointId]]);
-      expect(fromA.rules).toEqual(["cmux.mac-account-peer.v1"]);
+      expect(fromA.rules).toEqual(["cmux.mac-account-peer.v1", "cmux.mac-account-cross-channel.v1"]);
       const fromB = await directory(b, "directory-b-1");
       expect(fromB.macs.map((mac: any) => mac.descriptor.endpointId)).toEqual([a.descriptor.endpointId]);
       expect(fromB.inboundMacs.map((peer: any) => [peer.device.descriptor.endpointId, peer.device.descriptor.identity.teamId])).toEqual([[a.descriptor.endpointId, "team-x"]]);
@@ -234,7 +234,7 @@ test("one user's Macs on teams X, Y and Z find each other; teammates and the iPh
   expect(exercised.phoneFrames.length).toBeGreaterThan(2);
   const final = JSON.parse(exercised.phoneFrames.find(text => text.includes('"phone-final"'))!);
   expect(final.schemaId).toBe("directory.result.v1");
-  expect(final.directory.rules).toEqual(["cmux.mac-peer-inbound.v1"]);
+  expect(final.directory.rules).toEqual(["cmux.mac-peer-inbound.v1", "cmux.mac-peer-cross-channel.v1"]);
   expect(final.directory.devices.map((record: any) => record.descriptor.identity.deviceId).sort()).toEqual(["iphone", "mac-a"]);
   // Byte-for-byte: every frame the iPhone's team socket received, including its directory.
   expect(exercised.phoneFrames).toEqual(untouched.phoneFrames);

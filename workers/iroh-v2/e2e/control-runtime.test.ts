@@ -599,11 +599,11 @@ test("the account directory reaches AccountControl and the team record through t
   expect(published.body).toMatchObject({ schemaId: "account.published.v1", device: { descriptor: { endpointId: descriptor.endpointId, metadata: { capabilities: hosting.capabilities } } } });
   const directory = await accountCall("account.directory.v1", "account-directory");
   expect(directory.body.schemaId).toBe("account.directory.result.v1");
-  expect(directory.body.directory).toMatchObject({ userId, macs: [], inboundMacs: [], rules: ["cmux.mac-account-peer.v1"] });
+  expect(directory.body.directory).toMatchObject({ userId, macs: [], inboundMacs: [], rules: ["cmux.mac-account-peer.v1", "cmux.mac-account-cross-channel.v1"] });
   // Account traffic wrote nothing to the team: only the metadata change moved its revision.
   const after = await teamRequest({ schemaId: "directory.request.v1", requestId: "team-after-account" });
   expect(after.body.directory.revision).toBe(before.body.directory.revision + 1);
-  expect(after.body.directory.rules).toEqual(["cmux.mac-peer-inbound.v1"]);
+  expect(after.body.directory.rules).toEqual(["cmux.mac-peer-inbound.v1", "cmux.mac-peer-cross-channel.v1"]);
   // Another user's valid ticket reaches only that user's object: it cannot
   // borrow this user's device, and its own object lists nothing of this user.
   const other = { ...descriptor, identity: { ...descriptor.identity, userId: "other-user" } };

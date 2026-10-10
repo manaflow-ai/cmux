@@ -89,7 +89,7 @@ if os.environ['PROBE_SCENARIO'] == 'canonical-target' and not any(url.startswith
 if args[-1].endswith('/v2/health'):
     deployment=json.loads(pathlib.Path(os.environ['MOCK_STATE']).read_text())
     deployed=deployment.get('annotations',{}).get('workers/message','') != 'old'
-    health={'schemaId':'health.v1','environment':('staging' if 'cmux-v2-staging' in url else 'production'),'sourceRevision':'${MOCK_HEAD}','rules':['cmux.mac-peer-inbound.v1'],'storage':{'maxSchemaVersion':7,'writeSchemaVersion':6}}
+    health={'schemaId':'health.v1','environment':('staging' if 'cmux-v2-staging' in url else 'production'),'sourceRevision':'${MOCK_HEAD}','rules':['cmux.mac-peer-inbound.v1','cmux.mac-peer-cross-channel.v1'],'storage':{'maxSchemaVersion':7,'writeSchemaVersion':6}}
     scenario=os.environ['PROBE_SCENARIO']
     status='200'
     if scenario=='unknown-storage' and not deployed: health.pop('storage')

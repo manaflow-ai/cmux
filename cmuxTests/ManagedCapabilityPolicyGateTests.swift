@@ -473,11 +473,11 @@ struct ManagedCapabilityPolicyGateTests {
     func macOnlyCapabilitiesAreIndependent() {
         #expect(MobileHostIrxRuntime.macDeviceCapabilities(discoveryEnabled: false, incomingAccessEnabled: false).isEmpty)
         #expect(MobileHostIrxRuntime.macDeviceCapabilities(discoveryEnabled: true, incomingAccessEnabled: false)
-            == ["cmux.mac-devices.v1"])
+            == [IrxMacPeerCompatibility.capability, "cmux.mac-devices.v1"])
         #expect(MobileHostIrxRuntime.macDeviceCapabilities(discoveryEnabled: false, incomingAccessEnabled: true)
-            == ["cmux.mac-host.v1"])
+            == [IrxMacPeerCompatibility.capability, "cmux.mac-host.v1"])
         #expect(MobileHostIrxRuntime.macDeviceCapabilities(discoveryEnabled: true, incomingAccessEnabled: true)
-            == ["cmux.mac-devices.v1", "cmux.mac-host.v1"])
+            == [IrxMacPeerCompatibility.capability, "cmux.mac-devices.v1", "cmux.mac-host.v1"])
     }
 
     @Test("Mac-only hosting admits Mac peers while keeping iOS pairing disabled")

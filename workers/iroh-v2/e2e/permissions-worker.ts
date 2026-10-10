@@ -109,6 +109,28 @@ export class PermissionTestDO {
         }
         return Response.json({ ok: true });
       }
+      if (path === "/cross-channel-pair") {
+        // A stable host and a nightly dialer share the authenticated team
+        // scope but deliberately use different app namespaces/build tags.
+        // The signed protocol capability is present on both descriptors.
+        const pair = [
+          ["stable-host", "1", "com.cmux.app", "stable", ["irx-v2", "cmux.mac-peer.v1", "cmux.mac-host.v1"]],
+          ["nightly-dialer", "2", "com.cmuxterm.app.nightly", "nightly", ["irx-v2", "cmux.mac-peer.v1", "cmux.mac-devices.v1"]],
+        ] as const;
+        for (const [name, key, appNamespace, buildTag, capabilities] of pair) {
+          const descriptor = {
+            identity: { ...scope, userId: "alice", deviceId: name, appNamespace, buildTag },
+            endpointId: key.repeat(64), identityGeneration: 0,
+            metadata: { platform: "mac" as const, displayName: name, appVersion: "1.0", pairingEnabled: false,
+              capabilities: [...capabilities], relayURLs: ["https://relay.test"] },
+          };
+          const challenge = { challengeId: name, nonceHash: name, payloadHash: name, issuedAt: 1000, expiresAt: 2800 };
+          this.store.issueChallenge(descriptor.identity, challenge);
+          const result = this.store.commitRegistration({ descriptor, ...challenge, requestId: name, requestHash: name, now: this.now });
+          this.devices.set(name, result.device);
+        }
+        return Response.json({ ok: true });
+      }
       if (path === "/page") return Response.json(this.store.listDirectoryDevices(this.store.getDevice(device.descriptor.identity)!, this.now, input.cursor, input.limit));
       const verifiedAt = device.descriptor.identity.userId === "alice" ? 1200 : 1000;
       const session: BrokerSession = {

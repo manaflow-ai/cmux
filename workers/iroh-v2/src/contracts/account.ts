@@ -41,9 +41,9 @@ export const AccountWithdrawRequestSchema = z.strictObject({
 export const AccountDirectorySchema = z.strictObject({
   userId: identifier,
   revision,
-  /** Macs that opted in to hosting (`cmux.mac-host.v1`) in the requester's app namespace, excluding the requester. */
+  /** Macs that opted in to hosting (`cmux.mac-host.v1`) in the requester's channel or a signed compatible channel, excluding the requester. */
   macs: z.array(DeviceRecordSchema).max(ACCOUNT_MAC_LIMIT),
-  /** Only for a requester with `cmux.mac-host.v1`: Macs with `cmux.mac-devices.v1`, same namespace and build tag, current authority. */
+  /** Only for a requester with `cmux.mac-host.v1`: Macs with `cmux.mac-devices.v1`, an exact channel or signed compatible channel, and current authority. */
   inboundMacs: z.array(InboundPeerPermissionSchema).max(ACCOUNT_MAC_LIMIT),
   relayURLs: z.array(relayURL).max(16),
   issuedAt: timestamp,

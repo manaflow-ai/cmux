@@ -5,7 +5,7 @@ import type { DeviceRecord, Identity } from "./contracts/common";
 import type { SocketSetup } from "./contracts/requests";
 import { API_TICKET_SECONDS, accountRequestSigningInput, verifyDeviceSignature } from "./crypto";
 import { OperationError } from "./errors";
-import { ACCOUNT_DIRECTORY_RULES } from "./rules";
+import { ACCOUNT_DIRECTORY_RULES, MAC_PEER_CAPABILITY } from "./rules";
 import { installationKey, type AccountMacRow, type AccountRevalidation, type AccountStore } from "./storage/account-store";
 import { identityKey } from "./storage/team-store";
 
@@ -253,6 +253,7 @@ export class AccountBroker {
     const self = installationKey(session.identity);
     const requesterDescriptor = requester.device.descriptor;
     const namespace = requesterDescriptor.identity.appNamespace;
+    const crossChannel = requesterDescriptor.metadata.capabilities.includes(MAC_PEER_CAPABILITY);
     const hosts = requesterDescriptor.metadata.capabilities.includes(MAC_HOST_CAPABILITY);
     const ordered = current
       .filter(({ record }) => request.cursor === undefined || record.device.deviceRecordId > request.cursor)
@@ -273,12 +274,20 @@ export class AccountBroker {
       // example after returning to another team without republishing) must
       // not keep advertising a stale endpoint over its live one.
       const leased = record.authorityExpiresAt !== null && record.authorityExpiresAt > now;
-      const listed = leased && row.installationKey !== self && descriptor.identity.appNamespace === namespace
+      // Account discovery has historically shown the same app namespace across
+      // build tags; the signed client authorization below still checks the
+      // exact build unless both descriptors opt into cross-channel support.
+      const channelCompatible = descriptor.identity.appNamespace === namespace
+        || (crossChannel && descriptor.metadata.capabilities.includes(MAC_PEER_CAPABILITY));
+      const listed = leased && row.installationKey !== self && channelCompatible
         && descriptor.metadata.capabilities.includes(MAC_HOST_CAPABILITY);
       // Same predicates as the team directory's Mac inbound rule, without the
-      // team: opted-in host, same user (this object), namespace and build,
-      // another endpoint, and an unexpired authority lease in the peer's team.
-      const admitted = hosts && descriptor.identity.appNamespace === namespace && descriptor.identity.buildTag === requesterDescriptor.identity.buildTag
+      // team: opted-in host, same user (this object), an exact channel or two
+      // signed cross-channel descriptors, another endpoint, and an unexpired
+      // authority lease in the peer's team.
+      const peerCrossChannel = descriptor.metadata.capabilities.includes(MAC_PEER_CAPABILITY);
+      const admitted = hosts && (descriptor.identity.appNamespace === namespace && descriptor.identity.buildTag === requesterDescriptor.identity.buildTag
+        || crossChannel && peerCrossChannel)
         && descriptor.endpointId !== requesterDescriptor.endpointId && descriptor.metadata.capabilities.includes(MAC_DEVICES_CAPABILITY)
         && record.authorityExpiresAt !== null && record.authorityExpiresAt > now;
       if (!listed && !admitted) continue;

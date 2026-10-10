@@ -6,7 +6,9 @@ import os
 ///
 /// It admits only `platform == .mac` rows from the account directory's
 /// `inboundMacs` that opted into `cmux.mac-devices.v1` and share this host's
-/// user, environment, project, app namespace and build tag, and only while this
+/// user, environment and project. Exact app namespace/build matches remain
+/// compatible with older clients; signed cross-channel peers also require the
+/// account directory's cross-channel rule, and only while this
 /// host's own team record advertises `cmux.mac-host.v1`. iOS rows are never
 /// admitted here: phone pairing stays on the team authority alone.
 final class V2AccountMacAdmissionAuthority: Sendable {
@@ -89,8 +91,10 @@ final class V2AccountMacAdmissionAuthority: Sendable {
                       identity.teamID != host.identity.teamID,
                       identity.environment == host.identity.environment,
                       identity.projectID == host.identity.projectID,
-                      identity.appNamespace == host.identity.appNamespace,
-                      identity.buildTag == host.identity.buildTag,
+                      IrxMacPeerCompatibility.channelsCompatible(
+                          local: hostRecord.descriptor, peer: device,
+                          rule: AccountMacDirectory.accountCrossChannelRule,
+                          directoryRules: directory.rules),
                       identity.deviceID.lowercased() != host.identity.deviceID.lowercased(),
                       device.endpointID != host.endpointID, Self.validKey(device.endpointID),
                       device.identityGeneration >= 0 else { continue }
