@@ -102,6 +102,14 @@ import { getGoVmUsage, GO_SAVED_VM_LIMIT } from "../../../services/vms/goUsage";
 export const maxDuration = 600;
 const VM_CREATE_ADMISSION_BUDGET_MS = 200;
 
+function createResourceFields(resourceReservation: { readonly vcpus: number; readonly memoryMb: number } | null | undefined) {
+  if (!resourceReservation) return {};
+  return {
+    resources: resourceReservation,
+    resourceReservation,
+  };
+}
+
 export async function GET(request: Request): Promise<Response> {
   return withAuthedVmApiRoute(
     request,
@@ -435,6 +443,10 @@ export async function POST(request: Request): Promise<Response> {
         address: { ipv4: created.addressIpv4, ipv6: created.addressIpv6 },
         cmuxTuiContract: created.cmuxTuiContract,
         agentUpdates: created.agentUpdates,
+        // Keep the create response self-contained for clients that append it
+        // directly to their fleet model. Pool accounting and the per-machine
+        // resize shape are separate contracts even when they currently match.
+        ...createResourceFields(created.resourceReservation),
         ...(attach ? { attach } : {}),
       });
     },

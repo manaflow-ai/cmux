@@ -1002,6 +1002,24 @@ public struct VMCmuxRemoteEndpoint: Sendable {
     }
 
     public let daemonBuild: DaemonBuild?
+
+    public init(
+        route: String,
+        token: String,
+        expiresAtUnix: Int64,
+        session: String,
+        trustedCarrier: Bool,
+        networkAddresses: NetworkAddresses? = nil,
+        daemonBuild: DaemonBuild? = nil
+    ) {
+        self.route = route
+        self.token = token
+        self.expiresAtUnix = expiresAtUnix
+        self.session = session
+        self.trustedCarrier = trustedCarrier
+        self.networkAddresses = networkAddresses
+        self.daemonBuild = daemonBuild
+    }
 }
 
 public enum VMAttachEndpoint: Sendable {
@@ -1551,9 +1569,9 @@ public actor VMClient {
         } else {
             networkAddresses = nil
         }
-        let expiresAtUnix = (object["expiresAtUnix"] as? Int64)
-            ?? (object["expires_at_unix"] as? Int64)
-            ?? Int64((object["expiresAtUnix"] as? Double) ?? (object["expires_at_unix"] as? Double) ?? 0)
+        let expiresAtUnix = Self.decodeInt64(object["expiresAtUnix"])
+            ?? Self.decodeInt64(object["expires_at_unix"])
+            ?? 0
         return VMCmuxRemoteEndpoint(
             route: route,
             token: object["token"] as? String ?? "",
@@ -1602,6 +1620,14 @@ public actor VMClient {
     /// older control planes remain readable and the server remains authoritative.
     static func decodePositiveInt(_ raw: Any?) -> Int? {
         decodeIntArray([raw as Any]).first
+    }
+
+    private static func decodeInt64(_ raw: Any?) -> Int64? {
+        if let value = raw as? Int64 { return value }
+        if let value = raw as? Int { return Int64(value) }
+        if let value = raw as? NSNumber { return value.int64Value }
+        if let value = raw as? Double, value.isFinite { return Int64(value) }
+        return nil
     }
 
     /// `vms[].resources` carries the server's pool claim. Malformed values are
@@ -1703,8 +1729,15 @@ public actor VMClient {
             summary.cmuxTuiContract = (obj["cmuxTuiContract"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             summary.agentUpdates = CloudAgentUpdates(wireValue: obj["agentUpdates"])
             summary.createAttach = Self.decodeCreateAttach(obj["attach"])
-            summary.resourceReservation = Self.decodeResourceReservation(obj["resources"])
-            summary.resourcePoolClaim = Self.decodeResourceReservation(obj["resourcePoolClaim"] ?? obj["resource_pool_claim"])
+            // The create route returns both names. Keep the explicit
+            // reservation as the resize shape and the pool claim for aggregate
+            // limits, while accepting the older single-field response.
+            summary.resourceReservation = Self.decodeResourceReservation(
+                obj["resourceReservation"] ?? obj["resource_reservation"] ?? obj["resources"]
+            )
+            summary.resourcePoolClaim = Self.decodeResourceReservation(
+                obj["resources"] ?? obj["resourcePoolClaim"] ?? obj["resource_pool_claim"]
+            )
             machineCache.record(hasAnyMachine: true)
             return summary
         }

@@ -82,6 +82,10 @@ final class CmuxTuiSurfaceProviderRegistry {
     /// (snapshot-v2 contract plus a private address). Consumed by the first
     /// `vm.cmux_remote_info` for that machine instead of an attach request.
     private var createdTrustedCarrierIDs: Set<String> = []
+    /// The complete create receipt for the first direct attach. Keep this
+    /// alongside the one-shot marker so session/token/expiry metadata from the
+    /// backend is not replaced by locally reconstructed defaults.
+    private var createdTrustedCarrierEndpoints: [String: VMCmuxRemoteEndpoint] = [:]
     /// Whether account access has ended. Retired registries reject all new Cloud work
     /// until ``start(catalog:)`` reactivates them for the next account.
     var isRetired = true
@@ -166,6 +170,9 @@ final class CmuxTuiSurfaceProviderRegistry {
         await links.setOwnerTeam(ownerTeamID, for: receipt.id)
         if receipt.cmuxTuiContract == Self.trustedCarrierContract {
             await links.markTrustedCarrier(machineID: receipt.id)
+            if let attach, attach.trustedCarrier {
+                await links.setCreatedTrustedCarrierEndpoint(attach, for: receipt.id)
+            }
         }
         // Same fences as discovery: a delete or account change during the
         // await must not receive a provider.
@@ -180,6 +187,9 @@ final class CmuxTuiSurfaceProviderRegistry {
         catalog.register(provider)
         if receipt.cmuxTuiContract == Self.trustedCarrierContract {
             createdTrustedCarrierIDs.insert(receipt.id)
+            if let attach, attach.trustedCarrier {
+                createdTrustedCarrierEndpoints[receipt.id] = attach
+            }
         }
         // Start the first link and graph read now, while the caller is still
         // creating its workspace. The open's `ensure_linked` catalog read joins
@@ -197,9 +207,20 @@ final class CmuxTuiSurfaceProviderRegistry {
     /// The private route for a machine this registry just created from a
     /// trusted-carrier receipt, consumed once. Nil means ask the control plane.
     func takeCreatedTrustedCarrierRoute(machineID: String) async -> String? {
-        guard createdTrustedCarrierIDs.remove(machineID) != nil,
-              !isRetired, isCloudEnabled(), providers[machineID] != nil else { return nil }
+        guard !isRetired, isCloudEnabled(), providers[machineID] != nil,
+              createdTrustedCarrierIDs.remove(machineID) != nil else { return nil }
+        createdTrustedCarrierEndpoints.removeValue(forKey: machineID)
         return await links.privateRoute(for: machineID)
+    }
+
+    /// Consumes the first trusted create receipt without discarding its route
+    /// metadata. A nil result means the older route-only fallback should be
+    /// used by the caller.
+    func takeCreatedTrustedCarrierEndpoint(machineID: String) async -> VMCmuxRemoteEndpoint? {
+        guard !isRetired, isCloudEnabled(), providers[machineID] != nil,
+              createdTrustedCarrierEndpoints[machineID] != nil,
+              createdTrustedCarrierIDs.remove(machineID) != nil else { return nil }
+        return createdTrustedCarrierEndpoints.removeValue(forKey: machineID)
     }
 
     /// True while the periodic fleet read is scheduled.
@@ -236,6 +257,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         creationEpoch = UUID()
         pendingMachineCreationIDs.removeAll(); hasCompletedInitialRefresh = false; refreshedMachineIDs.removeAll()
         createdTrustedCarrierIDs.removeAll()
+        createdTrustedCarrierEndpoints.removeAll()
         refreshGeneration &+= 1
         let epoch = accessEpoch
         // Replacing block observers prevents stale callbacks after a restart.
@@ -580,6 +602,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         creationEpoch = UUID()
         pendingMachineCreationIDs.removeAll(); hasCompletedInitialRefresh = false; refreshedMachineIDs.removeAll()
         createdTrustedCarrierIDs.removeAll()
+        createdTrustedCarrierEndpoints.removeAll()
         refreshGeneration &+= 1
         discoveryInFlight?.cancel()
         discoveryInFlight = nil
@@ -654,6 +677,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         let id = registeredMachineID(matching: rawID)
         pendingMachineCreationIDs.remove(id); refreshedMachineIDs.remove(.cloud(id))
         createdTrustedCarrierIDs.remove(id)
+        createdTrustedCarrierEndpoints.removeValue(forKey: id)
         let provider = providers.removeValue(forKey: id)
         // The machine left the owning team's list (deleted, or the user lost
         // access). Open panes keep the access-lost card, never a frozen frame.
@@ -864,6 +888,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         creationEpoch = UUID()
         pendingMachineCreationIDs.removeAll(); hasCompletedInitialRefresh = false; refreshedMachineIDs.removeAll()
         createdTrustedCarrierIDs.removeAll()
+        createdTrustedCarrierEndpoints.removeAll()
         refreshGeneration &+= 1
         pollTask?.cancel()
         pollTask = nil

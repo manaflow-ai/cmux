@@ -1087,6 +1087,23 @@ import Testing
             ["--socket", "/k.sock", "--json", "--expected-revision", "9", "tab", "tab_1", "rename", "--name", "db shell"])
     }
 
+    @Test func vmTuiConnectPassesReceiptSession() {
+        let config = CMUXCLI.VMTuiConnectConfig(
+            vmId: "vm-1",
+            route: "ws://10.0.0.7:1337/v1/link",
+            session: "cloud",
+            carrier: true,
+            clientPath: "/tmp/cmux-tui",
+            stateDir: "/tmp/cmux-tui-state",
+            deviceName: "cmux-mac"
+        )
+        #expect(CMUXCLI.vmTuiConnectArguments(config: config) == [
+            "remote", "connect", "ws://10.0.0.7:1337/v1/link",
+            "--device-name", "cmux-mac", "--state-dir", "/tmp/cmux-tui-state",
+            "--carrier", "--session", "cloud",
+        ])
+    }
+
     @Test func socketRenameParameterPreservesExplicitEmptyValue() {
         #expect(TerminalController.surfaceString("") == nil)
         #expect(TerminalController.surfaceStringPreservingEmpty("") == "")
