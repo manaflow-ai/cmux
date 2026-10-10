@@ -155,7 +155,11 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
     func loopbackForward(machineID: String, port: Int,
                          onExit: @escaping @Sendable () -> Void = {}) async throws -> UInt16 {
         guard machineID == connection.id, (1...Int(UInt16.max)).contains(port) else { throw CancellationError() }
-        _ = try await connected(machineID: machineID)
+        // A pane owns this await, but the carrier is shared with terminals and
+        // other browser panes. Race the shared connection wait against the
+        // pane's cancellation so closing one route returns immediately without
+        // cancelling the carrier that its siblings still need.
+        _ = try await connectedCancellable(machineID: machineID)
         // The access model may have been stopped while the carrier was
         // connecting. A completed carrier must never resurrect that route by
         // launching a new forward after cancellation.
@@ -191,6 +195,22 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
             await forward.stop()
             throw error
         }
+    }
+
+    /// Waits for the shared carrier without allowing one canceled route to
+    /// cancel the connection used by other projections.
+    private func connectedCancellable(machineID: String) async throws -> CloudMachineLink.Connected {
+        let result = CloudLinkFirstValue<Result<CloudMachineLink.Connected, any Error>>()
+        let waiter = Task { [self] in
+            do {
+                result.resolve(.success(try await connected(machineID: machineID)))
+            } catch {
+                result.resolve(.failure(error))
+            }
+        }
+        defer { waiter.cancel() }
+        guard let outcome = await result.result else { throw CancellationError() }
+        return try outcome.get()
     }
 
     func closeLoopbackForward(machineID: String, port: Int) async {
