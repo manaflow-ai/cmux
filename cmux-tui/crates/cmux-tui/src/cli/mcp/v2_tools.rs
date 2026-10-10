@@ -107,6 +107,8 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("palette_usage.get", PALETTE_USAGE_REASON),
     ("palette_usage.record", PALETTE_USAGE_REASON),
     ("palette_usage.import", PALETTE_USAGE_REASON),
+    ("palette_usage.hide", PALETTE_USAGE_REASON),
+    ("palette_usage.forget", PALETTE_USAGE_REASON),
     ("workspace.ensure_home", HOME_REASON),
     ("workspace.agent_folder.set", AGENT_FOLDER_REASON),
 ];

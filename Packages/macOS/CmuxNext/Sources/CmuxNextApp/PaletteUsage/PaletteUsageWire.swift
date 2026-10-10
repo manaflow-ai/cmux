@@ -27,6 +27,7 @@ nonisolated enum PaletteUsageWire {
         var entries: [Row]
         var picks: [Pick]
         var imported: [String]
+        var hidden: [String]?
     }
 
     static func date(_ milliseconds: String) -> Date {
@@ -54,7 +55,8 @@ nonisolated enum PaletteUsageWire {
                                 uniquingKeysWith: { first, _ in first }),
             picks: snapshot.picks.map(pick),
             halfLife: (Double(snapshot.half_life_ms) ?? 0) / 1000,
-            pickHalfLife: (Double(snapshot.pick_half_life_ms) ?? 0) / 1000
+            pickHalfLife: (Double(snapshot.pick_half_life_ms) ?? 0) / 1000,
+            hidden: Set(snapshot.hidden ?? [])
         )
         return (history, UInt64(snapshot.revision) ?? 0, Set(snapshot.imported))
     }

@@ -1,4 +1,4 @@
-//! Request ids of `cmux.protocol/2` requests (moved out of resource.rs).
+//! `RequestId`: the caller-chosen id of one protocol-v2 request.
 
 use serde::{Deserialize, Serialize};
 

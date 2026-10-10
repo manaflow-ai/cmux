@@ -27,6 +27,7 @@ declare namespace Cmux {
   type ClientTerminalSize = { terminal_id: string /* terminal_… */; cols: number | null; rows: number | null; participating: boolean }
   type ClientToken = string
   type ClientTransport = "unix" | "websocket"
+  type ClosedDeleteResult = { deleted: Array<Cmux.StateId>; updated: Array<Cmux.StateId> }
   type ClosedItemSnapshot = { id: Cmux.StateId; kind: "tab" | "screen" | "workspace"; name: string | null; workspace_id: string /* workspace_… */ | null; pane_id: string /* pane_… */ | null; index: number; closed_at_ms: string; screens: Array<Cmux.ClosedScreenRecord>; window: string | null; member_count: number; members: Array<Cmux.ClosedMemberRecord>; group?: Cmux.ClosedWorkspaceGroupRecord }
   type ClosedMemberRecord = { kind: "tab" | "screen" | "workspace"; name: string | null; workspace_id: string /* workspace_… */ | null; pane_id: string /* pane_… */ | null; index: number; screens: Array<Cmux.ClosedScreenRecord> }
   type ClosedReopenResult = { closed_id: Cmux.StateId; kind: "tab" | "screen" | "workspace"; workspace_id: string /* workspace_… */; workspace_ids: Array<string /* workspace_… */>; remaining: number; screen_ids: Array<string /* screen_… */>; tab_ids: Array<string /* tab_… */> }
@@ -211,7 +212,7 @@ declare namespace Cmux {
   type PaletteUsagePick = { prefix: string; key: string; score: number; last_used_ms: string; last: boolean }
   type PaletteUsageRecordResult = { revision: string }
   type PaletteUsageRow = { key: string; score: number; last_used_ms: string }
-  type PaletteUsageSnapshot = { revision: string; half_life_ms: string; pick_half_life_ms: string; entries: Array<Cmux.PaletteUsageRow>; picks: Array<Cmux.PaletteUsagePick>; imported: Array<string> }
+  type PaletteUsageSnapshot = { revision: string; half_life_ms: string; pick_half_life_ms: string; entries: Array<Cmux.PaletteUsageRow>; picks: Array<Cmux.PaletteUsagePick>; imported: Array<string>; hidden: Array<string> }
   type PaneNeighborResult = { pane?: Cmux.PaneSnapshot | null }
   type PaneSnapshot = { id: string /* pane_… */; screen_id: string /* screen_… */; name: string | null; focused: boolean; zoomed: boolean; extra?: Record<string, Cmux.JsonValue> }
   type ParticipantId = string
@@ -510,6 +511,8 @@ interface CmuxGlobal {
     update: CmuxOp<{ chief: Cmux.ChiefId; expected_rev: unknown; display_name?: string; is_default?: true; harness?: string | null; archived?: false; brain_place?: Cmux.ChiefBrainPlace | null; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeChief>>
   }
   closed: {
+    /** `closed.delete` (mutation, scope `closed:write`) */
+    delete: CmuxOp<{ machine?: string; session?: string; closed?: Cmux.StateId; members?: Array<number>; all?: boolean; since_ms?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.ClosedDeleteResult>>
     /** `closed.list` (read, scope `closed:read`) */
     list: CmuxOp<{ machine?: string; session?: string; window?: string; limit?: number }, Array<Cmux.ClosedItemSnapshot>>
     /** `closed.reopen` (mutation, scope `closed:write`) */
@@ -972,8 +975,12 @@ interface CmuxGlobal {
     list: CmuxOp<{ machine?: string; session?: string; limit?: number }, Array<Cmux.NotificationSnapshot>>
   }
   palette_usage: {
+    /** `palette_usage.forget` (mutation, scope `palette_usage:write`) */
+    forget: CmuxOp<{ machine?: string; session?: string; key: string }, Cmux.MutationResult<Cmux.PaletteUsageRecordResult>>
     /** `palette_usage.get` (read, scope `palette_usage:read`) */
     get: CmuxOp<{ machine?: string; session?: string }, Cmux.PaletteUsageSnapshot>
+    /** `palette_usage.hide` (mutation, scope `palette_usage:write`) */
+    hide: CmuxOp<{ machine?: string; session?: string; key: string; hidden?: boolean }, Cmux.MutationResult<Cmux.PaletteUsageRecordResult>>
     /** `palette_usage.import` (mutation, scope `palette_usage:write`) */
     import: CmuxOp<{ machine?: string; session?: string; source: string; entries: Array<Cmux.PaletteUsageRow> }, Cmux.MutationResult<Cmux.PaletteUsageImportResult>>
     /** `palette_usage.record` (mutation, scope `palette_usage:write`) */
