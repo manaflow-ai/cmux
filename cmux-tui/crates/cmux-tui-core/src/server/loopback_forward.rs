@@ -1037,49 +1037,6 @@ impl Mux {
 }
 
 #[cfg(test)]
-pub(super) struct WindowProbe {
-    forwarder: LoopbackForwarder,
-    stream: Arc<ForwardStream>,
-    _peer: TcpStream,
-}
-
-#[cfg(test)]
-impl WindowProbe {
-    /// Offers `bytes` from the client; false once the stream has ended.
-    pub(super) fn push(&self, bytes: usize) -> bool {
-        self.stream.accept_data(&self.forwarder, vec![0_u8; bytes]);
-        !self.stream.inner.lock().unwrap().closed
-    }
-
-    pub(super) fn closed_reason(&self) -> Option<String> {
-        self.stream.inner.lock().unwrap().reason.clone()
-    }
-}
-
-/// A stream whose writer never drains, so client bytes stay unacknowledged.
-#[cfg(test)]
-pub(super) fn window_probe() -> WindowProbe {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let socket = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
-    let (peer, _) = listener.accept().unwrap();
-    let (writer, _) = super::tests::captured_writer();
-    let outbound = writer.start_stream(&json!({})).unwrap();
-    let stream = Arc::new(ForwardStream {
-        client: 1,
-        id: 1,
-        host: "127.0.0.1".into(),
-        port: 1,
-        started: Instant::now(),
-        tcp: socket,
-        writer,
-        outbound,
-        inner: Mutex::new(StreamInner::default()),
-        changed: Condvar::new(),
-    });
-    WindowProbe { forwarder: LoopbackForwarder::default(), stream, _peer: peer }
-}
-
-#[cfg(test)]
 impl LoopbackForwarder {
     pub(super) fn reserve_for_test(&self, client: u64, stream: u64) -> bool {
         self.reserve(client, stream).is_ok()

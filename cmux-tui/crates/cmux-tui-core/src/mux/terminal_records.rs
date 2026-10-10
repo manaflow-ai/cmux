@@ -118,39 +118,3 @@ pub(super) fn commit_terminal_transition(
     )?;
     Ok(commit.revision)
 }
-
-#[cfg(test)]
-pub(super) fn commit_terminal_workspace(
-    registry: &mut WorkspaceRegistry,
-    terminal_id: &str,
-    workspace_key: &str,
-) -> anyhow::Result<u64> {
-    let snapshot = registry.terminal_snapshot()?;
-    let mut terminal = registry
-        .terminal_record(terminal_id)?
-        .ok_or_else(|| anyhow::anyhow!("unknown terminal {terminal_id}"))?;
-    if terminal.lifecycle == TerminalLifecycle::Tombstoned {
-        anyhow::bail!("terminal is already closed");
-    }
-    terminal.workspace_key = workspace_key.to_string();
-    let mutation = WorkspaceMutation::daemon_local("cmux-tui-runtime");
-    let commit = registry.commit_terminal(
-        &mutation,
-        &serde_json::json!({
-            "op":"move-terminal",
-            "terminal_id":terminal_id,
-            "workspace_key":workspace_key,
-        }),
-        Some(&snapshot.generation),
-        Some(snapshot.revision),
-        "terminal-moved",
-        &terminal,
-        &serde_json::json!({
-            "terminal_id":terminal_id,
-            "workspace_key":workspace_key,
-            "incarnation":terminal.incarnation,
-            "state":terminal.lifecycle,
-        }),
-    )?;
-    Ok(commit.revision)
-}

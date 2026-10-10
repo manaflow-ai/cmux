@@ -135,13 +135,6 @@ impl Mux {
         }
     }
 
-    #[cfg(test)]
-    pub(super) fn emit_terminal_exited(&self, surface: SurfaceId) {
-        for placement in self.terminal_event_placements(surface) {
-            self.emit(MuxEvent::SurfaceExited(placement));
-        }
-    }
-
     pub(super) fn emit_tree_delta(&self, delta: TreeDelta, selection_resync: bool) {
         #[cfg(test)]
         if let Some(revision) = delta.workspace_revision

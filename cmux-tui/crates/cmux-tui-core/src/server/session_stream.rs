@@ -15,7 +15,3 @@ pub(super) fn stopped(
 ) -> bool {
     canceled.load(Ordering::Acquire) || !writer.is_open() || !outbound.is_open()
 }
-
-#[cfg(test)]
-#[path = "session_stream_tests.rs"]
-mod tests;

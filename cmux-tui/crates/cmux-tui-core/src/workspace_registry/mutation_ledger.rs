@@ -238,16 +238,7 @@ pub(crate) fn effect_receipt_actor(connection: &Connection, key: &str) -> anyhow
 }
 
 #[cfg(test)]
-impl super::WorkspaceRegistry {
-    /// The stored actor of the mutation `key`, if it is in the ledger.
-    pub(crate) fn resource_mutation_actor_for_test(
-        &self,
-        key: &str,
-    ) -> anyhow::Result<Option<String>> {
-        let sql = "SELECT actor FROM resource_mutations WHERE idempotency_key = ?1";
-        Ok(self.connection.get().query_row(sql, [key], |row| row.get::<_, String>(0)).optional()?)
-    }
-}
+impl super::WorkspaceRegistry {}
 
 /// Tests prepare receipts as the daemon; production names the caller
 /// (`prepare_resource_effect_for`, `prepare_resource_creation_for`).

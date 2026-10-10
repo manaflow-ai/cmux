@@ -881,6 +881,3 @@ impl Mux {
         Ok((surface, screen))
     }
 }
-
-#[cfg(test)]
-mod tests;

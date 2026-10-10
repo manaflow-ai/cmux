@@ -766,38 +766,6 @@ impl WorkspaceRegistry {
         Ok(())
     }
 
-    #[cfg(test)]
-    pub(crate) fn pending_agent_hook_projections(
-        &self,
-    ) -> anyhow::Result<Vec<PendingAgentHookProjection>> {
-        let db = self.connection.get();
-        let mut statement = db.prepare(
-            "SELECT producer_id, origin, idempotency_key, event_sequence, ingress_json
-             FROM resource_agent_hook_pending ORDER BY event_sequence ASC, idempotency_key ASC",
-        )?;
-        statement
-            .query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, i64>(3)?,
-                    row.get::<_, String>(4)?,
-                ))
-            })?
-            .map(|row| {
-                let (producer_id, origin, key, sequence, ingress_json) = row?;
-                Ok((
-                    producer_id,
-                    origin,
-                    key,
-                    u64::try_from(sequence).context("pending hook sequence is negative")?,
-                    serde_json::from_str(&ingress_json)?,
-                ))
-            })
-            .collect()
-    }
-
     pub(crate) fn pending_agent_hook_projections_for_terminal(
         &self,
         terminal_id: &TerminalPublicId,
@@ -1717,26 +1685,6 @@ impl WorkspaceRegistry {
             |row| row.get::<_, i64>(0),
         )?;
         u64::try_from(count).context("resource agent projection count is negative")
-    }
-
-    #[cfg(test)]
-    pub(crate) fn agent_hook_pending_retry_state_for_test(
-        &self,
-        producer_id: &str,
-        origin: &str,
-        idempotency_key: &str,
-    ) -> anyhow::Result<Option<(i64, String)>> {
-        self.connection
-            .get()
-            .query_row(
-                "SELECT attempt, error
-                 FROM resource_agent_hook_pending
-                 WHERE producer_id = ?1 AND origin = ?2 AND idempotency_key = ?3",
-                params![producer_id, origin, idempotency_key],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .optional()
-            .map_err(Into::into)
     }
 }
 

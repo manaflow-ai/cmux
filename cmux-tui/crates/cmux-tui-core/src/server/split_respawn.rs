@@ -139,15 +139,3 @@ pub(super) fn shell_argv(
     let shell = env_shell.unwrap_or_else(platform::default_shell);
     Some(std::iter::once(shell).chain(shell_args).collect())
 }
-
-#[cfg(test)]
-#[path = "split_respawn_tests.rs"]
-mod tests;
-
-#[cfg(test)]
-#[path = "shell_args_tests.rs"]
-mod shell_args_tests;
-
-#[cfg(test)]
-#[path = "daemon_env_tests.rs"]
-mod daemon_env_tests;

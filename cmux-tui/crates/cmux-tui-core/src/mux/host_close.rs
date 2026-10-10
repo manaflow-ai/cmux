@@ -148,11 +148,6 @@ impl TerminalHostCloses {
         }
         true
     }
-
-    #[cfg(test)]
-    pub(crate) fn pending(&self) -> usize {
-        self.state.lock().unwrap().pending
-    }
 }
 
 /// Ask one queued host to exit. Returns the close to await, or `None` when a

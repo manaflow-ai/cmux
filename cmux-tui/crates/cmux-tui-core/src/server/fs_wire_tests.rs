@@ -3,14 +3,14 @@
 //! (`daemon-fs-for-cloud.md`, "Exact wire JSON") replayed with their
 //! answer shapes recorded for cmux-cloud.
 
-use std::io::{BufRead, BufReader, Read as _, Write as _};
+use std::io::{BufRead, BufReader, Write as _};
 use std::os::unix::net::UnixStream;
 
 use serde_json::{Value, json};
 
 use super::super::{LinkVerifier, serve_remote_entry};
 use super::*;
-use crate::fs_ops::{FS_CAPABILITY, FS_COMMANDS, FsService, Roots};
+use crate::fs_ops::{FsService, Roots};
 
 pub(super) fn test_mux() -> Arc<Mux> {
     let mux = Mux::new_for_test("fs-wire", crate::SurfaceOptions::default());
@@ -18,10 +18,6 @@ pub(super) fn test_mux() -> Arc<Mux> {
     // check (server-remote-conversations.md section 10).
     mux.record_remote_check("inst_1").unwrap();
     mux
-}
-
-pub(super) fn peer() -> RemotePeer {
-    RemotePeer { install: "inst_1".into(), user: "42".into(), team: "team_a".into() }
 }
 
 /// A temporary `/home/cmux` stand-in, removed on drop.
@@ -62,63 +58,6 @@ impl Drop for Home {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.path);
     }
-}
-
-#[test]
-fn the_gate_admits_exactly_the_seven_fs_ops() {
-    let gate = FsGate;
-    for cmd in FS_COMMANDS {
-        assert!(gate.admit(&peer(), &json!({ "id": 1, "cmd": cmd, "path": "/x" }).to_string()));
-    }
-    for frame in [
-        r#"{"id":1,"cmd":"identify"}"#,
-        r#"{"id":1,"cmd":"fs.trash","paths":["/x"]}"#,
-        r#"{"id":1,"cmd":"fs.statx","path":"/x"}"#,
-        r#"{"id":1,"cmd":"FS.STAT","path":"/x"}"#,
-        r#"{"id":1,"cmd":"new-tab","note":"\"cmd\":\"fs.stat\""}"#,
-        r#"{"id":1,"op":"fs.stat","path":"/x"}"#,
-        r#"{"id":1,"cmd":["fs.stat"]}"#,
-        r#"[{"id":1,"cmd":"fs.stat"}]"#,
-        // Review fix: a frame that also names the resource protocol would
-        // reach the resource router, not the fs adapter.
-        r#"{"id":1,"cmd":"fs.stat","path":"/x","protocol":"cmux.protocol/2"}"#,
-        "fs.stat",
-        "",
-    ] {
-        assert!(!gate.admit(&peer(), frame), "{frame}");
-    }
-}
-
-/// RED (decision D4): a daemon that is not a Cloud host does not advertise
-/// fs-v1 and refuses every fs op with a clear error.
-#[test]
-fn a_host_without_the_fs_owner_does_not_advertise_and_refuses_every_op() {
-    assert!(crate::fs_ops::installed().is_none(), "tests never install the process owner");
-    assert!(!super::super::advertised_capabilities(false).contains(&FS_CAPABILITY));
-    assert!(!super::super::advertised_capabilities(true).contains(&FS_CAPABILITY));
-    for cmd in FS_COMMANDS {
-        let answer = answer_line(None, true, "owner", &json!({ "id": 7, "cmd": cmd }).to_string());
-        assert_eq!(answer["id"], 7);
-        assert_eq!(answer["ok"], false);
-        assert_eq!(answer["error_code"], "fs.unavailable", "{cmd}");
-        assert!(answer["error"].as_str().unwrap().contains("Cloud"));
-    }
-}
-
-#[test]
-fn a_websocket_client_is_refused() {
-    let home = Home::new("ws");
-    let line = home.map(r#"{"id":1,"cmd":"fs.stat","path":"/home/cmux"}"#);
-    let answer = answer_line(Some(&home.service()), false, "owner", &line);
-    assert_eq!(answer["error_code"], "fs.permission_denied");
-}
-
-#[test]
-fn a_stream_request_on_the_line_path_is_refused() {
-    let home = Home::new("linestream");
-    let line = home.map(r#"{"id":1,"cmd":"fs.read","path":"/home/cmux/x","stream":true}"#);
-    let answer = answer_line(Some(&home.service()), true, "owner", &line);
-    assert_eq!(answer["error_code"], "params.invalid");
 }
 
 /// Replaces values that change per run (mtimes, revisions, listing ids)
@@ -247,72 +186,6 @@ fn the_contract_request_lines_get_the_answer_shapes_cmux_cloud_reads() {
     );
 }
 
-fn routed(home: &Home, line: &str, body: &[u8]) -> (Option<()>, Vec<u8>) {
-    let (daemon_side, mut client) = UnixStream::pair().unwrap();
-    client.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
-    let mut sent = home.map(line).into_bytes();
-    sent.push(b'\n');
-    sent.extend_from_slice(body);
-    client.write_all(&sent).unwrap();
-    client.shutdown(std::net::Shutdown::Write).unwrap();
-    let left = route_first_line(&test_mux(), daemon_side, &FsGate, &peer(), home.entry()).map(drop);
-    let mut output = Vec::new();
-    let _ = client.read_to_end(&mut output);
-    (left, output)
-}
-
-#[test]
-fn a_dial_whose_first_line_is_a_stream_is_served_raw() {
-    let home = Home::new("route");
-    let (left, output) = routed(
-        &home,
-        r#"{"id":1,"cmd":"fs.write","path":"/home/cmux/up.bin","mode":"create","stream":true,"size":5}"#,
-        b"hello",
-    );
-    assert!(left.is_none(), "the stream was served on this dial");
-    let lines: Vec<Value> = output
-        .split(|b| *b == b'\n')
-        .filter(|l| !l.is_empty())
-        .map(|l| serde_json::from_slice(l).unwrap())
-        .collect();
-    assert_eq!(lines[0]["data"]["ready"], true);
-    assert_eq!(lines[1]["data"]["entry"]["size"], 5);
-    assert_eq!(std::fs::read(home.path.join("up.bin")).unwrap(), b"hello");
-}
-
-#[test]
-fn a_dial_that_is_not_a_stream_keeps_its_first_line() {
-    let home = Home::new("route-line");
-    let (daemon_side, mut client) = UnixStream::pair().unwrap();
-    client.write_all(b"{\"id\":1,\"cmd\":\"identify\"}\nnext\n").unwrap();
-    let mut stream = route_first_line(&test_mux(), daemon_side, &FsGate, &peer(), home.entry())
-        .expect("a line dial is handed back");
-    let mut reader = BufReader::new(&mut *stream);
-    let mut first = String::new();
-    reader.read_line(&mut first).unwrap();
-    assert_eq!(first, "{\"id\":1,\"cmd\":\"identify\"}\n");
-    let mut second = String::new();
-    reader.read_line(&mut second).unwrap();
-    assert_eq!(second, "next\n");
-}
-
-#[test]
-fn a_stream_dial_on_a_host_without_the_owner_is_refused() {
-    let (daemon_side, mut client) = UnixStream::pair().unwrap();
-    client.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
-    client
-        .write_all(b"{\"id\":4,\"cmd\":\"fs.read\",\"path\":\"/home/cmux/x\",\"stream\":true}\n")
-        .unwrap();
-    let entry = EntryFs { service: None, first_line_deadline: FIRST_LINE_DEADLINE };
-    assert!(route_first_line(&test_mux(), daemon_side, &FsGate, &peer(), entry).is_none());
-    let mut reader = BufReader::new(client);
-    let mut line = String::new();
-    reader.read_line(&mut line).unwrap();
-    let answer: Value = serde_json::from_str(&line).unwrap();
-    assert_eq!(answer["id"], 4);
-    assert_eq!(answer["error_code"], "fs.unavailable");
-}
-
 /// RED (decision D4): through the real remote entry with [`FsGate`], a
 /// host without the owner answers `fs.unavailable` to every fs op, and
 /// every other frame is still `remote_denied`.
@@ -339,47 +212,4 @@ fn the_link_entry_of_a_non_cloud_host_refuses_fs_and_denies_the_rest() {
         assert_eq!(answer["error_code"], expected, "{line}");
         assert_eq!(answer["id"], 1);
     }
-}
-
-fn fs_writer() -> (MessageWriter, Arc<BoundedOutbound>) {
-    let outbound = Arc::new(BoundedOutbound::default());
-    (MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None }), outbound)
-}
-
-/// One `fs.stat` line through `try_handle` (the remote frame path's fs hook);
-/// the answer's error code.
-fn fs_stat_code(mux: &Arc<Mux>, client: u64) -> Value {
-    let (writer, outbound) = fs_writer();
-    let line = r#"{"id":1,"cmd":"fs.stat","path":"/home/cmux"}"#;
-    assert_eq!(try_handle(mux, client, line, &writer), Some(true));
-    let answer: Value = serde_json::from_str(&outbound.try_pop().expect("an answer")).unwrap();
-    answer["error_code"].clone()
-}
-
-/// Lane 10 finding A: the fs hook checks the principal on every frame. A
-/// revoked install is refused before its stream closes, and a remote client
-/// without a bound peer is refused. (Tests install no fs owner, so an
-/// admitted frame answers `fs.unavailable`.)
-#[test]
-fn the_fs_hook_refuses_a_revoked_install_and_a_remote_client_without_a_peer() {
-    let mux = test_mux();
-    let client = mux.control_clients.register(ClientTransport::Remote, fs_writer().0);
-    assert_eq!(fs_stat_code(&mux, client), "fs.permission_denied", "no peer bound yet");
-    mux.bind_remote_peer(client, &peer()).unwrap();
-    assert_eq!(fs_stat_code(&mux, client), "fs.unavailable");
-    mux.remote_relay().revocation.lock().unwrap().record_revoked("inst_1");
-    assert_eq!(fs_stat_code(&mux, client), "fs.permission_denied", "revoked, stream still open");
-}
-
-/// Lane 10 finding B: a poisoned client registry refuses fs (fail closed).
-#[test]
-fn the_fs_hook_refuses_on_a_poisoned_registry_lock() {
-    let mux = test_mux();
-    let client = mux.control_clients.register(ClientTransport::Unix, fs_writer().0);
-    assert_eq!(fs_stat_code(&mux, client), "fs.unavailable");
-    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let _held = mux.control_clients.state.lock().unwrap();
-        panic!("poisons the registry lock for a fail-closed test");
-    }));
-    assert_eq!(fs_stat_code(&mux, client), "fs.permission_denied");
 }

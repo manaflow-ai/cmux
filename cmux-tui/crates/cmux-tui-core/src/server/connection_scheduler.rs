@@ -93,14 +93,6 @@ impl ConnectionSurfaceScheduler {
         Self::new_inner(admission, None)
     }
 
-    #[cfg(test)]
-    pub(super) fn new_with_connection_permit(
-        admission: Arc<ServerSurfaceOperationAdmission>,
-        permit: ConnectionPermit,
-    ) -> Self {
-        Self::new_inner(admission, Some(permit))
-    }
-
     pub(super) fn new_inner(
         admission: Arc<ServerSurfaceOperationAdmission>,
         connection_permit: Option<ConnectionPermit>,

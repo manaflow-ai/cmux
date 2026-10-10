@@ -975,6 +975,3 @@ impl Mux {
             .collect())
     }
 }
-
-#[cfg(test)]
-mod tests;

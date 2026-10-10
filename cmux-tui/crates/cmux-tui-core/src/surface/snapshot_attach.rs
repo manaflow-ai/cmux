@@ -319,22 +319,6 @@ impl Surface {
         pty.term.lock().unwrap().encode_kitty_replay(max_image_bytes)
     }
 
-    /// Kitty replay encodes this terminal ran for READY images (tests).
-    #[cfg(test)]
-    pub(crate) fn kitty_replay_encodes_for_test(&self) -> u64 {
-        self.as_pty().map_or(0, |pty| pty.snapshot_position.kitty_replay.encodes())
-    }
-
-    /// The host terminal's history check now (tests compare it with a
-    /// local-history READY's).
-    #[cfg(test)]
-    pub(crate) fn terminal_history_digest(&self) -> Option<ghostty_vt::HistoryDigest> {
-        let term = self.as_pty()?.term.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        // The same order as the host: READY encode, then the digest.
-        term.encode_snapshot(SnapshotPhase::Ready).ok()?;
-        term.history_digest()
-    }
-
     /// `terminal.history`: GHOSTSNP HISTORY pages above `before`.
     pub(crate) fn history_pages(
         &self,

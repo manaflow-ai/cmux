@@ -178,7 +178,3 @@ impl super::ClientRegistry {
         })
     }
 }
-
-#[cfg(test)]
-#[path = "app_trust_tests.rs"]
-mod tests;

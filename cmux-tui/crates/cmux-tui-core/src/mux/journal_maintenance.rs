@@ -291,15 +291,6 @@ impl Mux {
     }
 
     #[cfg(test)]
-    pub(crate) fn set_screen_created_hook_for_test(
-        &self,
-        hook: impl FnOnce(SurfaceId) + Send + 'static,
-    ) {
-        *self.screen_created_hook.lock().unwrap_or_else(PoisonError::into_inner) =
-            Some(Box::new(hook));
-    }
-
-    #[cfg(test)]
     pub(crate) fn set_journal_segment_prepare_hook_for_test(
         &self,
         hook: impl FnOnce() + Send + 'static,
@@ -315,11 +306,6 @@ impl Mux {
     #[cfg(test)]
     pub(crate) fn resource_mutation_count_for_test(&self) -> anyhow::Result<u64> {
         self.workspace_registry.lock().unwrap().resource_mutation_count_for_test()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn resource_agent_projection_count_for_test(&self) -> anyhow::Result<u64> {
-        self.workspace_registry.lock().unwrap().resource_agent_projection_count_for_test()
     }
 
     #[cfg(test)]
