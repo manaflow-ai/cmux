@@ -50,7 +50,11 @@ fn program_status_flush_drains_a_final_clear_that_arrives_during_publication() {
     surface.publish_pending_progress();
     let after_retry = mux.session_journal_after(0, 1024).unwrap();
     assert_eq!(
-        after_retry.records.iter().filter(|record| record.kind == "terminal.program_status").count(),
+        after_retry
+            .records
+            .iter()
+            .filter(|record| record.kind == "terminal.program_status")
+            .count(),
         2,
         "an extra flush must not duplicate either event"
     );
