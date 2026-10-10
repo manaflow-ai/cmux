@@ -10,7 +10,14 @@
 //! ([`SURVIVED_SIGNALS`]), are recorded and otherwise ignored. `SIGKILL` cannot be caught; the owner then names
 //! the loss from the missing exit record and these breadcrumbs.
 //!
-//! One sender is honored: a `SIGTERM` from PID 1, the service manager
+//! An orphaned host honors a plain `SIGTERM` from any sender (cx-hostorphan):
+//! when no client stream is attached (its owner daemon is gone and none
+//! adopted it), the host ends its terminal through the same path as an
+//! owner's `Terminate`. Such a host otherwise held its PTY until reboot,
+//! and only `SIGKILL` (no exit record) could free it. A host its daemon
+//! still serves keeps the rule above.
+//!
+//! One sender is always honored: a `SIGTERM` from PID 1, the service manager
 //! (launchd at logout, systemd stopping the unit or the machine, a container
 //! init). The session is going away around the host, so the host ends its
 //! terminal through the same bounded path as an owner's `Terminate` and
@@ -115,6 +122,13 @@ static TERMINATE: OnceLock<Box<dyn Fn() + Send + Sync>> = OnceLock::new();
 static SERVICE_STOP: AtomicBool = AtomicBool::new(false);
 /// The terminal was asked to end for the service-manager stop.
 static STOP_ACTED: AtomicBool = AtomicBool::new(false);
+/// Set by the handler on any `SIGTERM`; the writer thread ends the
+/// terminal when the host is orphaned ([`on_orphan_check`]).
+static TERM_PENDING: AtomicBool = AtomicBool::new(false);
+/// The terminal was asked to end for a `SIGTERM` to an orphaned host.
+static ORPHAN_TERM_ACTED: AtomicBool = AtomicBool::new(false);
+/// True when no client stream is attached (the owner daemon is gone).
+static ORPHANED: OnceLock<Box<dyn Fn() -> bool + Send + Sync>> = OnceLock::new();
 /// Dropped signals already summarized in the breadcrumb file.
 static DROPPED_REPORTED: AtomicUsize = AtomicUsize::new(0);
 /// A breadcrumb append failed (for example `EFBIG` past `RLIMIT_FSIZE`): stop
@@ -131,6 +145,26 @@ pub(crate) fn honors(signal: libc::c_int, sender_pid: libc::pid_t) -> bool {
 pub(crate) fn on_service_manager_stop(terminate: Box<dyn Fn() + Send + Sync>) {
     let _ = TERMINATE.set(terminate);
     act_on_service_manager_stop();
+}
+
+/// Register how the host learns it is orphaned (no client stream). A
+/// `SIGTERM` then ends its terminal.
+pub(crate) fn on_orphan_check(orphaned: Box<dyn Fn() -> bool + Send + Sync>) {
+    let _ = ORPHANED.set(orphaned);
+}
+
+/// A `SIGTERM` to an orphaned host ends its terminal; one to a host its
+/// daemon serves is only recorded. Runs on the writer thread.
+fn act_on_orphan_term() {
+    if !TERM_PENDING.swap(false, Ordering::AcqRel) {
+        return;
+    }
+    if ORPHANED.get().is_some_and(|orphaned| orphaned())
+        && let Some(terminate) = TERMINATE.get()
+        && !ORPHAN_TERM_ACTED.swap(true, Ordering::AcqRel)
+    {
+        terminate();
+    }
 }
 
 fn act_on_service_manager_stop() {
@@ -188,6 +222,8 @@ extern "C" fn record_signal(
         let sender_uid = if info.is_null() { u32::MAX } else { siginfo_uid(info) };
         if honors(signal, sender) {
             SERVICE_STOP.store(true, Ordering::Release);
+        } else if signal == libc::SIGTERM {
+            TERM_PENDING.store(true, Ordering::Release);
         }
         let index = NEXT_SLOT.fetch_add(1, Ordering::AcqRel);
         if index < MAX_RECORDED_SIGNALS {
@@ -260,6 +296,7 @@ pub(crate) fn install() -> anyhow::Result<()> {
             }
             // A service-manager stop first: naming senders reads /proc.
             act_on_service_manager_stop();
+            act_on_orphan_term();
             flush();
         }
     })?;
@@ -328,7 +365,9 @@ fn flush() {
             "action": if honors(
                 slot.signal.load(Ordering::Relaxed),
                 slot.sender_pid.load(Ordering::Relaxed),
-            ) {
+            ) || (slot.signal.load(Ordering::Relaxed) == libc::SIGTERM
+                && ORPHAN_TERM_ACTED.load(Ordering::Acquire))
+            {
                 "ended"
             } else {
                 "ignored"

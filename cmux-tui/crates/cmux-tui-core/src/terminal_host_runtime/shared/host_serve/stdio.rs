@@ -50,6 +50,12 @@ pub fn serve_terminal_host_stdio(
 
     let stopping = shared.clone();
     host_signals::on_service_manager_stop(Box::new(move || stopping.request_termination()));
+    // A plain SIGTERM ends an orphaned host (no client stream: its daemon is
+    // gone); a host its daemon still serves records and survives it.
+    let watched = shared.clone();
+    host_signals::on_orphan_check(Box::new(move || {
+        watched.active_client_streams.load(Ordering::Acquire) == 0
+    }));
     let endpoint = PathBuf::from(&launch.endpoint);
     let mut unpublished =
         UnpublishedHostGuard { shared: shared.clone(), endpoint: endpoint.clone(), armed: true };
@@ -149,6 +155,14 @@ pub fn serve_terminal_host_stdio(
 
     let launch_owner_deadline = Instant::now() + HOST_LAUNCH_OWNER_TIMEOUT;
     let mut backoff = host_accept::AcceptBackoff::new();
+    // No client stream since this instant: the owner daemon is gone. After
+    // the orphan grace with still no client, the host ends its terminal the
+    // way an owner's Terminate does (exit record included), so a quit or
+    // killed app does not hold a PTY until reboot. Any accepted connection
+    // restarts the clock, so a restarted daemon's adoption always wins.
+    let orphan_grace = host_orphan_grace();
+    let mut orphan_since: Option<Instant> = None;
+    let mut orphan_ended = false;
     loop {
         let now = Instant::now();
         if !shared.launch_owner_claimed.load(Ordering::Acquire)
@@ -168,21 +182,45 @@ pub fn serve_terminal_host_stdio(
         {
             break;
         }
+        if shared.active_client_streams.load(Ordering::Acquire) == 0 {
+            let since = *orphan_since.get_or_insert(now);
+            if !orphan_ended && now.saturating_duration_since(since) >= orphan_grace {
+                orphan_ended = true;
+                eprintln!(
+                    "terminal-host: no client for {} s (owner daemon gone); ending the terminal",
+                    orphan_grace.as_secs()
+                );
+                shared.request_termination();
+            }
+        } else {
+            orphan_since = None;
+        }
         match listener.accept() {
-            Ok(stream) => match host_accept::serve_accepted(&shared, stream) {
-                Ok(()) => backoff.reset(),
-                Err(error) => backoff.after_error(&shared, &error),
-            },
+            Ok(stream) => {
+                orphan_since = None;
+                match host_accept::serve_accepted(&shared, stream) {
+                    Ok(()) => backoff.reset(),
+                    Err(error) => backoff.after_error(&shared, &error),
+                }
+            }
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                 // Block until an attachment arrives or the accept waker
                 // reports a lifecycle change (terminal exit, last client
-                // stream closed). The only timeout is the one-shot launch
-                // owner deadline, used until it passes; this loop used to
+                // stream closed). The timeouts are the one-shot launch
+                // owner deadline, used until it passes, and the orphan
+                // deadline while no client is attached; this loop used to
                 // wake every 20 ms for the whole life of every terminal.
-                let timeout = if shared.launch_owner_claimed.load(Ordering::Acquire) {
+                let launch_timeout = if shared.launch_owner_claimed.load(Ordering::Acquire) {
                     None
                 } else {
                     Some(launch_owner_deadline.saturating_duration_since(now))
+                };
+                let orphan_timeout = orphan_since
+                    .filter(|_| !orphan_ended)
+                    .map(|since| (since + orphan_grace).saturating_duration_since(now));
+                let timeout = match (launch_timeout, orphan_timeout) {
+                    (Some(a), Some(b)) => Some(a.min(b)),
+                    (a, b) => a.or(b),
                 };
                 match listener.wait(&shared.accept_waker, timeout) {
                     Err(error) => {

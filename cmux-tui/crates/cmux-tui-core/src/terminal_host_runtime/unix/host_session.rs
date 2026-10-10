@@ -29,6 +29,46 @@ pub(crate) fn host_session_env() -> Option<(&'static str, String)> {
     cmux_pty::original_open_file_limit().map(|soft| (NOFILE_SOFT_ENV, soft.to_string()))
 }
 
+/// The flag that names the app that spawned a host (cx-hostorphan): with no
+/// path in the command line (cx-0tgl LF), `ps`, leak audits and benches
+/// still see which app and tag a host belongs to.
+pub(crate) const OWNER_FLAG: &str = "--owner";
+
+/// `--owner <bundle>:<tag>@<daemon pid>` for a spawned host's command line.
+/// The bundle is `CMUX_BUNDLE_ID`, else the name of the `.app` that holds
+/// the daemon without its suffix; the tag is `CMUX_TAG`; `-` when unknown.
+/// Each part keeps only `[A-Za-z0-9._-]` (others become `_`), so the value
+/// never holds a path, a space or `.app/`: `pkill -f "<app>.app"` still
+/// matches no host.
+pub(crate) fn host_owner_args() -> [String; 2] {
+    static OWNER: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    let owner = OWNER.get_or_init(|| {
+        let env = |name: &str| std::env::var(name).ok().filter(|value| !value.trim().is_empty());
+        let bundle = env("CMUX_BUNDLE_ID").or_else(|| {
+            let exe = std::env::current_exe().ok()?;
+            exe.components().find_map(|part| {
+                part.as_os_str().to_str()?.strip_suffix(".app").map(str::to_owned)
+            })
+        });
+        format!(
+            "{}:{}@{}",
+            owner_part(bundle.as_deref()),
+            owner_part(env("CMUX_TAG").as_deref()),
+            std::process::id()
+        )
+    });
+    [OWNER_FLAG.to_owned(), owner.clone()]
+}
+
+fn owner_part(value: Option<&str>) -> String {
+    let Some(value) = value else { return "-".to_owned() };
+    value
+        .chars()
+        .take(96)
+        .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') { c } else { '_' })
+        .collect()
+}
+
 /// Leave the daemon's session, restore the open-file limit, then strip every
 /// inherited descriptor ([`isolate_terminal_host_process_fds`]). A host
 /// already in its own session (an adopting host's launcher still runs

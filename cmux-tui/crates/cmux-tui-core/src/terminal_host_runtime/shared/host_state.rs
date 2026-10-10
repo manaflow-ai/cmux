@@ -33,6 +33,24 @@ pub(crate) const HOST_PTY_DRAIN_GRACE: Duration = Duration::from_millis(250);
 pub(crate) const HOST_FORCED_DRAIN_WINDOW: Duration = Duration::from_millis(100);
 pub(crate) const HOST_LAUNCH_ROLLBACK_WAIT: Duration = Duration::from_secs(4);
 pub(crate) const HOST_LAUNCH_OWNER_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long a host serves no client before it ends its terminal (cx-hostorphan).
+/// The owner daemon keeps a stream to every host it runs, so no stream for
+/// this long means the daemon is gone and no new daemon adopted the host: a
+/// quit or killed app whose PTY would otherwise stay allocated until reboot.
+/// A restarted daemon adopts well inside this window.
+pub(crate) const HOST_ORPHAN_GRACE: Duration = Duration::from_secs(10 * 60);
+/// Overrides [`HOST_ORPHAN_GRACE`] in whole seconds (at least 1); the host
+/// inherits it from the daemon that spawned it. Tests use a short grace.
+pub(crate) const HOST_ORPHAN_GRACE_ENV: &str = "CMUX_TUI_HOST_ORPHAN_GRACE_SECS";
+
+/// The orphan grace of this host process.
+pub(crate) fn host_orphan_grace() -> Duration {
+    std::env::var(HOST_ORPHAN_GRACE_ENV)
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .filter(|seconds| *seconds > 0)
+        .map_or(HOST_ORPHAN_GRACE, Duration::from_secs)
+}
 pub(crate) const HOST_CLIENT_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 pub(crate) const HOST_HANDSHAKE_TRANSIENT_RETRIES: usize = 1;
 pub(crate) const HOST_EXIT_PERSIST_RETRY_MIN: Duration = Duration::from_millis(100);
