@@ -409,8 +409,9 @@ final class CloudBrowserAccessState {
     /// recreated. BrowserPanel calls this for each new service navigation so
     /// recovery replays the current request rather than an older POST.
     func rememberNavigationRequest(_ request: URLRequest) {
-        guard request.url != nil else { return }
+        guard let url = request.url else { return }
         pendingNavigationRequest = request
+        remoteURL = url
         // The next readiness transition must use this request as its replay
         // template, even when the listener URL has not changed yet.
         navigationURL = nil
