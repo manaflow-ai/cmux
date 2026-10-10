@@ -2,7 +2,7 @@ import type { Env } from "../env.ts"
 import type { ProviderId } from "./catalog.ts"
 
 /**
- * Provider adapters of the model router. Five providers speak OpenAI chat/completions, so their
+ * Provider adapters of the model router (open-source models only). Five providers speak OpenAI chat/completions, so their
  * adapter is a base URL, a key and a few body fields. Workers AI is reached through the Worker's
  * AI binding (no key) and is translated in workers-ai.ts.
  *
@@ -38,16 +38,12 @@ export const providerTarget = (env: Env, provider: ProviderId): ProviderTarget |
       return openai("https://openrouter.ai/api/v1/chat/completions", env.INFERENCE_OPENROUTER_KEY, { usage: { include: true } }, { "X-Title": "cmux" })
     case "vercel":
       return openai("https://ai-gateway.vercel.sh/v1/chat/completions", env.INFERENCE_VERCEL_GATEWAY_KEY)
-    case "deepseek":
-      return openai("https://api.deepseek.com/v1/chat/completions", env.INFERENCE_DEEPSEEK_KEY)
+    case "fireworks":
+      return openai("https://api.fireworks.ai/inference/v1/chat/completions", env.INFERENCE_FIREWORKS_KEY)
+    case "baseten":
+      return openai("https://inference.baseten.co/v1/chat/completions", env.INFERENCE_BASETEN_KEY)
     case "deepinfra":
       return openai("https://api.deepinfra.com/v1/openai/chat/completions", env.INFERENCE_DEEPINFRA_KEY)
-    case "bedrock": {
-      // Bedrock's OpenAI-compatible endpoint with a Bedrock API key (bearer), no SigV4.
-      const region = env.INFERENCE_BEDROCK_REGION ?? "us-west-2"
-      if (!/^[a-z]{2}(-[a-z]+)+-\d$/.test(region)) return undefined
-      return openai(`https://bedrock-runtime.${region}.amazonaws.com/openai/v1/chat/completions`, env.INFERENCE_BEDROCK_KEY)
-    }
     case "workers-ai":
       return env.AI ? { kind: "workers-ai", ai: env.AI } : undefined
   }
