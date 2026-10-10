@@ -56,6 +56,8 @@ export interface Env {
   readonly FREESTYLE_API_URL?: string
   /** Var: the snapshot team VMs boot from (lane 1's image with the team role). */
   readonly TEAM_VM_SNAPSHOT?: string
+  /** Var: "1" turns on the team VM bind (vm-image.md 6b; development and staging until the backend lead's review). */
+  readonly TEAM_VM_BIND_ENABLED?: string
   /** Var: provider slug prefix of NEW team VMs; staging must start with `cmuxnp-stg-`, other non-production envs with `cmuxnp-dev-` (FREESTYLE-NAMES). */
   readonly TEAM_VM_SLUG_PREFIX?: string
   /** Test only: `fake` selects the in-object fake provider when ENVIRONMENT=test. */
@@ -117,6 +119,8 @@ export interface Env {
    * lead). Enterprise SSO creates Stack users and sessions with it; use it only with that project.
    */
   readonly STACK_SECRET_SERVER_KEY?: string
+  /** Secret: the Svix endpoint secret (whsec_...) of the Stack team webhook (stack-webhook.ts); unset answers 503. */
+  readonly STACK_WEBHOOK_SECRET?: string
   /** Secrets per provider; a provider without its secrets reports `configured: false`. */
   readonly GITHUB_APP_SLUG?: string
   readonly GITHUB_APP_CLIENT_ID?: string

@@ -30,10 +30,15 @@ extension SettingsWindowService {
                 "current": .object(Dictionary(uniqueKeysWithValues: themeLevels.map { level in
                     (level.rawValue, theme(at: level).map(JSONValue.string) ?? .null)
                 })),
+                // The Ghostty config's own theme, for the preview of "Use Ghostty Config": the app
+                // scope's colors while appearance.theme is unset (null while it names a theme).
+                "config": services.settings?.snapshot.appTheme == nil ? Self.themeJSON(ThemeScope.app.input) : .null,
             ],
             "terminal": ["ghostty_config": .string(ghosttyConfigPath), "shell_integration": shellIntegration.map(JSONValue.string) ?? .null],
             // R92: the Ghostty lines cmux does not apply (the socket's `ghostty.diagnostics` list).
             "ghostty_diagnostics": GhosttyDiagnosticsModel.shared.diagnostics.map { .array($0.map(GhosttyDiagnosticsControl.json)) } ?? .null,
+            // Computer Use Setup (Agents): the helper's grants, the same state as the palette action.
+            "computer_use": services.onboarding.computerUseSetup.pageJSON,
             "settings_file": services.settings.map { .string($0.file.url.path(percentEncoded: false)) } ?? .null,
             "backdrops": .array(Self.backdrops.choices.map { choice in
                 ["id": .string(choice.id), "title": .string(choice.title), "attribution": .string(choice.attribution)]
@@ -62,6 +67,19 @@ extension SettingsWindowService {
             throw ActionFailure.invalidTarget(level)
         }
         setTheme(spec, at: level)
+    }
+
+    /// Terminal colors as the page reads a theme (`GhosttyTheme`, unnamed: the page labels it).
+    static func themeJSON(_ input: ThemeInput) -> JSONValue {
+        var object: [String: JSONValue] = [
+            "name": .string(""),
+            "background": .string(AppTheme.hex(input.background)),
+            "foreground": .string(AppTheme.hex(input.foreground)),
+            "palette": .array((0..<16).map { $0 < input.palette.count ? .string(AppTheme.hex(input.palette[$0])) : .null }),
+        ]
+        if let selection = input.selectionBackground { object["selectionBackground"] = .string(AppTheme.hex(selection)) }
+        if let selected = input.selectionForeground { object["selectionForeground"] = .string(AppTheme.hex(selected)) }
+        return .object(object)
     }
 
     private static func listRow(_ row: SettingsListRow) -> JSONValue {

@@ -18,6 +18,14 @@ use serde::Serialize;
 
 use crate::journal_ingress::JournalLane;
 
+mod resource_projection;
+pub use resource_projection::{
+    CommitSpans, ProjectionSpans, ResourceProjectionSnapshot, ResourceProjectionStats,
+};
+mod write_path;
+pub(crate) use write_path::writer_took_registry_lock;
+pub use write_path::{WritePathSnapshot, WritePathStats};
+
 /// Sub-buckets per power of two. Four keeps the reported percentile within
 /// 25% above the true value while costing 256 counters per histogram.
 const SUB_BUCKETS_LOG2: u32 = 2;
@@ -534,6 +542,13 @@ pub struct ServerStatsSnapshot {
     pub registry_lock: LockStatsSnapshot,
     pub journal_writer: Option<JournalWriterSnapshot>,
     pub connections: ConnectionSnapshot,
+    /// Present only when the request names `resource_projection` in
+    /// `include`: older SDK decoders refuse unknown result fields.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resource_projection: Option<ResourceProjectionSnapshot>,
+    /// Present only when the request names `write_path` in `include`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub write_path: Option<WritePathSnapshot>,
 }
 
 pub const SERVER_STATS_SCHEMA: u32 = 1;

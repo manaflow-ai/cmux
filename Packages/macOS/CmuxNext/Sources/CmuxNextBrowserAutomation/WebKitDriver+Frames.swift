@@ -37,12 +37,8 @@ extension WebKitDriver {
         let handles = try params.strings("handles")
         let frame = try await frameInfo(params, tab: tab, session: session)
         if world == "agent" {
-            let body = "if (!\(Self.agentKey)) return \"\(Self.needsAgent)\"; return await (\(source))(...__handlesThenArgs(__handles, __args));"
-            let call = Self.withHandles(body)
-            let first = try await run(call, ["__handles": handles, "__args": args], frame, AgentWorld.world, tab)
-            guard first == .string(Self.needsAgent) else { return first }
-            try await installAgent(frame: frame, tab: tab)
-            return try await run(call, ["__handles": handles, "__args": args], frame, AgentWorld.world, tab)
+            return try await runInAgent("return await (\(source))(...__handlesThenArgs(__handles, __args));",
+                                        handles: handles, args: args, frame: frame, tab: tab)
         }
         if world == "host" {
             guard handles.isEmpty else { throw DriverError(.invalid, "frame.evaluate: the host world takes no element handles") }
@@ -94,6 +90,16 @@ extension WebKitDriver {
         return result
     }
 
+    /// `body` in the agent world of `frame`, with `__handlesThenArgs`,
+    /// `__handles` and `__args`; installs the page agent on a miss.
+    func runInAgent(_ body: String, handles: [String], args: [Any] = [], frame: WKFrameInfo?, tab: WebKitTab) async throws(DriverError) -> DriverJSON {
+        let call = Self.withHandles("if (!\(Self.agentKey)) return \"\(Self.needsAgent)\"; \(body)")
+        let first = try await run(call, ["__handles": handles, "__args": args], frame, AgentWorld.world, tab)
+        guard first == .string(Self.needsAgent) else { return first }
+        try await installAgent(frame: frame, tab: tab)
+        return try await run(call, ["__handles": handles, "__args": args], frame, AgentWorld.world, tab)
+    }
+
     private static func withHandles(_ body: String) -> String {
         """
         const __handlesThenArgs = (ids, args) => {
@@ -111,7 +117,7 @@ extension WebKitDriver {
         guard ok == .bool(true) else { throw DriverError(.unsupported, "frame.evaluate: the page agent did not install") }
     }
 
-    private func frameInfo(_ params: DriverParams, tab: WebKitTab, session: TabSession) async throws(DriverError) -> WKFrameInfo? {
+    func frameInfo(_ params: DriverParams, tab: WebKitTab, session: TabSession) async throws(DriverError) -> WKFrameInfo? {
         guard let id = try params.optionalString("frameId"), id != "main", id != session.frames.mainFrameID else { return nil }
         guard let record = await session.frames.frame(id, in: tab.webView) else {
             throw DriverError(.notFound, "\(params.method): frame \(id) was detached")

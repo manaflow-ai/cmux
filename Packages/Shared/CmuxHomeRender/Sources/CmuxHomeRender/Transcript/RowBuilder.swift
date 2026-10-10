@@ -44,7 +44,7 @@ final class RowBuilder {
         let receipts = Self.receipts(items, me: ctx.me, readByOthers: ctx.readByOthers)
         var prev: TranscriptItem?
         for (index, item) in items.enumerated() {
-            let next = index + 1 < items.count ? items[index + 1] : nil
+            let next = items.dropFirst(index + 1).first
             let outgoing = item.author == ctx.me
             var gap: CGFloat
             if let p = prev, item.createdAt.timeIntervalSince(p.createdAt) <= Self.separatorGap {
@@ -113,7 +113,7 @@ final class RowBuilder {
             if let hit = attachments[key] { return hit }
             if attachments.count > 512 { attachments.removeAll(keepingCapacity: true) }
             let laid = AttachmentLayout.content(of: ref, metrics: metrics)
-            attachments[key] = laid
+            attachments.updateValue(laid, forKey: key)
             return laid
         }
         let (text, bold) = Self.text(of: part)
@@ -144,8 +144,8 @@ final class RowBuilder {
             if let read = readByOthers, seq <= read { lastRead = (i, item.key) }
         }
         var out: [IdempotencyKey: String] = [:]
-        if let r = lastRead { out[r.key] = HomeStrings.read }
-        if let d = lastCommitted, d.index > (lastRead?.index ?? -1) { out[d.key] = HomeStrings.delivered }
+        if let r = lastRead { out.updateValue(HomeStrings.read, forKey: r.key) }
+        if let d = lastCommitted, d.index > (lastRead?.index ?? -1) { out.updateValue(HomeStrings.delivered, forKey: d.key) }
         return out
     }
 }

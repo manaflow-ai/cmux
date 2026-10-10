@@ -109,7 +109,7 @@ public final class AgentActivitySocketSource: AgentActivitySource {
         }
         directoryWatch?.cancel()
         directoryWatch = nil
-        let connection = AgentActivityLineConnection(path: config.socketPath)
+        let connection = AgentActivityLineConnection(path: config.socketPath, expectedServerUID: geteuid())
         subscription = connection
         connection.start(
             send: AgentActivityWire.requestLine(method: "activity_subscribe", args: ["sessions": true, "events_for": []],
@@ -171,7 +171,7 @@ public final class AgentActivitySocketSource: AgentActivitySource {
         }
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename, .delete], queue: .main)
         source.setEventHandler { [weak self] in
-            MainActor.assumeIsolated { self?.connect() }
+            MainActor.assumeIsolated { self?.connect() } // main-proof: dispatch source on queue: .main
         }
         source.setCancelHandler { close(fd) }
         directoryWatch = source

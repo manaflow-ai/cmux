@@ -76,14 +76,30 @@ The page is React and TypeScript in `webviews/src/optchat-inspector`, built by
 `connect-src 'self'`) and compiled into the optchat-chief binary. Nothing is fetched from the
 network at run time. Unit tests run under `bun test` with jsdom; no browser runs.
 
-## Remote brains (later)
+## Remote brains
 
-A brain host on another Mac (server reach, cmux-lawrence) runs the same server on its own
-loopback. The app will reach it through the existing trusted server path: the server relays
-`GET /api/*` for the paired Chief to the host's loopback port, authenticating the app with its
-existing server credential and the host with the token it holds. The page itself is in the app's
-own optchat-chief binary, so only JSON crosses the link. Until then the action opens the local
-Chief only and says so for a remote one.
+A brain host on a paired server (cmux-lawrence) is inspected through the owner session the app
+already holds, with no new listener anywhere:
+
+- **Brain host:** the tools socket answers `{"tool":"inspect","path","query"}` with the same
+  read-only `Inspector::answer`: the seven API paths only, GET only, answers above 4 MiB refused
+  (413, never cut).
+- **Brain daemon:** `chief-inspect` (`chief-inspect-v1`, advertised only when the daemon has
+  `CMUX_TUI_CHIEF_TOOLS_SOCKET`) forwards one line to that socket, after checking the socket is
+  a Unix socket of the daemon's user. Only the owner's trusted connection may call it: a
+  registered Unix client with no link peer record whose principal is `user_local` (a local client
+  or the link's `owner_session` splice). A link-stamped, relayed, WebSocket, unregistered or
+  agent-bound connection is refused with `origin.forbidden` before anything is forwarded, and the
+  remote relay gate never admits it. Reply lines above 5 MiB are refused.
+- **App:** with no local Chief host, the action opens the same React page as a first-party app
+  page, `cmux-page://cmux.chief-inspector/`, for a connected server whose daemon serves
+  `chief-inspect-v1`. The page's only op, `cmux.chief_inspector.get {path, query}`, is relayed
+  over that server's daemon connection. The page picks its transport by origin (cmux-page: the
+  app bridge; http: the loopback server), one code path. The bridge only answers the page's own
+  top-level frame, so the remote page needs no ticket: the app's tab is the capability.
+- **Deploy:** the brain install gives its daemon `CMUX_TUI_CHIEF_TOOLS_SOCKET`. It reaches
+  cmux-lawrence only through G2's single brain deploy; before that, the live check runs on an
+  isolated test brain (`scripts/cmux-next/chief-inspect-isolated-brain.sh`).
 
 ## Status (2026-10-07)
 
@@ -102,3 +118,16 @@ Chief only and says so for a remote one.
   system and message hashes equal the trace, first cache mark at byte 49929.
 - Not done: pixel screenshots of the page (window snapshots do not render Chromium content and
   showed the workspace's first column, not the scrolled-in new one); remote brain path.
+
+## Remote path status (2026-10-07)
+
+- Commits on feat-cmux-next-chief-inspector: tools-socket `inspect` (red 6d01c2a0843f, green
+  708452c8ebf1); `chief-inspect` red be42f25baf9a, green 201dffd2185a; app page 1e452f28bf1c;
+  isolated-brain check script.
+- Gates: hosted cmux-tui focused verification red (3 of 6 failed: non-owner, agent-bound, paths)
+  then green (all jobs, lint and macOS included); optchat-chief tests on a Testbox (7 inspect
+  tests); fleet Swift step (6 suites); concurrency, l10n, page bundle and namespace lints.
+- Live: on an isolated test brain built from 1e452f28bf1c (M1 Max, /tmp brain), `identify`
+  advertises `chief-inspect-v1`; `chief-inspect` answers status, node 0+8 and the current turn
+  through the daemon and the tools socket; `/api/ticket` is refused.
+- Not yet: the GUI remote page against the real cmux-lawrence brain (after G2's deploy).

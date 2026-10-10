@@ -1,7 +1,9 @@
+import { isMachineInstallKind } from "./machine-installs.ts"
 import { createHmac, timingSafeEqual } from "node:crypto"
 import { conversation as homeConversation } from "@cmux/home-core"
 import type { Principal } from "@cmux/ownership"
-import { authenticate, withGrantClasses } from "./auth.ts"
+import { authenticate } from "./auth.ts"
+import { principalForOwner } from "./team-select.ts"
 import type { AttachmentAccess, DownloadAccess } from "./conversation-do.ts"
 import type { Env } from "./env.ts"
 import { derivedReady, randomId, slotKeys, type UploadSlot } from "./home-attachment-store.ts"
@@ -132,11 +134,15 @@ const callerOf = async (request: Request, env: Env, risk: "read" | "mutate-share
   const auth = request.headers.get("authorization") ?? ""
   const authenticated = await authenticate(env, auth.startsWith("Bearer ") ? auth.slice(7) : undefined)
   if (!authenticated?.user) return { status: 401, code: "auth.unauthenticated", message: "sign in first" }
-  if (authenticated.install_kind === "vm") return { status: 403, code: "auth.forbidden", message: "a VM install has no Home access" }
-  const gate = await ssoGate(env, authenticated)
+  if (isMachineInstallKind(authenticated.install_kind)) return { status: 403, code: "auth.forbidden", message: "a VM install has no Home access" }
+  const gate = await ssoGate(env, authenticated).catch((e: unknown) => (console.error(JSON.stringify({ msg: "sso gate unreachable", error: String(e) })), null))
+  // A TeamDO or UserDO the gate asks was unreachable: retryable, never a 500 (cx-44j.51).
+  if (!gate) return { status: 503, code: "owner.unreachable", message: "the sign-in policy could not be checked; retry", extra: { retryable: true } }
   if (gate.refusal) return { status: 403, code: "auth.forbidden", message: gate.refusal.message }
   const { stack_session: _s, email_domain: _d, ...stripped } = gate.principal
-  const principal = await withGrantClasses(env, stripped)
+  // Review P2-2: in a shared team, guests and billing reach no Home owner (principalForOwner).
+  const granted = await principalForOwner(env, "cloud:ConversationDO", stripped)
+  const principal = granted && !("refused" in granted) ? granted : undefined
   if (!principal || (principal.kind !== "session" && !(principal.grant_classes ?? []).includes(risk))) return { status: 403, code: "auth.forbidden", message: `grant does not cover ${risk}` }
   const actor = homeConversation.actorOf(principal)
   if (!actor || !principal.user) return { status: 403, code: "auth.forbidden", message: "no user" }

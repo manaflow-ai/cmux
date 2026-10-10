@@ -6,15 +6,15 @@ selectors, fields, results, errors, constraints, or stream types.
 
 ## Transported operations
 
-`cmux.protocol/2` transports 196 operations for exactly one local mux
+`cmux.protocol/2` transports the operations in `resource-operations-v2.json` for one local mux
 session. Cross-machine aggregation and provider lifecycle require a later
 broker protocol.
 
 | Class | Count | Semantics |
 | --- | ---: | --- |
-| `read` | 60 | Reads state and forbids an idempotency key |
-| `mutation` | 118 | Requires an idempotency key and returns a mutation result |
-| `stream_open` | 5 | Opens a connection-owned typed stream |
+| `read` | 65 | Reads state and forbids an idempotency key |
+| `mutation` | 124 | Requires an idempotency key and returns a mutation result |
+| `stream_open` | 6 | Opens a connection-owned typed stream |
 | `connection_control` | 13 | Changes only connection-local state |
 
 The 40 mutations with an external effect may return the non-retryable
@@ -30,13 +30,16 @@ correlation, and idempotency metadata.
 | --- | ---: | --- |
 | `agent` | 5 | `agent.list`, `agent.message.list`, `agent.message.mark`, `agent.message.send`, `agent.report` |
 | `browser` | 15 | `browser.activate`, `browser.attach`, `browser.back`, `browser.close`, `browser.forward`, `browser.get`, `browser.input.key`, `browser.input.mouse`, `browser.input.text`, `browser.input.wheel`, `browser.list`, `browser.navigate`, `browser.reload`, `browser.viewer.release`, `browser.viewer.resize` |
+| `chief` | 3 | `chief.engine.get`, `chief.engine.set`, `chief.stop` |
 | `client` | 8 | `client.cell_pixels.set`, `client.detach`, `client.get`, `client.list`, `client.metadata.update`, `client.sizing.release`, `client.sizing.set`, `origin.confirmation.issue` |
-| `closed` | 2 | `closed.list`, `closed.reopen` |
+| `closed` | 3 | `closed.delete`, `closed.list`, `closed.reopen` |
+| `conversation` | 8 | `conversation.draft`, `conversation.events`, `conversation.get`, `conversation.history`, `conversation.list`, `conversation.search`, `conversation.send`, `conversation.typing` |
 | `frontend_projection` | 2 | `frontend_projection.get`, `frontend_projection.put` |
 | `git` | 9 | `git.checkpoint.create`, `git.checkpoint.diff`, `git.checkpoint.get`, `git.checkpoint.list`, `git.checkpoint.pin`, `git.checkpoint.unpin`, `git.diff`, `git.files.search`, `git.status` |
 | `machine` | 2 | `machine.get`, `machine.list` |
 | `notification` | 4 | `notification.ack`, `notification.clear`, `notification.create`, `notification.list` |
 | `pairing_request` | 2 | `pairing_request.list`, `pairing_request.resolve` |
+| `palette_usage` | 5 | `palette_usage.forget`, `palette_usage.get`, `palette_usage.hide`, `palette_usage.import`, `palette_usage.record` |
 | `pane` | 14 | `pane.close`, `pane.create`, `pane.focus`, `pane.focus_direction`, `pane.get`, `pane.list`, `pane.neighbor.get`, `pane.rename`, `pane.run`, `pane.split`, `pane.split_ratio.set`, `pane.swap`, `pane.viewport_width.set`, `pane.zoom` |
 | `request` | 1 | `request.cancel` |
 | `room` | 8 | `room.create`, `room.delete`, `room.follow`, `room.list`, `room.move`, `room.pin`, `room.unpin`, `room.update` |
@@ -45,6 +48,7 @@ correlation, and idempotency metadata.
 | `screen_group` | 7 | `screen_group.add_screens`, `screen_group.create`, `screen_group.get`, `screen_group.list`, `screen_group.remove_screens`, `screen_group.ungroup`, `screen_group.update` |
 | `session` | 24 | `session.creation.resolve`, `session.events`, `session.get`, `session.journal.append`, `session.journal.checkpoint.create`, `session.journal.checkpoint.list`, `session.journal.hook.list`, `session.journal.hook.put`, `session.journal.producer.list`, `session.journal.producer.put`, `session.journal.restore.preview`, `session.journal.segment.list`, `session.journal.segment.seal`, `session.journal.subscribe`, `session.list`, `session.open`, `session.ping`, `session.reload_config`, `session.shutdown`, `session.snapshot`, `session.terminal_defaults.update`, `session.window.title.clear`, `session.window.title.set`, `workspace_status.list` |
 | `sidebar_layout` | 2 | `sidebar_layout.get`, `sidebar_layout.update` |
+| `project` | 6 | `project.add`, `project.list`, `project.observe`, `project.remove`, `project.sync`, `project.update` |
 | `sidebar_view` | 6 | `sidebar_view.attach`, `sidebar_view.ensure`, `sidebar_view.get`, `sidebar_view.input`, `sidebar_view.reload`, `sidebar_view.resize` |
 | `stream` | 1 | `stream.cancel` |
 | `tab` | 11 | `tab.close`, `tab.create_browser`, `tab.create_terminal`, `tab.focus`, `tab.get`, `tab.list`, `tab.move`, `tab.pin`, `tab.rename`, `tab.unpin`, `tab.update` |

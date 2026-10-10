@@ -23,8 +23,8 @@ extension Strings {
     static var editorUngroup: String { String(localized: "tabs.group.editor.ungroup", defaultValue: "Ungroup", bundle: .module) }
     static var editorClose: String { String(localized: "tabs.group.editor.close", defaultValue: "Close Group", bundle: .module) }
     static var editorMoveToNewWindow: String { String(localized: "tabs.group.editor.moveToNewWindow", defaultValue: "Move Group to New Window", bundle: .module) }
-    static var editorSave: String { String(localized: "tabs.group.editor.save", defaultValue: "Save Group", bundle: .module) }
-    static var editorUnsave: String { String(localized: "tabs.group.editor.unsave", defaultValue: "Unsave Group", bundle: .module) }
+    static var editorSave: String { String(localized: "tabs.group.editor.save", defaultValue: "Pin Group", bundle: .module) }
+    static var editorUnsave: String { String(localized: "tabs.group.editor.unsave", defaultValue: "Unpin Group", bundle: .module) }
     static var axSavedBar: String { String(localized: "tabs.group.savedBar.ax", defaultValue: "Saved Tab Groups", bundle: .module) }
     static var demoGroupSelected: String { String(localized: "tabs.demo.groupSelected", defaultValue: "Group Selected Tab", bundle: .module) }
     static var demoUngroupSelected: String { String(localized: "tabs.demo.ungroupSelected", defaultValue: "Ungroup Selected", bundle: .module) }

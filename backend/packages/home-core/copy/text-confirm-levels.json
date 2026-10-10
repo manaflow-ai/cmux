@@ -1376,6 +1376,178 @@
     "value": "已新增一台裝置，它將在 24 小時後可以降低你的簡訊保護。如果不是你，請在 cmux 設定中移除它。",
     "state": "needs_review"
    }
+  },
+  "textConfirm.emailChanged.title": {
+   "en": {
+    "value": "Your cmux account email was changed",
+    "state": "translated"
+   },
+   "ar": {
+    "value": "تم تغيير البريد الإلكتروني لحسابك في cmux",
+    "state": "needs_review"
+   },
+   "bs": {
+    "value": "E-adresa tvog cmux računa je promijenjena",
+    "state": "needs_review"
+   },
+   "da": {
+    "value": "E-mailen til din cmux-konto er ændret",
+    "state": "needs_review"
+   },
+   "de": {
+    "value": "Die E-Mail-Adresse deines cmux-Kontos wurde geändert",
+    "state": "needs_review"
+   },
+   "es": {
+    "value": "Se cambió el correo de tu cuenta de cmux",
+    "state": "needs_review"
+   },
+   "fr": {
+    "value": "L'adresse e-mail de votre compte cmux a été modifiée",
+    "state": "needs_review"
+   },
+   "it": {
+    "value": "L'email del tuo account cmux è stata modificata",
+    "state": "needs_review"
+   },
+   "ja": {
+    "value": "cmux アカウントのメールアドレスが変更されました",
+    "state": "translated"
+   },
+   "km": {
+    "value": "អ៊ីមែលគណនី cmux របស់អ្នកត្រូវបានប្ដូរ",
+    "state": "needs_review"
+   },
+   "ko": {
+    "value": "cmux 계정 이메일이 변경되었습니다",
+    "state": "needs_review"
+   },
+   "nb": {
+    "value": "E-posten til cmux-kontoen din er endret",
+    "state": "needs_review"
+   },
+   "pl": {
+    "value": "Adres e-mail Twojego konta cmux został zmieniony",
+    "state": "needs_review"
+   },
+   "pt-BR": {
+    "value": "O e-mail da sua conta cmux foi alterado",
+    "state": "needs_review"
+   },
+   "ru": {
+    "value": "Адрес почты вашего аккаунта cmux изменён",
+    "state": "needs_review"
+   },
+   "th": {
+    "value": "อีเมลบัญชี cmux ของคุณถูกเปลี่ยนแล้ว",
+    "state": "needs_review"
+   },
+   "tr": {
+    "value": "cmux hesabının e-posta adresi değiştirildi",
+    "state": "needs_review"
+   },
+   "uk": {
+    "value": "Адресу пошти вашого облікового запису cmux змінено",
+    "state": "needs_review"
+   },
+   "vi": {
+    "value": "Email tài khoản cmux của bạn đã được thay đổi",
+    "state": "needs_review"
+   },
+   "zh-Hans": {
+    "value": "你的 cmux 账户邮箱已更改",
+    "state": "needs_review"
+   },
+   "zh-Hant": {
+    "value": "你的 cmux 帳號電子郵件已變更",
+    "state": "needs_review"
+   }
+  },
+  "textConfirm.emailChanged.body": {
+   "en": {
+    "value": "The email address of your cmux account was changed. For 14 days, security notices also go to this address. If this was not you, sign in to cmux on a trusted device and secure your account now.",
+    "state": "translated"
+   },
+   "ar": {
+    "value": "تم تغيير البريد الإلكتروني لحسابك في cmux. لمدة 14 يومًا ستصل إشعارات الأمان إلى هذا العنوان أيضًا. إذا لم تكن أنت، فسجّل الدخول إلى cmux على جهاز موثوق وأمّن حسابك الآن.",
+    "state": "needs_review"
+   },
+   "bs": {
+    "value": "E-adresa tvog cmux računa je promijenjena. Sigurnosne obavijesti 14 dana stižu i na ovu adresu. Ako to nisi ti, prijavi se u cmux na pouzdanom uređaju i odmah zaštiti račun.",
+    "state": "needs_review"
+   },
+   "da": {
+    "value": "E-mailen til din cmux-konto er ændret. I 14 dage sendes sikkerhedsbeskeder også til denne adresse. Hvis det ikke var dig, så log ind i cmux på en betroet enhed og sikr din konto nu.",
+    "state": "needs_review"
+   },
+   "de": {
+    "value": "Die E-Mail-Adresse deines cmux-Kontos wurde geändert. 14 Tage lang gehen Sicherheitshinweise auch an diese Adresse. Wenn du das nicht warst, melde dich auf einem vertrauenswürdigen Gerät bei cmux an und sichere dein Konto jetzt.",
+    "state": "needs_review"
+   },
+   "es": {
+    "value": "Se cambió el correo de tu cuenta de cmux. Durante 14 días, los avisos de seguridad también llegarán a esta dirección. Si no fuiste tú, inicia sesión en cmux en un dispositivo de confianza y protege tu cuenta ahora.",
+    "state": "needs_review"
+   },
+   "fr": {
+    "value": "L'adresse e-mail de votre compte cmux a été modifiée. Pendant 14 jours, les alertes de sécurité arrivent aussi à cette adresse. Si ce n'était pas vous, connectez-vous à cmux sur un appareil de confiance et sécurisez votre compte maintenant.",
+    "state": "needs_review"
+   },
+   "it": {
+    "value": "L'email del tuo account cmux è stata modificata. Per 14 giorni gli avvisi di sicurezza arrivano anche a questo indirizzo. Se non sei stato tu, accedi a cmux da un dispositivo attendibile e proteggi subito l'account.",
+    "state": "needs_review"
+   },
+   "ja": {
+    "value": "cmux アカウントのメールアドレスが変更されました。14日間は、セキュリティ通知がこのアドレスにも届きます。心当たりがない場合は、信頼できるデバイスで cmux にサインインし、すぐにアカウントを保護してください。",
+    "state": "translated"
+   },
+   "km": {
+    "value": "អ៊ីមែលគណនី cmux របស់អ្នកត្រូវបានប្ដូរ។ ក្នុងរយៈពេល 14 ថ្ងៃ ការជូនដំណឹងសុវត្ថិភាពក៏ផ្ញើមកអាសយដ្ឋាននេះដែរ។ បើមិនមែនអ្នកទេ សូមចូល cmux លើឧបករណ៍ដែលទុកចិត្ត ហើយការពារគណនីរបស់អ្នកឥឡូវនេះ។",
+    "state": "needs_review"
+   },
+   "ko": {
+    "value": "cmux 계정 이메일이 변경되었습니다. 14일 동안 보안 알림이 이 주소로도 전송됩니다. 본인이 아니라면 신뢰할 수 있는 기기에서 cmux에 로그인하여 지금 계정을 보호하세요.",
+    "state": "needs_review"
+   },
+   "nb": {
+    "value": "E-posten til cmux-kontoen din er endret. I 14 dager går sikkerhetsvarsler også til denne adressen. Hvis det ikke var deg, logg inn i cmux på en klarert enhet og sikre kontoen nå.",
+    "state": "needs_review"
+   },
+   "pl": {
+    "value": "Adres e-mail Twojego konta cmux został zmieniony. Przez 14 dni powiadomienia o bezpieczeństwie trafiają też na ten adres. Jeśli to nie Ty, zaloguj się do cmux na zaufanym urządzeniu i zabezpiecz konto.",
+    "state": "needs_review"
+   },
+   "pt-BR": {
+    "value": "O e-mail da sua conta cmux foi alterado. Por 14 dias, os avisos de segurança também chegam a este endereço. Se não foi você, entre no cmux em um dispositivo confiável e proteja sua conta agora.",
+    "state": "needs_review"
+   },
+   "ru": {
+    "value": "Адрес почты вашего аккаунта cmux изменён. 14 дней уведомления о безопасности будут приходить и на этот адрес. Если это были не вы, войдите в cmux на доверенном устройстве и защитите аккаунт.",
+    "state": "needs_review"
+   },
+   "th": {
+    "value": "อีเมลบัญชี cmux ของคุณถูกเปลี่ยนแล้ว ในช่วง 14 วัน การแจ้งเตือนด้านความปลอดภัยจะส่งมายังที่อยู่นี้ด้วย หากไม่ใช่คุณ ให้ลงชื่อเข้าใช้ cmux บนอุปกรณ์ที่เชื่อถือได้และปกป้องบัญชีของคุณทันที",
+    "state": "needs_review"
+   },
+   "tr": {
+    "value": "cmux hesabının e-posta adresi değiştirildi. 14 gün boyunca güvenlik bildirimleri bu adrese de gider. Bu sen değilsen, güvendiğin bir cihazda cmux'a giriş yap ve hesabını hemen koru.",
+    "state": "needs_review"
+   },
+   "uk": {
+    "value": "Адресу пошти вашого облікового запису cmux змінено. 14 днів сповіщення про безпеку надходитимуть і на цю адресу. Якщо це були не ви, увійдіть у cmux на довіреному пристрої та захистіть обліковий запис.",
+    "state": "needs_review"
+   },
+   "vi": {
+    "value": "Email tài khoản cmux của bạn đã được thay đổi. Trong 14 ngày, thông báo bảo mật cũng được gửi đến địa chỉ này. Nếu không phải bạn, hãy đăng nhập cmux trên thiết bị tin cậy và bảo vệ tài khoản ngay.",
+    "state": "needs_review"
+   },
+   "zh-Hans": {
+    "value": "你的 cmux 账户邮箱已更改。14 天内，安全通知也会发送到此地址。如果不是你本人操作，请在可信设备上登录 cmux 并立即保护你的账户。",
+    "state": "needs_review"
+   },
+   "zh-Hant": {
+    "value": "你的 cmux 帳號電子郵件已變更。14 天內，安全通知也會寄到此地址。如果不是你本人操作，請在可信任的裝置上登入 cmux 並立即保護你的帳號。",
+    "state": "needs_review"
+   }
   }
  }
 }

@@ -8,9 +8,7 @@ use super::{
     resource_operation_error, validation_error,
 };
 use crate::resource::{ResourceError, ResourceOperation};
-use crate::{
-    ConfigReloadError, DefaultColors, Mux, MuxEvent, ResourceTarget, Rgb, WorkspaceMutation,
-};
+use crate::{ConfigReloadError, DefaultColors, Mux, MuxEvent, ResourceTarget, Rgb};
 
 pub(super) fn handles(operation: ResourceOperation) -> bool {
     matches!(
@@ -154,15 +152,7 @@ fn update_terminal_defaults(
         },
     };
     let value = terminal_defaults_snapshot(colors);
-    let mutation = WorkspaceMutation::new(
-        request
-            .envelope
-            .idempotency_key
-            .clone()
-            .expect("validated mutations have an idempotency key"),
-        "resource-api",
-    )
-    .map_err(resource_operation_error)?;
+    let mutation = request.mutation().map_err(resource_operation_error)?;
     let fields = Value::Object(request.fields.clone());
     let commit = mux
         .resource_update_terminal_defaults_selected(
@@ -257,6 +247,7 @@ mod tests {
                 ..Default::default()
             },
             fields: fields.as_object().unwrap().clone(),
+            actor: crate::Actor::local_user(),
         }
     }
 

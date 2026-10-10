@@ -7,7 +7,7 @@ nonisolated extension AgentPaneShellCompletion {
     emulate -L zsh
     zmodload zsh/zpty || exit 3
     export TERM=xterm
-    zpty cmuxcomplete "$2" -f -i || exit 4
+    zpty cmuxcomplete "$2" -d -i || exit 4
     zpty -w cmuxcomplete 'eval "$CMUX_COMPLETE_SETUP"'
     local out ready=0
     repeat 16; do

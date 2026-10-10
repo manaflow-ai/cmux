@@ -72,6 +72,31 @@ public nonisolated final class RemoteRdInput {
         return seq
     }
 
+    /// Largest service event, in bytes (`CMUX_RD_INPUT_MAX_SERVICE`).
+    public static let maxServiceBytes = Int(CMUX_RD_INPUT_MAX_SERVICE)
+
+    /// Queues one service-defined event (rd change C2, tag 0x80): opaque
+    /// bytes the session's service interprets (one rb/1 input event as
+    /// JSON), and returns its sequence number. `mustDeliver` repeats it until
+    /// acknowledged, like a key release. Send only when the host's welcome
+    /// lists the `input.service` cap. Empty bytes or more than
+    /// `maxServiceBytes` throw `.invalid`.
+    @discardableResult
+    public func sendService(_ bytes: Data, mustDeliver: Bool) throws(RemoteRdCoreError) -> UInt32 {
+        var raw = CmuxRdInputEvent()
+        raw.kind = UInt32(CMUX_RD_INPUT_SERVICE)
+        raw.service_flags = mustDeliver ? UInt8(CMUX_RD_INPUT_MUST_DELIVER) : 0
+        var seq: UInt32 = 0
+        var copy = [UInt8](bytes)
+        let code = copy.withUnsafeMutableBufferPointer { buffer in
+            raw.text = UnsafePointer(buffer.baseAddress)
+            raw.text_len = buffer.count
+            return cmux_rd_input_push(handle, &raw, &seq)
+        }
+        _ = try RemoteRdCoreError.check(code)
+        return seq
+    }
+
     /// Applies an `InputAck` datagram (a `.datagram` message from
     /// `RemoteRdCore.popMessage`, header included). Throws `.invalid` for any
     /// other datagram, so the owner can offer each datagram message here first.

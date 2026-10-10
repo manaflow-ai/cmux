@@ -7,6 +7,9 @@ import CmuxNextDaemon
 import CmuxNextHistory
 import CmuxNextRemoteView
 import Foundation
+#if DEBUG
+import CmuxNextRemoteBrowser
+#endif
 
 /// Opens `cmux://history` and serves its data (plans/cmux-next/history.md
 /// 5.1). The page is a browser tab whose record URL is `cmux://history`, so
@@ -109,7 +112,16 @@ extension TabContentCache {
 
     static func isAppPage(_ url: URL?) -> Bool {
         HistoryPageAddress.matches(url) || BookmarkPageAddress.matches(url) || AgentActivityPageAddress.matches(url)
-            || RemoteViewTabRecord.matches(url)
+            || RemoteViewTabRecord.matches(url) || isRemoteBrowserPage(url)
+    }
+
+    /// A development remote tab record (`cmux://remote-browser`).
+    static func isRemoteBrowserPage(_ url: URL?) -> Bool {
+        #if DEBUG
+        RemoteBrowserTabRecord.matches(url)
+        #else
+        false
+        #endif
     }
 
     private func makeAppPage(_ url: URL?, for tab: TabModel) -> (any BrowserTab)? {
@@ -117,6 +129,11 @@ extension TabContentCache {
         let key = tab.id
         let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
         let profile = browserProfile?(key) ?? .default
+        #if DEBUG
+        if let url, RemoteBrowserTabRecord.matches(url) {
+            return RemoteBrowserPages.makePage(url: url, key: key, profile: profile, services: services)
+        }
+        #endif
         if AgentActivityPageAddress.matches(url) {
             let page = services.agentActivityPage.makePage(key: key, engine: engine, profile: profile)
             page.onNavigate = { [weak self] target in self?.leaveAppPage(key, to: target) }
@@ -159,7 +176,7 @@ extension TabContentCache {
         let profile = browserProfile?(key) ?? .default
         let config = BrowserTabConfiguration(id: BrowserTabID(rawValue: key), profile: profile, initialURL: url)
         guard let tab = tabModel(key), tab.browserEngine == BrowserEngineTag.cef.rawValue, browserTabs.cefUnavailable() == nil else {
-            return swapPage(key, with: webKit.makeWebKitTab(config))
+            return swapPage(key, with: unproxiedWebKitPage(config))
         }
         // task-owner: one Chromium page creation; the tab swap is its only effect
         Task { [weak self] in
@@ -168,8 +185,15 @@ extension TabContentCache {
             if let page = try? await makeCEFTab(configured) {
                 swapPage(key, with: page)
             } else {
-                swapPage(key, with: webKit.makeWebKitTab(config))
+                swapPage(key, with: unproxiedWebKitPage(config))
             }
         }
+    }
+
+    /// A WebKit page for `config`; a proxied tab's page stays blank (its URL is a remote
+    /// machine's localhost, which WebKit would load from this Mac).
+    private func unproxiedWebKitPage(_ config: BrowserTabConfiguration) -> WebKitTab {
+        webKit.makeWebKitTab(id: config.id, profile: config.profile,
+                             initialURL: pageRequests.proxiedTabs.isProxied(config.id.rawValue) ? nil : config.initialURL)
     }
 }

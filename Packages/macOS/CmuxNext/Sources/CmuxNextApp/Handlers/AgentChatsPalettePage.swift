@@ -13,25 +13,23 @@ struct AgentChatsPalettePage {
     let services: AppServices
 
     func page() -> PalettePageSpec {
-        let chats = services.agentRecents?.chats ?? []
+        let chats = services.chatsFeed?.chats ?? []
         let formatter = RelativeDateTimeFormatter()
         let items = chats.map { chat in
             PaletteItem(
                 id: "chat:\(chat.id)", title: chat.title ?? AgentChatsPaletteStrings.untitled,
-                subtitle: chat.cwd.isEmpty ? nil : (chat.cwd as NSString).abbreviatingWithTildeInPath,
-                accessory: chat.updatedAt > 0 ? formatter.localizedString(for: Date(timeIntervalSince1970: chat.updatedAt / 1000), relativeTo: Date()) : nil,
+                subtitle: chat.cwd.map { ($0 as NSString).abbreviatingWithTildeInPath },
+                accessory: chat.updatedAt.timeIntervalSince1970 > 0 ? formatter.localizedString(for: chat.updatedAt, relativeTo: Date()) : nil,
                 symbol: "bubble.left", brand: AgentBrandCatalog.brand(for: chat.harness)?.rawValue,
-                keywords: [chat.harness, chat.cwd],
+                keywords: [chat.harness] + (chat.cwd.map { [$0] } ?? []),
                 primary: PaletteCommand(id: "open", title: AgentChatsPaletteStrings.open, symbol: "return",
-                                        effect: .perform { [services] in open(chat.id, services: services) }))
+                                        effect: .perform { [services] in services.chatsOpener.open(chat.id) }))
         }
         return PalettePageSpec(id: "agentChats", title: AgentChatsPaletteStrings.title, placeholder: AgentChatsPaletteStrings.placeholder,
                                symbol: "bubble.left.and.bubble.right", providers: [StaticPaletteProvider(id: "agentChats", items: items)])
     }
 
-    private func open(_ id: String, services: AppServices) {
-        try? DeepLinkNavigator(services: services).open(DeepLink(.session(id, turn: nil)), background: false)
-    }
+
 }
 
 /// Text of the chats page. Keys live in Resources/MiscHandlers.xcstrings (en, ja).

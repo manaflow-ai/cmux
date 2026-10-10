@@ -70,7 +70,7 @@ impl Hub {
         };
         // Pooled sessions started under the old catalog are never served.
         self.drain_pool();
-        self.probe_models_with(true, false).await;
+        self.probe_models_with(true, false, None).await;
         Ok(json!({"reloaded": true, "harnesses": harnesses, "defaultHarness": default_harness,
             "retainedProfiles": retained, "modelProbePending": true}))
     }

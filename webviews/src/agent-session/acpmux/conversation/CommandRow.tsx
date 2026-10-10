@@ -1,6 +1,6 @@
 // One command in a "Ran N commands" group: the command line in mono, cut to the row, then its
 // exit status and run time, opening to its Shell block.
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { ShellBlock } from "./ShellBlock";
@@ -10,6 +10,7 @@ import { isFailed, isRunning, toolDuration } from "./toolGroups";
 export function CommandRow({ item }: { item: AcpmuxActivity }) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  const detailsId = useId();
   const tool = item.tool!;
   const running = isRunning(tool);
   const failed = isFailed(tool);
@@ -21,6 +22,7 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
         type="button"
         className={`cv-tool cv-command is-toggle${running ? " is-live" : " is-strong"}`}
         aria-expanded={open}
+        aria-controls={open ? detailsId : undefined}
         title={tool.command}
         onClick={() => setOpen((value) => !value)}
       >
@@ -43,7 +45,14 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
           className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
         />
       </button>
-      {open && <ShellBlock command={tool.command} output={tool.output?.replace(/\n$/, "")} exitCode={tool.exitCode} />}
+      {open && (
+        <ShellBlock
+          id={detailsId}
+          command={tool.command}
+          output={tool.output?.replace(/\n$/, "")}
+          exitCode={tool.exitCode}
+        />
+      )}
     </>
   );
 }

@@ -23,6 +23,26 @@ nonisolated enum TabSettingsSchema {
         )
     }
 
+    /// `tabs.newTabTemplate`: which New Tab page template shows (the page's dots also set it).
+    static func newTabTemplate(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(
+            NewTabTemplate.configPath, section: .general, group: group,
+            title: SettingsText.keyed("settings.tabs.newTabTemplate", "New Tab Template"),
+            help: SettingsText.keyed("settings.tabs.newTabTemplate.help",
+                                     "The layout of the New Tab page. Terminal skips the page and opens a terminal. The dots at the bottom of the page also change it."),
+            kind: .choice([
+                SettingChoice(NewTabTemplate.default.rawValue, SettingsText.keyed("settings.choice.newTabTemplateDefault", "Default")),
+                SettingChoice(NewTabTemplate.composer.rawValue, SettingsText.keyed("settings.choice.newTabTemplateComposer", "Composer")),
+                SettingChoice(NewTabTemplate.threads.rawValue, SettingsText.keyed("settings.choice.newTabTemplateThreads", "Threads")),
+                SettingChoice(NewTabTemplate.console.rawValue, SettingsText.keyed("settings.choice.newTabTemplateConsole", "Console")),
+                SettingChoice(NewTabTemplate.classic.rawValue, SettingsText.keyed("settings.choice.newTabTemplateClassic", "Classic")),
+                SettingChoice(NewTabTemplate.terminal.rawValue, SettingsText.keyed("settings.choice.newTabTemplateTerminal", "Terminal")),
+            ]),
+            default: .string(NewTabTemplate.fallback.rawValue),
+            keywords: ["new tab", "template", "layout", "page", "terminal", "classic", "composer", "threads", "console"]
+        )
+    }
+
     /// `newTerminal.opensWorkspace`: whether New Terminal creates a workspace
     /// in the current space instead of a tab in the focused workspace.
     static func newTerminalOpensWorkspace(group: SettingText) -> SettingDescriptor {
@@ -37,6 +57,19 @@ nonisolated enum TabSettingsSchema {
         )
     }
 
+    /// `tabs.cmdWClosesPinnedTabs`: whether the user's Cmd-W closes a pinned tab.
+    static func cmdWClosesPinnedTabs(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(
+            CmdWClosesPinnedTabsSetting.configPath, section: .general, group: group,
+            title: SettingsText.keyed("settings.tabs.cmdWClosesPinnedTabs", "Cmd-W Closes Pinned Tabs"),
+            help: SettingsText.keyed("settings.tabs.cmdWClosesPinnedTabs.help",
+                                     "When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu."),
+            kind: .toggle,
+            default: .bool(CmdWClosesPinnedTabsSetting.fallback),
+            keywords: ["pin", "pinned", "close", "cmd-w", "tab", "keep"]
+        )
+    }
+
     /// `app.warnBeforeClosingTab` and `app.warnBeforeClosingAgentSession`,
     /// side by side as in classic.
     static func closeWarnings(group: SettingText) -> [SettingDescriptor] {
@@ -44,8 +77,6 @@ nonisolated enum TabSettingsSchema {
             SettingDescriptor(
                 CmuxConfigSnapshot.warnBeforeClosingTabPath, section: .general, group: group,
                 title: SettingsText.keyed("settings.app.warnBeforeClosingTab", "Warn Before Closing a Running Program"),
-                help: SettingsText.keyed("settings.app.warnBeforeClosingTab.help",
-                                        "Ask before closing a tab or workspace whose terminal is running a program. Idle tabs always close at once."),
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.closeWarningFallback),
                 keywords: ["close", "confirm", "warn", "tab", "workspace", "running", "process", "cmd-w"]
@@ -53,8 +84,6 @@ nonisolated enum TabSettingsSchema {
             SettingDescriptor(
                 CmuxConfigSnapshot.warnBeforeClosingAgentSessionPath, section: .general, group: group,
                 title: SettingsText.keyed("settings.app.warnBeforeClosingAgentSession", "Warn Before Closing a Working Agent"),
-                help: SettingsText.keyed("settings.app.warnBeforeClosingAgentSession.help",
-                                        "Ask before closing a terminal tab whose agent is still working."),
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.closeWarningFallback),
                 keywords: ["close", "confirm", "warn", "agent", "claude", "codex", "session", "working", "cmd-w"]

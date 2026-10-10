@@ -1,3 +1,4 @@
+import { questionText } from "./question.ts"
 import type { ConversationHead, Message } from "./types.ts"
 import { currentParticipant } from "./validate.ts"
 
@@ -6,6 +7,7 @@ import { currentParticipant } from "./validate.ts"
  * read model and its corpus (`conformance/conversation-search-cases.json`):
  * Home messages only, in conversations where the actor is a current
  * participant, from `joined_seq` on when the group hides older history. The
+ * text of a question part is its first item's prompt. The
  * match is a case-insensitive substring of the text parts: both sides are
  * lower-cased per code point (Unicode default lower case, as Rust
  * `char::to_lowercase`), so it works for every script without a tokenizer.
@@ -43,10 +45,14 @@ export type SearchResult = { readonly ok: true; readonly hits: ReadonlyArray<Sea
 /** One code point to its lower case (may be more than one code point, for example "İ"). */
 const fold = (ch: string) => ch.toLowerCase()
 
-/** Text of a message for matching and snippets (text parts joined by one space). */
+/** Text of a message for matching and snippets (text parts and question prompts joined by one space). */
 export const messageText = (message: Message): string =>
   message.parts
-    .flatMap((part) => (part.type === "text" ? [part.text] : []))
+    .flatMap((part) => {
+      if (part.type === "text") return [part.text]
+      const prompt = part.type === "question" ? questionText(part) : undefined
+      return prompt === undefined ? [] : [prompt]
+    })
     .join(" ")
     .replace(/\s+/g, " ")
     .trim()

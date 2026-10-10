@@ -63,7 +63,7 @@ final class RowRecycler: UIScrollView, TranscriptList {
     var visibleCells: [UICollectionViewCell] { Array(visible.values) }
 
     func indexPath(for cell: UICollectionViewCell) -> IndexPath? {
-        index[ObjectIdentifier(cell)].map { IndexPath(item: $0, section: 0) }
+        index.value(for: ObjectIdentifier(cell)).map { /* cmux: dictionary read */ IndexPath(item: $0, section: 0) }
     }
 
     /// All rows may have changed: reconfigure every visible cell on the next pass.
@@ -113,7 +113,7 @@ final class RowRecycler: UIScrollView, TranscriptList {
             }
             if cell.frame != a.frame { cell.frame = a.frame }
             cell.layer.zPosition = CGFloat(a.zIndex)
-            next[k] = cell
+            next.updateValue(cell, forKey: k) /* cmux */
             newIndex[ObjectIdentifier(cell)] = i
         }
         // Rows that left the rect: back to the pool (hidden, not removed), in row order: the
@@ -134,6 +134,26 @@ final class RowRecycler: UIScrollView, TranscriptList {
         CustomRows.host?.didLayout(self)
         // Media: bitmaps and thumbnails ahead in the scroll direction (MediaCache.swift).
         prefetcher.update(self)
+    }
+
+    /// Cells made ahead of need: hidden in the view tree, so their creation and first commit are
+    /// not in the frame that needs them (the first fold of a long message: one viewport of rows
+    /// above slides in, and new cells were made in that frame). At most `batch` per call.
+    /// Returns true while more are needed.
+    @discardableResult
+    func reserve(_ total: Int, batch: Int = 12) -> Bool {
+        let need = total - (visible.count + pool.count)
+        guard need > 0 else { return false }
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        for _ in 0..<min(need, batch) {
+            let c = RowCell(frame: .zero)
+            poolSize += 1
+            addSubview(c)
+            c.isHidden = true
+            pool.insert(c, at: 0)
+        }
+        CATransaction.commit()
+        return need > batch
     }
 
     private func take() -> RowCell {

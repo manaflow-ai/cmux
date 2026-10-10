@@ -98,9 +98,10 @@ public nonisolated struct SidebarLayoutDocument: Hashable, Sendable, Codable {
     /// first-party apps Home and the App Store as plain rows on top (app
     /// items, R63/R64: apps like any other, from their manifests; Lawrence
     /// 2026-10-05: rows, not the large tiles of #17349), the workspaces, the
-    /// recent agent chats (`recentsSection`), then the footer: one line with the account avatar, then the Settings gear,
-    /// both icons only and leading (SIDEBAR-FOOTER-MINIMAL, Lawrence
-    /// 2026-10-06; the update pill trails it, drawn by the sidebar). Pinned
+    /// recent agent chats (`recentsSection`), then the footer: one leading
+    /// control, the current profile's avatar with a chevron that opens the
+    /// profile menu (Settings is in it and on ⌘,; SIDEBAR-FOOTER-AND-SPACE-MENU
+    /// amendment 2, Lawrence 2026-10-07). Pinned
     /// sections use the built-in look and draw no header. Stored layouts
     /// still equal to an older default move to this one
     /// (`sectionsMigrationOps`).
@@ -110,11 +111,9 @@ public nonisolated struct SidebarLayoutDocument: Hashable, Sendable, Codable {
                               LayoutItem(id: LayoutItemID("itm_app_store"), ref: .app("cmux/app-store"))]),
         // CodeRouter is not here by default (FIRST-PARTY-APPS): the palette and the App Store reach it.
         LayoutSection(id: workspacesSectionID, region: .middle, look: .list, content: .workspaces),
-        recentsSection,
         LayoutSection(id: bottomSectionID, region: .bottom, look: .builtIn,
                       arrangement: SectionArrangement(layout: .inline, align: .leading), items: [
                           LayoutItem(id: LayoutItemID("itm_account"), ref: .builtIn(.account), showsLabel: false),
-                          LayoutItem(id: LayoutItemID("itm_settings"), ref: .builtIn(.settings), showsLabel: false),
                       ]),
     ])
 

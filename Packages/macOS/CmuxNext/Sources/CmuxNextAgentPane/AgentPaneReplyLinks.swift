@@ -28,6 +28,8 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     public var revealFolder: @MainActor (URL) -> Void = { NSWorkspace.shared.activateFileViewerSelecting([$0]) }
     public var browsers: any AgentPaneBrowserApps = AgentPaneWorkspaceBrowsers()
     var fetcher: any AgentPaneImageFetching = AgentPaneSafeFetch()
+    /// The fetch for web video and audio (``AgentPaneSafeFetch/media``).
+    var mediaFetcher: any AgentPaneImageFetching = AgentPaneSafeFetch.media
     let choices = AgentPaneBrowserChoices()
     /// The home folder for `~/` and the deny list (tests replace it).
     var home = NSHomeDirectory()
@@ -71,6 +73,8 @@ extension AgentPaneModel {
             return Self.replyResult(await openReplyPath(path))
         case .loadImage(let src):
             return await loadReplyImage(src)
+        case .loadMedia(let src):
+            return await loadReplyMedia(src)
         case .listBrowsers:
             return AgentPaneReply.success(["browsers": replyLinks.choices.list(from: replyLinks.browsers)])
         case .openIn(let url, let browserId):

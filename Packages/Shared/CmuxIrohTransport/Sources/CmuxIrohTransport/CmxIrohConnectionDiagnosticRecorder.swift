@@ -16,7 +16,6 @@ public struct CmxIrohConnectionDiagnosticRecorder: Sendable {
         sessionID: Int,
         peerAlias: UInt32? = nil
     ) {
-        precondition(sessionID > 0)
         self.diagnosticLog = diagnosticLog
         self.sessionID = sessionID
         self.peerAlias = peerAlias
@@ -63,6 +62,7 @@ public struct CmxIrohConnectionDiagnosticRecorder: Sendable {
         _ code: Int64?
     ) -> UInt32? {
         guard let code else { return nil }
-        return UInt32(max(0, min(code, Int64(Int32.max))))
+        // Clamped to 0...Int32.max, as before.
+        return UInt32(clamping: Int32(clamping: code))
     }
 }

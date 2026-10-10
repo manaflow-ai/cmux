@@ -1,12 +1,14 @@
 public import CmuxNextDesign
 
 /// Where the window chrome sits (R109): `sidebar.side` and
-/// `sidebar.spacesPosition` in cmux-next.json. A missing key is the
+/// `sidebar.spacesPosition` (and `sidebar.spacesVisibility`, cx-5k3r) in
+/// cmux-next.json. A missing key is the
 /// default; a bad value is the default plus a diagnostic.
 public nonisolated struct ChromePlacementSetting {
     public nonisolated init() {}
     public static let sidebarSidePath = ["sidebar", "side"]
     public static let spacesPositionPath = ["sidebar", "spacesPosition"]
+    public static let spacesVisibilityPath = ["sidebar", "spacesVisibility"]
     public static let tabBarPositionPath = ["tabs", "barPosition"]
     public static let tabBarOrderPath = ["tabs", "barOrder"]
 
@@ -20,6 +22,7 @@ public nonisolated struct ChromePlacementSetting {
     static func parse(_ root: JSONValue, into snapshot: inout CmuxConfigSnapshot) {
         snapshot.sidebarSide = choice(root, sidebarSidePath, fallback: .left, &snapshot.diagnostics)
         snapshot.spacesPosition = choice(root, spacesPositionPath, fallback: .bottom, &snapshot.diagnostics)
+        snapshot.spacesVisibility = choice(root, spacesVisibilityPath, fallback: .hover, &snapshot.diagnostics)
         snapshot.tabBarPosition = choice(root, tabBarPositionPath, fallback: .top, &snapshot.diagnostics)
         snapshot.tabBarOrder = choice(root, tabBarOrderPath, fallback: .aboveToolbar, &snapshot.diagnostics)
     }
@@ -89,6 +92,19 @@ public nonisolated struct ChromePlacementSetting {
                           default: .string(SpacesPosition.bottom.rawValue),
                           keywords: ["sidebar", "spaces", "rooms", "profiles", "dots", "top", "bottom", "position", "layout"])
     }
+
+    static func spacesVisibilityDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(spacesVisibilityPath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.spacesVisibility", "Show Spaces"),
+                          help: SettingsText.keyed("settings.sidebar.spacesVisibility.help",
+                                                   "On Hover shows the spaces only while the pointer is over the sidebar, like its other buttons."),
+                          kind: .choice([
+                              SettingChoice(SpacesVisibilityMode.hover.rawValue, SettingsText.keyed("settings.choice.onHover", "On Hover")),
+                              SettingChoice(SpacesVisibilityMode.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),
+                          ]),
+                          default: .string(SpacesVisibilityMode.hover.rawValue),
+                          keywords: ["sidebar", "spaces", "rooms", "profiles", "dots", "hover", "hide", "show", "always", "visibility"])
+    }
 }
 
 extension SettingsApplier {
@@ -96,6 +112,7 @@ extension SettingsApplier {
     public static func applyPlacement(_ snapshot: CmuxConfigSnapshot, to design: DesignSettings) {
         if design.sidebarSide != snapshot.sidebarSide { design.sidebarSide = snapshot.sidebarSide }
         if design.spacesPosition != snapshot.spacesPosition { design.spacesPosition = snapshot.spacesPosition }
+        if design.spacesVisibility != snapshot.spacesVisibility { design.spacesVisibility = snapshot.spacesVisibility }
         if design.tabBarPosition != snapshot.tabBarPosition { design.tabBarPosition = snapshot.tabBarPosition }
         if design.tabBarOrder != snapshot.tabBarOrder { design.tabBarOrder = snapshot.tabBarOrder }
     }
