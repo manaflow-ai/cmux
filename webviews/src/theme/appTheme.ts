@@ -11,7 +11,7 @@
 // Colors start from the theme and move only as far as a contrast target needs: a token keeps its
 // OKLCH hue and chroma and changes lightness (color.ts). The accent is neutral: the theme
 // foreground's lightness without hue (the no-blue rule; never a palette slot such as ANSI 4).
-// No hue is hard-coded. test/app-theme.test.ts checks every pair on all bundled themes.
+// No hue is hard-coded.
 import {
   BLACK,
   WHITE,
