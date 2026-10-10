@@ -115,7 +115,7 @@ impl Brain {
         }
         entry.plain_text = Some(reply);
         entry.previews_until = Some(now_ms() + HOLD.as_millis() as u64);
-        let (tx, key, log) = (self.tx.clone(), key.to_owned(), self.log.clone());
+        let (tx, owned_key, log) = (self.tx.clone(), key.to_owned(), self.log.clone());
         let spawned = std::thread::Builder::new()
             .name("optchat-link-previews".into())
             .spawn(move || {
@@ -149,7 +149,7 @@ impl Brain {
                     })
                     .collect();
                 let _ = tx.send(Input::Previews {
-                    key,
+                    key: owned_key,
                     fetched: filled,
                 });
             });
