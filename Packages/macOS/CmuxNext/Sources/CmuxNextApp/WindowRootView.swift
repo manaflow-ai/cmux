@@ -29,7 +29,15 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     private let reduceTransparency: @MainActor () -> Bool
     /// Sets the window's behind-window blur radius (tests record it).
     private let applyWindowBlur: @MainActor (NSWindow, Int) -> Void
-    let contentHost = NSView()
+    /// The workspace content: the curved main pane, inset and rounded
+    /// (cx-rkgu), or edge to edge.
+    let contentHost = MainPaneCardView(frame: .zero)
+    /// The shade over the chrome around the curved main pane.
+    let mainPaneShade = MainPaneChromeShadeView(frame: .zero)
+    /// The content host's top and bottom pins (the side pins are in
+    /// `sidePins`); their constants are the main pane's gutter.
+    var mainPaneEdges: [NSLayoutConstraint] = []
+    private var mainPaneObservation: Task<Void, Never>?
     let sidebar: SidebarContainerView
     /// The edge the sidebar sits on (`sidebar.side`, R109).
     var sidebarSide: SidebarSide = .left {
@@ -92,6 +100,9 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         backdropView.frame = bounds
         backdropView.autoresizingMask = [.width, .height]
         addSubview(backdropView)
+        mainPaneShade.frame = bounds
+        mainPaneShade.autoresizingMask = [.width, .height]
+        addSubview(mainPaneShade)
         for view in [contentHost, titlebar] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
@@ -102,6 +113,8 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         addSubview(toolbarBand)
         addSubview(titlebarRevealRegion)
         let titleHeight = titlebar.heightAnchor.constraint(equalToConstant: 0)
+        mainPaneEdges = [contentHost.topAnchor.constraint(equalTo: titlebar.bottomAnchor),
+                         contentHost.bottomAnchor.constraint(equalTo: bottomAnchor)]
         NSLayoutConstraint.activate([
             sidebar.topAnchor.constraint(equalTo: topAnchor),
             sidebar.bottomAnchor.constraint(equalTo: bottomAnchor),
@@ -110,9 +123,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             // When the sidebar hides, the title stops clear of the traffic
             // lights while the content below reaches the window edge.
             titlebar.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: Metrics.trafficLightInset),
-            contentHost.topAnchor.constraint(equalTo: titlebar.bottomAnchor),
-            contentHost.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
+        ] + mainPaneEdges)
         // The first window opens on the configured side (no move after).
         sidebarSide = DesignSettings.shared.sidebarSide
         sidebar.side = sidebarSide
@@ -132,6 +143,9 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             }
         }
         placementObservation = observePlacement()
+        contentHost.onFrameChange = { [weak self] in self?.updateMainPaneShade() }
+        applyMainPane()
+        mainPaneObservation = observeMainPane()
         // queue: .main: the workspace center may post off main; a selector
         // into this main-actor view trapped there.
         displayOptionsObserver = NSWorkspace.shared.notificationCenter.addObserver(
@@ -148,6 +162,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     isolated deinit {
         tokenObservation?.cancel()
         placementObservation?.cancel()
+        mainPaneObservation?.cancel()
         if let displayOptionsObserver { NSWorkspace.shared.notificationCenter.removeObserver(displayOptionsObserver) }
     }
 
@@ -182,42 +197,6 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         didSet { if oldValue != showsTitlebarBadge { needsLayout = true } }
     }
 
-    /// The static sidebar toggle (R68).
-    var sidebarToggleButton: NSButton? { toolbarBand.sidebarToggle }
-    /// The toggle's frame in window coordinates.
-    var sidebarToggleFrame: CGRect? {
-        let toggle = toolbarBand.sidebarToggle
-        return toggle.convert(toggle.bounds, to: nil)
-    }
-    /// The window's close, minimize and zoom buttons.
-    var trafficLightButtons: [NSView] {
-        [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].compactMap { window?.standardWindowButton($0) }
-    }
-    /// A click on the toggle (tests).
-    func pressSidebarToggle() { toolbarBand.toggle() }
-    /// A history button's frame in window coordinates (R69).
-    func historyButtonFrame(_ direction: LocationTrailDirection) -> CGRect? {
-        let button = toolbarBand.historyButton(direction)
-        return button.convert(button.bounds, to: nil)
-    }
-    /// Whether a history button is enabled (tests).
-    func historyButtonEnabled(_ direction: LocationTrailDirection) -> Bool { toolbarBand.historyButton(direction).isEnabled }
-    /// A click on a history button (tests).
-    func pressHistoryButton(_ direction: LocationTrailDirection) { toolbarBand.onHistory?(direction) }
-
-    /// The badge's frame in window coordinates while it shows.
-    var titlebarBadgeFrame: CGRect? {
-        guard let badge = titlebarBadge, !badge.isHidden else { return nil }
-        return badge.convert(badge.bounds, to: nil)
-    }
-
-    /// What strips under the top row keep clear (window coordinates): the
-    /// toolbar band and, while it shows, the badge after it.
-    var titlebarAccessoryFrame: CGRect {
-        let band = toolbarBand.convert(toolbarBand.bounds, to: nil)
-        return titlebarBadgeFrame.map { band.union($0) } ?? band
-    }
-
     var onHintGeometryChange: (() -> Void)?
     /// Called from layout when the band's presence changed, so strips under
     /// the top row recompute their inset in the same layout pass.
@@ -243,6 +222,9 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         // windows (overlay panel, pages) or this view's subviews.
         if (window as? ShellWindow)?.isInLayoutPass != true { windowDidLayout() }
         TitlebarDragPolicy.layoutBandBlocker(titlebarBandBlocker, in: self)
+        // Every frame is final here: the shade follows the card even when the
+        // shade's own autoresizing landed after the card's frame change.
+        updateMainPaneShade()
         // The band starts after the traffic lights (which never move) and is
         // as wide as the sidebar's on-screen share: 0 wide, with no gap
         // after the lights, while the sidebar is hidden (cx-uxdr).
@@ -363,6 +345,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// (`WindowBackdrop`). Re-run on theme and Reduce Transparency changes.
     func themeDidChange() {
         paintBackground()
+        updateMainPaneShade()
         if let window { applyBackdrop(to: window) }
     }
 

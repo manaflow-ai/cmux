@@ -10,7 +10,10 @@ extension AgentTabStore {
         let actions = AgentChatTabActions(tab: { [weak self] in self?.resolve(provisional) ?? provisional },
                                           registry: { [weak self] in self?.actionRegistry })
         let toggles = AgentChatSplitToggles()
-        model.header = AgentPaneHeaderHooks(run: actions.run, toggle: { [weak self] id, cwd in
+        model.header = AgentPaneHeaderHooks(run: { [weak self] id, cwd in
+            let chat = self?.resolve(provisional) ?? provisional
+            toggles.open(id, cwd: cwd, chat: chat, store: self?.lookup(chat)?.store, actions: actions)
+        }, toggle: { [weak self] id, cwd in
             let chat = self?.resolve(provisional) ?? provisional
             toggles.toggle(id, cwd: cwd, chat: chat, store: self?.lookup(chat)?.store, actions: actions)
         }, tabState: { [weak self] in

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextIcons
 import SwiftUI
 
 struct AgentActivitySplitView: View {
@@ -29,7 +30,7 @@ struct AgentActivitySessionList: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
-                Image(systemName: "line.3.horizontal.decrease").foregroundStyle(colors.tertiary)
+                Icon(.filter, size: 14).foregroundStyle(colors.tertiary)
                 TextField(AgentActivityStrings.filter, text: $model.filter).textFieldStyle(.plain)
             }
             .font(.system(size: 12))
@@ -63,7 +64,7 @@ struct AgentActivityMachineHeader: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 6) {
-                Image(systemName: group.id == AgentActivityModel.localMachine ? "laptopcomputer" : "server.rack")
+                Icon(group.id == AgentActivityModel.localMachine ? .machineLocal : .machineRemote, size: 13)
                 Text(group.name).font(.system(size: 11, weight: .semibold))
                 Spacer()
                 let live = group.sessions.filter(\.status.isLive).count

@@ -1,4 +1,5 @@
 import CmuxNextDesign
+import CmuxNextIcons
 import SwiftUI
 
 /// The right side of the manager: rows with icon, title, URL and folder
@@ -44,7 +45,7 @@ struct BookmarkManagerList: View {
 
     private func row(_ node: BookmarkNode) -> some View {
         HStack(spacing: Metrics.space4) {
-            Image(systemName: node.isFolder ? "folder" : "globe")
+            Icon(node.isFolder ? .folder : .browser, size: 13)
                 .foregroundStyle(colors.secondary)
                 .frame(width: Metrics.iconSize)
             Text(node.displayTitle).lineLimit(1)

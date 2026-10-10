@@ -33,6 +33,7 @@ final class BookmarkService {
     @ObservationIgnored var saving: Task<Void, Never>?
     @ObservationIgnored var homeObservation: Task<Void, Never>?
     @ObservationIgnored var barObservation: Task<Void, Never>?
+    @ObservationIgnored var faviconObservation: Task<Void, Never>?
     @ObservationIgnored var migrating = false
     /// The folder each profile's last bookmark went to, offered for the next one.
     @ObservationIgnored var lastFolder: [String: String] = [:]

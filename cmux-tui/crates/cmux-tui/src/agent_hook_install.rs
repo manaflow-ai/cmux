@@ -41,6 +41,9 @@ use windows_sys::Win32::System::Threading::{
     THREAD_SUSPEND_RESUME,
 };
 
+mod message_hooks;
+use message_hooks::{delivers_messages, hook_command, journal_hook_command};
+
 const COMMAND_MARKER: &str = "cmux-tui-journal-hook";
 const PLUGIN_MARKER: &str = "cmux-tui-journal-plugin";
 const ACTIVATION_NOTE: &str = "Providers load hooks at process start; launch or restart agents inside a cmux-tui terminal so CMUX_TUI_SOCKET and CMUX_TUI_HOOK are inherited.";
@@ -1658,7 +1661,9 @@ fn rewrite_json_hooks(
         let command = hook_command(provider.id, event);
         let timeout = installed_hook_timeout(provider, event, timeout);
         let entry = if nested {
-            let command = if matches!(provider.format, Format::Nested { asynchronous: true, .. }) {
+            let command = if matches!(provider.format, Format::Nested { asynchronous: true, .. })
+                && !delivers_messages(provider.id, event)
+            {
                 json!({"type":"command","command":command,"timeout":timeout,"async":true})
             } else {
                 json!({"type":"command","command":command,"timeout":timeout})
@@ -1885,6 +1890,9 @@ pub(crate) fn claude_session_hook_settings(
             for handler in handlers.into_iter().flatten() {
                 if let Some(handler) = handler.as_object_mut() {
                     handler.insert("command".into(), Value::String(command.clone()));
+                    // `agent hook emit` delivers no messages, so nothing
+                    // needs Claude to wait for its output.
+                    handler.insert("async".into(), Value::Bool(true));
                 }
             }
         }
@@ -1898,20 +1906,6 @@ pub(crate) fn claude_session_hook_settings(
 fn emit_hook_command(quoted_binary: &str, provider: &str, event: &str) -> String {
     format!(
         "{quoted_binary} agent hook emit --source {} --event {} >/dev/null 2>&1||:;echo {{}};#{COMMAND_MARKER}",
-        shell_quote(provider),
-        shell_quote(event),
-    )
-}
-
-/// The installed hook command. It runs `$CMUX_TUI_HOOK`, which every cmux-tui
-/// terminal exports. An agent inside tmux may have been started by a tmux
-/// server that never ran in a cmux-tui terminal, so without that variable a
-/// tmux pane falls back to the installed helper, which routes the event to the
-/// cmux-tui terminal attached to the pane's tmux session. Anywhere else the
-/// command stays a process-free no-op.
-fn hook_command(provider: &str, event: &str) -> String {
-    format!(
-        "h=${{CMUX_TUI_HOOK:-${{TMUX:+${{XDG_DATA_HOME:-$HOME/.local/share}}/cmux-tui/bin/cmux-tui-hook}}}};\"${{h:-:}}\" {} {} 2>/dev/null||:;echo {{}};#{COMMAND_MARKER}",
         shell_quote(provider),
         shell_quote(event),
     )
@@ -2119,6 +2113,7 @@ fn codex_owned_trust_hashes() -> anyhow::Result<BTreeSet<String>> {
             let timeout = codex_hook_timeout(event);
             Ok([
                 codex_trust_hash(label, &hook_command("codex", event), timeout),
+                codex_trust_hash(label, &journal_hook_command("codex", event), timeout),
                 codex_trust_hash(label, &legacy_hook_command("codex", event), timeout),
             ])
         })
@@ -2633,7 +2628,7 @@ fn ensure_replaceable_target(path: &Path) -> anyhow::Result<()> {
 mod tests {
     use super::*;
 
-    fn context(root: &Path) -> Context {
+    pub(super) fn context(root: &Path) -> Context {
         let home = root.join("home");
         let data_home = root.join("data");
         fs::create_dir_all(&home).unwrap();
@@ -2837,9 +2832,9 @@ mod tests {
         ),
         (
             "user_prompt_submit",
-            "sha256:11c9dc25e1d294a6f3c33e6c03354c7e032250357e143879ac720a392cf632b9",
+            "sha256:91bfad4b3a61a1ebf6a96ac16455b6556ae57fd5dacb87b18c52bdc6910d8d97",
         ),
-        ("stop", "sha256:c44b06979e220fd6665d250bb2cc470787cc4b06568e62b6cd8004577cdd124a"),
+        ("stop", "sha256:7d79bd0e1f09b6202b1244fce48947903d0bb62db620e7747bb46bc5e7bbdcbf"),
         (
             "permission_request",
             "sha256:6a6d12a917dfc12fdfc3e0796f4c5f43d31db0a9dd1f7372cce0f6635cd32b24",
@@ -3728,7 +3723,7 @@ esac
         let root: Value =
             serde_json::from_slice(&fs::read(context.home.join(".codex/hooks.json")).unwrap())
                 .unwrap();
-        let command = root["hooks"]["Stop"][0]["hooks"][0]["command"].as_str().unwrap();
+        let command = root["hooks"]["PreToolUse"][0]["hooks"][0]["command"].as_str().unwrap();
         assert!(command.len() <= 170, "hook command is {} bytes: {command}", command.len());
         assert!(!command.contains("CMUX_TUI_SOCKET"));
         assert!(!hook_command("claude", "Stop").contains("GROK_HOOK_EVENT"));
@@ -3754,7 +3749,7 @@ esac
             .unwrap();
         assert!(output.status.success());
         assert_eq!(output.stdout, b"{}\n");
-        assert_eq!(fs::read_to_string(&capture).unwrap(), "codex Stop\n");
+        assert_eq!(fs::read_to_string(&capture).unwrap(), "codex PreToolUse\n");
         fs::remove_file(&capture).unwrap();
 
         // A tmux pane without the session's variables falls back to the
@@ -3770,7 +3765,7 @@ esac
             .unwrap();
         assert!(output.status.success());
         assert_eq!(output.stdout, b"{}\n");
-        assert_eq!(fs::read_to_string(&capture).unwrap(), "codex Stop\n");
+        assert_eq!(fs::read_to_string(&capture).unwrap(), "codex PreToolUse\n");
     }
 
     #[test]

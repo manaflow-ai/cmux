@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR c3e75f81f153b62db514f794bde678dc60c2776c6715471d2055c9cd99ec3172.
+// cmux-tui mux protocol 12, IR 25627fb62c15c4c64527841ff09b16a772d557087d129151b5bbe1d2d0e4e896.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -489,6 +489,33 @@ pub struct ScrollChangedEvent {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SettingsChangedEventOrigin {
+    #[serde(rename = "user")]
+    User,
+    #[serde(rename = "cli")]
+    Cli,
+    #[serde(rename = "mcp")]
+    Mcp,
+    #[serde(rename = "script")]
+    Script,
+    #[serde(rename = "remote")]
+    Remote,
+    #[serde(rename = "app")]
+    App,
+    #[serde(rename = "file")]
+    File,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SettingsChangedEvent {
+    pub keys: Vec<String>,
+    pub origin: SettingsChangedEventOrigin,
+    pub revision: u64,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SizeStateEvent {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
@@ -787,6 +814,7 @@ pub enum Event {
     ScreenClosed(ScreenClosedEvent),
     ScreenRenamed(ScreenRenamedEvent),
     ScrollChanged(ScrollChangedEvent),
+    SettingsChanged(SettingsChangedEvent),
     SizeState(SizeStateEvent),
     Status(StatusEvent),
     SurfaceExited(SurfaceExitedEvent),
@@ -863,6 +891,7 @@ impl Event {
             Self::ScreenClosed(_) => Some("screen-closed"),
             Self::ScreenRenamed(_) => Some("screen-renamed"),
             Self::ScrollChanged(_) => Some("scroll-changed"),
+            Self::SettingsChanged(_) => Some("settings-changed"),
             Self::SizeState(_) => Some("size-state"),
             Self::Status(_) => Some("status"),
             Self::SurfaceExited(_) => Some("surface-exited"),
@@ -938,6 +967,7 @@ impl Event {
             Self::ScreenClosed(_) => Some(&SCREEN_CLOSED_EVENT_METADATA),
             Self::ScreenRenamed(_) => Some(&SCREEN_RENAMED_EVENT_METADATA),
             Self::ScrollChanged(_) => Some(&SCROLL_CHANGED_EVENT_METADATA),
+            Self::SettingsChanged(_) => Some(&SETTINGS_CHANGED_EVENT_METADATA),
             Self::SizeState(_) => Some(&SIZE_STATE_EVENT_METADATA),
             Self::Status(_) => Some(&STATUS_EVENT_METADATA),
             Self::SurfaceExited(_) => Some(&SURFACE_EXITED_EVENT_METADATA),
@@ -1325,6 +1355,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("scroll-changed") => match serde_json::from_value::<ScrollChangedEvent>(raw.clone()) {
             Ok(event) => Event::ScrollChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("settings-changed") => match serde_json::from_value::<SettingsChangedEvent>(raw.clone()) {
+            Ok(event) => Event::SettingsChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

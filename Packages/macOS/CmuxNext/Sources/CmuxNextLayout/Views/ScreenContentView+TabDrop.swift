@@ -7,8 +7,10 @@ extension ScreenContentView {
     /// `removing`: the pane the drag empties (frees room; the commit obeys).
     /// `previous` is the zone hit the preview shows now (`hit`, before the
     /// room check), so the shown zone holds near its line.
-    func dropTarget(at localPoint: NSPoint, removing: PaneID? = nil,
-                    previous: DropTarget? = nil) -> (target: DropTarget, hit: DropTarget, highlight: CGRect, region: CGRect)? {
+    /// `edgesArmed` false: a pane edge (a new split) joins the pane instead, until the drag has
+    /// held that edge (`LayoutRootView.updateTabDrag`'s dwell); `hit` stays the edge.
+    func dropTarget(at localPoint: NSPoint, removing: PaneID? = nil, previous: DropTarget? = nil,
+                    edgesArmed: Bool = true) -> (target: DropTarget, hit: DropTarget, highlight: CGRect, region: CGRect)? {
         // The top band starts below the tab bar of the pane under the pointer.
         let (topInset, bottomInset) = dockInsets(at: localPoint)
         if context.model.acceptsEdgeDockDrops,
@@ -21,7 +23,12 @@ extension ScreenContentView {
         guard let hit = DropZoneGeometry.target(atView: localPoint, offset: scroll.value, screen: screenID, geometry: geometry,
                                                 headers: headers, footers: footers, style: context.style,
                                                 previous: previous) else { return nil }
-        let target = roomAdjusted(hit, removing: removing)
+        let target: DropTarget
+        if !edgesArmed, case let .pane(pane, zone) = hit, zone != .center {
+            target = .pane(pane, .center)
+        } else {
+            target = roomAdjusted(hit, removing: removing)
+        }
         guard var rect = DropZoneGeometry.highlightRectInView(for: target, offset: scroll.value, geometry: geometry,
                                                               style: context.style) else { return nil }
         // A strip target's highlight never draws over a docked column.

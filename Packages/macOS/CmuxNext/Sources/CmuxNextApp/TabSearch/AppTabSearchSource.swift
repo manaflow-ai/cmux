@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextPalette
+import CoreGraphics
 import Foundation
 import Observation
 
@@ -13,6 +14,11 @@ import Observation
 /// closed-items log).
 final class AppTabSearchSource: TabSearchSource {
     private unowned let services: AppServices
+
+    private struct Revision: Equatable {
+        var tabs: UInt64
+        var favicons: Int
+    }
 
     init(services: AppServices) {
         self.services = services
@@ -40,19 +46,30 @@ final class AppTabSearchSource: TabSearchSource {
         _ = services.closedTabs?.take(id)
     }
 
+    /// An open browser tab's favicon on this Mac: its live page's, else its record's (never an
+    /// incognito tab's record), as the strip and sidebar draw it.
+    func favicon(for entry: TabSearchEntry) -> CGImage? {
+        guard !entry.isClosed, entry.machine == nil else { return nil }
+        let incognito = services.cache.browserTabs.isIncognitoTab(entry.id)
+        let record = incognito ? nil : services.machines.local.store.tab(id: entry.id)?.faviconURL
+        return services.browserFavicon(key: entry.id, recordFavicon: record)?.cgImage
+    }
+
     /// The closed-tab tracker's change signal: it fires after every change
     /// to the tabs it watches (every machine's structure) and to the closed
-    /// list, once the list is current.
+    /// list, once the list is current, and when a favicon lands.
     func changes() -> AsyncStream<Void> {
         guard let changes = services.closedTabs?.changes else { return AsyncStream { $0.finish() } }
         // The revision at subscribe time, read now: a change that lands
         // before the observing task starts is still delivered.
-        let subscribed = changes.revision
+        let favicons = services.favicons
+        let subscribed = Revision(tabs: changes.revision, favicons: favicons.revision)
         // A change is a signal, not data: the newest one is enough.
         return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let task = Task { @MainActor in
                 var last = subscribed
-                for await revision in ObservationStream({ changes.revision }) where revision != last {
+                for await revision in ObservationStream({ Revision(tabs: changes.revision, favicons: favicons.revision) })
+                where revision != last {
                     last = revision
                     continuation.yield()
                 }

@@ -93,9 +93,18 @@ async fn client(h: Arc<Hub>) -> C {
     let (out_tx, out_rx) = mpsc::channel(4096);
     tokio::spawn(serve_connection(h, in_rx, out_tx));
     let mut c = C { tx: in_tx, rx: out_rx, next: 0 };
-    let hello = json!({"protocolVersion": 1, "clientInfo": {"name": "t"},
-        "_meta": {"acpmux": {"personKey": PERSON_KEY}}});
-    c.call(method::INITIALIZE, hello).await.unwrap();
+    let hello = json!({"protocolVersion": 1, "clientInfo": {"name": "t"}});
+    let init = c.call(method::INITIALIZE, hello).await.unwrap();
+    // The app's proof of the key for this connection's challenge (`hub/person.rs`).
+    let challenge = &init["_meta"]["acpmux"]["personChallenge"];
+    let proof = acpmux::hub::person::person_proof(
+        PERSON_KEY,
+        acpmux::hub::person::TRANSPORT_UNIX,
+        challenge["nonce"].as_str().unwrap(),
+        challenge["connection"].as_str().unwrap(),
+    )
+    .unwrap();
+    c.call("_acpmux/person_prove", json!({"proof": proof})).await.unwrap();
     c
 }
 

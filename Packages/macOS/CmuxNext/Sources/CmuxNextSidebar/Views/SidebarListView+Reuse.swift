@@ -25,6 +25,8 @@ extension SidebarListView {
             }
         case let (.group(id), view as GroupHeaderRowView):
             view.onMore = { [weak self] in self?.groupEditing.open(id) }
+            // The header's + runs the editor's New Workspace in Group (one action path).
+            view.onAdd = onGroupEditorItem == nil ? nil : { [weak self] in self?.onGroupEditorItem?(id, "workspaceGroup.newWorkspace") }
             view.isEditing = groupEditor.shownGroup == id
             view.isKeyboardFocused = showsFocusRing && focusedGroup == id
         case let (.section(sectionID), view as SectionHeaderRowView):
