@@ -174,6 +174,12 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::WindowRecordDelete
         | ResourceOperation::SidebarLayoutGet
         | ResourceOperation::SidebarLayoutUpdate
+        | ResourceOperation::ProjectList
+        | ResourceOperation::ProjectObserve
+        | ResourceOperation::ProjectAdd
+        | ResourceOperation::ProjectUpdate
+        | ResourceOperation::ProjectRemove
+        | ResourceOperation::ProjectSync
         | ResourceOperation::PaletteUsageGet
         | ResourceOperation::PaletteUsageRecord
         | ResourceOperation::PaletteUsageImport

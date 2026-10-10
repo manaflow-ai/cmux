@@ -354,6 +354,18 @@ pub enum ResourceOperation {
     SidebarLayoutGet,
     #[serde(rename = "sidebar_layout.update")]
     SidebarLayoutUpdate,
+    #[serde(rename = "project.list")]
+    ProjectList,
+    #[serde(rename = "project.observe")]
+    ProjectObserve,
+    #[serde(rename = "project.add")]
+    ProjectAdd,
+    #[serde(rename = "project.update")]
+    ProjectUpdate,
+    #[serde(rename = "project.remove")]
+    ProjectRemove,
+    #[serde(rename = "project.sync")]
+    ProjectSync,
     #[serde(rename = "palette_usage.get")]
     PaletteUsageGet,
     #[serde(rename = "palette_usage.record")]
@@ -586,6 +598,7 @@ impl ResourceOperation {
                 | Self::ClosedList
                 | Self::WindowRecordList
                 | Self::SidebarLayoutGet
+                | Self::ProjectList
                 | Self::PaletteUsageGet
                 | Self::RoomList
                 | Self::SavedTabGroupList
@@ -611,6 +624,7 @@ impl ResourceOperation {
 }
 
 mod envelope;
+mod hex;
 mod journal;
 #[cfg(test)]
 #[path = "resource/wire_name_tests.rs"]
@@ -620,6 +634,7 @@ mod wire_decimal;
 mod wire_name;
 
 pub use envelope::{RequestEnvelope, ResponseEnvelope};
+use hex::encode_hex;
 pub use journal::{ResourceDelta, ResourceDeltaBatch, ResourceJournal};
 pub use wire_decimal::WireDecimal;
 
@@ -797,16 +812,6 @@ impl ContentPublicId {
             Self::Browser(id) => id.as_str(),
         }
     }
-}
-
-fn encode_hex(bytes: [u8; 16]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut output = String::with_capacity(32);
-    for byte in bytes {
-        output.push(char::from(HEX[(byte >> 4) as usize]));
-        output.push(char::from(HEX[(byte & 0x0f) as usize]));
-    }
-    output
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

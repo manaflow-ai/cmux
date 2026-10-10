@@ -223,6 +223,12 @@ declare namespace Cmux {
   type PolicyKey = "github.repoScope" | "github.requireOrgAdmin" | "github.repoAllowList" | "integrations.allowedProviders" | "mcp.server" | "mcp.remoteTransport" | "apps.install" | "apps.allowedTiers" | "apps.allowList" | "apps.forcedInstalls" | "computerUse.allowed" | "browserAutomation.rawCdp" | "cloud.sandboxes" | "cloud.connectServices" | "cloud.idlePause" | "telemetry.level" | "updates.channel" | "updates.minimumVersion" | "retention.cuaEventsDays" | "retention.cuaFramesDays" | "retention.transcriptDays" | "retention.auditDays" | "sso.enforce" | "sso.enforceForOwners" | "sso.allowGuests" | "sso.sessionMaxAgeHours" | "sso.idleTimeoutHours" | "agents.allowedClasses" | "device.settings"
   type PolicyMode = "enforced" | "default"
   type ProcessInfoResult = { pid: number; executable?: string; argv: Array<string>; cwd?: string; foreground_cwd: string | null; foreground_executable: string | null; children: Array<number> }
+  type ProjectChange = { changed: Array<string> }
+  type ProjectList = { projects: Array<Cmux.ProjectSnapshot> }
+  type ProjectObservation = { path: string; last_used_ms: string }
+  type ProjectOverlay = { rename?: string; pinned?: boolean; hidden?: boolean; order?: number }
+  type ProjectSnapshot = { path: string; name: string; last_used_ms: string; sources: Record<string, Cmux.ProjectSourceSeen>; overlay: Cmux.ProjectOverlay; state: "present" | "missing" }
+  type ProjectSourceSeen = { first_seen_ms: string; last_used_ms: string }
   type PublicJwk = { kty: "EC"; crv: "P-256"; x: string; y: string }
   type PushTarget = { token: Cmux.PushToken; topic: string; environment: "development" | "production"; install: string; device_name: string; registered_at: number }
   type PushToken = string
@@ -1021,6 +1027,20 @@ interface CmuxGlobal {
   participants: {
     /** `participants.add` (mutation, scope `participants:write`): Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows (max 64). Anyone else needs invite.create. At most 120 per hour per caller (home.rate_limited, with details.retry_after_ms); home.user_not_ready (not retryable) until the caller ran user.ensure once. */
     add: CmuxOp<{ conversation: Cmux.ConversationId; participant: Cmux.HomeParticipantInput; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeConversationCommit>>
+  }
+  project: {
+    /** `project.add` (mutation, scope `project:write`) */
+    add: CmuxOp<{ machine?: string; session?: string; path: string }, Cmux.MutationResult<Cmux.ProjectChange>>
+    /** `project.list` (read, scope `project:read`) */
+    list: CmuxOp<{ machine?: string; session?: string; query?: string; include_hidden?: boolean; limit?: number }, Cmux.ProjectList>
+    /** `project.observe` (mutation, scope `project:write`) */
+    observe: CmuxOp<{ machine?: string; session?: string; source: string; entries: Array<Cmux.ProjectObservation>; complete?: boolean }, Cmux.MutationResult<Cmux.ProjectChange>>
+    /** `project.remove` (mutation, scope `project:write`) */
+    remove: CmuxOp<{ machine?: string; session?: string; path: string }, Cmux.MutationResult<Cmux.ProjectChange>>
+    /** `project.sync` (mutation, scope `project:write`) */
+    sync: CmuxOp<{ machine?: string; session?: string; existing?: Array<string>; gone?: Array<string> }, Cmux.MutationResult<Cmux.ProjectChange>>
+    /** `project.update` (mutation, scope `project:write`) */
+    update: CmuxOp<{ machine?: string; session?: string; path: string; rename?: string | null; pinned?: boolean; hidden?: boolean; order?: number | null }, Cmux.MutationResult<Cmux.ProjectChange>>
   }
   push: {
     target: {
