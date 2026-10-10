@@ -3648,6 +3648,9 @@ mod closed_delete;
 #[path = "cli/feed_local.rs"]
 mod feed_local;
 #[cfg(unix)]
+#[path = "cli/settings_owner.rs"]
+mod settings_owner;
+#[cfg(unix)]
 #[path = "cli/wg_hub.rs"]
 mod wg_hub;
 
