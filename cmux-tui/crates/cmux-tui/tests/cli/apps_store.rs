@@ -312,15 +312,62 @@ fn app_store_changes_need_the_user_and_first_party_apps_are_hide_only() {
 /// registration (`<daemon state dir>/link.json`) while that link runs.
 #[test]
 fn host_link_get_answers_from_the_link_registration() {
-    let apps = Apps::new("link");
-    // A running link: a live pid (this test) and a socket that accepts.
+    // A running link: a live pid (this test) that serves the socket.
+    let (reply, hub) = host_link_get("link", |state, hub| {
+        cmux_link::registration::write(
+            state,
+            &cmux_link::registration::Registration::new(hub.to_path_buf(), std::process::id()),
+        )
+        .unwrap();
+    });
+    assert_eq!(reply["value"]["hub_socket"], json!(hub), "{reply}");
+}
+
+/// A registration that names a live process which does not serve the
+/// socket is not a link: the daemon answers no hub socket, so a process
+/// cannot point first-party apps at a socket it serves by naming another
+/// process.
+#[test]
+fn host_link_get_refuses_a_socket_served_by_another_process() {
+    let mut bystander = Command::new("sleep").arg("60").spawn().unwrap();
+    let bystander_pid = bystander.id();
+    let (reply, _hub) = host_link_get("linkpid", |state, hub| {
+        cmux_link::registration::write(
+            state,
+            &cmux_link::registration::Registration::new(hub.to_path_buf(), bystander_pid),
+        )
+        .unwrap();
+    });
+    let _ = bystander.kill();
+    let _ = bystander.wait();
+    assert_eq!(reply["value"]["hub_socket"], Value::Null, "{reply}");
+}
+
+/// A registration file that another user could have written (mode 0666)
+/// is not trusted, even when its pid serves the socket.
+#[test]
+fn host_link_get_refuses_a_world_writable_registration() {
+    let (reply, _hub) = host_link_get("linkmode", |state, hub| {
+        cmux_link::registration::write(
+            state,
+            &cmux_link::registration::Registration::new(hub.to_path_buf(), std::process::id()),
+        )
+        .unwrap();
+        let file = cmux_link::registration::path(state);
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o666)).unwrap();
+    });
+    assert_eq!(reply["value"]["hub_socket"], Value::Null, "{reply}");
+}
+
+/// Start a daemon whose state dir holds the link registration `register`
+/// writes (given the state dir and a socket this test serves), with a
+/// first-party app whose always-on server asks `cmux.host.link.get` at
+/// start. The app's recorded `host.result` and the served socket.
+fn host_link_get(name: &str, register: impl FnOnce(&Path, &Path)) -> (Value, PathBuf) {
+    let apps = Apps::new(name);
     let hub = apps.dir.join("hub.sock");
     let _listener = UnixListener::bind(&hub).unwrap();
-    cmux_link::registration::write(
-        &apps.dir.join("state"),
-        &cmux_link::registration::Registration::new(hub.clone(), std::process::id()),
-    )
-    .unwrap();
+    register(&apps.dir.join("state"), &hub);
     // A first-party app whose always-on server asks for the link at start
     // and records the answer.
     write_script(
@@ -354,13 +401,13 @@ fn host_link_get_answers_from_the_link_registration() {
     apps.start();
     ok(&apps.agent().rpc(json!({ "cmd": "apps-list" })));
 
-    let reply = &apps.lines("link.jsonl", 1)[0];
+    let reply = apps.lines("link.jsonl", 1).swap_remove(0);
     assert_eq!(
         (reply["t"].clone(), reply["id"].clone()),
         (json!("host.result"), json!(7)),
         "{reply}"
     );
-    assert_eq!(reply["value"]["hub_socket"], json!(hub), "{reply}");
+    (reply, hub)
 }
 
 /// An app holding the family scope still never reaches an op only a
