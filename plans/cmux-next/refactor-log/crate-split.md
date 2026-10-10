@@ -226,3 +226,75 @@ Decision: the next real gain is the dev profile, not more bin-crate moves:
 because it changes mux-dev debug-build code generation). After that, the
 cmux-tui-client crate above (two seams) is the step that shrinks the bin's
 front end and codegen units.
+
+### Lane 3 plan: machine_provider_runtime into a cmux-tui-client crate (for the chief to schedule with hq-a3)
+
+Today the module reaches 97k of the bin's 176k lines. Two code changes cut its
+cone to 14 modules, 43,915 lines with tests (feat-cmux-next e4a0c503bceb):
+session 15,628, config 10,048, machine_provider_runtime 6,508,
+localization 3,769, machine_provider_client 2,723, machine 1,364,
+machine_runtime 1,105, keys 886, client_log 728, provider_notice_identity 468,
+agent_plugin_config 379, local_actor 171, layout_undo 113, test_exec 25.
+These become `crates/cmux-tui-client`; cmux-tui keeps cli, app, ui,
+remote_*, link, acp, plugin_manager and main, and imports the new crate at the
+old module names (`use cmux_tui_client::{session, config, ...};`).
+
+1. `cli::BIN` to a leaf module (move-only).
+   - Today: `cmux-tui/src/cli/surface.rs:70` `pub(crate) const BIN:
+     ProgramName`, whose Display reads `Surface::current()`
+     (`cli/surface.rs:31-48`, `Surface::for_program`, `Surface::current`);
+     re-exported at `cli.rs:52`.
+   - Users outside cli: `client_log.rs:663` (the `stderr_log!` macro body,
+     `use $crate::cli::BIN`), `config.rs:146`, `localization.rs:65`,
+     `localization/config.rs:32`, `owner_start.rs:25`, `plugin_manager.rs:14`
+     (94 `BIN` uses in all; the 6 above are the only back edges into cli
+     apart from `acp.rs:80,173,221` calling `cli::run`, and acp stays in
+     the bin).
+   - Change: new leaf `src/program_name.rs` with `Surface` (enum,
+     `for_program`, `current`), `ProgramName` and `BIN`; `cli/surface.rs`
+     keeps `scopes`/`accepts` as an `impl` on the moved enum, `cli.rs:52`
+     re-exports from the leaf so cli call sites do not change. The 6 users
+     switch to `crate::program_name::BIN`.
+2. Managed-SSH connect injected into machine_runtime (seam).
+   - Today: `machine_runtime.rs:823 connect_target` calls
+     `crate::remote_cli::connect_managed_ssh` (`:832`) and builds
+     `crate::remote_cli::ManagedSshOptions` in `managed_ssh_options`
+     (`:856-912`), which also calls
+     `crate::remote_cli::validate_managed_ssh_options` (`:911`). The API is
+     `remote_cli.rs:1233-1300` (ManagedSshOptions {destination, session,
+     remote_binary, ssh_args}, ManagedSshConnection {session, lease},
+     validate_managed_ssh_options, connect_managed_ssh). connect_target is
+     reached only through `MachineRuntime::connection_connectors` (`:222`)
+     and `connection_connector` (`:230`).
+   - Change: move the plain-data `ManagedSshOptions` to machine_runtime;
+     add `pub(crate) type ManagedSshConnectFn = Arc<dyn Fn(ManagedSshOptions)
+     -> anyhow::Result<MachineConnection> + Send + Sync>`, held by
+     `MachineRuntime` and passed to `MachineRuntime::with_creation_sources`
+     (callers `main.rs:2462` and `main.rs:2825`; tests use `new`, which
+     keeps a connector that fails with the existing unix-only message).
+     remote_cli implements it: validate, then connect, then wrap the lease
+     (same order as today: both ran inside connect_target).
+   - The `#[cfg(not(unix))]` arm (`:845-849`) stays in machine_runtime.
+3. Then the crate move itself (move-only, LOCK slot): the 14 modules above,
+   godfile rows renamed, crash baseline transferred, cmux-tui/scripts paths
+   updated.
+
+Owners to clear first: config.rs (lane config.rs holder), session/ (no FREEZE
+today), remote_cli.rs (hq-a3; step 2 adds one function there), main.rs (2
+call sites). Expected gain after lto = off: the bin loses about 25% of its
+lines, so its front end and codegen units shrink by about that much on every
+edit outside the new crate; an edit inside the new crate rebuilds it (about
+44k lines) plus the smaller bin. Measure before step 3 lands; if the gain is
+under 1 s per edit, stop after steps 1-2 (they are clean-ups on their own).
+
+### Lane 3 gate steps (rbx; run through gate-run.sh from the cmux worktree root)
+
+```
+/Users/lawrence/fun/cmuxterm-hq/build-fleet/rust-builder/rbx --lane <lane> -- cargo fmt --all --check
+/Users/lawrence/fun/cmuxterm-hq/build-fleet/rust-builder/rbx --lane <lane> -- cargo check --locked --workspace --all-targets
+/Users/lawrence/fun/cmuxterm-hq/build-fleet/rust-builder/rbx --lane <lane> -- cargo clippy --locked -p cmux-tui-hooks -p cmux-tui --all-targets -- -D warnings
+/Users/lawrence/fun/cmuxterm-hq/build-fleet/rust-builder/rbx --lane <lane> -- cargo test --locked -p cmux-tui-hooks
+/Users/lawrence/fun/cmuxterm-hq/build-fleet/rust-builder/rbx --lane <lane> -- cargo check --locked --tests --target x86_64-pc-windows-gnu -p cmux-tui-hooks -p cmux-tui-core -p cmux-tui
+python3 -I scripts/cmux-next/crash_ratchet.py
+python3 scripts/cmux-next/generate-coordination-index.py --check
+```
