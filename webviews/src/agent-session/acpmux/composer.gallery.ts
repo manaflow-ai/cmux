@@ -188,6 +188,32 @@ export default agentPaneEntry({
         await ctx.hover({ selector: ".acpmux-attachment-image" });
       },
     },
+    "quick-image-attached": {
+      note: "Quick Composer: clicking a pasted image thumbnail opens the same image viewer as a full chat.",
+      ready: { surface: "quick" },
+      snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
+        chat(finished),
+      ),
+      play: async (ctx) => {
+        const view = ctx.document.defaultView!;
+        const canvas = new view.OffscreenCanvas(320, 200);
+        const paint = canvas.getContext("2d")!;
+        paint.fillStyle = "#3a7bd5";
+        paint.fillRect(0, 0, 320, 200);
+        paint.fillStyle = "#ffffff";
+        paint.fillRect(40, 60, 240, 16);
+        const file = new view.File([await canvas.convertToBlob({ type: "image/png" })], "quick-screenshot.png", {
+          type: "image/png",
+        });
+        const field = ctx.find({ selector: ".acpmux-md" });
+        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+        Object.defineProperty(paste, "clipboardData", { value: { files: [file], types: ["Files"] } });
+        field.dispatchEvent(paste);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img[src^='data:image/png']"));
+        await ctx.click({ selector: ".acpmux-attachment-open" });
+        await ctx.waitFor(() => ctx.document.querySelector('[role="dialog"]'));
+      },
+    },
     "pdf-attached": {
       note: "A pasted PDF shows a preview card, its file name, and the detected page count before sending.",
       snapshot: chat(finished),
