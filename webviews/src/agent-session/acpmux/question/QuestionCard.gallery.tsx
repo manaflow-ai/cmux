@@ -72,9 +72,7 @@ const moveToPreview: Play = async (ctx) => {
   await ctx.press("ArrowDown");
   await ctx.waitFor(() => Boolean(ctx.document.querySelector('[data-row="1"][data-highlighted]')));
   await ctx.waitFor(
-    () =>
-      ctx.document.querySelector(".acpmux-question-preview pre")?.textContent?.includes("iOS") ??
-      false,
+    () => ctx.document.querySelector(".acpmux-question-preview pre")?.textContent?.includes("iOS") ?? false,
   );
 };
 
@@ -89,9 +87,7 @@ const submitMulti: Play = async (ctx) => {
 const switchQuestion: Play = async (ctx) => {
   await ctx.click({ selector: ".acpmux-question-tab:nth-child(2)" });
   await ctx.waitFor(
-    () =>
-      ctx.document.querySelector(".acpmux-question-prompt")?.textContent?.includes("platforms") ??
-      false,
+    () => ctx.document.querySelector(".acpmux-question-prompt")?.textContent?.includes("platforms") ?? false,
   );
 };
 
@@ -101,8 +97,8 @@ const typeOther: Play = async (ctx) => {
   await ctx.type("A hosted identity provider", { selector: ".acpmux-question-other input" });
   await ctx.waitFor(
     () =>
-      (ctx.document.querySelector<HTMLInputElement>(".acpmux-question-other input")?.value ??
-        "") === "A hosted identity provider",
+      (ctx.document.querySelector<HTMLInputElement>(".acpmux-question-other input")?.value ?? "") ===
+      "A hosted identity provider",
   );
 };
 
@@ -134,13 +130,11 @@ export default componentEntry<Props>({
     },
     longFrameFailMs: {
       value: 33,
-      reason:
-        "Question selection, tab changes, and dismissal should remain responsive on the gallery host.",
+      reason: "Question selection, tab changes, and dismissal should remain responsive on the gallery host.",
     },
     settleMaxMs: {
       value: 350,
-      reason:
-        "Question-card keyboard and pointer actions should settle within a third of a second.",
+      reason: "Question-card keyboard and pointer actions should settle within a third of a second.",
     },
   },
   variants: {
