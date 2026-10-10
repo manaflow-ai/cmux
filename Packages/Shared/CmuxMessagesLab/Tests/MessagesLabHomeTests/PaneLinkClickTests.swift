@@ -24,8 +24,10 @@ import Testing
         #expect(MarkdownLinkPolicy.sanitize(link) == link)
         #expect(MDInlineParser.parse("[a1](\(link))").spans.compactMap(\.link) == [link])
         // Its own message id: the measure cache keys by message id, not text (another test's msg_1).
-        p.apply(items: [Fixture2.item(917, Fixture2.them, "Started [a1](\(link)); not [this](cmux://open) or [that](cmux://tab/tab_1).")],
-                summary: Fixture2.summary(lastSeq: 917), typing: [], hasOlder: false)
+        p.apply(items: [Fixture2.item(917, Fixture2.them, "Started [a1](\(link)); not [this](cmux://open) or [that](cmux://tab/tab_1)."),
+                        Fixture2.item(918, Fixture2.me, "ok"),
+                        Fixture2.item(919, Fixture2.them, "Read [the docs](https://cmux.com/docs).")],
+                summary: Fixture2.summary(lastSeq: 919), typing: [], hasOlder: false)
         c.host.layoutSubtreeIfNeeded(); c.demo!.layoutIfNeeded(); c.demo!.collection.layoutIfNeeded()
         var found: CGPoint?
         var links = Set<String>()
@@ -37,7 +39,7 @@ import Testing
                 if found == nil, url.absoluteString == link { found = CGPoint(x: x, y: y) }
             }
         }
-        #expect(links == [link], "only the subagent link is a link: \(links)")
+        #expect(links == [link, "https://cmux.com/docs"], "only the subagent link and the https link are links: \(links)")
         var opened: [URL] = []
         c.onAppLink = { opened.append($0) }
         let point = try #require(found)
