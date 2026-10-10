@@ -809,6 +809,12 @@
       "title" : "EnrollmentToken",
       "type" : "string"
     },
+    "feed.agentPermissionPrompts" : {
+      "default" : false,
+      "description" : "Each request's tool and command summary goes to your own cmux feed, so your iPhone can answer it.",
+      "title" : "Send Agent Permission Requests to the Feed",
+      "type" : "boolean"
+    },
     "feed.github.enabled" : {
       "default" : false,
       "description" : "Uses your gh login to read notifications and review requests on this Mac. Sign in with gh auth login first.",
