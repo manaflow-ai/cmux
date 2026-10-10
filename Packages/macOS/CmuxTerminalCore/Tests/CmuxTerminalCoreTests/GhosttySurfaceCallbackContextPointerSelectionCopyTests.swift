@@ -64,6 +64,39 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
         #expect(!sawIntent)
     }
 
+    @Test func userInitiatedClipboardWriteIntentIsScopedToItsDispatch() {
+        let context = Self.makeContext()
+
+        #expect(!context.hasUserInitiatedClipboardWriteIntent)
+        let sawIntent = context.withUserInitiatedClipboardWriteIntent {
+            context.hasUserInitiatedClipboardWriteIntent
+        }
+        #expect(sawIntent)
+        #expect(!context.hasUserInitiatedClipboardWriteIntent)
+    }
+
+    @Test func userInitiatedClipboardWriteIntentDoesNotLeakToOtherSurfaces() {
+        let context = Self.makeContext()
+        let otherContext = Self.makeContext()
+
+        let otherSawIntent = context.withUserInitiatedClipboardWriteIntent {
+            otherContext.hasUserInitiatedClipboardWriteIntent
+        }
+        #expect(!otherSawIntent)
+    }
+
+    @Test func userInitiatedClipboardWriteIntentIsClearedWhenDispatchThrows() {
+        struct DispatchFailure: Error {}
+        let context = Self.makeContext()
+
+        #expect(throws: DispatchFailure.self) {
+            try context.withUserInitiatedClipboardWriteIntent {
+                throw DispatchFailure()
+            }
+        }
+        #expect(!context.hasUserInitiatedClipboardWriteIntent)
+    }
+
     @Test func intentIsClearedWhenDispatchThrows() {
         struct DispatchFailure: Error {}
         let context = Self.makeContext()
