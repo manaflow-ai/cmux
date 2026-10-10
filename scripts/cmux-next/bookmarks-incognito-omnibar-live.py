@@ -86,17 +86,14 @@ def wait_for(predicate, what, seconds=20):
 
 
 def windows():
-    report = rpc("debug.surfaces") or {}
+    """Window controllers as debug.focus reports them: [{id, model: {pane, ...}}]."""
+    report = rpc("debug.focus") or {}
     return report.get("windows") or [] if isinstance(report, dict) else []
 
 
 def focused_pane(window):
-    for entry in windows():
-        if entry.get("window") == window:
-            for pane in entry.get("panes") or []:
-                if pane.get("focused"):
-                    return pane.get("pane")
-    return None
+    entry = next((w for w in windows() if w.get("id") == window), None)
+    return ((entry or {}).get("model") or {}).get("pane")
 
 
 def omnibar(window):
@@ -109,6 +106,7 @@ def browser_omnibar(window):
     active window (the one just opened)."""
     if "error" not in omnibar(window):
         return True
+    print("omnibar", window, omnibar(window).get("error"))
     print("open a Chromium tab for", window, focused_pane(window),
           rpc("action.run", {"action": "tab new-chromium", "args": {"url": "about:blank"}, "focus": True}), flush=True)
     return quiet_wait(lambda: "error" not in omnibar(window), 60)
@@ -163,7 +161,7 @@ try:
     wait_for(lambda: os.path.exists(SOCKET) and "error" not in (rpc("debug.focus") or {"error": 1}), "app socket", 180)
     if not windows():
         rpc("action.run", {"action": "newWindow", "origin": "script"})
-    normal = (wait_for(lambda: windows(), "a window", 60) or [{}])[0].get("window")
+    normal = (wait_for(lambda: windows(), "a window", 60) or [{}])[0].get("id")
     if not quiet_wait(lambda: focused_pane(normal), 15):
         print("run newTab", rpc("action.run", {"action": "newTab", "origin": "script", "focus": True}), flush=True)
     wait_for(lambda: focused_pane(normal), "a focused pane", 60)
@@ -178,9 +176,9 @@ try:
         check(bool(rows), f"normal omnibar offers the bookmark: {rows}")
 
     # 2. An incognito window.
-    before = {w.get("window") for w in windows()}
+    before = {w.get("id") for w in windows()}
     print("newIncognitoWindow", rpc("action.run", {"action": "newIncognitoWindow", "origin": "script"}), flush=True)
-    incognito = (wait_for(lambda: [w.get("window") for w in windows() if w.get("window") not in before],
+    incognito = (wait_for(lambda: [w.get("id") for w in windows() if w.get("id") not in before],
                           "the incognito window", 60) or [None])[0]
     if incognito and wait_for(lambda: browser_omnibar(incognito), "an omnibar in the incognito window", 90):
         rows = bookmark_rows(incognito)
