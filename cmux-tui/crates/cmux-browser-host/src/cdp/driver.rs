@@ -219,14 +219,14 @@ impl CdpDriver {
         self.inner.set_tab_overrides(target_id, overrides)
     }
 
-    /// `tabs.open` with the creating session's options: in browser context
-    /// `context` (a proxy store) when set, and with `overrides` set before
-    /// the first request.
     /// Installs the popup hook ([`PopupHook`]).
     pub fn set_popup_hook(&self, hook: Option<PopupHook>) {
         *self.inner.popup_hook.lock().unwrap_or_else(PoisonError::into_inner) = hook;
     }
 
+    /// `tabs.open` with the creating session's options: in browser context
+    /// `context` (a proxy store) when set, and with `overrides` set before
+    /// the first request.
     pub fn open_tab(
         &self,
         params: &Value,

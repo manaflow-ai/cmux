@@ -141,7 +141,9 @@ impl HeadlessSource {
     /// Installs the combined filter: a request of a tab is refused when a
     /// session that drives the tab refuses it; a fetch shell's requests
     /// follow the session that fetches; a tab no session drives yet (a
-    /// popup before its first call) follows every session's filter.
+    /// popup whose opener no session drives) follows every session's
+    /// filter. A popup of a driven tab is its opener's sessions' from its
+    /// first request (`adopt_popup`).
     fn sync_filter(self: &Arc<Self>) {
         let any = !self.filters.lock().unwrap_or_else(PoisonError::into_inner).is_empty();
         if !any {
