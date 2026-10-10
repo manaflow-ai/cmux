@@ -12,6 +12,10 @@ import Speech
 /// Volatile results stream as ``DictationTranscriptionEvent/partial(_:)`` and
 /// finalized runs as ``DictationTranscriptionEvent/final(_:)``; recognition
 /// stays on device.
+///
+/// macOS 26 and later only; ``OnDeviceDictationTranscriber`` uses
+/// ``SFSpeechDictationTranscriber`` on earlier systems.
+@available(macOS 26, *)
 public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
     let inputBox = AnalyzerInputBox()
     private var analyzer: SpeechAnalyzer?
