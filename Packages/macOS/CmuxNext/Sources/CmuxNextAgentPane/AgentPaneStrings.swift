@@ -114,6 +114,8 @@ extension AgentPaneHostError {
             String(format: String(localized: "agentPane.error.daemonFailed", defaultValue: "acpmux did not start. Its log is at %@.", bundle: .module), logPath)
         case .daemonStopped:
             String(localized: "agentPane.error.daemonStopped", defaultValue: "acpmux is not running. Open a new agent chat to start it.", bundle: .module)
+        case .chiefStopped:
+            String(localized: "agentPane.error.chiefStopped", defaultValue: "The Chief is not running. Reopen cmux and open Home to start it.", bundle: .module)
         case .timedOut, nil:
             String(localized: "agentPane.error.timedOut", defaultValue: "acpmux did not answer in time.", bundle: .module)
         }
