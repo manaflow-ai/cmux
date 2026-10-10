@@ -29,11 +29,8 @@ final class BrowserNoticeView: NSView {
         super.init(frame: frame)
         translatesAutoresizingMaskIntoConstraints = false
         label.lineBreakMode = .byTruncatingTail
-        // Above the stack's own hugging, below the required caps (the
-        // pill's max width, the page's side insets): the pill fits its text
-        // and only a narrow page truncates it. At .defaultLow the overlay
-        // host drew it as a bare close button (cx-whr7).
-        label.setContentCompressionResistancePriority(.init(760), for: .horizontal)
+        // The pill fits its text; only a narrow page truncates it (cx-whr7).
+        label.setContentCompressionResistancePriority(.keepsTextWidth, for: .horizontal)
         let close = ChromeIconButton(symbol: "xmark", label: Strings.dismissNotice, action: #selector(close), target: self)
 
         let stack = NSStackView(views: [label, actionButton, close])

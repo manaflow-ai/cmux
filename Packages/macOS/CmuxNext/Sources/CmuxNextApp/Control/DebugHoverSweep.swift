@@ -9,11 +9,19 @@ import CmuxNextTabs
 /// main-thread time, the target the card shows after it and the
 /// display-link frame intervals over the sweep (a missed frame is an
 /// interval longer than 1.5 refresh periods) are returned.
+///
+/// `point` ([x, y] in the active main window, bottom-left origin) instead
+/// hovers that point through the shared coordinator (a sidebar workspace
+/// row shows its card), waits for the card, and writes a window snapshot
+/// to `path` while the card shows (cx-k9mc label proofs).
 @MainActor
 enum DebugHoverSweep {
     private static let frames = BenchFrames()
 
     static func run(_ params: [String: JSONValue], services: AppServices) async -> JSONValue {
+        if let point = params["point"]?.arrayValue?.compactMap(\.doubleValue), point.count == 2 {
+            return await hover(at: CGPoint(x: point[0], y: point[1]), params, services: services)
+        }
         guard let controller = services.windows.active ?? services.windows.controllers.first,
               let strip = controller.content?.focusedPane?.view.stripView, let window = strip.window else {
             return .object(["error": .string("no focused pane with a tab strip")])
@@ -71,6 +79,30 @@ enum DebugHoverSweep {
             "page_thumbnails": .object(["count": .number(Double(services.cache.pageThumbnails.count)),
                                         "bytes": .number(Double(services.cache.pageThumbnails.totalBytes))]),
             "card_thumbnails_shown": .number(Double(cards.count)),
+        ])
+    }
+
+    private static func hover(at point: CGPoint, _ params: [String: JSONValue], services: AppServices) async -> JSONValue {
+        guard let window = (services.windows.active ?? services.windows.controllers.first)?.window else {
+            return .object(["error": .string("no main window")])
+        }
+        let coordinator = services.hoverCards
+        let saved = (coordinator.pointerLocation, coordinator.windowNumberAt, coordinator.appIsActive)
+        defer { (coordinator.pointerLocation, coordinator.windowNumberAt, coordinator.appIsActive) = saved }
+        let screen = window.convertPoint(toScreen: point)
+        coordinator.pointerLocation = { screen }
+        coordinator.windowNumberAt = { _ in window.windowNumber }
+        coordinator.appIsActive = { true }
+        coordinator.pointerMoved(to: screen)
+        frames.start()
+        let shownAfter = await frames.settled(until: { coordinator.machine.shownTarget != nil }, start: .now, window: 300, deadline: 4_000)
+        _ = frames.stop()
+        var snapshotParams = params
+        snapshotParams["window"] = .string(String(window.windowNumber))
+        return .object([
+            "shown": coordinator.machine.shownTarget.map { .string($0.id.rawValue) } ?? .null,
+            "first_show_ms": shownAfter.map { .number($0) } ?? .null,
+            "snapshot": params["path"] == nil ? .null : await DebugWindowSnapshot.captureAsync(snapshotParams, services: services),
         ])
     }
 

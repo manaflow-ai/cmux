@@ -22,6 +22,8 @@ final class HelperDragPanel: NSPanel {
         let line = OnboardingLabel.make(OnboardingStrings.computerUseHelperDrag, font: OnboardingMetrics.captionFont,
                                         color: Palette.textSecondary, lines: 2)
         line.preferredMaxLayoutWidth = 220
+        // The panel is sized by its stack's fitting size (cx-k9mc).
+        line.setContentCompressionResistancePriority(.keepsTextWidth, for: .horizontal)
         let close = HelperPanelCloseButton(target: nil, action: nil)
         let stack = NSStackView(views: [tile, line, close])
         stack.alignment = .centerY

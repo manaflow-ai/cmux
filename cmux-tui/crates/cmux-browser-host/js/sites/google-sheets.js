@@ -18,6 +18,10 @@
         await box.fill(range);
         await box.press("Enter");
         await t.sleep(300);
+        // The name box shows the selection: it must be the range, so a
+        // paste, typing or Delete lands there and nowhere else.
+        const shown = String(await box.inputValue()).trim().toUpperCase();
+        t.checkFields("googleSheets", { range: shown }, { range: String(range).trim().toUpperCase() }, { what: "changed" });
       }
       function writeCells(action, sheet, range, rows, opts) {
         const name = `googleSheets.${action}`;

@@ -16789,6 +16789,102 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "agent zoom-in",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "pane",
+        "agentChat"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "=",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "id" : "agentPaneZoomIn",
+      "mcp" : "systemChange",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "title" : "Agent Chat: Zoom In",
+      "title_key" : "action.agentPaneZoomIn",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "agent zoom-out",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "pane",
+        "agentChat"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "-",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "id" : "agentPaneZoomOut",
+      "mcp" : "systemChange",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "title" : "Agent Chat: Zoom Out",
+      "title_key" : "action.agentPaneZoomOut",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "agent actual-size",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "pane",
+        "agentChat"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "0",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "id" : "agentPaneZoomReset",
+      "mcp" : "systemChange",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "title" : "Agent Chat: Actual Size",
+      "title_key" : "action.agentPaneZoomReset",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "agent new-chat",
       "context_menu" : "offered",
       "context_menus" : [
@@ -22436,7 +22532,12 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : null,
+      "default_shortcut" : {
+        "key" : "=",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
       "id" : "terminal.increaseFontSize",
       "mcp" : "stepAdjust",
       "palette" : "offered",
@@ -22463,7 +22564,12 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : null,
+      "default_shortcut" : {
+        "key" : "-",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
       "id" : "terminal.decreaseFontSize",
       "mcp" : "stepAdjust",
       "palette" : "offered",
@@ -22490,7 +22596,12 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : null,
+      "default_shortcut" : {
+        "key" : "0",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
       "id" : "terminal.resetFontSize",
       "mcp" : "stepAdjust",
       "palette" : "offered",
@@ -25791,6 +25902,45 @@
           }
         },
         {
+          "enabled_when" : "can_perform",
+          "id" : "agentPaneZoomIn",
+          "kind" : "action",
+          "order" : 5,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+              "agentPaneFocused"
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "agentPaneZoomOut",
+          "kind" : "action",
+          "order" : 6,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+              "agentPaneFocused"
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "agentPaneZoomReset",
+          "kind" : "action",
+          "order" : 7,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+              "agentPaneFocused"
+            ]
+          }
+        },
+        {
           "kind" : "separator",
           "order" : 5
         },
@@ -25809,7 +25959,7 @@
         }
       ],
       "implied" : [
-
+        "agentPaneFocused"
       ]
     },
     "bookmark" : {
@@ -28144,6 +28294,45 @@
                 "feature" : null,
                 "requires" : [
 
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "agentPaneZoomIn",
+              "kind" : "action",
+              "order" : 16,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+                  "agentPaneFocused"
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "agentPaneZoomOut",
+              "kind" : "action",
+              "order" : 17,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+                  "agentPaneFocused"
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "agentPaneZoomReset",
+              "kind" : "action",
+              "order" : 18,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+                  "agentPaneFocused"
                 ]
               }
             }

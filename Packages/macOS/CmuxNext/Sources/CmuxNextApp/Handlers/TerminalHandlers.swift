@@ -21,7 +21,9 @@ enum TerminalHandlers {
     /// Runs a Ghostty binding action on the targeted or focused terminal.
     static func perform(_ binding: String, _ invocation: ActionInvocation, _ ctx: AppActionContext) {
         guard let entry = ctx.terminal(invocation) else { return }
-        if !entry.session.surfaceView.performBindingAction(binding) { ctx.refuse(RefusalStrings.ghosttyRejected(String(describing: binding))) }
+        if !entry.session.surfaceView.performBindingAction(binding) {
+            ctx.refuse(RefusalStrings.ghosttyRejected(String(describing: binding)))
+        }
     }
 
     static func selection(of entry: TerminalEntry) -> String? {

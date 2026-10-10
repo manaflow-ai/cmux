@@ -156,6 +156,7 @@ final class GroupHeaderRowView: SidebarRowView {
             if isHovered || isEditing { fill = fill.blended(withFraction: 0.08, of: .black) ?? fill }
             if isDropTarget { fill = fill.blended(withFraction: 0.16, of: .black) ?? fill }
             pill.backgroundColor = fill.cgColor
+            connector.backgroundColor = color.headerFill.cgColor
             pill.borderWidth = isDropTarget ? Metrics.dividerThickness * 1.5 : 0
             pill.borderColor = ink.withAlphaComponent(0.5).cgColor
             // A collapsed group that holds the selected workspace paints the selection fill around its bar.
@@ -184,6 +185,9 @@ final class GroupHeaderRowView: SidebarRowView {
         // (the sidebar density: compact 24, comfortable 32 pt).
         let barHeight = SidebarStyle.groupHeaderBarHeight(rowHeight: b.height)
         let pad = (barHeight * 0.62).rounded()
+        // The name starts where a loose workspace's title does (cx-qno.17:
+        // less room before the name); the chevron keeps its own margin.
+        let lead = SidebarStyle.titleLeading
         name.isHidden = renaming
         name.font = SidebarStyle.groupHeaderFont(barHeight: barHeight)
         let chevronSide = max(Metrics.smallIconSize - Metrics.space1, (barHeight * 0.46).rounded())
@@ -212,8 +216,8 @@ final class GroupHeaderRowView: SidebarRowView {
         }
         let glyphSide = min(SidebarStyle.iconBox, barHeight)
         glyph.isHidden = !hasIcon
-        glyph.frame = NSRect(x: pad - Metrics.space1, y: (b.height - glyphSide) / 2, width: glyphSide, height: glyphSide)
-        let nx = pad + (hasIcon ? glyphSide : 0)
+        glyph.frame = NSRect(x: lead - Metrics.space1, y: (b.height - glyphSide) / 2, width: glyphSide, height: glyphSide)
+        let nx = lead + (hasIcon ? glyphSide : 0)
         let pinSide = Metrics.smallIconSize
         let pinRoom = pinned ? pinSide + Metrics.space2 : 0
         let nameWidth = min(titleIntrinsicWidth, max(0, trailing - pinRoom - nx))
@@ -224,7 +228,11 @@ final class GroupHeaderRowView: SidebarRowView {
         pill.isHidden = renaming
         pill.frame = NSRect(x: 0, y: (b.height - barHeight) / 2, width: b.width, height: barHeight)
         pill.cornerRadius = (barHeight * 0.23).rounded()
-        connector.isHidden = true
+        // The members' bar starts under the chip and runs to the row's end,
+        // where the first member's bar takes over (cx-qno.17: one unbroken line).
+        connector.isHidden = collapsed || !hasMembers || renaming
+        let barWidth = SidebarStyle.groupBarWidth
+        connector.frame = NSRect(x: SidebarStyle.groupBarX, y: pill.frame.midY, width: barWidth, height: max(0, b.height - pill.frame.midY))
         needsDisplay = true
     }
 

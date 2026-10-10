@@ -204,7 +204,8 @@ final class WorkspaceHoverCardView: NSView {
         let label = NSTextField(labelWithString: "")
         label.font = Typography.body
         label.lineBreakMode = .byTruncatingMiddle
-        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        // The card takes its width from its content (cx-k9mc).
+        label.setContentCompressionResistancePriority(.keepsTextWidth, for: .horizontal)
         let row = NSStackView(views: [icon, label])
         row.orientation = .horizontal
         row.alignment = .centerY

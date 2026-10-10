@@ -39,6 +39,8 @@ public final class SettingsApplier {
         if design.density != density { design.density = density }
         let uiScale = DesignSettings.clampedUIScale(CGFloat(snapshot.uiScale))
         if design.uiScale != uiScale { design.uiScale = uiScale }
+        let agentPaneZoom = CGFloat(min(max(snapshot.agentPaneZoom, AgentPaneZoomSetting.range.lowerBound), AgentPaneZoomSetting.range.upperBound))
+        if design.agentPaneZoom != agentPaneZoom { design.agentPaneZoom = agentPaneZoom }
         if design.animationSpeed != snapshot.animationSpeed { design.animationSpeed = snapshot.animationSpeed }
         if design.centerFocusedColumn != snapshot.centerFocusedColumn { design.centerFocusedColumn = snapshot.centerFocusedColumn }
         if design.stripScrollbar != snapshot.stripScrollbar { design.stripScrollbar = snapshot.stripScrollbar }

@@ -62,9 +62,10 @@ enum SidebarStyle {
     static var groupChipLeading: CGFloat { 0 }
     /// The header bar inside its row: 26 of 32 pt, scaled with the row height.
     static func groupHeaderBarHeight(rowHeight: CGFloat) -> CGFloat { rowHeight - 2 * (rowHeight * 0.09).rounded() }
-    /// The header's name: regular weight, 14 pt on a 26 pt bar, scaled.
+    /// The header's name: medium weight (cx-qno.17: more contrast on the
+    /// pastel bar), 14 pt on a 26 pt bar, scaled.
     static func groupHeaderFont(barHeight: CGFloat) -> NSFont {
-        NSFont.systemFont(ofSize: min(15, max(11, (barHeight * 0.54).rounded())), weight: .regular)
+        NSFont.systemFont(ofSize: min(15, max(11, (barHeight * 0.54).rounded())), weight: .medium)
     }
     /// The members' bar: 3 pt at the 32 pt row, scaled; at the members' leading edge.
     static var groupBarWidth: CGFloat { max(2, (Metrics.sidebarRowHeight * 0.1).rounded()) }

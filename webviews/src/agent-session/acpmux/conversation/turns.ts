@@ -60,11 +60,17 @@ const isEdit = (row: AcpmuxRow) =>
   (row.items ?? []).some((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange");
 
 /// The rows to draw. `expanded` holds the ids of open disclosures; `working` says the last
-/// turn is still running (the snapshot's `isWorking`); `now` dates the turns (timestamps.ts).
+/// turn is still running (the snapshot's `isWorking`); `now` dates the turns (timestamps.ts);
+/// `clockOffset` (the snapshot's `clockOffsetMs`) moves the running turn's start onto this
+/// computer's clock, so its "Working for" counts from the prompt.
 export function turnView(
   rows: readonly AcpmuxRow[],
   expanded: ReadonlySet<string>,
-  { now = Date.now(), working = false }: { now?: number; working?: boolean } = {},
+  {
+    now = Date.now(),
+    working = false,
+    clockOffset = 0,
+  }: { now?: number; working?: boolean; clockOffset?: number } = {},
 ): AcpmuxRow[] {
   const out: AcpmuxRow[] = [];
   let index = 0;
@@ -93,7 +99,8 @@ export function turnView(
     if (dated[at]) out.push({ id: `${DATE}-${user.id}`, version: 1, at: user.at, kind: DATE });
     // Only the last turn can still be running.
     const last = at === turns.length - 1;
-    out.push(user, ...shapeTurn(user, turn, expanded, working && last, last, last && held.length === 0), ...held);
+    const live = working && last;
+    out.push(user, ...shapeTurn(user, turn, expanded, live, last, last && held.length === 0, clockOffset), ...held);
   });
   return out;
 }
@@ -108,13 +115,15 @@ function shapeTurn(
   live: boolean,
   last: boolean,
   retryable: boolean,
+  clockOffset = 0,
 ): AcpmuxRow[] {
   const end = turn.findIndex((row) => row.kind === "turnSummary");
   // A turn still running shows its work as it happens, under its live status.
   // An earlier turn without a summary ended long ago (a later prompt follows it): it folds as
   // a reloaded turn without timing. The last one may only be waiting for its
   // summary, so it draws as it came.
-  if (end < 0) return live ? liveTurn(user, turn) : last ? turn : settledWithoutSummary(user, turn, expanded);
+  if (end < 0)
+    return live ? liveTurn(user, turn, clockOffset) : last ? turn : settledWithoutSummary(user, turn, expanded);
   const summary = turn[end]!;
   const body = turn.slice(0, end);
   let final = -1;
@@ -245,13 +254,14 @@ function settledWithoutSummary(user: AcpmuxRow, turn: AcpmuxRow[], expanded: Rea
 /// fold). The line is timed from the prompt and draws its own clock; while text streams, the
 /// clock stops at that text's start, where "Worked for" would time the turn if it ended there.
 /// The client's empty "typing" placeholder gives way to it.
-function liveTurn(user: AcpmuxRow, turn: AcpmuxRow[]): AcpmuxRow[] {
+function liveTurn(user: AcpmuxRow, turn: AcpmuxRow[], clockOffset: number): AcpmuxRow[] {
   const rows = turn.filter((row) => row.kind !== "typing");
   const last = rows.at(-1);
   if (!last) return [{ id: `${THINKING}-${user.id}`, version: 1, at: user.at, kind: THINKING }];
   const answering = last.kind === "assistant";
   if (answering && rows.length === 1) return rows;
-  const status: AcpmuxRow = { id: `${WORKING}-${user.id}`, version: 1, at: user.at, kind: WORKING };
+  // The status ticks on this computer's clock, from the prompt moved onto it.
+  const status: AcpmuxRow = { id: `${WORKING}-${user.id}`, version: 1, at: user.at + clockOffset, kind: WORKING };
   if (answering) Object.assign(status, { version: 2, durationMs: Math.max(0, last.at - user.at) });
   return [status, ...rows];
 }

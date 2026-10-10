@@ -80,12 +80,13 @@ import AppKit
     }
 
     /// Moves keyboard focus to `group` (nil: back to the workspaces) and
-    /// draws the ring on its header.
-    func setFocus(_ group: GroupID?) {
+    /// draws the ring on its header when the keyboard moved it (`ring`); a
+    /// mouse click sets the focus without a ring.
+    func setFocus(_ group: GroupID?, ring: Bool = true) {
         let old = list.focusedGroup
         list.focusedGroup = group
         for key in [old, group].compactMap({ $0 }) {
-            (list.rowViews[.group(key)] as? GroupHeaderRowView)?.isKeyboardFocused = key == group
+            (list.rowViews[.group(key)] as? GroupHeaderRowView)?.isKeyboardFocused = ring && key == group
         }
     }
 

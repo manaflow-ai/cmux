@@ -30,6 +30,8 @@ public final class DesignSettings {
     /// `app.uiScale`, the app-wide chrome and first-party page scale.
     /// Terminal content deliberately remains owned by Ghostty's font size.
     public var uiScale: CGFloat = 1
+    /// `agentPane.zoom`, the focused agent chat's own display scale.
+    public var agentPaneZoom: CGFloat = 1
     /// `ui.animationSpeed`: how fast chrome animates (see `Motion`).
     public var animationSpeed: MotionSpeed = .fast
     /// Per-metric overrides in points, clamped by `setOverride`.

@@ -21,34 +21,26 @@ public final class AgentPaneView: NSView {
     /// system handler; the App can route it to a cmux browser tab.
     public var openURL: (URL) -> Void = { NSWorkspace.shared.open($0) }
 
-    /// The page this pane shows; navigation and the handshake trust only it.
     public let source: AgentPaneSource
-    /// The user's `agent-pane` files, pushed to the page when they change,
-    /// after each load, and when the page asks for the handshake.
     public var customization = AgentPaneCustomization() {
         didSet {
             if customization != oldValue { applyCustomization() }
         }
     }
-    /// The app shortcuts the page shows (``AgentPaneShortcuts``), pushed
-    /// when a rebind changes them, after each load, and on the handshake.
     public var shortcuts = AgentPaneShortcuts() {
         didSet {
             if shortcuts != oldValue { applyShortcuts() }
         }
     }
-    /// `labs.previewFeatures`: pushed like ``shortcuts``.
     public var previewFeatures = false {
         didSet { if previewFeatures != oldValue { applyPreviewFeatures() } }
     }
-    /// The newest device chats (acpmux chat index) for the New Tab cards (``AgentPaneDeviceChat``).
+    /// The newest device chats for the New Tab cards.
     public var deviceChats: [AgentPaneDeviceChat] = [] { didSet { if deviceChats != oldValue { AgentPaneDeviceChat.push(deviceChats, to: self) } } }
-    /// `agentPane.editedFiles.*`: pushed like ``previewFeatures``.
     public var editedFiles = AgentPaneEditedFilesSetting.fallback {
         didSet { if editedFiles != oldValue { applyEditedFiles() } }
     }
     private let navigation = AgentPaneNavigation()
-    /// The composer's mic; nothing runs until the user starts it.
     let dictation: AgentPaneDictation
     var crashReloads = PageCrashReloads()
     /// Shown instead of reloading once the page keeps crashing.
@@ -66,11 +58,13 @@ public final class AgentPaneView: NSView {
     /// page's `--agent-motion-*` fades follow them (AgentPaneTheme.values).
     private var motionObservation: Task<Void, Never>?
     private var uiScaleObservation: Task<Void, Never>?
+    public var zoom: Double = 1 {
+        didSet { guard zoom != oldValue else { return }; applyZoom() }
+    }
     private var reduceMotionObserver: (any NSObjectProtocol)?
     private var reduceMotionOverrideObserver: (any NSObjectProtocol)?
     /// Records the user's real key and mouse events in this pane (``AgentPaneUserGestures``).
     private var gestureMonitor: Any?
-    /// Paces the transport's pushes (stopped when the pane closes).
     var transportPacer: AgentPaneFramePacer?
     /// The message and the selected transcript text the page reported under the pointer for the
     /// next context menu, and where the menu's copies go (tests record them instead).
@@ -153,6 +147,7 @@ public final class AgentPaneView: NSView {
                 AgentPaneBridge(view: self), contentWorld: .page, name: AgentPaneRequest.handlerName
             )
         }
+        applyZoom()
         SystemScrollers.observe(self) { [weak self] _ in self?.applyTheme() } // theme carries data-scrollers
         webView.autoresizingMask = [.width, .height]
         webView.allowsBackForwardNavigationGestures = false
@@ -229,12 +224,21 @@ public final class AgentPaneView: NSView {
 
     private func observeUIScale() {
         guard page == nil else { return }
-        webView.pageZoom = Double(DesignSettings.shared.uiScale)
+        applyZoom()
         uiScaleObservation = Task { [weak self] in
             for await _ in Observations({ DesignSettings.shared.uiScale }) {
                 guard let self else { return }
-                self.webView.pageZoom = Double(DesignSettings.shared.uiScale)
+                self.applyZoom()
             }
+        }
+    }
+
+    private func applyZoom() {
+        let scale = Double(DesignSettings.shared.uiScale) * zoom
+        if let page {
+            page.additionalZoom = zoom
+        } else {
+            webView.pageZoom = scale
         }
     }
 
@@ -260,42 +264,14 @@ public final class AgentPaneView: NSView {
     /// (tests set it).
     var displayFramesPerSecond: () -> Int = { NSScreen.main?.maximumFramesPerSecond ?? 60 }
 
-    /// Display information stays native; the page owns adaptive rate policy.
-    func framePacingSettings() -> [String: Any] {
-        let fps = window?.screen?.maximumFramesPerSecond ?? displayFramesPerSecond()
-        return ["adaptive": renderRate == .adaptive && fps > 0,
-                "displayInterval": fps > 0 ? 1000 / Double(fps) : 0]
-    }
-
-    /// Whether the page renders at the display's full rate. Setting it
-    /// changes the live page's preferences and re-shows the page so WebKit
-    /// applies them.
-    public var rendersAtFullRate: Bool {
-        get { webView.configuration.preferences.isWebKitFeatureEnabled(Self.near60FPSFeature) == false }
-        set {
-            guard newValue != rendersAtFullRate else { return }
-            // A WebKit without the feature has no rate to re-apply.
-            guard webView.configuration.preferences.setWebKitFeature(Self.near60FPSFeature, enabled: !newValue) else { return }
-            reapplyRenderRate()
-        }
-    }
-
     /// The re-apply of the last rate change, while it runs.
-    private(set) var rateReapply: Task<Void, Never>?
+    var rateReapply: Task<Void, Never>?
     /// An image of the page as shown; nil skips the re-apply (tests set it).
     lazy var snapshotPage: () async -> NSImage? = { [weak self] in
         try? await self?.webView.takeSnapshot(configuration: nil)
     }
     /// Times the re-apply's steps (tests set it).
     var clock: any Clock<Duration> = ContinuousClock()
-
-    /// WebKit reads the rate only when the page's visibility changes: the
-    /// shared re-show hides the web view for a moment under a snapshot of
-    /// the page. The adaptive rate changes only after a scroll settles, so
-    /// the snapshot matches what is on screen.
-    private func reapplyRenderRate() {
-        rateReapply = WebKitRenderRate.reshow(webView, replacing: rateReapply, snapshot: snapshotPage, clock: clock)
-    }
 
     /// Toggle Dictation (the shortcut, palette or menu). From a key press,
     /// holding the key past a moment makes it push-to-talk: dictation stops
