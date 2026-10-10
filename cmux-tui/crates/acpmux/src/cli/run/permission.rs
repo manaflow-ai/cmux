@@ -38,9 +38,30 @@ pub(crate) async fn answer_permission(
             method::MUX_PERMISSION_RESPOND,
             json!({"sessionId": id, "permissionId": pid, "optionId": option_id}),
         )
-        .await?;
+        .await
+        .map_err(|e| explain_person_required(e, session))?;
     println!("{}", if allow { "allowed" } else { "denied" });
     Ok(())
+}
+
+/// The daemon allows only from the cmux app (`hub/person.rs`): say so, and
+/// what the CLI still can do.
+fn explain_person_required(e: anyhow::Error, session: &str) -> anyhow::Error {
+    let person = e.downcast_ref::<crate::client::DaemonError>().is_some_and(|d| {
+        d.0.data.as_ref().and_then(|v| v.get("reason")).and_then(Value::as_str)
+            == Some(crate::hub::person::REASON)
+    });
+    if !person {
+        return e;
+    }
+    AppError::new(
+        crate::cli::errors::Code::Runtime,
+        "person_required",
+        format!(
+            "the CLI cannot allow a permission: only the cmux app may. Approve this on the Mac app; `acpmux deny {session}` still denies it. The prompt is still pending."
+        ),
+    )
+    .into()
 }
 
 /// `acpmux answer <session> [--answer QUESTION=CHOICE]...`: answers the first
@@ -83,7 +104,8 @@ pub(crate) async fn answer_question(session: &str, args: &[String]) -> Result<()
             method::MUX_PERMISSION_RESPOND,
             json!({"sessionId": id, "permissionId": pid, "optionId": option_id, "answers": answers}),
         )
-        .await?;
+        .await
+        .map_err(|e| explain_person_required(e, session))?;
     println!("answered");
     Ok(())
 }

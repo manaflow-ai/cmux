@@ -1379,6 +1379,17 @@ class ServerStatsResult:
     schema: int
     uptime_ms: int
     resource_projection: Union[ServerStatsResourceProjection, MissingType] = field(default=MISSING)
+    write_path: Union[ServerStatsWritePath, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ServerStatsWritePath:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsWritePath'
+    effect_intent_batches: int
+    effect_intent_failures: int
+    effect_intents: int
+    request_effect_commits: int
+    writer_registry_locks: int
 
 
 @dataclass(frozen=True)
@@ -2717,6 +2728,39 @@ class DetachClientRequest:
 class ExportLayoutRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/export-layout/request'
     screen: Union[Id, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class FeedLocalHandoffAbortRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/feed-local-handoff-abort/request'
+    item: str
+
+
+@dataclass(frozen=True)
+class FeedLocalHandoffBeginRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/feed-local-handoff-begin/request'
+    item: str
+
+
+@dataclass(frozen=True)
+class FeedLocalHandoffDoneRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/feed-local-handoff-done/request'
+    home: str
+    item: str
+
+
+@dataclass(frozen=True)
+class FeedLocalListRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/feed-local-list/request'
+    terminal_id: Union[str, None, MissingType] = field(default=MISSING)
+    state: Union[str, None, MissingType] = field(default=MISSING)
+    unread: Union[bool, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class FeedLocalReadRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/feed-local-read/request'
+    items: List[str]
 
 
 @dataclass(frozen=True)
@@ -5057,6 +5101,7 @@ __all__ = [
     'ServerStatsRegistryLock',
     'ServerStatsResourceProjection',
     'ServerStatsResult',
+    'ServerStatsWritePath',
     'SetCellPixelsResult',
     'SetSizeCountsResult',
     'SetSizePolicyResult',
@@ -5208,6 +5253,11 @@ __all__ = [
     'DetachAttachedViewRequest',
     'DetachClientRequest',
     'ExportLayoutRequest',
+    'FeedLocalHandoffAbortRequest',
+    'FeedLocalHandoffBeginRequest',
+    'FeedLocalHandoffDoneRequest',
+    'FeedLocalListRequest',
+    'FeedLocalReadRequest',
     'FocusDirectionRequest',
     'FocusPaneRequest',
     'ForgetSessionRequest',
