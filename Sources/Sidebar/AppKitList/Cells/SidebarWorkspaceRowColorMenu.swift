@@ -7,6 +7,7 @@ import SwiftUI
 struct SidebarWorkspaceRowColorMenu {
     let currentColorHex: String?
     let colorScheme: ColorScheme
+    var brightenInDarkMode = true
 
     /// Adds one menu item per palette entry and marks the matching current value.
     func addPaletteItems(
@@ -25,7 +26,8 @@ struct SidebarWorkspaceRowColorMenu {
             let swatch = WorkspaceTabColorSettings.displayNSColor(
                 hex: entry.hex,
                 colorScheme: colorScheme,
-                forceBright: false
+                forceBright: false,
+                brightenInDarkMode: brightenInDarkMode
             ) ?? NSColor(hex: entry.hex) ?? .gray
             colorItem.image = SidebarWorkspaceRowMenuBuilder.coloredCircleImage(color: swatch)
             menu.addItem(colorItem)

@@ -3,7 +3,7 @@ name: CI cloud overflow probe
 # Blacksmith is overflow behind the owned minis. When it stops starting jobs
 # (2026-09-29: from about 10:15Z, 1 of about 1,986 runners online and about
 # 150 runs queued for two hours), the runner variables that send overflow
-# there (LINUX_RUNNER, MACOS_RUNNER_*, CI_PAID_MACOS_OVERFLOW) are pointed at
+# there (LINUX_RUNNER, CI_TRUSTED_RUNNER, MACOS_RUNNER_*, CI_PAID_MACOS_OVERFLOW) are pointed at
 # the owned pools and GitHub-hosted Linux, and pointed back once it serves
 # again. One probe, one switch: `probe` asks for a Blacksmith label and only
 # prints a line; `watch`, on a GitHub-hosted runner, waits for it.
@@ -110,6 +110,7 @@ jobs:
           # ci-repo-variables.yml).
           CMUX_CI_RUNNER_VARIABLES: |
             CI_PAID_MACOS_OVERFLOW=${{ vars.CI_PAID_MACOS_OVERFLOW }}
+            CI_TRUSTED_RUNNER=${{ vars.CI_TRUSTED_RUNNER }}
             LINUX_RUNNER=${{ vars.LINUX_RUNNER }}
             MACOS_RUNNER_15=${{ vars.MACOS_RUNNER_15 }}
             MACOS_RUNNER_26=${{ vars.MACOS_RUNNER_26 }}

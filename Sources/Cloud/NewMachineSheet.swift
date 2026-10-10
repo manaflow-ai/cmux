@@ -430,7 +430,7 @@ struct NewMachineSheet: View {
             EmptyView()
         }
         .pickerStyle(.menu)
-        .fixedSize(horizontal: false, vertical: true)
+        .modifier(OwnWidthWithinColumn())
         .accessibilityLabel(baseImageLabel)
         .accessibilityIdentifier("NewMachineSheet.baseImage")
     }
@@ -439,7 +439,7 @@ struct NewMachineSheet: View {
     /// Max" row), which can exceed the sheet. It may narrow to the space the
     /// row labels leave; the selected title is short and still fits.
     private var fittedSizeMenu: some View {
-        sizeMenu.fixedSize(horizontal: false, vertical: true)
+        sizeMenu.modifier(OwnWidthWithinColumn())
     }
 
     /// The size pop-up: allowed sizes, then the locked ones with the plan
@@ -759,5 +759,47 @@ struct NewMachineSheet: View {
         return model.isBaseSetup
             ? String(localized: "machines.new.create.base", defaultValue: "Set Up Base")
             : String(localized: "machines.new.create", defaultValue: "Create")
+    }
+}
+
+/// A pop-up at its own width, narrowed only when that would overflow its
+/// column. A flexible pop-up fills the whole column and a fixed one can push
+/// past the sheet; this keeps the grid's pop-ups lined up on the leading edge
+/// like the Network pop-up, and truncates a long title instead of overflowing.
+private struct OwnWidthWithinColumn: ViewModifier {
+    func body(content: Content) -> some View {
+        OwnWidthWithinProposalLayout { content }
+    }
+}
+
+private struct OwnWidthWithinProposalLayout: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let subview = subviews.first else { return .zero }
+        let own = subview.sizeThatFits(.unspecified)
+        let width = min(own.width, proposal.width ?? own.width)
+        return subview.sizeThatFits(ProposedViewSize(width: width, height: nil))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let subview = subviews.first else { return }
+        subview.place(
+            at: bounds.origin,
+            anchor: .topLeading,
+            proposal: ProposedViewSize(width: bounds.width, height: bounds.height)
+        )
+    }
+
+    /// Passes the pop-up's baselines through, so the grid's first-baseline
+    /// rows still line its title up with the row label.
+    func explicitAlignment(
+        of guide: VerticalAlignment,
+        in bounds: CGRect,
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) -> CGFloat? {
+        guard let subview = subviews.first else { return nil }
+        let dimensions = subview.dimensions(in: ProposedViewSize(width: bounds.width, height: bounds.height))
+        return bounds.minY + dimensions[guide]
     }
 }

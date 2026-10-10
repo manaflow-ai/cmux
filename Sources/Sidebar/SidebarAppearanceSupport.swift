@@ -454,6 +454,7 @@ func sidebarWorkspaceRowBackgroundStyle(
     colorScheme: ColorScheme,
     sidebarSelectionColorHex: String?,
     subtleSelection: Bool = false,
+    brightenInDarkMode: Bool = true,
     isEmphasized: Bool = true,
     increaseContrast: Bool = false,
     accent: CmuxAccentColor = CmuxAccentColor()
@@ -489,7 +490,8 @@ func sidebarWorkspaceRowBackgroundStyle(
         WorkspaceTabColorSettings.displayNSColor(
             hex: $0,
             colorScheme: colorScheme,
-            forceBright: activeTabIndicatorStyle == .leftRail
+            forceBright: activeTabIndicatorStyle == .leftRail,
+            brightenInDarkMode: brightenInDarkMode
         )
     }
 

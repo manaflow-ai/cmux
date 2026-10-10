@@ -119,7 +119,13 @@ extension CmuxSettingsFileStore {
         CmuxSettingsFileStore(
             languageSettingsStore: LanguageSettingsStore(defaults: .standard, domainName: ProcessDefaultsDomain.name),
             onWatchedFileReload: { source in
-                AppDelegate.shared?.reconcileSocketListenerConfiguration(source: source)
+                AppDelegate.shared?.reloadCmuxConfigStores(source: source)
+            },
+            onConfigurationIssue: { messages in
+                AppDelegate.shared?.cmuxConfigDiagnosticsDidReload(
+                    source: CmuxSettingsFileStore.defaultPrimaryPath,
+                    messages: messages
+                )
             }
         )
     }

@@ -66,10 +66,13 @@ describe("workspace presence leases", () => {
       lease({ identity: { id: "user-b" } }),
       lease({ identity: { id: "user-a" } }),
       lease({ identity: { id: "user-a", displayName: "newer" } }),
-      lease({ identity: { id: "expired" }, viewingUntil: 1 }),
+      lease({ identity: { id: "user-idle" }, viewingUntil: 1_500 }),
+      lease({ identity: { id: "expired" }, expiresAt: 1 }),
     ], 2_000);
-    expect(viewers.map((value) => value.id)).toEqual(["user-a", "user-b"]);
+    expect(viewers.map((value) => value.id)).toEqual(["user-a", "user-b", "user-idle"]);
     expect(viewers.find((value) => value.id === "user-a")?.displayName).toBe("newer");
+    expect(viewers.find((value) => value.id === "user-a")?.active).toBe(true);
+    expect(viewers.find((value) => value.id === "user-idle")?.active).toBe(false);
   });
 
   it("accepts only the bounded view message", () => {

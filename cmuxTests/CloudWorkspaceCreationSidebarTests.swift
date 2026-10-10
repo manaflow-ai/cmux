@@ -82,8 +82,12 @@ struct CloudWorkspaceCreationSidebarTests {
         }
     }
 
-    @Test("Clicking another Mac's workspace row opens it as a local workspace")
-    func deviceWorkspaceRowOpensLocalWorkspace() async throws {
+    /// `adoptsReservedPane` materializes the way `DeviceSurfaceProvider` does:
+    /// the terminal bound to the open's reservation takes the reserved pane
+    /// through `adoptPendingDeviceTerminalPane`. The opened workspace and that
+    /// pane must survive the open's post-adoption checks.
+    @Test("Clicking another Mac's workspace row opens it as a local workspace", arguments: [false, true])
+    func deviceWorkspaceRowOpensLocalWorkspace(adoptsReservedPane: Bool) async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let instance = SurfaceDeviceInstanceID(deviceID: "other-mac-\(UUID().uuidString)", tag: "default")
             let fixture = try CloudWorkspaceCreationSidebarFixture(machine: .device(instance))
@@ -101,6 +105,17 @@ struct CloudWorkspaceCreationSidebarTests {
             let terminal = fixture.provider.terminal(in: workspace)
             fixture.catalog.upsert(terminal, from: fixture.provider)
             #expect(fixture.catalog.cloudStates[fixture.provider.machine] == nil)
+            var adoptedPanelID: UUID?
+            if adoptsReservedPane {
+                fixture.provider.beforeMaterialize = { resource, reservation in
+                    let reservation = try #require(reservation)
+                    let local = try #require(Workspace.liveWorkspace(id: reservation.workspaceID))
+                    adoptedPanelID = try #require(local.adoptPendingDeviceTerminalPane(
+                        reservation, machine: resource.id.machine,
+                        remoteWorkspaceID: workspace.id, resource: resource
+                    )).panelID
+                }
+            }
 
             let completed = CloudLinkFirstValue<Bool>()
             let actions = CloudTreeNodeActions.bound(
@@ -138,6 +153,12 @@ struct CloudWorkspaceCreationSidebarTests {
             #expect(fixture.manager.selectedTabId == opened.id)
             #expect(fixture.catalog.projections.filter { $0.workspaceID == opened.id }.map(\.resource) == [terminal.id])
             #expect(fixture.catalog.snapshot.pendingWorkspaceCreations == nil)
+            if adoptsReservedPane {
+                let adopted = try #require(adoptedPanelID)
+                #expect(opened.panels[adopted] != nil, "The adopted mirror pane must not be torn down after the open")
+                #expect(fixture.catalog.projections.filter { $0.workspaceID == opened.id }.map(\.panelID) == [adopted])
+                #expect(opened.cloudPendingCreations.isEmpty, "Completing the open retires its reservation")
+            }
         }
     }
 

@@ -2,6 +2,8 @@ public import Foundation
 
 /// Owns the private remote directory and cleanup contract for pasted files.
 public struct RemotePasteFileTransferPolicy: Equatable, Sendable {
+    private static let remoteHomeMarker = "__CMUX_REMOTE_PASTE_HOME__"
+
     /// The maximum number of bytes retained in one session's paste directory.
     public let maximumByteCount: Int64
 
@@ -24,10 +26,57 @@ public struct RemotePasteFileTransferPolicy: Equatable, Sendable {
 
     /// Returns the shell path used by SCP for an uploaded file.
     public func remotePath(for fileURL: URL, uuid: UUID = UUID()) -> String {
+        "~/" + relativePath(for: fileURL, uuid: uuid)
+    }
+
+    /// Returns an absolute remote path for an uploaded file.
+    ///
+    /// - Parameters:
+    ///   - fileURL: The local file whose extension should be preserved.
+    ///   - homeDirectory: The absolute home directory reported by the remote
+    ///     maintenance script.
+    ///   - uuid: The file identity used in the generated name.
+    /// - Returns: An absolute path below this policy's private session directory.
+    public func remotePath(
+        for fileURL: URL,
+        homeDirectory: String,
+        uuid: UUID = UUID()
+    ) -> String {
+        let normalizedHome = homeDirectory.hasSuffix("/") && homeDirectory != "/"
+            ? String(homeDirectory.dropLast())
+            : homeDirectory
+        let relativePath = relativePath(for: fileURL, uuid: uuid)
+        return normalizedHome == "/" ? "/" + relativePath : normalizedHome + "/" + relativePath
+    }
+
+    /// Extracts the absolute home directory emitted by ``maintenanceScript()``.
+    ///
+    /// Remote login startup files may write unrelated lines to standard output,
+    /// so the parser only accepts the tagged line and ignores all other output.
+    ///
+    /// - Parameter output: Standard output captured from the maintenance SSH command.
+    /// - Returns: An absolute home directory, or `nil` when the marker is absent
+    ///   or malformed.
+    public func remoteHomeDirectory(fromMaintenanceOutput output: String) -> String? {
+        let prefix = Self.remoteHomeMarker
+        for line in output.split(whereSeparator: \.isNewline).reversed() {
+            guard line.hasPrefix(prefix) else { continue }
+            let home = String(line.dropFirst(prefix.count))
+            guard home.hasPrefix("/"),
+                  !home.unicodeScalars.contains(where: { $0.value < 0x20 || $0.value == 0x7f }) else {
+                continue
+            }
+            return home
+        }
+        return nil
+    }
+
+    /// Returns the relative path below this policy's private session directory.
+    private func relativePath(for fileURL: URL, uuid: UUID) -> String {
         let suffix = sanitizedExtension(fileURL.pathExtension)
         let extensionSuffix = suffix.isEmpty ? "" : "." + suffix
         let fileName = "cmux-paste-" + uuid.uuidString.lowercased() + extensionSuffix
-        return "~/" + relativeDirectoryPath + "/" + fileName
+        return relativeDirectoryPath + "/" + fileName
     }
 
     /// Returns a shell script that creates the private directory and removes stale or oversized files.
@@ -63,31 +112,25 @@ public struct RemotePasteFileTransferPolicy: Equatable, Sendable {
             "  rm -f -- \"$oldest\"",
             "  total=$((total - bytes))",
             "done",
+            "printf '\(Self.remoteHomeMarker)%s\\n' \"$HOME\"",
         ].joined(separator: "\n")
     }
 
     /// Returns a shell script that enforces mode `0600` after SCP creates a file.
     public func finalizeScript(for remotePath: String) -> String {
-        let prefix = "~/" + relativeDirectoryPath + "/"
-        guard remotePath.hasPrefix(prefix),
-              let fileName = remotePath.split(separator: "/").last,
-              fileName.hasPrefix("cmux-paste-") else {
+        guard let fileName = ownedFileName(from: remotePath) else {
             return "false"
         }
         let path = "\"$HOME/" + relativeDirectoryPath + "/" + String(fileName) + "\""
-        return "chmod 600 -- \(path) && test -f \(path)"
+        // BSD chmod treats `--` after the mode as a filename. The generated
+        // path is rooted at $HOME, so it cannot be mistaken for an option.
+        return "chmod 600 \(path) && test -f \(path)"
     }
 
     /// Returns a shell script that removes only files owned by this policy.
     public func cleanupScript(for remotePaths: [String]) -> String {
-        let prefix = "~/" + relativeDirectoryPath + "/"
         let fileNames = remotePaths.compactMap { remotePath -> String? in
-            guard remotePath.hasPrefix(prefix),
-                  let fileName = remotePath.split(separator: "/").last,
-                  fileName.hasPrefix("cmux-paste-") else {
-                return nil
-            }
-            return String(fileName)
+            ownedFileName(from: remotePath).map(String.init)
         }
         guard fileNames.count == remotePaths.count, !fileNames.isEmpty else {
             return "true"
@@ -117,6 +160,21 @@ public struct RemotePasteFileTransferPolicy: Equatable, Sendable {
 
     private var shellDirectoryExpression: String {
         "\"$HOME/" + relativeDirectoryPath + "\""
+    }
+
+    private func ownedFileName(from remotePath: String) -> Substring? {
+        let directorySuffix = "/" + relativeDirectoryPath + "/"
+        guard remotePath.hasPrefix("/") || remotePath.hasPrefix("~/"),
+              let range = remotePath.range(of: directorySuffix, options: .backwards) else {
+            return nil
+        }
+        let fileName = remotePath[range.upperBound...]
+        guard !fileName.isEmpty,
+              !fileName.contains("/"),
+              fileName.hasPrefix("cmux-paste-") else {
+            return nil
+        }
+        return fileName
     }
 
     private func sanitizedExtension(_ value: String) -> String {

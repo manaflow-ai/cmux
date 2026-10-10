@@ -3745,6 +3745,9 @@ struct DeferredAgentResumeRestore: Sendable {
     let stablePanelID: UUID
     let restorableAgent: SessionRestorableAgentSnapshot?
     let resumeBinding: SurfaceResumeBindingSnapshot?
+    /// A validated local tmux launcher retained so a live owner can be
+    /// reattached without starting a second writer.
+    let tmuxStartCommand: String?
     let restoresRemoteWorkspaceTerminalSnapshot: Bool
     /// The persistent-SSH owner captured for deferred admission, if any.
     let remoteResumeContext: SurfaceResumeRemoteContext?
@@ -3760,6 +3763,7 @@ struct DeferredAgentResumeRestore: Sendable {
         stablePanelID: UUID,
         restorableAgent: SessionRestorableAgentSnapshot?,
         resumeBinding: SurfaceResumeBindingSnapshot?,
+        tmuxStartCommand: String? = nil,
         restoresRemoteWorkspaceTerminalSnapshot: Bool,
         remoteResumeContext: SurfaceResumeRemoteContext? = nil,
         workingDirectory: String?,
@@ -3768,6 +3772,7 @@ struct DeferredAgentResumeRestore: Sendable {
         self.stablePanelID = stablePanelID
         self.restorableAgent = restorableAgent
         self.resumeBinding = resumeBinding
+        self.tmuxStartCommand = tmuxStartCommand
         self.restoresRemoteWorkspaceTerminalSnapshot = restoresRemoteWorkspaceTerminalSnapshot
         self.remoteResumeContext = remoteResumeContext
         self.workingDirectory = workingDirectory
@@ -3800,6 +3805,7 @@ struct DeferredAgentResumeRestore: Sendable {
             stablePanelID: stablePanelID,
             restorableAgent: restorableAgent,
             resumeBinding: retargetedBinding,
+            tmuxStartCommand: tmuxStartCommand,
             restoresRemoteWorkspaceTerminalSnapshot:
                 restoresRemoteWorkspaceTerminalSnapshot,
             remoteResumeContext: destinationContext,

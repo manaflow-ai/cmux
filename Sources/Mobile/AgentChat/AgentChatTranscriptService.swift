@@ -325,6 +325,15 @@ final class AgentChatTranscriptService {
         }
     }
 
+    /// Immediately reflects user input on a terminal that is waiting for an
+    /// agent answer. Hook delivery remains authoritative and reconciles the
+    /// optimistic state on the next event.
+    @discardableResult
+    func noteExplicitInput(surfaceID: String, at: Date = Date()) -> Int {
+        guard !didShutdown else { return 0 }
+        return registry.noteUserInput(surfaceID: surfaceID, at: at)
+    }
+
     /// Lists chat-capable sessions.
     ///
     /// - Parameter workspaceID: Workspace UUID string filter, or `nil`.

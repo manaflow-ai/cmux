@@ -328,6 +328,16 @@ extension Workspace {
         case .promptIdle:
             switch restoredAgentResumeStatesByPanelId[panelId] {
             case .some(.autoResumeCommandRunning), .some(.observedAgentCommandRunning):
+                if let terminal = panels[panelId] as? TerminalPanel,
+                   case .liveOwner(let kind, let processID, let attachInput, false) = terminal.restoreRecovery.state,
+                   attachInput != nil {
+                    terminal.restoreRecovery.state = .liveOwner(
+                        kind: kind,
+                        processID: processID,
+                        attachInput: attachInput,
+                        attachAvailable: true
+                    )
+                }
                 // A TUI prompt mark (OSC 133;A) is not the shell prompt
                 // returning while the agent process is still alive.
                 guard !restoredAgentHasLiveProcess(restoredAgent, panelId: panelId) else { break }

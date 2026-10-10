@@ -30,7 +30,7 @@ failover of each variable (failover_values()) is derived from the lane's
 Xcode pin, the same way pr_runner_pool.py names owned pools: the macOS
 capability variables take the std owned pool (the GUI one for
 MACOS_RUNNER_DISPLAY, the simulator capability label for MACOS_RUNNER_IOS),
-and LINUX_RUNNER takes GitHub-hosted ubuntu-24.04. CI_CLOUD_FAILOVER (JSON,
+and LINUX_RUNNER and CI_TRUSTED_RUNNER take GitHub-hosted ubuntu-24.04. CI_CLOUD_FAILOVER (JSON,
 variable name to value, "" to leave one alone) overrides any of them. Only a
 variable that is unset (its readers then fall back to Blacksmith) or holds a
 blacksmith-* label is changed, so a lane someone deliberately pointed
@@ -70,6 +70,10 @@ CLOUD_PREFIX = pr_runner_pool.EPHEMERAL_PREFIX  # "blacksmith-"
 DEFAULT_PROBE_LABEL = "blacksmith-4vcpu-ubuntu-2404"
 HOSTED_LINUX = "ubuntu-24.04"
 LINUX_VARIABLE = "LINUX_RUNNER"
+# The merge-gating checks (CLA, backend migrations) read this; it falls back to
+# Blacksmith, so it leaves with the rest of Linux and comes back with it.
+TRUSTED_VARIABLE = "CI_TRUSTED_RUNNER"
+LINUX_VARIABLES = (LINUX_VARIABLE, TRUSTED_VARIABLE)
 # The runner variables whose unset fallback is a Blacksmith label, and so the
 # ones that carry overflow. MACOS_RUNNER_TESTS falls back per lane (the E2E
 # lane goes through e2e_runner_pool.py, the iOS lane through
@@ -79,7 +83,7 @@ STD_VARIABLES = ("MACOS_RUNNER_15", "MACOS_RUNNER_26", "MACOS_RUNNER_26_LARGE", 
                  "MACOS_RUNNER_DUAL_XCODE")
 GUI_VARIABLE = "MACOS_RUNNER_DISPLAY"
 IOS_VARIABLE = "MACOS_RUNNER_IOS"
-SWITCHED_VARIABLES = (LINUX_VARIABLE, *STD_VARIABLES, GUI_VARIABLE, IOS_VARIABLE, PAID_OVERFLOW_VARIABLE)
+SWITCHED_VARIABLES = (*LINUX_VARIABLES, *STD_VARIABLES, GUI_VARIABLE, IOS_VARIABLE, PAID_OVERFLOW_VARIABLE)
 # What CI_CLOUD_FAILOVER may name: the workflow passes each one's live value,
 # so a restore never guesses what a variable held.
 OVERRIDABLE_VARIABLES = (*SWITCHED_VARIABLES, "MACOS_RUNNER_TESTS")
@@ -157,7 +161,7 @@ def failover_values(xcode_app_pr: str | None, overrides: str | None) -> tuple[di
     macOS variables are left alone (named in the problems).
     """
     problems: list[str] = []
-    values: dict[str, str] = {LINUX_VARIABLE: HOSTED_LINUX}
+    values: dict[str, str] = {name: HOSTED_LINUX for name in LINUX_VARIABLES}
     owned = pr_runner_pool.owned_pools(xcode_app_pr)
     if owned:
         std = owned[0]
@@ -186,7 +190,7 @@ def failover_values(xcode_app_pr: str | None, overrides: str | None) -> tuple[di
                                     "ignored")
                 else:
                     values[name] = value.strip()
-    if any(name != LINUX_VARIABLE for name in values):
+    if any(name not in LINUX_VARIABLES for name in values):
         # MACOS_RUNNER_15, _26 and friends are read only when this is 1.
         values[PAID_OVERFLOW_VARIABLE] = "1"
     return values, problems

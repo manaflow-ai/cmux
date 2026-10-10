@@ -169,9 +169,13 @@ private func looksLikeCodexSessionIdentifier(_ value: String) -> Bool {
 
 private func cmuxInjectedCodexHookArgumentPrefixEnd(_ args: [String]) -> Int? {
     var index = 0
-    if index + 1 < args.count, args[index] == "--enable", args[index + 1] == "hooks" {
+    let hookFeatureNames = ["hooks", "codex_hooks"]
+    if index + 1 < args.count,
+       args[index] == "--enable",
+       hookFeatureNames.contains(args[index + 1]) {
         index += 2
-    } else if index < args.count, args[index] == "--enable=hooks" {
+    } else if index < args.count,
+              hookFeatureNames.contains(where: { args[index] == "--enable=\($0)" }) {
         index += 1
     } else {
         return nil

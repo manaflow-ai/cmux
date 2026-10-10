@@ -2696,7 +2696,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 return (status: 1, stdout: "", stderr: "copy failed")
             }
             if executable == "/usr/bin/ssh" {
-                return (status: 0, stdout: "", stderr: "")
+                let stdout = arguments.contains {
+                    $0.contains("__CMUX_REMOTE_PASTE_HOME__")
+                } ? "__CMUX_REMOTE_PASTE_HOME__/home/test user\n" : ""
+                return (status: 0, stdout: stdout, stderr: "")
             }
             XCTFail("unexpected executable \(executable)")
             return (status: 1, stdout: "", stderr: "unexpected executable")
@@ -2714,6 +2717,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 .last
         )
         let uploadedRemotePath = try XCTUnwrap(firstSCPDestination.split(separator: ":", maxSplits: 1).last)
+        XCTAssertTrue(
+            uploadedRemotePath.hasPrefix("/home/test user/.cache/cmux/paste/"),
+            String(uploadedRemotePath)
+        )
         let uploadedFileName = try XCTUnwrap(uploadedRemotePath.split(separator: "/").last)
         // The first ssh call prepares the private paste directory; cleanup runs
         // after the failed copy and addresses the file through "$HOME/...".
@@ -3408,10 +3415,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
     @MainActor
     func testDefaultCloudProxyOnlyErrorsDoNotPolluteConnectedSidebar() {
-        let flag = CmuxFeatureFlags.cloudMachinesFlag
-        let previousRemoteOverride = CmuxFeatureFlags.shared.overrideValue(for: flag)
-        CmuxFeatureFlags.shared.setOverride(true, for: flag)
-        defer { CmuxFeatureFlags.shared.setOverride(previousRemoteOverride, for: flag) }
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
             destination: "cloud VM",

@@ -25,6 +25,8 @@ struct SidebarWorkspaceRowCommands {
     let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
     /// Resolved cmux scheme used for menu swatches.
     let colorScheme: ColorScheme
+    /// `workspaceColors.brightenInDarkMode`, so swatches match the rows.
+    var brightenInDarkMode = true
     /// Re-runs the row's snapshot pump (pin/notification mutations that don't
     /// flow through the observation publishers).
     let refreshSnapshot: () -> Void
@@ -564,7 +566,8 @@ struct SidebarWorkspaceRowMenuBuilder {
         }
         SidebarWorkspaceRowColorMenu(
             currentColorHex: tab.customColor,
-            colorScheme: commands.colorScheme
+            colorScheme: commands.colorScheme,
+            brightenInDarkMode: commands.brightenInDarkMode
         ).addPaletteItems(
             to: submenu,
             palette: palette,

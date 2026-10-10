@@ -95,7 +95,10 @@ struct TerminalPanelView: View {
 
         return VStack(spacing: 0) {
             if let recovery = panel.restoreRecovery.state {
-                AgentRestoreRecoveryView(state: recovery)
+                AgentRestoreRecoveryView(
+                    state: recovery,
+                    onAttach: { panel.sendInput($0) }
+                )
             }
             if let wakeFailure = panel.agentWakeFailure {
                 AgentWakeFailureBanner(

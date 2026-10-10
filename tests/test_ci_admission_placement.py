@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/admission_placement.py"
 WORKFLOWS = ROOT / ".github/workflows"
 ROOT_STD = "glaeda-root-std-xcode-26.6"
+ROOT_AWS = "glaeda-aws-root-std-xcode-26.6"
 STD = "glaeda-std-xcode-26.6"
 
 
@@ -29,9 +30,12 @@ def load():
 placement = load()
 
 
-def runner(host: str, k: int, *, busy: bool = False, status: str = "online", own: bool = True) -> dict:
+def runner(host: str, k: int, *, busy: bool = False, status: str = "online", own: bool = True,
+           namespace: str = "") -> dict:
     name = f"{host}-glaeda" + (f"-{k}" if k else "")
-    labels = ["self-hosted", STD, ROOT_STD, *([f"glaeda-runner-{name}"] if own else [])]
+    prefix = f"glaeda-{namespace}-" if namespace else "glaeda-"
+    labels = ["self-hosted", f"{prefix}std-xcode-26.6", f"{prefix}root-std-xcode-26.6",
+              *([f"glaeda-runner-{name}"] if own else [])]
     return {"name": name, "status": status, "busy": busy, "labels": [{"name": label} for label in labels]}
 
 
@@ -39,6 +43,15 @@ ENV = {"ROOT_RUNNER": ROOT_STD, "ADMISSION_WARM": "", "GITHUB_RUN_ID": "123"}
 
 
 class Decide(unittest.TestCase):
+    def test_namespaced_aws_root_is_eligible_for_spread_placement(self):
+        env = dict(ENV, ROOT_RUNNER=ROOT_AWS)
+        labels, how, _ = placement.decide(env, [
+            runner("aws-a", 0, busy=True, namespace="aws"), runner("aws-a", 1, namespace="aws"),
+            runner("aws-b", 0, namespace="aws"), runner("aws-b", 1, namespace="aws"),
+        ])
+        self.assertEqual(json.loads(labels)[0], ROOT_AWS)
+        self.assertEqual(how, "spread")
+
     def test_pins_admission_to_an_empty_mini(self):
         runners = [runner("mini-a", 0, busy=True), runner("mini-a", 1), runner("mini-b", 0), runner("mini-b", 1)]
         labels, how, why = placement.decide(ENV, runners)
@@ -141,6 +154,7 @@ class Workflow(unittest.TestCase):
         for clause in ("vars.CI_OWNED_SPREAD == '1'",
                        "github.event.pull_request.head.repo.full_name == github.repository",
                        "startsWith(inputs.pr_root_runner, 'glaeda-root-')",
+                       "startsWith(inputs.pr_root_runner, 'glaeda-aws-root-')",
                        "contains(inputs.pr_owned_jobs, ' admission ')"):
             self.assertIn(clause, spec["if"])
         self.assertTrue(all(step.get("continue-on-error") for step in spec["steps"]))

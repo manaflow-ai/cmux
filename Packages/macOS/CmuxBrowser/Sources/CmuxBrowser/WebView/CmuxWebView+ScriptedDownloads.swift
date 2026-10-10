@@ -480,7 +480,7 @@ private final class ScriptedDownloadMessageHandler: NSObject, WKScriptMessageHan
               let body = message.body as? [String: Any] else {
             return
         }
-        MainActor.assumeIsolated {
+        Task { @MainActor in
             webView.handleScriptedDownloadMessage(body, isMainFrame: message.frameInfo.isMainFrame)
         }
     }

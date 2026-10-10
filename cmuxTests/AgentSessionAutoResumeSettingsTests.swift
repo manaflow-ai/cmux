@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import CmuxFoundation
 import CmuxTerminal
 import Foundation
 import CmuxCore
@@ -169,14 +170,22 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
 
             let source = Workspace()
             let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+            let liveIdentity = AgentPIDProcessIdentity(pid: 42_101, startSeconds: 10, startMicroseconds: 20)
             let sourceIndex = try makeRestorableAgentIndex(
                 workspaceId: source.id,
                 panelId: sourcePanelId,
-                sessionId: "codex-running-at-snapshot-session"
+                sessionId: "codex-running-at-snapshot-session",
+                liveProcessIdentity: liveIdentity
             )
-            // Simulate: agent was still running when cmux quit
+            // Simulate: agent was still running when cmux quit. Shell activity
+            // alone is not agent liveness (#17475); the live agent process is.
             source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
-            let snapshot = source.sessionSnapshot(includeScrollback: false, restorableAgentIndex: sourceIndex)
+            let snapshot = source.sessionSnapshot(
+                includeScrollback: false,
+                restorableAgentIndex: sourceIndex,
+                currentAgentProcessIdentity: { $0 == Int(liveIdentity.pid) ? liveIdentity : nil },
+                agentProcessPresence: { _ in .present }
+            )
 
             XCTAssertEqual(snapshot.panels.first?.terminal?.wasAgentRunning, true,
                            "snapshot should record wasAgentRunning=true when agent was running at save time")
@@ -563,10 +572,12 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
 
         let source = Workspace()
         let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        let liveIdentity = AgentPIDProcessIdentity(pid: 42_102, startSeconds: 10, startMicroseconds: 20)
         let sourceIndex = try makeRestorableAgentIndex(
             workspaceId: source.id,
             panelId: sourcePanelId,
-            sessionId: "codex-binding-auto-resume-session"
+            sessionId: "codex-binding-auto-resume-session",
+            liveProcessIdentity: liveIdentity
         )
         let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
             SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
@@ -584,7 +595,9 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         let snapshot = source.sessionSnapshot(
             includeScrollback: false,
             restorableAgentIndex: sourceIndex,
-            surfaceResumeBindingIndex: bindingIndex
+            surfaceResumeBindingIndex: bindingIndex,
+            currentAgentProcessIdentity: { $0 == Int(liveIdentity.pid) ? liveIdentity : nil },
+            agentProcessPresence: { _ in .present }
         )
 
         let restored = Workspace()
@@ -744,7 +757,8 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         workspaceId: UUID,
         panelId: UUID,
         sessionId: String,
-        extraArguments: [String] = []
+        extraArguments: [String] = [],
+        liveProcessIdentity: AgentPIDProcessIdentity? = nil
     ) throws -> RestorableAgentSessionIndex {
         let home = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-auto-resume-\(UUID().uuidString)", isDirectory: true)
@@ -784,7 +798,33 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         ]
         let data = try JSONSerialization.data(withJSONObject: jsonObject, options: [.prettyPrinted])
         try data.write(to: storeURL, options: .atomic)
-        return RestorableAgentSessionIndex.load(homeDirectory: home.path)
+        guard let liveProcessIdentity else {
+            return RestorableAgentSessionIndex.load(homeDirectory: home.path)
+        }
+        // Process evidence for the hook record's session; keeps the record's
+        // snapshot and launch command.
+        let processID = Int(liveProcessIdentity.pid)
+        return RestorableAgentSessionIndex.load(
+            homeDirectory: home.path,
+            fileManager: .default,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [
+                RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId): (
+                    snapshot: SessionRestorableAgentSnapshot(
+                        kind: .codex,
+                        sessionId: sessionId,
+                        workingDirectory: "/tmp/repo",
+                        launchCommand: nil
+                    ),
+                    updatedAt: Date().timeIntervalSince1970,
+                    processIDs: [processID],
+                    agentProcessIDs: [processID],
+                    sessionIDSource: .inferredLatestSessionFile
+                ),
+            ],
+            processArgumentsProvider: { _ in nil },
+            processIdentityProvider: { $0 == processID ? liveProcessIdentity : nil }
+        )
     }
 }
 

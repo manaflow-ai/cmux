@@ -55,14 +55,16 @@ struct DevicesSidebarModeTests {
         #expect(MobileRemoteControlPolicy.allowsIncomingAccess(defaults: defaults, cloudEnabled: true))
     }
 
-    @Test("A remote Cloud disable wins over saved device preferences")
-    func remoteCloudGateDisablesDevices() {
+    @Test("Managed DisableCloud wins over saved device preferences")
+    func managedCloudPolicyDisablesDevices() {
         let defaults = makeDefaults()
         defaults.set(true, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
         defaults.set(true, forKey: DevicesCatalogSection().discoveryEnabled.userDefaultsKey)
         defaults.set(true, forKey: DevicesCatalogSection().incomingAccessEnabled.userDefaultsKey)
-        let policy = ManagedDevicePolicy(defaults: defaults, releaseDomainDefaults: nil) { _, _ in nil }
-        let enabled = CloudMachinesFeature.isEnabled(defaults: defaults, policy: policy, remoteEnabled: false)
+        let policy = ManagedDevicePolicy(defaults: defaults, releaseDomainDefaults: nil) { _, key in
+            key == ManagedDevicePolicyKey.disableCloud.rawValue ? true : nil
+        }
+        let enabled = CloudMachinesFeature.isEnabled(defaults: defaults, policy: policy)
         #expect(!DevicesFeature.isEnabled(defaults: defaults, policy: policy, cloudEnabled: enabled))
         #expect(!MobileRemoteControlPolicy.allowsIncomingAccess(defaults: defaults, cloudEnabled: enabled))
     }

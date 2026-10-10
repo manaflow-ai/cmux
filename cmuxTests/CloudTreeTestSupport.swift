@@ -11,6 +11,6 @@ extension Array where Element == CloudTreeNode {
     /// machine/device tree shape. The production tree intentionally appends
     /// CodeRouter after those sections.
     var withoutCoderouterSection: [CloudTreeNode] {
-        filter { $0.id != "coderouter-section" }
+        filter { $0.id != "coderouter-section" && !$0.id.hasPrefix("coderouter-section/") }
     }
 }
