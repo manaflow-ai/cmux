@@ -6,7 +6,9 @@ name: cmux-next base autofix
 # `swift package dump-package` in a pinned Swift 6.2 Linux container (the Mac
 # generated-files job's tools), every React page's generated/strings.json
 # (webviews/scripts/pages/gen-strings.mjs), the SDK wire layers
-# (cmux-tui/bindings/codegen/generate.py), and cargo fmt in cmux-tui. Each
+# (cmux-tui/bindings/codegen/generate.py), the docs shortcuts copy of the
+# action catalog export (web/scripts/export-docs-shortcuts.ts), and cargo fmt
+# in cmux-tui. Each
 # runs only when its inputs changed since the last successful run (actions:
 # read lists it); a repair that cannot land fails the run. A frozen path
 # (scripts/cmux-next/base-autofix-frozen.txt, including every workflow file)
@@ -38,6 +40,8 @@ on:
       - Packages/**
       - webviews/src/**
       - webviews/scripts/pages/**
+      - plans/cmux-next/action-surfaces.json
+      - web/scripts/export-docs-shortcuts.ts
       - schemas/settings/**
       - scripts/cmux-next/base-autofix.sh
       - scripts/cmux-next/base-autofix-frozen.txt
@@ -85,20 +89,22 @@ jobs:
           since="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/cmux-next-base-autofix.yml/runs?branch=feat-cmux-next&event=push&status=success&per_page=1" --jq '.workflow_runs[0].head_sha // ""' 2>/dev/null || true)"
           if [[ -z "$since" ]] || ! git fetch --quiet --depth=1 origin "$since"; then
             echo "No successful run to diff from; running every repair."
-            graph=true strings=true sdk=true fmt=true
+            graph=true strings=true sdk=true shortcuts=true fmt=true
           else
             echo "Changes since the last successful run at ${since:0:12}."
             changed="$(git diff --name-only "$since" HEAD)"
-            graph=false strings=false sdk=false fmt=false
+            graph=false strings=false sdk=false shortcuts=false fmt=false
             bot='scripts/cmux-next/base-autofix|\.github/workflows/cmux-next-base-autofix\.yml'
             grep -qE "^(Packages/|scripts/cmux-next/ci-target-graph\.py|$bot)" <<<"$changed" && graph=true
             # The strings generator reads xcstrings catalogs under Packages and webviews/src, and the settings schema.
             grep -qE "^(Packages/|webviews/src/|webviews/scripts/pages/|schemas/settings/|$bot)" <<<"$changed" && strings=true
             # The SDK generator reads the SDK schema and its own emitters.
             grep -qE "^(cmux-tui/spec/|cmux-tui/bindings/codegen/|$bot)" <<<"$changed" && sdk=true
+            # The docs shortcuts read the catalog export and the action string catalogs.
+            grep -qE "^(plans/cmux-next/action-surfaces\.json|Packages/macOS/CmuxNext/Sources/CmuxNextActions/|web/scripts/export-docs-shortcuts\.ts|$bot)" <<<"$changed" && shortcuts=true
             grep -qE "^(cmux-tui/|$bot)" <<<"$changed" && fmt=true
           fi
-          { echo "graph=$graph"; echo "strings=$strings"; echo "sdk=$sdk"; echo "fmt=$fmt"; } >> "$GITHUB_OUTPUT"
+          { echo "graph=$graph"; echo "strings=$strings"; echo "sdk=$sdk"; echo "shortcuts=$shortcuts"; echo "fmt=$fmt"; } >> "$GITHUB_OUTPUT"
 
       # dump-package needs the Swift 6.2 tools (ci-target-graph.py). The whole
       # checkout is mounted at its own path, read-only: the manifest's local
@@ -117,6 +123,12 @@ jobs:
         with:
           node-version: "24.11.1"
 
+      - name: Setup Bun
+        if: steps.areas.outputs.shortcuts == 'true'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+
       - name: Set up pinned cmux-tui Rust
         if: steps.areas.outputs.fmt == 'true'
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -126,6 +138,7 @@ jobs:
           GRAPH: ${{ steps.areas.outputs.graph }}
           STRINGS: ${{ steps.areas.outputs.strings }}
           SDK: ${{ steps.areas.outputs.sdk }}
+          SHORTCUTS: ${{ steps.areas.outputs.shortcuts }}
           FMT: ${{ steps.areas.outputs.fmt }}
         run: |
           set -euo pipefail
@@ -133,6 +146,7 @@ jobs:
           [[ "$GRAPH" == true ]] && args+=(--package-dump "$RUNNER_TEMP/package-dump.json")
           [[ "$STRINGS" == true ]] && args+=(--strings)
           [[ "$SDK" == true ]] && args+=(--sdk)
+          [[ "$SHORTCUTS" == true ]] && args+=(--docs-shortcuts)
           [[ "$FMT" == true ]] || args+=(--no-fmt)
           scripts/cmux-next/base-autofix.sh ${args[@]+"${args[@]}"} "$GITHUB_WORKSPACE" | tee "$RUNNER_TEMP/autofix.txt"
           { echo "### Base autofix at ${GITHUB_SHA:0:12}"; echo; sed 's/^/- /' "$RUNNER_TEMP/autofix.txt"; } >> "$GITHUB_STEP_SUMMARY"
