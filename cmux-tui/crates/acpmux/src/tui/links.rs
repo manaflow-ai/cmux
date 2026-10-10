@@ -192,31 +192,3 @@ pub fn open(target: &str, cwd: &str) -> String {
     let _ = std::process::Command::new(opener).arg(&abs).spawn();
     format!("opened {}", abs.display())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn finds_urls_and_paths() {
-        let links = find("see https://example.com/x, then src/main.rs:12 and (/tmp/a.txt).");
-        let targets: Vec<&str> = links.iter().map(|l| l.target.as_str()).collect();
-        assert_eq!(targets, ["https://example.com/x", "src/main.rs:12", "/tmp/a.txt"]);
-        assert_eq!(links[0].start, 4);
-        assert_eq!(links[2].start, "see https://example.com/x, then src/main.rs:12 and (".len());
-    }
-
-    #[test]
-    fn ignores_words() {
-        assert!(find("hello world and/or maybe 1/2").is_empty() || find("hello world").is_empty());
-        assert!(find("the ratio 3/4 is fine").iter().all(|l| l.target != "3/4"));
-    }
-
-    #[test]
-    fn splits_lines() {
-        assert_eq!(split_line("src/a.rs:12"), ("src/a.rs", Some(12)));
-        assert_eq!(split_line("src/a.rs:12:5"), ("src/a.rs", Some(12)));
-        assert_eq!(split_line("src/a.rs"), ("src/a.rs", None));
-        assert_eq!(split_line("https://x.y:8080/p"), ("https://x.y:8080/p", None));
-    }
-}

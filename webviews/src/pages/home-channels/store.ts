@@ -193,15 +193,51 @@ export class HomeChannelsStore {
     }
   }
 
+  /** Adds my reaction, or takes it back when I already reacted with it. */
   async react(message: HomeMessage, value: string): Promise<void> {
     if (!this.client) return;
+    const mine = message.reactions.find((r) => r.value === value && r.author === this.snapshot.me?.id);
     try {
       await this.client.call(HomeOps.react, {
         conversation: message.conversation,
         message: message.id,
-        partIndex: 0,
+        partIndex: mine?.partIndex ?? 0,
         value,
+        tapback: mine?.tapback,
+        remove: mine !== undefined,
         idempotencyKey: this.key("react"),
+      });
+    } catch (error) {
+      this.set({ error: describe(error) });
+    }
+  }
+
+  /** Replaces my message's text. Resolves true when the owner took it. */
+  async edit(message: HomeMessage, text: string): Promise<boolean> {
+    const trimmed = text.trim();
+    if (!this.client || !trimmed) return false;
+    try {
+      await this.client.call(HomeOps.edit, {
+        conversation: message.conversation,
+        message: message.id,
+        text: trimmed,
+        idempotencyKey: this.key("edit"),
+      });
+      return true;
+    } catch (error) {
+      this.set({ error: describe(error) });
+      return false;
+    }
+  }
+
+  /** Deletes my message for everyone (the owner keeps a "deleted" row). */
+  async retract(message: HomeMessage): Promise<void> {
+    if (!this.client) return;
+    try {
+      await this.client.call(HomeOps.retract, {
+        conversation: message.conversation,
+        message: message.id,
+        idempotencyKey: this.key("retract"),
       });
     } catch (error) {
       this.set({ error: describe(error) });

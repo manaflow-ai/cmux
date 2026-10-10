@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextIcons
@@ -89,7 +90,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     private func observe() {
         observation = Task { [weak self] in
             guard let self else { return }
-            for await snapshot in Observations({ [weak self] in self?.snapshot() }) {
+            for await snapshot in ObservationStream({ [weak self] in self?.snapshot() }) {
                 guard let snapshot else { return }
                 self.apply(snapshot)
             }

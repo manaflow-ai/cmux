@@ -1591,7 +1591,11 @@ function AcpmuxPane() {
         forkSeq,
       }),
       ...(connected && {
-        retry: (prompt: string) => void callNative("chat.send", { text: prompt }).catch(() => undefined),
+        retry: (rowId: string, prompt: string) =>
+          void callNative("chat.send", {
+            text: prompt,
+            attachments: directClient.current?.retryAttachmentsFor(rowId) ?? [],
+          }).catch(() => undefined),
       }),
       ...(connected &&
         loginCommand &&
@@ -2260,10 +2264,18 @@ function AcpmuxPane() {
           "chat.effort": async ({ configId, value }) => {
             const summary = snapshotRef.current?.summary;
             const current = summary?.configOptions?.find((option) => option.id === String(configId))?.currentValue;
-            if (!harnessSwitch.pickConfig(String(configId), String(value), summary?.sessionId ? {
-              sessionId: summary.sessionId,
-              current,
-            } : undefined))
+            if (
+              !harnessSwitch.pickConfig(
+                String(configId),
+                String(value),
+                summary?.sessionId
+                  ? {
+                      sessionId: summary.sessionId,
+                      current,
+                    }
+                  : undefined,
+              )
+            )
               await client.setConfig(String(configId), String(value));
           },
           "chat.select": async ({ sessionId }) => {

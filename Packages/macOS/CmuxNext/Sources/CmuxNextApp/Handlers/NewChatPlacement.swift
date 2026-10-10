@@ -1,4 +1,5 @@
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextLayout
 import Observation
@@ -77,7 +78,7 @@ extension NewChatPlacement {
         services.registry.track(Task { @MainActor [weak controller] in
             var found = services.locateTab(key)
             if found == nil {
-                for await located in Observations({ services.locateTab(key) != nil }) where located {
+                for await located in ObservationStream({ services.locateTab(key) != nil }) where located {
                     found = services.locateTab(key)
                     break
                 }
@@ -105,7 +106,7 @@ extension NewChatPlacement {
         }
         services.registry.track(Task { @MainActor in
             if pane() == nil {
-                for await shown in Observations({ pane() != nil }) where shown { break }
+                for await shown in ObservationStream({ pane() != nil }) where shown { break }
             }
             if let pane = pane() { PaneHandlers.focus(pane, in: content) }
             return nil
