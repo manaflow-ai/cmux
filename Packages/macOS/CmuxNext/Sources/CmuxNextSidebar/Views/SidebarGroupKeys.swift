@@ -35,7 +35,7 @@ import AppKit
     /// Shift-Tab (`flags`: the event's command, option, shift and control).
     /// False leaves the key to the workspace-only behavior and the window.
     func handle(_ event: NSEvent, flags: NSEvent.ModifierFlags) -> Bool {
-        if event.specialKey == .backTab || (event.specialKey == .tab && flags == .shift) { return tab(forward: false) }
+        if event.specialKey == .backTab || event.specialKey == .tab, flags == .shift { return tab(forward: false) }
         guard flags.isEmpty else { return false }
         if event.keyCode == 49 { return space() } // Space
         switch event.specialKey {
@@ -126,7 +126,9 @@ import AppKit
     /// Space on a focused header: what a click on its bar does (an empty
     /// saved group reopens, any other group folds or opens).
     private func space() -> Bool {
-        guard let id = list.focusedGroup else { return false }
+        // Only a header the keyboard focused (ring shown): a click focuses
+        // without a ring and already toggled.
+        guard let id = list.focusedGroup, list.showsFocusRing else { return false }
         if let group = model.group(id), group.isPinned, group.workspaces.isEmpty {
             model.send(.openGroup(id))
             list.reload(animated: true)

@@ -11,6 +11,8 @@ final class SidebarDecorationView: NSView {
     /// One members' line per open group (cx-qno.17: one layer from under the
     /// header bar to the last member, so no row gap breaks it).
     private var lines: [GroupID: (layer: CALayer, color: GroupColor)] = [:]
+    /// Lines of closed or gone groups while they shrink and fade out.
+    private var leavingLines: [CALayer] = []
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -67,6 +69,9 @@ final class SidebarDecorationView: NSView {
             line.layer.removeAllAnimations()
             Motion.transaction(nil) { line.layer.frame = shown.offsetBy(dx: 0, dy: dy) }
         }
+        // A line still fading out would stay at the old offset: it goes now.
+        leavingLines.forEach { $0.removeFromSuperlayer() }
+        leavingLines.removeAll()
     }
 
     /// Shows one members' line per entry, keyed by group: a kept line
@@ -100,7 +105,13 @@ final class SidebarDecorationView: NSView {
             let shown = line.layer.presentation()?.frame ?? line.layer.frame
             CATransaction.begin()
             let layer = line.layer
-            CATransaction.setCompletionBlock { layer.removeFromSuperlayer() }
+            leavingLines.append(layer)
+            CATransaction.setCompletionBlock { [weak self] in
+                MainActor.assumeIsolated { // main-proof: CATransaction.h: the completion block is called on the main thread
+                    layer.removeFromSuperlayer()
+                    self?.leavingLines.removeAll { $0 === layer }
+                }
+            }
             move(line.layer, to: Self.top(of: shown), animated: true)
             Motion.set(line.layer, "opacity", to: Float(0), fade: .fadeOut)
             CATransaction.commit()
