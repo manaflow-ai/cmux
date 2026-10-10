@@ -304,15 +304,6 @@ pub(super) fn gtk_theme_name_theme_mode(value: &str) -> Option<GhosttyThemeMode>
     None
 }
 
-#[cfg(test)]
-pub(super) fn ghostty_background_is_light(background: Rgb) -> bool {
-    let luminance = (0.299 * f64::from(background.r)
-        + 0.587 * f64::from(background.g)
-        + 0.114 * f64::from(background.b))
-        / 255.0;
-    luminance > 0.5
-}
-
 #[cfg(target_os = "macos")]
 pub(super) fn macos_appearance_theme_mode() -> Option<GhosttyThemeMode> {
     use std::ffi::CString;

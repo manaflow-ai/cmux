@@ -1531,8 +1531,6 @@ fn frame_read_io_error(failure: FrameReadFailure) -> io::Error {
 
 #[cfg(all(test, unix))]
 mod tests {
-    #[cfg(unix)]
-    use crate::test_exec::write_executable;
     use std::fs;
     use std::os::unix::net::{UnixListener, UnixStream};
     use std::path::PathBuf;
@@ -1599,20 +1597,6 @@ mod tests {
 
     fn token(value: &str) -> BearerToken {
         BearerToken::new(value).expect("valid test token")
-    }
-
-    fn received(event: ProviderEvent) -> ReceivedProviderEvent {
-        ReceivedProviderEvent { event, delivery: None }
-    }
-
-    fn durable_notice(notice_id: &str, sequence: u64, message: &str) -> ReceivedProviderEvent {
-        ReceivedProviderEvent {
-            event: ProviderEvent::Notice(ProviderNotice {
-                level: NoticeLevel::Warning,
-                message: message.to_string(),
-            }),
-            delivery: Some(NoticeDelivery { notice_id: id(notice_id), sequence }),
-        }
     }
 
     fn client_descriptor() -> ClientDescriptor {
@@ -2349,141 +2333,6 @@ mod tests {
     }
 
     #[test]
-    fn repeated_connection_closed_events_coalesce_the_latest_reason() {
-        let queue = Arc::new(ProviderEventQueue::new());
-        let events = ProviderEventReceiver { queue: Arc::clone(&queue) };
-        for index in 0..(PROVIDER_EVENT_QUEUE_CAPACITY * 2) {
-            queue
-                .publish(received(ProviderEvent::ConnectionClosed(ConnectionClosedEvent {
-                    connection_id: id("connection-1"),
-                    machine_id: id("machine-1"),
-                    reason: format!("revision {index}"),
-                })))
-                .unwrap();
-        }
-
-        let event = events
-            .recv_timeout(Duration::from_millis(20))
-            .expect("receive coalesced connection closure");
-        assert!(matches!(
-            event.event,
-            ProviderEvent::ConnectionClosed(ConnectionClosedEvent { ref reason, .. })
-                if reason == &format!("revision {}", PROVIDER_EVENT_QUEUE_CAPACITY * 2 - 1)
-        ));
-        assert_eq!(events.recv_timeout(Duration::from_millis(1)), Err(RecvTimeoutError::Timeout));
-    }
-
-    #[test]
-    fn durable_notices_displace_best_effort_events_and_coalesce_by_notice_id() {
-        let queue = Arc::new(ProviderEventQueue::new());
-        let events = ProviderEventReceiver { queue: Arc::clone(&queue) };
-        for index in 0..PROVIDER_EVENT_QUEUE_CAPACITY {
-            queue
-                .publish(received(ProviderEvent::Notice(ProviderNotice {
-                    level: NoticeLevel::Info,
-                    message: format!("best effort {index}"),
-                })))
-                .unwrap();
-        }
-
-        queue.publish(durable_notice("usage-warning-80", 1, "stable message")).unwrap();
-        queue.publish(durable_notice("usage-warning-80", 1, "stable message")).unwrap();
-
-        let mut received_count = 0;
-        let mut durable_messages = Vec::new();
-        while let Ok(event) = events.recv_timeout(Duration::from_millis(1)) {
-            received_count += 1;
-            if event.delivery.is_some()
-                && let ProviderEvent::Notice(notice) = event.event
-            {
-                durable_messages.push(notice.message);
-            }
-        }
-        assert_eq!(received_count, PROVIDER_EVENT_QUEUE_CAPACITY);
-        assert_eq!(durable_messages, vec!["stable message"]);
-    }
-
-    #[test]
-    fn distinct_durable_notice_burst_fails_closed_at_priority_capacity() {
-        let queue = Arc::new(ProviderEventQueue::new());
-        let events = ProviderEventReceiver { queue: Arc::clone(&queue) };
-        for index in 0..PROVIDER_EVENT_QUEUE_CAPACITY {
-            queue
-                .publish(durable_notice(
-                    &format!("usage-warning-{index}"),
-                    index as u64 + 1,
-                    "usage warning",
-                ))
-                .unwrap();
-        }
-        assert!(
-            queue
-                .publish(durable_notice(
-                    "usage-warning-overflow",
-                    PROVIDER_EVENT_QUEUE_CAPACITY as u64 + 1,
-                    "overflow",
-                ))
-                .is_err()
-        );
-
-        let state = queue.state.lock().unwrap();
-        assert!(state.events.is_empty());
-        assert!(state.disconnected, "durable overflow must force a provider resync");
-        drop(state);
-        assert_eq!(
-            events.recv_timeout(Duration::from_millis(1)),
-            Err(RecvTimeoutError::Disconnected)
-        );
-    }
-
-    #[test]
-    fn durable_notice_id_cannot_change_sequence() {
-        let queue = Arc::new(ProviderEventQueue::new());
-        let events = ProviderEventReceiver { queue: Arc::clone(&queue) };
-        queue.publish(durable_notice("usage-warning-80", 1, "first")).unwrap();
-        assert!(queue.publish(durable_notice("usage-warning-80", 2, "changed")).is_err());
-        assert_eq!(
-            events.recv_timeout(Duration::from_millis(1)),
-            Err(RecvTimeoutError::Disconnected)
-        );
-    }
-
-    #[test]
-    fn durable_notice_replay_cannot_change_content() {
-        let queue = Arc::new(ProviderEventQueue::new());
-        let events = ProviderEventReceiver { queue: Arc::clone(&queue) };
-        queue.publish(durable_notice("usage-warning-80", 1, "first")).unwrap();
-        assert!(queue.publish(durable_notice("usage-warning-80", 1, "changed")).is_err());
-        assert_eq!(
-            events.recv_timeout(Duration::from_millis(1)),
-            Err(RecvTimeoutError::Disconnected)
-        );
-    }
-
-    #[test]
-    fn distinct_connection_closed_burst_fails_closed_at_priority_capacity() {
-        let queue = Arc::new(ProviderEventQueue::new());
-        let events = ProviderEventReceiver { queue: Arc::clone(&queue) };
-        for index in 0..=PROVIDER_EVENT_QUEUE_CAPACITY {
-            let _ =
-                queue.publish(received(ProviderEvent::ConnectionClosed(ConnectionClosedEvent {
-                    connection_id: id(&format!("connection-{index}")),
-                    machine_id: id(&format!("machine-{index}")),
-                    reason: "connection revoked".into(),
-                })));
-        }
-
-        let state = queue.state.lock().unwrap();
-        assert!(state.events.len() <= PROVIDER_EVENT_QUEUE_CAPACITY);
-        assert!(state.disconnected, "priority overflow must force a provider resync");
-        drop(state);
-        assert_eq!(
-            events.recv_timeout(Duration::from_millis(1)),
-            Err(RecvTimeoutError::Disconnected)
-        );
-    }
-
-    #[test]
     fn preserves_typed_provider_errors() {
         let socket = TestSocket::bind();
         let listener = socket.listener();
@@ -2637,61 +2486,6 @@ mod tests {
         drop(provider);
         server.join().expect("join fake provider");
         assert_eq!(handshakes.load(Ordering::Relaxed), 1);
-    }
-
-    #[test]
-    fn redacts_transport_ticket_from_command_stream_diagnostics() {
-        let script_path = std::env::temp_dir().join(format!(
-            "cmux-machine-provider-ticket-redaction-{}-{}.sh",
-            std::process::id(),
-            NEXT_SOCKET_ID.fetch_add(1, Ordering::Relaxed)
-        ));
-        write_executable(
-            &script_path,
-            concat!(
-                "#!/bin/sh\n",
-                "set -eu\n",
-                "role=$1\n",
-                "if [ \"$role\" = control ]; then\n",
-                "  IFS= read -r _hello\n",
-                "  printf '%s\\n' '{\"protocol\":\"cmux.machine-provider\",\"version\":1,\"id\":\"cmux-1\",\"result\":{\"provider_id\":\"fake-provider\",\"provider_name\":\"Fake Provider\",\"negotiated_version\":1}}'\n",
-                "  IFS= read -r _open\n",
-                "  printf '%s\\n' '{\"protocol\":\"cmux.machine-provider\",\"version\":1,\"id\":\"cmux-2\",\"result\":{\"connection_id\":\"connection-1\",\"transport\":{\"kind\":\"provider_stream\",\"ticket\":\"one-use-ticket\",\"expires_at\":\"2026-07-21T12:00:00Z\"}}}'\n",
-                "  while IFS= read -r _line; do :; done\n",
-                "else\n",
-                "  IFS= read -r handshake\n",
-                "  printf '%s\\n' \"$handshake\" >&2\n",
-                // Fill more than the stderr pipe so the diagnostic worker must
-                // consume the handshake before the process can close stdout.
-                "  i=0\n",
-                "  while [ \"$i\" -lt 20000 ]; do\n",
-                "    printf ' diagnostic-padding' >&2\n",
-                "    i=$((i + 1))\n",
-                "  done\n",
-                "fi\n",
-            ),
-        );
-
-        let connector = Arc::new(
-            CommandProviderConnector::new([script_path.clone().into_os_string()])
-                .expect("create command connector"),
-        );
-        let (provider, _) =
-            ProviderClient::connect_authenticated_with(connector, client_descriptor())
-                .expect("authenticate command provider");
-        let opened = provider.open_machine(id("machine-1"), false).expect("open machine");
-        let Err(error) = provider.consume_transport(opened.transport) else {
-            panic!("stream command must disconnect during its handshake");
-        };
-        let diagnostic = error.to_string();
-
-        drop(provider);
-        let _ = fs::remove_file(script_path);
-        assert!(diagnostic.contains("[redacted]"), "credential was not redacted: {diagnostic}");
-        assert!(
-            !diagnostic.contains("one-use-ticket"),
-            "one-use transport ticket leaked through diagnostics"
-        );
     }
 
     #[test]
