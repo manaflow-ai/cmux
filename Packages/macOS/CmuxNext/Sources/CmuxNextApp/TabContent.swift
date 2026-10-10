@@ -67,28 +67,45 @@ enum TabContent {
 final class TerminalEntry {
     /// Tab id plus the daemon generation and surface handle it attached to;
     /// a mismatch means the entry is stale (daemon restarted, tab moved).
-    let validity: String
+    private(set) var validity: String
     let session: TerminalSession
     let io: DaemonTerminalIO
+    /// Set while the terminal is a provisional split's (S3): the view attaches once the
+    /// daemon's tab replaces the provisional one (``confirm(validity:target:store:)``).
+    private(set) var gate: TerminalTargetGate?
     /// The key of this terminal's own theme.
     let themeKey: TerminalThemeKey
     /// This surface's theme scope, under its pane's workspace scope.
     let themeScope = ThemeScope(level: .terminal)
     let themeBinding: TerminalThemeBinding
     /// Tab `dead` and connection changes for this view.
-    private let watch: TerminalLinkWatch
+    private var watch: TerminalLinkWatch
 
-    init(validity: String, session: TerminalSession, io: DaemonTerminalIO, themeKey: TerminalThemeKey, store: DaemonStore, surface: SurfaceID) {
+    init(validity: String, session: TerminalSession, io: DaemonTerminalIO, themeKey: TerminalThemeKey, store: DaemonStore,
+         surface: SurfaceID, gate: TerminalTargetGate? = nil) {
         self.validity = validity
         self.session = session
         self.io = io
+        self.gate = gate
         self.themeKey = themeKey
         themeBinding = TerminalThemeBinding(scope: themeScope, session: session)
         themeScope.root(session.view)
         watch = TerminalLinkWatch(store: store, surface: surface, io: io, session: session)
     }
 
+    /// The daemon's tab replaced the provisional one: the same view and session attach to it,
+    /// and keys typed meanwhile reach it in order.
+    func confirm(validity: String, target: TerminalAttachment.Target, store: DaemonStore) {
+        guard let gate else { return }
+        self.validity = validity
+        self.gate = nil
+        watch.stop()
+        watch = TerminalLinkWatch(store: store, surface: target.surface, io: io, session: session)
+        gate.resolve(target)
+    }
+
     func close() {
+        gate?.cancel()
         watch.stop()
         session.close()
         io.close()

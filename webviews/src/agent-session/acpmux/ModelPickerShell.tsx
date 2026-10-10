@@ -4,7 +4,7 @@ import type { PickerLayout } from "./modelPickerLayout";
 import { registerPicker } from "./pickerOpeners";
 import { useT } from "./i18n";
 import { useUiAnchor } from "../../ui/anchor";
-import { usePopoverTrigger } from "./popoverTrigger";
+import { usePopoverTrigger } from "../../ui/popoverTrigger";
 
 /// The model chip, which names the effort after the model with one chevron, and the popover
 /// above it, which holds both. Focus stays on the chip while the popover is open,

@@ -33,6 +33,12 @@ export interface CloudClientOptions {
   readonly baseUrl: string
   /** Bearer token for each call: a Stack session token or an install token. */
   readonly token: () => string | Promise<string>
+  /**
+   * The shared team a Stack session acts in (`x-cmux-team`, or the `team.<id>` subprotocol on a
+   * socket); absent means the personal team. The server checks the membership on every request
+   * and answers auth.forbidden for a team the user is not in. Install tokens keep their own team.
+   */
+  readonly team?: () => string | undefined | Promise<string | undefined>
   readonly fetch?: typeof fetch
 }
 
@@ -44,9 +50,10 @@ export const createCloudClient = (options: CloudClientOptions) => {
   const doFetch = options.fetch ?? fetch
   const base = options.baseUrl.replace(/\/$/, "")
   const post = async (path: string, body: unknown) => {
+    const team = await options.team?.()
     const res = await doFetch(`${base}${path}`, {
       method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${await options.token()}` },
+      headers: { "content-type": "application/json", authorization: `Bearer ${await options.token()}`, ...(team ? { "x-cmux-team": team } : {}) },
       body: JSON.stringify(body)
     })
     const json: unknown = await res.json().catch(() => undefined)
@@ -79,7 +86,8 @@ export const createCloudClient = (options: CloudClientOptions) => {
      * so the token travels as a subprotocol, never in the URL.
      */
     async openWire(scope: "user" | "team"): Promise<WebSocket> {
-      return new WebSocket(`${base.replace(/^http/, "ws")}/v1/wire/${scope}`, ["cmux.wire.v1", `bearer.${await options.token()}`])
+      const team = await options.team?.()
+      return new WebSocket(`${base.replace(/^http/, "ws")}/v1/wire/${scope}`, ["cmux.wire.v1", `bearer.${await options.token()}`, ...(team ? [`team.${team}`] : [])])
     },
     meta: cloudOpMeta
   }

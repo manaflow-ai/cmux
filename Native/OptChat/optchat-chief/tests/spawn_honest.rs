@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use common::*;
+use optchat_chief::prompt::SPAWN_CWD_DESCRIPTION;
 use optchat_chief::subagents::{Spawner, SubagentSettings, resolve_cwd};
 use optchat_chief::tools::{Call, Command, Orchestrator, command};
 use optchat_chief::workspaces::Workspaces;
@@ -48,6 +49,10 @@ struct Setup {
 }
 
 fn setup(workspaces: Option<Arc<FakeWorkspaces>>) -> Setup {
+    setup_with_parent(workspaces, optchat_chief::brain::PARENT)
+}
+
+fn setup_with_parent(workspaces: Option<Arc<FakeWorkspaces>>, parent: &str) -> Setup {
     let mut h = Harness::new(default_script());
     let workspaces = workspaces.map(|w| w as Arc<dyn Workspaces>);
     h.brain.set_workspaces(workspaces.clone());
@@ -59,10 +64,11 @@ fn setup(workspaces: Option<Arc<FakeWorkspaces>>) -> Setup {
             harness: "claude-sr".into(),
             policy: "approve-all".into(),
             model: None,
+            effort: None,
             preset: Some("optchat-sub-h0me".into()),
             cwd: h.dir.path().join("subagent"),
             prefix: "optchat-sub-h0me".into(),
-            parent: optchat_chief::brain::PARENT.into(),
+            parent: parent.into(),
             claude_md: None,
         },
         h.tx.clone(),
@@ -116,6 +122,27 @@ fn the_answer_names_each_workspace_and_where_it_lives() {
         answer.contains("a2: workspace \"a2 · say the date\" in the test app"),
         "{answer}"
     );
+}
+
+/// Lawrence 2026-10-09: "you need to be able to link to a subagent so I can just click here to
+/// get to it". Each started subagent's line carries its Markdown link, the app deeplink of its
+/// session in this Chief home (`cmux://chief/<home id>/session/<session id>`), and the Chief is
+/// told to name subagents with it.
+#[test]
+fn each_started_subagent_has_its_link() {
+    let workspaces = Arc::new(FakeWorkspaces::default());
+    let mut s = setup_with_parent(Some(workspaces.clone()), "optchat-chief:0a1b2c3d");
+    let answer = spawn(&mut s, &["list the files", "say the date"], None);
+    let opened = workspaces.opened.lock().unwrap().clone();
+    assert_eq!(opened.len(), 2, "{answer}");
+    for (n, (session, _, _)) in opened.iter().enumerate() {
+        let link = format!("[a{}](cmux://chief/0a1b2c3d/session/{session})", n + 1);
+        assert!(answer.contains(&link), "{link} not in {answer}");
+    }
+    assert!(answer.contains("its link"), "{answer}");
+    // A Chief with no home id in its tag (no app can find it) writes no link.
+    let mut plain = setup(Some(Arc::new(FakeWorkspaces::default())));
+    assert!(!spawn(&mut plain, &["list the files"], None).contains("cmux://"));
 }
 
 #[test]
@@ -178,7 +205,8 @@ fn a_tilde_directory_is_the_hosts_home() {
         resolve_cwd("~/fun/repo", home.path()),
         Ok(home.path().join("fun/repo"))
     );
-    assert_eq!(resolve_cwd("~", home.path()), Ok(home.path().to_owned()));
+    // The home folder itself is refused (LAUNCH-NO-TCC-PROMPTS).
+    assert!(resolve_cwd("~", home.path()).is_err());
     assert!(resolve_cwd("relative/dir", home.path()).is_err());
     assert!(resolve_cwd("~/fun/missing", home.path()).is_err());
 }
@@ -189,14 +217,16 @@ fn spawn_takes_an_optional_directory_from_every_surface() {
         Call::parse("spawn", &json!({"tasks": ["x"], "cwd": "~/fun/repo"})),
         Ok(Call::Spawn {
             tasks: vec!["x".into()],
-            cwd: Some("~/fun/repo".into())
+            cwd: Some("~/fun/repo".into()),
+            effort: None,
         })
     );
     assert_eq!(
         command("spawn", &["--cwd", "~/fun/repo", "x"]),
         Ok(Command::Call(Call::Spawn {
             tasks: vec!["x".into()],
-            cwd: Some("~/fun/repo".into())
+            cwd: Some("~/fun/repo".into()),
+            effort: None,
         }))
     );
     let tools = optchat_chief::mcp::tools_for(false);
@@ -259,4 +289,61 @@ fn without_workspaces_a_subagent_session_names_no_workspace() {
     spawn(&mut s, &["one"], None);
     let specs = s.h.agents.inner.lock().unwrap().specs.clone();
     assert!(!specs[0].env.contains_key("CMUX_WORKSPACE_ID"));
+}
+
+/// LAUNCH-NO-TCC-PROMPTS: a subagent never starts in the home folder, `/`
+/// or a private folder macOS guards (Downloads, Documents, Desktop...): an
+/// agent there reads them at once and macOS asks the user, in the app's
+/// name. Such a cwd runs in the subagent folder, and the answer tells the
+/// Chief to pass the exact project folder next time (live incident
+/// 2026-10-09: "count the .rs files under ~/chief-parity" spawned in ~).
+#[test]
+fn a_spawn_asked_for_the_home_folder_runs_in_the_subagent_folder() {
+    let mut s = setup(None);
+    let answer = spawn(&mut s, &["count the files"], Some("~"));
+    assert_eq!(sub_cwds(&s), vec![s.h.dir.path().join("subagent")]);
+    assert!(answer.contains("home folder"), "{answer}");
+    assert!(answer.contains("exact folder"), "{answer}");
+}
+
+#[test]
+fn the_home_folder_root_and_private_folders_are_refused_but_a_named_subfolder_is_kept() {
+    let home = tempfile::tempdir().unwrap();
+    for d in ["Downloads/proj", "Documents", "Desktop", "fun/repo"] {
+        std::fs::create_dir_all(home.path().join(d)).unwrap();
+    }
+    assert!(resolve_cwd("~", home.path()).is_err());
+    assert!(resolve_cwd("~/", home.path()).is_err());
+    assert!(resolve_cwd(home.path().to_str().unwrap(), home.path()).is_err());
+    assert!(resolve_cwd("/", home.path()).is_err());
+    assert!(resolve_cwd("~/Downloads", home.path()).is_err());
+    assert!(resolve_cwd("~/Documents/", home.path()).is_err());
+    assert!(resolve_cwd("~/Desktop", home.path()).is_err());
+    assert_eq!(
+        resolve_cwd("~/Downloads/proj", home.path()),
+        Ok(home.path().join("Downloads/proj"))
+    );
+    assert_eq!(
+        resolve_cwd("~/fun/repo", home.path()),
+        Ok(home.path().join("fun/repo"))
+    );
+}
+
+#[test]
+fn the_spawn_tool_asks_for_the_most_specific_folder() {
+    assert!(SPAWN_CWD_DESCRIPTION.contains("most specific"));
+    assert!(SPAWN_CWD_DESCRIPTION.contains("never ~ itself"));
+}
+
+/// The Chief's own shell never walks the home folder: on 2026-10-09 a
+/// `ls -d ~/*/cmux*` looking for a checkout read ~/Downloads and macOS
+/// asked the user for access in the app's name.
+#[test]
+fn the_chief_is_told_not_to_walk_the_home_folder() {
+    let text = optchat_chief::prompt::CMUX_INSTRUCTIONS;
+    assert!(
+        text.contains("never list, glob or search the whole home folder"),
+        "{text}"
+    );
+    assert!(text.contains("Downloads"), "{text}");
 }

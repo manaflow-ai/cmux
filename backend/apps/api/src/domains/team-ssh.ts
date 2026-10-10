@@ -78,6 +78,24 @@ export const allocateLinuxName = (displayName: string, taken: ReadonlySet<string
 }
 
 export const linuxUserFor = (account: VmAccount, cls: "human" | "agent"): string => (cls === "human" ? account.name : `${account.name}-agents`)
+/** UID of a class inside the member's block (+0 the person, +1 reserved for their mux, +2 their ordinary agents). */
+export const linuxUidFor = (account: VmAccount, cls: "human" | "agent"): number => account.uid + (cls === "human" ? 0 : 2)
+
+/**
+ * `team_vm.accounts`: the Linux users of the members that `isMember` still lists, sorted by UID. A member who
+ * left keeps the account in state (the UID block is never reused) but is not listed, so the VM's reconciler
+ * removes their principals and ends their sessions.
+ */
+export const accountsView = (team: string, s: TeamSshState, isMember: (user: string) => boolean) => ({
+  team,
+  users: Object.entries(s.vm_accounts ?? {})
+    .filter(([user]) => isMember(user))
+    .map(([, account]) => account)
+    .sort((a, b) => a.uid - b.uid)
+    .flatMap((account) =>
+      (["human", "agent"] as const).map((cls) => ({ user: linuxUserFor(account, cls), uid: linuxUidFor(account, cls), class: cls, principals: [linuxUserFor(account, cls)] }))
+    )
+})
 
 const blobOfLine = (line: string): Uint8Array => Uint8Array.from(atob(line.split(" ")[1] ?? ""), (c) => c.charCodeAt(0))
 

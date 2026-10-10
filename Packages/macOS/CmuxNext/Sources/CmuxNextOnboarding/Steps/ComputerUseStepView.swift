@@ -14,6 +14,10 @@ final class ComputerUseStepView: NSView {
     private let unavailableLabel = OnboardingLabel.make(OnboardingStrings.computerUseHelperUnavailable,
                                                         font: OnboardingMetrics.captionFont,
                                                         color: Palette.textSecondary, lines: 2)
+    /// Shown while Computer Use is off: Allow turns it on.
+    private let offLabel = OnboardingLabel.make(OnboardingStrings.computerUseOff,
+                                                font: OnboardingMetrics.captionFont,
+                                                color: Palette.textSecondary, lines: 2)
     /// Shown while the helper does not speak this build's protocol.
     private let mismatchLabel = OnboardingLabel.make(OnboardingStrings.computerUseHelperVersionMismatch,
                                                      font: OnboardingMetrics.captionFont,
@@ -37,6 +41,9 @@ final class ComputerUseStepView: NSView {
             stack.addArrangedSubview(row)
             row.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         }
+        offLabel.isHidden = true
+        stack.addArrangedSubview(offLabel)
+        offLabel.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         unavailableLabel.isHidden = true
         stack.addArrangedSubview(unavailableLabel)
         unavailableLabel.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
@@ -68,6 +75,7 @@ final class ComputerUseStepView: NSView {
 
     private func render() {
         for (pane, row) in rows { row.update(granted: model.permissions.granted(pane)) }
+        offLabel.isHidden = !model.permissions.isOff || model.unavailable
         unavailableLabel.isHidden = !model.unavailable
         mismatchLabel.isHidden = !model.permissions.helperVersionMismatch
         let helping = model.helping

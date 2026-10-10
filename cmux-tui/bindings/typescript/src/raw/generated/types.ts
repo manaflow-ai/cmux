@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR cc980c2e786fe8195a5544e2848f665d2327e00d12bf12272741181f768ee494. */
+/* cmux-tui mux protocol 12, IR 1a125d40a1072221e7191839cefa0b173f2c6a3048d5553f02597ce44ec32c57. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -30,7 +30,7 @@ export type AgentReportSource = "socket" | "hook";
 export type AgentSessionSource = {
   /** The agent kind the chat was started with. */
   "harness"?: (string) | null;
-  /** install: and the stable install id of the machine whose acpmux runs the session. */
+  /** install: and the stable install id of the machine whose acpmux runs the session, or chief: and the 8 lowercase hex digit id of the Chief home whose own acpmux runs it. */
   "host": string;
   /** Display name of the host machine: 1 to 255 bytes, no control characters. */
   "host_name"?: (string) | null;
@@ -630,6 +630,15 @@ export type PaneNeighborResult = {
 /** Opaque JSON: A pane named by its numeric id or its public pane_ id. */
 export type PaneRef = JsonValue;
 
+export type PaneSurfaceResult = {
+  "pane_id"?: (string) | null;
+  "replayed"?: (boolean) | null;
+  "surface": Id;
+  "tab_id"?: (string) | null;
+  "terminal_id"?: (string) | null;
+  "terminal_incarnation"?: (string) | null;
+};
+
 export type PingResult = {
   "build_commit"?: (string) | null;
   "ghostty_commit"?: (string) | null;
@@ -912,10 +921,31 @@ export type ServerStatsRegistryLock = {
   "wait_us": ServerStatsHistogram;
 };
 
+export type ServerStatsResourceProjection = {
+  "commit_apply_us": ServerStatsHistogram;
+  "commit_journal_us": ServerStatsHistogram;
+  "commit_prune_us": ServerStatsHistogram;
+  "commit_us": ServerStatsHistogram;
+  "commits": bigint;
+  "crosscheck_mismatches": bigint;
+  "crosschecks": bigint;
+  "diff_us": ServerStatsHistogram;
+  "full_projections": bigint;
+  "index_us": ServerStatsHistogram;
+  "journaled_changes": ServerStatsHistogram;
+  "projected_changes": ServerStatsHistogram;
+  "projections": bigint;
+  "read_us": ServerStatsHistogram;
+  "scope_fallbacks": bigint;
+  "scoped_projections": bigint;
+  "written_changes": ServerStatsHistogram;
+};
+
 export type ServerStatsResult = {
   "connections": ServerStatsConnections;
   "journal_writer": (ServerStatsJournalWriter) | null;
   "registry_lock": ServerStatsRegistryLock;
+  "resource_projection"?: ServerStatsResourceProjection;
   "schema": number;
   "uptime_ms": bigint;
 };

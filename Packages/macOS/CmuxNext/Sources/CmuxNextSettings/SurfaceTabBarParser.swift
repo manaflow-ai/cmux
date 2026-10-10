@@ -88,8 +88,7 @@ public struct SurfaceTabBarParser {
                 return nil
             }
             button = reference(identifier, id: explicitID, path: path, actions: actions, diagnostics: &diagnostics)
-        case "command", "agent":
-            let type = forms.first!
+        case let type? where type == "command" || type == "agent":
             guard let command = ConfigActionParser.commandText(type: type, fields: fields, path: path, diagnostics: &diagnostics) else {
                 return nil
             }

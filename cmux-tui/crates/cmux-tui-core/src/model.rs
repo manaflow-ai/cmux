@@ -771,6 +771,8 @@ pub struct State {
     pub(crate) terminal_catalog: HashMap<TerminalPublicId, Arc<Surface>>,
     /// Reverse lookup for catalog owners addressed by daemon-local runtime ID.
     pub(crate) terminal_catalog_by_runtime: HashMap<SurfaceId, TerminalPublicId>,
+    /// Host terminal id -> catalog owner (mux/terminal_catalog_index.rs).
+    pub(crate) terminal_catalog_by_host: HashMap<String, TerminalPublicId>,
     pub(crate) split_screens: HashMap<SplitId, (usize, usize, ScreenId)>,
     pub(crate) resource_indexes: PublicSlotIndexes,
 }
@@ -787,10 +789,10 @@ impl State {
         let replaced = self.panes.insert(id, pane);
         debug_assert!(replaced.is_none(), "pane {id} was inserted twice");
         if replaced.is_none() {
-            debug_assert!(
-                self.resource_indexes.panes.insert(public_id.clone(), id).is_none(),
-                "pane public id {public_id} was inserted twice"
-            );
+            // The index write must run in release builds too: inside the
+            // `debug_assert!` it was compiled out there.
+            let previous = self.resource_indexes.panes.insert(public_id.clone(), id);
+            debug_assert!(previous.is_none(), "pane public id {public_id} was inserted twice");
             self.resource_indexes.pane_ids.insert(id, public_id);
             self.pane_revision = self.pane_revision.saturating_add(1);
         }
@@ -970,12 +972,6 @@ impl State {
     pub fn single_placement_of_content(&self, id: &ContentPublicId) -> Option<SurfaceId> {
         let [placement] = self.placements_of_content(id) else { return None };
         Some(*placement)
-    }
-
-    pub(crate) fn terminal_runtime_by_id(&self, id: SurfaceId) -> Option<&Arc<Surface>> {
-        self.terminal_catalog_by_runtime
-            .get(&id)
-            .and_then(|terminal| self.terminal_catalog.get(terminal))
     }
 
     pub(crate) fn workspace_index(&self, id: WorkspaceId) -> Option<usize> {

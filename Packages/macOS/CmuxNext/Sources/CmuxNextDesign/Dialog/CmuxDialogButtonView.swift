@@ -5,12 +5,12 @@ public import AppKit
 /// draws a focus ring in `Palette.focusRing` while it has keyboard focus.
 @MainActor
 public final class CmuxDialogButtonView: NSButton {
-    public let button: CmuxDialogButton
+    public private(set) var button: CmuxDialogButton
     private var isHovering = false { didSet { refresh() } }
     private var tracking: NSTrackingArea?
     private var hasFocus = false { didSet { refresh() } }
 
-    init(_ button: CmuxDialogButton, target: AnyObject?, action: Selector) {
+    public init(_ button: CmuxDialogButton, target: AnyObject?, action: Selector) {
         self.button = button
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
@@ -28,6 +28,14 @@ public final class CmuxDialogButtonView: NSButton {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// Shows a new title in place (Copy Link turning into "Copied").
+    public func retitle(_ title: String) {
+        guard title != button.title else { return }
+        button.title = title
+        setAccessibilityLabel(title)
+        refresh()
+    }
 
     public override var acceptsFirstResponder: Bool { true }
     public override var canBecomeKeyView: Bool { true }

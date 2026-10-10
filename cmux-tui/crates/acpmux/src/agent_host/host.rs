@@ -306,6 +306,11 @@ impl Started {
 
         let translator = spec.translator.as_ref().map(|t| {
             let tr = Translator::new(t.acp_session_id.clone(), &t.mode, &t.model, &t.effort);
+            if t.fast
+                && let Ok(mut fast) = tr.fast.try_lock()
+            {
+                *fast = true;
+            }
             if let Some(sid) = &t.claude_session_id
                 && let Ok(mut slot) = tr.session_id.try_lock()
             {

@@ -27,8 +27,13 @@ on:
         required: false
         default: false
         type: boolean
+      windows_optional:
+        description: "A failed Windows build does not fail this workflow; the caller must handle a missing Windows artifact"
+        required: false
+        default: false
+        type: boolean
       target_set:
-        description: "Binary targets to build: all or macos-arm64"
+        description: "Binary targets to build: all, macos (both macOS targets) or macos-arm64"
         required: false
         default: all
         type: string
@@ -164,7 +169,9 @@ jobs:
               raise SystemExit(f"unsupported darwin_builder: {darwin_builder!r}")
           if darwin_builder == "linux":
               # The Linux path builds the raw binaries only: no npm/PyPI
-              # bootstrap stamp and no agent plugin.
+              # bootstrap stamp and no separate agent plugin artifact
+              # (build_agent_plugin). The bundled detector still rides the
+              # cmux-tui artifact: scripts/ci/macos-cross.sh hosts builds it.
               if os.environ["PACKAGE_NPM"] == "true" or os.environ["PACKAGE_PYPI"] == "true":
                   raise SystemExit("darwin_builder=linux does not build npm or PyPI packages")
               if os.environ["BUILD_AGENT_PLUGIN"] == "true":
@@ -180,6 +187,8 @@ jobs:
           target_set = os.environ["TARGET_SET"]
           if target_set == "all":
               selected = targets
+          elif target_set == "macos":
+              selected = [target for target in targets if target["target"].endswith("-apple-darwin")]
           elif target_set == "macos-arm64":
               selected = [
                   target for target in targets
@@ -395,10 +404,33 @@ jobs:
           export CMUX_BUILD_SHA
           cargo build -p cmux-browser-host --bin cmux-browser-host --release --locked --target "$BROWSER_HOST_TARGET"
 
+      - name: Build the bundled agent screen-detection plugin (macOS)
+        # The cmux-next app bundles it as Contents/Resources/bin/cmux-agent-screen-detection
+        # and the daemon runs that sibling by default (cmux-tui spec/plugins.md,
+        # "Bundled default"). It rides the cmux-tui artifact as
+        # cmux-tui-agent-screen-detection-<target>. macOS only for now, like
+        # cmux-browser-host; scripts/ci/macos-cross.sh hosts builds it on Linux.
+        # Optional: a failure publishes cmux-tui without it (the manifest has no
+        # entry and the app runs no default detector); it never blocks publication.
+        if: runner.os == 'macOS'
+        continue-on-error: true
+        env:
+          AGENT_PLUGIN_TARGET: ${{ matrix.build_target }}
+        working-directory: cmux-tui
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Its own Cargo workspace; the common target dir gives staging one path.
+          export CARGO_TARGET_DIR="$GITHUB_WORKSPACE/cmux-tui/target"
+          # A cached copy from an earlier build must not be staged after a failure.
+          rm -f "$CARGO_TARGET_DIR/$AGENT_PLUGIN_TARGET/release/cmux-agent-screen-detection"
+          cargo build --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml \
+            --release --locked --target "$AGENT_PLUGIN_TARGET"
+
       - name: Build the macOS binaries on Linux (no Apple SDK)
         # Every binary the macOS legs below build (cmux-tui, cmux-tui-hook,
         # cmux-app-host, cmux-relay, chatmux-relay, acpmux, cmux-cloud,
-        # cmux-browser-host), with the same stamps, into the same target
+        # cmux-browser-host, cmux-agent-screen-detection), with the same stamps, into the same target
         # directory, so "Stage binary" is unchanged. scripts/ci/macos-cross.sh
         # says how; the cmux-tui-artifacts shadow job proves parity.
         if: matrix.darwin_on_linux
@@ -477,6 +509,17 @@ jobs:
             browser_host_binary="dist/cmux-tui-browser-host-${{ matrix.target }}"
             cp "cmux-tui/target/${{ matrix.target }}/release/cmux-browser-host" "$browser_host_binary"
           fi
+          # The bundled agent screen detector rides the same way as
+          # cmux-tui-agent-screen-detection-<target> and installs as
+          # cmux-agent-screen-detection beside cmux-tui. macOS only for now, and
+          # optional: staged only when its (non-blocking) build produced it; a
+          # missing one prints a warning annotation (stage-agent-detector.sh).
+          agent_detector_binary=""
+          if [[ "$STAGE_TARGET" == *-apple-darwin ]]; then
+            agent_detector_binary="dist/cmux-tui-agent-screen-detection-${{ matrix.target }}"
+            scripts/ci/stage-agent-detector.sh "cmux-tui/target/${{ matrix.target }}/release" "${{ matrix.target }}" "$agent_detector_binary"
+            [[ -f "$agent_detector_binary" ]] || agent_detector_binary=""
+          fi
           cp "cmux-tui/target/${{ matrix.target }}/release/cmux-relay${{ matrix.ext }}" "$relay_binary"
           cp "cmux-tui/target/${{ matrix.target }}/release/chatmux-relay${{ matrix.ext }}" "dist/chatmux-relay-${{ matrix.target }}${{ matrix.ext }}"
           # acpmux rides in the cmux-tui artifact group (like cmux-tui-hook) so
@@ -497,6 +540,9 @@ jobs:
             fi
             if [[ -n "$browser_host_binary" ]]; then
               cp "$browser_host_binary" "dist/cmux-tui-browser-host-${{ matrix.compatibility_target }}"
+            fi
+            if [[ -n "$agent_detector_binary" ]]; then
+              cp "$agent_detector_binary" "dist/cmux-tui-agent-screen-detection-${{ matrix.compatibility_target }}"
             fi
             cp "$relay_binary" "dist/cmux-relay-${{ matrix.compatibility_target }}${{ matrix.ext }}"
           fi
@@ -572,6 +618,9 @@ jobs:
   build-windows:
     name: build x86_64-pc-windows-gnu
     if: inputs.include_windows
+    # cmux-tui-artifacts.yml: a Windows failure must not block the macOS and
+    # Linux tree; its publish jobs go on without the Windows daemon.
+    continue-on-error: ${{ inputs.windows_optional }}
     runs-on: ${{ inputs.windows_runner || github.repository_owner != 'manaflow-ai' && 'windows-2025' || vars.WINDOWS_RUNNER || 'blacksmith-4vcpu-windows-2025' }}
     timeout-minutes: 60
     env:

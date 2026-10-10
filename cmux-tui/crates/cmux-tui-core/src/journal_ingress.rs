@@ -612,7 +612,9 @@ impl JournalIngressSender {
     ) -> Result<(), JournalIngressTrySendError> {
         debug_assert!(matches!(
             &event,
-            JournalIngressEvent::TerminalOutput { .. } | JournalIngressEvent::TerminalResize { .. }
+            JournalIngressEvent::TerminalOutput { .. }
+                | JournalIngressEvent::TerminalResize { .. }
+                | JournalIngressEvent::TerminalOutputGap { .. }
         ));
         let Some(sender) = &self.terminal_sender else { return Ok(()) };
         let _admission = self.state.enqueue_admission.lock().unwrap();
@@ -1733,7 +1735,7 @@ mod tests {
     }
 
     #[test]
-    fn producer_deadline_includes_workspace_registry_mutex_admission() {
+    fn producer_deadline_includes_registry_connection_admission() {
         let root = std::env::temp_dir().join(format!(
             "cmux-journal-producer-registry-lock-{}-{}",
             std::process::id(),
@@ -1749,7 +1751,7 @@ mod tests {
         let (entered, entered_receiver) = sync_channel(1);
         let (release, release_receiver) = sync_channel(1);
         let blocker = std::thread::spawn(move || {
-            locked_mux.hold_workspace_registry_for_test(entered, release_receiver);
+            locked_mux.hold_registry_connection_for_test(entered, release_receiver);
         });
         entered_receiver.recv().unwrap();
         let ingress = crate::agent_hook_journal_ingress(
@@ -1776,7 +1778,7 @@ mod tests {
         assert!(error.to_string().contains("timed out"));
         assert!(
             started.elapsed() < JOURNAL_DURABLE_WAIT + Duration::from_secs(2),
-            "registry mutex admission must not outlive the producer deadline"
+            "registry connection admission must not outlive the producer deadline"
         );
         assert!(failed_receiver.recv_timeout(Duration::from_millis(200)).is_err());
         assert!(!mux.daemon_shutdown_requested());

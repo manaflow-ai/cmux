@@ -88,7 +88,7 @@ final class ComposeAttachmentStrip {
     static func kindText(_ a: Attachment) -> String {
         let kind = UTType(mimeType: a.mimeType)?.localizedDescription ?? a.mimeType
         guard a.byteSize > 0 else { return kind }
-        return "\(kind) \u{00B7} \(ByteCountFormatter.string(fromByteCount: Int64(a.byteSize), countStyle: .file))"
+        return "\(kind) \u{00B7} \(ByteCountFormatter.string(fromByteCount: Int64(clamping: a.byteSize) /* cmux */, countStyle: .file))"
     }
 
     /// Mirror the draft's attachments for a field of this width.
@@ -206,7 +206,7 @@ final class ComposeAttachmentStrip {
 
     private func loadThumbnail(_ a: Attachment, into l: CALayer, pixels: CGSize) {
         guard let asset = a.asset else { return }
-        let maxPx = Int(ceil(max(pixels.width, pixels.height)))
+        let maxPx = CrashGuard.int(ceil(max(pixels.width, pixels.height))) // cmux: no trap on NaN
         let key = "\(asset)#\(maxPx)"
         if let img = thumbs[key] { l.contents = img; return }
         let id = a.id
@@ -260,7 +260,11 @@ final class ComposeAttachmentStrip {
     }
 
     /// The thumbnail shown for an image (tests).
-    func shownImage(_ id: ID) -> CGImage? { imageLayers[id].flatMap { $0.image.contents.map { $0 as! CGImage } } }
+    func shownImage(_ id: ID) -> CGImage? {
+        guard let raw = imageLayers[id]?.image.contents else { return nil }
+        let contents = raw as AnyObject
+        return CFGetTypeID(contents) == CGImage.typeID ? unsafeDowncast(contents, to: CGImage.self) : nil
+    }
 }
 
 private extension CGRect {

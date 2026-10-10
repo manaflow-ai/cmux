@@ -8,6 +8,7 @@
 
 pub mod acpmux;
 pub mod acpmux_daemon;
+pub mod agent_chat;
 pub mod agents;
 pub mod approval;
 pub mod backup;
@@ -21,6 +22,7 @@ pub mod cmux_env;
 pub mod codex_home;
 pub mod compactor;
 pub mod daemon;
+pub mod draft;
 pub mod effort;
 pub mod engine;
 pub mod fold;

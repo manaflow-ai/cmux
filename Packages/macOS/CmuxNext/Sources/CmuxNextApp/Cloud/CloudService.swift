@@ -17,18 +17,32 @@ final class CloudService {
     @ObservationIgnored let api: CloudAPIClient
     @ObservationIgnored let paths: CloudPaths
     @ObservationIgnored private(set) var hub: CloudTunnelHub?
+    /// This Mac's Cloud install principal (cx-wb5.64): install tokens for the
+    /// credential relay; registered at sign-in, revoked at sign-out.
+    @ObservationIgnored let installIdentity: MacInstallIdentity
     @ObservationIgnored private let machines: MachineRegistry
     @ObservationIgnored private let binary: URL?
     @ObservationIgnored private var lastRefresh: ContinuousClock.Instant?
     @ObservationIgnored private var observers: [Task<Void, Never>] = []
     /// The local side event subscription for `cloud.link.changed` (app link).
     @ObservationIgnored private var linkEvents: UInt64?
+    /// The `credential` provider family on the local daemon (cx-wb5.63):
+    /// app servers' Cloud API calls, sent with the install token.
+    @ObservationIgnored private var credentialProvider: CloudCredentialProvider?
+    @ObservationIgnored private var credentialEvents: UInt64?
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
     /// The last list or connection failure, for diagnostics and refusals.
     private(set) var lastError: String?
     private(set) var hasLoadedMachines = false
+    /// The Cloud app server's ops on the local daemon (contract 2.1).
+    var appOps: CloudAppOp { CloudAppLinks.ops(local: machines.local) }
+    /// The cmux window a create's native confirmation attaches to (set by AppServices).
+    @ObservationIgnored var confirmWindow: (@MainActor () -> NSWindow?)?
     /// Machine creations in flight (sidebar can show a placeholder).
     private(set) var creating = 0
+    /// New Cloud Workspace runs from the click to the open terminal: each
+    /// window's progress view and sidebar row (cx-lu8f).
+    let creations = CloudCreations()
 
     init(machines: MachineRegistry, isDebugBuild: Bool) {
         self.machines = machines
@@ -41,6 +55,23 @@ final class CloudService {
             tokens: { try await auth.tokens() },
             teamID: { await auth.teamID }
         )
+        installIdentity = MacInstallIdentity(
+            store: .forApp(directory: paths.root.appendingPathComponent("install", isDirectory: true),
+                           service: "\(configuration.bundleID ?? "cmux").install-key.\(configuration.ownerAPIBaseURL().host ?? "unknown")",
+                           team: CodeSigningTeam.current(), isDebugBuild: configuration.isDebugBuild),
+            transport: InstallHTTPTransport(baseURL: configuration.ownerAPIBaseURL()),
+            deviceName: Self.deviceName,
+            clientVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        )
+        let identity = installIdentity
+        let transport = InstallHTTPTransport(baseURL: configuration.ownerAPIBaseURL())
+        let clientHeaders = identity.requestHeaders
+        credentialProvider = CloudCredentialProvider(relay: CloudCredentialRelay(
+            post: { path, body, bearer in try await transport.post(path, json: body, bearer: bearer, headers: clientHeaders) },
+            token: { try await identity.installToken() },
+            invalidate: { await identity.invalidate() },
+            session: { @MainActor [auth] in CloudCredentialRelay.Session(signedIn: auth.isSignedIn, team: auth.teamID) }
+        ))
         binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)
         if let binary {
             hub = CloudTunnelHub(api: api, paths: paths, binary: binary, deviceName: Self.deviceName)
@@ -66,13 +97,25 @@ final class CloudService {
         if policyDisabled { return RefusalStrings.turnedOffByOrganization }
         // RestrictToManagedTeam (P17-3): no request goes out without the managed team.
         if auth.managedTeamID != nil, auth.teamID == nil { return RefusalStrings.turnedOffByOrganization }
-        if case .localOnly = configuration.backend { return CloudStrings.localBackend }
+        // The app server path needs no web backend (cx-t2rz): only the legacy /api/vm path does.
+        if case .localOnly = configuration.backend, configuration.linkSource == .legacy { return CloudStrings.localBackend }
         if binary == nil { return CloudStrings.noClient }
         return nil
     }
 
+    /// Whether a Cloud API request may go out: not turned off by the
+    /// organization, the managed team present (P17-3), not a local-only
+    /// backend. (A missing cmux-tui client blocks machines, not the API.)
+    var mayCallCloud: Bool {
+        if policyDisabled { return false }
+        if auth.managedTeamID != nil, auth.teamID == nil { return false }
+        if case .localOnly = configuration.backend, configuration.linkSource == .legacy { return false }
+        return true
+    }
+
     func start() {
         auth.start()
+        startCredentialProvider()
         if configuration.linkSource == .appServer, linkEvents == nil {
             // `cloud.link.changed` arrives on the local daemon as an app server event.
             let machines = machines
@@ -97,8 +140,10 @@ final class CloudService {
                     // Sign-out revoked the WireGuard peer and parked the hub.
                     await self.hub?.resume()
                     await self.refresh()
+                    await self.installSignedIn()
                 } else {
                     self.dropAllMachines()
+                    await self.installIdentity.unbind()
                 }
             }
         })
@@ -134,6 +179,7 @@ final class CloudService {
                 guard let self, auth.isSignedIn else { return }
                 await hub?.resume()
                 await refresh()
+                await installSignedIn()
             }
         }
     }
@@ -143,9 +189,36 @@ final class CloudService {
         observers.removeAll()
         if let linkEvents { machines.local.store.sideEvents.unsubscribe(linkEvents) }
         linkEvents = nil
+        if let credentialEvents { machines.local.store.sideEvents.unsubscribe(credentialEvents) }
+        credentialEvents = nil
+        credentialProvider?.stop()
         for session in machines.cloud { session.disconnect() }
         // task-owner: teardown hop at quit; hub.stop() is idempotent
         if let hub { Task { await hub.stop() } }
+    }
+
+    /// Serves the `credential` family on the local daemon: answers its
+    /// calls on the connection that sent them, and registers again after
+    /// every handshake of the verified app connection (a reconnected
+    /// connection is a new provider; its calls in flight ended with it).
+    /// Only the app server path uses it: with the legacy link (the release
+    /// and default Debug path) the relay never registers.
+    private func startCredentialProvider() {
+        guard configuration.linkSource == .appServer, let provider = credentialProvider, credentialEvents == nil else { return }
+        let local = machines.local
+        credentialEvents = local.store.sideEvents.subscribe { [weak local] event in
+            guard let connection = local?.connection else { return }
+            provider.handle(event) { result in _ = try await connection.request(result) }
+        }
+        // task-owner: observers; cancelled in stop()
+        observers.append(Task {
+            for await state in Observations({ local.store.connectionState }) {
+                guard case .connected = state, let connection = local.connection else { continue }
+                provider.stop()
+                let allowed = await connection.userOriginAllowed
+                _ = await CloudCredentialProvider.register(userOriginAllowed: allowed) { try await connection.request($0) }
+            }
+        })
     }
 
     // MARK: Machine list
@@ -156,7 +229,7 @@ final class CloudService {
         guard auth.isSignedIn, unavailableReason == nil else { return }
         lastRefresh = .now
         do {
-            let list = try await api.listMachines()
+            let list = configuration.linkSource == .appServer ? try await appServerMachines() : try await api.listMachines()
             lastError = nil
             reconcile(list)
             hasLoadedMachines = true
@@ -185,6 +258,7 @@ final class CloudService {
         }
         let ids = Set(visible.map(\.id))
         for session in machines.cloud where !ids.contains(session.machineID) {
+            creations.machineRemoved(session.machineID)
             machines.remove(session.machineID)?.disconnect()
         }
     }
@@ -211,6 +285,7 @@ final class CloudService {
     }
 
     private func dropAllMachines() {
+        for creation in creations.all { creations.remove(creation) }
         for session in machines.cloud { machines.remove(session.machineID)?.disconnect() }
         hasLoadedMachines = false
     }
@@ -218,12 +293,19 @@ final class CloudService {
     // MARK: Mutations
 
     /// Creates a machine and connects to it. Returns its session.
-    func createMachine(name: String?) async throws -> CloudMachineSession {
+    /// `creation` moves to its `creating` stage when the request is sent.
+    /// `startedByPerson`: the person's own gesture in this app; on the app
+    /// server path any other create asks the person first
+    /// (``CloudMachineCreateFlow``).
+    func createMachine(name: String?, creation: CloudMachineCreation? = nil, startedByPerson: Bool) async throws -> CloudMachineSession {
         if let reason = unavailableReason { throw ActionFailure(message: reason) }
         guard auth.isSignedIn else { throw ActionFailure(message: CloudStrings.signInFirst) }
         creating += 1
         defer { creating -= 1 }
-        let machine = try await api.createMachine(displayName: name)
+        let onSent: @MainActor @Sendable () async -> Void = { [weak creation] in creation?.note(.creating) }
+        let machine = configuration.linkSource == .appServer
+            ? try await appServerCreate(name: name, startedByPerson: startedByPerson, onSent: onSent)
+            : try await api.createMachine(displayName: name, onSent: onSent)
         logger.info("created machine \(machine.id, privacy: .public)")
         if let existing = machines.session(machine.id) { return existing }
         guard let session = addSession(machine) else { throw ActionFailure(message: CloudStrings.noClient) }
@@ -232,6 +314,7 @@ final class CloudService {
 
     func deleteMachine(_ machineID: String) async throws {
         try await api.deleteMachine(machineID)
+        creations.machineRemoved(machineID)
         machines.remove(machineID)?.disconnect()
         logger.info("deleted machine \(machineID, privacy: .public)")
     }
@@ -256,6 +339,24 @@ final class CloudService {
     func signOut() async {
         dropAllMachines()
         if let hub { await hub.revoke() }
+        // Revoke the install while the Stack session still exists.
+        if let stackUser = auth.user?.id {
+            let auth = auth
+            await installIdentity.signOut(stackUser: stackUser, session: { try await auth.tokens().access })
+        }
         await auth.signOut()
+    }
+
+    /// Registers (or reuses) this Mac's install for the signed-in user and
+    /// mints one token. A failure is logged: the relay mints again when it
+    /// needs a token, and the hub path does not depend on it.
+    private func installSignedIn() async {
+        guard let stackUser = auth.user?.id, mayCallCloud else { return }
+        let auth = auth
+        do {
+            try await installIdentity.signedIn(stackUser: stackUser, session: { try await auth.tokens().access })
+        } catch {
+            logger.error("install registration failed: \(String(describing: error), privacy: .public)")
+        }
     }
 }

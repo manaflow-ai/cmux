@@ -34,6 +34,7 @@ pub(super) fn handle_resource_line(
     };
     let (id, operation) = (envelope.id.clone(), envelope.operation);
     let admitted = check(mux, client, &envelope)
+        .and_then(|actor| check_pairing_accept(mux, client, &envelope, &actor).map(|()| actor))
         .and_then(|actor| crate::resource_router::validate_resource_envelope(envelope, actor));
     match admitted {
         Ok(request) => handle_resource_connection_message(mux, client, request, writer),
@@ -69,6 +70,46 @@ fn check(mux: &Mux, client: u64, envelope: &RequestEnvelope) -> Result<Actor, Re
     let (transport, local) = (record.transport, record.origin.actor());
     drop(state);
     Ok(peer_or_local(mux, client, transport, local))
+}
+
+/// Refusal text when a connection that is not a human surface approves a
+/// WebSocket pairing.
+pub(super) const PAIRING_APPROVAL_NEEDS_HUMAN: &str =
+    "only the cmux app or the TUI that runs this daemon can approve a pairing";
+
+/// Whether `client` may APPROVE a WebSocket pairing (cx-ehrq). Approval
+/// admits a browser to the whole daemon, so it must come from a human
+/// surface: the in-process TUI (which calls `Mux::respond_pairing` and never
+/// reaches this check) or the verified cmux app, the `frontend` actor. Any
+/// other local connection (an agent in a pane, a script, the CLI) is the
+/// plain local user to the daemon and may only deny.
+pub(super) fn may_approve_pairing(mux: &Mux, client: u64) -> bool {
+    matches!(connection_actor(mux, client), Actor::Frontend { .. })
+}
+
+/// The v2 form of [`may_approve_pairing`]: `pairing_request.resolve` with
+/// `decision: accept` needs the `frontend` actor. A connection that is not a
+/// local Unix one is left to the trusted-local refusal.
+fn check_pairing_accept(
+    mux: &Mux,
+    client: u64,
+    envelope: &RequestEnvelope,
+    actor: &Actor,
+) -> Result<(), ResourceError> {
+    let accept = envelope.operation == ResourceOperation::PairingRequestResolve
+        && envelope.params.get("decision").and_then(Value::as_str) == Some("accept");
+    if !accept || !mux.control_clients.is_unix(client) || matches!(actor, Actor::Frontend { .. }) {
+        return Ok(());
+    }
+    let derived = {
+        let state =
+            mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.clients.get(&client).map_or(RequestOrigin::Agent, |record| record.origin.derive())
+    };
+    Err(forbidden(
+        PAIRING_APPROVAL_NEEDS_HUMAN,
+        json!({"derived": derived.wire_name(), "required": "user", "reason": "pairing_approval_needs_human"}),
+    ))
 }
 
 /// The actor of a durable mutation that `client` asks for on the legacy
@@ -311,3 +352,7 @@ mod tests;
 #[cfg(all(test, unix))]
 #[path = "page_access_tests.rs"]
 mod page_access_tests;
+
+#[cfg(all(test, unix))]
+#[path = "pairing_gate_tests.rs"]
+mod pairing_gate_tests;
