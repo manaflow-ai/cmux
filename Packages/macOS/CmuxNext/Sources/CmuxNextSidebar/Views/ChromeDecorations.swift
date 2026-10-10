@@ -10,7 +10,7 @@ final class SidebarDecorationView: NSView {
     private let gap = CALayer()
     /// One members' line per open group (cx-qno.17: one layer from under the
     /// header bar to the last member, so no row gap breaks it).
-    private var lines: [GroupID: (layer: CALayer, color: GroupColor)] = [:]
+    private var lines: [GroupID: (layer: CALayer, color: GroupTint)] = [:]
     /// Lines of closed or gone groups while they shrink and fade out.
     private var leavingLines: [CALayer] = []
 

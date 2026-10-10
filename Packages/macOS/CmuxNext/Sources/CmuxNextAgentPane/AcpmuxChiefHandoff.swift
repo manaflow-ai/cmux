@@ -10,8 +10,9 @@ import CmuxNextCompat
 /// (``AcpmuxVersionHandoff``): only a daemon that runs its agents under agent
 /// hosts is stopped (`_acpmux/shutdown`; its agents keep running and the next
 /// daemon adopts them), and only by its own shutdown, never by a signal or a
-/// process pattern. The next start of that daemon (the Chief host's, or a
-/// Chief tab's) has the right environment.
+/// process pattern. The next start of that daemon is the Chief host's (a
+/// Chief tab never starts one, cx-ebm.54): `HomeBrainHost.start` ends the host
+/// that ran on it and launches one, which starts it with the right environment.
 public nonisolated struct AcpmuxChiefHandoff: Sendable {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.acpmux")
     /// Chief homes this app process already handed off (or decided to skip):
@@ -60,6 +61,6 @@ public nonisolated struct AcpmuxChiefHandoff: Sendable {
             Self.logger.error("Chief acpmux handoff request failed: \(String(describing: error), privacy: .public)")
             return false
         }
-        return await AgentPaneProcessExit.exitEvent(pid: pid, within: .seconds(15))
+        return await AgentPaneProcessExit(pid: pid).event(within: .seconds(15))
     }
 }

@@ -19,19 +19,6 @@ nonisolated enum ChiefAppLinks {
         ["CMUX_SOCKET_PATH": controlLink(home).path, "CMUX_APP_DAEMON_SOCKET": daemonLink(home).path]
     }
 
-    /// The env of the Chief home's acpmux daemon, whoever starts it (the host
-    /// pins the same values, optchat-chief `cmux_env::pin`): the Chief home for
-    /// the built-in Chief presets' codex homes (`ACPMUX_CHIEF_MUX_HOME`, acpmux
-    /// `config/chief_builtins.rs`), the host's links, and the app's daemon (the
-    /// daemon link) as the socket every `cmux` call of a subagent reaches.
-    static func acpmuxEnvironment(_ home: ChiefHome) -> [String: String] {
-        var variables = hostEnvironment(home)
-        variables["ACPMUX_CHIEF_MUX_HOME"] = home.muxHome.path
-        variables["CMUX_TUI_SOCKET"] = daemonLink(home).path
-        variables["CMUX_MUX_SOCKET"] = daemonLink(home).path
-        return variables
-    }
-
     /// Points both links at this app (last writer wins), each atomically.
     static func publish(home: ChiefHome, controlSocket: String, daemonSocket: String?) {
         let state = home.root.appendingPathComponent("state", isDirectory: true)

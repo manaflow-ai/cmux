@@ -149,10 +149,26 @@ Which of Cmd-T and Cmd-N opens a tab and which opens a workspace.
 }
 ```
 
-- `false` (default): Cmd-T follows the focus. In a pane with a tab strip (a terminal, a browser tab, the New Tab page) it opens a tab there. On an agent chat, or in a pane without a tab strip, it opens a workspace in the current group. Cmd-N opens a workspace.
+- `false` (default): Cmd-T follows the focused pane's tab bar (`tabs.tabBar`). In a pane that shows it (a terminal, a browser tab, the New Tab page) it opens a tab there. In a pane that hides it (an agent chat alone in its column, by default) it opens a workspace in the current group. Cmd-N opens a workspace.
 - `true`: Cmd-T always opens a workspace in the current group and Cmd-N always opens a tab.
 
 Both open the New Tab page. The strip's + button always opens a tab. A key you bind yourself in `shortcuts.bindings` for `newTab` or `newTab.default` wins over the swap. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.swapCmdTAndCmdN true`.
+
+## `tabs.tabBar`
+
+Whether a pane shows its horizontal tab bar, by what the pane holds. A workspace is a vertical tab in the sidebar, and a pane's tab bar holds tabs inside it.
+
+```json
+{
+  "tabs": { "tabBar": { "terminal": "auto", "browser": "auto", "agent": "always" } }
+}
+```
+
+- `terminal`: panes with terminals, or a mix of kinds. `browser`: panes with only browser tabs. `agent`: panes with only agent chats. New Tab pages count as neither.
+- `"auto"` (default): terminal and browser panes show the tab bar. An agent chat alone in its column, or in the chat dock, hides it until the pane holds two tabs.
+- `"always"` shows it, and `"never"` hides it.
+
+**Show Tab Bar** in the command palette or a pane's right-click menu shows or hides one pane's tab bar, whatever its kind's value. Cmd-T follows the tab bar: it opens a tab in a pane that shows it, and a new workspace from one that hides it. **New Horizontal Tab** (no default key) turns the focused pane's tab bar on and opens a tab there.
 
 ## `tabs.newTabTemplate`
 
@@ -267,7 +283,7 @@ The CLI and MCP always open a tab, so scripts get a predictable result; a comman
 
 ## `workspaces.newPlacement`
 
-Where a new workspace goes in the sidebar when you do not pick a place: Cmd-N, New Workspace in the palette or menu, the sidebar's +, `cmux workspace new`, Home, and a tab moved to a new workspace.
+Where a new workspace goes in the sidebar when you do not pick a place: Cmd-N, New Workspace in the palette or menu, the sidebar's +, `cmux workspace new`, Home, a tab moved to a new workspace, a link opened in a new workspace, and a workspace an agent opens.
 
 ```json
 {
@@ -277,7 +293,9 @@ Where a new workspace goes in the sidebar when you do not pick a place: Cmd-N, N
 
 - `"top"` (default): first in the group of the workspace the window shows. When that workspace is not in a group, first in the workspace list, above every group. Pinned workspaces stay above it in the Pinned section, and it goes below the Home row when the list shows one.
 - `"afterCurrent"`: right after the workspace the window shows, inside that workspace's group when it has one. When that workspace is pinned, is Home, or is on another machine, the new one goes to the top.
-- `"bottom"`: after the last workspace that is not in a group.
+- `"bottom"`: last in the group of the workspace the window shows. When that workspace is not in a group, after the last workspace that is not in a group.
+
+So under every value, a new workspace opened while you are in a group stays in that group.
 
 A place you pick always wins: a tab dropped on a gap in the sidebar, New Workspace Above, Below, at Top or at Bottom, and New Workspace Like This. A reopened workspace (Reopen Closed Workspace) comes back where it was. The position is written to the sidebar order cmux keeps for you, so it survives a relaunch and shows the same in every window. Change it in **Settings > General > Sidebar** or with `cmux settings set workspaces.newPlacement afterCurrent`.
 

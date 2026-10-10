@@ -281,6 +281,19 @@ final class BrowserTabService {
     /// An incognito tab is never written back: its page's URL, title and
     /// favicon stay in memory (the tab strip reads the live page).
     /// A page restores the zoom its record keeps.
+    /// A page that runs (or waits to run) on a machine keeps its machine
+    /// record with the page's address (relaunch reopens it there); this
+    /// Mac's page of that tab (Open Locally Instead) writes its own address.
+    private func machineRecordURL(_ page: any BrowserTab, tab: TabModel) -> (@MainActor (URL) -> URL)? {
+        guard let record = tab.url.flatMap(URL.init(string:)).flatMap(MachineBrowserRecord.init(url:)) else { return nil }
+        var onMachine = page is MachineBrowserPageTab
+        #if DEBUG
+        onMachine = onMachine || RemoteBrowserPages.runsOnMachine(tab.id)
+        #endif
+        guard onMachine else { return nil }
+        return { url in MachineBrowserRecord.matches(url) ? url : MachineBrowserRecord(machine: record.machine, initialURL: url).url }
+    }
+
     func track(_ page: any BrowserTab, for tab: TabModel) {
         guard tab.isFrontendOwned, writers[tab.id] == nil, !isIncognitoTab(tab.id) else { return }
         let update = update, updateState = updateState, id = tab.id, daemonForTab = daemonForTab
@@ -293,6 +306,7 @@ final class BrowserTabService {
         let writer = BrowserRecordWriter(
             tab: page, recorded: BrowserRecord(tab: tab), tracksState: keeps,
             daemonRecord: { [weak self] in self?.tabModel(id).map(BrowserRecord.init(tab:)) },
+            recordURL: machineRecordURL(page, tab: tab),
             delay: writeBackDelay, sleep: sleep
         ) { [weak self] fields in
             guard let tab = self?.tabModel(id) else { return false }

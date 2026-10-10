@@ -85,6 +85,8 @@ export type NewTabHost = {
   /// Project folders found by the host scan, before session-derived folders.
   projects?: string[];
   omnibar?: OmnibarContext;
+  /// The workspace's tabs a split's page offers to move into its pane (cx-jfo7).
+  openTabs?: OmnibarContext["tabs"];
   defaultKind?: DefaultKind;
   /// Which design (Debug Settings `newTab.layout`): "b" the one-input screen (default),
   /// "a" this Terminal | Browser | Agent page, kept until B passes dogfood (decision Q6).
@@ -99,6 +101,8 @@ export type NewTabHost = {
   home?: string;
   /// false: leave the field unfocused (Cmd-L opened the page for the omnibar, cx-e2aa).
   focusesField?: boolean;
+  /// The page is agent history (the sidebar's History dot, cx-zlnl), not the New Tab page.
+  history?: boolean;
 };
 
 /// Reads `newTab` from the handshake: `true`, or `{hotkeys, kind, cwd, host}`. Nil for a plain chat.
@@ -116,6 +120,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
   const cwd =
     typeof object.cwd === "string" ? object.cwd : typeof handshake.cwd === "string" ? handshake.cwd : undefined;
   const omnibar = omnibarContext(object.omnibar);
+  const openTabs = Array.isArray(object.openTabs) ? omnibarContext({ tabs: object.openTabs })?.tabs : undefined;
   const template = parseNewTabTemplate(object.template);
   const tools = Array.isArray(object.tools)
     ? object.tools.flatMap((tool) => {
@@ -141,6 +146,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     ...(typeof object.host === "string" ? { host: object.host } : {}),
     ...(typeof object.location === "string" && object.location ? { location: object.location } : {}),
     ...(omnibar ? { omnibar } : {}),
+    ...(openTabs?.length ? { openTabs } : {}),
     ...(Array.isArray(object.projects)
       ? {
           projects: object.projects
@@ -158,6 +164,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     ...(typeof object.home === "string" && object.home.startsWith("/") ? { home: object.home } : {}),
     ...(typeof object.inputToken === "string" && object.inputToken ? { inputToken: object.inputToken } : {}),
     ...(object.focusesField === false ? { focusesField: false } : {}),
+    ...(object.history === true ? { history: true } : {}),
   };
 }
 

@@ -16,7 +16,7 @@ import Observation
 final class PaneController: SurfacePresenter, PresentablePane {
     let paneKey: String
     let layoutPaneID: LayoutPaneID
-    let pane: PaneModel
+    var pane: PaneModel // set only by adopt(_:): the daemon pane replacing a provisional one
     /// The machine daemon that owns `pane`.
     let daemon: DaemonService
     let stripModel = TabStripModel()
@@ -47,7 +47,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         var connected: Bool
         var generation: String?
         var surfaces: [UInt64]
-        var hidesStrip = false // the chat dock or a lone chat with one tab (ChatDockChrome)
+        var hidesStrip = false // PaneTabBar: the pane's choice, its kind's tabs.tabBar, else ChatDockChrome
     }
 
     init(pane: PaneModel, daemon: DaemonService, layoutPaneID: LayoutPaneID, services: AppServices, state: WindowState) {
@@ -87,8 +87,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
 
     // MARK: Sync
 
-    private func observe() {
-        observation = Task { [weak self] in
+    func observe() {
+        observation?.cancel(); observation = Task { [weak self] in
             guard let self else { return }
             for await snapshot in ObservationStream({ [weak self] in self?.snapshot() }) {
                 guard let snapshot else { return }
@@ -123,7 +123,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             // becomes a chat (then the chat's title and icon).
             let isNewTabPage = tab.agentSession != nil && services.agentTabs.pageTabs.ids.contains(tab.id)
             let untitled = tab.agentSession != nil
-                ? isNewTabPage ? Strings.untitledBrowser : AgentPaneModel.tabTitle
+                ? isNewTabPage ? AgentHistoryPage.title(tab.id, services) ?? Strings.untitledBrowser : AgentPaneModel.tabTitle
                 : tab.kind == .conversation ? services.home.tabTitle(for: tab) : tab.kind == .browser ? Strings.untitledBrowser : fallback
             var item = TabItemMapping.shared.item(tab, fallbackTitle: untitled, isNewTabPage: isNewTabPage)
             // Reading the app's provider here (the apps mirror) re-runs the snapshot, and so the
@@ -188,7 +188,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         return Snapshot(items: items, groups: groups, defaultIndex: pane.defaultTabIndex, connected: connected,
                         generation: store.generation?.rawValue, surfaces: pane.tabs.map(\.surface.rawValue),
                         // An app workspace's one pane shows its app without a strip (`app-screens-v1`).
-                        hidesStrip: ChatDockChrome.hidesStrip(self, tabCount: items.count)
+                        hidesStrip: hidesTabBar(tabCount: items.count)
                             || store.workspace(containing: pane.handle)?.app != nil)
     }
 

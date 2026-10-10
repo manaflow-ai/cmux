@@ -43,11 +43,14 @@ extension ScreenContentView {
     /// the uncovered range beside a docked column and up to the glass rim's
     /// outer edge beside an overlay (under the rim and the column the strip
     /// stays, so the glass has content to refract).
-    func clipToStrip(_ host: PaneHostView, scrolls: Bool, uncovered: CGRect) {
-        guard scrolls, !geometry.dock.isEmpty else { return host.setStripClip(nil) }
-        let range = CGRect(x: geometry.clipMinX, y: geometry.clipMinY, width: max(0, geometry.clipMaxX - geometry.clipMinX),
-                           height: max(0, geometry.clipMaxY - geometry.clipMinY))
-        let visible = host.frame.intersection(range)
+    /// A pane growing in from a split's edge is also masked to `revealing`,
+    /// the part its spring shows.
+    func clipToStrip(_ host: PaneHostView, scrolls: Bool, uncovered: CGRect, revealing: CGRect? = nil) {
+        var visible = revealing.map(host.frame.intersection) ?? host.frame
+        if scrolls, !geometry.dock.isEmpty {
+            visible = visible.intersection(CGRect(x: geometry.clipMinX, y: geometry.clipMinY, width: max(0, geometry.clipMaxX - geometry.clipMinX),
+                                                  height: max(0, geometry.clipMaxY - geometry.clipMinY)))
+        }
         if visible == host.frame { return host.setStripClip(nil) }
         host.setStripClip(visible.isNull ? .zero : visible.offsetBy(dx: -host.frame.minX, dy: -host.frame.minY))
     }

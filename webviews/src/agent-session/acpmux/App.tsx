@@ -29,12 +29,14 @@ import { pageHostClient, startHostEvents } from "./pageHost";
 import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabHost, type TabKind } from "./NewTabPage";
 import { setDeviceChats } from "./newtab/deviceChats";
 import { NewTabScreen } from "./newtab/NewTabScreen";
+import { HistoryScreen } from "./newtab/HistoryScreen";
+import type { AllChatsPage } from "./newtab/AllChatsList";
 import { newTabScreenActions } from "./newtab/screenActions";
 import { newTabChipSnapshot } from "./newtab/chipDefaults";
 import { useNewTabAdoption } from "./newtab/adoption";
 import { TemplateDots } from "./newtab/TemplateDots";
 import { pickNewTabTemplate, screenTemplate, shownTemplate } from "./newtab/templates";
-import { projectLabel } from "./sessionList";
+import { isAgentHome, projectLabel } from "./sessionList";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { composerDraft, notifyDraftActionsChanged } from "./composerDraft";
 import { paneContext } from "./paneContext";
@@ -54,7 +56,8 @@ import { Composer, type ComposerHandle } from "./Composer";
 import type { ComposerAttachment } from "./attachments";
 import { ComposerPickers, PICKER_LABELS } from "./ComposerPickers";
 import { openPicker } from "./pickerOpeners";
-import { EmptyState, isNewChat, projectName } from "./EmptyState";
+import { EmptyState, type EmptyStateProjects, isNewChat, projectName } from "./EmptyState";
+import type { Project } from "./ProjectChooser";
 import { HomeLists } from "./HomeLists";
 import { turnFiles, turnRows, type TurnFile } from "./diff";
 import type { TrustSource } from "./folderTrust";
@@ -2284,8 +2287,8 @@ function AcpmuxPane() {
             return persistSession(await client.select(String(sessionId)));
           },
           // A pick of another harness is a switch: drawn now, started behind it.
-          "chat.new": async ({ harness, cwd, peer, deferred }) => {
-            if (harness && !peer)
+          "chat.new": async ({ harness, cwd, peer, deferred, noProject }) => {
+            if (harness && !peer && noProject !== true)
               return harnessSwitch.switchTo(String(harness), cwd ? String(cwd) : undefined, {
                 deferred: deferred === true,
               });
@@ -2295,6 +2298,7 @@ function AcpmuxPane() {
                 harness ? String(harness) : undefined,
                 cwd ? String(cwd) : undefined,
                 peer ? String(peer) : undefined,
+                noProject === true,
               ),
             );
           },
@@ -2522,6 +2526,15 @@ function AcpmuxPane() {
   const localCwd =
     summary && !summary.peer && !(summary.host && summary.hostKind !== "local") ? summary.cwd : undefined;
   const tabPinned = useRef(false);
+  // Whether the panes beside the chat show ([+] New tab reads Hide tabs): the App's answer to the
+  // click, and the tab state it reports.
+  const [sideTabs, setSideTabs] = useState(false);
+  const toggleSideTabs = () =>
+    ignoreFailure(
+      callNative<{ shown?: boolean }>("pane.action", { id: "sideTabs" }).then((result) =>
+        setSideTabs(result?.shown === true),
+      ),
+    );
   const archive = archiveRow(
     {
       sessionId: snapshot.sessionId,
@@ -2532,9 +2545,21 @@ function AcpmuxPane() {
     t,
   );
   const readTabState = () =>
-    callNative<{ pinned?: boolean }>("pane.tabState").then((state) => {
+    callNative<{ pinned?: boolean; sideTabs?: boolean }>("pane.tabState").then((state) => {
       tabPinned.current = state?.pinned === true;
+      setSideTabs(state?.sideTabs === true);
     });
+  const refreshTabState = () => void readTabState().catch(() => undefined);
+  // Terminal and Browser change what is beside the chat: [+] follows once their split lands.
+  const runSplitAction = (id: string, cwd: string | undefined, mode: QuickActionMode) => {
+    runHeaderAction(id, cwd, mode);
+    window.setTimeout(refreshTabState, 400);
+  };
+  // The label starts from the chat's layout; Quick Chat's panel has no tab to read.
+  useEffect(() => {
+    if (!quick) void readTabState().catch(() => undefined);
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- reread per chat, not per render
+  }, [quick, snapshot.sessionId]);
   const lastForkSeq = latestForkSeq(snapshot.rows);
   const sideChat = sideChatRow(
     // Quick Chat's panel is not a tab: there is no split to open beside it.
@@ -2718,6 +2743,53 @@ function AcpmuxPane() {
     if (newTab?.cwd) byPath.set(newTab.cwd, { cwd: newTab.cwd, label: projectLabel(newTab.cwd) });
     return [...byPath.values()];
   }, [composerSnapshot.sessions, newTab?.cwd, newTab?.projects, directProjects]);
+  // The new chat's hero picker (cx-9g0w): this Mac's projects, then other machines' folders from
+  // their chats (each with its machine's name), Add project and Do not work in a project.
+  const heroPicker = useMemo<EmptyStateProjects | undefined>(() => {
+    if (!freshChat || quick) return undefined;
+    const remote = new Map<string, Project>();
+    for (const session of composerSnapshot.sessions) {
+      const peer = session.peer ?? (session.hostKind === "cloud" ? session.host : undefined);
+      if (!peer || typeof session.cwd !== "string" || !session.cwd || isAgentHome(session.cwd)) continue;
+      const project = { cwd: session.cwd, label: projectLabel(session.cwd), peer, host: session.host ?? peer };
+      remote.set(`${peer}\u0000${session.cwd}`, project);
+    }
+    const summary = composerSnapshot.summary;
+    const cwd = summary?.cwd;
+    // The machine as the rows key it (ComposerContext.computerId): a peer, else a Cloud host.
+    const peer = summary?.peer || (summary?.hostKind === "cloud" ? summary.host : undefined);
+    return {
+      projects: [...newTabProjects.filter((project) => !isAgentHome(project.cwd)), ...remote.values()],
+      current: cwd && !isAgentHome(cwd) ? cwd.replace(/(.)\/+$/, "$1") : undefined,
+      currentPeer: peer,
+      // In no project only when it is: its folder is agent-home, or the host starts it there. A chat
+      // with no folder yet may still start in the workspace's root, so nothing is checked then.
+      noProject: cwd ? isAgentHome(cwd) : chooseFolder,
+      onPick: chooseProject,
+      onBrowse: () => {
+        void callNative<{ cwd?: string }>("project.browse")
+          .then((result) => {
+            if (result?.cwd) chooseProject(result.cwd);
+          })
+          .catch(() => undefined);
+      },
+      // The chat starts in its agent-home folder, never the workspace's (AcpmuxPathPolicy).
+      // A refused start keeps the folder picked before.
+      onNoProject: () => {
+        void callNative("chat.new", { noProject: true })
+          .then(() => setProjectDraft(undefined))
+          .catch(() => undefined);
+      },
+    };
+  }, [
+    freshChat,
+    quick,
+    composerSnapshot.sessions,
+    composerSnapshot.summary,
+    newTabProjects,
+    chooseProject,
+    chooseFolder,
+  ]);
   const transcript = (
     <ImageViewerContext.Provider value={openImage}>
       <ShellActionsContext.Provider value={shellActions}>
@@ -3053,7 +3125,7 @@ function AcpmuxPane() {
     <ShortcutsContext.Provider value={shortcuts}>
       <section className="acpmux-shell" aria-label={composerSnapshot.summary?.title || t("header.agentChat")}>
         <div className="acpmux-main" data-new-chat={freshView && !showNewTab ? "" : undefined}>
-          {showNewTab && newTab.templateSwitcher && (
+          {showNewTab && newTab.templateSwitcher && !newTab.history && (
             <TemplateDots
               current={shownTemplate(newTab)}
               onPick={(template) =>
@@ -3069,7 +3141,13 @@ function AcpmuxPane() {
               }
             />
           )}
-          {showNewTab && shownTemplate(newTab) !== "classic" ? (
+          {showNewTab && newTab.history ? (
+            <HistoryScreen
+              load={(params) => callNative<AllChatsPage | undefined>("chats.page", params)}
+              onOpen={(key) => void callNative("chats.open", { key }).catch(() => undefined)}
+              onOpenInTerminal={(key) => void callNative("chats.openInTerminal", { key }).catch(() => undefined)}
+            />
+          ) : showNewTab && shownTemplate(newTab) !== "classic" ? (
             <NewTabScreen
               key={newTabGeneration}
               template={screenTemplate(shownTemplate(newTab))}
@@ -3079,6 +3157,7 @@ function AcpmuxPane() {
               lastAgent={newTab.lastAgent}
               home={newTab.home}
               tools={newTab.tools}
+              {...(newTab.openTabs ? { openTabs: newTab.openTabs } : {})}
               inputToken={newTab.inputToken}
               {...(newTab.cwd ? { cwd: newTab.cwd } : {})}
               projects={newTabProjects}
@@ -3149,8 +3228,11 @@ function AcpmuxPane() {
                     )}
                     <ChatHeaderTools
                       tabTools={!quick}
-                      onTerminal={(mode) => runHeaderAction(HEADER_ACTIONS.terminal, localCwd, mode)}
-                      onBrowser={(mode) => runHeaderAction(HEADER_ACTIONS.browser, undefined, mode)}
+                      onTerminal={(mode) => runSplitAction(HEADER_ACTIONS.terminal, localCwd, mode)}
+                      onBrowser={(mode) => runSplitAction(HEADER_ACTIONS.browser, undefined, mode)}
+                      sideTabs={sideTabs}
+                      onSideTabs={toggleSideTabs}
+                      onPointerEnter={quick ? undefined : refreshTabState}
                       summary={
                         <SummaryButton
                           // Another chat closes its summary and gallery, as it does the image viewer.
@@ -3201,7 +3283,7 @@ function AcpmuxPane() {
                     }
                   />
                 ) : freshView ? (
-                  <EmptyState project={projectName(snapshot.summary?.cwd)} />
+                  <EmptyState project={projectName(composerSnapshot.summary?.cwd)} picker={heroPicker} />
                 ) : (
                   transcript
                 )}

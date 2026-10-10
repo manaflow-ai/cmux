@@ -159,6 +159,19 @@ final class RemoteLocalhostService {
         return client
     }
 
+    /// The forwarding connection of `machine` (browser runtimes and their
+    /// streams use it too, cx-2cob slice 2); nil for a machine with no daemon here.
+    func loopbackClient(machine: String) -> LoopbackForwardClient? {
+        machines.daemon(machine: machine).map { client(for: $0) }
+    }
+
+    /// Opens a byte stream to `port` on the loopback of `machine` over its
+    /// forwarding connection; nil for a machine with no daemon here.
+    func loopbackOpener(machine: String) -> (@Sendable (UInt16) async throws -> LoopbackStream)? {
+        guard let client = loopbackClient(machine: machine) else { return nil }
+        return { port in try await client.open(host: "127.0.0.1", port: port) }
+    }
+
     private var debugClients: [String: LoopbackForwardClient] = [:]
     /// The last store plan per tab id (`debug.remote-localhost`), bounded by
     /// the number of Chromium pages created this session.
@@ -188,6 +201,14 @@ final class RemoteLocalhostService {
             "recent": .array(proxy.recentEvents.map(JSONValue.string)),
             "plans": .object(plans.mapValues(JSONValue.string)),
         ])
+    }
+
+    /// Closes the forwarding connection of a machine that left the registry:
+    /// its streams and browser runtimes end with it.
+    func closeClient(of daemon: DaemonService) {
+        guard let client = clients.removeValue(forKey: ObjectIdentifier(daemon)) else { return }
+        // task-owner: one connection close; ends when the client has closed.
+        Task { await client.close() }
     }
 
     func shutdown() async {

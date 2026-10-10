@@ -6,7 +6,8 @@ import CmuxNextSettings
 /// up (`PaneChromeMetrics`), in window points with a top-left origin: the
 /// pane cell, the tab strip, the first tab pill, the content border, and
 /// the terminal's first cell; plus the measured gaps (above and below the
-/// pill, pill left minus border left, first cell minus border).
+/// pill, pill left minus border left, first cell minus border), and the
+/// tab bar's state (`strip_hidden`, `tab_bar_kind`, `tab_bar_choice`).
 enum DebugPaneChrome {
     static func report(services: AppServices) -> JSONValue {
         let windows = services.windows.controllers.compactMap { controller -> JSONValue? in
@@ -35,6 +36,10 @@ enum DebugPaneChrome {
                     "border": rect(border),
                     "pill": pill.map(rect) ?? .null,
                     "first_cell": firstCell.map { .array([.number(Double($0.x)), .number(Double($0.y))]) } ?? .null,
+                    // The tab bar rule (cx-soza): hidden now, the pane's kind, its own choice.
+                    "strip_hidden": .bool(view.hidesStrip),
+                    "tab_bar_kind": .string(pane.tabBarKind.rawValue),
+                    "tab_bar_choice": services.paneTabBars.choice(for: pane.paneKey).map(JSONValue.bool) ?? .null,
                 ]
                 if let pill {
                     fields["gap_above"] = .number(Double(pill.minY - cell.minY))
