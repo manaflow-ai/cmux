@@ -32,7 +32,11 @@ extension CEFTab {
         if host.visibleTab === self {
             let pageFrame = host.hostView.frame
             var rects = occlusionRects
-            if !pastFirstRealPage { rects.append(pageFrame) }
+            if !pastFirstRealPage {
+                // An open side panel is part of the page window: only the web contents' part is a hole.
+                let panel = sidePanel.headerFrame != nil ? sidePanel.state : nil
+                rects.append(panel?.contentsFrame(inPage: pageFrame) ?? pageFrame)
+            }
             if !frames.grab.isEmpty { rects.append(frames.grab) }
             if let header = sidePanel.headerFrame { rects.append(header) }
             host.hostView.occlusionRects = Self.local(rects, in: pageFrame)

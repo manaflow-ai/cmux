@@ -136,9 +136,7 @@ final class CloseUndoToasts {
     /// the New Tab or blank page is "New Tab", never the page's address
     /// (the toast said `Closed "chrome://newtab/"`).
     static func title(of tab: TabModel) -> String {
-        guard tab.kind == .browser, tab.name?.isEmpty ?? true,
-              tab.displayTitle.isEmpty || BrowserNewTabPage.isNewTabPage(tab.displayTitle) else { return tab.displayTitle }
-        return Strings.untitledBrowser
+        tab.kind == .browser && BrowserNewTabPage.isNewTabPage(tab.displayTitle) ? Strings.untitledBrowser : tab.displayTitle
     }
 
     /// The app's tracker recorded a closed tab.
