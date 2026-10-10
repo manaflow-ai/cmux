@@ -100,6 +100,7 @@ fn spawn_terminal_with_cell_pixel_failure(
         expected_generation: None,
         expected_revision: None,
         on_exit: TerminalOnExit::Close,
+        tab_id: None,
         env: Vec::new(),
     };
     let result = mux.spawn_surface_in_workspace_reserved(

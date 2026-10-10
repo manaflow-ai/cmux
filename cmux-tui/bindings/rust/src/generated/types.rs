@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR baffdd379fca8b70386603cf6245b1f842ee60061859daecd52effc85eeed00c.
+// cmux-tui mux protocol 12, IR 1a125d40a1072221e7191839cefa0b173f2c6a3048d5553f02597ce44ec32c57.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1019,6 +1019,22 @@ pub enum PaneKind {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PaneNeighborResult {
     pub pane: Nullable<Id>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PaneSurfaceResult {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub pane_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub replayed: Optional<bool>,
+    pub surface: Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub tab_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_incarnation: Optional<String>,
 }
 
 #[rustfmt::skip]
