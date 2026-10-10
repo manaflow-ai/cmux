@@ -1090,6 +1090,10 @@ import Testing
     @Test func vmTuiConnectPassesReceiptSession() throws {
         let harness = CMUXCLIErrorOutputRegressionTests()
         let cliPath = try harness.bundledCLIPath()
+        // The pane helper enters through the CLI's app-socket connection gate.
+        let socketPath = "/tmp/cmux-tui-argv-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(path: socketPath, response: "OK\n")
+        defer { responder.stop() }
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-tui-argv-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -1105,7 +1109,7 @@ import Testing
         ]).write(to: configURL)
         let result = harness.runProcess(
             executablePath: cliPath,
-            arguments: ["vm-tui-connect", "--config", configURL.path],
+            arguments: ["--socket", socketPath, "vm-tui-connect", "--config", configURL.path],
             environment: BundledCLITestSupport.hermeticCLIEnvironment(home: root)
         )
         #expect(!result.timedOut, "\(result.stderr)")

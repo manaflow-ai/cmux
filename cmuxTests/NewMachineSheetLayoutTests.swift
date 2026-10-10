@@ -152,9 +152,15 @@ struct NewMachineSheetLayoutTests {
         }
 
         let popUps = Self.descendants(of: host).compactMap { $0 as? NSPopUpButton }.filter { !$0.isHiddenOrHasHiddenAncestor }
-        // `nightlyMachines` renames one machine per tick, so match the family, not a title.
-        let base = try #require(popUps.first { $0.itemTitles.contains { $0.hasPrefix("cmux-devbox-") } }, "no Base pop-up")
-        let size = try #require(popUps.first { $0.itemTitles.contains { $0.contains("GB RAM") } }, "no Size pop-up")
+        // Menu rows are lazily materialized under AppKit; use the view's stable identifier.
+        let base = try #require(
+            popUps.first { $0.accessibilityIdentifier() == "NewMachineSheet.baseImage" },
+            "no Base pop-up; identifiers=\(popUps.map { $0.accessibilityIdentifier() })"
+        )
+        let size = try #require(
+            popUps.first { $0.accessibilityIdentifier() == "NewMachineSheet.size" },
+            "no Size pop-up; identifiers=\(popUps.map { $0.accessibilityIdentifier() })"
+        )
         let rows = [("Base", base), ("Size", size)]
         let leading = rows.map { $0.1.convert($0.1.bounds, to: host).minX }
         #expect(abs(leading[0] - leading[1]) <= 1, "Base starts at \(leading[0]), Size at \(leading[1])")
@@ -231,10 +237,11 @@ struct NewMachineSheetLayoutTests {
         }
 
         let popUps = Self.descendants(of: host).compactMap { $0 as? NSPopUpButton }
-        let basePopUp = popUps.first { popUp in
-            popUp.itemTitles.contains { $0.hasPrefix(Self.longName) }
-        }
-        #expect(basePopUp != nil, "\(label): the Base pop-up was not rendered")
+        let basePopUp = popUps.first { $0.accessibilityIdentifier() == "NewMachineSheet.baseImage" }
+        #expect(
+            basePopUp != nil,
+            "\(label): the Base pop-up was not rendered; identifiers=\(popUps.map { $0.accessibilityIdentifier() })"
+        )
 
         let bounds = host.bounds.insetBy(dx: -0.5, dy: -0.5)
         for control in Self.descendants(of: host).compactMap({ $0 as? NSControl }) where !control.isHiddenOrHasHiddenAncestor {
