@@ -126,6 +126,22 @@ export function PasswordsPage({ store, strings }: { store: PasswordsStore; strin
           )}
           <button
             type="button"
+            className="pw-button pw-import-browser"
+            disabled={disconnected}
+            onClick={() => void store.importFromBrowser()}
+          >
+            {t("passwords.page.importBrowser")}
+          </button>
+          <button
+            type="button"
+            className="pw-button pw-import-csv"
+            disabled={disconnected}
+            onClick={() => void store.importCSV()}
+          >
+            {t("passwords.page.importCSV")}
+          </button>
+          <button
+            type="button"
             className="pw-button pw-export"
             disabled={!snap.sections.export || disconnected}
             title={snap.sections.export ? undefined : t("passwords.page.availableAfterUpdate")}

@@ -271,6 +271,9 @@ pub(crate) struct TerminalNotification {
     /// as Ghostty's kitty parser does.
     pub title: String,
     pub body: String,
+    /// `Info` for OSC 9, 777 and 99 and an OSC 7501 record that finished; one
+    /// that waits on the user is a `Warning`, one that failed an `Error`.
+    pub level: crate::NotificationLevel,
 }
 
 impl TerminalNotification {
@@ -284,7 +287,21 @@ impl TerminalNotification {
             title = body.chars().take(MAX_NOTIFICATION_TITLE_CHARS).collect();
             body = String::new();
         }
-        Some(Self { title, body })
+        Some(Self { title, body, level: crate::NotificationLevel::Info })
+    }
+
+    /// The notification an OSC 7501 record asks for.
+    pub(crate) fn from_program_status(alert: crate::program_status::ProgramStatusAlert) -> Self {
+        let level = match alert.state {
+            ghostty_vt::ProgramStatusState::Error => crate::NotificationLevel::Error,
+            ghostty_vt::ProgramStatusState::Done => crate::NotificationLevel::Info,
+            _ => crate::NotificationLevel::Warning,
+        };
+        Self {
+            title: alert.title.chars().take(MAX_NOTIFICATION_TITLE_CHARS).collect(),
+            body: alert.body.chars().take(MAX_NOTIFICATION_BODY_CHARS).collect(),
+            level,
+        }
     }
 }
 
@@ -472,6 +489,9 @@ pub(crate) struct TerminalMetadata {
     gate: NotificationGate,
     /// OSC 133 prompt marks since the last take (shell command history).
     shell_marks: Vec<crate::shell_history::ShellMark>,
+    /// OSC 7501 records, fed by the terminal parser's callback. Shared so a
+    /// replaced mirror terminal (resize, reconnect) keeps feeding them.
+    program_status: crate::program_status::SharedProgramStatus,
 }
 
 impl TerminalMetadata {
@@ -537,6 +557,20 @@ impl TerminalMetadata {
         });
     }
 
+    /// Metadata that keeps feeding `program_status` (a reconnect replaces the
+    /// rest).
+    #[cfg_attr(not(unix), allow(dead_code))]
+    pub(crate) fn with_program_status(
+        program_status: crate::program_status::SharedProgramStatus,
+    ) -> Self {
+        Self { program_status, ..Self::default() }
+    }
+
+    /// The OSC 7501 records this metadata publishes.
+    pub(crate) fn program_status(&self) -> crate::program_status::SharedProgramStatus {
+        self.program_status.clone()
+    }
+
     /// OSC 133 marks parsed since the last call, oldest first.
     pub(crate) fn take_shell_marks(&mut self) -> Vec<crate::shell_history::ShellMark> {
         std::mem::take(&mut self.shell_marks)
@@ -558,6 +592,21 @@ impl TerminalMetadata {
         let mut taken = self.take_notifications();
         taken.retain(|notification| self.gate.admit(notification, now));
         taken
+    }
+
+    /// The OSC 7501 `alerts` that pass this terminal's rate limit (the same
+    /// one as OSC 9, 777 and 99: the specification asks terminals to
+    /// rate-limit anything a record causes outside the terminal).
+    pub(crate) fn admit_program_status_alerts(
+        &mut self,
+        alerts: Vec<crate::program_status::ProgramStatusAlert>,
+        now: Instant,
+    ) -> Vec<TerminalNotification> {
+        alerts
+            .into_iter()
+            .map(TerminalNotification::from_program_status)
+            .filter(|notification| self.gate.admit(notification, now))
+            .collect()
     }
 
     pub(crate) fn osc_progress(&self) -> &str {
@@ -908,7 +957,11 @@ mod tests {
     fn cmux_next_terminal_notification_gate_limits_rate_and_repeats() {
         let start = Instant::now();
         let mut gate = NotificationGate::default();
-        let note = |title: &str| TerminalNotification { title: title.into(), body: String::new() };
+        let note = |title: &str| TerminalNotification {
+            title: title.into(),
+            body: String::new(),
+            level: crate::NotificationLevel::Info,
+        };
         assert!(gate.admit(&note("a"), start));
         // Within one second of the last shown notification: dropped.
         assert!(!gate.admit(&note("b"), start + Duration::from_millis(500)));

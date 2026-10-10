@@ -152,13 +152,15 @@ final class HostView: NSView {
         let top = titlebarHeight
         let sf = CGRect(x: 0, y: top, width: bounds.width, height: bounds.height - top)
         if scrollView.frame != sf { scrollView.frame = sf }
-        scrollView.placeScroller(bottom: bounds.height - demo.anchorY)
+        // MessagesLab de36498: the scroller's track from under the header to just above the field (host coordinates).
+        scrollView.placeScroller(top: Fixture.headerHeight, bottom: demo.fieldTop - 0.5)
         scrollView.syncFromModel()
         if fieldChrome.frame != bounds { fieldChrome.frame = bounds }
         let hb = CGRect(x: 0, y: 0, width: bounds.width, height: headerBackdrop.totalHeight)
         if headerBackdrop.frame != hb { headerBackdrop.frame = hb }
         let ph = CGRect(x: 0, y: 0, width: bounds.width, height: Fixture.headerHeight)
         if paneHeader.frame != ph { paneHeader.frame = ph }
+        if headerZoneArea?.rect.width != bounds.width { updateHeaderZone() }
         fieldChrome.place(field: demo.compose.fieldRect, plus: demo.compose.plusRect,
                           emoji: CGRect(x: bounds.width - Fixture.windowWidth + 586.5, y: demo.compose.plusRect.minY, width: 31, height: 30))
     }
@@ -193,8 +195,12 @@ final class HostView: NSView {
     // button. The tracking area exists only while the field holds attachments,
     // covers only the field, and only for the key window (no wake-up per mouse move).
     private var hoverArea: NSTrackingArea?
+    /// cmux: the top zone that shows the header's fade (HeaderFade.swift).
+    var headerZoneArea: NSTrackingArea?
+    let headerZone = HeaderZoneTracker()
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
+        updateHeaderZone()
         if let t = hoverArea { removeTrackingArea(t); hoverArea = nil }
         guard let demo, !demo.compose.strip.tiles.isEmpty else { return }
         let t = NSTrackingArea(rect: demo.compose.fieldRect, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow], owner: self)
@@ -249,14 +255,31 @@ extension TranscriptDocumentView {
 final class ChatController: NSObject, NSTextViewDelegate {
     var window: NSWindow? { host.window }
     let host: HostView
-    private(set) var store: Store!
-    private(set) var demo: MessagesWindowView!
+    /// The projection, nil until `install` (crash program: no longer an IUO that trapped
+    /// when read early).
+    private(set) var store: Store?
+    /// The window view over `store`, nil until `install`.
+    private(set) var demo: MessagesWindowView?
     /// cmux: where the user's changes go (the HomeStore adapter).
     weak var intents: ChatIntents?
+    /// cmux: a click on an app link (`URL.isChiefSubagentLink`): the host runs it; nil opens nothing.
+    var onAppLink: ((URL) -> Void)?
     /// cmux: one-shot wake-ups on the host's timer (CmuxNext: DemandTimer).
     let wake: ChatWakeScheduler
     private var wakeAt = Double.infinity
     private var viewWakeAt = Double.infinity
+    /// The next display frame of the pane's screen (MessagesLab bd65bbf FrameTick).
+    private(set) lazy var frameTick = FrameTick(view: host)
+    /// Runs work at the start of the next display frame (FrameTick; tests capture it).
+    /// Off screen (no window: captures, the harness) there is no display frame: now.
+    lazy var nextFrame: (@escaping () -> Void) -> Void = { [weak self] f in
+        guard let self else { return }
+        if self.host.window == nil { f() } else { self.frameTick.next(f) }
+    }
+    /// Engine jobs held for the next frame (a keystroke went ahead of them).
+    private var holdDue = false
+    /// A keystroke (the field's text) was dispatched and the next frame has not started.
+    private(set) var inKeystrokeFrame = false
     private(set) var start: CFTimeInterval = CACurrentMediaTime()
     private(set) var picker: TapbackPickerView?
     private var pickerDim: PickerDimView?
@@ -278,14 +301,21 @@ final class ChatController: NSObject, NSTextViewDelegate {
     static let noFocus = args.contains("--bench") || args.contains("--audit-resolution") || args.contains("--scroll-trace")
         || args.contains("--text-probe") || args.contains("--selftest") || args.contains("--material-probe")
     var onInstalled: [(ChatController) -> Void] = []
+    /// cmux: the host's shared stop action (Home: stop the Chief's turn).
+    var onStop: (() -> Void)?
+    /// cmux: the Chief works: the round button beside the field is Stop,
+    /// and Esc and Cmd-. in the field stop it (ChatController+Stop.swift).
+    var isWorking = false { didSet { if isWorking != oldValue { updateStopButton() } } }
     var clock: Double { CACurrentMediaTime() - start }
     private var observers: [NSObjectProtocol] = []
 
     init(host: HostView = HostView(frame: NSRect(origin: .zero, size: Fixture.windowSize)), wake: ChatWakeScheduler) {
+        HomeMarkdownPolicy.install()  // cmux: before the first Markdown parse
         self.host = host
         self.wake = wake
         super.init()
         host.controller = self
+        host.fieldChrome.onEmoji = { [weak self] in self?.roundButtonClicked() }
     }
 
     deinit {
@@ -297,12 +327,15 @@ final class ChatController: NSObject, NSTextViewDelegate {
 
     /// cmux: install the window view over the adapter's projection (the
     /// loaded HomeStore window), in place of `load()` over a source.
-    func install(_ conv: Conversation, windowStart lo: Int, total: Int) {
-        store = Store(conversation: conv, baseDate: Date(), windowStart: lo, total: total)
+    @discardableResult
+    func install(_ conv: Conversation, windowStart lo: Int, total: Int) -> Store {
+        let store = Store(conversation: conv, baseDate: Date(), windowStart: lo, total: total)
+        self.store = store
         store.responder = nil
         start = CACurrentMediaTime()
-        demo = MessagesWindowView(store: store)
-        demo.clock = { [unowned self] in self.clock }
+        let demo = MessagesWindowView(store: store)
+        self.demo = demo
+        demo.clock = { [weak self] in self?.clock ?? 0 }
         demo.requestWake = { [weak self] t in self?.requestViewWake(t) }
         demo.drawsChrome = false
         // Flight recorder (HomeFlightRecorder's policy): every engine action, as Host.swift hooks it.
@@ -312,7 +345,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         demo.frame = CGRect(origin: .zero, size: host.bounds.size)
         host.install(demo)
         host.fieldChrome.onPlus = { [weak self] in self?.intents?.pickAttachments() }
-        host.fieldChrome.onEmoji = { [weak self] in self?.showEmojiPicker() }
+        host.fieldChrome.onEmoji = { [weak self] in self?.roundButtonClicked() }
         demo.compose.onFieldResize = { [weak self] old, new, el, begin in self?.host.fieldChrome.animateField(from: old, to: new, el, begin: begin) }
         demo.compose.onSendPulse = { [weak self] begin in self?.host.fieldChrome.sendPulse(begin: begin) }
         demo.compose.onAttachmentsChanged = { [weak self] in self?.host.needsLayout = true; self?.host.updateTrackingAreas() }
@@ -347,9 +380,9 @@ final class ChatController: NSObject, NSTextViewDelegate {
         tv.view.onPastePasteboard = { [weak self] pb in self?.intents?.takeAttachments(from: pb) ?? false }
         tv.view.onPasteImage = { _ in }
         tv.view.onMarkedTextChange = { [weak self] in
-            guard let self else { return }
-            let s = self.demo.compose.textView.view.string
-            if s != self.store.state.ui.draft.text { self.dispatch(.setDraft(s)) }
+            guard let self, let demo = self.demo, let store = self.store else { return }
+            let s = demo.compose.textView.view.string
+            if s != store.state.ui.draft.text { self.dispatch(.setDraft(s)) }
         }
         demo.onScrollPosition = { [weak self] in
             ScaleKeeper.shared.setNeedsApply()
@@ -360,6 +393,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         if intents?.canReply == true { swipe.install() }
         host.needsLayout = true
         onInstalled.forEach { $0(self) }
+        return store
     }
 
     /// cmux: the host moved to a window (or left one): key-state palette and
@@ -373,8 +407,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
         guard let window, let demo else { return }
         let nc = NotificationCenter.default
         if !Self.noFocus {
-            observers.append(nc.addObserver(forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main) { [weak self] _ in self?.demo.setInactive(false) })
-            observers.append(nc.addObserver(forName: NSWindow.didResignKeyNotification, object: window, queue: .main) { [weak self] _ in self?.demo.setInactive(true) })
+            observers.append(nc.addObserver(forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main) { [weak self] _ in self?.demo?.setInactive(false) })
+            observers.append(nc.addObserver(forName: NSWindow.didResignKeyNotification, object: window, queue: .main) { [weak self] _ in self?.demo?.setInactive(true) })
             demo.setInactive(!window.isKeyWindow)
         } else {
             demo.setInactive(!Self.args.contains("--active"))
@@ -403,8 +437,38 @@ final class ChatController: NSObject, NSTextViewDelegate {
 
     func dispatch(_ a: Action) {
         guard let store else { return }
-        store.advance(to: clock)
-        store.dispatch(a)
+        // MessagesLab bd65bbf (Host.dispatch): a keystroke goes first. Engine jobs due now
+        // run at the start of the next display frame, so they do not add their commits to
+        // the keystroke's frame; a send goes first only past statuses and typing (message
+        // order stays). Other actions keep the order of time.
+        let ahead: Bool = {
+            guard let due = store.nextDue, due <= clock else { return false }
+            switch a {
+            case .setDraft: return true
+            case .send: return store.onlyAmbientDue(by: clock)
+            default: return false
+            }
+        }()
+        if ahead {
+            store.dispatchAhead(a, at: clock)
+            if !holdDue {
+                holdDue = true
+                nextFrame { [weak self] in
+                    guard let self else { return }
+                    self.holdDue = false
+                    self.wakeFired()
+                }
+            }
+        } else {
+            store.advance(to: clock)
+            store.dispatch(a)
+        }
+        // cmux: Home's ambient updates come from HomeStore, not the engine queue: they wait
+        // for the next frame too while a keystroke frame is open (HomeProjection.apply).
+        if case .setDraft = a, !inKeystrokeFrame {
+            inKeystrokeFrame = true
+            nextFrame { [weak self] in self?.inKeystrokeFrame = false }
+        }
         afterEngine()
     }
 
@@ -413,7 +477,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         ScaleKeeper.shared.setNeedsApply()
         host.scrollView.syncFromModel()
         if !selection.isEmpty { selection.refresh() }
-        host.fieldChrome.follow(field: demo.compose.fieldRect)
+        if let demo { host.fieldChrome.follow(field: demo.compose.fieldRect) }
         scheduleWake()
     }
 
@@ -441,7 +505,9 @@ final class ChatController: NSObject, NSTextViewDelegate {
 
     func scheduleWake() {
         guard let store else { return }
-        let due = min(store.nextDue ?? .infinity, viewWakeAt)
+        var due = min(store.nextDue ?? .infinity, viewWakeAt)
+        // Jobs held for the next frame: the frame tick runs them (only a later settle needs the timer).
+        if holdDue { due = viewWakeAt > clock ? viewWakeAt : .infinity }
         guard due.isFinite else { wake.cancel(); wakeAt = .infinity; return }
         if wakeAt <= due { return }
         wakeAt = due
@@ -451,10 +517,10 @@ final class ChatController: NSObject, NSTextViewDelegate {
     private func wakeFired() {
         wakeAt = .infinity
         let now = clock
-        store.advance(to: now)
+        store?.advance(to: now)
         if viewWakeAt <= now {
             viewWakeAt = .infinity
-            demo.settle(at: now)
+            demo?.settle(at: now)
         }
         afterEngine()
     }
@@ -472,12 +538,14 @@ final class ChatController: NSObject, NSTextViewDelegate {
     }
 
     func textDidChange(_ notification: Notification) {
+        guard let demo else { return }
         dispatch(.setDraft(demo.compose.textView.view.string))
         intents?.draftChanged()
     }
 
     func escape() {
         if picker != nil { closePicker(); return }
+        if isWorking { onStop?() }
     }
 
     // MARK: Drops
@@ -533,13 +601,9 @@ final class ChatController: NSObject, NSTextViewDelegate {
         if let id = demo.compose.chip(at: p) { dispatch(.removeDraftAttachment(id)); return }
         guard p.y > Fixture.headerHeight, !demo.compose.fieldRect.insetBy(dx: 0, dy: -2).contains(p) else { return }
         if let hit = demo.hit(p) {
-            let local = CGPoint(x: p.x - hit.body.minX - Fixture.bubblePadX, y: p.y - hit.body.minY - Fixture.bubblePadY)
-            if let tl = hit.row.text, let url = tl.link(at: local).flatMap(URL.init(string:)) { NSWorkspace.shared.open(url); return }
+            // cmux: a link (re-checked at click time, MarkdownLinkPolicy) opens in PaneLinks.
+            if openLink(hit, at: p) { return }
             switch hit.row.part {
-            case let .link(url, _, _, _, _):
-                // cmux: the tap is the one time a received card may fetch its preview (HomeLinkPreviews).
-                intents?.linkTapped(hit.row.ref, url: url)
-                if let u = URL(string: url) { NSWorkspace.shared.open(u) }
             // cmux: the bytes come from HomeStore (Host.swift opened a fixture asset).
             // cmux: a video plays or pauses in its bubble (opening it in an
             // app is in the context menu); other attachments open.
@@ -564,7 +628,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
 
     func showPicker(for hit: MessagesWindowView.Hit) {
         closePicker()
-        let mine = hit.row.reactions.first { $0.senderId == store.state.me }?.kind
+        let mine = hit.row.reactions.first { $0.senderId == store?.state.me }?.kind
         let p = TapbackPickerView(ref: hit.row.ref, selected: mine) { [weak self] kind in
             guard let self, let picker = self.picker else { return }
             self.intents?.react(picker.ref, kind)

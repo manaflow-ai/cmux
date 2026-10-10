@@ -228,7 +228,7 @@ fn prove(
         return Err(REFUSED);
     };
     if !mux.control_clients.app_trust.install_key_proves(install_id, nonce, claimed_id, proof)
-        || !origin_gate::set_install_proved(mux, client)
+        || !origin_gate::set_install_proved(mux, client, install_id)
     {
         return Err(REFUSED);
     }

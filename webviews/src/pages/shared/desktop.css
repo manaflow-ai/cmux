@@ -45,6 +45,25 @@ select {
   cursor: pointer;
 }
 
+/* The shared title tooltip replaces WebKit's native title bubble on every first-party page. */
+.ui-title-tooltip {
+  position: fixed;
+  z-index: var(--layer-tooltip);
+  max-width: min(320px, calc(100vw - 12px));
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--cmux-text, CanvasText) 18%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--cmux-elevated-background, Canvas) 96%, var(--cmux-text, CanvasText));
+  box-shadow: 0 4px 14px color-mix(in srgb, black 30%, transparent);
+  color: var(--cmux-text, CanvasText);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+
 img,
 svg,
 a {
@@ -91,4 +110,103 @@ input[type="submit"] {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* Increase Contrast applies to every page through the shared theme layer. Host theme
+   tokens are inline styles; important keeps the system preference effective after theme updates. */
+@media (prefers-contrast: more) {
+  :root {
+    --cmux-text-secondary: var(--cmux-text, CanvasText) !important;
+    --cmux-text-tertiary: var(--cmux-text, CanvasText) !important;
+    --agent-muted: var(--agent-text, CanvasText) !important;
+    --agent-soft: var(--agent-text, CanvasText) !important;
+    --cmux-diff-text-dim: var(--cmux-diff-fg, CanvasText) !important;
+    --cmux-diff-text-muted: var(--cmux-diff-fg, CanvasText) !important;
+    --cmux-diff-text-subtle: var(--cmux-diff-fg, CanvasText) !important;
+    --cmux-focus-ring-width: 2px;
+  }
+
+  :root:not([data-borders="none"]) {
+    --cmux-separator: var(--cmux-text, CanvasText) !important;
+    --agent-border: var(--agent-text, CanvasText) !important;
+    --agent-border-strong: var(--agent-text, CanvasText) !important;
+    --acpmux-pill-edge: var(--agent-text, CanvasText) !important;
+    --cmux-diff-border: var(--cmux-diff-fg, CanvasText) !important;
+  }
+
+  :root:not([data-borders="none"]) :is(.acpmux-shell, .ui-positioner) {
+    --acpmux-composer-edge: var(--agent-text, CanvasText) !important;
+  }
+
+  :is(.acpmux-shell, .ui-positioner) {
+    --acpmux-composer-placeholder: var(--agent-text, CanvasText) !important;
+    --acpmux-composer-dim: var(--agent-text, CanvasText) !important;
+  }
+
+  :focus-visible {
+    outline: var(--cmux-focus-ring-width) solid currentColor !important;
+    outline-offset: 2px;
+  }
+}
+
+/* LAYERS (webviews/src/ui/README.md, "Layers and transparency"). The one z-index scale of every
+   first-party page and the agent pane: use these, never a raw number (scripts/cmux-next/
+   check-layers.py ratchets the old ones). Tailwind: `z-(--layer-dropdown)`. Values keep today's
+   order: the shared popup positioner (ui.css) is 50 and the title tooltip 1000. Popups, menus,
+   pickers and tooltips render in the portal container (ui/UiProvider usePortalContainer), so no
+   parent's stacking context or overflow traps them; inside a component, use only base, raised and
+   sticky. Dropdown is above modal on purpose: a picker opened inside a dialog shows over it. */
+:root {
+  --layer-base: 0;
+  --layer-raised: 1;
+  --layer-sticky: 10;
+  --layer-overlay: 30;
+  --layer-modal: 40;
+  --layer-dropdown: 50;
+  --layer-toast: 900;
+  --layer-tooltip: 1000;
+  --layer-debug: 2147483000;
+  /* TRANSPARENCY. A translucent surface that carries text keeps at least this much of its fill
+     (color-mix(in srgb, <fill> var(--surface-text-min), transparent)); menus, popovers and
+     tooltips stay opaque. Reduce Transparency makes every translucent surface opaque. */
+  --surface-text-min: 92%;
+  --surface-blur: blur(20px) saturate(1.4);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --surface-text-min: 100%;
+    --surface-blur: none;
+  }
+}
+
+/* TYPE SCALE (webviews/src/ui/README.md, "Type scale"). The one set of font sizes of every first-party
+   page and the agent pane; use these, never a raw size (scripts/cmux-next/check-type-scale.py ratchets
+   the old ones). Chrome (menus, pickers, buttons, chips, headers, settings, toolbars) uses the UI steps,
+   based on macOS's 13 px system font (NSFont.systemFontSize). Reading content (transcript, markdown,
+   the composer prompt) uses --text-content, which follows the user's agent pane font size
+   (--cv-font-size; theme.css / AgentPaneTheme). Each step has a matching line height
+   (`--text-<step>--line-height`). Tailwind: `text-caption`, `text-detail`, `text-body`, `text-control`,
+   `text-title`, `text-heading`, `text-content` set both. */
+:root {
+  --text-caption: 11px;
+  --text-caption--line-height: 14px;
+  --text-detail: 12px;
+  --text-detail--line-height: 16px;
+  --text-body: 13px;
+  --text-body--line-height: 18px;
+  --text-control: 13px;
+  --text-control--line-height: 18px;
+  --text-title: 15px;
+  --text-title--line-height: 20px;
+  --text-heading: 17px;
+  --text-heading--line-height: 22px;
+  --text-content: var(--cv-font-size, 14px);
+  --text-content--line-height: var(--cv-line-height, 22.75px);
+}
+
+/* The host may also set the app's Reduce Transparency setting on the root element. */
+:root[data-reduce-transparency] {
+  --surface-text-min: 100%;
+  --surface-blur: none;
 }

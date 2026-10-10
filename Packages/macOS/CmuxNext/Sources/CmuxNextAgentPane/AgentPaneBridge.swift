@@ -44,6 +44,9 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
         // The handshake can wait up to 20 seconds for acpmux to start. Only
         // the model is held across it, so closing the tab frees the view and
         // its web view right away.
+        guard request == .ready else { return await model.respond(to: request) }
+        AgentPaneLaunchTimings.shared.mark("agent_pane.handshake_start")
+        defer { AgentPaneLaunchTimings.shared.mark("agent_pane.handshake_end") }
         return await model.respond(to: request)
     }
 
@@ -63,6 +66,7 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
             view.applyTheme()
             view.applyShortcuts()
             view.applyPreviewFeatures()
+            view.applyEditedFiles()
             view.replayCustomization()
         }
         return view.model

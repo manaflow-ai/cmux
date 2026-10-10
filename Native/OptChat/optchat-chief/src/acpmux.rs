@@ -28,6 +28,12 @@ pub struct SessionSpec {
     pub preset: Option<String>,
     /// acpmux tags set on the session right after it is created.
     pub tags: BTreeMap<String, String>,
+    /// Per-session env (acpmux `_meta.acpmux.env`, unix socket only, an
+    /// allowlist: CMUX_WORKSPACE_ID); empty for none.
+    pub env: BTreeMap<String, String>,
+    /// The fast service tier (codex-acp's `fast-mode` config option, set
+    /// right after session/new); false: the harness's default speed.
+    pub fast: bool,
 }
 
 /// The tag on every session the Chief itself runs (its turns and its
@@ -59,6 +65,18 @@ pub enum Family {
     Other,
 }
 
+/// The codex-acp mode without codex's workspace-write sandbox. Its
+/// sandbox denies connect(2) to the cmux app and daemon sockets, so a
+/// codex session the Chief runs under approve-all (the posture of its
+/// Claude sessions, which run unsandboxed) takes this mode (E6).
+pub const CODEX_FULL_ACCESS_MODE: &str = "agent-full-access";
+
+/// The mode a fresh Chief session (a turn or a subagent) takes on `family`
+/// under `policy`: full access for codex under approve-all, else its own.
+pub fn chief_session_mode(family: Family, policy: &str) -> Option<&'static str> {
+    (family == Family::Codex && policy == "approve-all").then_some(CODEX_FULL_ACCESS_MODE)
+}
+
 impl Family {
     pub fn from_name(family: &str) -> Family {
         match family {
@@ -74,35 +92,7 @@ impl Family {
 /// command). A daemon from before that field: derived here the same way,
 /// from `kind` and the command's words, never from the harness's name.
 pub fn harness_family(answer: &Value, harness: &str) -> Result<Family, String> {
-    let Some(profile) = answer.get("harnesses").and_then(|h| h.get(harness)) else {
-        return Err(format!("acpmux has no harness named {harness}"));
-    };
-    if let Some(family) = profile.get("family").and_then(Value::as_str) {
-        return Ok(Family::from_name(family));
-    }
-    if profile.get("kind").and_then(Value::as_str) == Some("claude-stdio") {
-        return Ok(Family::Claude);
-    }
-    let words: Vec<String> = profile
-        .get("argv")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .map(|w| {
-            std::path::Path::new(w)
-                .file_name()
-                .map(|f| f.to_string_lossy().to_lowercase())
-                .unwrap_or_default()
-        })
-        .collect();
-    // acpmux's own order (config.rs derive_family): codex before claude.
-    for (needle, family) in [("codex", Family::Codex), ("claude", Family::Claude)] {
-        if words.iter().any(|w| w.contains(needle)) {
-            return Ok(family);
-        }
-    }
-    Ok(Family::Other)
+    cmux_chief::policy::harness::family(answer, harness).map(|f| Family::from_name(&f))
 }
 
 /// `_acpmux/harnesses` from the daemon at `socket` (started when it does not
@@ -129,8 +119,16 @@ pub fn query_harnesses(socket: &std::path::Path, log: &dyn Fn(&str)) -> Result<V
 /// What a running turn hears about its session.
 #[derive(Clone, Debug, PartialEq)]
 pub enum TurnSignal {
-    /// New events that matter for the log (not text chunks): fetch them.
+    /// Reply text streamed (drafts, `draft.rs`): read soon, at most every
+    /// `draft::STREAM_GAP`.
+    Streamed,
+    /// New events that matter for the log (not text chunks, but for a
+    /// prompt's first, which says its response started): fetch them.
     Changed,
+    /// New events that are not the harness's own (acpmux's echo of a
+    /// prompt or steer we sent, its status), or a timer: fetch them, but
+    /// they are no progress of the turn (the idle watchdog, `turn.rs`).
+    Noted,
     /// The prompt's answer: the turn ended (or never started, on an error).
     Done(Result<Value, String>),
     /// The acpmux connection ended during the turn.
@@ -153,6 +151,9 @@ pub enum AgentEvent {
         request: Value,
     },
 }
+
+/// The wait for a steer's answer (`AgentPort::start_steer`).
+pub type SteerWait = Box<dyn FnOnce() -> Result<(), String> + Send>;
 
 /// The acpmux operations the Chief needs. Implemented over the socket here
 /// and by in-process fakes in tests.
@@ -182,6 +183,17 @@ pub trait AgentPort: Send + Sync {
     fn cancel(&self, _session: &str) -> Result<(), String> {
         Err("cancel is not supported".into())
     }
+    /// Sets `session`'s harness mode (`session/set_mode`).
+    fn set_mode(&self, _session: &str, _mode: &str) -> Result<(), String> {
+        Err("set_mode is not supported".into())
+    }
+    /// Asks acpmux to probe `harness`'s models now (`_acpmux/models
+    /// {"probe": [harness]}`): a harness outside the start-time probe list
+    /// (`ACPMUX_PROBE_HARNESSES`) the Chief now uses. Does not wait.
+    fn probe_models(&self, _harness: &str) -> Result<(), String> {
+        Ok(())
+    }
+
     /// The daemon's `_acpmux/harnesses` answer: every profile with its kind,
     /// command and family (`harness_gate::admit` reads it before each Chief
     /// session). A port without one refuses every Chief session.
@@ -198,6 +210,41 @@ pub trait AgentPort: Send + Sync {
         _option: Option<&str>,
     ) -> Result<(), String> {
         Err("answering permissions is not supported".into())
+    }
+    /// Sends `blocks` into `session`'s running turn, to be read between its
+    /// tool calls (a steered `session/prompt`, `steerOnly`), and returns at
+    /// once with the wait for acpmux's answer: Ok once the harness took
+    /// them (Claude Code at its next tool boundary; codex-acp at the turn's
+    /// end). Err: the session could not take them (no running turn, a
+    /// harness that does not steer); nothing was delivered. Calls on one
+    /// thread reach the harness in call order.
+    fn start_steer(
+        &self,
+        _session: &str,
+        _blocks: Vec<Value>,
+        _prompt_id: &str,
+    ) -> Result<SteerWait, String> {
+        Err("steering is not supported".into())
+    }
+    /// `start_steer`, then its wait.
+    fn steer(&self, session: &str, blocks: Vec<Value>, prompt_id: &str) -> Result<(), String> {
+        self.start_steer(session, blocks, prompt_id)?()
+    }
+    /// Records `cwd` as trusted (`acp.trust.set`, level trusted), so the
+    /// app's pane never asks about a folder the host made itself.
+    fn trust_folder(&self, _cwd: &std::path::Path) -> Result<(), String> {
+        Err("trusting folders is not supported".into())
+    }
+    /// Hints acpmux's session pool (`_acpmux/prewarm`) to start a hidden
+    /// session of `harness` and `preset` in `cwd`, so the next `session/new`
+    /// of exactly that shape takes a harness that is already up.
+    fn prewarm(
+        &self,
+        _harness: &str,
+        _preset: Option<&str>,
+        _cwd: &std::path::Path,
+    ) -> Result<(), String> {
+        Ok(())
     }
     /// Whether the connected daemon installed `preset` with its `args`.
     fn preset_args(&self, _preset: &str) -> bool {
@@ -251,7 +298,7 @@ pub struct Preset {
 pub struct Acpmux {
     socket: PathBuf,
     client: Mutex<Option<Arc<RpcClient>>>,
-    turns: Arc<Mutex<HashMap<String, Sender<TurnSignal>>>>,
+    turns: Arc<Mutex<HashMap<String, TurnRoute>>>,
     /// The turn sessions' preset, used when installed (else a turn runs with
     /// the harness's own configuration, and host.log says so).
     preset: Option<Preset>,
@@ -326,6 +373,22 @@ impl Acpmux {
                 let Some(map) = set.as_object_mut() else {
                     break result;
                 };
+                // A daemon older than the isolation args: keep the args it
+                // knows (`--tools ""` and the rest), drop only those.
+                // First the --tools list alone (an acpmux that knows the
+                // setting source keeps it), then every isolation word.
+                if key == "args"
+                    && let Some(args) = map.get_mut("args").and_then(Value::as_array_mut)
+                    && let Some(kept) =
+                        without_tools_list(args).or_else(|| without_isolation_args(args))
+                {
+                    *args = kept;
+                    log(&format!(
+                        "acpmux refused the isolation args of preset {} ({text}); trying them without the newest (a --tools list, then --setting-sources and --disable-slash-commands; the project settings' denied tools still apply)",
+                        preset.name
+                    ));
+                    continue;
+                }
                 if map.remove(key).is_none() {
                     break result;
                 }
@@ -404,13 +467,13 @@ impl Acpmux {
                         .client
                         .lock()
                         .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
-                    for (_, tx) in this
+                    for (_, turn) in this
                         .turns
                         .lock()
                         .unwrap_or_else(std::sync::PoisonError::into_inner)
                         .drain()
                     {
-                        let _ = tx.send(TurnSignal::Lost);
+                        let _ = turn.tx.send(TurnSignal::Lost);
                     }
                     sink(AgentEvent::Down);
                     if linked && !crate::acpmux_daemon::reachable(&this.socket) {
@@ -481,8 +544,86 @@ impl Acpmux {
     }
 }
 
+/// `args` without the newer preset allowlist words: `--setting-sources
+/// <value>`, `--disable-slash-commands` and `--tools <names>` (`--tools ""`
+/// stays, an older acpmux takes it); None when it has none of them.
+pub fn without_isolation_args(args: &[Value]) -> Option<Vec<Value>> {
+    let mut kept = Vec::new();
+    let mut dropped = false;
+    let mut words = args.iter();
+    while let Some(word) = words.next() {
+        match word.as_str() {
+            Some("--setting-sources") => {
+                words.next();
+                dropped = true;
+            }
+            Some("--disable-slash-commands") => dropped = true,
+            Some("--tools") => match words.next() {
+                Some(value) if value.as_str() == Some("") => {
+                    kept.push(word.clone());
+                    kept.push(value.clone());
+                }
+                _ => dropped = true,
+            },
+            _ => kept.push(word.clone()),
+        }
+    }
+    dropped.then_some(kept)
+}
+
+/// `args` without a `--tools <names>` list (`--tools ""` stays); None when
+/// it has none.
+pub fn without_tools_list(args: &[Value]) -> Option<Vec<Value>> {
+    let mut kept = Vec::new();
+    let mut dropped = false;
+    let mut words = args.iter();
+    while let Some(word) = words.next() {
+        if word.as_str() == Some("--tools") {
+            match words.next() {
+                Some(value) if value.as_str() == Some("") => {
+                    kept.push(word.clone());
+                    kept.push(value.clone());
+                }
+                _ => dropped = true,
+            }
+        } else {
+            kept.push(word.clone());
+        }
+    }
+    dropped.then_some(kept)
+}
+
 /// Sends a notification to the turn that owns its session, or to the brain.
-fn route(turns: &Mutex<HashMap<String, Sender<TurnSignal>>>, sink: &Sink, n: Notification) {
+/// A running prompt's signals.
+struct TurnRoute {
+    tx: Sender<TurnSignal>,
+    /// The harness streamed output in this prompt already.
+    spoke: bool,
+}
+
+/// The first streamed output of a prompt: its response has started (the
+/// API's `message_start` came, so the request's cache entry exists).
+pub(crate) fn is_output(kind: &str) -> bool {
+    matches!(
+        kind,
+        "agent_message_chunk" | "agent_thought_chunk" | "usage_update"
+    )
+}
+
+/// The signal of a turn's event that matters for the log: `Changed` when
+/// the harness sent it (`session/update`, or an acpmux event `dir: in`),
+/// else `Noted` (acpmux's own: the echo of our prompt or steer, a status).
+pub fn event_signal(method: &str, params: &Value) -> TurnSignal {
+    let from_agent =
+        method == "session/update" || params.get("dir").and_then(Value::as_str) == Some("in");
+    if from_agent {
+        TurnSignal::Changed
+    } else {
+        TurnSignal::Noted
+    }
+}
+
+fn route(turns: &Mutex<HashMap<String, TurnRoute>>, sink: &Sink, n: Notification) {
     let session = n
         .params
         .get("sessionId")
@@ -497,13 +638,19 @@ fn route(turns: &Mutex<HashMap<String, Sender<TurnSignal>>>, sink: &Sink, n: Not
                 .or_else(|| n.params.get("kind"))
                 .and_then(Value::as_str)
                 .unwrap_or("");
-            if !is_noise(kind)
-                && let Some(tx) = turns
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .get(session)
-            {
-                let _ = tx.send(TurnSignal::Changed);
+            let mut turns = turns
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if let Some(turn) = turns.get_mut(session) {
+                // Chunks are noise but for the first one, which says the
+                // response started (the compactor's single-flight waits for it).
+                let first = is_output(kind) && !turn.spoke;
+                turn.spoke |= is_output(kind);
+                if first || !is_noise(kind) {
+                    let _ = turn.tx.send(event_signal(&n.method, &n.params));
+                } else if kind == "agent_message_chunk" {
+                    let _ = turn.tx.send(TurnSignal::Streamed);
+                }
             }
         }
         "_acpmux/session_changed" => {
@@ -572,6 +719,9 @@ pub fn events(client: &RpcClient, session: &str, after: u64) -> Result<Vec<Acpmu
     }
 }
 
+/// codex-acp's config option for the fast (priority) service tier.
+pub const FAST_MODE_OPTION: &str = "fast-mode";
+
 /// `session/new` with acpmux's name, harness, policy, model and preset.
 pub fn new_session(
     client: &RpcClient,
@@ -587,6 +737,9 @@ pub fn new_session(
     }
     if let Some(preset) = preset {
         meta["preset"] = json!(preset);
+    }
+    if !spec.env.is_empty() {
+        meta["env"] = json!(spec.env);
     }
     let result = client
         .request(
@@ -606,6 +759,20 @@ pub fn new_session(
     {
         let _ = client.request("_acpmux/kill", json!({"sessionId": id, "purge": true}));
         return Err(format!("tagging session {}: {e}", spec.name));
+    }
+    // The fast service tier: codex-acp's `fast-mode` config option (the
+    // priority tier); a session that cannot take it does not stay.
+    if spec.fast
+        && let Err(e) = client.request(
+            "session/set_config_option",
+            json!({"sessionId": id, "configId": FAST_MODE_OPTION, "value": "on"}),
+        )
+    {
+        let _ = client.request("_acpmux/kill", json!({"sessionId": id, "purge": true}));
+        return Err(format!(
+            "setting the fast tier of session {}: {e}",
+            spec.name
+        ));
     }
     Ok(id)
 }
@@ -645,7 +812,13 @@ impl AgentPort for Acpmux {
         self.turns
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(session.to_owned(), signals.clone());
+            .insert(
+                session.to_owned(),
+                TurnRoute {
+                    tx: signals.clone(),
+                    spoke: false,
+                },
+            );
         let answer = client.start(
             "session/prompt",
             json!({"sessionId": session, "prompt": blocks, "_meta": {"acpmux": {"promptId": prompt_id}}}),
@@ -699,10 +872,37 @@ impl AgentPort for Acpmux {
             .map_err(|e| format!("cancel: {e}"))
     }
 
+    fn set_mode(&self, session: &str, mode: &str) -> Result<(), String> {
+        self.client()?
+            .request(
+                "session/set_mode",
+                json!({"sessionId": session, "modeId": mode}),
+            )
+            .map(|_| ())
+            .map_err(|e| format!("set_mode {mode}: {e}"))
+    }
+
+    fn probe_models(&self, harness: &str) -> Result<(), String> {
+        self.client()?
+            .request("_acpmux/models", json!({"probe": [harness]}))
+            .map(|_| ())
+            .map_err(|e| format!("models probe: {e}"))
+    }
+
     fn harness_catalog(&self) -> Result<Value, String> {
         self.client()?
             .request("_acpmux/harnesses", json!({}))
             .map_err(|e| format!("harnesses: {e}"))
+    }
+
+    fn trust_folder(&self, cwd: &std::path::Path) -> Result<(), String> {
+        self.client()?
+            .request(
+                "acp.trust.set",
+                json!({"cwd": cwd.display().to_string(), "level": "trusted"}),
+            )
+            .map(|_| ())
+            .map_err(|e| format!("acp.trust.set: {e}"))
     }
 
     fn respond_permission(
@@ -719,6 +919,58 @@ impl AgentPort for Acpmux {
             .request("_acpmux/permission_respond", params)
             .map(|_| ())
             .map_err(|e| format!("permission_respond: {e}"))
+    }
+
+    fn start_steer(
+        &self,
+        session: &str,
+        blocks: Vec<Value>,
+        prompt_id: &str,
+    ) -> Result<SteerWait, String> {
+        // Written now, on the caller's thread: steers keep their order.
+        let answer = self.client()?.start(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": blocks, "_meta": {"acpmux": {"promptId": prompt_id, "steer": true, "steerOnly": true}}}),
+        );
+        // No timeout: acpmux answers when the harness took the message,
+        // however long the running tool (or the codex turn) takes.
+        Ok(Box::new(move || match answer.recv() {
+            // Claude Code: `steered` at its echo; codex-acp: its own answer.
+            Ok(Ok(_)) => Ok(()),
+            Ok(Err(e)) => Err(format!("steer: {e}")),
+            Err(_) => Err("steer: the acpmux connection closed".into()),
+        }))
+    }
+
+    fn prewarm(
+        &self,
+        harness: &str,
+        preset: Option<&str>,
+        cwd: &std::path::Path,
+    ) -> Result<(), String> {
+        // The same preset `new_session` gives a session that names none.
+        let ready = self
+            .ready
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        let preset = match preset {
+            Some(name) if ready.contains(name) => Some(name.to_owned()),
+            Some(_) => return Ok(()),
+            None => self
+                .preset
+                .as_ref()
+                .filter(|p| ready.contains(&p.name))
+                .map(|p| p.name.clone()),
+        };
+        let mut params = json!({"harness": harness, "cwd": cwd});
+        if let Some(preset) = preset {
+            params["preset"] = json!(preset);
+        }
+        self.client()?
+            .request("_acpmux/prewarm", params)
+            .map(|_| ())
+            .map_err(|e| format!("prewarm: {e}"))
     }
 
     fn preset_args(&self, preset: &str) -> bool {

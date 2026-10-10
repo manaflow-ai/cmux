@@ -245,19 +245,8 @@ impl TurnFolder {
             }
             (true, kind @ ("turn_end" | "turn_error")) => {
                 if let Some(turn) = self.current.take() {
-                    // JavaScript `String(msg.error ?? canonicalJson(msg))`; an
-                    // empty error is no error.
-                    let error = (kind == "turn_error")
-                        .then(|| {
-                            let text = match event.msg.get("error") {
-                                None | Some(Value::Null) => {
-                                    Value::Object(event.msg.clone()).to_string()
-                                }
-                                Some(error) => js_string(error),
-                            };
-                            utf16_prefix(&text, ERROR_CHARS)
-                        })
-                        .filter(|error| !error.is_empty());
+                    let error =
+                        (kind == "turn_error").then(|| turn_error_text(&event.msg)).flatten();
                     out.push(TurnOutput::Ended { turn, seq: event.seq, error });
                 }
             }
@@ -265,6 +254,18 @@ impl TurnFolder {
         }
         out
     }
+}
+
+/// The error text of a `turn_error` event's `msg`, as every Chief brain
+/// posts it (the shared behavior corpus): JavaScript
+/// `String(msg.error ?? canonicalJson(msg))`, cut at `ERROR_CHARS` UTF-16
+/// units; an empty error is no error.
+pub fn turn_error_text(msg: &Map<String, Value>) -> Option<String> {
+    let text = match msg.get("error") {
+        None | Some(Value::Null) => Value::Object(msg.clone()).to_string(),
+        Some(error) => js_string(error),
+    };
+    Some(utf16_prefix(&text, ERROR_CHARS)).filter(|error| !error.is_empty())
 }
 
 /// The text of the last turn that ended in an event list (a child's last reply).
@@ -331,104 +332,4 @@ pub(crate) fn utf16_prefix(text: &str, limit: usize) -> String {
         out.push(ch);
     }
     out
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    fn event(seq: u64, kind: &str, msg: Value) -> AcpmuxEvent {
-        let Value::Object(msg) = msg else { panic!() };
-        AcpmuxEvent {
-            session_id: None,
-            seq,
-            at: None,
-            dir: "mux".into(),
-            kind: kind.into(),
-            msg,
-            valid: true,
-        }
-    }
-
-    fn chunk(seq: u64, text: &str) -> AcpmuxEvent {
-        AcpmuxEvent {
-            dir: "agent".into(),
-            ..event(
-                seq,
-                "agent_message_chunk",
-                json!({"params": {"update": {"content": {"type": "text", "text": text}}}}),
-            )
-        }
-    }
-
-    #[test]
-    fn a_turn_folds_prompt_text_and_end() {
-        let mut folder = TurnFolder::default();
-        assert_eq!(
-            folder.apply(&event(1, "user_message", json!({"promptId": "msg_1"}))),
-            vec![TurnOutput::Accepted { prompt_id: "msg_1".into(), seq: 1 }]
-        );
-        let started = folder.apply(&event(2, "turn_started", json!({})));
-        assert!(
-            matches!(&started[..], [TurnOutput::Started { turn, .. }] if turn.prompt_id.as_deref() == Some("msg_1"))
-        );
-        folder.apply(&chunk(3, "Hel"));
-        folder.apply(&chunk(4, "lo"));
-        let ended = folder.apply(&event(5, "turn_end", json!({})));
-        assert_eq!(
-            ended,
-            vec![TurnOutput::Ended {
-                turn: Turn { turn_seq: 2, prompt_id: Some("msg_1".into()), text: "Hello".into() },
-                seq: 5,
-                error: None
-            }]
-        );
-        assert!(
-            folder.apply(&event(5, "turn_end", json!({}))).is_empty(),
-            "replay below the cursor"
-        );
-    }
-
-    #[test]
-    fn a_steered_prompt_joins_the_running_turn() {
-        let mut folder = TurnFolder::default();
-        folder.apply(&event(1, "user_message", json!({"promptId": "a"})));
-        folder.apply(&event(2, "turn_started", json!({})));
-        folder.apply(&event(3, "user_message", json!({"promptId": "b", "steer": true})));
-        let ended = folder.apply(&event(4, "turn_error", json!({"error": "boom"})));
-        assert!(
-            matches!(&ended[..], [TurnOutput::Ended { turn, error: Some(e), .. }] if turn.prompt_id.as_deref() == Some("a") && e == "boom")
-        );
-    }
-
-    #[test]
-    fn an_integer_valued_float_count_is_that_integer() {
-        // JSON has one number type: JavaScript's JSON.parse reads 1.0 as 1.
-        let read = |text: &str| serde_json::from_str::<AcpmuxEvent>(text).expect("event");
-        let event = read(r#"{"seq": 1.0, "at": 1790985600002.0, "dir": "mux", "kind": "x"}"#);
-        assert!(event.valid);
-        assert_eq!((event.seq, event.at), (1, Some(1_790_985_600_002)));
-        assert_eq!(read(r#"{"seq": 3e0, "kind": "x"}"#).seq, 3);
-        assert_eq!(read(r#"{"seq": -0.0, "kind": "x"}"#).seq, 0, "-0 is 0, as in JavaScript");
-        assert_eq!(read(r#"{"seq": 9007199254740991.0, "kind": "x"}"#).seq, MAX_SAFE_INTEGER);
-        for bad in ["2.5", "-1", "-1.0", "9007199254740992.0", "1e300", "\"1\""] {
-            let event = read(&format!(r#"{{"seq": {bad}, "kind": "x"}}"#));
-            assert!(!event.valid, "seq {bad} is not a count");
-        }
-        assert_eq!(lenient_count_value(&json!(5.0)), Some(5));
-    }
-
-    #[test]
-    fn last_reply_is_the_last_ended_turn() {
-        let events = vec![
-            event(1, "turn_started", json!({})),
-            chunk(2, " first "),
-            event(3, "turn_end", json!({})),
-            event(4, "turn_started", json!({})),
-            chunk(5, "second"),
-            event(6, "turn_end", json!({})),
-        ];
-        assert_eq!(last_reply(&events), "second");
-    }
 }

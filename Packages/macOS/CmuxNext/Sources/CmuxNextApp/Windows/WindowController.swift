@@ -20,7 +20,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// This window's focus state machine (plans/cmux-next/focus.md); it
     /// lives in the window's `WindowState`.
     var focus: FocusCoordinator { state.focus }
-    private(set) var focusApplier: FocusEffectApplier!
+    /// Built in init (lazy because it holds self; no IUO).
+    private(set) lazy var focusApplier = FocusEffectApplier(controller: self)
     private(set) var content: WorkspaceContentController?
     /// Recently shown workspaces kept mounted and paused, oldest first
     /// (plans/cmux-next/tab-lifecycle.md): switching back to one swaps its
@@ -49,6 +50,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         self.services = services
         let sidebar = SidebarBridge(services: services, state: state)
         self.sidebar = sidebar
+        SidebarProfileControl(services: services).install(model: sidebar.model, sidebar: sidebar.container.sidebarView)
         root = WindowRootView(sidebar: sidebar.container)
         // The static toggle runs the same action as the shortcut, palette and menu (R68).
         root.toolbarBand.onToggleSidebar = { [weak registry = services.registry] in
@@ -80,13 +82,13 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         if let frame { window.setFrame(frame, display: false) } else { window.center() }
         window.delegate = self
         window.focus = focus
-        focusApplier = FocusEffectApplier(controller: self)
         focus.applier = focusApplier
         focus.send(.appActive(NSApp.isActive))
         startShortcutHints()
         observeWorkspace()
         observeRoom()
         observeSidebarHidden()
+        followContentChanges()
     }
 
     @available(*, unavailable)
@@ -127,13 +129,13 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     private func observeWorkspace() {
         let machines = services.machines
-        let cloud = services.cloud!
-        let windows = services.windows!
+        let cloud = services.cloud
+        let windows = services.windows
         let state = state
         workspaceObservation = Task { [weak self] in
             for await _ in Observations({ () -> [String] in
                 // Re-run when the request or any machine's workspace list changes.
-                [state.workspaceID ?? "", state.page?.rawValue ?? "", state.machineID, String(cloud.hasLoadedMachines)]
+                [state.workspaceID ?? "", state.page?.rawValue ?? "", state.machineID, String(cloud.hasLoadedMachines), Self.creationKey(state, cloud, machines)]
                     + windows.registry.members(of: state.id)
                     + machines.daemons.map { "\($0.machineID):\($0.store.isLoaded):\($0.store.workspaces.map(\.id))" }
             }) {
@@ -157,7 +159,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             controller.teardown()
             return true
         }
-        if let page = state.page, showTopPage(page) { return }
+        if state.page.map(showTopPage) == true || showCreation() { return }
         if let requested, let (workspace, daemon) = machines.workspace(id: requested) {
             if !showsHomePage(instead: workspace) { show(workspace, on: daemon) }
             return
@@ -330,7 +332,6 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionProviding, TitlebarAccessoryHosting, WindowChromeHosting {
     /// The incognito badge in the top row while the sidebar is hidden.
     var titlebarAccessoryFrame: CGRect? { (contentView as? WindowRootView)?.titlebarAccessoryFrame }
-    var windowControlsCollapsed: Bool { (contentView as? WindowRootView)?.windowControlsCollapsed ?? false }
     var sidebarHidden: Bool { (contentView as? WindowRootView)?.sidebarHidden ?? false }
 
     weak var keyRouter: KeyRouter?
@@ -355,6 +356,8 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // A panel over this window has the keys: no Ghostty keybind below (`KeyRouter.overlayHasKeys`).
+        if !isKeyWindow, let focus, KeyRouter.overlayHasKeys(focus.state) { return false }
         if let keyRouter, let focus, keyRouter.routeContentKeyEquivalent(event, focus: focus.state) { return true }
         return super.performKeyEquivalent(with: event)
     }

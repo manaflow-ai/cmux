@@ -283,3 +283,54 @@ fn elevated_scopes_are_never_granted_at_install_and_need_a_user_grant() {
         assert!(!revoked.apps["local/c"].grants.contains("terminal:backend"));
     }
 }
+
+#[test]
+fn sidebar_layout_read_comes_with_the_app_and_write_needs_a_user_grant() {
+    // The sidebar layout is the user's own arrangement
+    // (plans/cmux-next/sidebar-sections.md 5): every tier reads it with the
+    // app, and no tier changes it without the user's explicit grant.
+    for tier in [Tier::FirstParty, Tier::Verified, Tier::Unverified] {
+        let mut fx = facts(tier, Source::Local);
+        fx.requested.insert("sidebar_layout:read".into());
+        fx.requested.insert("sidebar_layout:write".into());
+        let install = set("1", "local/c", |o| o.installed = Some(true));
+        let m = reduce(&Mirror::default(), &install, Some(&fx)).unwrap().mirror;
+        let grants = &m.apps["local/c"].grants;
+        assert!(grants.contains("sidebar_layout:read"), "{tier:?} read");
+        assert!(!grants.contains("sidebar_layout:write"), "{tier:?} write at install");
+        let grant = |key: &str, origin: Origin| {
+            let mut op =
+                set(key, "local/c", |o| o.grant = Some(("sidebar_layout:write".into(), true)));
+            if let Op::Set(set) = &mut op {
+                set.origin = origin;
+            }
+            op
+        };
+        assert_eq!(
+            reduce(&m, &grant("2", Origin::Mcp), Some(&fx)),
+            Err(Reject::ScopeElevated("sidebar_layout:write".into())),
+            "{tier:?} mcp"
+        );
+        let granted = reduce(&m, &grant("3", Origin::User), Some(&fx)).unwrap().mirror;
+        assert!(granted.apps["local/c"].grants.contains("sidebar_layout:write"), "{tier:?} user");
+    }
+}
+
+/// A scope the class table does not know (a newer manifest, or a table that
+/// failed to load) is treated as elevated: never granted at install or seed,
+/// and never granted by a non-user origin (fail closed, crash program H5
+/// review). Before, `is_elevated` returned false for an unknown scope, so a
+/// default app was seeded with it without consent.
+#[test]
+fn unknown_scopes_are_treated_as_elevated() {
+    assert!(is_elevated("nonsense"));
+    let mut seeded = facts(Tier::FirstParty, Source::Default);
+    seeded.requested.insert("nonsense".into());
+    let m = reduce(&Mirror::default(), &Op::Seed { app: "cmux/a".into() }, Some(&seeded))
+        .unwrap()
+        .mirror;
+    assert!(!m.apps["cmux/a"].grants.contains("nonsense"));
+    assert!(m.apps["cmux/a"].grants.contains("workspace:write"));
+    let (grants, _) = seeded.install_defaults();
+    assert!(!grants.contains("nonsense"));
+}

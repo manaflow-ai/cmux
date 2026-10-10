@@ -6,7 +6,7 @@
 //! later `cmux` reattaches through the same socket instead of racing to
 //! rebuild the mux and adopt the durable terminal hosts. `ensure_owner` is
 //! the single entrypoint shared by the interactive startup path and the
-//! `cmux server ensure` CLI verb.
+//! `cmux daemon ensure` CLI verb (`cmux-tui server ensure`).
 //!
 //! The owner is spawned with no controlling terminal and null stdio; its
 //! diagnostics go to the bounded client log at the session state root.
@@ -140,6 +140,10 @@ pub(crate) struct OwnerSpec {
     /// The app's install key for an owner this call spawns (`server ensure
     /// --install-key-stdin`); a running owner never receives it.
     pub install_key: Option<cmux_tui_core::server::FrontendKey>,
+    /// `CMUX_TUI_CHIEF_TOOLS_SOCKET` for an owner this call spawns: the
+    /// Chief brain's tools socket, so the owner serves chief.engine.* and
+    /// chief.stop (only `cmux chief` sets it, for its Chief home's owner).
+    pub chief_tools_socket: Option<PathBuf>,
 }
 
 /// A validated, client-ready owner.
@@ -547,6 +551,9 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
         }
     }
     configure_detached_owner_environment(&mut command);
+    if let Some(tools) = &spec.chief_tools_socket {
+        command.env("CMUX_TUI_CHIEF_TOOLS_SOCKET", tools);
+    }
     #[cfg(unix)]
     let (ready, ready_writer) = ready_pipe(&mut command)?;
     #[cfg(unix)]
@@ -680,6 +687,7 @@ mod tests {
                 initial_host_colors: None,
                 terminal_reap_grace: None,
                 install_key: None,
+                chief_tools_socket: None,
             }
         }
 

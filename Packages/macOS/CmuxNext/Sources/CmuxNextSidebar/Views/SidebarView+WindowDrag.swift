@@ -68,7 +68,6 @@ extension SidebarListView {
         suppressed.subtract(drag.hiddenKeys)
         for key in drag.hiddenKeys { rowViews[key]?.alphaValue = 1 }
         reload(animated: true)
-        decorations.setPill(activePillFrame(in: displayed), animated: false)
     }
 }
 
@@ -79,7 +78,7 @@ extension NSView {
         let scale = window?.backingScaleFactor ?? 2
         let width = Int(bounds.width * scale), height = Int(bounds.height * scale)
         guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
-                                      space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                      space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         context.scaleBy(x: scale, y: scale)
         if layer.contentsAreFlipped() {

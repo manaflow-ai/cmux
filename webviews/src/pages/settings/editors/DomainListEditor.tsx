@@ -32,7 +32,7 @@ export function DomainListEditor({ row, value, disabled, labelId }: EditorProps)
         style={current ? font(current) : undefined}
         onClick={() => setOpen(!open)}
       >
-        {current ?? text(row.default_label)}
+        {current === null || current === row.default ? text(row.default_label) || current : current}
         <Icon name="chevron" />
       </button>
       {open && !disabled && (

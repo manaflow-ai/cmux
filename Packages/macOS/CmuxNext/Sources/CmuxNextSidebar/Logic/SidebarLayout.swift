@@ -54,12 +54,29 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         metrics m: SidebarLayoutMetrics,
         options o: SidebarLayoutOptions = SidebarLayoutOptions()
     ) -> SidebarLayout {
+        if o.hidesWorkspaces { return .empty }
         var rows: [SidebarRow] = []
         var y = m.topPadding
         var gapY: CGFloat?
         let filtering = o.filterMatches != nil
         // One machine needs no machine header: its name adds nothing.
         let machineCount = sections.reduce(0) { $0 + ($1.machine == nil ? 0 : 1) }
+        // A computer that cannot connect until the person acts keeps its own
+        // header in the one list (cx-zdh8): its status, error and menu, even
+        // with no workspaces or under a collapsed list. Never this Mac.
+        func flagged(_ section: SidebarSection) -> Bool {
+            guard o.flattensMachines, !filtering, let machine = section.machine else { return false }
+            return machine.kind != .local && machine.status.needsAttention
+        }
+        // One list: an empty computer shows nothing, unless no computer has a
+        // row (the first one keeps its empty placeholder, a drop target).
+        let listsAnyMachineRow = sections.contains { $0.machine != nil && !$0.nodes.isEmpty && !flagged($0) }
+        var previousWasMachine = false
+        var shownEmptyMachine = false
+        // One list sits under one "Projects" header (the first computer's),
+        // which collapses the whole list.
+        var machineShown = false
+        var listCollapsed = false
 
         func visible(_ ws: SidebarWorkspace) -> Bool {
             !o.excludedWorkspaces.contains(ws.id) && (o.filterMatches?.contains(ws.id) ?? true)
@@ -106,21 +123,36 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             if nodes.isEmpty && filtering { continue }
             if isPinned && nodes.isEmpty && !o.showEmptyPinned && !gapHere { continue }
 
-            if !firstSection { y += m.sectionSpacing }
+            let flat = o.flattensMachines && section.machine != nil
+            let flagged = flagged(section)
+            if flat && !flagged && (listCollapsed || nodes.isEmpty && !gapHere && (listsAnyMachineRow || shownEmptyMachine)) { continue }
+            let leadsList = flat && !flagged && !machineShown
+            if section.machine != nil && !flagged { machineShown = true }
+            if flat && !flagged && nodes.isEmpty { shownEmptyMachine = true }
+            // Consecutive computers in one list read as one list: no gap.
+            if !firstSection && !(flat && !flagged && previousWasMachine) { y += m.sectionSpacing }
             firstSection = false
-            let showsHeader = section.machine == nil || machineCount > 1 || o.showsSoleMachineHeader
+            previousWasMachine = section.machine != nil && !flagged
+            let showsHeader = section.machine == nil || flagged
+                || (flat ? leadsList && o.showsSoleMachineHeader : machineCount > 1 || o.showsSoleMachineHeader)
+            // The computer a row names in one list (never this Mac; a flagged
+            // computer's header names it).
+            let machineLabel = flat && !flagged && section.machine?.kind != .local ? section.machine?.name : nil
             // Without a header there is nothing to expand it from.
             let collapsed = showsHeader && section.isCollapsed && !filtering
+            if flat && !flagged && collapsed { listCollapsed = true }
             if showsHeader {
                 rows.append(SidebarRow(
                     key: .section(section.id), y: y, height: m.sectionHeaderHeight, section: section.id,
                     group: nil, siblingIndex: 0, parentIndex: nil, isLastInGroup: false,
                     isCollapsed: collapsed, childCount: nodes.count, groupColor: nil,
-                    titlesProjects: section.machine != nil && machineCount == 1
+                    titlesProjects: section.machine != nil && !flagged && (machineCount == 1 || flat)
                 ))
                 y += m.sectionHeaderHeight + m.rowSpacing
             }
-            if collapsed { continue }
+            if collapsed || flagged && listCollapsed { continue }
+            // A flagged computer's header says it all: no empty drop row.
+            if flagged && nodes.isEmpty && !gapHere { continue }
 
             if nodes.isEmpty {
                 if gapHere {
@@ -136,16 +168,18 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                 continue
             }
 
-            for (index, entry) in nodes.enumerated() {
+            // One node at its model index (drops resolve by it, whatever the drawn order).
+            func emit(_ index: Int, _ entry: (node: SidebarNode, children: [SidebarWorkspace])) {
                 openGapIfNeeded(section: section.id, group: nil, index: index)
                 switch entry.node {
                 case let .workspace(ws):
-                    let h = m.height(for: ws)
+                    let content = WorkspaceRowContent(ws, preferences: o.workspaceRow, now: o.now, machine: machineLabel)
+                    let h = m.height(for: content)
                     rows.append(SidebarRow(
                         key: .workspace(ws.id), y: y, height: h, section: section.id,
                         group: nil, siblingIndex: index, parentIndex: nil, isLastInGroup: false,
                         isCollapsed: false, childCount: 0, groupColor: nil,
-                        tabDisclosure: disclosure(ws), tabCount: o.showCounts ? ws.tabs.count : nil
+                        tabDisclosure: disclosure(ws), content: content
                     ))
                     y += h + m.rowSpacing
                     if listsTabs(ws) {
@@ -167,16 +201,17 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                         isCollapsed: groupCollapsed, childCount: entry.children.count, groupColor: group.color
                     ))
                     y += m.groupHeaderHeight + m.rowSpacing
-                    guard !groupCollapsed else { continue }
+                    guard !groupCollapsed else { return }
                     for (childIndex, ws) in entry.children.enumerated() {
                         openGapIfNeeded(section: section.id, group: group.id, index: childIndex)
-                        let h = m.height(for: ws)
+                        let content = WorkspaceRowContent(ws, preferences: o.workspaceRow, now: o.now, machine: machineLabel)
+                    let h = m.height(for: content)
                         rows.append(SidebarRow(
                             key: .workspace(ws.id), y: y, height: h, section: section.id,
                             group: group.id, siblingIndex: childIndex, parentIndex: index,
                             isLastInGroup: childIndex == entry.children.count - 1,
                             isCollapsed: false, childCount: 0, groupColor: group.color,
-                            tabDisclosure: disclosure(ws), tabCount: o.showCounts ? ws.tabs.count : nil
+                            tabDisclosure: disclosure(ws), content: content
                         ))
                         y += h + m.rowSpacing
                         if listsTabs(ws) {
@@ -194,6 +229,39 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                     openGapIfNeeded(section: section.id, group: group.id, index: entry.children.count)
                     y += m.groupBottomPadding
                 }
+            }
+            func isGroup(_ entry: (node: SidebarNode, children: [SidebarWorkspace])) -> Bool {
+                if case .group = entry.node { true } else { false }
+            }
+
+            let byFolder = o.groupsByFolder && section.machine != nil && machineCount == 1 && !filtering
+            guard byFolder else {
+                for (index, entry) in nodes.enumerated() { emit(index, entry) }
+                openGapIfNeeded(section: section.id, group: nil, index: nodes.count)
+                continue
+            }
+            // Group by Folder: groups as they were, then a header per folder
+            // over its loose rows, folders in first-seen order, "no folder" last.
+            for (index, entry) in nodes.enumerated() where isGroup(entry) { emit(index, entry) }
+            var folders: [String] = []
+            var members: [String: [Int]] = [:]
+            for (index, entry) in nodes.enumerated() {
+                guard case let .workspace(ws) = entry.node else { continue }
+                let folder = ws.folder ?? ""
+                if members[folder] == nil { folders.append(folder) }
+                members[folder, default: []].append(index)
+            }
+            if let none = folders.firstIndex(of: ""), none != folders.count - 1 { folders.append(folders.remove(at: none)) }
+            for folder in folders {
+                let indices = members[folder] ?? []
+                rows.append(SidebarRow(
+                    key: .folder(section.id, folder), y: y, height: m.groupHeaderHeight, section: section.id,
+                    group: nil, siblingIndex: 0, parentIndex: nil, isLastInGroup: false,
+                    isCollapsed: false, childCount: indices.count, groupColor: nil
+                ))
+                y += m.groupHeaderHeight + m.rowSpacing
+                for index in indices { emit(index, nodes[index]) }
+                y += m.groupBottomPadding
             }
             openGapIfNeeded(section: section.id, group: nil, index: nodes.count)
         }

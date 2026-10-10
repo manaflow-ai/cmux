@@ -16,7 +16,7 @@ extension AgentPaneModel {
     /// splits and the "..." menu's tab verbs.
     public static let headerActions: Set<String> = [
         "splitRight", "splitBrowserRight", "renameTab", "palette.toggleTabPin",
-        "moveSurfaceToPaneRight", "palette.moveTabToNewWorkspace", "closeTab",
+        "moveSurfaceToPaneRight", "palette.moveTabToNewWorkspace", "tab.moveToNewWindow", "closeTab",
     ]
 
     /// `pane.action` runs a listed action on a chat (never the New Tab page); `pane.tabState`
@@ -27,7 +27,8 @@ extension AgentPaneModel {
             guard newTab == nil, Self.headerActions.contains(id), let header else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.action")
             }
-            header.run(id, cwd)
+            // The Terminal split names the chat's folder; agent-home is the chat's only.
+            header.run(id, folderForOtherTabs(cwd))
             return AgentPaneReply.success()
         case .tabState:
             guard let header else {

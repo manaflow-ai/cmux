@@ -119,7 +119,8 @@ struct SpringElement {
     var isPulse: Bool { abs(to - from) < 1e-6 }
     func share(_ i: Int) -> Double {
         let total = components.reduce(0) { $0 + $1.delta }
-        return abs(total) < 1e-9 ? 0 : components[i].delta / total
+        guard let component = components[checked: i] else { return 0 } // cmux: checked
+        return abs(total) < 1e-9 ? 0 : component.delta / total
     }
     /// Value at `tau` after the event for a move from `a` to `b` (pulse: `a` plus the fitted deltas).
     func value(_ tau: Double, from a: Double, to b: Double) -> Double {
@@ -150,9 +151,9 @@ enum Springs {
                                                spring: Spring(duration: duration, bounce: c["bounce"] as? Double ?? 0,
                                                               initialVelocity: c["initialVelocity"] as? Double ?? 0),
                                                delta: c["delta"] as? Double ?? 0,
-                                               curve: cp?.count == 4 ? Curve(x1: cp![0], y1: cp![1], x2: cp![2], y2: cp![3], duration: duration) : nil)
+                                               curve: cp.flatMap { $0.count == 4 ? Curve(x1: $0[0], y1: $0[1], x2: $0[2], y2: $0[3], duration: duration) : nil }) // cmux: no force unwrap
             }
-            out[name] = SpringElement(name: name, from: e["from"] as? Double ?? 0, to: e["to"] as? Double ?? 0, components: comps)
+            out.updateValue(SpringElement(name: name, from: e["from"] as? Double ?? 0, to: e["to"] as? Double ?? 0, components: comps), forKey: name) // cmux
         }
         return out
     }()
@@ -164,13 +165,28 @@ enum Springs {
     static var read: SpringElement { element("transcript.read") }
     static var typing: SpringElement { element("transcript.typing") }
     static var receive: SpringElement { element("transcript.receive") }
+    /// A received photo or video (lossless send-typed-media take: an ease-in-out move, the
+    /// photo's opacity following it).
+    static var receiveMedia: SpringElement { element("transcript.receiveMedia") }
+    /// My tapback (lossless tapback-menu-heart-take1: the rows above the part move 27.5 pt
+    /// 90 ms after our react commit, an ease-in-out of 0.29 s).
+    static var tapback: SpringElement { element("transcript.tapback") }
+    static func isMedia(_ p: Part) -> Bool {
+        if case let .attachment(a) = p { return a.kind == "image" || a.kind == "video" }
+        return false
+    }
     /// An outgoing message that arrives from outside the field (another
     /// device, a script): no morph, no field collapse.
     static var insert: SpringElement { element("transcript.insert") }
     static var bubbleRight: SpringElement { element("bubble.right") }
-    static var bubbleWidth: SpringElement { element("bubble.width") }
+    /// The send morph's width and scale: macOS 27 fits (lossless takes), and the macOS 26 fits
+    /// (the macOS 26 original recording) where `ComposeMetrics.macOS26` says so.
+    static var bubbleWidth: SpringElement { osElement("bubble.width") }
     static var bubbleCenterY: SpringElement { element("bubble.centerY") }
-    static var bubbleScale: SpringElement { element("bubble.scale") }
+    static var bubbleScale: SpringElement { osElement("bubble.scale") }
+    static func osElement(_ name: String) -> SpringElement {
+        ComposeMetrics.macOS26 ? (all[name + ".macOS26"] ?? element(name)) : element(name)
+    }
     static var bubbleOpacity: SpringElement { element("bubble.opacity") }
     static var fieldTop: SpringElement { element("field.top") }
     static var fieldOpacity: SpringElement { element("field.opacity") }
@@ -202,7 +218,8 @@ enum Springs {
 /// `final + sum_i delta_i (p_i(t) - 1)`, which equals the fitted element.
 /// Further animations on the same key path add up (no snap on interruption).
 enum Animate {
-    private static var serial = 0
+    /// Animations added so far (also the key serial; the bench counts animations per commit).
+    private(set) static var serial = 0
 
     /// Local time of `layer` now (virtual time when the root is paused).
     static func now(_ layer: CALayer) -> CFTimeInterval { layer.convertTime(CACurrentMediaTime(), from: nil) }
@@ -258,7 +275,7 @@ enum Animate {
     static func sampledPulse(_ layer: CALayer, _ keyPath: String, _ element: SpringElement, base: Double, depth: Double = 1,
                              begin: CFTimeInterval) {
         let end = element.settleTime
-        let n = max(2, Int(end * 240))
+        let n = max(2, CrashGuard.int(end * 240, in: 0...14_400)) // cmux: at most 60 s of samples, no trap on NaN
         let a = CAKeyframeAnimation(keyPath: keyPath)
         a.values = (0...n).map {
             NSNumber(value: min(1, max(0, base + depth * (element.value(Double($0) / 240, from: base, to: base) - base))))
@@ -277,10 +294,11 @@ enum Animate {
     /// lowest value and then stays at 0 (a surface that leaves with the
     /// pulse's fade-out and does not come back). Sampled at 240 Hz.
     static func sampledUntilMinimum(_ layer: CALayer, _ keyPath: String, _ element: SpringElement, base: Double, begin: CFTimeInterval) {
-        let n = max(2, Int(element.settleTime * 240))
-        var values: [Double] = (0...n).map { min(1, max(0, element.value(Double($0) / 240, from: base, to: base))) }
-        let low = values.indices.min { values[$0] < values[$1] } ?? n
-        for i in low...n { values[i] = 0 }
+        let n = max(2, CrashGuard.int(element.settleTime * 240, in: 0...14_400)) // cmux: at most 60 s, no trap on NaN
+        let samples: [Double] = (0...n).map { min(1, max(0, element.value(Double($0) / 240, from: base, to: base))) }
+        // cmux: zero from the lowest sample on, without index math.
+        let low = samples.enumerated().min { $0.element < $1.element }?.offset ?? n
+        let values = samples.enumerated().map { $0.offset >= low ? 0 : $0.element }
         let a = CAKeyframeAnimation(keyPath: keyPath)
         a.values = values.map { NSNumber(value: $0) }
         a.keyTimes = (0...n).map { NSNumber(value: Double($0) / Double(n)) }
@@ -291,6 +309,24 @@ enum Animate {
         a.isRemovedOnCompletion = true
         serial += 1
         layer.add(a, forKey: "sampled.\(keyPath).\(serial)")
+    }
+
+    /// `--x-two-animation-springs`: the hold-and-spring form in live trees too (the before arm of
+    /// the A/B bench of the one-animation form; animations per send).
+    static let twoAnimationForm = ProcessInfo.processInfo.arguments.contains("--x-two-animation-springs")
+
+    /// Whether `layer` is in a paused tree (an ancestor with speed 0: captures, checks, live grabs),
+    /// where the render server did not hold a backward fill for a start that lay ahead. A layer
+    /// with no superlayer (a mask, a detached layer) counts as paused: the two-animation form is
+    /// right in both trees.
+    static func inPausedTree(_ layer: CALayer) -> Bool {
+        if twoAnimationForm { return true }
+        var l = layer
+        while let up = l.superlayer {
+            if l.speed == 0 { return true }
+            l = up
+        }
+        return l === layer || l.speed == 0
     }
 
     /// Model opacity for "hidden" layers that still animate: the render
@@ -305,6 +341,26 @@ enum Animate {
     /// (The earlier 240 Hz keyframe path boxed 150-300 NSNumbers per row per
     /// send: 485k main-thread allocations in 20 fast sends.)
     static func sampled(_ layer: CALayer, _ keyPath: String, delta d: Double, spring: Spring, delay: Double, begin: CFTimeInterval) -> String {
+        if !inPausedTree(layer) {
+            // A live tree holds a backward fill (only a paused tree did not): one animation, not
+            // a hold and a spring. The same presented values (Presenter evaluates both alike).
+            let a = CASpringAnimation(keyPath: keyPath)
+            a.mass = 1
+            a.stiffness = spring.stiffness
+            a.damping = spring.damping
+            a.initialVelocity = spring.initialVelocity
+            a.fromValue = -d
+            a.toValue = 0.0
+            a.isAdditive = true
+            a.beginTime = begin + delay
+            a.duration = spring.settlingTime()
+            a.fillMode = .backwards
+            a.isRemovedOnCompletion = true
+            serial += 1
+            let key = "spring.\(keyPath).\(serial)"
+            layer.add(a, forKey: key)
+            return key
+        }
         let hold = CAKeyframeAnimation(keyPath: keyPath)
         hold.values = [-d, -d]
         hold.beginTime = begin
@@ -336,7 +392,8 @@ enum Animate {
     /// spring (no backward fill; a paused tree did not honour it).
     static func basic(_ layer: CALayer, _ keyPath: String, delta d: Double, curve: Curve, begin: CFTimeInterval,
                       holdFrom: CFTimeInterval) -> String {
-        if begin > holdFrom {
+        let live = begin > holdFrom && !inPausedTree(layer)
+        if begin > holdFrom, !live {
             let hold = CAKeyframeAnimation(keyPath: keyPath)
             hold.values = [-d, -d]
             hold.beginTime = holdFrom
@@ -354,7 +411,7 @@ enum Animate {
         a.isAdditive = true
         a.beginTime = begin
         a.duration = curve.duration
-        if begin <= holdFrom { a.fillMode = .backwards }
+        if begin <= holdFrom || live { a.fillMode = .backwards }
         a.isRemovedOnCompletion = true
         serial += 1
         let key = "curve.\(keyPath).\(serial)"
@@ -437,17 +494,19 @@ enum Presenter {
                 tau = 0
             }
             let total = k.duration * Double(max(1, k.repeatCount))
-            if k.repeatCount < .infinity, tau >= total { return k.isRemovedOnCompletion ? nil : (kp, values.last!.doubleValue) }
+            if k.repeatCount < .infinity, tau >= total { return k.isRemovedOnCompletion ? nil : values.last.map { (kp, $0.doubleValue) } } // cmux: no force unwrap
             // Wrap only repeating animations (a one-shot at exactly its end
             // must not wrap to its first value).
             if k.repeatCount > 1 { tau = tau.truncatingRemainder(dividingBy: k.duration) }
             let u = tau / k.duration
             let times = (k.keyTimes ?? []).map(\.doubleValue)
             let ts = times.count == values.count ? times : values.indices.map { Double($0) / Double(values.count - 1) }
-            var i = 1
-            while i < ts.count - 1, ts[i] < u { i += 1 }
-            let f = max(0, min(1, (u - ts[i - 1]) / max(1e-9, ts[i] - ts[i - 1])))
-            let v = values[i - 1].doubleValue + (values[i].doubleValue - values[i - 1].doubleValue) * f
+            // cmux: the first inner key time at or past u, else the last; checked reads.
+            let i = ts.dropFirst().dropLast().firstIndex(where: { $0 >= u }) ?? max(1, ts.count - 1)
+            guard let t0 = ts[checked: i - 1], let t1 = ts[checked: i], let v0 = values[checked: i - 1]?.doubleValue,
+                  let v1 = values[checked: i]?.doubleValue else { return (kp, values.last?.doubleValue ?? 0) }
+            let f = max(0, min(1, (u - t0) / max(1e-9, t1 - t0)))
+            let v = v0 + (v1 - v0) * f
             return (kp, v)
         }
         return nil

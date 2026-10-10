@@ -16,6 +16,9 @@ let package = Package(
     ],
     products: [
         .library(name: "MessagesLabHome", targets: ["MessagesLabHome"]),
+        // MessagesLab's conversation list (appkit-native/SIDEBAR.md, the v1 seam): its own
+        // module because its ConversationID and ConversationSummary are not CmuxHomeCore's.
+        .library(name: "MessagesLabSidebar", targets: ["MessagesLabSidebar"]),
     ],
     dependencies: [
         .package(path: "../CmuxHomeCore"),
@@ -34,6 +37,24 @@ let package = Package(
                 .process("Resources/CmuxHome.xcstrings"),
                 .copy("Resources/springs.json"),
             ],
+            swiftSettings: [
+                .swiftLanguageMode(.v5),
+                .define("APPKIT_NATIVE"),
+            ]
+        ),
+        .target(
+            name: "MessagesLabSidebar",
+            resources: [
+                .process("Resources/SidebarLocalizable.xcstrings"),
+            ],
+            swiftSettings: [
+                .swiftLanguageMode(.v5),
+                .define("APPKIT_NATIVE"),
+            ]
+        ),
+        .testTarget(
+            name: "MessagesLabSidebarTests",
+            dependencies: ["MessagesLabSidebar"],
             swiftSettings: [
                 .swiftLanguageMode(.v5),
                 .define("APPKIT_NATIVE"),

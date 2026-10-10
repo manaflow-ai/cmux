@@ -26,7 +26,7 @@ final class FocusEffectApplier: FocusEffectApplying {
         let center = NotificationCenter.default
         observers.append(center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { [weak self] note in
             let window = note.object as? NSWindow
-            MainActor.assumeIsolated {
+            MainActor.assumeIsolated { // main-proof: observer on queue: .main
                 guard let window else { return }
                 self?.ownedWindowDidBecomeKey(window)
                 self?.childWindowDidBecomeKey(window)
@@ -34,13 +34,13 @@ final class FocusEffectApplier: FocusEffectApplying {
         })
         for (name, active) in [(NSApplication.didBecomeActiveNotification, true), (NSApplication.didResignActiveNotification, false)] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated {
+                MainActor.assumeIsolated { // main-proof: observer on queue: .main
                     self?.controller.focus.send(.appActive(active))
                     if active { self?.reclaimKeyAfterActivation() }
                 }
             })
         }
-        controller.services.observeFocus(of: controller)
+        controller.services.input.observeFocus(of: controller)
     }
 
     func teardown() {
@@ -83,6 +83,8 @@ final class FocusEffectApplier: FocusEffectApplying {
 
     private func moveResponder(_ resolved: FocusState.Resolved, state: FocusState) {
         guard let window = controller.window else { return }
+        // The parked New Tab spare follows the focused pane's size (NewTabSparePool).
+        controller.services.newTabSpares.paneLayoutDidChange(in: window)
         switch resolved {
         case .terminal(let pane, let tab):
             guard case .terminal(let entry)? = presented(pane: pane, tab: tab) else { return }
@@ -265,7 +267,7 @@ final class FocusEffectApplier: FocusEffectApplying {
         controller.focus.send(.overlayOpened(.groupEditor))
         overlayPanelObserver = NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: owned,
                                                                       queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.overlayPanelDidResignKey() }
+            MainActor.assumeIsolated { self?.overlayPanelDidResignKey() } // main-proof: observer on queue: .main
         }
     }
 
@@ -367,7 +369,7 @@ final class FocusEffectApplier: FocusEffectApplying {
         if context.agent { next.insert(.agentPaneFocused) }
         if case .addressBar = controller.focus.state.resolved { next.insert(.omnibarFocused) }
         // The same rule as `KeyRouter.keyContext`: the focused page's id (diff, markdown, code editor).
-        switch services.keyRouter?.focusedPage(in: controller)?.descriptor.id {
+        switch services.keyRouter.focusedPage(in: controller)?.descriptor.id {
         case KeyRouter.diffPageID?: next.insert(.diffViewerFocused)
         case KeyRouter.markdownPageID?: next.insert(.markdownFocused)
         case KeyRouter.codeEditorPageID?: next.insert(.codeEditorFocused)

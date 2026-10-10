@@ -21,7 +21,9 @@ use std::sync::{Arc, Mutex};
 use common::*;
 use optchat_chief::brain::Settings;
 use optchat_chief::fold::{Usage, answer_usage};
-use optchat_chief::prompt::{Tools, cached_layout, claude_md, system_text, turn_blocks};
+use optchat_chief::prompt::{
+    CacheTtl, Mark, Tools, cached_layout_marked, claude_md, system_text, turn_blocks,
+};
 use optchat_core::Kind;
 use serde_json::{Value, json};
 
@@ -68,52 +70,66 @@ fn harness_with(settings: impl FnOnce(&std::path::Path) -> Settings) -> Harness 
     Harness::configured(dir, default_script(), owner(), s, Arc::new(|_: &str| {}))
 }
 
+/// Spec 3.3 (gist 3c190e0): the view goes in blocks of 4 lines, one marker
+/// on the last whole block; the system prompt is the constant text alone, so
+/// turns and compactions send the same one. A turn also marks the `<chat>`
+/// header (the system prompt's own entry, as the reference marks its
+/// system): soak at 80935c94f722, turns during an import read nothing at all,
+/// not even the system prompt, once the view changed near its start.
 #[test]
-fn a_claude_turn_puts_the_view_head_in_the_presets_system_prompt_and_one_marker_at_the_last_mark() {
+fn a_claude_turn_marks_the_last_whole_four_line_block_of_the_view() {
     let mut h = harness_with(settings);
     h.agents.inner.lock().unwrap().system_prompts = true;
     fill(&h.chat, 1_200);
     let view = h.chat.render_view().text;
-    let marks = optchat_core::cache_marks(&view);
-    assert_eq!(
-        marks.len(),
-        3,
-        "a view past 100k characters: {}",
-        view.len()
-    );
+    let pieces = optchat_core::block_pieces(&view);
     h.connect();
     h.say("user_local", "where is project 7?");
     h.settle();
     let inner = h.agents.inner.lock().unwrap();
-    // The turn names the turn preset, whose system prompt it set first.
     assert_eq!(inner.specs[0].preset.as_deref(), Some(TURN_PRESET));
-    let expected = format!("{}\n\n{}", claude_md(None), &view[..marks[0]]);
     assert_eq!(
         inner.prompt_sets,
-        vec![(TURN_PRESET.to_owned(), expected.clone())]
+        vec![(TURN_PRESET.to_owned(), claude_md(None))]
     );
-    assert_eq!(inner.systems[0].as_deref(), Some(expected.as_str()));
-    // The rest of the view, one marker on the piece ending at 100k, then
-    // the new message.
+    assert_eq!(inner.systems[0].as_deref(), Some(claude_md(None).as_str()));
     let blocks = &inner.prompts[0];
     let t = texts(blocks);
-    assert_eq!(t[..t.len() - 1].concat(), view[marks[0]..]);
+    assert_eq!(t[..t.len() - 1].concat(), view);
+    assert_eq!(t.len(), pieces.len() + 1);
     assert_eq!(t.last().unwrap(), "where is project 7?");
-    assert_eq!(markers(blocks), vec![t.len() - 3]);
+    // The header, then the last whole block (the piece before the
+    // incomplete one).
+    assert_eq!(markers(blocks), vec![0, t.len() - 3]);
+    assert_eq!(t[0], "<chat>\n");
+    assert_eq!(
+        blocks[0]["cache_control"],
+        json!({"type": "ephemeral", "ttl": "1h"})
+    );
+    let marked = &t[t.len() - 3];
+    assert_eq!(marked.lines().count(), optchat_core::BLOCK_LINES);
+    // A 1-hour mark on the Claude Code path (tests/turn_cache.rs).
     assert_eq!(
         blocks[t.len() - 3]["cache_control"],
-        json!({"type": "ephemeral"})
+        json!({"type": "ephemeral", "ttl": "1h"})
     );
-    assert_eq!(
-        *blocks,
-        cached_layout(&claude_md(None), &view, "where is project 7?", true).blocks
-    );
-    // The system prompt carries the instructions: no CLAUDE.md as well.
+    let mut expected = cached_layout_marked(
+        &claude_md(None),
+        &view,
+        "where is project 7?",
+        Some(Mark {
+            piece: t.len() - 3,
+            ttl: CacheTtl::OneHour,
+        }),
+    )
+    .blocks;
+    expected[0]["cache_control"] = json!({"type": "ephemeral", "ttl": "1h"});
+    assert_eq!(*blocks, expected);
     assert!(!h.dir.path().join("session").join("CLAUDE.md").exists());
 }
 
 #[test]
-fn consecutive_claude_turns_send_a_byte_identical_system_prompt_while_the_view_head_holds() {
+fn consecutive_claude_turns_find_the_last_turns_marker_within_the_lookback() {
     let mut h = harness_with(settings);
     h.agents.inner.lock().unwrap().system_prompts = true;
     fill(&h.chat, 1_200);
@@ -124,18 +140,13 @@ fn consecutive_claude_turns_send_a_byte_identical_system_prompt_while_the_view_h
     h.settle();
     let inner = h.agents.inner.lock().unwrap();
     assert_eq!(inner.prompts.len(), 2);
-    assert_eq!(inner.prompt_sets.len(), 2);
-    assert_eq!(
-        inner.prompt_sets[0], inner.prompt_sets[1],
-        "the cached prefix: same bytes in the second turn"
-    );
-    // The marked piece is the same text in both turns (it ends at 100k,
-    // before anything the first turn added at the tail).
-    let marked = |i: usize| {
-        let b = &inner.prompts[i];
-        b[markers(b)[0]]["text"].as_str().unwrap().to_owned()
-    };
-    assert_eq!(marked(0), marked(1));
+    assert_eq!(inner.prompt_sets[0], inner.prompt_sets[1]);
+    // The second turn has the first turn's marked block at the same place,
+    // and its own marker at most 20 blocks later (the API's lookback).
+    let (a, b) = (&inner.prompts[0], &inner.prompts[1]);
+    let (ma, mb) = (*markers(a).last().unwrap(), *markers(b).last().unwrap());
+    assert_eq!(texts(a)[..=ma], texts(b)[..=ma]);
+    assert!(mb >= ma && mb - ma <= 20, "markers {ma} then {mb}");
 }
 
 #[test]
@@ -230,7 +241,8 @@ fn a_four_breakpoint_refusal_reruns_the_turn_without_the_marker_and_later_turns_
             2,
             "the refused prompt, then the same turn again"
         );
-        assert_eq!(markers(&inner.prompts[0]).len(), 1);
+        // The header's mark and the view's.
+        assert_eq!(markers(&inner.prompts[0]).len(), 2);
         assert!(markers(&inner.prompts[1]).is_empty());
         assert_eq!(texts(&inner.prompts[0]), texts(&inner.prompts[1]));
         assert_ne!(
@@ -306,8 +318,8 @@ fn the_harness_is_one_setting_for_turns_and_the_compactor() {
     use optchat_chief::host::harness_choice;
     assert_eq!(
         harness_choice(None, None, None),
-        ("claude-sr".to_owned(), "claude-sr".to_owned()),
-        "our Claude Code ACP adapter, through the subrouter account pool"
+        ("claude".to_owned(), "claude".to_owned()),
+        "our Claude Code adapter on the user's own login, never the subrouter by default"
     );
     assert_eq!(
         harness_choice(Some("codex"), None, None),
@@ -332,7 +344,7 @@ fn a_non_claude_harness_reads_its_instructions_from_agents_md_with_cli_memory_to
     assert!(text.contains("`/h/optchat/bin/chief zoom ID N`"), "{text}");
     assert!(text.contains("`/h/optchat/bin/chief date ID`"), "{text}");
     assert!(
-        text.contains("`/h/optchat/bin/chief spawn \"task\""),
+        text.contains("`/h/optchat/bin/chief spawn [--cwd DIR] \"task\""),
         "{text}"
     );
     assert!(text.contains("/h/optchat/bin/chief tell ID"), "{text}");
@@ -347,6 +359,7 @@ fn a_non_claude_harness_reads_its_instructions_from_agents_md_with_cli_memory_to
         env: Default::default(),
         instructions: None,
         tools: Tools::Cli(paths.bin.join("chief").display().to_string()),
+        user_env: Default::default(),
     };
     optchat_chief::session_dir::write(&paths, &setup).unwrap();
     let agents_md = std::fs::read_to_string(paths.session.join("AGENTS.md")).unwrap();
@@ -434,9 +447,10 @@ fn the_chiefs_turn_and_compactor_sessions_carry_cmux_chief_and_children_do_not()
     let compactor = optchat_chief::compactor::AcpmuxCompactor::new(
         agents.clone(),
         spec,
-        optchat_chief::compactor::Slots::new(optchat_core::JOBS),
+        optchat_chief::compactor::Slots::new(optchat_chief::compactor::COMPACTOR_SESSIONS),
     );
     let request = optchat_host::CompactRequest {
+        imported: false,
         node: optchat_host::NodeId::new(0, 0),
         system: "SYS".into(),
         context: "<chat>\n</chat>".into(),
@@ -454,6 +468,58 @@ fn the_chiefs_turn_and_compactor_sessions_carry_cmux_chief_and_children_do_not()
     let flags = optchat_chief::cli::Flags::default();
     let child = optchat_chief::agents::child_spec(&flags, "kid", "/tmp");
     assert!(child.tags.is_empty(), "{:?}", child.tags);
+}
+
+#[test]
+fn the_default_is_the_users_login_or_the_configured_coderouter_route() {
+    use optchat_chief::host::{DEFAULT_HARNESS, default_harness};
+    // `MUX_HARNESS` unset in the test process: the child takes the default.
+    let flags = optchat_chief::cli::Flags::default();
+    if std::env::var_os("MUX_HARNESS").is_none() {
+        let child = optchat_chief::agents::child_spec(&flags, "kid", "/tmp");
+        assert_eq!(child.harness, DEFAULT_HARNESS);
+    }
+    // No route configured (acpmux has no claude-cr): the user's own login,
+    // never the subrouter even when it is installed.
+    let plain = json!({"harnesses": {
+        "claude": {"kind": "claude-stdio", "argv": ["/u/bin/claude"]},
+        "claude-sr": {"kind": "claude-stdio", "argv": ["/u/bin/sr", "claude", "proxy"]},
+    }});
+    assert_eq!(default_harness(&plain), "claude");
+    let admitted = optchat_chief::harness_gate::admit(&plain, default_harness(&plain)).unwrap();
+    assert_eq!(admitted.argv0, "/u/bin/claude");
+    // A configured route: the Chief uses it.
+    let routed = json!({"harnesses": {
+        "claude": {"kind": "claude-stdio", "argv": ["/u/bin/claude"]},
+        "claude-cr": {"kind": "claude-stdio", "argv": ["/u/bin/coderouter", "team-route"]},
+        "claude-sr": {"kind": "claude-stdio", "argv": ["/u/bin/sr", "claude", "proxy"]},
+    }});
+    assert_eq!(default_harness(&routed), "claude-cr");
+    let admitted = optchat_chief::harness_gate::admit(&routed, "claude-cr").unwrap();
+    assert_eq!(admitted.profile, "claude-cr");
+    // A configured route acpmux could not run: refused with its reason
+    // (posted in the Chief chat), never a silent move to another account.
+    let down = json!({"harnesses": {
+        "claude": {"kind": "claude-stdio", "argv": ["/u/bin/claude"]},
+        "claude-cr": {"kind": "claude-stdio", "argv": ["/u/bin/cr", "team-route"],
+                      "unavailable": "`cr team-route --version` failed: unknown command"},
+    }});
+    assert_eq!(default_harness(&down), "claude-cr");
+    let refused = optchat_chief::harness_gate::admit(&down, "claude-cr").unwrap_err();
+    assert!(
+        refused.contains("unavailable") && refused.contains("unknown command"),
+        "{refused}"
+    );
+    let shown = optchat_chief::harness_gate::refusal(&refused);
+    assert!(shown.starts_with("refused: "), "{shown}");
+    assert!(!shown.contains("Authentication"), "{shown}");
+    // The subrouter still answers when it is asked for by name.
+    assert_eq!(
+        optchat_chief::harness_gate::admit(&routed, "claude-sr")
+            .unwrap()
+            .profile,
+        "claude-sr"
+    );
 }
 
 /// Live check 2026-10-04: acpmux records `turn_end` before it answers the
@@ -545,6 +611,14 @@ fn a_codex_turn_preset_carries_the_chiefs_turn_cache_key() {
     let codex = turn_preset(&paths, &home, "codex", Family::Codex, true, "SYS").unwrap();
     assert_eq!(codex.name, format!("optchat-chief-codex-{id}"));
     assert_eq!(codex.env["CODEX_PROMPT_CACHE_KEY"], key);
+    // An isolated codex turn runs on the Chief's own CODEX_HOME, whose config
+    // turns codex's native subagents off: the Chief's subagents are `chief
+    // spawn` sessions (live proof subp3: a codex Chief answered "use spawn"
+    // with its own spawn_agent, and no cmux subagent started).
+    assert_eq!(
+        codex.env.get("CODEX_HOME").map(std::path::PathBuf::from),
+        Some(paths.turn_codex.clone())
+    );
     assert!(
         codex.args.is_empty(),
         "the preset args allowlist is untouched"
@@ -568,6 +642,168 @@ fn a_codex_turn_preset_carries_the_chiefs_turn_cache_key() {
         turn_preset(&paths, &home, "pi", Family::Other, false, "SYS"),
         None
     );
+}
+
+/// A plain `claude` turn signs in with the user's own Claude login. That
+/// login is found through the user's Claude home: with `CLAUDE_CONFIG_DIR`
+/// pointed at an empty directory, Claude Code reports `loggedIn: false`
+/// (checked 2026-10-08 with `claude auth status`), so an isolated turn
+/// preset must not set it. Isolation stays: no auto-memory, no CLAUDE.md
+/// files (the preset's system prompt carries the instructions), and the
+/// session directory's project settings (no hooks, denied tools).
+#[test]
+fn an_isolated_claude_turn_keeps_the_users_login() {
+    use optchat_chief::acpmux::Family;
+    use optchat_chief::host::turn_preset;
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("mux");
+    let paths = optchat_chief::paths::Paths::new(&home);
+    for harness in ["claude", "claude-sr"] {
+        let preset = turn_preset(&paths, &home, harness, Family::Claude, true, "SYS").unwrap();
+        assert!(
+            !preset.env.contains_key("CLAUDE_CONFIG_DIR"),
+            "{harness}: {:?}",
+            preset.env
+        );
+        assert_eq!(preset.env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"], "1");
+        assert_eq!(preset.env["CLAUDE_CODE_DISABLE_CLAUDE_MDS"], "1");
+        assert_eq!(preset.system_prompt.as_deref(), Some("SYS"));
+    }
+    let codex = turn_preset(&paths, &home, "codex", Family::Codex, true, "SYS").unwrap();
+    assert!(
+        !codex.env.contains_key("CLAUDE_CONFIG_DIR"),
+        "{:?}",
+        codex.env
+    );
+}
+
+/// The reference's Claude Code path: Chief turns and compactor nodes load
+/// no user settings, user MCP servers, user skills or slash commands
+/// (`--setting-sources project --disable-slash-commands`; checked on Claude
+/// Code 2.1.287: a user MCP server and a user skill leave the session's
+/// init, the session directory's .mcp.json and denied tools stay).
+/// Subagents keep the user's environment: they do real work.
+#[test]
+fn turns_and_the_compactor_load_no_user_settings_but_subagents_do() {
+    use optchat_chief::acpmux::Family;
+    use optchat_chief::host::{subagent_preset, turn_preset};
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("mux");
+    let paths = optchat_chief::paths::Paths::new(&home);
+    let isolated = ["--setting-sources", "project", "--disable-slash-commands"];
+    for harness in ["claude", "claude-sr"] {
+        let turn = turn_preset(&paths, &home, harness, Family::Claude, true, "SYS").unwrap();
+        // An allowlist of built-ins (checked on Claude Code 2.1.287: the
+        // session's init lists exactly these and the Chief's MCP tools), so
+        // a built-in a later Claude Code adds is not offered to a turn.
+        assert_eq!(
+            turn.args,
+            [
+                "--setting-sources",
+                "project",
+                "--disable-slash-commands",
+                "--tools",
+                "Bash,Read,Edit,Write,WebFetch,WebSearch,ToolSearch"
+            ],
+            "{harness}"
+        );
+    }
+    for preset in
+        optchat_chief::compactor::compactor_presets(&paths, &home, "claude", Family::Claude)
+    {
+        for word in isolated {
+            assert!(
+                preset.args.iter().any(|a| a == word),
+                "{}: {:?}",
+                preset.name,
+                preset.args
+            );
+        }
+    }
+    let sub = subagent_preset(
+        &paths,
+        &home,
+        "optchat-sub-x".into(),
+        "claude",
+        Family::Claude,
+        true,
+        "SUB",
+        &Default::default(),
+    );
+    assert!(sub.args.is_empty(), "{:?}", sub.args);
+    assert!(!sub.env.contains_key("CLAUDE_CODE_DISABLE_CLAUDE_MDS"));
+}
+
+/// A turn that loads no user setting source still gets the env of the
+/// user's Claude Code settings (the user's API route, for one: a Mac whose
+/// subrouter route lives only in ~/.claude/settings.json). The session's own
+/// env wins over it.
+#[test]
+fn the_session_settings_carry_the_users_settings_env() {
+    use optchat_chief::prompt::Tools;
+    use optchat_chief::session_dir::{SessionSetup, settings_json, user_settings_env};
+    let dir = tempfile::tempdir().unwrap();
+    let claude_home = dir.path().join("claude-home");
+    std::fs::create_dir_all(&claude_home).unwrap();
+    std::fs::write(
+        claude_home.join("settings.json"),
+        r#"{"env": {"ANTHROPIC_BASE_URL": "http://router:31415", "PATH": "/user/bin", "N": 3}, "hooks": {}}"#,
+    )
+    .unwrap();
+    let user_env = user_settings_env(&claude_home);
+    assert_eq!(
+        user_env.get("ANTHROPIC_BASE_URL").map(String::as_str),
+        Some("http://router:31415")
+    );
+    assert!(!user_env.contains_key("N"), "string values only");
+    assert!(user_settings_env(&dir.path().join("none")).is_empty());
+    let paths = optchat_chief::paths::Paths::new(&dir.path().join("mux"));
+    let setup = SessionSetup {
+        exe: "/x/optchat-chief".into(),
+        cmux_mcp: None,
+        env: [("PATH".to_owned(), "/ours".to_owned())].into(),
+        instructions: None,
+        tools: Tools::Mcp,
+        user_env,
+    };
+    let settings = settings_json(&setup, &paths, &[]);
+    assert_eq!(settings["env"]["ANTHROPIC_BASE_URL"], "http://router:31415");
+    assert_eq!(
+        settings["env"]["PATH"],
+        format!("{}:/ours", paths.bin.display()),
+        "the session's own env wins"
+    );
+}
+
+/// The session's project settings may hold the user's settings env (an
+/// API token among it): both settings files are the user's alone (0600);
+/// the copy happens only on a macOS host (the user's own Mac, never a Linux
+/// VM or dev backend image) and `OPTCHAT_COPY_USER_ENV=0` turns it off.
+#[test]
+fn the_session_settings_files_are_private_and_the_copy_is_gated() {
+    use optchat_chief::prompt::Tools;
+    use optchat_chief::session_dir::{SessionSetup, copy_user_env_allowed, write};
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let paths = optchat_chief::paths::Paths::new(&dir.path().join("mux"));
+    paths.create().unwrap();
+    let setup = SessionSetup {
+        exe: "/x/optchat-chief".into(),
+        cmux_mcp: None,
+        env: Default::default(),
+        instructions: None,
+        tools: Tools::Mcp,
+        user_env: [("ANTHROPIC_AUTH_TOKEN".to_owned(), "t".to_owned())].into(),
+    };
+    write(&paths, &setup).unwrap();
+    for name in ["settings.json", "settings.local.json"] {
+        let file = paths.session.join(".claude").join(name);
+        let mode = std::fs::metadata(&file).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "{name}: {mode:o}");
+    }
+    assert!(!copy_user_env_allowed(Some("0")));
+    assert_eq!(copy_user_env_allowed(None), cfg!(target_os = "macos"));
+    assert_eq!(copy_user_env_allowed(Some("1")), cfg!(target_os = "macos"));
 }
 
 /// Taelin: "opus 5.5 medium is the one I use, it scores better". Turns run
@@ -629,8 +865,10 @@ fn the_marker_ends_the_stable_view_prefix_and_the_next_turn_keeps_that_boundary(
     };
     let first = &inner.prompts[0];
     let marked = markers(first);
-    assert_eq!(marked.len(), 1, "one marker of ours in a small view too");
-    let at = marked[0];
+    // The header's mark, then the view's.
+    assert_eq!(marked.len(), 2, "two markers of ours in a small view too");
+    assert_eq!(marked[0], 0);
+    let at = marked[1];
     assert!(
         at + 1 < first.len() - 1,
         "the marker leaves the view's newest lines out"
@@ -646,6 +884,110 @@ fn the_marker_ends_the_stable_view_prefix_and_the_next_turn_keeps_that_boundary(
         "the next turn has a block boundary at the marker with the same bytes before it"
     );
     // And its own marker is at or after the first turn's.
-    let next = markers(&inner.prompts[1])[0];
+    let next = *markers(&inner.prompts[1]).last().unwrap();
     assert!(second[next].0 >= offset);
+}
+
+/// The Chief's own codex (the cmux codex fork, which reads the Chief's
+/// `CODEX_PROMPT_CACHE_KEY`; the user's PATH codex may be upstream, which
+/// ignores it and never reads the view back): installed at
+/// `paths.codex_bin`, it is the `CODEX_PATH` codex-acp runs in every codex
+/// turn and compactor session. Not installed: no CODEX_PATH, the PATH codex.
+#[test]
+fn codex_sessions_run_the_chiefs_own_codex_when_installed() {
+    use optchat_chief::acpmux::Family;
+    use optchat_chief::compactor::compactor_presets;
+    use optchat_chief::host::turn_preset;
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("mux");
+    let paths = optchat_chief::paths::Paths::new(&home);
+    let turn = turn_preset(&paths, &home, "codex", Family::Codex, true, "SYS").unwrap();
+    assert!(
+        !turn.env.contains_key("CODEX_PATH"),
+        "not installed: PATH codex"
+    );
+    std::fs::create_dir_all(paths.codex_bin.parent().unwrap()).unwrap();
+    std::fs::write(&paths.codex_bin, "#!/bin/sh\n").unwrap();
+    let want = paths.codex_bin.display().to_string();
+    let turn = turn_preset(&paths, &home, "codex", Family::Codex, true, "SYS").unwrap();
+    assert_eq!(turn.env.get("CODEX_PATH"), Some(&want));
+    let bare = turn_preset(&paths, &home, "codex", Family::Codex, false, "SYS").unwrap();
+    assert_eq!(bare.env.get("CODEX_PATH"), Some(&want));
+    for slot in compactor_presets(&paths, &home, "codex", Family::Codex) {
+        assert_eq!(slot.env.get("CODEX_PATH"), Some(&want), "{}", slot.name);
+    }
+    let claude = turn_preset(&paths, &home, "claude-sr", Family::Claude, true, "SYS").unwrap();
+    assert!(!claude.env.contains_key("CODEX_PATH"));
+}
+
+/// Lawrence 2026-10-09: "ensure the subagents are the ACP subagents so it
+/// will be visible in the cmux UI". A Chief turn can start a subagent only
+/// with `spawn` (an acpmux session with its own workspace): Claude Code's
+/// Task/Agent tools are not offered, and an isolated codex turn runs with
+/// codex's native subagents off. This test fails if either comes back.
+#[test]
+fn a_chief_turn_starts_subagents_only_through_spawn() {
+    use optchat_chief::acpmux::Family;
+    use optchat_chief::host::{TURN_TOOLS, turn_isolation_args, turn_preset};
+    for native in ["Task", "Agent"] {
+        assert!(
+            !TURN_TOOLS.contains(&native),
+            "{native} must stay out of TURN_TOOLS"
+        );
+    }
+    let args = turn_isolation_args();
+    let tools = args
+        .iter()
+        .position(|a| a == "--tools")
+        .and_then(|k| args.get(k + 1))
+        .expect("an isolated Claude turn passes an explicit tool allowlist");
+    assert!(
+        tools.split(',').all(|t| t != "Task" && t != "Agent"),
+        "{tools}"
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("mux");
+    let paths = optchat_chief::paths::Paths::new(&home);
+    let codex = turn_preset(&paths, &home, "codex", Family::Codex, true, "SYS").unwrap();
+    assert_eq!(
+        codex.env.get("CODEX_HOME").map(std::path::PathBuf::from),
+        Some(paths.turn_codex.clone()),
+        "an isolated codex turn runs on the Chief's own CODEX_HOME"
+    );
+    let config: toml::Table = optchat_chief::codex_home::codex_turn_config(None)
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert_eq!(
+        config["features"]["multi_agent"].as_bool(),
+        Some(false),
+        "codex native subagents stay off on Chief turns"
+    );
+}
+
+/// DEV and NIGHTLY app builds bundle the cmux codex fork next to the brain
+/// host (`Resources/bin/chief-codex/codex`): without a copy in the Chief
+/// home, the Chief runs the bundled one. The Chief home's copy wins.
+#[test]
+fn the_bundled_codex_is_the_fallback_for_the_chiefs_own_codex() {
+    use optchat_chief::codex_home::chief_codex_in;
+    let dir = tempfile::tempdir().unwrap();
+    let paths = optchat_chief::paths::Paths::new(&dir.path().join("mux"));
+    let exe_dir = dir.path().join("Resources").join("bin");
+    assert_eq!(
+        chief_codex_in(&paths, &exe_dir),
+        None,
+        "neither: PATH codex"
+    );
+    let bundled = exe_dir.join("chief-codex").join("codex");
+    std::fs::create_dir_all(bundled.parent().unwrap()).unwrap();
+    std::fs::write(&bundled, "#!/bin/sh\n").unwrap();
+    assert_eq!(chief_codex_in(&paths, &exe_dir), Some(bundled));
+    std::fs::create_dir_all(paths.codex_bin.parent().unwrap()).unwrap();
+    std::fs::write(&paths.codex_bin, "#!/bin/sh\n").unwrap();
+    assert_eq!(
+        chief_codex_in(&paths, &exe_dir),
+        Some(paths.codex_bin.clone()),
+        "the Chief home's copy wins"
+    );
 }

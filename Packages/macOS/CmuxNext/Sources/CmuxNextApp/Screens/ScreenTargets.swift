@@ -69,7 +69,7 @@ extension AppActionContext {
     /// Refuses unless `daemon` serves `capability`.
     func require(_ capability: String, on daemon: DaemonService) -> Bool {
         if daemon.supports(capability) { return true }
-        refuse(RefusalStrings.needsDaemonCapability(capability))
+        refuse(daemon.missingCapabilityMessage(capability))
         return false
     }
 }

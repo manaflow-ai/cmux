@@ -15,6 +15,17 @@ struct AgentTabContent {
 
     func content(_ key: String) -> TabContent? {
         let services = pane.services
+        let focused = pane.workspace?.focus.state.pane
+        let deferred = services.agentTabs.deferAtLaunch(
+            key, reveal: services.launchReveal, focusedPane: focused, pane: pane.paneKey,
+            focusedDraws: focused.flatMap { key in pane.workspace?.panes.values.first { $0.paneKey == key } }?.showsLiveTerminal ?? false
+        ) { [weak pane] in
+            if let pane, pane.currentTabKey == key { pane.showSelected() }
+        }
+        if deferred {
+            drawLastPage(key, until: nil)
+            return nil
+        }
         guard let view = services.agentTabs.view(for: key) else {
             return services.agentTabs.notice(for: key).map(TabContent.notice)
         }
@@ -27,6 +38,21 @@ struct AgentTabContent {
             guard let pane else { return false }
             return pane.services.registry.openAgentPreview(url, pane: pane.paneKey)
         }
+        if !view.model.hasPainted { drawLastPage(key, until: view) }
+        AgentReplySites(services: services).wire(view.model.replyLinks)
         return .agent(view)
+    }
+
+    /// The tab's page from the last quit, under the pane until `view`'s
+    /// live page paints (`AgentPaneLaunchImages`): a relaunch never shows
+    /// an empty agent pane. The image is the pane's first frame, so the
+    /// pane's own loading state stays off above it until the image goes.
+    private func drawLastPage(_ key: String, until view: AgentPaneView?) {
+        let paneView = pane.view
+        if paneView.launchImageView == nil, let image = pane.services.agentTabs.launchImages.take(key) { paneView.showLaunchImage(image) }
+        guard paneView.launchImageView != nil, let view else { return }
+        view.showsLoadingState = false
+        paneView.onLaunchImageCleared = { [weak view] in view?.showsLoadingState = true }
+        view.model.whenPainted { [weak paneView] in paneView?.clearLaunchImage() }
     }
 }

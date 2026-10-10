@@ -7,7 +7,15 @@ impl Translator {
     pub async fn inbound(&self, line: &Value) -> Vec<Message> {
         let kind = line.get("type").and_then(Value::as_str).unwrap_or("");
         let sub = line.get("subtype").and_then(Value::as_str).unwrap_or("");
-        let sid = self.acp_session_id.clone();
+        // A subagent's lines carry its Agent tool call's id and stream under
+        // its own session (ACP draft #1992).
+        let parent = line.get("parent_tool_use_id").and_then(Value::as_str);
+        let mut sid = self.acp_session_id.clone();
+        if let Some(p) = parent
+            && let Some(child) = self.subagents.lock().await.get(p)
+        {
+            sid = child.clone();
+        }
         let upd = |u: Value| {
             Message::notification(method::SESSION_UPDATE, json!({"sessionId": sid, "update": u}))
         };
@@ -44,7 +52,7 @@ impl Translator {
                         }),
                     ));
                 }
-                out.push(upd(json!({"sessionUpdate": "session_info_update", "title": Value::Null, "_meta": {"claude": {"tools": line.get("tools"), "mcp_servers": line.get("mcp_servers"), "model": line.get("model")}}})));
+                out.push(upd(json!({"sessionUpdate": "session_info_update", "title": Value::Null, "_meta": {"claude": {"tools": line.get("tools"), "mcp_servers": line.get("mcp_servers"), "model": line.get("model"), "version": line.get("claude_code_version")}}})));
                 out.push(upd(json!({"sessionUpdate": "config_option_update", "configOptions": self.config_options_value().await})));
             }
             "stream_event" => {
@@ -91,6 +99,13 @@ impl Translator {
                     if c.get("type").and_then(Value::as_str) == Some("tool_use") {
                         let name = c.get("name").and_then(Value::as_str).unwrap_or("tool");
                         let input = c.get("input").cloned().unwrap_or(Value::Null);
+                        // A subagent comes before its Agent tool call, so a client
+                        // that draws subagents can leave the call out.
+                        if let ("Task" | "Agent", Some(id)) =
+                            (name, c.get("id").and_then(Value::as_str))
+                        {
+                            out.push(upd(self.spawn_subagent(id, &input).await));
+                        }
                         out.push(upd(json!({
                             "sessionUpdate": "tool_call",
                             "toolCallId": c.get("id"),
@@ -100,6 +115,33 @@ impl Translator {
                             "rawInput": input,
                             "_meta": {"claude": {"tool": name}}
                         })));
+                    }
+                }
+            }
+            // Claude Code's echo of a user line it read (`--replay-user-messages`):
+            // first the turn's prompt, then each steered line in order.
+            // Matched by the line's uuid; an echo of anything else is ignored.
+            "user" if line.get("isReplay").and_then(Value::as_bool) == Some(true) => {
+                let uuid = line.get("uuid").and_then(Value::as_str).unwrap_or("");
+                let mut prompt = self.prompt_echo.lock().await;
+                if !uuid.is_empty() && prompt.as_deref() == Some(uuid) {
+                    *prompt = None;
+                    return out;
+                }
+                drop(prompt);
+                let mut steers = self.steers.lock().await;
+                if let Some(at) = steers.iter().position(|(u, _)| !uuid.is_empty() && u == uuid)
+                    && let Some((_, k)) = steers.remove(at)
+                {
+                    drop(steers);
+                    let id: Id = serde_json::from_str(&k).unwrap_or(Value::String(k));
+                    out.push(Message::ok(id, json!({"stopReason": "steered"})));
+                    // A turn the client stopped: Claude Code runs a line it
+                    // read after the stop as one more turn, so that turn is
+                    // stopped too, and the prompt ends cancelled.
+                    if self.cancelled.load(Ordering::SeqCst) {
+                        let n = self.next_control.fetch_add(1, Ordering::SeqCst);
+                        self.stdin_replies.lock().await.push(json!({"type": "control_request", "request_id": format!("int-{n}"), "request": {"subtype": "interrupt"}}));
                     }
                 }
             }
@@ -127,6 +169,19 @@ impl Translator {
                             "status": if is_err { "failed" } else { "completed" },
                             "content": [{"type": "content", "content": {"type": "text", "text": text}}],
                         })));
+                        let tool = c.get("tool_use_id").and_then(Value::as_str).unwrap_or("");
+                        // A background subagent's result is only its launch.
+                        if self.background_subagents.lock().await.contains(tool) {
+                            continue;
+                        }
+                        if let Some(child) = self.subagents.lock().await.remove(tool) {
+                            self.subagent_tasks.lock().await.retain(|_, t| *t != tool);
+                            out.push(upd(json!({
+                                "sessionUpdate": "subagent_state_update",
+                                "subagentSessionId": child,
+                                "state": if is_err { "failed" } else { "completed" },
+                            })));
+                        }
                     }
                 }
             }
@@ -207,7 +262,7 @@ impl Translator {
                         "agentInfo": {"name": AGENT_NAME, "title": "Claude Code", "version": inner.get("version").cloned().unwrap_or(Value::Null)},
                         "agentCapabilities": {"loadSession": true, "promptCapabilities": {"image": true, "embeddedContext": true}, "sessionCapabilities": {"fork": {}, "list": {}, "close": {}}},
                         "authMethods": [],
-                        "_meta": {"steering": {"supported": false}, "claude": {"commands": inner.get("commands"), "capabilities": inner.get("capabilities")}}
+                        "_meta": {"steering": {"supported": true}, "claude": {"commands": inner.get("commands"), "capabilities": inner.get("capabilities")}}
                     })));
                     if let Some(cmds) = inner.get("commands").and_then(Value::as_array) {
                         let list: Vec<Value> = cmds.iter().map(|c| json!({"name": c.get("name"), "description": c.get("description")})).collect();
@@ -223,6 +278,7 @@ impl Translator {
                                 Setting::Mode => *self.mode.lock().await = value,
                                 Setting::Model => *self.model.lock().await = value,
                                 Setting::Effort => *self.effort.lock().await = value,
+                                Setting::Fast => *self.fast.lock().await = value == "on",
                             }
                         }
                         let mode = self.mode.lock().await.clone();
@@ -259,6 +315,16 @@ impl Translator {
                 if startup_noise {
                     return out;
                 }
+                // A steered line Claude Code has not read yet: it runs it as
+                // one more turn of this prompt, whose result ends it (when
+                // echoes come at all; without them the steer fails below).
+                // A stop stays in force for that turn (`cancelled` is kept).
+                let unread = !self.steers.lock().await.is_empty();
+                if unread && self.prompt_echo.lock().await.is_none() {
+                    return out;
+                }
+                out.extend(self.fail_steers().await);
+                *self.prompt_echo.lock().await = None;
                 self.in_turn.store(false, Ordering::SeqCst);
                 let waiting: Vec<String> = self
                     .pending
@@ -281,6 +347,27 @@ impl Translator {
                 } else {
                     "end_turn"
                 };
+                // An interrupted turn stops its foreground subagents;
+                // background ones run on until their task_notification.
+                if stop == "cancelled" {
+                    let background = self.background_subagents.lock().await;
+                    let mut subagents = self.subagents.lock().await;
+                    let mut ended: Vec<String> = subagents
+                        .iter()
+                        .filter(|(tool, _)| !background.contains(*tool))
+                        .map(|(_, child)| child.clone())
+                        .collect();
+                    subagents.retain(|tool, _| background.contains(tool));
+                    drop((subagents, background));
+                    ended.sort();
+                    for child in ended {
+                        out.push(upd(json!({
+                            "sessionUpdate": "subagent_state_update",
+                            "subagentSessionId": child,
+                            "state": "cancelled",
+                        })));
+                    }
+                }
                 for k in waiting {
                     self.pending.lock().await.remove(&k);
                     let id: Id = serde_json::from_str(&k).unwrap_or(Value::String(k.clone()));
@@ -301,8 +388,76 @@ impl Translator {
                     }
                 }
             }
+            "system" if sub.starts_with("task_") => {
+                if let Some(ended) = self.subagent_task(sub, line).await {
+                    out.push(upd(ended));
+                }
+            }
             _ => {}
         }
         out
+    }
+
+    /// Claude's task events for a subagent: `task_started` or `task_updated`
+    /// moves it to the background, and `task_notification` ends a background
+    /// one (its Agent tool call returned at launch). Returns the subagent's
+    /// `subagent_state_update` when it ended.
+    async fn subagent_task(&self, sub: &str, line: &Value) -> Option<Value> {
+        let task = line.get("task_id").and_then(Value::as_str).unwrap_or("");
+        let tool = match line.get("tool_use_id").and_then(Value::as_str) {
+            Some(tool) => tool.to_owned(),
+            None => self.subagent_tasks.lock().await.get(task)?.clone(),
+        };
+        if !self.subagents.lock().await.contains_key(&tool) {
+            return None;
+        }
+        if !task.is_empty() {
+            self.subagent_tasks.lock().await.insert(task.to_owned(), tool.clone());
+        }
+        let backgrounded = match sub {
+            "task_started" => line.get("is_backgrounded"),
+            "task_updated" => line.pointer("/patch/is_backgrounded"),
+            _ => None,
+        };
+        if backgrounded == Some(&Value::Bool(true)) {
+            self.background_subagents.lock().await.insert(tool);
+            return None;
+        }
+        if sub != "task_notification" || !self.background_subagents.lock().await.remove(&tool) {
+            return None;
+        }
+        self.subagent_tasks.lock().await.remove(task);
+        let child = self.subagents.lock().await.remove(&tool)?;
+        let state = match line.get("status").and_then(Value::as_str) {
+            Some("failed") => "failed",
+            Some("stopped") => "cancelled",
+            _ => "completed",
+        };
+        Some(json!({
+            "sessionUpdate": "subagent_state_update",
+            "subagentSessionId": child,
+            "state": state,
+        }))
+    }
+
+    /// Records a new Agent tool call as a subagent session and returns its
+    /// `subagent_spawned` update. Claude's short `description` names it.
+    async fn spawn_subagent(&self, tool_use_id: &str, input: &Value) -> Value {
+        let child = format!("{}/{tool_use_id}", self.acp_session_id);
+        self.subagents.lock().await.insert(tool_use_id.to_owned(), child.clone());
+        if input.get("run_in_background") == Some(&Value::Bool(true)) {
+            self.background_subagents.lock().await.insert(tool_use_id.to_owned());
+        }
+        let s = |k: &str| input.get(k).and_then(Value::as_str).filter(|v| !v.is_empty());
+        let task = s("description").or(s("name")).or(s("subagent_type")).unwrap_or("Agent");
+        json!({
+            "sessionUpdate": "subagent_spawned",
+            "subagentSessionId": child,
+            "name": s("name").unwrap_or(task),
+            "task": task,
+            "prompt": input.get("prompt"),
+            "capabilities": {},
+            "_meta": {"claude": {"subagentType": input.get("subagent_type"), "toolUseId": tool_use_id}}
+        })
     }
 }

@@ -19,12 +19,10 @@ public struct TerminalLocalHistoryCheck: Sendable, Hashable {
     static func digest(hex: String) -> Data? {
         guard !hex.isEmpty, hex.count.isMultiple(of: 2) else { return nil }
         var bytes = Data(capacity: hex.count / 2)
-        var index = hex.startIndex
-        while index < hex.endIndex {
-            let next = hex.index(index, offsetBy: 2)
-            guard let byte = UInt8(hex[index..<next], radix: 16) else { return nil }
+        var characters = hex.makeIterator()
+        while let first = characters.next() {
+            guard let second = characters.next(), let byte = UInt8(String([first, second]), radix: 16) else { return nil }
             bytes.append(byte)
-            index = next
         }
         return bytes
     }

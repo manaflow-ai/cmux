@@ -66,14 +66,22 @@ pub struct Paths {
     /// (`slot-<k>`): no user AGENTS.md, skills, plugins, hooks or MCP
     /// servers, and no transcript kept past its node.
     pub compactor_codex: PathBuf,
+    /// The Chief's own codex binary (`$MUX_HOME/optchat/codex/bin/codex`):
+    /// the cmux codex fork with its two helper binaries next to it, the
+    /// `CODEX_PATH` of every codex session when installed.
+    pub codex_bin: PathBuf,
     /// The user's own instructions file, the end of every turn's system
     /// prompt (section 7.2); read once per host start.
     pub instructions: PathBuf,
     /// Every subagent's working directory (section 9): its MCP servers
     /// (zoom and date only), project settings, and instructions file.
     pub subagent: PathBuf,
+    /// The codex turns' own CODEX_HOME (codex_home::prepare_turn_codex_home).
+    pub turn_codex: PathBuf,
     /// The monitoring trace (`trace.rs`).
     pub traces: PathBuf,
+    /// The memory inspector's address and token for the app (inspect/http.rs), 0600.
+    pub inspector: PathBuf,
 }
 
 impl Paths {
@@ -92,9 +100,12 @@ impl Paths {
             claude_config: root.join("claude"),
             compactor_config: root.join("compactor-claude"),
             compactor_codex: root.join("compactor-codex"),
+            codex_bin: root.join("codex").join("bin").join("codex"),
             instructions: root.join("AGENTS.md"),
             subagent: root.join("subagent"),
+            turn_codex: root.join("turn-codex"),
             traces: root.join("traces"),
+            inspector: root.join("inspector.json"),
             root,
         }
     }

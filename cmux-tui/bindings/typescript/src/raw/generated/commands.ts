@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 55ecd131c02ab3542822be1b9f1292905fa54dee7cea4f22efd4d6ee5d79ba3e. */
+/* cmux-tui mux protocol 12, IR b39f0c8f7124f43c7c7b90a8b5caf4df127b57bfe6298f64ad66037bacbeac6f. */
 
 
 import type * as T from "./types.js";
@@ -219,6 +219,18 @@ export interface BrowserWheelGuardedRequest extends CmuxRequestBase {
 }
 export type BrowserWheelGuardedResult = T.EmptyResult;
 
+/** Protocol v12; authority: local-admin. */
+export interface ChiefInspectRequest extends CmuxRequestBase {
+  cmd: "chief-inspect";
+  "path": string;
+  "query"?: Record<string, string>;
+}
+export type ChiefInspectResult = {
+  "body"?: (T.JsonValue) | null;
+  "error"?: (string) | null;
+  "status": bigint;
+};
+
 /** Protocol v9; authority: control. */
 export interface ClearHistoryRequest extends CmuxRequestBase {
   cmd: "clear-history";
@@ -396,6 +408,26 @@ export interface CloudInboxUnsubscribeRequest extends CmuxRequestBase {
   cmd: "cloud-inbox-unsubscribe";
 }
 export type CloudInboxUnsubscribeResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudMuxAckRequest extends CmuxRequestBase {
+  cmd: "cloud-mux-ack";
+  "conversation": string;
+  "seq": bigint;
+}
+export type CloudMuxAckResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudMuxSubscribeRequest extends CmuxRequestBase {
+  cmd: "cloud-mux-subscribe";
+}
+export type CloudMuxSubscribeResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudMuxUnsubscribeRequest extends CmuxRequestBase {
+  cmd: "cloud-mux-unsubscribe";
+}
+export type CloudMuxUnsubscribeResult = T.JsonValue;
 
 /** Protocol v12; authority: local-admin. */
 export interface CloudSessionClearRequest extends CmuxRequestBase {
@@ -1280,6 +1312,7 @@ export type NewConversationTabResult = {
 export interface NewFrontendBrowserTabRequest extends CmuxRequestBase {
   cmd: "new-frontend-browser-tab";
   "activate"?: boolean;
+  "after"?: (T.Id) | null;
   "cols"?: (number) | null;
   "engine": string;
   "favicon_url"?: (string) | null;
@@ -1301,11 +1334,13 @@ export interface NewPaneRequest extends CmuxRequestBase {
   "env"?: (Record<string, string>) | null;
   "keep"?: boolean;
   "pane": T.Id;
+  "pane_id"?: (string) | null;
   "rows"?: (number) | null;
   "shell_args"?: (Array<string>) | null;
+  "tab_id"?: (string) | null;
   "terminal_id"?: (string) | null;
 }
-export type NewPaneResult = T.SurfaceResult;
+export type NewPaneResult = T.PaneSurfaceResult;
 
 /** Protocol v9; authority: control. */
 export interface NewPaneRightRequest extends CmuxRequestBase {
@@ -1316,13 +1351,15 @@ export interface NewPaneRightRequest extends CmuxRequestBase {
   "keep"?: boolean;
   "kind"?: (T.PaneKind) | null;
   "pane": T.Id;
+  "pane_id"?: (string) | null;
   "rows"?: (number) | null;
   "shell_args"?: (Array<string>) | null;
+  "tab_id"?: (string) | null;
   "terminal_id"?: (string) | null;
   "url"?: (string) | null;
   "width"?: (number) | null;
 }
-export type NewPaneRightResult = T.SurfaceResult;
+export type NewPaneRightResult = T.PaneSurfaceResult;
 
 /** Protocol v12; authority: control. */
 export interface NewRowRequest extends CmuxRequestBase {
@@ -1751,6 +1788,7 @@ export type SendKeyResult = T.EmptyResult;
 /** Protocol v12; authority: local-admin. */
 export interface ServerStatsRequest extends CmuxRequestBase {
   cmd: "server-stats";
+  "include"?: (Array<string>) | null;
 }
 
 /** Protocol v6; authority: frontend. */
@@ -1791,6 +1829,8 @@ export interface SetColumnDockRequest extends CmuxRequestBase {
   "edge"?: (string) | null;
   "mode"?: (string) | null;
   "pane": T.Id;
+  "permanent"?: (boolean) | null;
+  "role"?: (string) | null;
   "transaction"?: (bigint) | null;
 }
 export type SetColumnDockResult = T.JsonValue;
@@ -2012,12 +2052,14 @@ export interface SplitRequest extends CmuxRequestBase {
   "keep"?: boolean;
   "kind"?: (T.PaneKind) | null;
   "pane": T.Id;
+  "pane_id"?: (string) | null;
   "rows"?: (number) | null;
   "shell_args"?: (Array<string>) | null;
+  "tab_id"?: (string) | null;
   "terminal_id"?: (string) | null;
   "url"?: (string) | null;
 }
-export type SplitResult = T.SurfaceResult;
+export type SplitResult = T.PaneSurfaceResult;
 
 /** Protocol v5; authority: frontend. */
 export interface SubscribeRequest extends CmuxRequestBase {
@@ -2310,6 +2352,7 @@ export type CmuxRequest =
   | BrowserReloadRequest
   | BrowserWheelRequest
   | BrowserWheelGuardedRequest
+  | ChiefInspectRequest
   | ClearHistoryRequest
   | ClearWindowTitleRequest
   | ClientFocusRequest
@@ -2330,6 +2373,9 @@ export type CmuxRequest =
   | CloudInboxListRequest
   | CloudInboxSubscribeRequest
   | CloudInboxUnsubscribeRequest
+  | CloudMuxAckRequest
+  | CloudMuxSubscribeRequest
+  | CloudMuxUnsubscribeRequest
   | CloudSessionClearRequest
   | CloudSessionSetRequest
   | CloudSessionStatusRequest
@@ -2685,6 +2731,14 @@ export interface CmuxCommandDefinitionMap {
     capability: "browser-pointer-frame-guard-v1";
     stream: null;
   };
+  "chief-inspect": {
+    request: ChiefInspectRequest;
+    result: ChiefInspectResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "chief-inspect-v1";
+    stream: null;
+  };
   "clear-history": {
     request: ClearHistoryRequest;
     result: ClearHistoryResult;
@@ -2840,6 +2894,30 @@ export interface CmuxCommandDefinitionMap {
   "cloud-inbox-unsubscribe": {
     request: CloudInboxUnsubscribeRequest;
     result: CloudInboxUnsubscribeResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-conversations-v1";
+    stream: null;
+  };
+  "cloud-mux-ack": {
+    request: CloudMuxAckRequest;
+    result: CloudMuxAckResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-conversations-v1";
+    stream: null;
+  };
+  "cloud-mux-subscribe": {
+    request: CloudMuxSubscribeRequest;
+    result: CloudMuxSubscribeResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-conversations-v1";
+    stream: null;
+  };
+  "cloud-mux-unsubscribe": {
+    request: CloudMuxUnsubscribeRequest;
+    result: CloudMuxUnsubscribeResult;
     authority: "local-admin";
     since: 12;
     capability: "cloud-conversations-v1";

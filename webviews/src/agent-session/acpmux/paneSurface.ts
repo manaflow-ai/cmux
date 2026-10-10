@@ -15,11 +15,14 @@ export const QUICK_MESSAGES = {
   dismiss: "quick.dismiss",
   /// ⌘Return: show this chat in a window.
   openInWindow: "quick.openInWindow",
+  /// Return (Start Agent): the chat has started; put it in the sidebar and hide the panel.
+  startInBackground: "quick.startInBackground",
 } as const;
 
-/// Calls `onDismiss` for an Escape no open menu, picker or palette took. Those handle Escape on
-/// their own element and stop it there (preventDefault or stopPropagation), so only an Escape
-/// that nothing claimed reaches the document. Off while `enabled` is false.
+/// Calls `onDismiss` for an Escape no open menu, picker, palette or panel took. Those handle Escape
+/// on their own element and stop it there (preventDefault or stopPropagation), so only an Escape
+/// that nothing claimed reaches the document. The decision is deferred until the event has bubbled
+/// through the page: a panel may own Escape from a window listener. Off while `enabled` is false.
 export function useEscapeToDismiss(enabled: boolean, onDismiss: () => void) {
   const latest = useRef(onDismiss);
   latest.current = onDismiss;
@@ -30,8 +33,11 @@ export function useEscapeToDismiss(enabled: boolean, onDismiss: () => void) {
       // During IME composition Escape cancels the composition, and closes nothing.
       if (event.isComposing || event.keyCode === 229) return;
       if (event.shiftKey || event.altKey || event.metaKey || event.ctrlKey) return;
-      event.preventDefault();
-      latest.current();
+      queueMicrotask(() => {
+        if (event.defaultPrevented) return;
+        event.preventDefault();
+        latest.current();
+      });
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);

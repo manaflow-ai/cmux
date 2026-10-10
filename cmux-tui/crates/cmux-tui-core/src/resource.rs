@@ -1,6 +1,6 @@
 //! Opaque public resource identities and protocol-v2 shared types.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::fmt;
 use std::sync::OnceLock;
 
@@ -10,7 +10,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 mod error;
+mod idempotency;
+mod request_id;
 pub use error::*;
+pub use idempotency::{MAX_IDEMPOTENCY_KEY_BYTES, validate_idempotency_key};
+pub use request_id::RequestId;
 
 pub const PROTOCOL: &str = "cmux.protocol/2";
 pub const MAX_MESSAGE_BYTES: usize = 4 * 1024 * 1024;
@@ -18,62 +22,6 @@ pub const STREAM_EVENT_CAPACITY: usize = 256;
 pub const STREAM_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
 pub const JOURNAL_CAPACITY: usize = 4096;
 pub const JOURNAL_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
-pub const MAX_IDEMPOTENCY_KEY_BYTES: usize = 128;
-
-pub fn validate_idempotency_key(value: &str) -> Result<(), ResourceError> {
-    if value.trim().is_empty() {
-        return Err(ResourceError::validation_invalid(
-            Some("idempotency_key"),
-            "idempotency_key must contain at least one non-whitespace Unicode scalar",
-        ));
-    }
-    if value.len() > MAX_IDEMPOTENCY_KEY_BYTES {
-        return Err(ResourceError::validation_invalid(
-            Some("idempotency_key"),
-            "idempotency_key must contain 1 to 128 UTF-8 bytes",
-        ));
-    }
-    if value.chars().any(char::is_control) {
-        return Err(ResourceError::validation_invalid(
-            Some("idempotency_key"),
-            "idempotency_key must not contain Unicode control characters",
-        ));
-    }
-    Ok(())
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
-#[serde(transparent)]
-pub struct RequestId(String);
-
-impl RequestId {
-    pub const MAX_BYTES: usize = 128;
-
-    pub fn parse(value: impl Into<String>) -> Result<Self, ResourceError> {
-        let value = value.into();
-        if value.is_empty() || value.len() > Self::MAX_BYTES {
-            return Err(ResourceError::validation_invalid(
-                Some("id"),
-                "request id must contain 1 to 128 UTF-8 bytes",
-            ));
-        }
-        Ok(Self(value))
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl<'de> Deserialize<'de> for RequestId {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        Self::parse(String::deserialize(deserializer)?).map_err(serde::de::Error::custom)
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EnvelopeType {
     #[serde(rename = "request")]
@@ -174,6 +122,28 @@ pub enum ResourceOperation {
     GitCheckpointPin,
     #[serde(rename = "git.checkpoint.unpin")]
     GitCheckpointUnpin,
+    #[serde(rename = "chief.engine.get")]
+    ChiefEngineGet,
+    #[serde(rename = "chief.engine.set")]
+    ChiefEngineSet,
+    #[serde(rename = "chief.stop")]
+    ChiefStop,
+    #[serde(rename = "conversation.list")]
+    ConversationList,
+    #[serde(rename = "conversation.get")]
+    ConversationGet,
+    #[serde(rename = "conversation.history")]
+    ConversationHistory,
+    #[serde(rename = "conversation.search")]
+    ConversationSearch,
+    #[serde(rename = "conversation.send")]
+    ConversationSend,
+    #[serde(rename = "conversation.typing")]
+    ConversationTyping,
+    #[serde(rename = "conversation.draft")]
+    ConversationDraft,
+    #[serde(rename = "conversation.events")]
+    ConversationEvents,
     #[serde(rename = "git.diff")]
     GitDiff,
     #[serde(rename = "git.files.search")]
@@ -368,6 +338,8 @@ pub enum ResourceOperation {
     OriginConfirmationIssue,
     #[serde(rename = "closed.list")]
     ClosedList,
+    #[serde(rename = "closed.delete")]
+    ClosedDelete,
     #[serde(rename = "closed.reopen")]
     ClosedReopen,
     #[serde(rename = "window_record.list")]
@@ -376,6 +348,32 @@ pub enum ResourceOperation {
     WindowRecordPut,
     #[serde(rename = "window_record.delete")]
     WindowRecordDelete,
+    #[serde(rename = "sidebar_layout.get")]
+    SidebarLayoutGet,
+    #[serde(rename = "sidebar_layout.update")]
+    SidebarLayoutUpdate,
+    #[serde(rename = "project.list")]
+    ProjectList,
+    #[serde(rename = "project.observe")]
+    ProjectObserve,
+    #[serde(rename = "project.add")]
+    ProjectAdd,
+    #[serde(rename = "project.update")]
+    ProjectUpdate,
+    #[serde(rename = "project.remove")]
+    ProjectRemove,
+    #[serde(rename = "project.sync")]
+    ProjectSync,
+    #[serde(rename = "palette_usage.get")]
+    PaletteUsageGet,
+    #[serde(rename = "palette_usage.record")]
+    PaletteUsageRecord,
+    #[serde(rename = "palette_usage.import")]
+    PaletteUsageImport,
+    #[serde(rename = "palette_usage.hide")]
+    PaletteUsageHide,
+    #[serde(rename = "palette_usage.forget")]
+    PaletteUsageForget,
     #[serde(rename = "room.create")]
     RoomCreate,
     #[serde(rename = "room.delete")]
@@ -448,6 +446,8 @@ pub enum ResourceOperation {
     WorkspacePlacementList,
     #[serde(rename = "workspace.update")]
     WorkspaceUpdate,
+    #[serde(rename = "workspace.agent_folder.set")]
+    WorkspaceAgentFolderSet,
     #[serde(rename = "workspace_group.create")]
     WorkspaceGroupCreate,
     #[serde(rename = "workspace_group.delete")]
@@ -514,6 +514,7 @@ impl ResourceOperation {
             self,
             Self::SessionEvents
                 | Self::SessionJournalSubscribe
+                | Self::ConversationEvents
                 | Self::TerminalAttach
                 | Self::BrowserAttach
                 | Self::SidebarViewAttach
@@ -554,6 +555,11 @@ impl ResourceOperation {
                 | Self::ClientGet
                 | Self::PairingRequestList
                 | Self::FrontendProjectionGet
+                | Self::ChiefEngineGet
+                | Self::ConversationList
+                | Self::ConversationGet
+                | Self::ConversationHistory
+                | Self::ConversationSearch
                 | Self::GitCheckpointDiff
                 | Self::GitCheckpointGet
                 | Self::GitCheckpointList
@@ -587,6 +593,9 @@ impl ResourceOperation {
                 | Self::SidebarViewGet
                 | Self::ClosedList
                 | Self::WindowRecordList
+                | Self::SidebarLayoutGet
+                | Self::ProjectList
+                | Self::PaletteUsageGet
                 | Self::RoomList
                 | Self::SavedTabGroupList
                 | Self::ScreenGroupGet
@@ -610,6 +619,8 @@ impl ResourceOperation {
 }
 
 mod envelope;
+mod hex;
+mod journal;
 #[cfg(test)]
 #[path = "resource/wire_name_tests.rs"]
 mod resource_operation_wire_name_tests;
@@ -618,6 +629,8 @@ mod wire_decimal;
 mod wire_name;
 
 pub use envelope::{RequestEnvelope, ResponseEnvelope};
+use hex::encode_hex;
+pub use journal::{ResourceDelta, ResourceDeltaBatch, ResourceJournal};
 pub use wire_decimal::WireDecimal;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -796,16 +809,6 @@ impl ContentPublicId {
     }
 }
 
-fn encode_hex(bytes: [u8; 16]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut output = String::with_capacity(32);
-    for byte in bytes {
-        output.push(char::from(HEX[(byte >> 4) as usize]));
-        output.push(char::from(HEX[(byte & 0x0f) as usize]));
-    }
-    output
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Selector {
     Current,
@@ -834,8 +837,7 @@ impl Selector {
     }
 }
 
-/// Tokens consumed by the noun-first CLI grammar. A resource may retain any
-/// of these exact names, but callers must select it with the `name:` escape.
+/// A noun-first CLI token: a resource may keep the name; callers select it with `name:`.
 pub fn is_reserved_selector_token(value: &str) -> bool {
     matches!(
         value,
@@ -967,137 +969,6 @@ pub fn resolve_name<T: Clone>(
             ids.sort();
             Err(ResourceError::ambiguous(kind, selector, ids))
         }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ResourceDelta {
-    pub sequence: u32,
-    pub event: String,
-    pub data: Value,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ResourceDeltaBatch {
-    pub previous_revision: WireDecimal,
-    pub revision: WireDecimal,
-    pub deltas: Vec<ResourceDelta>,
-}
-
-/// Bounded contiguous journal. One commit advances the resource revision
-/// exactly once and may append several ordered deltas at that revision.
-#[derive(Debug)]
-pub struct ResourceJournal {
-    generation: String,
-    revision: u64,
-    batches: VecDeque<(ResourceDeltaBatch, usize)>,
-    capacity: usize,
-    byte_capacity: usize,
-    retained_bytes: usize,
-}
-
-impl ResourceJournal {
-    pub fn new(generation: String, revision: u64) -> Self {
-        Self {
-            generation,
-            revision,
-            batches: VecDeque::new(),
-            capacity: JOURNAL_CAPACITY,
-            byte_capacity: JOURNAL_BYTE_CAPACITY,
-            retained_bytes: 0,
-        }
-    }
-
-    pub fn generation(&self) -> &str {
-        &self.generation
-    }
-
-    pub fn revision(&self) -> u64 {
-        self.revision
-    }
-
-    pub fn commit(&mut self, events: Vec<(String, Value)>) -> anyhow::Result<u64> {
-        let previous_revision = self.revision;
-        let revision = self
-            .revision
-            .checked_add(1)
-            .ok_or_else(|| anyhow::anyhow!("resource revision exhausted"))?;
-        let deltas = events
-            .into_iter()
-            .enumerate()
-            .map(|(sequence, (event, data))| {
-                Ok(ResourceDelta {
-                    sequence: u32::try_from(sequence).map_err(|_| {
-                        anyhow::anyhow!("too many deltas in one resource transaction")
-                    })?,
-                    event,
-                    data,
-                })
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?;
-        let batch = ResourceDeltaBatch {
-            previous_revision: WireDecimal::new(previous_revision),
-            revision: WireDecimal::new(revision),
-            deltas,
-        };
-        let bytes = serde_json::to_vec(&batch)?.len();
-        if bytes > self.byte_capacity {
-            anyhow::bail!("one resource delta batch exceeds journal byte capacity");
-        }
-        self.revision = revision;
-        self.batches.push_back((batch, bytes));
-        self.retained_bytes = self.retained_bytes.saturating_add(bytes);
-        while self.batches.len() > self.capacity || self.retained_bytes > self.byte_capacity {
-            let Some((_, removed)) = self.batches.pop_front() else { break };
-            self.retained_bytes = self.retained_bytes.saturating_sub(removed);
-        }
-        Ok(self.revision)
-    }
-
-    pub fn after(&self, revision: u64) -> Result<Vec<ResourceDeltaBatch>, ResourceError> {
-        if revision > self.revision {
-            return Err(ResourceError::new(
-                "cursor.invalid",
-                "resume cursor is ahead of the session revision",
-                json!({
-                    "requested":{
-                        "generation":self.generation,
-                        "revision":revision.to_string(),
-                    },
-                    "current":{
-                        "generation":self.generation,
-                        "revision":self.revision.to_string(),
-                    },
-                    "reason":"resume cursor is ahead of the session revision",
-                }),
-                false,
-            ));
-        }
-        let oldest = self.batches.front().map_or(self.revision, |(batch, _)| batch.revision.get());
-        if revision.saturating_add(1) < oldest {
-            return Err(ResourceError::new(
-                "cursor.gap",
-                "resume cursor is no longer retained",
-                json!({
-                    "requested":{
-                        "generation":self.generation,
-                        "revision":revision.to_string(),
-                    },
-                    "current":{
-                        "generation":self.generation,
-                        "revision":self.revision.to_string(),
-                    },
-                    "oldest_revision":oldest.to_string(),
-                }),
-                true,
-            ));
-        }
-        Ok(self
-            .batches
-            .iter()
-            .filter(|(batch, _)| batch.revision.get() > revision)
-            .map(|(batch, _)| batch.clone())
-            .collect())
     }
 }
 

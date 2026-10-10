@@ -55,9 +55,8 @@ pub(super) struct Inner {
     /// is in the default context, which `Storage.*` names by omission.
     pub(super) proxy_contexts: Mutex<std::collections::HashSet<String>>,
     /// A browser the driver owns (headless, or headful on Xvfb) has no
-    /// person's UI: it intercepts every file chooser (`choosers.rs`) and
-    /// runs Copy, Cut and Paste on the tab's clipboard (`clipboard.rs`). An
-    /// app's CEF tab keeps the app's Open panel and clipboard.
+    /// person's UI: it intercepts every file chooser (`choosers.rs`). An
+    /// app's CEF tab keeps the app's Open panel.
     pub(super) owns_browser: bool,
     /// Every tab intercepts its file choosers (headless); false: only the
     /// tabs a session drives (headful, `choosers.rs`).
@@ -313,12 +312,13 @@ impl Driver for CdpDriver {
             "frame.focused" => inner.focused_frame(params),
             "input.mouse" => inner.with_chooser_events(method, params, || inner.mouse(params)),
             "input.drag" => inner.drag(params),
+            // Every driven tab has its own clipboard: never the person's system one.
             "input.key" => match super::clipboard::shortcut(method, params) {
-                Some(kind) if inner.owns_browser => inner.clipboard_key(kind, params),
-                _ => inner.with_chooser_events(method, params, || inner.key(params)),
+                Some(kind) => inner.clipboard_key(kind, params),
+                None => inner.with_chooser_events(method, params, || inner.key(params)),
             },
-            "clipboard.read" if inner.owns_browser => inner.clipboard_read(params),
-            "clipboard.write" if inner.owns_browser => inner.clipboard_write(params),
+            "clipboard.read" => inner.clipboard_read(params),
+            "clipboard.write" => inner.clipboard_write(params),
             "input.setFiles" => inner.set_files(params),
             "filechooser.respond" => inner.chooser_respond(params),
             "input.insertText" => inner.insert_text(params),
@@ -340,6 +340,7 @@ impl Driver for CdpDriver {
             "cookies.get" => inner.cookies_get(params),
             "cookies.set" => inner.cookies_set(params),
             "cookies.clear" => inner.cookies_clear(params),
+            "cookies.restore" => inner.cookies_restore(params),
             "cdp" => inner.raw_cdp(params),
             _ => Err(DriverError::unsupported_method(method)),
         }
@@ -521,6 +522,7 @@ impl Inner {
         );
         if !shell {
             self.intercept_choosers_on(target_id, session_id);
+            self.seed_load_state(target_id, session_id);
         }
         if let Some(Ok(tree)) = results.get(1) {
             let frame = &tree["frameTree"]["frame"];

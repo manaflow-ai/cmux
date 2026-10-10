@@ -34,9 +34,13 @@ pub const OBSERVE_AGENT_METHODS: &[&str] = &[
     "checkStates",
     "rect",
     "contentBox",
+    "framePosition",
     "iframeHandles",
     "retarget",
     "read",
+    "readBounded",
+    "readAllBounded",
+    "documentHTML",
     "activeHandle",
 ];
 
@@ -121,8 +125,11 @@ const MAX_ARGS_BYTES: usize = 64 * 1024;
 /// hides the values of sensitive fields (type=password; autocomplete
 /// one-time-code, current-password, new-password or cc-*): a direct read of
 /// such a field gives the marker, and the text results (snapshot, read,
-/// describe, strictError) have every such value replaced by the marker
-/// (substring for values of 4+ characters, whole string otherwise).
+/// readBounded, readAllBounded, documentHTML, describe, strictError) have
+/// every such value replaced by the marker
+/// (substring for values of 4+ characters, whole string otherwise). The scan
+/// for those values reads within the page-read budget; when the budget stops
+/// it, the read is refused with the read-cut marker.
 const OBSERVE_SOURCE: &str = r#"async (m, ...a) => {
   const A = globalThis[Symbol.for("cmux.browserRepl.agent")];
   const MARK = "********";
@@ -132,7 +139,8 @@ const OBSERVE_SOURCE: &str = r#"async (m, ...a) => {
     return String(el.getAttribute("autocomplete") || "").toLowerCase().split(/\s+/)
       .some((t) => t === "one-time-code" || t === "current-password" || t === "new-password" || t.startsWith("cc-"));
   };
-  if (m === "read" && (a[1] === "inputValue" || (a[1] === "getAttribute" && String(a[2]).toLowerCase() === "value"))) {
+  const reads = m === "read" || m === "readBounded";
+  if (reads && (a[1] === "inputValue" || (a[1] === "getAttribute" && String(a[2]).toLowerCase() === "value"))) {
     let el = A.element(a[0]);
     if (a[1] === "inputValue") {
       const target = A.retarget(a[0], "follow-label");
@@ -140,23 +148,101 @@ const OBSERVE_SOURCE: &str = r#"async (m, ...a) => {
     }
     if (sensitive(el)) {
       const v = a[1] === "inputValue" ? el.value : el.getAttribute("value");
-      return v ? MARK : v;
+      // readBounded answers { value, cut }.
+      return m === "readBounded" ? { value: v ? MARK : v, cut: null } : v ? MARK : v;
     }
   }
-  const value = await A[m](...a);
-  if (!["snapshot", "read", "describe", "strictError"].includes(m)) return value;
-  const secrets = [];
-  const walk = (root) => {
-    for (const el of root.querySelectorAll("*")) {
-      if (sensitive(el)) {
-        if (el.value) secrets.push(String(el.value));
-        const d = el.getAttribute("value");
-        if (d) secrets.push(d);
-      }
-      if (el.shadowRoot) walk(el.shadowRoot);
-    }
+  // The read runs inside the agent's reply, which settles the cuts it made
+  // before the values are scrubbed (a cut never ends inside a value).
+  const value = await A.reply(A[m](...a));
+  if (!["snapshot", "read", "readBounded", "readAllBounded", "documentHTML", "describe", "strictError"].includes(m)) return value;
+  if (value && typeof value === "object" && value.__cmuxReplyCut) return value;
+  // The scan reads within the page-read budget (one node per element, the
+  // values' characters and a scoped read's attribute text as size). A
+  // scoped read (snapshot of a root, read or describe of an element,
+  // strictError of its elements) scans its part first: its subtrees, and,
+  // until none is left, every element they name by id in any attribute
+  // (aria-labelledby, for, aria-owns, ...), their labels and the nodes
+  // slotted into them, because a name or text can come from those. Then the
+  // rest of the frame, with what the budget has left. When the budget stops
+  // the scan of the scoped part, or of the whole frame for an unscoped
+  // read, the read is refused with the cut marker (the runtime prints
+  // core.readCutNote, with a hint to scope an unscoped read); a scoped read
+  // whose part was scanned whole is scrubbed of that part's values. A
+  // partial scrub of the part a read shows is never returned.
+  // Iterative over shadow roots: a page can nest them deeper than the stack.
+  const B = A.budget({});
+  const scope = m === "snapshot" ? (a[0] && a[0].root ? [A.element(a[0].root)] : null)
+    : m === "strictError" ? (Array.isArray(a[1]) ? a[1].map((h) => A.element(h)) : null)
+    // readAllBounded reads its elements; documentHTML the whole frame.
+    : m === "readAllBounded" ? (Array.isArray(a[0]) ? a[0].map((h) => A.element(h)) : null)
+    : m === "documentHTML" ? null
+    : [A.element(a[0])];
+  // inputValue reads the control a label names (follow-label), which can
+  // be outside the label's subtree: that control is in the part too.
+  if (reads && a[1] === "inputValue") {
+    const target = A.retarget(a[0], "follow-label");
+    if (target !== null && target !== undefined) scope.push(A.element(target));
+  }
+  const cut = (part) => {
+    const r = B.report();
+    return { __cmuxReplyCut: { truncated: r.truncated, maxNodes: r.maxNodes, maxSize: r.maxSize, scope: part } };
   };
-  walk(document);
+  const secrets = [];
+  // Scans `roots` (elements, the document, shadow roots) and every shadow
+  // root inside; false when the budget stopped it. `follow` (the scoped
+  // part): also queue what each element names, and skip elements already
+  // scanned (`done`, with their subtrees). The rest of the frame is walked
+  // whole, the scoped part again included (cheaper than a filter per node).
+  const done = new WeakSet();
+  const scan = (roots, follow) => {
+    const visit = (el) => {
+      if (!B.spend(1)) return false;
+      if (sensitive(el)) {
+        for (const v of [el.value, el.getAttribute("value")]) {
+          if (!v) continue;
+          if (!B.charge(String(v).length)) return false;
+          secrets.push(String(v));
+        }
+      }
+      if (el.shadowRoot) roots.push(el.shadowRoot);
+      if (!follow) return true;
+      done.add(el);
+      const home = el.getRootNode();
+      for (const attr of el.attributes) {
+        if (!B.charge(attr.value.length)) return false;
+        for (const id of attr.value.split(/\s+/)) {
+          const named = id && typeof home.getElementById === "function" ? home.getElementById(id) : null;
+          if (named && !done.has(named)) roots.push(named);
+        }
+      }
+      if (el.labels) for (const label of el.labels) if (!done.has(label)) roots.push(label);
+      if (el.localName === "slot" && typeof el.assignedElements === "function") {
+        for (const n of el.assignedElements({ flatten: true })) if (!done.has(n)) roots.push(n);
+      }
+      return true;
+    };
+    const skip = { acceptNode: (n) => (done.has(n) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT) };
+    while (roots.length) {
+      const root = roots.pop();
+      if (root.nodeType === 1) {
+        if (done.has(root)) continue;
+        if (!visit(root)) return false;
+      }
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, follow ? skip : null);
+      for (let el = walker.nextNode(); el; el = walker.nextNode()) if (!visit(el)) return false;
+    }
+    return true;
+  };
+  if (scope) {
+    if (!scan([...scope], true)) return cut("part");
+    // The rest of the frame within what is left: its values are scrubbed
+    // too when the whole frame fits (a page can copy a value anywhere).
+    scan([document], false);
+  } else if (!scan([document], false)) return cut("frame");
+  const unique = new Set(secrets);
+  secrets.length = 0;
+  for (const v of unique) secrets.push(v);
   if (!secrets.length) return value;
   // The forms a value takes in text results: HTML-escaped (innerHTML),
   // whitespace-collapsed and cut (describe and strictError previews).
@@ -167,12 +253,16 @@ const OBSERVE_SOURCE: &str = r#"async (m, ...a) => {
     secrets.push(html(v), flat);
     if (flat.length > 12) secrets.push(flat.slice(0, 12));
   }
+  // A short value (1-3 characters) is replaced only as a whole string, or
+  // where HTML results (innerHTML, documentHTML) hold it as a value attribute.
+  const attributes = [...unique].filter((v) => v.length < 4).map((v) => `value="${html(v)}"`);
   for (let i = secrets.length - 1; i >= 0; i--) if (!secrets[i]) secrets.splice(i, 1);
   secrets.sort((x, y) => y.length - x.length);
   const scrub = (x) => {
     if (typeof x === "string") {
       let s = x;
       for (const k of secrets) s = k.length >= 4 ? s.split(k).join(MARK) : (s === k ? MARK : s);
+      for (const a of attributes) s = s.split(a).join(`value="${MARK}"`);
       return s;
     }
     if (Array.isArray(x)) return x.map(scrub);

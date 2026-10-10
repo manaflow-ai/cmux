@@ -52,6 +52,7 @@ extension ChatController {
         case let .link(url, title, site, _, _): return [title, site ?? url].compactMap { $0 }.joined(separator: ", ")
         case let .attachment(a): return String(format: NativeStrings.attachmentFormat, a.fileName)
         case let .location(_, _, title, subtitle): return [title, subtitle].compactMap { $0 }.joined(separator: ", ")
+        case let .custom(c): return CustomRows.plainText(c)  // cmux: d5d6a18's custom parts (this file stays at bd65bbf)
         }
     }
 
@@ -121,13 +122,13 @@ final class TranscriptSelection {
     /// Real Messages (macOS 27, click-incoming / click-outgoing / click-empty references): a
     /// click on a bubble selects that message. Its bubble brightens (incoming 59 -> 98, white
     /// at 20 %) or darkens (outgoing (72,147,247) -> (45,89,192), multiply), easing in over
-    /// 0.22 s from about 30 ms after the release (ours starts 10 ms after its mouse-up event,
-    /// fitted on click-incoming take 13); a click elsewhere (another bubble, the empty
+    /// 0.22 s from about 30 ms after the release (ours starts at the release: faster than
+    /// Messages is the rule, the evidence aligns on the first response); a click elsewhere (another bubble, the empty
     /// transcript) or the second press of a double-click takes it off: ease-out 0.2 s.
     /// The layer follows the row (refresh() runs on every scroll and layout).
     let bubbleLayer = CAShapeLayer()
     private(set) var selectedKey: String?
-    static let bubbleOnDelay: CFTimeInterval = 0.01, bubbleOnDuration: CFTimeInterval = 0.22
+    static let bubbleOnDelay: CFTimeInterval = 0, bubbleOnDuration: CFTimeInterval = 0.22
     static let bubbleOffDuration: CFTimeInterval = 0.2
 
     func selectBubble(_ key: String, outgoing: Bool) {
@@ -219,7 +220,7 @@ final class TranscriptSelection {
     @discardableResult
     func selectWord(at p: CGPoint) -> Bool {
         guard let pos = position(at: p), let demo = controller.demo, let i = demo.model.index[pos.key],
-              case let .part(row) = demo.model.rows[i].spec.kind, let tl = row.text else { return false }
+              case let .part(row)? = demo.model.rows[checked: i]?.spec.kind, let tl = row.text else { return false } // cmux: checked
         let str = NSAttributedString(string: tl.text)
         guard str.length > 0 else { return false }
         let r = str.doubleClick(at: min(pos.offset, str.length - 1))
@@ -255,28 +256,31 @@ final class TranscriptSelection {
         if p.y < r.body.minY { return TextPosition(key: r.key, offset: 0) }
         if p.y > r.body.maxY { return TextPosition(key: r.key, offset: (tl.text as NSString).length) }
         let x = p.x - r.body.minX - Fixture.bubblePadX, y = p.y - r.body.minY - Fixture.bubblePadY
-        let i = min(tl.lines.count - 1, max(0, Int(floor(y / Fixture.lineHeight))))
-        let line = ctLine(tl, i)
+        let i = min(tl.lines.count - 1, max(0, CrashGuard.int(floor(y / Fixture.lineHeight), in: CrashGuard.countRange))) // cmux: no trap on NaN
+        // cmux: a text with no lines (i == -1 trapped) is at its start.
+        guard let lineRange = tl.lines[checked: i]?.range, let line = ctLine(tl, i) else { return TextPosition(key: r.key, offset: 0) }
         let idx = CTLineGetStringIndexForPosition(line, CGPoint(x: max(0, x), y: 0))
-        let off = idx == kCFNotFound ? tl.lines[i].range.location : tl.lines[i].range.location + idx
-        return TextPosition(key: r.key, offset: min(off, NSMaxRange(tl.lines[i].range)))
+        let off = idx == kCFNotFound ? lineRange.location : lineRange.location + idx
+        return TextPosition(key: r.key, offset: min(off, NSMaxRange(lineRange)))
     }
 
-    private func ctLine(_ tl: TextLayout, _ i: Int) -> CTLine {
+    private func ctLine(_ tl: TextLayout, _ i: Int) -> CTLine? { // cmux: nil for a line outside the text
+        guard let range = tl.lines[checked: i]?.range else { return nil }
         let attr = tl.attributed(color: .white, linkColor: .white)
-        return CTLineCreateWithAttributedString(attr.attributedSubstring(from: tl.lines[i].range))
+        guard NSMaxRange(range) <= attr.length else { return nil } // cmux: lines measured for another text
+        return CTLineCreateWithAttributedString(attr.attributedSubstring(from: range))
     }
 
     /// Selected (row key, range) pairs in order, over the loaded rows.
     func selectedRanges() -> [(key: String, range: NSRange, text: String)] {
         guard let demo = controller.demo, let a = anchor, let f = focus, a != f,
-              let ia = demo.model.index[a.key], let fi = demo.model.index[f.key] else { return [] }
+              let ia = demo.model.index.value(for: a.key), let fi = demo.model.index.value(for: f.key) else { return [] } // cmux: dictionary reads
         let (s, e) = (ia, a.offset) <= (fi, f.offset) ? (a, f) : (f, a)
         let lo = min(ia, fi), hi = max(ia, fi)
         var out: [(String, NSRange, String)] = []
         for i in lo...hi {
-            guard case let .part(p) = demo.model.rows[i].spec.kind, let tl = p.text else { continue }
-            let key = demo.model.rows[i].spec.key
+            guard let spec = demo.model.rows[checked: i]?.spec, case let .part(p) = spec.kind, let tl = p.text else { continue } // cmux: checked
+            let key = spec.key
             let len = (tl.text as NSString).length
             let from = key == s.key ? s.offset : 0
             let to = key == e.key ? e.offset : len
@@ -300,7 +304,7 @@ final class TranscriptSelection {
                     let inter = NSIntersectionRange(sel, line.range)
                     let empty = line.range.length == 0 && NSLocationInRange(line.range.location, sel)
                     guard inter.length > 0 || empty else { continue }
-                    let ct = ctLine(tl, i)
+                    guard let ct = ctLine(tl, i) else { continue } // cmux: a line from another text draws nothing
                     let x0 = CTLineGetOffsetForStringIndex(ct, inter.location - line.range.location, nil)
                     let x1 = inter.length > 0 ? CTLineGetOffsetForStringIndex(ct, NSMaxRange(inter) - line.range.location, nil) : x0 + 4
                     path.addRect(CGRect(x: r.body.minX + Fixture.bubblePadX + x0, y: r.body.minY + Fixture.bubblePadY + CGFloat(i) * Fixture.lineHeight,

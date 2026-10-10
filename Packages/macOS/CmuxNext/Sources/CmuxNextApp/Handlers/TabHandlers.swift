@@ -27,7 +27,7 @@ enum TabHandlers {
         registry.bind(NewTabPage.focusLocation, invoke: { ctx.paneController($0)?.focusLocation($0) })
         registry.bind("openBrowser", invoke: { TabLifecycle.newBrowser(ctx, $0) })
         registry.bind("openBrowser.webkit", invoke: { TabLifecycle.newBrowser(ctx, $0, engine: .webkit) })
-        let chromiumReason: @MainActor () -> String? = { ctx.services.cache.browserTabs?.cefUnavailableReason() }
+        let chromiumReason: @MainActor () -> String? = { ctx.services.cache.browserTabs.cefUnavailableReason() }
         registry.bind("openBrowser.chromium", unavailable: chromiumReason, invoke: { TabLifecycle.newBrowser(ctx, $0, engine: .cef) })
         registry.bind("browser.openInChromium", unavailable: chromiumReason, invoke: { TabLifecycle.reopen(ctx, $0, on: .cef) })
         registry.bind("browser.openInWebKit", invoke: { TabLifecycle.reopen(ctx, $0, on: .webkit) })
@@ -233,11 +233,20 @@ enum TabHandlers {
             rename(surface, to: nil, ctx: ctx, pane: pane)
         })
         registry.bind("palette.toggleTabPin", unavailable: ctx.needs(DaemonCapabilities.shared.tabMetadata), invoke: { invocation in
-            if TabLifecycle.togglePinHidden(ctx, invocation) { return }
+            let commands = PinCommands(context: ctx)
+            if invocation.target?.kind == .tab || invocation["tab"]?.targetValue != nil {
+                guard let (tab, _) = ctx.daemonTab(invocation) else { return }
+                return commands.setTabPinned(tab.id, pinned: !tab.pinned, origin: invocation.origin)
+            }
             guard let (pane, id) = ctx.tab(invocation) else { return }
             guard let tab = pane.tab(id) ?? ctx.refuse(RefusalStrings.sessionLocalCannotPin) else { return }
-            pane.setPinned(id, pinned: !tab.pinned)
+            commands.setTabPinned(id.rawValue, pinned: !tab.pinned, origin: invocation.origin)
         })
+        // The tab menu reads Pin Tab or Unpin Tab for the right-clicked tab.
+        ActionTargetTitles.set("palette.toggleTabPin", in: registry) { invocation in
+            guard let id = invocation.target?.id, let (tab, _) = ctx.services.locateTab(id) else { return nil }
+            return tab.pinned ? PinStrings.unpinTab : PinStrings.pinTab
+        }
     }
 
     /// Optimistic rename; an empty name clears it on the daemon.

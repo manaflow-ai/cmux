@@ -32,9 +32,30 @@
   // The page-agent methods frame.observe allows (browser lead contract v1).
   // hitTarget, scrollIntoViewIfNeeded, clickPoint and the other acts are not
   // among them.
-  const OBSERVE_METHODS = new Set(["ping", "snapshot", "stats", "refState", "refForHandle", "elementAt", "splitFrames", "queryAll", "describe", "strictError", "elementState", "checkStates", "rect", "contentBox", "iframeHandles", "retarget", "read", "activeHandle"]);
+  const OBSERVE_METHODS = new Set(["ping", "snapshot", "stats", "refState", "refForHandle", "elementAt", "splitFrames", "queryAll", "describe", "strictError", "elementState", "checkStates", "rect", "contentBox", "framePosition", "iframeHandles", "retarget", "read", "readBounded", "readAllBounded", "documentHTML", "activeHandle"]);
   const DEFAULT_TIMEOUT = 30000;
   const UNDEFINED_MARK = "__cmuxUndefined__";
+
+  // An agent-world function run inside the page agent's `reply`
+  // (page-agent.js), which settles the cuts the read made and cuts a reply
+  // past the reply budget (`limit`, default the agent's MAX_REPLY).
+  const sealAgentSource = (source, limit) =>
+    `(...a) => { const A = ${AGENT}; if (!A || typeof A.reply !== "function") throw new Error("the cmux page agent is not in this frame"); ` +
+    `return A.reply((${source})(...a), ${typeof limit === "number" ? limit : "undefined"}); }`;
+  // The key of the page agent's cut marker (page-agent.js, `reply`).
+  const REPLY_CUT = "__cmuxReplyCut";
+  // A reply the page agent cut at its budget fails with core.readCutNote's
+  // words; `what` names the read in them.
+  // A whole-frame read the host's sensitive-field scan could not finish
+  // (frame.observe, `scope: "frame"`) can be read in parts.
+  const SCOPE_HINT = '; scope the read to a part of the page: snapshot(ref) or snapshot(locator), such as snapshot(page.locator("main"))';
+  function uncutReply(r, what) {
+    if (r && typeof r === "object" && !Array.isArray(r) && r[REPLY_CUT]) {
+      const cut = r[REPLY_CUT];
+      throw new Error(`Error: ${readCutNote(what || "the page reply", cut)}${cut.scope === "frame" ? SCOPE_HINT : ""}`);
+    }
+    return r;
+  }
 
   // ---------------------------------------------------------------------------
   // Errors
@@ -914,9 +935,10 @@
     }
     emitTabCreated() {}
     // `dataStore` (from `tabs.dataStore` or `tabs.list`) opens the tab in
-    // that data store instead of the session's default one.
-    async newPage(url, { background, dataStore } = {}) {
-      const { targetId } = await this.call("tabs.open", { url, background: !!background, ...(dataStore === undefined ? {} : { dataStore }) });
+    // that data store instead of the session's default one; `incognito`
+    // opens it in a store that keeps nothing (driver-protocol.md).
+    async newPage(url, { background, dataStore, incognito } = {}) {
+      const { targetId } = await this.call("tabs.open", { url, background: !!background, ...(dataStore === undefined ? {} : { dataStore }), ...(incognito === undefined ? {} : { incognito: !!incognito }) });
       const page = this._page(targetId);
       if (url) page._url = url;
       return page;
@@ -995,18 +1017,24 @@
     }
     // Script cannot run while a JavaScript dialog is open, so calls fail fast
     // with the way out instead of hanging until the evaluation timeout.
-    _call(world, source, args, handles) {
+    //
+    // Every agent-world reply goes through the page agent's `reply`
+    // (page-agent.js): the call's function runs inside it, so the cuts a
+    // read made are settled before the reply leaves the page.
+    _call(world, source, args, handles, what) {
       const blocked = this._page._blockedError();
       if (blocked) return Promise.reject(blocked);
-      return this._page._raceDialog(this._session.call("frame.evaluate", {
+      const sealed = world !== "agent" ? source : sealAgentSource(source, this._session._replyLimit);
+      const call = this._page._raceDialog(this._session.call("frame.evaluate", {
         targetId: this._page._targetId,
         frameId: this._id || undefined,
         world,
-        source,
+        source: sealed,
         args: args || [],
         handles: handles || [],
         awaitPromise: true,
       }), true);
+      return world === "agent" ? call.then((r) => uncutReply(r, what)) : call;
     }
     // A user function in the page world. JSON has no undefined, so a function
     // that returns undefined sends a marker the result turns back into it,
@@ -1024,13 +1052,16 @@
     // the call's error.
     _agent(method, ...args) {
       if (OBSERVE_METHODS.has(method) && !this._session._observeUnsupported) return this._observe(method, args);
-      return this._call("agent", `(m, ...a) => ${AGENT}[m](...a)`, [method, ...args]);
+      return this._call("agent", `(m, ...a) => ${AGENT}[m](...a)`, [method, ...args], undefined, method);
     }
+    // The host's observe script runs the read inside the agent's reply with
+    // the default reply budget.
     async _observe(method, args) {
       const blocked = this._page._blockedError();
       if (blocked) throw blocked;
+      let r;
       try {
-        return await this._page._raceDialog(this._session.call("frame.observe", {
+        r = await this._page._raceDialog(this._session.call("frame.observe", {
           targetId: this._page._targetId,
           frameId: this._id || undefined,
           method,
@@ -1039,8 +1070,9 @@
       } catch (e) {
         if (!e || e.code !== "unsupported") throw e;
         this._session._observeUnsupported = true;
-        return this._call("agent", `(m, ...a) => ${AGENT}[m](...a)`, [method, ...args]);
+        return this._call("agent", `(m, ...a) => ${AGENT}[m](...a)`, [method, ...args], undefined, method);
       }
+      return uncutReply(r, method);
     }
     async _contentFrame(handle) {
       try {
@@ -1068,12 +1100,12 @@
     async evaluateHandle(fn, arg) {
       return this.evaluate(fn, arg);
     }
+    // The document's HTML, read within the page-read budget in the page
+    // agent (see Locator._read).
     async content() {
-      return this.evaluate(() => {
-        let doctype = "";
-        if (document.doctype) doctype = new XMLSerializer().serializeToString(document.doctype);
-        return doctype + (document.documentElement ? document.documentElement.outerHTML : "");
-      });
+      const r = await this._agent("documentHTML");
+      if (r.cut) this._page._printReadCut("page.content", r.cut, "the HTML ends where it stopped");
+      return r.value;
     }
     async title() {
       return this.evaluate(() => document.title);
@@ -1315,10 +1347,14 @@
 
     async _scrollIntoView(frame, handle) {
       await frame._agent("scrollIntoViewIfNeeded", handle);
-      // Bring each owner <iframe> into its parent's viewport too.
+      // Bring each owner <iframe> into its parent's viewport too. The owner
+      // is the one the child's place in window.frames names, else (a frame
+      // in a shadow tree) one found within the parent's node budget: the
+      // page sets the parent's size, so no action walks its whole DOM.
       for (let child = frame; child._parent; child = child._parent) {
         const parent = child._parent;
-        const iframes = await parent._agent("iframeHandles");
+        const position = await child._agent("framePosition");
+        const iframes = (await parent._agent("iframeHandles", position)).handles;
         for (const h of iframes) {
           const f = await parent._contentFrame(h);
           if (f === child) {
@@ -1602,8 +1638,15 @@
       });
       return this._page.screenshot({ ...options, clip: box, fullPage: false });
     }
+    // String reads (textContent, innerText, innerHTML, getAttribute,
+    // inputValue) run within the page-read budget in the page agent: a
+    // value past it is cut there, ends with "…", and a note says where it
+    // stopped.
     async _read(what, arg, options, title) {
-      return this._withElement(options || {}, title, [], (frame, handle) => frame._agent("read", handle, what, arg));
+      if (!BOUNDED_READS.has(what)) return this._withElement(options || {}, title, [], (frame, handle) => frame._agent("read", handle, what, arg));
+      const r = await this._withElement(options || {}, title, [], (frame, handle) => frame._agent("readBounded", handle, what, arg));
+      if (r.cut) this._page._printReadCut(title, r.cut, "the value ends where it stopped");
+      return r.value;
     }
     textContent(options) {
       return this._read("textContent", undefined, options, "locator.textContent");
@@ -1682,11 +1725,20 @@
       const handles = r ? r.handles : [];
       return frame._evalPage(`(...xs) => (${functionSource(fn)})(xs.slice(0, ${handles.length}), xs[${handles.length}])`, [arg], handles);
     }
+    // Read in the page agent within one page-read budget for all the
+    // elements, as _read.
+    async _readAll(what, title) {
+      const r = await this._resolveAll();
+      if (!r || !r.handles.length) return [];
+      const out = await r.frame._agent("readAllBounded", r.handles, what);
+      if (out.cut) this._page._printReadCut(title, out.cut, "the values after it are cut or empty");
+      return out.values;
+    }
     async allTextContents() {
-      return this.evaluateAll((els) => els.map((e) => e.textContent || ""));
+      return this._readAll("textContent", "locator.allTextContents");
     }
     async allInnerTexts() {
-      return this.evaluateAll((els) => els.map((e) => e.innerText));
+      return this._readAll("innerText", "locator.allInnerTexts");
     }
     async count() {
       const r = await this._resolveAll();
@@ -2439,6 +2491,12 @@
       if (!d || d._handled) return null;
       return new Error(`page is blocked by a JavaScript ${d.type()} dialog ${JSON.stringify(d.message())}; answer it with page.dialog().accept() or page.dialog().dismiss()`);
     }
+    // A note for a page read the page-read budget cut.
+    _printReadCut(title, cut, rest) {
+      try {
+        this._session.host.print("warn", `# ${title}: ${readCutNote("it", cut)}; ${rest}`);
+      } catch {}
+    }
     // Settles when `promise` does, or when a dialog nobody listens for opens:
     // input then counts as delivered, an evaluation fails with the way out.
     _raceDialog(promise, isEvaluation) {
@@ -2782,6 +2840,9 @@
         cookies: (urls) => session.call("cookies.get", { ...this._cookieScope(), urls: urls === undefined ? undefined : [].concat(urls) }),
         addCookies: (cookies) => session.call("cookies.set", { ...this._cookieScope(), cookies }),
         clearCookies: (options) => this._clearCookies(options),
+        // Undo of clearCookies: the restore ids it returned (driver
+        // cookies.restore). Cookies set since the clear are kept.
+        restoreCookies: (restoreIds) => this._restoreCookies(restoreIds),
       };
     }
     // Playwright's clearCookies({ name, domain, path }), scoped like
@@ -2805,18 +2866,28 @@
       if (options.all) scope.all = true;
       // The driver refuses a tab with no site, and { all: true }, on the
       // user's profile, and knows which store this is.
+      // Every clear is undoable: the host backs up what it deletes and
+      // answers a restore id (an engine without backups answers none).
+      const restoreIds = [];
       const clear = async (params) => {
         try {
-          await this._session.call("cookies.clear", params);
+          const r = await this._session.call("cookies.clear", params);
+          if (r && typeof r.restoreId === "string") restoreIds.push(r.restoreId);
         } catch (e) {
-          if (driverErrorCode(e) !== "invalid") throw e;
+          // A clear of several cookies that stops part way (a full backup
+          // store) names the restore ids of what it already cleared.
+          const done = restoreIds.length ? ` (already cleared; undo with restoreCookies(${JSON.stringify(restoreIds)}))` : "";
+          if (driverErrorCode(e) !== "invalid") {
+            if (done && e && typeof e.message === "string") e.message += done;
+            throw e;
+          }
           const message = String(e.message || "").replace(/^cookies\.clear: /, "");
-          throw new Error(`${title}: ${message}`);
+          throw new Error(`${title}: ${message}${done}`);
         }
       };
       if (!Object.values(filters).some(isRegExp)) {
         await clear({ ...scope, ...filters });
-        return;
+        return { restoreIds };
       }
       const matches = (cookie, key) => {
         const v = filters[key];
@@ -2830,6 +2901,19 @@
         if (!["name", "domain", "path"].every((key) => matches(cookie, key))) continue;
         await clear({ ...scope, name: cookie.name, domain: cookie.domain, path: cookie.path });
       }
+      return { restoreIds };
+    }
+    async _restoreCookies(restoreIds) {
+      const ids = typeof restoreIds === "string" ? [restoreIds] : restoreIds && Array.isArray(restoreIds.restoreIds) ? restoreIds.restoreIds : restoreIds;
+      if (!Array.isArray(ids) || !ids.every((id) => typeof id === "string")) {
+        throw new Error(`browserContext.restoreCookies: expected a restore id, a list of them, or clearCookies()'s result, got ${JSON.stringify(restoreIds)}`);
+      }
+      const out = { restored: 0, kept: 0, expired: 0 };
+      for (const restoreId of ids) {
+        const r = await this._session.call("cookies.restore", { restoreId });
+        for (const key of Object.keys(out)) out[key] += Number(r && r[key]) || 0;
+      }
+      return out;
     }
     opener() {
       return Promise.resolve(this._opener);
@@ -3147,8 +3231,25 @@
     return MIME[ext] || "application/octet-stream";
   }
 
+  // The note for a page read cut at the page-read budget (page-agent.js,
+  // readBudget): `cut` is { truncated: "nodes" | "size" | "time" |
+  // "frames", maxNodes, maxSize, frames }. Every read that stops there says
+  // so in these words (classic runtime-core.js).
+  const groupDigits = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const BOUNDED_READS = new Set(["textContent", "innerText", "innerHTML", "getAttribute", "inputValue"]);
+  function readCutNote(what, cut) {
+    const why =
+      cut.truncated === "time" ? "after 8 s of reading"
+      : cut.truncated === "size" ? `after ${groupDigits(cut.maxSize)} characters`
+      : cut.truncated === "frames" ? `after ${groupDigits(cut.frames)} frames`
+      : `after ${groupDigits(cut.maxNodes)} nodes`;
+    return `the page is too large to read whole: ${what} stopped ${why}`;
+  }
+
   ns.core = {
+    readCutNote,
     Session,
+    sealAgentSource,
     Page,
     Frame,
     Locator,

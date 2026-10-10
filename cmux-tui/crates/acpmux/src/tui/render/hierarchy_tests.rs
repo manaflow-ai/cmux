@@ -18,6 +18,7 @@ fn sample() -> Transcript {
             title: "date".into(),
             options: vec![],
             decided: Some("allow_once".into()),
+            question: None,
         },
         Item::Tool {
             id: "2".into(),

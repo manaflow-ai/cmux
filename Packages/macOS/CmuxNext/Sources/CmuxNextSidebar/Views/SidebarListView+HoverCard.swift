@@ -40,4 +40,12 @@ extension SidebarView {
         list.scrollToVisible(list.frame(for: row))
         return list.hoverCardAnchor(for: id)
     }
+
+    /// Group `id`'s header row on screen, scrolled into view first; nil when
+    /// the header is not shown (the icon picker anchors its popover here).
+    public func groupRowFrameOnScreen(for id: GroupID) -> CGRect? {
+        guard let row = list.displayed.row(for: .group(id)), let window = list.window else { return nil }
+        list.scrollToVisible(list.frame(for: row))
+        return window.convertToScreen(list.convert(list.frame(for: row), to: nil))
+    }
 }

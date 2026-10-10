@@ -56,190 +56,49 @@ impl Admitted {
     }
 }
 
-/// What a reserved name asks for.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Route {
-    /// `claude-sr`: `sr claude proxy`, the subrouter account pool.
-    Subrouter,
-    /// `claude`: the `claude` executable, the direct login.
-    Direct,
-}
-
-impl Route {
-    pub fn of(name: &str) -> Option<Route> {
-        match name {
-            "claude-sr" => Some(Route::Subrouter),
-            "claude" => Some(Route::Direct),
-            _ => None,
-        }
-    }
-
-    fn command(self) -> &'static str {
-        match self {
-            Route::Subrouter => "`sr claude proxy`",
-            Route::Direct => "`claude`",
-        }
-    }
-
-    /// Whether a profile's command is this route's.
-    fn matches(self, argv: &[String]) -> bool {
-        let Some(first) = argv.first() else {
-            return false;
-        };
-        let exe = basename(first);
-        match self {
-            // `sr` is a symlink to `subrouter` on some machines.
-            Route::Subrouter => {
-                matches!(exe.as_str(), "sr" | "subrouter")
-                    && argv
-                        .get(1..)
-                        .is_some_and(|rest| rest == ["claude", "proxy"])
-            }
-            Route::Direct => exe == "claude",
-        }
-    }
-}
-
-/// The team subrouter on cmux-lawrence, as a routed claude-sr names it
-/// (MagicDNS short name, its full tailnet name, or the tailnet address).
-pub const TEAM_SUBROUTER_URLS: [&str; 3] = [
-    "http://cmux-lawrences-mac-mini:31415",
-    "http://cmux-lawrences-mac-mini.tail137216.ts.net:31415",
-    "http://100.89.225.106:31415",
-];
-
-/// acpmux's routed claude-sr: when `sr claude proxy --version` fails at
-/// daemon start, acpmux replaces the launcher with a copy of the `claude`
-/// profile whose `ANTHROPIC_BASE_URL` is the subrouter server. Accepted for
-/// the claude-sr route only when it runs the `claude` binary itself (no
-/// arguments) and the base URL is the team subrouter on cmux-lawrence.
-fn routed_to_team_subrouter(p: &Value) -> bool {
-    let argv = argv_of(p);
-    let url = p
-        .get("env")
-        .and_then(|e| e.get("ANTHROPIC_BASE_URL"))
-        .and_then(Value::as_str)
-        .map(|u| u.trim().trim_end_matches('/'));
-    argv.len() == 1
-        && basename(&argv[0]) == "claude"
-        && url.is_some_and(|u| TEAM_SUBROUTER_URLS.contains(&u))
-}
-
-fn basename(word: &str) -> String {
-    std::path::Path::new(word)
-        .file_name()
-        .map(|f| f.to_string_lossy().into_owned())
-        .unwrap_or_default()
-}
-
-fn kind_of(profile: &Value) -> String {
-    // acpmux omits the default kind (`acp`) when it serializes a profile.
-    profile
-        .get("kind")
-        .and_then(Value::as_str)
-        .unwrap_or("acp")
-        .to_owned()
-}
-
-fn argv_of(profile: &Value) -> Vec<String> {
-    profile
-        .get("argv")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .map(str::to_owned)
-        .collect()
-}
-
-fn profiles(answer: &Value) -> impl Iterator<Item = (&String, &Value)> {
-    answer
-        .get("harnesses")
-        .and_then(Value::as_object)
-        .into_iter()
-        .flatten()
-}
-
-/// One profile as acpmux reports it, for a refusal message.
-fn what_is(answer: &Value, name: &str) -> String {
-    match answer.get("harnesses").and_then(|h| h.get(name)) {
-        Some(p) => {
-            let argv = argv_of(p);
-            let mut text = format!(
-                "acpmux's {name} is kind {} ({})",
-                kind_of(p),
-                argv.first().map_or("no command", String::as_str)
-            );
-            if let Some(why) = p.get("description").and_then(Value::as_str) {
-                text.push_str(&format!(", \"{why}\""));
-            }
-            text
-        }
-        None => format!("acpmux has no harness named {name}"),
-    }
-}
+/// The team subrouter's addresses (cmux_chief::policy::harness).
+pub use cmux_chief::policy::harness::TEAM_SUBROUTER_URLS;
 
 /// The profile `requested` runs on, from an `_acpmux/harnesses` answer, or
 /// why the Chief refuses it.
 pub fn admit(answer: &Value, requested: &str) -> Result<Admitted, String> {
-    if let Some(route) = Route::of(requested) {
-        let routed = |p: &Value| route == Route::Subrouter && routed_to_team_subrouter(p);
-        let matching = |(_, p): &(&String, &Value)| {
-            kind_of(p) == CLAUDE_STDIO
-                && p.get("unavailable").is_none()
-                && (route.matches(&argv_of(p)) || routed(p))
-        };
-        let mut found: Vec<(&String, &Value)> = profiles(answer).filter(matching).collect();
-        // A real `sr claude proxy` first, then the reserved name's profile.
-        found.sort_by_key(|(name, p)| (routed(p), name.as_str() != requested, name.to_string()));
-        let Some((name, p)) = found.first() else {
-            return Err(format!(
-                "the Chief runs Claude only through acpmux's own Claude Code adapter (kind {CLAUDE_STDIO}), and {requested} asks for one running {}; acpmux has none: {}",
-                route.command(),
-                what_is(answer, requested)
-            ));
-        };
-        return Ok(Admitted {
-            requested: requested.to_owned(),
-            profile: (*name).clone(),
-            kind: CLAUDE_STDIO.to_owned(),
-            argv0: argv_of(p).first().cloned().unwrap_or_default(),
-            family: Family::Claude,
-        });
+    // A profile asked for by name (a configured `claude-cr`, say) whose
+    // launcher acpmux marked unavailable is refused here, as a route is,
+    // instead of failing at the first turn.
+    if !cmux_chief::policy::harness::is_route(requested)
+        && let Some(why) = answer
+            .get("harnesses")
+            .and_then(|h| h.get(requested))
+            .and_then(|p| p.get("unavailable"))
+            .and_then(Value::as_str)
+    {
+        return Err(format!("acpmux's {requested} is unavailable: {why}"));
     }
-    admit_profile(answer, requested).map(|mut a| {
-        a.requested = requested.to_owned();
-        a
-    })
+    cmux_chief::policy::harness::admit(answer, requested).map(|a| admitted(requested, a))
 }
 
 /// A profile by its exact name (a session's harness after acpmux resolved
 /// it): refused when it is Claude and not kind `claude-stdio`.
 pub fn admit_profile(answer: &Value, profile: &str) -> Result<Admitted, String> {
-    let Some(p) = answer.get("harnesses").and_then(|h| h.get(profile)) else {
-        return Err(format!("acpmux has no harness named {profile}"));
-    };
-    let family = harness_family(answer, profile)?;
-    let kind = kind_of(p);
-    if family == Family::Claude && kind != CLAUDE_STDIO {
-        return Err(format!(
-            "the Chief runs Claude only through acpmux's own Claude Code adapter (kind {CLAUDE_STDIO}); {}",
-            what_is(answer, profile)
-        ));
+    cmux_chief::policy::harness::admit_profile(answer, profile).map(|a| admitted(profile, a))
+}
+
+/// The shared rule's admission (cmux_chief::policy::harness, the corpus's
+/// `policy` cases) as this host's `Admitted`.
+fn admitted(requested: &str, a: cmux_chief::policy::harness::Admission) -> Admitted {
+    Admitted {
+        requested: requested.to_owned(),
+        family: Family::from_name(&a.family),
+        profile: a.profile,
+        kind: a.kind,
+        argv0: a.argv0,
     }
-    Ok(Admitted {
-        requested: profile.to_owned(),
-        profile: profile.to_owned(),
-        kind,
-        argv0: argv_of(p).first().cloned().unwrap_or_default(),
-        family,
-    })
 }
 
 /// The text the Chief posts for a refused turn.
 pub fn refusal(reason: &str) -> String {
     format!(
-        "refused: {reason}. Fix the acpmux harness (`acpmux daemon harnesses` lists them; `sr claude proxy --version` must succeed for claude-sr) and send the message again."
+        "refused: {reason}. Fix the acpmux harness (`acpmux daemon harnesses` lists them; the CodeRouter CLI must have the configured route for claude-cr, `sr claude proxy --version` must succeed for claude-sr) and send the message again."
     )
 }
 
@@ -316,7 +175,7 @@ pub fn plan(answer: &Value, requested: &str) -> Plan {
             admitted,
         },
         Err(_) => Plan {
-            family: if Route::of(requested).is_some() {
+            family: if cmux_chief::policy::harness::is_route(requested) {
                 Family::Claude
             } else {
                 harness_family(answer, requested).unwrap_or(Family::Other)

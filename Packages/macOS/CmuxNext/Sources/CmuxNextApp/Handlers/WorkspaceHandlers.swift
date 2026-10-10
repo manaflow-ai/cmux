@@ -28,9 +28,12 @@ enum WorkspaceHandlers {
         registry.bindUnavailable(["palette.openFolderInVSCodeInline"], ActionFailure.needsAppCapability("vscode-inline"))
         registry.bindUnavailable(["palette.openWorkspacePullRequests"], ActionFailure.needsAppCapability("github-integration"))
         registry.bindUnavailable(["palette.findWork"], ActionFailure.needsAppCapability("github-integration"))
-        for id: ActionID in ["reopenPreviousSession", "reopenClosedWorkspace"] {
-            registry.bindUnavailable([id], ActionFailure.needsDaemonCapability("closed-history-v1"))
-        }
+        registry.bindUnavailable(["reopenPreviousSession"], ActionFailure.needsDaemonCapability("closed-history-v1"))
+        registry.bind("reopenClosedWorkspace", invoke: { _ in
+            guard let entry = DaemonClosedHistory.entries([.workspace], in: context.services).first(where: { $0.item.group == nil })
+                ?? context.refuse(RefusalStrings.noRecentlyClosedWorkspace) else { return }
+            DaemonClosedHistory.reopen(entry, services: context.services)
+        })
         for id: ActionID in ["saveLayoutTemplate", "palette.layout.open", "manageLayouts"] {
             registry.bindUnavailable([id], ActionFailure.needsDaemonCapability("layout-templates-v1"))
         }
@@ -43,27 +46,40 @@ enum WorkspaceHandlers {
 
     /// Creates a workspace (named `name`) with one terminal in `cwd` and
     /// shows it in the active window, or a new window when none is open.
-    static func createAndShow(_ context: AppActionContext, name: String? = nil, cwd: String? = nil,
+    static func createAndShow(_ context: AppActionContext, name: String? = nil, cwd: String? = nil, key: WorkspaceKey? = nil,
                               then configure: (@Sendable (DaemonConnection, CreateTerminalResult) async throws -> Void)? = nil) {
-        createAndShow(services: context.services, name: name, cwd: cwd, then: configure)
+        createAndShow(services: context.services, name: name, cwd: cwd, key: key, then: configure)
     }
 
     /// Same; `newWindow` opens it in a new window (Shift-Return in the
     /// address bar) instead of the active one, `window` in that open
     /// window; `room` pins it to that space first (Open Link in New Space).
-    static func createAndShow(services: AppServices, name: String? = nil, cwd: String? = nil, newWindow: Bool = false,
-                              window: String? = nil, room: ProfileID? = nil,
+    /// `key` names the new workspace (a History reopen picks it first); a fresh one by default.
+    static func createAndShow(services: AppServices, name: String? = nil, cwd: String? = nil, key workspaceKey: WorkspaceKey? = nil,
+                              newWindow: Bool = false, window: String? = nil, room: ProfileID? = nil,
                               then configure: (@Sendable (DaemonConnection, CreateTerminalResult) async throws -> Void)? = nil) {
         let daemon = services.activeDaemon
-        let windows = services.windows!
+        let windows = services.windows
         // Claimed before the create command, so the workspace lands in (or
         // opens) its window in the step that first mirrors it.
         let target = windows.targetWindow(preferring: newWindow ? nil : window ?? windows.active?.state.id)
         let home = services.machines.local
+        // One ticket for the whole creation, opened now: an action run
+        // answers after it (and the barrier covers its echo), so `created`
+        // names the workspace and the tabs `configure` made.
+        let ticket = daemon.openTicket()
         Task {
-            guard let connection = daemon.connection else { return }
+            guard let connection = daemon.connection else {
+                await daemon.closeTicket(ticket, label: "create workspace", error: DaemonError.notConnected)
+                return
+            }
             do {
-                let key = WorkspaceKey.generate()
+                let key = workspaceKey ?? WorkspaceKey.generate()
+                // A fresh workspace goes to the `workspaces.newPlacement` slot; a
+                // History reopen (`workspaceKey`) keeps the place the daemon kept.
+                if workspaceKey == nil {
+                    NewWorkspacePlacements.expect(key.rawValue, in: target, byDefault: NewWorkspacePlacements.rule(for: target, in: windows), windows: windows)
+                }
                 windows.claimNew(workspaceID: key.rawValue, window: target)
                 if let room, let session = daemon.store.registryID, let homeConnection = home.connection {
                     try await homeConnection.pinWorkspace(session: session, key: key, to: room)
@@ -73,8 +89,10 @@ enum WorkspaceHandlers {
                     try await configure?(connection, terminal)
                     return created.rawValue
                 }
+                await daemon.closeTicket(ticket, label: "create workspace", error: nil, replying: connection)
             } catch {
                 services.daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")
+                await daemon.closeTicket(ticket, label: "create workspace", error: error)
             }
         }
     }
@@ -98,16 +116,16 @@ enum WorkspaceHandlers {
     /// A workspace whose only tab is a blank browser tab.
     private static func newBrowserWorkspace(_ context: AppActionContext) throws {
         try context.require(DaemonCapabilities.shared.frontendBrowserTabs)
-        let browserTabs = context.services.cache.browserTabs!
+        let browserTabs = context.services.cache.browserTabs
         guard case .open(let choice) = browserTabs.resolve(requested: nil) else { return }
-        let fallbacks = browserTabs.fallbacks
+        let fallbacks = browserTabs.fallbacks, machine = context.services.activeDaemon.machineID
         let address = context.services.newTabAddress(for: choice)
         createAndShow(context) { connection, terminal in
             guard let pane = terminal.pane else { return }
             // On the active machine's connection (it may be a Cloud machine).
             let created = try await connection.newFrontendBrowserTab(url: address, engine: choice.engine, in: pane)
             if let reason = choice.fallback {
-                await fallbacks.record(reason, source: .newTab, surface: created.surface)
+                await fallbacks.record(reason, source: .newTab, machine: machine, surface: created.surface)
             }
             if let surface = terminal.surface { try await connection.closeTab(surface) }
         }

@@ -24,7 +24,7 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// The coded fields: everything but ``connection``, which never reaches the page.
     private enum CodingKeys: String, CodingKey {
         case protocolVersion, transport, sessionId, newSession, newTab, cwd, draft, prompt, harness, adopt, surface,
-             linkScheme, sessionMustExist, revealTurn, machineName
+             linkScheme, sessionMustExist, revealTurn, chooseFolder, folderNeeded, machineName, githubRepository
     }
 
     public var protocolVersion: Int
@@ -60,18 +60,31 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// the links the page copies (`links.ts` `sessionLink`). Pages that
     /// predate it ignore it.
     public var linkScheme: String?
-    /// True for a tab a `cmux://session/<id>` link opened: `sessionId`
-    /// must exist. When the daemon has no such session the page says so
-    /// instead of falling back to the most recent one, and marks nothing
-    /// seen. Pages that predate it fall back as before.
+    /// True whenever `sessionId` is set (a tab's recorded session): it must
+    /// exist. When the daemon has no such session, or it goes away, the page
+    /// says so instead of showing another session, and marks nothing seen.
+    /// Pages that predate it fall back as before.
     public var sessionMustExist: Bool?
     /// The turn a `cmux://session/<id>#turn-<turnId>` link names: the page
     /// scrolls to it once its row renders, and gives up quietly after a few
     /// seconds. Handed out once.
     public var revealTurn: String?
+    /// True for a new chat in a workspace without a folder: it starts in the workspace's
+    /// agent-home folder, and the page offers "Choose Folder…" (`workspace.chooseFolder`,
+    /// AGENT-CWD-FOR-FOLDERLESS-WORKSPACE). Pages that predate it ignore it.
+    public var chooseFolder: Bool?
+    /// A chat that opened without its folder (cx-nn3e.1): the page explains it above the composer
+    /// and offers Choose Folder (`chat.folder.choose`). Pages that predate it ignore it.
+    public var folderNeeded: FolderNeeded?
+
+    public nonisolated struct FolderNeeded: Codable, Sendable, Equatable {
+        public var reason: String
+    }
     /// This Mac's name (System Settings > General > Sharing), for the composer's location row.
     /// Pages that predate it ignore it.
     public var machineName: String?
+    /// The local workspace's GitHub `origin`, used to link bare issue references in prose.
+    public var githubRepository: String?
 
     public init(transport: Transport, connection: AcpmuxConnection? = nil, sessionId: String? = nil, newSession: Bool? = nil) {
         protocolVersion = Self.currentVersion

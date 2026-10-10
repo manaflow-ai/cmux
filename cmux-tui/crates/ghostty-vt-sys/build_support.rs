@@ -27,8 +27,24 @@ pub fn resolve_vt_source(dir: &Path) -> Result<PathBuf, String> {
     Ok(resolved)
 }
 
-pub fn zig_target_arg(target: &str, host: &str) -> Option<String> {
-    // Preserve Zig's native target selection for existing native builds. The
+/// The `-Dtarget=` argument for zig, if any.
+///
+/// macOS builds always name the target and its minimum macOS: the deployment
+/// target rustc links the daemon at (`macos_deployment_target`, which is
+/// `MACOSX_DEPLOYMENT_TARGET`, else rustc's default). Zig's native target
+/// would otherwise give libghostty-vt's objects the build Mac's macOS version,
+/// and a bare `*-macos` target Zig's default.
+pub fn zig_target_arg(
+    target: &str,
+    host: &str,
+    macos_deployment_target: Option<&str>,
+) -> Option<String> {
+    if let Some(arch) = macos_arch(target) {
+        let version = macos_deployment_target
+            .unwrap_or_else(|| rustc_default_macos_deployment_target(target));
+        return Some(format!("-Dtarget={arch}-macos.{version}"));
+    }
+    // Preserve Zig's native target selection for other native builds. The
     // GNU Windows host is the exception: Zig otherwise defaults to MSVC and
     // requires a Windows SDK even when the Rust toolchain is MinGW-only.
     if target == host && !target.ends_with("-windows-gnu") {
@@ -37,16 +53,40 @@ pub fn zig_target_arg(target: &str, host: &str) -> Option<String> {
     zig_target_for_rust_target(target).map(|zig_target| format!("-Dtarget={zig_target}"))
 }
 
+/// The `-Dcpu=` argument for zig, if any: `CMUX_GHOSTTY_VT_ZIG_CPU` when set,
+/// else a baseline CPU for macOS so a native build does not use the build
+/// Mac's CPU features.
+pub fn zig_cpu_arg(target: &str, cpu_override: Option<&str>) -> Option<String> {
+    match cpu_override {
+        Some(cpu) => Some(format!("-Dcpu={cpu}")),
+        None if macos_arch(target).is_some() => Some("-Dcpu=baseline".to_string()),
+        None => None,
+    }
+}
+
+fn macos_arch(target: &str) -> Option<&'static str> {
+    match target {
+        "aarch64-apple-darwin" => Some("aarch64"),
+        "x86_64-apple-darwin" => Some("x86_64"),
+        _ => None,
+    }
+}
+
+/// rustc's default minimum macOS for a target that sets no MACOSX_DEPLOYMENT_TARGET.
+fn rustc_default_macos_deployment_target(target: &str) -> &'static str {
+    if target.starts_with("aarch64") { "11.0" } else { "10.12" }
+}
+
 fn zig_target_for_rust_target(target: &str) -> Option<&'static str> {
     match target {
         "x86_64-pc-windows-gnu" => Some("x86_64-windows-gnu"),
         "x86_64-pc-windows-msvc" => Some("x86_64-windows-msvc"),
         "aarch64-pc-windows-msvc" => Some("aarch64-windows-msvc"),
-        // Cross-compiling libghostty-vt for the release distribution targets
-        // (npm/PyPI `cmux` binaries). Zig cross-compiles these cleanly and
-        // pairs with cargo-zigbuild for the Rust link step.
-        "x86_64-apple-darwin" => Some("x86_64-macos"),
-        "aarch64-apple-darwin" => Some("aarch64-macos"),
+        // The iOS app links cmux-terminal-client as a static library inside an
+        // xcframework (.github/workflows/cmux-terminal-client-xcframework.yml).
+        "aarch64-apple-ios" => Some("aarch64-ios"),
+        "aarch64-apple-ios-sim" => Some("aarch64-ios-simulator"),
+        "x86_64-apple-ios" => Some("x86_64-ios-simulator"),
         "x86_64-unknown-linux-gnu" => Some("x86_64-linux-gnu"),
         "aarch64-unknown-linux-gnu" => Some("aarch64-linux-gnu"),
         "x86_64-unknown-linux-musl" => Some("x86_64-linux-musl"),
@@ -132,14 +172,69 @@ mod tests {
     #[test]
     fn native_windows_gnu_keeps_the_explicit_gnu_abi() {
         assert_eq!(
-            zig_target_arg("x86_64-pc-windows-gnu", "x86_64-pc-windows-gnu").as_deref(),
+            zig_target_arg("x86_64-pc-windows-gnu", "x86_64-pc-windows-gnu", None).as_deref(),
             Some("-Dtarget=x86_64-windows-gnu")
         );
     }
 
     #[test]
-    fn native_non_windows_builds_keep_zigs_native_target() {
-        assert_eq!(zig_target_arg("aarch64-apple-darwin", "aarch64-apple-darwin"), None);
+    fn native_linux_builds_keep_zigs_native_target() {
+        assert_eq!(
+            zig_target_arg("x86_64-unknown-linux-gnu", "x86_64-unknown-linux-gnu", None),
+            None
+        );
+        assert_eq!(zig_cpu_arg("x86_64-unknown-linux-gnu", None), None);
+    }
+
+    // Zig's native target is the build Mac's macOS version and CPU. libghostty-vt
+    // must instead match the Rust link: the deployment target rustc uses
+    // (MACOSX_DEPLOYMENT_TARGET, else rustc's default) and a baseline CPU, native
+    // build or not, or the daemon's real floor follows whichever Mac built it.
+    #[test]
+    fn macos_builds_name_the_deployment_target_even_when_native() {
+        let cases = [
+            ("aarch64-apple-darwin", "aarch64-apple-darwin", None, "-Dtarget=aarch64-macos.11.0"),
+            ("x86_64-apple-darwin", "aarch64-apple-darwin", None, "-Dtarget=x86_64-macos.10.12"),
+            (
+                "aarch64-apple-darwin",
+                "x86_64-unknown-linux-gnu",
+                None,
+                "-Dtarget=aarch64-macos.11.0",
+            ),
+            (
+                "x86_64-apple-darwin",
+                "x86_64-apple-darwin",
+                Some("10.15"),
+                "-Dtarget=x86_64-macos.10.15",
+            ),
+            (
+                "aarch64-apple-darwin",
+                "aarch64-apple-darwin",
+                Some("26.0"),
+                "-Dtarget=aarch64-macos.26.0",
+            ),
+        ];
+        for (target, host, deployment, expected) in cases {
+            assert_eq!(
+                zig_target_arg(target, host, deployment).as_deref(),
+                Some(expected),
+                "{target} on {host}"
+            );
+        }
+    }
+
+    #[test]
+    fn macos_builds_use_a_baseline_cpu_unless_overridden() {
+        assert_eq!(zig_cpu_arg("aarch64-apple-darwin", None).as_deref(), Some("-Dcpu=baseline"));
+        assert_eq!(zig_cpu_arg("x86_64-apple-darwin", None).as_deref(), Some("-Dcpu=baseline"));
+        assert_eq!(
+            zig_cpu_arg("aarch64-apple-darwin", Some("apple_m1")).as_deref(),
+            Some("-Dcpu=apple_m1")
+        );
+        assert_eq!(
+            zig_cpu_arg("x86_64-unknown-linux-gnu", Some("baseline")).as_deref(),
+            Some("-Dcpu=baseline")
+        );
     }
 
     #[test]
@@ -152,8 +247,6 @@ mod tests {
                 "x86_64-unknown-linux-gnu",
                 "-Dtarget=aarch64-windows-msvc",
             ),
-            ("x86_64-apple-darwin", "aarch64-unknown-linux-gnu", "-Dtarget=x86_64-macos"),
-            ("aarch64-apple-darwin", "x86_64-unknown-linux-gnu", "-Dtarget=aarch64-macos"),
             ("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "-Dtarget=x86_64-linux-gnu"),
             ("aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu", "-Dtarget=aarch64-linux-gnu"),
             (
@@ -169,7 +262,7 @@ mod tests {
         ];
 
         for (target, host, expected) in cases {
-            assert_eq!(zig_target_arg(target, host).as_deref(), Some(expected), "{target}");
+            assert_eq!(zig_target_arg(target, host, None).as_deref(), Some(expected), "{target}");
         }
     }
 }

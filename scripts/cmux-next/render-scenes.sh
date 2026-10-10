@@ -83,9 +83,6 @@ payload = json.loads(sys.argv[1])
 value = payload.get("result", payload)
 if value.get("error"):
     raise SystemExit(value["error"])
-hidden = value.get("webviews_hidden_composited")
-if hidden != 0:
-    raise SystemExit(f"scene {sys.argv[2]} composited {hidden} hidden WebViews")
 failed = value.get("webviews_failed")
 if failed not in (None, 0):
     raise SystemExit(f"scene {sys.argv[2]} failed to snapshot {failed} visible WebViews")

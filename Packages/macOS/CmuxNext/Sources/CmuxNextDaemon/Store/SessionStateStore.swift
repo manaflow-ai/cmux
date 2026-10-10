@@ -63,12 +63,14 @@ public final class SessionStateStore {
                 groups = Self.screenGroups(state, workspace: id, screens: workspace.screens)
             }
             workspace.applyState(ephemeral: id.map { state?.ephemeralWorkspaces.contains($0) ?? false } ?? false,
+                                 agentFolder: id.flatMap { state?.agentFolders[$0] },
                                  status: id.flatMap { state?.workspaceStatus[$0] }, screenGroups: groups)
             for screen in workspace.screens {
                 for pane in screen.panes {
                     for tab in pane.tabs {
                         tab.applyState(tab.resourceID.flatMap { state?.tabs[$0] },
-                                       progress: tab.terminalResourceID.flatMap { state?.terminalProgress[$0] })
+                                       progress: tab.terminalResourceID.flatMap { state?.terminalProgress[$0] },
+                                       programStatus: tab.terminalResourceID.flatMap { state?.terminalProgramStatus[$0] } ?? [])
                     }
                 }
             }

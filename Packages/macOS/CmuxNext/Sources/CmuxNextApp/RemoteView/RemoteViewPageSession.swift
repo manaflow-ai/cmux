@@ -16,17 +16,23 @@ final class RemoteViewPageSession {
     private var visible = false
 
     private init(record: RemoteViewTabRecord, closeTab: @escaping @MainActor () -> Void) {
-        let source = MockRemoteStreamSource()
+        // The test desktop offers upstream media, so the share buttons show.
+        let source = MockRemoteStreamSource(status: Self.mockStatus)
         self.source = source
         pane = RemoteDesktopPane(hostName: record.host, source: source, inputSink: MockRemoteInputSink(host: source),
                                  initialMode: record.mode)
         pane.handlers.stop = { [weak source] in source?.end(.stoppedByViewer) }
         pane.handlers.reconnect = { [weak source] in
-            source?.setStatus(RemoteViewStatus(path: .direct, rttMs: 4, state: .streaming))
+            source?.setStatus(Self.mockStatus)
             source?.requestKeyframe()
         }
         pane.handlers.close = closeTab
+        pane.upstreamControl = source
     }
+
+    private nonisolated static let mockStatus = RemoteViewStatus(
+        path: .direct, rttMs: 4, state: .streaming, upstream: RemoteUpstreamStatus(offered: true)
+    )
 
     var view: NSView { pane.view }
     var focusTarget: NSView { pane.view.focusView }
