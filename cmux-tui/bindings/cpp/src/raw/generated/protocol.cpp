@@ -7880,6 +7880,11 @@ Result<Json> Codec<ServerStatsResult>::encode(const ServerStatsResult& value) {
     auto encoded_uptime_ms = encode_value(value.uptime_ms);
     if (!encoded_uptime_ms) return std::move(encoded_uptime_ms).error();
     object.emplace("uptime_ms", std::move(encoded_uptime_ms).value());
+    if (value.write_path) {
+        auto encoded = encode_value(*value.write_path);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("write_path", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -7941,6 +7946,85 @@ Result<ServerStatsResult> Codec<ServerStatsResult>::decode(const Json& value) {
         auto decoded = decode_value<std::uint64_t>(*field_uptime_ms);
         if (!decoded) return std::move(decoded).error();
         result.uptime_ms = std::move(decoded).value();
+    }
+    const Json* field_write_path = value.find("write_path");
+    if (field_write_path) {
+        auto decoded = decode_value<ServerStatsWritePath>(*field_write_path);
+        if (!decoded) return std::move(decoded).error();
+        result.write_path = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<ServerStatsWritePath>::encode(const ServerStatsWritePath& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_effect_intent_batches = encode_value(value.effect_intent_batches);
+    if (!encoded_effect_intent_batches) return std::move(encoded_effect_intent_batches).error();
+    object.emplace("effect_intent_batches", std::move(encoded_effect_intent_batches).value());
+    auto encoded_effect_intent_failures = encode_value(value.effect_intent_failures);
+    if (!encoded_effect_intent_failures) return std::move(encoded_effect_intent_failures).error();
+    object.emplace("effect_intent_failures", std::move(encoded_effect_intent_failures).value());
+    auto encoded_effect_intents = encode_value(value.effect_intents);
+    if (!encoded_effect_intents) return std::move(encoded_effect_intents).error();
+    object.emplace("effect_intents", std::move(encoded_effect_intents).value());
+    auto encoded_request_effect_commits = encode_value(value.request_effect_commits);
+    if (!encoded_request_effect_commits) return std::move(encoded_request_effect_commits).error();
+    object.emplace("request_effect_commits", std::move(encoded_request_effect_commits).value());
+    auto encoded_writer_registry_locks = encode_value(value.writer_registry_locks);
+    if (!encoded_writer_registry_locks) return std::move(encoded_writer_registry_locks).error();
+    object.emplace("writer_registry_locks", std::move(encoded_writer_registry_locks).value());
+    return Json(std::move(object));
+}
+
+Result<ServerStatsWritePath> Codec<ServerStatsWritePath>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ServerStatsWritePath result{};
+    const Json* field_effect_intent_batches = value.find("effect_intent_batches");
+    if (!field_effect_intent_batches) {
+        return make_error(ErrorCode::decode, "missing required field 'effect_intent_batches'");
+    }
+    if (field_effect_intent_batches) {
+        auto decoded = decode_value<std::uint64_t>(*field_effect_intent_batches);
+        if (!decoded) return std::move(decoded).error();
+        result.effect_intent_batches = std::move(decoded).value();
+    }
+    const Json* field_effect_intent_failures = value.find("effect_intent_failures");
+    if (!field_effect_intent_failures) {
+        return make_error(ErrorCode::decode, "missing required field 'effect_intent_failures'");
+    }
+    if (field_effect_intent_failures) {
+        auto decoded = decode_value<std::uint64_t>(*field_effect_intent_failures);
+        if (!decoded) return std::move(decoded).error();
+        result.effect_intent_failures = std::move(decoded).value();
+    }
+    const Json* field_effect_intents = value.find("effect_intents");
+    if (!field_effect_intents) {
+        return make_error(ErrorCode::decode, "missing required field 'effect_intents'");
+    }
+    if (field_effect_intents) {
+        auto decoded = decode_value<std::uint64_t>(*field_effect_intents);
+        if (!decoded) return std::move(decoded).error();
+        result.effect_intents = std::move(decoded).value();
+    }
+    const Json* field_request_effect_commits = value.find("request_effect_commits");
+    if (!field_request_effect_commits) {
+        return make_error(ErrorCode::decode, "missing required field 'request_effect_commits'");
+    }
+    if (field_request_effect_commits) {
+        auto decoded = decode_value<std::uint64_t>(*field_request_effect_commits);
+        if (!decoded) return std::move(decoded).error();
+        result.request_effect_commits = std::move(decoded).value();
+    }
+    const Json* field_writer_registry_locks = value.find("writer_registry_locks");
+    if (!field_writer_registry_locks) {
+        return make_error(ErrorCode::decode, "missing required field 'writer_registry_locks'");
+    }
+    if (field_writer_registry_locks) {
+        auto decoded = decode_value<std::uint64_t>(*field_writer_registry_locks);
+        if (!decoded) return std::move(decoded).error();
+        result.writer_registry_locks = std::move(decoded).value();
     }
     return result;
 }

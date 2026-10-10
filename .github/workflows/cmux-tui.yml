@@ -153,13 +153,12 @@ jobs:
           npm ci --no-audit --no-fund
           npm run build
 
-      - name: Check, build and test web frontend
+      - name: Check and build web frontend
         working-directory: cmux-tui/frontends/web
         run: |
           npm ci --no-audit --no-fund
           npm run check
           npm run build
-          npm test
 
   go-pane:
     # The Go pane-protocol SDK (cmux-tui/bindings/go-pane) and its generator

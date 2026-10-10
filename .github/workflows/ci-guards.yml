@@ -413,9 +413,9 @@ jobs:
           bun install --frozen-lockfile
           ./node_modules/.bin/tsc --noEmit
 
-      # Runs the agent-chat unit tests listed in its package.json, including
-      # the Claude launch environment policy.
-      - name: Run agent-chat unit tests
+      # Runs the agent-chat boundary tests (a real server process and the
+      # cmux-chat script; run-tests.ts).
+      - name: Run agent-chat tests
         if: ${{ matrix.group == 'preflight' }}
         working-directory: agent-chat
         run: bun run test
