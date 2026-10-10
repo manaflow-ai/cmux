@@ -44,7 +44,9 @@ struct RowMotion {
         }, completion: { [weak list, appearing, leaving, leavingLines = lines.leaving] in
             leavingLines.forEach { $0.removeFromSuperview() }
             guard let list else { return }
-            for (view, _) in appearing { view.clipsToBounds = false }
+            // A row reopened by a later update (its animations removed, so this
+            // completion runs early) keeps clipping until its own open ends.
+            for (view, _) in appearing where view.layer?.animationKeys()?.isEmpty ?? true { view.clipsToBounds = false }
             for (view, _) in leaving where !list.rowViews.values.contains(where: { $0 === view }) { list.recycle(view) }
             list.pruneOffscreen()
         })
