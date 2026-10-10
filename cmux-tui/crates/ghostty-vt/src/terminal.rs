@@ -1173,12 +1173,13 @@ impl C1Normalizer {
 struct EmptyKittyProbeFilter;
 
 impl EmptyKittyProbeFilter {
-    fn write<'a>(&mut self, data: &'a [u8]) -> Cow<'a, [u8]> {
+    fn write<'a>(&mut self, data: Cow<'a, [u8]>) -> Cow<'a, [u8]> {
         const EMPTY_PROBE: &[u8] = b"\x1b_G\x1b\\";
-        if !data.windows(EMPTY_PROBE.len()).any(|window| window == EMPTY_PROBE) {
-            return Cow::Borrowed(data);
+        if !data.as_ref().windows(EMPTY_PROBE.len()).any(|window| window == EMPTY_PROBE) {
+            return data;
         }
 
+        let data = data.as_ref();
         let mut output = Vec::with_capacity(data.len());
         let mut cursor = 0;
         while cursor < data.len() {
@@ -2162,7 +2163,7 @@ impl Terminal {
         let previous_history_rows = self.scrollback_rows();
         let history_anchor_missing = previous_history_rows > 0 && self.history_anchor.is_null();
         let normalized = self.c1_normalizer.normalize(data);
-        let normalized = self.empty_kitty_probe_filter.write(&normalized);
+        let normalized = self.empty_kitty_probe_filter.write(normalized);
         self.kitty_inflight.write(&normalized);
         self.vt_boundary.feed(&normalized);
         self.prompt_semantic.feed(&normalized);
