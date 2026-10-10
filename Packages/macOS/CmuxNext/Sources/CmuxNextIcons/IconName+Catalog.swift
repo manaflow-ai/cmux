@@ -65,6 +65,8 @@ extension IconName {
         .browserStop,
         .browserprofileBadge,
         .browserprofileDot,
+        .checkboxOff,
+        .checkboxOn,
         .cloud,
         .cloudSynced,
         .cloudWorkspace,

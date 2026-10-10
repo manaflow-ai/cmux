@@ -63,6 +63,8 @@ extension IconName {
     nonisolated public static let browserStop = IconName("browser.stop")
     nonisolated public static let browserprofileBadge = IconName("browserprofile.badge")
     nonisolated public static let browserprofileDot = IconName("browserprofile.dot")
+    nonisolated public static let checkboxOff = IconName("checkbox.off")
+    nonisolated public static let checkboxOn = IconName("checkbox.on")
     nonisolated public static let cloud = IconName("cloud")
     nonisolated public static let cloudSynced = IconName("cloud.synced")
     nonisolated public static let cloudWorkspace = IconName("cloud.workspace")
