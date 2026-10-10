@@ -35,7 +35,6 @@ nonisolated extension ContextMenuCatalog {
         ["name": "titlebarHistory", "source": "CmuxNextApp/Windows/TitlebarHistoryMenu.swift"],
         ["name": "notificationRow", "source": "CmuxNextApp/Notifications/Panel/NotificationsPanelController.swift"],
         ["name": "homeTranscriptRow", "source": "CmuxNextHome/NativeTranscript/HomeRowHostView.swift"],
-        ["name": "onboardingImportProfile", "source": "CmuxNextOnboarding/Variants/Import/ImportProfileMenu.swift"],
     ]
 
     /// Every context menu's export, keyed by `ActionMenuContext` raw value.

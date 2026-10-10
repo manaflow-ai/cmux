@@ -263,7 +263,7 @@ impl HostedReader {
         if let Some(exit) = received_exit {
             // The host's Exit frame is its report that the child
             // ended, even when an older host omits the status.
-            *pty.exit.lock().unwrap() = Some(TerminalEnd::ProcessEnded(exit));
+            *pty.exit.lock().unwrap() = Some(TerminalEnd::from_host_exit(exit));
             mark_hosted_runtime_exited(pty, &identity);
             pty.host_connection_state
                 .store(TerminalHostConnectionState::Exited as u8, Ordering::Release);
