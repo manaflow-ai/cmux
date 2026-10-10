@@ -104,9 +104,11 @@ public final class SettingsApplier {
             applied.insert(id)
         }
         // `tabs.swapCmdTAndCmdN`: Cmd-T is New Workspace and Cmd-N New Tab, unless the user
-        // bound either one above. Turning it off removes the pair like any other binding.
-        if snapshot.swapCmdTAndCmdN {
-            for (id, key) in [("newTab.default", "n"), ("newTab", "t")] as [(ActionID, String)] where !applied.contains(id) {
+        // bound either one above (then neither moves: half a swap would put two actions on one
+        // key). Turning it off removes the pair like any other binding.
+        let swap: [(ActionID, String)] = [("newTab.default", "n"), ("newTab", "t")]
+        if snapshot.swapCmdTAndCmdN, !swap.contains(where: { applied.contains($0.0) }) {
+            for (id, key) in swap {
                 setOverride(Shortcut(key, modifiers: [.command]), for: id)
                 applied.insert(id)
             }

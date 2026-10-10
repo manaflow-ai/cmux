@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Live check of Cmd-T by focus (cx-xt5k) on a running tagged cmux-next build.
 
-Cmd-T follows the focused pane. A pane with a tab strip (a terminal, a browser tab, the New Tab
-page) gets a new tab in that pane. An agent chat, or a pane without a strip (a lone chat), gets a
+Cmd-T follows the focused pane. A pane with a tab strip (a terminal, a browser tab) gets a new tab
+in that pane; on the New Tab page Cmd-T keeps that page (one per pane). An agent chat, or a pane without a strip (a lone chat), gets a
 new workspace in the current group instead. Both open the New Tab page. With
 `tabs.swapCmdTAndCmdN` on, Cmd-T is always New Workspace and Cmd-N is always New Tab.
 
@@ -136,26 +136,33 @@ def key(letter):
 
 
 def press(letter, case, expects):
-    """Press Cmd-<letter> and check that it opened a tab in the focused workspace or a workspace."""
+    """Press Cmd-<letter>: "tab" (a tab in the focused workspace), "workspace" (a new workspace in
+    the focused one's group) or "stay" (nothing new; the page already showing keeps the focus)."""
     before = workspaces()
     print(case, "Cmd-" + letter.upper() + ":", key(letter), flush=True)
-    changed = wait(lambda: (lambda now: now if sum(len(t) for _, t in now.values()) > sum(len(t) for _, t in before.values()) else None)(workspaces()), 15)
+    grew = lambda now: now if sum(len(t) for _, t in now.values()) > sum(len(t) for _, t in before.values()) else None
+    changed = wait(lambda: grew(workspaces()), 4 if expects == "stay" else 15)
     time.sleep(1)  # test harness: the new tab is selected and its page mounts
     page = wait(shows_new_tab_page, 10)
-    now = changed or before
+    now = workspaces()
     new_ws = [k for k in now if k not in before]
     grown = [k for k in now if k in before and len(now[k][1]) > len(before[k][1])]
+    home = before.get(FOCUSED[0])
     if expects == "tab":
-        ok = bool(changed) and not new_ws and len(grown) == 1 and bool(page)
+        ok = bool(changed) and not new_ws and grown == [FOCUSED[0]] and bool(page)
         expected = "one new tab in the focused workspace, no new workspace; the New Tab page"
+    elif expects == "stay":
+        ok = not changed and not new_ws and not grown and bool(page)
+        expected = "no new tab or workspace; the New Tab page keeps the focus"
     else:
-        home = now.get(FOCUSED[0])
-        same_group = home is not None and all(now[k][0] == home[0] for k in new_ws)
-        ok = bool(changed) and len(new_ws) == 1 and not grown and bool(page) and same_group
-        expected = "one new workspace in the current group, no tab in the old one; the New Tab page"
+        # The group as the daemon lists it (none for an ungrouped workspace): the same as the focused one's.
+        ok = bool(changed) and len(new_ws) == 1 and not grown and bool(page) and home is not None and now[new_ws[0]][0] == home[0]
+        expected = "one new workspace in the focused workspace's group, no tab in the old one; the New Tab page"
+    observed = (f"focused group {home and home[0]}; new workspaces {[now[k][0] for k in new_ws]}; "
+                f"grown {['focused' if k == FOCUSED[0] else 'other' for k in grown]}; New Tab page {page}")
     if new_ws:
         FOCUSED[0] = new_ws[0]
-    row(case, expected, f"focused group {now.get(FOCUSED[0], (None,))[0]}; new workspaces {len(new_ws)} {[now[k][0] for k in new_ws]}; grown {len(grown)}; New Tab page {page}", ok)
+    row(case, expected, observed, ok)
 
 
 def setting(path, value):
@@ -178,7 +185,8 @@ def main():
         # A script's workspace starts on a terminal: a pane with a tab strip.
         print("newTab (workspace):", opened(lambda: action("newTab", focus=True)), flush=True)
         press("t", "Cmd-T on a terminal opens a tab there", "tab")
-        press("t", "Cmd-T on the New Tab page opens a tab there", "tab")
+        # The New Tab page is a tab of a pane with a strip: Cmd-T keeps it (one page per pane).
+        press("t", "Cmd-T on the New Tab page keeps it, no workspace", "stay")
         reply = action("openBrowser", {"url": "about:blank"}, focus=True)
         wait(lambda: created(reply) and tab(created(reply)), 20)
         time.sleep(1)  # test harness: the browser tab is selected
@@ -189,11 +197,11 @@ def main():
         rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "cmd-t-focus-chat.png")})
         press("t", "Cmd-T on an agent chat opens a workspace", "workspace")
 
-        # The swap: Cmd-T is New Workspace and Cmd-N New Tab, on any focus.
+        # The swap: Cmd-N is New Tab and Cmd-T New Workspace, on any focus.
         setting("tabs.swapCmdTAndCmdN", True)
         print("newTab (workspace):", opened(lambda: action("newTab", focus=True)), flush=True)
-        press("t", "swapped: Cmd-T on a terminal opens a workspace", "workspace")
-        press("n", "swapped: Cmd-N on the New Tab page opens a tab", "tab")
+        press("n", "swapped: Cmd-N on a terminal opens a tab", "tab")
+        press("t", "swapped: Cmd-T on the New Tab page opens a workspace", "workspace")
         restore("tabs.swapCmdTAndCmdN", swap)
         time.sleep(1)  # test harness: the config reloads
         press("n", "swap off again: Cmd-N opens a workspace", "workspace")

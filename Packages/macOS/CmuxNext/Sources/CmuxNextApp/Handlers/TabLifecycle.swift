@@ -109,7 +109,9 @@ enum TabLifecycle {
         if user, followsSetting, !named, !(ctx.services.settings?.snapshot.swapCmdTAndCmdN ?? false), let controller,
            controller.view.hidesStrip
             || (onAgentTab && !(selectedID.map(ctx.services.agentTabs.isNewTabPage) ?? false)) {
-            _ = ctx.registry.perform("newTab", invocation: ActionInvocation(origin: .user))
+            var workspace = ActionInvocation(origin: .user)
+            workspace.keyContext = invocation.keyContext
+            _ = ctx.registry.perform("newTab", invocation: workspace)
             return
         }
         var sameKind = NewTabKind.resolve(
