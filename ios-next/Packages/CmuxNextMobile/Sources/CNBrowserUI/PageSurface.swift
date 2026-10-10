@@ -6,7 +6,7 @@ import UIKit
 /// The live page: draws the last streamed frame edge to edge under the status
 /// bar, fills the strip above the page with the page's own top color, and
 /// turns touches, hardware keys and soft-keyboard text into remote input.
-final class PageSurfaceView: UIView {
+final class PageSurfaceView: UIView, UIGestureRecognizerDelegate {
     var onTouch: ((TouchEventType, [TouchPoint]) -> Void)?
     /// Finger travel of a one-finger drag, in points (positive = finger moved down).
     var onDrag: ((CGFloat) -> Void)?
@@ -26,12 +26,18 @@ final class PageSurfaceView: UIView {
 
     private(set) var frameCSS: CGSize?
     private var shownImage: CGImage?
-    /// Document scroll (CSS px) of the shown frame, when the host sends it.
-    private var shownScroll: CGFloat?
-    /// Image rect without the local scroll prediction: where Chrome's
-    /// viewport is on screen. Touches map through this rect.
+    /// Where Chrome's viewport is on screen; touches map through this rect.
+    /// Frames are drawn exactly as streamed (no local scroll prediction).
     private var imageRect: CGRect = .zero
-    private var prediction = ScrollPrediction()
+    /// Remote page zoom of the shown frame (1 = minimum for mobile pages).
+    private var shownPageScale: CGFloat = 1
+    /// A pinch-in at the page's minimum zoom became the tab-overview pinch:
+    /// its touches no longer go to the page.
+    private var pinchTakenOver = false
+    /// Touches of a taken-over pinch stay away from the page until all fingers lift.
+    private var suppressTouches = false
+    /// Pinch handed to the overview: (phase, scale, velocity).
+    var onOverviewPinch: ((PinchPhase, CGFloat, CGFloat) -> Void)?
     var topInset: CGFloat = 0 { didSet { if oldValue != topInset { setNeedsLayout() } } }
     /// CSS width of the requested viewport, used before the first frame.
     var viewportCSSWidth: CGFloat = 0
@@ -55,6 +61,13 @@ final class PageSurfaceView: UIView {
         proxy.onText = { [weak self] in self?.onText?($0) }
         proxy.onKey = { [weak self] in self?.onKey?($0) }
         proxy.onEnd = { [weak self] in self?.onKeyboardDismissed?() }
+
+        let pinch = UIPinchGestureRecognizer(target: self, action: #selector(pinch(_:)))
+        pinch.cancelsTouchesInView = false
+        pinch.delaysTouchesBegan = false
+        pinch.delaysTouchesEnded = false
+        pinch.delegate = self
+        addGestureRecognizer(pinch)
 
         let long = UILongPressGestureRecognizer(target: self, action: #selector(longPress(_:)))
         long.cancelsTouchesInView = false
@@ -83,13 +96,11 @@ final class PageSurfaceView: UIView {
         let resized = frameCSS != nil && frameCSS != frame.cssSize
         shownImage = frame.image
         frameCSS = frame.cssSize
-        shownScroll = frame.scroll.map { $0.y }
-        prediction.frameArrived(scroll: shownScroll, cssPerPoint: cssPerPoint)
+        shownPageScale = frame.pageScale
         imageLayer.contents = frame.image
         strip.backgroundColor = frame.topColor
         backgroundColor = frame.topColor
         updateFade(frame.topColor)
-        if prediction.consumeExpired(now: CACurrentMediaTime()) { applyPrediction(animated: true) }
         if resized {
             // Smooth the jump when the host renders at a new CSS size.
             UIView.animate(withDuration: 0.2) { self.layoutImage(animated: true) }
@@ -128,27 +139,14 @@ final class PageSurfaceView: UIView {
         CATransaction.begin()
         CATransaction.setDisableActions(!animated)
         if animated { CATransaction.setAnimationDuration(0.2) }
-        imageLayer.frame = imageRect.offsetBy(dx: 0, dy: prediction.offset)
-        CATransaction.commit()
-    }
-
-    /// Moves the image by the predicted scroll (no relayout).
-    private func applyPrediction(animated: Bool = false) {
-        CATransaction.begin()
-        CATransaction.setDisableActions(!animated)
-        if animated {
-            CATransaction.setAnimationDuration(0.15)
-            CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
-        }
-        imageLayer.frame = imageRect.offsetBy(dx: 0, dy: prediction.offset)
+        imageLayer.frame = imageRect
         CATransaction.commit()
     }
 
     // MARK: Touches
 
-    /// View point -> CSS px in Chrome's viewport, through the unpredicted
-    /// image rect and the frame's CSS size. When the prediction is right the
-    /// content under the finger is where Chrome has it.
+    /// View point -> CSS px in Chrome's viewport, through the image rect and
+    /// the frame's CSS size.
     private func cssPoint(_ p: CGPoint) -> (Double, Double) {
         let css = frameCSS ?? CGSize(width: bounds.width * cssPerPoint, height: imageRect.height * cssPerPoint)
         guard imageRect.width > 0, imageRect.height > 0 else { return (0, 0) }
@@ -178,26 +176,18 @@ final class PageSurfaceView: UIView {
             touchLocations[key] = t.location(in: self)
             if primaryTouch == nil { primaryTouch = key }
         }
-        if touchIds.count > 1 {
-            primaryTouch = nil
-            prediction.cancel()
-            applyPrediction(animated: true)
-        } else {
-            prediction.begin(shownScroll: shownScroll)
-        }
+        if touchIds.count > 1 { primaryTouch = nil }
+        guard !suppressTouches else { return }
         onTouch?(.start, points(active(event)))
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         if let primary = primaryTouch, let t = touches.first(where: { ObjectIdentifier($0) == primary }) {
             let now = t.location(in: self)
-            if let last = touchLocations[primary] {
-                onDrag?(now.y - last.y)
-                prediction.drag(dy: now.y - last.y, cssPerPoint: cssPerPoint, limit: bounds.height * 0.75)
-                applyPrediction()
-            }
+            if let last = touchLocations[primary] { onDrag?(now.y - last.y) }
         }
         for t in touches { touchLocations[ObjectIdentifier(t)] = t.location(in: self) }
+        guard !suppressTouches else { return }
         onTouch?(.move, points(active(event)))
     }
 
@@ -212,29 +202,44 @@ final class PageSurfaceView: UIView {
     private func finish(_ touches: Set<UITouch>, type: TouchEventType) {
         // CDP ends the whole sequence on touchEnd; send the lifted points so
         // hosts that track per-point state (the demo host) see where it ended.
-        onTouch?(type, points(touches))
-        if touches.contains(where: { ObjectIdentifier($0) == primaryTouch }) {
-            prediction.release(now: CACurrentMediaTime())
-            if type == .cancel {
-                prediction.cancel()
-                applyPrediction(animated: true)
-            } else {
-                // Frames stop when the page cannot scroll further (its end);
-                // ease the offset back if none caught up in time.
-                DispatchQueue.main.asyncAfter(deadline: .now() + ScrollPrediction.releaseTimeout + 0.05) { [weak self] in
-                    guard let self, self.prediction.consumeExpired(now: CACurrentMediaTime()) else { return }
-                    self.applyPrediction(animated: true)
-                }
-            }
-        }
+        if !suppressTouches { onTouch?(type, points(touches)) }
         for t in touches {
             let key = ObjectIdentifier(t)
             touchIds[key] = nil
             touchLocations[key] = nil
             if primaryTouch == key { primaryTouch = nil }
         }
-        if touchIds.isEmpty { primaryTouch = nil }
+        if touchIds.isEmpty {
+            primaryTouch = nil
+            suppressTouches = false
+        }
     }
+
+    // MARK: Pinch to the tab overview
+
+    @objc private func pinch(_ g: UIPinchGestureRecognizer) {
+        switch g.state {
+        case .began, .changed:
+            if !pinchTakenOver {
+                // Only a pinch-in on a page that cannot zoom out further
+                // (mobile pages at scale 1) belongs to the overview.
+                guard g.scale < 0.94, shownPageScale <= 1.02, onOverviewPinch != nil else { return }
+                pinchTakenOver = true
+                suppressTouches = true
+                onTouch?(.cancel, [])
+            }
+            onOverviewPinch?(.changed, g.scale / 0.94, g.velocity)
+        case .ended, .cancelled, .failed:
+            if pinchTakenOver {
+                onOverviewPinch?(.ended, g.scale / 0.94, g.velocity)
+                pinchTakenOver = false
+            }
+        default:
+            break
+        }
+    }
+
+    func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
 
     @objc private func longPress(_ g: UILongPressGestureRecognizer) {
         // The remote page sees the held touch and opens its own context
@@ -250,94 +255,6 @@ final class PageSurfaceView: UIView {
             if let key = press.key, let dom = DOMKey(key) { onKey?(dom); handled = true }
         }
         if !handled { super.pressesBegan(presses, with: event) }
-    }
-}
-
-/// Local scroll prediction for one-finger drags. Frames arrive a round trip
-/// late, so while dragging the last frame is moved with the finger and each
-/// new frame is placed where the page should be by now.
-///
-/// With scroll metadata (`frameMeta`), the page is expected at
-/// `scrollAtStart - fingerTravel`; a frame captured at scroll S is drawn
-/// offset by (S - expected) / cssPerPoint. After the finger lifts, the offset
-/// is kept until a frame reaches the expected scroll (Chrome may fling past
-/// it) or `releaseTimeout` passes. Without metadata, the offset is the finger
-/// travel since the last frame (dead reckoning), reset by each frame.
-struct ScrollPrediction {
-    static let releaseTimeout: CFTimeInterval = 0.6
-
-    private(set) var offset: CGFloat = 0
-    private var active = false
-    private var released: CFTimeInterval?
-    private var baseScroll: CGFloat?
-    private var fingerTravel: CGFloat = 0
-    private var shownScroll: CGFloat?
-    private var sinceFrame: CGFloat = 0
-    private var limit: CGFloat = 600
-
-    mutating func begin(shownScroll: CGFloat?) {
-        active = true
-        released = nil
-        baseScroll = shownScroll
-        self.shownScroll = shownScroll
-        fingerTravel = 0
-        sinceFrame = 0
-        offset = 0
-    }
-
-    mutating func drag(dy: CGFloat, cssPerPoint k: CGFloat, limit: CGFloat) {
-        guard active, released == nil else { return }
-        self.limit = limit
-        fingerTravel += dy
-        sinceFrame += dy
-        recompute(k: k)
-    }
-
-    mutating func release(now: CFTimeInterval) {
-        guard active else { return }
-        released = now
-    }
-
-    mutating func cancel() {
-        active = false
-        released = nil
-        offset = 0
-    }
-
-    mutating func frameArrived(scroll: CGFloat?, cssPerPoint k: CGFloat) {
-        guard active else { offset = 0; return }
-        shownScroll = scroll
-        sinceFrame = 0
-        if released != nil {
-            guard let expected = expectedScroll(k: k), let scroll else { cancel(); return }
-            // Reached (or flung past) the finger's end position: frames are current.
-            let direction: CGFloat = fingerTravel < 0 ? 1 : -1
-            if (scroll - expected) * direction >= -0.5 { cancel(); return }
-        }
-        recompute(k: k)
-    }
-
-    /// Ends a prediction whose frames never caught up (page edge). Returns
-    /// true when the offset changed.
-    mutating func consumeExpired(now: CFTimeInterval) -> Bool {
-        guard let released, now - released > Self.releaseTimeout, offset != 0 else { return false }
-        cancel()
-        return true
-    }
-
-    private func expectedScroll(k: CGFloat) -> CGFloat? {
-        guard let baseScroll else { return nil }
-        return max(0, baseScroll - fingerTravel * k)
-    }
-
-    private mutating func recompute(k: CGFloat) {
-        let raw: CGFloat
-        if let expected = expectedScroll(k: k), let shownScroll, k > 0 {
-            raw = (shownScroll - expected) / k
-        } else {
-            raw = released == nil ? sinceFrame : 0
-        }
-        offset = min(limit, max(-limit, raw))
     }
 }
 
@@ -413,6 +330,7 @@ struct PageSurface: UIViewRepresentable {
     var wantsHardwareKeys: Bool
     var onDrag: (CGFloat) -> Void
     var onKeyboardDismissed: () -> Void
+    var onOverviewPinch: ((PinchPhase, CGFloat, CGFloat) -> Void)? = nil
 
     func makeUIView(context: Context) -> PageSurfaceView {
         let view = PageSurfaceView()
@@ -427,6 +345,7 @@ struct PageSurface: UIViewRepresentable {
         view.viewportCSSWidth = viewportCSSWidth
         view.onDrag = onDrag
         view.onKeyboardDismissed = onKeyboardDismissed
+        view.onOverviewPinch = onOverviewPinch
         view.show(frame)
         if keyboardActive {
             if !view.proxy.isFirstResponder { view.proxy.becomeFirstResponder() }

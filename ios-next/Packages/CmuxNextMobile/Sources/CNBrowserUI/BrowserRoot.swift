@@ -71,9 +71,14 @@ struct BrowserScreen: View {
     let keyboard: CGFloat
 
     @State private var chrome = BrowserChromeState()
-    @State private var overviewShown: Double = 0
-    @State private var overviewDetails: Double = 0
-    @State private var zoom: ZoomOverlay?
+    /// The page <-> overview transition (one interruptible progress value).
+    @State private var zoomDriver = TabZoomDriver()
+    /// Tab the zoom shows: the active tab, a tapped card, or `newTabMarker`.
+    @State private var zoomTabId: String?
+    /// Grid slot a tab created with (+) grows from.
+    @State private var newTabSlot = 0
+    /// A pinch on the page or on a card drives the zoom.
+    @State private var pinching = false
     @State private var overviewScroll: CGFloat = 0
     @State private var overviewPosition = ScrollPosition(y: 0)
     @State private var menuExpanded = false
@@ -94,6 +99,34 @@ struct BrowserScreen: View {
 
     private var showsStartPage: Bool { creatingTab || model.showsStartPage(model.activeTabId) }
 
+    private static let newTabMarker = "\u{0}new"
+    private var zoomState: TabZoomState { zoomDriver.state }
+    /// The overview is on screen (settled, opening, closing or pinched).
+    private var overviewVisible: Bool { zoomState.showsOverview }
+    /// 0 = page, 1 = grid, clamped (the spring may overshoot slightly).
+    private var overviewShown: Double { min(1, max(0, zoomState.progress)) }
+    /// Card titles and close buttons appear over the last fifth of the way.
+    private var overviewDetails: Double { min(1, max(0, (zoomState.progress - 0.8) / 0.2)) }
+
+    /// The zooming tab's rect: full screen at progress 0, its card at 1.
+    private func zoomGeometry() -> (rect: CGRect, radius: CGFloat, strip: CGFloat) {
+        let layout = overviewLayout
+        let index: Int
+        if zoomTabId == Self.newTabMarker {
+            index = newTabSlot
+        } else {
+            index = zoomTabId.flatMap { id in model.tabs.firstIndex { $0.id == id } } ?? (model.activeIndex ?? 0)
+        }
+        let grid = OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: max(model.tabs.count, index + 1))
+        let card = grid.card(index).offsetBy(dx: 0, dy: -overviewScroll)
+        let p = CGFloat(zoomState.progress)
+        func lerp(_ a: CGFloat, _ b: CGFloat) -> CGFloat { a + (b - a) * p }
+        let rect = CGRect(x: lerp(0, card.minX), y: lerp(0, card.minY), width: lerp(size.width, card.width),
+                          height: lerp(size.height, card.height))
+        let q = min(1, max(0, p))
+        return (rect, style.metrics.screenRadius + (layout.cardRadius - style.metrics.screenRadius) * q, safeTop * (1 - q))
+    }
+
     var body: some View {
         let layout = ToolbarLayout.make(size: size, safeBottom: safeBottom, keyboard: keyboard, bar: chrome.bar,
                                         editing: chrome.editing, splitBack: model.activeTab?.canGoForward == true, labelWidth: 69)
@@ -110,26 +143,32 @@ struct BrowserScreen: View {
             // the grid on the first animation frame.
             if model.loaded {
                 TabOverview(model: model, images: overviewImages, layout: overviewLayout, shown: overviewShown, detailsOpacity: overviewDetails,
-                            hiddenTabId: zoom?.tabId, scrollOffset: $overviewScroll, position: $overviewPosition,
+                            hiddenTabId: zoomState.phase == .overview ? nil : zoomTabId,
+                            gridInteractive: zoomState.gridInteractive,
+                            controlsInteractive: overviewVisible && zoomState.headingToOverview,
+                            scrollOffset: $overviewScroll, position: $overviewPosition,
                             leadingItem: leadingItem,
                             onSelect: { closeOverview(selecting: $0) },
                             onClose: { id in withAnimation(motion.resolve(motion.reflow)) { model.close(id) } },
                             onNewTab: newTabFromOverview,
                             onDone: { closeOverview(selecting: model.activeTabId) },
-                            onCloseAll: closeAll)
-                    .opacity(chrome.overview ? 1 : 0)
-                    .allowsHitTesting(chrome.overview && zoom == nil && !creatingTab)
-                    .accessibilityHidden(!chrome.overview)
+                            onCloseAll: closeAll,
+                            onCardPinch: { id, phase, scale, velocity in cardPinch(id, phase, scale: scale, velocity: velocity) })
+                    .opacity(overviewVisible ? 1 : 0)
+                    .allowsHitTesting(overviewVisible)
+                    .accessibilityHidden(!zoomState.gridInteractive)
             }
 
-            if let zoom {
+            if zoomState.phase == .animating || zoomState.phase == .interactive {
                 // The tab's page laid out at full size, scaled and clipped
                 // to the moving rect (the rect is the tab's window).
-                ScaledPage(image: zoom.image, topColor: zoom.topColor, startPage: zoom.startPage, tabs: model.tabs,
-                           pageSize: size, safeTop: safeTop, strip: zoom.strip)
-                    .frame(width: zoom.rect.width, height: zoom.rect.height)
-                    .clipShape(.rect(cornerRadius: zoom.radius, style: .continuous))
-                    .offset(x: zoom.rect.minX, y: zoom.rect.minY)
+                let g = zoomGeometry()
+                let content = zoomContent()
+                ScaledPage(image: content.image, topColor: content.topColor, startPage: content.startPage, tabs: model.tabs,
+                           pageSize: size, safeTop: safeTop, strip: g.strip)
+                    .frame(width: max(1, g.rect.width), height: max(1, g.rect.height))
+                    .clipShape(.rect(cornerRadius: g.radius, style: .continuous))
+                    .offset(x: g.rect.minX, y: g.rect.minY)
                     .allowsHitTesting(false)
             }
 
@@ -140,11 +179,13 @@ struct BrowserScreen: View {
                            onEndEditing: { endEditing() }, onGo: go,
                            onSwipeChanged: swipeChanged, onSwipeEnded: swipeEnded)
                 .opacity(1 - overviewShown)
-                .allowsHitTesting(!chrome.overview && !chrome.menuOpen)
+                // Usable on the page, and while a zoom heads back to the page
+                // (the tabs button then reverses it).
+                .allowsHitTesting(!chrome.menuOpen && (zoomState.pageInteractive || (zoomState.phase == .animating && !zoomState.headingToOverview)))
 
             // Kept mounted (transparent) so the droplet starts growing on
             // the first frame after the tap instead of after its first layout.
-            if model.loaded && !chrome.overview {
+            if model.loaded && !overviewVisible {
                 PageMenu(groups: menuGroups,
                          origin: CGRect(x: layout.capsule.minX, y: layout.capsule.minY, width: style.metrics.control, height: style.metrics.control),
                          capsule: layout.capsule, topLimit: safeTop + 8, expanded: menuExpanded, contentVisible: menuContent,
@@ -188,13 +229,21 @@ struct BrowserScreen: View {
             guard let route = shellRoute, route.kind == .browserTab, let id = route.id else { return }
             if chrome.editing { endEditing() }
             if chrome.menuOpen { closeMenu() }
-            if chrome.overview { closeOverview(selecting: id) }
+            if overviewVisible { closeOverview(selecting: id) }
             model.open(tabId: id)
         }
-        .onChange(of: model.thumbnails) { _, _ in if chrome.overview { captureOverviewImages() } }
+        .onChange(of: model.thumbnails) { _, _ in if overviewVisible { captureOverviewImages() } }
+        .onAppear {
+            zoomDriver.onSettle = { phase in
+                if phase == .page {
+                    zoomTabId = nil
+                    chrome.expand(tap: true)
+                }
+            }
+        }
         .onChange(of: model.tabs.isEmpty) { _, empty in
             // Closing the last tab opens a fresh start page, as Safari does.
-            if empty, model.loaded, !chrome.overview { Task { await model.newTab() } }
+            if empty, model.loaded, !overviewVisible { Task { await model.newTab() } }
         }
     }
 
@@ -207,9 +256,10 @@ struct BrowserScreen: View {
             PageSurface(model: model, frame: frame, topInset: safeTop,
                         viewportCSSWidth: CGFloat(model.viewport(for: model.activeTabId)?.width ?? 0),
                         keyboardActive: chrome.pageKeyboard,
-                        wantsHardwareKeys: !chrome.editing && !chrome.overview,
+                        wantsHardwareKeys: !chrome.editing && !overviewVisible,
                         onDrag: { chrome.pageDragged($0) },
-                        onKeyboardDismissed: { chrome.pageKeyboard = false; pushGeometry() })
+                        onKeyboardDismissed: { chrome.pageKeyboard = false; pushGeometry() },
+                        onOverviewPinch: { phase, scale, velocity in pagePinch(phase, scale: scale, velocity: velocity) })
                 .opacity(chrome.swiping || showsStartPage ? 0 : 1)
                 .allowsHitTesting(!chrome.swiping && !showsStartPage && !displaced)
             if displaced && !showsStartPage && !chrome.swiping {
@@ -223,7 +273,7 @@ struct BrowserScreen: View {
                 swipeCards(current: frame, topColor: topColor)
             }
         }
-        .cnStatusBarStyle(showsStartPage || chrome.overview ? nil : frame.map { CNStatusBarStyle(over: $0.topColor) })
+        .cnStatusBarStyle(showsStartPage || overviewVisible ? nil : frame.map { CNStatusBarStyle(over: $0.topColor) })
     }
 
     @ViewBuilder private func swipeCards(current: PageFrame?, topColor: Color) -> some View {
@@ -384,34 +434,35 @@ struct BrowserScreen: View {
         OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: model.tabs.count)
     }
 
-    private func openOverview() {
-        guard !chrome.overview else { return }
+    /// What the zooming rect shows: the same image the card shows (or the
+    /// live frame for the page), or the start page.
+    private func zoomContent() -> (image: UIImage?, topColor: Color, startPage: Bool) {
+        guard let id = zoomTabId, id != Self.newTabMarker else {
+            return (nil, style.colors.startBackground, true)
+        }
+        let frame = model.frames[id]
+        let image = id == model.activeTabId ? (frame?.uiImage ?? overviewImages[id]) : (overviewImages[id] ?? model.cardImage(id))
+        return (image, Color(uiColor: frame?.topColor ?? .white), model.showsStartPage(id) || (creatingTab && id == model.activeTabId))
+    }
+
+    /// Prepares the grid when it is about to appear from the page.
+    private func prepareOverview(revealing index: Int, count: Int) {
         chrome.pageKeyboard = false
         model.refreshThumbnails()
         captureOverviewImages()
-        let layout = overviewLayout
-        let index = model.activeIndex ?? 0
-        let offset = layout.offset(revealing: index)
+        let grid = OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: count)
+        let offset = grid.offset(revealing: index)
         overviewPosition = ScrollPosition(y: offset)
         overviewScroll = offset
-        overviewShown = 0
-        overviewDetails = 0
-        if let id = model.activeTabId {
-            let frame = model.activeFrame
-            zoom = ZoomOverlay(tabId: id, image: frame?.uiImage, topColor: Color(uiColor: frame?.topColor ?? .systemBackground),
-                               startPage: showsStartPage, rect: fullRect, radius: style.metrics.screenRadius, strip: safeTop)
+    }
+
+    /// Tabs button: page -> grid, or reverse a zoom that is heading to the page.
+    private func openOverview() {
+        if zoomState.phase == .page {
+            zoomTabId = model.activeTabId
+            prepareOverview(revealing: model.activeIndex ?? 0, count: model.tabs.count)
         }
-        chrome.overview = true
-        let card = layout.card(index).offsetBy(dx: 0, dy: -offset)
-        withAnimation(motion.resolve(motion.overviewOpen), completionCriteria: .removed) {
-            zoom?.rect = card
-            zoom?.radius = layout.cardRadius
-            zoom?.strip = 0
-            overviewShown = 1
-        } completion: {
-            zoom = nil
-        }
-        withAnimation(.easeOut(duration: 0.15).delay(0.22)) { overviewDetails = 1 }
+        zoomDriver.go(toOverview: true)
     }
 
     private func captureOverviewImages() {
@@ -420,60 +471,91 @@ struct BrowserScreen: View {
         overviewImages = images
     }
 
+    /// Done or a card: grid -> page, or reverse a zoom heading to the grid.
     private func closeOverview(selecting tabId: String?) {
-        guard chrome.overview else { return }
-        guard let tabId, let index = model.tabs.firstIndex(where: { $0.id == tabId }) else {
-            withAnimation(.easeOut(duration: 0.2)) { overviewShown = 0 } completion: { chrome.overview = false }
-            return
+        guard overviewVisible else { return }
+        if zoomState.phase == .overview {
+            guard let tabId, model.tabs.contains(where: { $0.id == tabId }) else {
+                if model.tabs.isEmpty { newTabFromOverview() } else { zoomTabId = model.activeTabId; zoomDriver.go(toOverview: false) }
+                return
+            }
+            if tabId != model.activeTabId { model.select(tabId) }
+            zoomTabId = tabId
         }
-        if tabId != model.activeTabId { model.select(tabId) }
-        let card = overviewLayout.card(index).offsetBy(dx: 0, dy: -overviewScroll)
-        let frame = model.frames[tabId]
-        // The same image the card shows, so the zoom starts exactly as the card.
-        zoom = ZoomOverlay(tabId: tabId, image: overviewImages[tabId] ?? model.cardImage(tabId),
-                           topColor: Color(uiColor: frame?.topColor ?? .white),
-                           startPage: model.showsStartPage(tabId), rect: card, radius: overviewLayout.cardRadius, strip: 0)
-        withAnimation(.easeOut(duration: 0.1)) { overviewDetails = 0 }
-        withAnimation(motion.resolve(motion.overviewClose), completionCriteria: .removed) {
-            zoom?.rect = fullRect
-            zoom?.radius = style.metrics.screenRadius
-            zoom?.strip = safeTop
-            overviewShown = 0
-        } completion: {
-            chrome.overview = false
-            zoom = nil
-            chrome.expand(tap: true)
-        }
+        zoomDriver.go(toOverview: false)
     }
 
     /// (+): the new tab's start page grows from the grid slot its card will
     /// take (index = tab count). The grid first scrolls so that slot is on
     /// screen, as the overview does for the active card.
     private func newTabFromOverview() {
-        creatingTab = true
-        let next = OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: model.tabs.count + 1)
+        guard zoomState.phase == .overview else { return }
         let index = model.tabs.count
+        newTabSlot = index
+        let next = OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: index + 1)
         let offset = next.offset(revealing: index)
         if abs(offset - overviewScroll) > 0.5 {
             overviewPosition = ScrollPosition(y: offset)
             overviewScroll = offset
         }
-        let slot = next.card(index).offsetBy(dx: 0, dy: -offset)
-        zoom = ZoomOverlay(tabId: "", image: nil, topColor: style.colors.startBackground, startPage: true,
-                           rect: slot, radius: next.cardRadius, strip: 0)
-        withAnimation(.easeOut(duration: 0.1)) { overviewDetails = 0 }
-        withAnimation(motion.resolve(motion.overviewClose), completionCriteria: .removed) {
-            zoom?.rect = fullRect
-            zoom?.radius = style.metrics.screenRadius
-            zoom?.strip = safeTop
-            overviewShown = 0
-        } completion: {
-            chrome.overview = false
-            zoom = nil
-        }
+        zoomTabId = Self.newTabMarker
+        creatingTab = true
+        zoomDriver.start(from: 1, toOverview: false)
         Task {
-            await model.newTab()
+            let id = await model.newTab()
             creatingTab = false
+            // The zoom keeps running; it now shows the created tab (or ends
+            // on whatever tab is active if creation failed).
+            if zoomTabId == Self.newTabMarker { zoomTabId = id ?? model.activeTabId }
+        }
+    }
+
+    // MARK: Pinch
+
+    /// Pinch-in on the page (the surface hands it over once the remote page
+    /// is at its minimum zoom): the page shrinks into its card with the
+    /// fingers. Scale and velocity are the pinch's (1 = start).
+    private func pagePinch(_ phase: PinchPhase, scale: CGFloat, velocity: CGFloat) {
+        let span = max(1, size.width - overviewLayout.cardWidth)
+        let progress = Double((size.width - size.width * scale) / span)
+        let v = Double(-velocity * size.width / span)
+        switch phase {
+        case .changed:
+            if !pinching {
+                guard zoomState.phase == .page, !chrome.editing, model.activeTabId != nil else { return }
+                zoomTabId = model.activeTabId
+                prepareOverview(revealing: model.activeIndex ?? 0, count: model.tabs.count)
+                pinching = true
+                zoomDriver.beginInteraction()
+            }
+            zoomDriver.updateInteraction(progress: progress, velocity: v)
+        case .ended:
+            guard pinching else { return }
+            pinching = false
+            zoomDriver.endInteraction(velocity: v, startedFromOverview: false)
+        }
+    }
+
+    /// Pinch-out on a card: it opens with the fingers.
+    private func cardPinch(_ tabId: String, _ phase: PinchPhase, scale: CGFloat, velocity: CGFloat) {
+        let card = overviewLayout.cardWidth
+        let span = max(1, size.width - card)
+        let progress = Double((size.width - card * scale) / span)
+        let v = Double(-velocity * card / span)
+        switch phase {
+        case .changed:
+            if !pinching {
+                guard zoomState.phase == .overview, scale > 1.03 else { return }
+                zoomTabId = tabId
+                pinching = true
+                zoomDriver.beginInteraction()
+            }
+            zoomDriver.updateInteraction(progress: progress, velocity: v)
+        case .ended:
+            guard pinching else { return }
+            pinching = false
+            let toOverview = zoomDriver.endInteraction(velocity: v, startedFromOverview: true)
+            if !toOverview, tabId != model.activeTabId { model.select(tabId) }
         }
     }
 

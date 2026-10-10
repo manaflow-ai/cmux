@@ -17,6 +17,8 @@ struct PageFrame {
     var seq: UInt32
     /// Document scroll offset (CSS px) at capture time, when the host sends it.
     var scroll: CGPoint?
+    /// Remote page zoom at capture time (1 when unknown).
+    var pageScale: CGFloat = 1
 
     var uiImage: UIImage { UIImage(cgImage: image) }
 }
@@ -283,7 +285,8 @@ final class BrowserModel {
                   let image = CGImageSourceCreateImageAtIndex(src, 0, options) else { return nil }
             return PageFrame(image: image, cssSize: CGSize(width: Double(frame.cssWidth), height: Double(frame.cssHeight)),
                              topColor: topColor(of: image), seq: frame.seq,
-                             scroll: frame.meta.map { CGPoint(x: Double($0.scrollX), y: Double($0.scrollY)) })
+                             scroll: frame.meta.map { CGPoint(x: Double($0.scrollX), y: Double($0.scrollY)) },
+                             pageScale: frame.meta.map { CGFloat($0.pageScale) } ?? 1)
         }.value
     }
 

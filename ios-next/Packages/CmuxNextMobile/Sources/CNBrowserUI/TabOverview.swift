@@ -156,6 +156,9 @@ struct ScaledPage: View {
     }
 }
 
+/// A pinch update. The first `.changed` that passes the caller's threshold begins the interaction.
+enum PinchPhase: Sendable { case changed, ended }
+
 /// Tab overview: blurred wallpaper, 2-column grid, top controls and the
 /// bottom bar (+, "N Tabs", Done).
 struct TabOverview: View {
@@ -167,6 +170,10 @@ struct TabOverview: View {
     var detailsOpacity: Double
     /// Card hidden while a zoom overlay stands in for it.
     var hiddenTabId: String?
+    /// Cards take taps and pinches (the grid is settled).
+    var gridInteractive: Bool
+    /// The bottom bar takes taps (settled, or a zoom heading here: Done reverses it).
+    var controlsInteractive: Bool
     @Binding var scrollOffset: CGFloat
     @Binding var position: ScrollPosition
     var leadingItem: AnyView?
@@ -175,6 +182,7 @@ struct TabOverview: View {
     var onNewTab: () -> Void
     var onDone: () -> Void
     var onCloseAll: () -> Void
+    var onCardPinch: (String, PinchPhase, CGFloat, CGFloat) -> Void = { _, _, _, _ in }
 
     private let style = BrowserStyle.shared
 
@@ -194,6 +202,7 @@ struct TabOverview: View {
                             .opacity(tab.id == hiddenTabId ? 0 : 1)
                             .contentShape(.rect)
                             .onTapGesture { onSelect(tab.id) }
+                            .simultaneousGesture(cardPinch(tab.id))
                             .offset(x: r.minX, y: r.minY)
                             .transition(.asymmetric(insertion: .opacity, removal: .opacity.combined(with: .scale(scale: 0.9))))
                     }
@@ -206,17 +215,29 @@ struct TabOverview: View {
             .ignoresSafeArea()
             .scaleEffect(1.06 - 0.06 * shown)
             .blur(radius: 10 * (1 - shown))
+            .allowsHitTesting(gridInteractive)
 
             // Glass ignores inherited opacity; keep hidden controls out of
             // the hierarchy instead.
             if shown > 0 {
                 topControls
                     .opacity(shown)
+                    .allowsHitTesting(gridInteractive)
                 bottomBar
                     .opacity(shown)
+                    .allowsHitTesting(controlsInteractive)
             }
         }
         .frame(width: layout.size.width, height: layout.size.height)
+    }
+
+    /// Pinch-out on a card opens it with the fingers.
+    private func cardPinch(_ id: String) -> some Gesture {
+        MagnifyGesture(minimumScaleDelta: 0.03)
+            .onChanged { v in
+                onCardPinch(id, .changed, v.magnification, v.velocity)
+            }
+            .onEnded { v in onCardPinch(id, .ended, v.magnification, v.velocity) }
     }
 
     private var topControls: some View {
@@ -261,13 +282,13 @@ struct TabOverview: View {
                 .position(x: 38 + 24, y: bar.midY)
                 .accessibilityLabel("New Tab")
 
+                // One glass shape per control (two nested glass capsules
+                // read as a double background).
                 Text(count == 1 ? "1 Tab" : "\(count) Tabs")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(style.colors.label)
-                    .padding(.horizontal, 14)
-                    .frame(height: 40)
-                    .glassEffect(.regular, in: .capsule)
-                    .padding(4)
+                    .padding(.horizontal, 22)
+                    .frame(height: 48)
                     .glassEffect(.regular, in: .capsule)
                     .position(x: layout.size.width / 2, y: bar.midY)
                     .contentTransition(.numericText())
