@@ -123,9 +123,10 @@ pub(super) fn after_host_death(
     {
         return DeadHost::Replaced(Box::new(attachment));
     }
-    let end = sidecar.map(|(_, exit)| TerminalEnd::from_host_exit(exit.exit)).unwrap_or_else(|| {
-        TerminalEnd::host_lost("terminal host ended without a durable exit sidecar")
-    });
+    let end =
+        sidecar.map(|(_, exit)| TerminalEnd::from_host_exit(exit.exit)).unwrap_or_else(|| {
+            TerminalEnd::host_lost("terminal host ended without a durable exit sidecar")
+        });
     *pty.exit.lock().unwrap_or_else(PoisonError::into_inner) = Some(end);
     mark_hosted_runtime_exited(pty, identity);
     pty.host_connection_state.store(TerminalHostConnectionState::Exited as u8, Ordering::Release);
