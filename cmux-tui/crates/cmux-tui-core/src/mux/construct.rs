@@ -285,7 +285,11 @@ impl Mux {
             cell_pixel_operation: Mutex::new(None),
             #[cfg(test)]
             cell_pixel_fanout_timeout: Mutex::new(None),
-            default_colors: Mutex::new(default_colors),
+            default_colors: crate::lock_rank::RankedMutex::new(
+                crate::lock_rank::LockRank::Leaf,
+                "mux.default_colors",
+                default_colors,
+            ),
             durable_terminal_defaults: AtomicBool::new(has_terminal_defaults),
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
             journal_plugin: crate::journal_plugin::JournalPluginRuntime::default(),
