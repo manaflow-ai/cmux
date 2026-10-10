@@ -52,6 +52,29 @@ struct RowMotion {
         })
     }
 
+    /// Places a row that scrolled into view. One still opening (the viewport
+    /// held still for an insert above it, then scrolled to it) opens from zero
+    /// height at its slot instead of showing whole over the rows still making
+    /// room (cx-ai79).
+    static func place(_ view: SidebarRowView, at target: NSRect, opening: Bool, hidden: Bool, in list: NSView) {
+        guard opening, !hidden, Motion.animatesMovement else {
+            view.frame = target
+            view.alphaValue = hidden ? 0 : 1
+            return
+        }
+        Motion.withoutAnimation {
+            view.frame = NSRect(x: target.minX, y: target.minY, width: target.width, height: 0)
+            view.alphaValue = 0
+            view.clipsToBounds = true
+        }
+        Motion.animate(.move, in: list, {
+            view.animator().frame = target
+            view.animator().alphaValue = 1
+        }, completion: { [view] in
+            if view.layer?.animationKeys()?.isEmpty ?? true { view.clipsToBounds = false }
+        })
+    }
+
     /// A moved selected row (with its workspace's tab rows) passes over the
     /// rows it trades places with: it draws above them, and each row it
     /// crosses hides at once and fades back in once the move has nearly

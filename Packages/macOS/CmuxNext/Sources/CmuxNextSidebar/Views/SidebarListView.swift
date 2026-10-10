@@ -337,9 +337,8 @@ final class SidebarListView: NSView {
             let view = dequeue(row.key)
             view.targetSize = target.size
             configure(view, row: row, animated: false)
-            view.frame = target
-            view.alphaValue = suppressed.contains(row.key) ? 0 : 1
             addSubview(view, positioned: .above, relativeTo: decorations)
+            RowMotion.place(view, at: target, opening: openingRows[row.key] != nil, hidden: suppressed.contains(row.key), in: self)
             rowViews[row.key] = view
         }
         pruneOffscreen()
