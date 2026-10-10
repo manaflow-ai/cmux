@@ -1402,39 +1402,16 @@ cmux_claude_sideload_flags_disabled_uncached() {
     fi
 
     # MDM preferences domain: disableSideloadFlags reading as 1, or any
-    # configured policyHelper, disqualifies. This used to be two per-key
-    # `defaults read <domain> <key>` calls; one whole-domain read answers both.
-    # Both forms read the same preferences source. The dump prints every
-    # top-level key on its own line indented by exactly four spaces (nested
-    # entries use eight; a newline inside a string prints as `\\n`), so the
-    # anchored matches below see only top-level keys.
+    # configured policyHelper, disqualifies. Keep the per-key reads here:
+    # `defaults read <domain>` is a human-readable plist dump whose escaping
+    # varies for strings containing newlines and backslashes, while the
+    # per-key command has the exact truth semantics this policy needs.
     defaults_bin=/usr/bin/defaults
     if [[ "${CMUX_CLAUDE_SKIP_DEFAULTS:-0}" != "1" && -x "$defaults_bin" ]]; then
-        local domain_dump flag_value
-        local newline=$'\n'
-        local flag_prefix=$'\n    disableSideloadFlags = '
-        local escaped_newline='\\n' quoted_one='"1' quoted_end='";'
-        if domain_dump="$("$defaults_bin" read "$plist_domain" 2>/dev/null)"; then
-            domain_dump="$newline$domain_dump$newline"
-            [[ "$domain_dump" == *"$newline    policyHelper = "* ]] && return 0
-            flag_value="${domain_dump#*"$flag_prefix"}"
-            if [[ "$flag_value" != "$domain_dump" ]]; then
-                flag_value="${flag_value%%"$newline"*}"
-                # The per-key read printed `1` for true, 1, 1.0 and "1", which
-                # all dump as `1;`. It also printed `1` for "1" followed by
-                # newlines, because $(...) strips them; that dumps as
-                # `"1\\n";`, `"1\\n\\n";` and so on.
-                [[ "$flag_value" == "1;" ]] && return 0
-                if [[ "$flag_value" == "$quoted_one$escaped_newline"*"$quoted_end" ]]; then
-                    flag_value="${flag_value#"$quoted_one"}"
-                    flag_value="${flag_value%"$quoted_end"}"
-                    while [[ "$flag_value" == "$escaped_newline"* ]]; do
-                        flag_value="${flag_value#"$escaped_newline"}"
-                    done
-                    [[ -z "$flag_value" ]] && return 0
-                fi
-            fi
-        fi
+        local flag_value
+        flag_value="$("$defaults_bin" read "$plist_domain" disableSideloadFlags 2>/dev/null)"
+        [[ "$flag_value" == "1" ]] && return 0
+        "$defaults_bin" read "$plist_domain" policyHelper >/dev/null 2>&1 && return 0
     fi
 
     return 1
