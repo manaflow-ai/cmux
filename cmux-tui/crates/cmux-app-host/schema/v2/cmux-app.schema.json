@@ -310,14 +310,17 @@
         },
         "screen": {
           "enum": [
-            "app",
-            "appColumn"
+            "app"
           ],
-          "description": "app: the app fills the screen. appColumn: a docked app column next to the normal columns (Home)."
+          "description": "app: the app fills the screen."
         },
         "tab": {
           "type": "boolean",
           "description": "The app may also open as a page tab (Open as Tab, drag into a workspace)."
+        },
+        "hiddenByDefault": {
+          "type": "boolean",
+          "description": "Installed but hidden until the user shows it; still reachable from the palette, CLI and App Store."
         },
         "primaryInput": {
           "type": "string",
