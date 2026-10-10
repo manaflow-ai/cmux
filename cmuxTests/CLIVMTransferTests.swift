@@ -1202,6 +1202,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         defer { try? FileManager.default.removeItem(at: source) }
         try FileManager.default.createSymbolicLink(at: source.appendingPathComponent("danger"), withDestinationPath: "new/~")
         try FileManager.default.createSymbolicLink(at: source.appendingPathComponent("ordinary"), withDestinationPath: "~alice")
+        try FileManager.default.createSymbolicLink(
+            at: source.appendingPathComponent("delimiter"),
+            withDestinationPath: "new/~/target -> ordinary"
+        )
         startDetachedMockServer(listenerFD: listenerFD, state: state) { line in
             if line.hasPrefix("auth ") { return "OK" }
             return self.v2Response(

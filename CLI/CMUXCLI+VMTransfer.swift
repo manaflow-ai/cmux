@@ -1766,11 +1766,15 @@ extension CMUXCLI {
             }
             for entry in verbose.stdout.split(separator: 0x0a, omittingEmptySubsequences: true) {
                 let line = String(decoding: entry, as: UTF8.self)
-                guard line.first == "l", let arrow = line.range(of: " -> ", options: .backwards) else { continue }
-                try Self.rejectLiteralTildePath(
-                    String(line[arrow.upperBound...]),
-                    operation: String(localized: "cli.vm.path.symlinkTarget", defaultValue: "push archive symlink target")
-                )
+                guard line.first == "l" else { continue }
+                var searchStart = line.startIndex
+                while let arrow = line.range(of: " -> ", range: searchStart..<line.endIndex) {
+                    try Self.rejectLiteralTildePath(
+                        String(line[arrow.upperBound...]),
+                        operation: String(localized: "cli.vm.path.symlinkTarget", defaultValue: "push archive symlink target")
+                    )
+                    searchStart = arrow.upperBound
+                }
             }
         } catch let error as CLIError {
             throw VMPushLocalValidationError(cliError: error)
