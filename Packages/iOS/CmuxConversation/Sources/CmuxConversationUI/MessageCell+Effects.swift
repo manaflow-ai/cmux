@@ -13,7 +13,10 @@ protocol ConversationEffectReplayHandling: AnyObject {
 final class EffectAccessibilityAction: UIAccessibilityCustomAction {}
 
 extension MessageCell {
-    func installEffectViews() {
+    /// Created on first use: few rows were sent with a replayable effect.
+    var replayButton: UIButton {
+        if let button = replayButtonIfLoaded { return button }
+        let replayButton = UIButton(type: .system)
         var config = UIButton.Configuration.plain()
         config.image = UIImage(systemName: "arrow.counterclockwise", withConfiguration: UIImage.SymbolConfiguration(pointSize: 10, weight: .bold))
         config.imagePadding = 3
@@ -28,6 +31,8 @@ extension MessageCell {
         replayButton.isAccessibilityElement = false
         replayButton.addAction(UIAction { [weak self] _ in self?.requestReplay() }, for: .touchUpInside)
         shiftable.addSubview(replayButton)
+        replayButtonIfLoaded = replayButton
+        return replayButton
     }
 
     func resetEffects() {
@@ -40,7 +45,7 @@ extension MessageCell {
         inkView?.removeFromSuperview()
         inkView = nil
         textLabel.layer.mask = nil
-        replayButton.isHidden = true
+        replayButtonIfLoaded?.isHidden = true
     }
 
     func configureEffects(model: MessageRowModel, layout: MessageCellLayout) {
@@ -51,7 +56,7 @@ extension MessageCell {
             let x = model.isOutgoing ? frame.maxX - size.width : frame.minX
             replayButton.frame = CGRect(x: x, y: frame.midY - 14, width: size.width, height: 28)
         } else {
-            replayButton.isHidden = true
+            replayButtonIfLoaded?.isHidden = true
         }
 
         if effect == .invisibleInk, let bubbleFrame = layout.bubbleFrame, layout.textFrame != nil {
