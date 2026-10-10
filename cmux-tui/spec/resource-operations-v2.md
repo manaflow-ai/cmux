@@ -6,7 +6,7 @@ selectors, fields, results, errors, constraints, or stream types.
 
 ## Transported operations
 
-`cmux.protocol/2` transports 211 operations for exactly one local mux
+`cmux.protocol/2` transports 213 operations for exactly one local mux
 session. Cross-machine aggregation and provider lifecycle require a later
 broker protocol.
 
@@ -39,7 +39,7 @@ correlation, and idempotency metadata.
 | `machine` | 2 | `machine.get`, `machine.list` |
 | `notification` | 4 | `notification.ack`, `notification.clear`, `notification.create`, `notification.list` |
 | `pairing_request` | 2 | `pairing_request.list`, `pairing_request.resolve` |
-| `palette_usage` | 3 | `palette_usage.get`, `palette_usage.import`, `palette_usage.record` |
+| `palette_usage` | 5 | `palette_usage.forget`, `palette_usage.get`, `palette_usage.hide`, `palette_usage.import`, `palette_usage.record` |
 | `pane` | 14 | `pane.close`, `pane.create`, `pane.focus`, `pane.focus_direction`, `pane.get`, `pane.list`, `pane.neighbor.get`, `pane.rename`, `pane.run`, `pane.split`, `pane.split_ratio.set`, `pane.swap`, `pane.viewport_width.set`, `pane.zoom` |
 | `request` | 1 | `request.cancel` |
 | `room` | 8 | `room.create`, `room.delete`, `room.follow`, `room.list`, `room.move`, `room.pin`, `room.unpin`, `room.update` |

@@ -358,6 +358,10 @@ pub enum ResourceOperation {
     PaletteUsageRecord,
     #[serde(rename = "palette_usage.import")]
     PaletteUsageImport,
+    #[serde(rename = "palette_usage.hide")]
+    PaletteUsageHide,
+    #[serde(rename = "palette_usage.forget")]
+    PaletteUsageForget,
     #[serde(rename = "room.create")]
     RoomCreate,
     #[serde(rename = "room.delete")]
