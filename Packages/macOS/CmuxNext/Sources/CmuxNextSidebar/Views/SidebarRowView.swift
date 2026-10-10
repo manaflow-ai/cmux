@@ -61,9 +61,9 @@ class SidebarRowView: NSView {
         isSelected = false
         // A recycled row shows its new content's fill at once.
         fadesNextFill = false
-        // A row recycled mid-move must not finish its old row's frame or fade on the new one (cx-bqm6).
+        // A row parked mid-move does not finish that move when it comes back (cx-bqm6).
         layer?.removeAllAnimations()
-        layer?.masksToBounds = false
+        clipsToBounds = false
         targetSize = nil
         alphaValue = 1
         setTitleHidden(false)

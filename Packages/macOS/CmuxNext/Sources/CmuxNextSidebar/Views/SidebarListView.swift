@@ -20,8 +20,10 @@ final class SidebarListView: NSView {
     var tabs: [TabID: SidebarTab] = [:]
     var groups: [GroupID: SidebarGroup] = [:]
     var sections: [SectionID: SidebarSection] = [:]
-    /// Pill and gap CALayers, under the rows.
+    /// The drag gap CALayer, under the rows.
     let decorations = SidebarDecorationView()
+    /// Open groups' members' lines, under the rows, moving with them.
+    let groupLineViews = SidebarGroupLineViews()
     /// Recycled row views by class; only rows near the viewport have views.
     var rowPool = SidebarRowViewPool()
     var hoveredKey: SidebarRowKey?
@@ -195,6 +197,8 @@ final class SidebarListView: NSView {
         var appearing: [(SidebarRowView, NSRect)] = []
         var keep = Set<SidebarRowKey>()
         let animate = animated && !old.rows.isEmpty
+        // New rows open from the top of their run, so only the rows below move (cx-ai79).
+        let insertRuns = SidebarRowTransition.runTops(of: layout, missingFrom: old)
         for row in layout.rows {
             let target = frame(for: row)
             let existing = rowViews[row.key]
@@ -211,9 +215,9 @@ final class SidebarListView: NSView {
                         view.frame = frame(for: previous)
                     } else if animate {
                         // An inserted row grows in its own slot; an expanded one comes out from under its header.
-                        view.frame = SidebarRowTransition.insertFrame(row, target: target, from: old, to: layout)
+                        view.frame = SidebarRowTransition.insertFrame(row, target: target, runTop: insertRuns[row.key], from: old, to: layout)
                         view.alphaValue = 0
-                        view.layer?.masksToBounds = true
+                        view.clipsToBounds = true
                     } else {
                         view.frame = target
                     }
@@ -238,6 +242,7 @@ final class SidebarListView: NSView {
             return section
         })
         var leaving: [(SidebarRowView, NSRect)] = []
+        let removeRuns = SidebarRowTransition.runTops(of: old, missingFrom: layout)
         for (key, view) in rowViews where !keep.contains(key) {
             rowViews[key] = nil
             let placeholder = if case .emptySection = key { true } else { false }
@@ -250,8 +255,8 @@ final class SidebarListView: NSView {
                 view.isSelected = false
                 // A collapsed row slides up under its header; another leaving row closes its slot.
                 let current = view.frame
-                let end = old.row(for: key).map { SidebarRowTransition.removeFrame($0, current: current, from: old, to: layout) }
-                view.layer?.masksToBounds = true
+                let end = old.row(for: key).map { SidebarRowTransition.removeFrame($0, current: current, runTop: removeRuns[key], from: old, to: layout) }
+                view.clipsToBounds = true
                 leaving.append((view, end ?? NSRect(x: current.minX, y: current.minY, width: current.width, height: 0)))
             }
         }
@@ -259,8 +264,8 @@ final class SidebarListView: NSView {
         let gapFrame = layout.gapHeight > 0 ? layout.gapY.map { NSRect(x: inset, y: $0, width: max(0, bounds.width - inset * 2), height: layout.gapHeight) } : nil
         decorations.frame = bounds
         decorations.setGap(gapFrame, animated: animate)
-        decorations.setGroupLines(groupLines(layout), animated: animate)
-        RowMotion(targets: targets, appearing: appearing, leaving: leaving).run(in: self, from: old, to: layout, animated: animate)
+        let lines = groupLineViews.update(groupLines(layout), in: self, above: decorations, animated: animate)
+        RowMotion(targets: targets, appearing: appearing, leaving: leaving, lines: lines).run(in: self, from: old, to: layout, animated: animate)
     }
     func configure(_ view: SidebarRowView, row: SidebarRow, animated: Bool) {
         view.isHovered = hoveredKey == row.key && drag == nil
