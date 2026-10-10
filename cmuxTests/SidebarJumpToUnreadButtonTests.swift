@@ -35,6 +35,8 @@ struct SidebarJumpToUnreadButtonTests {
 
         #expect(unread.isEnabled)
         #expect(!allRead.isEnabled)
+        #expect(unread.systemName == "bell.badge")
+        #expect(allRead.systemName == "bell")
         #expect(unread.title == title)
         #expect(allRead.title == title)
     }
