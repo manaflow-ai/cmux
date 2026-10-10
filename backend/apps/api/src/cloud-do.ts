@@ -2,6 +2,7 @@ import type { OwnerFrame, Principal } from "@cmux/ownership"
 import type { ReadResult } from "./owner-do.ts"
 import { personalTeamIdFor } from "./domains/user.ts"
 import { TEAM_MEMBER_LEFT_SOCKETS } from "./domains/team-members.ts"
+import { roleHas } from "./domains/team-roles.ts"
 import { cloudDriver } from "./cloud-driver.ts"
 import { parseBindRequest, sha256Hex, type BindReply } from "./cloud-link.ts"
 import { parseSigningKeys, publicKeyset } from "./link-token.ts"
@@ -59,7 +60,8 @@ export class CloudDO extends CloudIdle {
       const started = Date.now()
       const team = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(p.team)) as unknown as { memberRole(e: string, u: string): Promise<string | null> }
       const role = await team.memberRole(p.team, p.user).catch(() => null)
-      if (!role || (this.leftAt.get(p.user) ?? -1) >= started) return new Response("forbidden", { status: 403 })
+      // Guests and the billing role hold no team.resources grant (cx-3bi.4): no Cloud socket.
+      if (!roleHas(role ?? undefined, "team.resources") || (this.leftAt.get(p.user) ?? -1) >= started) return new Response("forbidden", { status: 403 })
     }
     return super.fetch(request)
   }

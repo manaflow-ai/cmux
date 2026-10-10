@@ -85,21 +85,21 @@ pub(super) fn browser_navigate(
 pub(super) fn browser_back(mux: &Arc<Mux>, surface: SurfaceId) -> anyhow::Result<Value> {
     let surface = get_surface(mux, surface)?;
     require_browser(mux, &surface)?;
-    surface.browser_back()?;
+    mux.refuse_frontend_browser(&surface).and_then(|()| surface.browser_back())?;
     Ok(json!({}))
 }
 
 pub(super) fn browser_forward(mux: &Arc<Mux>, surface: SurfaceId) -> anyhow::Result<Value> {
     let surface = get_surface(mux, surface)?;
     require_browser(mux, &surface)?;
-    surface.browser_forward()?;
+    mux.refuse_frontend_browser(&surface).and_then(|()| surface.browser_forward())?;
     Ok(json!({}))
 }
 
 pub(super) fn browser_reload(mux: &Arc<Mux>, surface: SurfaceId) -> anyhow::Result<Value> {
     let surface = get_surface(mux, surface)?;
     require_browser(mux, &surface)?;
-    surface.browser_reload()?;
+    mux.refuse_frontend_browser(&surface).and_then(|()| surface.browser_reload())?;
     Ok(json!({}))
 }
 

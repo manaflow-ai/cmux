@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto"
 import type { OwnerFrame, RowReader } from "@cmux/ownership"
 import { listMembers, memberOf, type RowsWithScan } from "./domains/team-members.ts"
+import { noOwnerOf } from "./domains/team-stack.ts"
+import { stackRole } from "./domains/team-roles.ts"
 import type { TeamState } from "./domains/team.ts"
 import { userIdFor } from "./domains/user.ts"
 import type { StackServer } from "./stack-server.ts"
@@ -9,7 +11,8 @@ import type { StackServer } from "./stack-server.ts"
  * Stack team webhook deliveries in TeamDO (cx-3bi.43). Svix does not keep the order of
  * deliveries and Stack's team events carry no version, so the event only says what to look at:
  * TeamDO asks Stack for the team and the membership as they are now and commits that answer
- * (team.stack_mirror, team.member.provision, team.member.remove). Deliveries for one team run one
+ * (team.stack_mirror, team.member.provision with the role Stack's team permissions give now,
+ * team.member.remove). Deliveries for one team run one
  * at a time, so the last commit always follows the last read, and an add that arrives after its
  * removal finds no membership in Stack and adds nothing.
  *
@@ -161,12 +164,21 @@ export class StackTeamSync {
     return { ok: true, outcome }
   }
 
-  /** Stack's current answer committed; `attempt` is the re-check number (-1 for a delivery). */
+  /** Stack's current answer committed, then the owner count of an older head set once; `attempt` is the re-check number (-1 for a delivery). */
   private async reconcile(deps: StackSyncDeps, stack: StackServer, ev: StackEvent, attempt: number): Promise<string> {
+    const out = await this.reconcileOnce(deps, stack, ev, attempt)
+    if (!out.startsWith("reject:")) this.ensureOwnerCount(deps, ev.svix_id)
+    return out
+  }
+
+  private async reconcileOnce(deps: StackSyncDeps, stack: StackServer, ev: StackEvent, attempt: number): Promise<string> {
     const commit = (op: string, params: Record<string, unknown>) => {
+      const before = noOwnerOf(deps.state())
       const res = deps.submitSystem(op, params, `stack-webhook:${ev.svix_id}:${op}:${hash(params)}`)
       const rej = res.frames.find((f) => f.t === "reject")
-      return rej && rej.t === "reject" ? `reject:${rej.code}` : undefined
+      if (rej && rej.t === "reject") return `reject:${rej.code}`
+      if (!before && noOwnerOf(deps.state())) logNoOwner(deps.team)
+      return undefined
     }
     const team = await stack.getTeam(ev.stack_team)
     // Stack still lists a team that a team.deleted named: change nothing now and ask again later, keeping the delete.
@@ -186,7 +198,27 @@ export class StackTeamSync {
     const user = userIdFor(deps.stackProjectId, ev.stack_user)
     // Stack removed them: an owner of this Stack team is demoted and removed in one commit (review P2-1).
     if (member === null) return commit("team.member.remove", { user, from_stack: true }) ?? "member_absent"
-    return commit("team.member.provision", { user, role: "member", source: "stack", display_name: displayName(member.display_name, "Member") }) ?? "member_present"
+    // The role is read from Stack's permissions on every delivery: a change in Stack changes it here (cx-3bi.4).
+    return commit("team.member.provision", { user, role: stackRole(member.permissions), source: "stack", display_name: displayName(member.display_name, "Member") }) ?? "member_present"
+  }
+
+  /**
+   * The reducers keep owner_count from here on (re-review P3); a head from before it is counted once, in
+   * full (no page cap), after this delivery's commits. A count of 0 shows no_owner (review P2-3).
+   */
+  private ensureOwnerCount(deps: StackSyncDeps, key: string) {
+    const state = deps.state()
+    if (state.team?.kind !== "stack" || state.team.deleted_at !== undefined || state.owner_count !== undefined) return
+    let count = 0
+    let after: string | undefined
+    for (;;) {
+      const page = listMembers(deps.state(), deps.rows(), after, 200)
+      count += page.items.filter((m) => m.role === "owner").length
+      if (!page.next) break
+      after = page.next
+    }
+    deps.submitSystem("team.owner_count.init", { count }, `owner-count-init:${key}`)
+    if (noOwnerOf(deps.state())) logNoOwner(deps.team)
   }
 
   /** Adds every member Stack lists and removes every member it no longer lists; a reject or a missing team is the outcome, else undefined. */
@@ -194,8 +226,9 @@ export class StackTeamSync {
     const listed = await stack.listTeamMembers(ev.stack_team)
     if (listed === "team_gone") return schedule(deps.sql, ev, attempt, Date.now()) ? "team_missing_recheck" : "team_missing_dropped"
     const want = new Map(listed.map((m) => [userIdFor(deps.stackProjectId, UUIDISH.test(m.user_id) ? m.user_id.toLowerCase() : m.user_id), m] as const))
-    for (const [user, m] of want) {
-      const r = commit("team.member.provision", { user, role: "member", source: "stack", display_name: displayName(m.display_name, "Member") })
+    // Owners first: a handover in one sync (A demoted, B promoted) never passes through "no owner" (re-review P3).
+    for (const [user, m] of [...want].sort(([, a], [, b]) => Number(stackRole(b.permissions) === "owner") - Number(stackRole(a.permissions) === "owner"))) {
+      const r = commit("team.member.provision", { user, role: stackRole(m.permissions), source: "stack", display_name: displayName(m.display_name, "Member") })
       if (r) return r
     }
     const gone: Array<string> = []
@@ -213,6 +246,8 @@ export class StackTeamSync {
     return undefined
   }
 }
+
+const logNoOwner = (team: string) => console.error(JSON.stringify({ msg: "stack team has no owner; a Stack team admin must promote one", team }))
 
 const UUIDISH = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -236,3 +271,5 @@ const schedule = (sql: SqlStorage, ev: StackEvent, attempt: number, now: number)
   sql.exec(`INSERT OR REPLACE INTO stack_team_recheck (k, type, stack_team, stack_user, due_at, attempts) VALUES (?, ?, ?, ?, ?, ?)`, k, type, ev.stack_team, ev.stack_user ?? null, now + RECHECK_DELAYS_MS[next]!, next)
   return true
 }
+
+export { noOwnerOf }
