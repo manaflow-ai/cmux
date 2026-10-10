@@ -444,11 +444,31 @@ struct SpawnedOwner {
     ready: Option<std::convert::Infallible>,
 }
 
-const DETACHED_OWNER_IDENTITY_ENV: [&str; 5] =
-    ["CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID", "CMUX_TAB_ID", "CMUX_PANEL_ID", "CMUX_PANE_ID"];
+const DETACHED_OWNER_IDENTITY_ENV: [&str; 12] = [
+    "CMUX_SURFACE_ID",
+    "CMUX_WORKSPACE_ID",
+    "CMUX_TAB_ID",
+    "CMUX_PANEL_ID",
+    "CMUX_PANE_ID",
+    // Agent caller claims (cx-4nar): an owner an agent started (a Chief
+    // turn, an acpmux session) must not pass them to a person's terminals
+    // in it, or `--all-sessions` there refuses the person
+    // (cli/federation.rs `agent_marker`). acpmux sets the first three in
+    // every agent (agent.rs `spawn`); the Chief's turn env sets the owner
+    // socket (optchat-chief cmux_env.rs), a route to the Chief's own owner;
+    // cmux-tasks reads the principal, class and harness (owner.rs).
+    "ACPMUX_ENV",
+    "ACPMUX_SESSION_ID",
+    "ACPMUX_SESSION_NAME",
+    "CMUX_CHIEF_OWNER_SOCKET",
+    "CMUX_AGENT_PRINCIPAL",
+    "CMUX_AGENT_CLASS",
+    "CMUX_AGENT_HARNESS",
+];
 
-/// Remove terminal identity claims from the detached owner while preserving
-/// configuration and socket variables inherited from the launching client.
+/// Remove terminal identity and agent caller claims from the detached owner
+/// while preserving configuration and socket variables inherited from the
+/// launching client.
 fn configure_detached_owner_environment(command: &mut Command) {
     for key in DETACHED_OWNER_IDENTITY_ENV {
         command.env_remove(key);
@@ -553,6 +573,15 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     configure_detached_owner_environment(&mut command);
     if let Some(tools) = &spec.chief_tools_socket {
         command.env("CMUX_TUI_CHIEF_TOOLS_SOCKET", tools);
+    }
+    // The app directory settings this client took at start go to the owner
+    // daemon it spawns only (cx-e0cs): the owner takes them out of its own
+    // environment again and applies the bundle rule (first_party_dir).
+    if let Some(dir) = cmux_tui_core::first_party_dir::taken() {
+        command.env(cmux_tui_core::first_party_dir::ENV, dir);
+    }
+    if let Some(dirs) = cmux_tui_core::first_party_dir::apps_dirs() {
+        command.env(cmux_tui_core::first_party_dir::DIRS_ENV, dirs);
     }
     #[cfg(unix)]
     let (ready, ready_writer) = ready_pipe(&mut command)?;
