@@ -403,6 +403,30 @@ fi
 
 mkdir -p "$(dirname "$OUTPUT")"
 
+# Cargo keeps build-script output and compiled C objects in its target dir,
+# and the cmux-cua build scripts emit absolute SDK paths
+# (rustc-link-search=<SDK>/usr/lib/system) without rerun-if-env-changed. A
+# shared target dir therefore replays the first Xcode's SDK into every later
+# build: an Xcode 26.6 link then reads Xcode 27's libdispatch.tbd and ld fails
+# with "unknown architecture" (arm64e.x1). Pin SDKROOT to the selected Xcode's
+# own SDK and give every Xcode/SDK pair its own target dir.
+CUA_DEVELOPER_DIR="${DEVELOPER_DIR:-$(xcode-select -p 2>/dev/null || true)}"
+if [[ -z "${SDKROOT:-}" ]]; then
+  SDKROOT="$(xcrun --sdk macosx --show-sdk-path 2>/dev/null || true)"
+fi
+if [[ -z "$SDKROOT" ]]; then
+  echo "error: cannot resolve the macOS SDK of ${CUA_DEVELOPER_DIR:-the selected Xcode}" >&2
+  exit 1
+fi
+export SDKROOT
+CUA_TOOLCHAIN_KEY="$(
+  {
+    printf 'developer=%s\n' "$(cd "$CUA_DEVELOPER_DIR" 2>/dev/null && pwd -P || printf '%s' "$CUA_DEVELOPER_DIR")"
+    printf 'sdk=%s\n' "$(cd "$SDKROOT" 2>/dev/null && pwd -P || printf '%s' "$SDKROOT")"
+    cat "$CUA_DEVELOPER_DIR/../version.plist" "$SDKROOT/SDKSettings.json" 2>/dev/null || true
+  } | shasum -a 256 | cut -c1-16
+)"
+
 ensure_rust_target() {
   local target="$1"
   if command -v rustup >/dev/null 2>&1; then
@@ -432,8 +456,9 @@ for arch in "${ARCHS[@]}"; do
   ensure_rust_target "$target"
   # Keep Cargo's target dir inside this immutable source snapshot. The managed
   # pinned snapshot is stable across builds, so it retains Cargo's incremental
-  # artifacts without exposing the mutable checkout to Cargo.
-  target_dir="$BUILD_SOURCE/.cmux-cargo-target"
+  # artifacts without exposing the mutable checkout to Cargo. One subdir per
+  # Xcode/SDK pair (CUA_TOOLCHAIN_KEY above).
+  target_dir="$BUILD_SOURCE/.cmux-cargo-target/xcode-$CUA_TOOLCHAIN_KEY"
   cargo_status=0
   for cargo_attempt in 1 2 3; do
     if CARGO_TARGET_DIR="$target_dir" \
