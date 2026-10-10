@@ -102,7 +102,10 @@ fn cli(home: &Path) -> Command {
 
 /// The real CLI following `conversation`'s events; every line with the
 /// time it arrived.
-fn follow(daemon: &Daemon, conversation: &str) -> (Child, Arc<Mutex<Vec<(Instant, Value)>>>) {
+/// Every line the follower read, with the time it arrived.
+type Lines = Arc<Mutex<Vec<(Instant, Value)>>>;
+
+fn follow(daemon: &Daemon, conversation: &str) -> (Child, Lines) {
     let mut child = cli(daemon.dir.path())
         .arg("--socket")
         .arg(&daemon.socket)
