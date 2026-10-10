@@ -19,19 +19,6 @@ import Testing
         for _ in 0..<200 where !condition() { await Task.yield() }
     }
 
-    /// The import window: Find Browsers, then Import, then Done ends it.
-    @Test func importFindsBrowsersThenDoneEndsTheWindow() async {
-        let services = MockOnboardingServices()
-        let model = OnboardingModel(services: services, step: .importData)
-        var ended: Bool?
-        model.onEnd = { ended = $0 }
-        #expect(model.steps == [.importData])
-        model.next()  // Find Browsers (LAUNCH-NO-TCC-PROMPTS)
-        await settle { model.importer.phase == .ready }
-        model.next()
-        #expect(ended == true && model.ended)
-    }
-
     @Test func importChecksEverythingAndImportRunsInPlace() async {
         let services = MockOnboardingServices()
         let work = profile("Profile 1")

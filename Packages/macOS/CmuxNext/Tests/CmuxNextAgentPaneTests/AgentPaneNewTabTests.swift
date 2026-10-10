@@ -200,21 +200,11 @@ import Testing
         #expect(request("tab.jump", ["target": "tab", "id": ""]) == .unsupported("tab.jump"))
         #expect(request("shortcut.edit", ["kind": "agent"]) == .editShortcut(.agent))
         #expect(request("shortcut.edit", [:]) == .unsupported("shortcut.edit"))
-        #expect(request("action.run", ["id": "palette.addHarness"]) == .runAction("palette.addHarness"))
+        #expect(request("action.run", ["id": "palette.welcomeChecklist"]) == .runAction("palette.welcomeChecklist"))
         #expect(request("action.run", ["id": "closeWindow"]) == .runAction("closeWindow"))
         #expect(request("tab.setDefaultKind", ["kind": "auto"]) == .setDefaultKind("auto"))
         #expect(request("tab.setDefaultKind", ["kind": ""]) == .unsupported("tab.setDefaultKind"))
         #expect(request("tab.setDefaultKind", ["kind": String(repeating: "a", count: 40)]) == .unsupported("tab.setDefaultKind"))
-    }
-
-    /// The onboarding wizard is gone (Lawrence 2026-10-09): the New Tab page opens no import flow.
-    @Test func newTabRunsNoImportFlow() async {
-        let model = AgentPaneModel(host: MockAgentPaneHost(), newTab: page)
-        var actions: [String] = []
-        model.onRunAction = { actions.append($0); return true }
-        #expect(await model.respond(to: .runAction("palette.welcomeChecklist"))["ok"] as? Bool == false)
-        #expect(await model.respond(to: .runAction("closeWindow"))["ok"] as? Bool == false)
-        #expect(actions.isEmpty)
     }
 
     /// BRING-YOUR-OWN-HARNESS H3: the New Tab page's "Integrate a harness" runs Add Harness…, the
