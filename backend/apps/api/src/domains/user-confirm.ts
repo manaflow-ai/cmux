@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto"
 import { user as homeUser } from "@cmux/home-core"
-import type { ReduceContext, ReduceResult } from "@cmux/ownership"
+import type { Principal, ReduceContext, ReduceResult } from "@cmux/ownership"
 import type { UserState } from "./user.ts"
 import { activeChiefs } from "./user-chief.ts"
 
@@ -63,6 +63,46 @@ export const revokePresenceKey = (state: UserState, install: string, now: number
       audit: [...confirm.audit, { at: now, kind: "key_revoked" as const, by: "system:install.revoke", from: homeUser.userLevelOf(confirm), to: homeUser.userLevelOf(confirm), install }].slice(-homeUser.MAX_AUDIT)
     }
   }
+}
+
+/**
+ * user.presence_key.list (cx-aocz): every presence key of the owner with its public P-256 parts,
+ * so the owner's Mac can check a phone's signed feed answers. `attested`: the Worker verified an
+ * App Attest attestation for it at registration. No attestation receipt, counter or nonce.
+ */
+export const presenceKeyList = (state: UserState) => {
+  const c = state.confirm ?? homeUser.EMPTY_USER_CONFIRM
+  return {
+    keys: Object.entries(c.presence_keys).map(([install, k]) => {
+      const jwk = k.jwk as { x?: unknown; y?: unknown }
+      return {
+        install,
+        platform: k.platform,
+        jwk: { kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y },
+        attested: k.app_attest !== undefined,
+        registered_at: k.registered_at,
+        usable_from: k.usable_from,
+        revoked_at: k.revoked_at,
+        install_active: state.installs[install]?.revoked_at === null
+      }
+    })
+  }
+}
+
+/**
+ * UserDO reads of the confirmation state. `user.text_confirm.get`: what Settings shows (public key
+ * parts only), after the grant check. `user.presence_key.list` (cx-aocz): only the owner's Mac app
+ * reads the keys (it checks a phone's signed feed answers), an active install of kind mac without
+ * an agent claim; never a session, a phone or an agent. `admit` is the UserDO's grant check.
+ */
+export const confirmRead = (op: string, state: UserState, principal: Principal, admit: () => { code: string; message: string } | undefined) => {
+  if (op === "user.presence_key.list") {
+    const install = principal.kind === "install" && principal.install ? state.installs[principal.install] : undefined
+    if (!install || install.kind !== "mac" || principal.agent) return { ok: false as const, code: "auth.forbidden", message: "only the owner's Mac install reads presence keys" }
+  }
+  const refused = admit()
+  if (refused) return { ok: false as const, ...refused }
+  return { ok: true as const, value: op === "user.presence_key.list" ? presenceKeyList(state) : confirmView(state), revision: "" }
 }
 
 /** user.text_confirm.get: what Settings shows; public key parts only. */

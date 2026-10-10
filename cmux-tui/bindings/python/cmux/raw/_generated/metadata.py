@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '49b2161095161c747853bc9e20faf8976fe46e8d7e9399e71589119819d2060c'
+IR_SHA256 = '4439f0cc6d7d083091ce91f267dc8423b97ca0405e90960be83ec73bf19b1cc1'
 
 
 @dataclass(frozen=True)
@@ -1260,6 +1260,19 @@ COMMANDS = {
         None,
         {
             'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'history-search': CommandMetadata(
+        'history-search',
+        'local-admin',
+        12,
+        'history-search-v1',
+        ('local-admin',),
+        None,
+        {
+            'kinds': CommandFieldMetadata(None, None),
+            'limit': CommandFieldMetadata(None, None),
+            'query': CommandFieldMetadata(None, None),
         },
     ),
     'identify': CommandMetadata(
