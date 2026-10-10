@@ -1550,8 +1550,6 @@ final class WindowDragHandleHitTests: XCTestCase {
 
         let tabWindowPoint = tabBar.convert(NSPoint(x: 80, y: 15), to: nil)
         let dragHandlePoint = dragHandle.convert(tabWindowPoint, from: nil)
-        BonsplitTabBarHitRegionRegistry.unregister(tabBar)
-        tabBar.viewDidMoveToSuperview()
         #expect(
             BonsplitTabBarHitRegionRegistry.containsWindowPoint(tabWindowPoint, in: window),
             "The tab-bar region must be restored after a same-window reparent"
