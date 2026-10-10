@@ -862,7 +862,7 @@ impl WorkspaceRegistry {
     pub(crate) fn append_journal_ingress_events(
         &mut self,
         events: &[&crate::journal_ingress::JournalIngressEvent],
-    ) -> anyhow::Result<Vec<Option<JournalAppendCommit>>> {
+    ) -> anyhow::Result<Vec<crate::journal_ingress::JournalBatchReceipt>> {
         let shared = self.connection.clone();
         let connection = shared.get();
         shared.append_journal_ingress_events_with_limits(

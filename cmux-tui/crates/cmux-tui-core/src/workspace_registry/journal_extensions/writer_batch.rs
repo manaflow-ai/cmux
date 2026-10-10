@@ -15,7 +15,7 @@ impl RegistryConnection {
         deadline: Instant,
         busy_timeout: Duration,
         admit_commit: F,
-    ) -> anyhow::Result<Vec<Option<JournalAppendCommit>>>
+    ) -> anyhow::Result<Vec<crate::journal_ingress::JournalBatchReceipt>>
     where
         F: FnOnce() -> anyhow::Result<()>,
     {
@@ -35,7 +35,7 @@ impl RegistryConnection {
         busy_timeout: Duration,
         deadline: Option<Instant>,
         admit_commit: F,
-    ) -> anyhow::Result<Vec<Option<JournalAppendCommit>>>
+    ) -> anyhow::Result<Vec<crate::journal_ingress::JournalBatchReceipt>>
     where
         F: FnOnce() -> anyhow::Result<()>,
     {
@@ -99,7 +99,7 @@ impl RegistryConnection {
         deadline_active: Option<&AtomicBool>,
         busy_timeout: Duration,
         admit_commit: F,
-    ) -> anyhow::Result<Vec<Option<JournalAppendCommit>>>
+    ) -> anyhow::Result<Vec<crate::journal_ingress::JournalBatchReceipt>>
     where
         F: FnOnce() -> anyhow::Result<()>,
     {
@@ -134,6 +134,7 @@ impl RegistryConnection {
                 } => Some(terminal_id.as_str().to_string()),
                 crate::journal_ingress::JournalIngressEvent::Frontend { .. }
                 | crate::journal_ingress::JournalIngressEvent::Producer { .. }
+                | crate::journal_ingress::JournalIngressEvent::Effect(_)
                 | crate::journal_ingress::JournalIngressEvent::TerminalBarrier => None,
             })
             .collect::<HashSet<_>>();
@@ -153,7 +154,7 @@ impl RegistryConnection {
         for event in events {
             ensure_journal_deadline(deadline)?;
             if matches!(*event, crate::journal_ingress::JournalIngressEvent::TerminalBarrier) {
-                commits.push(None);
+                commits.push(crate::journal_ingress::JournalBatchReceipt::None);
                 continue;
             }
             if let crate::journal_ingress::JournalIngressEvent::Producer {
@@ -163,13 +164,27 @@ impl RegistryConnection {
                 idempotency_key,
             } = *event
             {
-                commits.push(Some(append_journal_ingress_transaction(
-                    &tx,
-                    ingress,
-                    validated,
-                    origin,
-                    idempotency_key,
-                )?));
+                commits.push(crate::journal_ingress::JournalBatchReceipt::Append(
+                    append_journal_ingress_transaction(
+                        &tx,
+                        ingress,
+                        validated,
+                        origin,
+                        idempotency_key,
+                    )?,
+                ));
+                continue;
+            }
+            // Effect intents ride the durable lane, after every terminal
+            // event of this batch, so terminal records here sequence before
+            // the patch and use the subjects computed at batch start. Output
+            // a new terminal writes while its create intent is queued can
+            // land in this batch with the pre-create subjects (as it could
+            // when the create committed alone after it).
+            if let crate::journal_ingress::JournalIngressEvent::Effect(intent) = *event {
+                commits.push(crate::journal_ingress::JournalBatchReceipt::Effect(
+                    intent.apply_in_savepoint(&tx)?,
+                ));
                 continue;
             }
             if let crate::journal_ingress::JournalIngressEvent::Frontend {
@@ -338,7 +353,7 @@ impl RegistryConnection {
                             && stored.payload == payload,
                         "frontend journal event id was reused with different content"
                     );
-                    commits.push(None);
+                    commits.push(crate::journal_ingress::JournalBatchReceipt::None);
                     continue;
                 }
                 append_journal_record(
@@ -364,7 +379,7 @@ impl RegistryConnection {
                         actor: None,
                     },
                 )?;
-                commits.push(None);
+                commits.push(crate::journal_ingress::JournalBatchReceipt::None);
                 continue;
             }
             let (terminal_id, generation, occurred_at_ms, kind, class, payload, content) =
@@ -459,6 +474,7 @@ impl RegistryConnection {
                     ),
                     crate::journal_ingress::JournalIngressEvent::Frontend { .. }
                     | crate::journal_ingress::JournalIngressEvent::Producer { .. }
+                    | crate::journal_ingress::JournalIngressEvent::Effect(_)
                     | crate::journal_ingress::JournalIngressEvent::TerminalBarrier => {
                         unreachable!()
                     }
@@ -500,7 +516,7 @@ impl RegistryConnection {
                     actor: None,
                 },
             )?;
-            commits.push(None);
+            commits.push(crate::journal_ingress::JournalBatchReceipt::None);
         }
         ensure_journal_deadline(deadline)?;
         for ((terminal_id, generation), next_offset) in terminal_offsets {
