@@ -30,8 +30,6 @@ public final class MockOnboardingServices: OnboardingServices {
     public var canImportClassicSessions = false
     /// What the classic cmux session scan finds.
     public var classicWorkspaces: [ClassicSessionWorkspace] = []
-    /// An optional scan failure for onboarding error-state tests.
-    public var classicSessionsError: Error?
     /// The computer use step's grants; nil leaves the step out.
     public var computerUseSource: MockComputerUsePermissionSource?
     /// Picked screen variants, by step.
@@ -44,8 +42,6 @@ public final class MockOnboardingServices: OnboardingServices {
     public var homeDirectory = URL(fileURLWithPath: "/Users/demo", isDirectory: true)
     /// Each `openProjects` call's folders.
     public private(set) var openedProjects: [[URL]] = []
-    /// Each classic-session import requested by the onboarding flow.
-    public private(set) var importedClassicSessions: [[ClassicSessionWorkspace]] = []
     public var agentChats: [AgentChat] = []
     /// The chat ids classic cmux had open.
     public var classicOpenChats: Set<String> = []
@@ -84,13 +80,7 @@ public final class MockOnboardingServices: OnboardingServices {
     public func scanAgentChats() async -> [AgentChat] { agentChats }
     public func resumeChats(_ chats: [AgentChat]) { resumedChats.append(chats) }
     public func scanClassicOpenChats() async -> Set<String> { classicOpenChats }
-    public func scanClassicSessions() async throws -> [ClassicSessionWorkspace] {
-        if let classicSessionsError { throw classicSessionsError }
-        return classicWorkspaces
-    }
-    public func importClassicSessions(_ workspaces: [ClassicSessionWorkspace]) {
-        importedClassicSessions.append(workspaces)
-    }
+    public func scanClassicSessions() async throws -> [ClassicSessionWorkspace] { classicWorkspaces }
 
     public func runImport(_ plan: ImportPlan, progress: @escaping @MainActor (ImportProgress) -> Void) async throws -> ImportSummary {
         plans.append(plan)
