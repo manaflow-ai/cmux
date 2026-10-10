@@ -48,6 +48,7 @@ pub use spawn::expand_env_value;
 mod peers;
 mod permission_groups;
 mod permissions;
+pub mod person;
 mod questions;
 mod remote_floor;
 mod remote_sandbox;
@@ -264,6 +265,8 @@ pub struct Hub {
     pub catalog: Arc<crate::catalog::CatalogService>,
     /// The token the web listener checks now (`web_token.rs`).
     pub web_token: WebToken,
+    /// This launch's person key (`person.rs`): who may allow and grant.
+    pub person: person::PersonGate,
 }
 
 impl Hub {
@@ -312,6 +315,7 @@ impl Hub {
             harness_watch: Default::default(),
             catalog: Arc::new(crate::catalog::CatalogService::new()),
             web_token: WebToken::new(String::new()),
+            person: Default::default(),
         });
         if let Ok(c) = hub.config.try_read() {
             hub.refresh_web_modes(&c);

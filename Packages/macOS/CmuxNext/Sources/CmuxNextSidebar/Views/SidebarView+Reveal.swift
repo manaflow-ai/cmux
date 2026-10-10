@@ -15,7 +15,6 @@ extension SidebarView {
         let changed = revealed != isChromeRevealed
         isChromeRevealed = revealed
         for region in bandRegions { region.chromeRevealed = revealed }
-        cardStack.revealed = revealed
         if changed { onChromeRevealChange?(revealed) }
         let alpha: CGFloat = revealed ? 1 : 0
         let mode = DesignSettings.shared.sidebarSections.minimalMode

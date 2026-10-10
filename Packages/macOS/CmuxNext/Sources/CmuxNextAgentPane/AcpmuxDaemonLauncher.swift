@@ -22,9 +22,13 @@ nonisolated enum AcpmuxDaemonLauncher {
     }
 
     static let script = #"set -m; "$@" 3>&1 1>>"$ACPMUX_LAUNCH_LOG" 2>&1 </dev/null &"#
+    /// The daemon reads this launch's person key (``AcpmuxPersonKey``) from this descriptor and
+    /// closes it before it starts any agent; the key never goes into argv or the environment.
+    static let personKeyDescriptor: Int32 = 4
 
     static func arguments(for environment: AcpmuxEnvironment) -> [String] {
-        ["-c", script, "acpmux-launch", environment.executable.path, "daemon", "run", "--ready-fd", "3"]
+        ["-c", script, "acpmux-launch", environment.executable.path, "daemon", "run", "--ready-fd", "3",
+         "--person-key-fd", String(personKeyDescriptor)]
             + environment.daemonArguments
     }
 
@@ -61,6 +65,28 @@ nonisolated enum AcpmuxDaemonLauncher {
             if outputPipe[0] >= 0 { Darwin.close(outputPipe[0]) }
             if outputPipe[1] >= 0 { Darwin.close(outputPipe[1]) }
         }
+        // The person key goes in through a pipe: written and closed here, so only the spawned
+        // shell and daemon hold the read end, and the daemon closes it after one read.
+        var keyPipe: [Int32] = [-1, -1]
+        guard Darwin.pipe(&keyPipe) == 0 else {
+            throw Failure.spawnFailed(String(cString: strerror(errno)))
+        }
+        // Close-on-exec at once: a child another part of this app spawns meanwhile never
+        // inherits either end. The spawn's dup2 to the daemon's descriptor clears it there.
+        guard fcntl(keyPipe[0], F_SETFD, FD_CLOEXEC) == 0, fcntl(keyPipe[1], F_SETFD, FD_CLOEXEC) == 0 else {
+            Darwin.close(keyPipe[0])
+            Darwin.close(keyPipe[1])
+            throw Failure.spawnFailed(String(cString: strerror(errno)))
+        }
+        defer {
+            if keyPipe[0] >= 0 { Darwin.close(keyPipe[0]) }
+            if keyPipe[1] >= 0 { Darwin.close(keyPipe[1]) }
+        }
+        let keyLine = Array((AcpmuxPersonKey.current + "\n").utf8)
+        let written = keyLine.withUnsafeBytes { Darwin.write(keyPipe[1], $0.baseAddress, $0.count) }
+        guard written == keyLine.count else { throw Failure.spawnFailed("unable to pass the person key") }
+        Darwin.close(keyPipe[1])
+        keyPipe[1] = -1
 
         var actions: posix_spawn_file_actions_t?
         var attributes: posix_spawnattr_t?
@@ -74,6 +100,7 @@ nonisolated enum AcpmuxDaemonLauncher {
         }
         let actionStatus = posix_spawn_file_actions_adddup2(&actions, outputPipe[1], STDOUT_FILENO)
         guard actionStatus == 0,
+              posix_spawn_file_actions_adddup2(&actions, keyPipe[0], personKeyDescriptor) == 0,
               posix_spawn_file_actions_addclose(&actions, outputPipe[0]) == 0,
               "/dev/null".withCString({ path in
                   posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, path, O_RDONLY, 0)
@@ -100,6 +127,9 @@ nonisolated enum AcpmuxDaemonLauncher {
                 }
             }
         }
+        // The shell holds its own copy of the key's read end now (or the spawn failed).
+        Darwin.close(keyPipe[0])
+        keyPipe[0] = -1
         guard spawnStatus == 0 else {
             logger.error("acpmux spawn failed status=\(spawnStatus, privacy: .public) errno=\(String(cString: strerror(spawnStatus)), privacy: .public) executable=/bin/sh")
             throw Failure.spawnFailed(String(cString: strerror(spawnStatus)))

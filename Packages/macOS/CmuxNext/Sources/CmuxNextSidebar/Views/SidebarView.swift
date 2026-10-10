@@ -52,7 +52,6 @@ public final class SidebarView: NSView {
     /// footer has none (SIDEBAR-FOOTER-MINIMAL).
     let aboveLine = CALayer()
     let newButton = SidebarIconButton(symbol: "plus", label: Strings.newWorkspace)
-    let cardStack = SidebarCardStackView()
     /// Pointer over the sidebar (or a tab drag over it): titlebar buttons show.
     var isChromeRevealed = false
     /// The pointer over the sidebar now (cx-3wu5).
@@ -73,6 +72,8 @@ public final class SidebarView: NSView {
     private var observation: Task<Void, Never>?
     private var clipObservers: [any NSObjectProtocol] = []
     private var lastState: RenderState?
+    /// App section contributions the bands showed at the last update (`releaseAppSections`).
+    var shownAppContributions: Set<String> = []
     public init(model: SidebarModel) {
         self.model = model
         list = SidebarListView(model: model)
@@ -100,7 +101,8 @@ public final class SidebarView: NSView {
     }
     /// The sidebar's chrome reveal changed (the window's title bar buttons follow).
     public var onChromeRevealChange: ((Bool) -> Void)?
-    /// The update and announcement cards above the spaces dots (R114; the updates lead fills it).
+    /// An optional view above the bottom card slot and the spaces dots (R114 slot; empty since the
+    /// messages to the user moved to the shared notice card).
     public var footerCards: NSView?
     /// A small view in the titlebar row, after the traffic lights (an
     /// incognito window's badge). Nil removes it.

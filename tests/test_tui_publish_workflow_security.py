@@ -238,7 +238,8 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert "trusted helper" in publisher
     assert "already published with a different binary" not in publisher
     assert "for attempt in 1 2 3" in daemon
-    assert "cargo test --workspace --locked cmux_next_" in daemon
+    assert 'cargo test "${members[@]}" --locked cmux_next_' in daemon
+    assert "scripts/ci/cmux-next-daemon-test-packages.sh" in daemon
 
     # A run cannot rerun itself while it is in progress (403 "This workflow
     # is already running"); cmux-tui-artifacts-retry.yml retries completed

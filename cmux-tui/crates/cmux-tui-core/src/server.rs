@@ -144,6 +144,7 @@ mod resource_trust;
 use resource_trust::{handles_resource_connection_operation, trusted_local_resource_client};
 mod conversation_tabs_wire;
 mod conversations;
+mod feed_local;
 mod frontend_browser_history;
 mod home;
 mod launch_snapshot;
@@ -203,7 +204,8 @@ use responses::{
 use screen_json::screen_json;
 mod group_outcome_json;
 use group_outcome_json::{
-    screen_group_outcome_json, tab_drag_outcome_json, tab_group_outcome_json,
+    pane_tab_group_json, screen_group_outcome_json, tab_drag_outcome_json, tab_group_outcome_json,
+    workspace_group_json, workspace_groups_json,
 };
 use split_respawn::{
     SplitRespawnRequest, frontend_shell, placement_spawn_options, shell_argv, split_tab,
@@ -1270,6 +1272,11 @@ enum Command {
         /// `SHELL` in `env`, else the daemon's default shell).
         #[serde(default)]
         shell_args: Option<Vec<String>>,
+        /// `split-client-keys-v1`: caller-minted ids of the pane and its tab.
+        #[serde(default)]
+        pane_id: Option<String>,
+        #[serde(default)]
+        tab_id: Option<String>,
     },
     NewPaneRight(split_kind::NewPaneRightParams),
     Split(split_kind::SplitParams),
@@ -1559,6 +1566,12 @@ enum Command {
     MoveBookmark(bookmarks::MoveParams),
     DeleteBookmark(bookmarks::DeleteParams),
     ImportBookmarks(bookmarks::ImportParams),
+    /// The local feed owner (`feed-local-owner-v1`, server/feed_local.rs).
+    FeedLocalList(feed_local::ListParams),
+    FeedLocalRead(feed_local::ReadParams),
+    FeedLocalHandoffBegin(feed_local::ItemParams),
+    FeedLocalHandoffAbort(feed_local::ItemParams),
+    FeedLocalHandoffDone(feed_local::DoneParams),
     /// Local conversations (`local-conversations-v1`, server/conversations.rs).
     ConversationList,
     ConversationCreate(conversations::CreateParams),
@@ -2165,23 +2178,6 @@ fn column_anchor(
             .ok_or_else(|| anyhow::anyhow!("unknown screen {screen}")),
         _ => anyhow::bail!("bad request: exactly one of pane or screen"),
     }
-}
-
-fn pane_tab_group_json(run: &crate::mux::PaneTabGroup, pane: Option<PaneId>) -> Value {
-    let mut value = json!({
-        "id": run.group.id,
-        "name": run.group.name,
-        "color": run.group.color,
-        "collapsed": run.group.collapsed,
-        "saved_id": run.group.saved_id,
-        "start": run.start,
-        "count": run.members.len(),
-        "surfaces": run.members,
-    });
-    if let Some(pane) = pane {
-        value["pane"] = json!(pane);
-    }
-    value
 }
 
 /// Deserialize a field whose absence and `null` mean different things:
@@ -3279,21 +3275,7 @@ fn handle_command_with_cancellation(
         Command::ReopenSavedScreenGroup { saved, workspace } => {
             cmd_screens::reopen_saved_screen_group(mux, actor, saved, workspace)
         }
-        Command::NewPane { pane, cols, rows, cwd, env, keep, terminal_id, shell_args } => {
-            cmd_panes::new_pane(
-                mux,
-                client,
-                actor,
-                pane,
-                cols,
-                rows,
-                cwd,
-                env,
-                keep,
-                terminal_id,
-                shell_args,
-            )
-        }
+        command @ Command::NewPane { .. } => cmd_panes::new_pane(mux, client, actor, command),
         Command::NewPaneRight(params) => cmd_panes::new_pane_right(mux, client, params),
         Command::Split(params) => cmd_panes::split(mux, client, params),
         Command::SetRatio { pane, dir, ratio } => {
@@ -3466,6 +3448,11 @@ fn handle_command_with_cancellation(
         Command::MoveBookmark(params) => bookmarks::move_to(mux, &actor, params),
         Command::DeleteBookmark(params) => bookmarks::delete(mux, &actor, params),
         Command::ImportBookmarks(params) => bookmarks::import(mux, &actor, params),
+        cmd @ (Command::FeedLocalList(_)
+        | Command::FeedLocalRead(_)
+        | Command::FeedLocalHandoffBegin(_)
+        | Command::FeedLocalHandoffAbort(_)
+        | Command::FeedLocalHandoffDone(_)) => feed_local::dispatch(mux, &actor, cmd),
         Command::ConversationList => conversations::list(mux, client),
         Command::ConversationCreate(params) => conversations::create(mux, client, params),
         Command::ConversationSnapshot(params) => conversations::snapshot(mux, client, params),

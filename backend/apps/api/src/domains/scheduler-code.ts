@@ -3,6 +3,7 @@ import { AutomationDeploy, cloudOpByName, type Automation, type Body } from "@cm
 import { Exit, Schema } from "effect"
 import { deniedPattern } from "../egress-hosts.ts"
 import { decodeParams, reject } from "./common.ts"
+import type { SchedulerStore } from "./scheduler-store.ts"
 import type { SchedulerState } from "./scheduler.ts"
 
 /**
@@ -36,11 +37,11 @@ export const countDeploy = (state: SchedulerState, prev: Body | undefined, next:
   return { ok: true, deploys: { day, count: count + 1 } }
 }
 
-export const reduceDeploy = (state: SchedulerState, params: unknown, ctx: ReduceContext): ReduceResult<SchedulerState> => {
+export const reduceDeploy = (state: SchedulerState, st: SchedulerStore, params: unknown, ctx: ReduceContext): ReduceResult<SchedulerState> => {
   const d = decodeParams<typeof AutomationDeploy.params.Type>(AutomationDeploy, params)
   if (!d.ok) return d
   const v = d.value
-  const a = state.automations[v.automation]
+  const a = st.automationFull(v.automation)
   if (!a) return reject("selector.not_found", "automation not found")
   if (a.body.type !== "code") return reject("body.not_code", "only a code automation can be deployed")
   if (v.expected_version !== undefined && v.expected_version !== a.version) {
@@ -51,11 +52,13 @@ export const reduceDeploy = (state: SchedulerState, params: unknown, ctx: Reduce
   const counted = countDeploy(state, a.body, body, ctx.now)
   if (!counted.ok) return counted.result
   const next = { ...a, body, version: a.version + 1, updated_at: ctx.now }
+  st.putAutomation(next)
   return {
     ok: true,
-    state: { ...state, automations: { ...state.automations, [a.id]: next }, ...(counted.deploys ? { deploys: counted.deploys } : {}) },
+    state: st.head({ ...state, ...(counted.deploys ? { deploys: counted.deploys } : {}) }),
     value: next,
-    outbox: [automationOutbox(next)]
+    outbox: [automationOutbox(next)],
+    writes: st.writes()
   }
 }
 

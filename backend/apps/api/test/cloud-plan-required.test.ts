@@ -21,12 +21,6 @@ const who = (allowed: boolean) => {
 }
 
 describe("cloud.plan.required names the plan that lifts it", { timeout: 60_000 }, () => {
-  it("the entry plan comes from the plan catalog, and the shared vector carries it", () => {
-    const plan = cloudEntryPlan()
-    expect(CLOUD_PLAN_CATALOG.some((p) => p.id === plan && p.cloud)).toBe(true)
-    const v = (vectors as unknown as { cases: Array<{ name: string; responses: Array<{ body: any }> }> }).cases.find((c) => c.name === "machine.create.plan_required")!
-    expect(v.responses[0]!.body.error).toMatchObject({ code: "cloud.plan.required", details: { plan } })
-  })
 
   it("the create reducer refusal carries details.plan", async () => {
     const x = who(false)

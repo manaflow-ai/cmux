@@ -449,10 +449,13 @@ impl std::error::Error for CellPixelRequestDeadlineElapsed {}
 
 #[cfg(unix)]
 mod unix {
+    #[cfg(test)]
     use std::collections::HashMap;
     use std::fs::{self, File, OpenOptions};
     use std::io as std_io;
-    use std::io::{Read, Write};
+    #[cfg(test)]
+    use std::io::Read;
+    use std::io::Write;
     use std::os::fd::{AsRawFd, RawFd};
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
     #[cfg(test)]
@@ -460,16 +463,24 @@ mod unix {
     use std::os::unix::net::UnixStream;
     use std::os::unix::process::CommandExt;
     use std::process::{Command, Stdio};
-    use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use std::sync::atomic::Ordering;
+    #[cfg(test)]
+    use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize};
+    #[cfg(test)]
     use std::sync::mpsc::{channel as mpsc_channel, sync_channel};
-    use std::sync::{Arc, Condvar, Mutex};
+    #[cfg(test)]
+    use std::sync::{Condvar, Mutex};
     use std::thread;
     use std::time::Duration;
     #[cfg(test)]
     use std::time::Instant;
 
     use anyhow::Context;
-    use cmux_pty::{ChildKiller, MasterPty, PtyCommand};
+    #[cfg(test)]
+    use cmux_pty::MasterPty;
+    use cmux_pty::{ChildKiller, PtyCommand};
+    #[cfg(test)]
     use ghostty_vt::Terminal;
 
     use super::shared::codec::*;
@@ -477,9 +488,11 @@ mod unix {
     use super::shared::host_state::*;
     use super::shared::records::*;
     use super::sys::GroupSignal;
+    #[cfg(test)]
+    use super::sys::{AcceptWaker, wait_for_pty_readable_or_forced_drain};
     use super::sys::{
-        AcceptWaker, connect_with_retry, prepare_endpoint_dir, prepare_private_dir,
-        reserve_terminal_host_publication, wait_for_pty_readable_or_forced_drain,
+        connect_with_retry, prepare_endpoint_dir, prepare_private_dir,
+        reserve_terminal_host_publication,
     };
     use super::*;
 
@@ -487,7 +500,7 @@ mod unix {
     /// for it.  Every fallible setup step after `pty.spawn` keeps this guard
     /// alive, so a failed reader, writer, callback, or thread setup cannot
     /// leave the interactive child detached from its parent.
-    struct SpawnedPtyChild {
+    pub(crate) struct SpawnedPtyChild {
         child: Option<Box<dyn cmux_pty::Child + Send + Sync>>,
         process_groups: [Option<libc::pid_t>; 2],
     }
@@ -586,20 +599,20 @@ mod unix {
     use super::shared::attachment::*;
     pub(crate) use super::shared::clipboard_read::ClipboardReadSignal;
     use super::shared::clipboard_read::OwnerIntent;
+    #[cfg(test)]
     use super::shared::clipboard_read::{ClipboardReads, SystemClock};
     pub(crate) use super::shared::control_responses::{
         ControlResponses, DeferredCellPixelResolution,
     };
+    #[cfg(test)]
     use super::shared::host_parser::{ParserSignals, run_guarded_host_parser, run_host_parser};
-    use super::shared::{exited_drain, host_parser};
+    use super::shared::host_start::start_host_runtime;
     pub use adopt_launch::{TerminalHostAdoption, launch_terminal_host_adopting};
-    use host_start::HostChild;
+    pub(crate) use host_start::HostChild;
     pub(crate) use pty_custody::serve as serve_pty_custody;
     pub use pty_custody::{PtyCustody, request_terminal_host_pty_custody};
     pub(crate) use pty_lock::{remove_released, sweep_released_pty_locks};
-    pub(crate) use standby::{
-        StandbyTerminalHost, launch_terminal_host_from, launch_terminal_host_seeded,
-    };
+    pub(crate) use standby::StandbyTerminalHost;
 
     pub fn terminal_host_root(state_root: &Path, session: &str) -> PathBuf {
         crate::platform::normalize_filesystem_path(
@@ -724,7 +737,7 @@ mod unix {
         crate::debug_spans::mark("host.child_spawned");
         let process_group_leader = master.process_group_leader();
         let child = HostChild::Spawned(SpawnedPtyChild::new(child, process_group_leader));
-        host_start::start_host_runtime(launch, bootstrapped, master, child, &launch.seed)
+        start_host_runtime(launch, bootstrapped, master, child, &launch.seed)
     }
 
     #[cfg(test)]
@@ -742,6 +755,10 @@ pub(crate) use shared::attachment::launch::adopt_terminal_host_with_kitty_limits
 #[cfg(unix)]
 pub use shared::attachment::launch::{
     adopt_terminal_host, launch_terminal_host, launch_terminal_host_with_identity,
+};
+#[cfg(unix)]
+pub(crate) use shared::attachment::launch::{
+    launch_terminal_host_from, launch_terminal_host_seeded,
 };
 #[cfg(unix)]
 pub(crate) use shared::codec::{
@@ -775,7 +792,7 @@ pub(crate) use unix::input_ack_surface_fixture;
 #[cfg(unix)]
 pub(crate) use unix::{
     ClipboardReadSignal, ControlResponses, DeferredCellPixelResolution, StandbyTerminalHost,
-    launch_terminal_host_from, launch_terminal_host_seeded, sweep_released_pty_locks,
+    sweep_released_pty_locks,
 };
 #[cfg(unix)]
 pub use unix::{

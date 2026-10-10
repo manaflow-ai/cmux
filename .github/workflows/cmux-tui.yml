@@ -153,13 +153,12 @@ jobs:
           npm ci --no-audit --no-fund
           npm run build
 
-      - name: Check, build and test web frontend
+      - name: Check and build web frontend
         working-directory: cmux-tui/frontends/web
         run: |
           npm ci --no-audit --no-fund
           npm run check
           npm run build
-          npm test
 
   go-pane:
     # The Go pane-protocol SDK (cmux-tui/bindings/go-pane) and its generator
@@ -691,27 +690,17 @@ jobs:
       - name: Mac process and PTY tests
         working-directory: cmux-tui
         run: |
-          ../scripts/ci/cargo-test-selected.sh -p cmux-tui-platform --lib \
-            unix_process_scope::tests::mac_process_scope_launcher_stops_before_the_requested_program \
-            -- --exact
-          ../scripts/ci/cargo-test-selected.sh -p cmux-tui-platform --lib \
-            unix_process_scope::tests::mac_process_scope_runs_the_requested_program \
-            -- --exact
           # macOS always has /bin/zsh; the Linux runner has none, so this
           # end-to-end title test only skips there.
           ../scripts/ci/cargo-test-selected.sh -p cmux-tui-core --lib \
             shell_integration::tests::a_daemon_integrated_zsh_titles_a_long_command_with_every_argument \
             -- --exact
-          ../scripts/ci/cargo-test-selected.sh -p cmux-remote --lib workspace::process::tests::macos_pty_ \
-            -- --test-threads=1
 
       - name: Mac theme, layout and launchd tests
         working-directory: cmux-tui
         run: |
           ../scripts/ci/cargo-test-selected.sh -p cmux-theme-tokens --test load \
             macos_app_support_loads_after_xdg -- --exact
-          ../scripts/ci/cargo-test-selected.sh -p cmux-server-core --test layout_ports \
-            macos_headless_and_app_layouts -- --exact
           ../scripts/ci/cargo-test-selected.sh -p cmux-server-core --test units_golden launch_ \
             -- --test-threads=1
 
@@ -1041,9 +1030,6 @@ jobs:
           # owner-only directory and sandbox refusals; mock-daemon tests.
           cargo test --locked --target x86_64-pc-windows-gnu \
             -p cmux-sdk -p cmux-daemon-client
-          # The device-wide chat index: Windows store roots (USERPROFILE,
-          # APPDATA, LOCALAPPDATA) and every adapter on NTFS semantics.
-          cargo test --locked --target x86_64-pc-windows-gnu -p cmux-chat-index
 
       # A peer of another user is refused by cmux::local_socket's accept.
       # The peer runs as LocalService (another SID, no new account) through

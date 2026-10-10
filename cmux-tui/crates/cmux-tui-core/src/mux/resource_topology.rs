@@ -81,6 +81,7 @@ use registry_layout::set_layout_split_ratio;
 use registry_layout::swap_layout_panes;
 use registry_layout::sync_layout_column_widths;
 mod batch_close;
+mod client_ids;
 mod close_effects;
 mod column_update;
 mod creation_settlement;
