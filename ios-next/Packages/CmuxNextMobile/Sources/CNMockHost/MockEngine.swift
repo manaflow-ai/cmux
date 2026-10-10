@@ -35,6 +35,7 @@ actor MockEngine {
     var nextStreamId: UInt32 = 1
     var streamOwners: [UInt32: UUID] = [:]
     var terminalStreams: [UInt32: String] = [:]
+    var uploads: [UInt32: String] = [:]
 
     var idCounter = 0
 
@@ -299,11 +300,22 @@ actor MockEngine {
         case .browserScreenshot:
             let id = try decode(params, BrowserTabRef.self).tabId
             return try encode(BrowserScreenshot(dataBase64: try screenshot(id).base64EncodedString()))
-        case .fsUpload:
+        case .fsUploadBegin:
             // Nothing is written: the demo host only names where the file would be.
-            let p = try decode(params, FileUploadParams.self)
-            let name = p.name.split(separator: "/").last.map(String.init) ?? "upload"
+            let p = try decode(params, FileUploadBeginParams.self)
+            let id = allocateStream(for: session)
+            uploads[id] = p.name.split(separator: "/").last.map(String.init) ?? "upload"
+            return try encode(FileUploadBeginResult(uploadId: id))
+        case .fsUploadEnd:
+            let id = try decode(params, FileUploadRef.self).uploadId
+            guard let name = uploads.removeValue(forKey: id) else { throw notFound("upload", String(id)) }
+            streamOwners[id] = nil
             return try encode(FileUploadResult(path: "/Users/aziz/.cmux-next-host/uploads/\(UUID().uuidString.lowercased())/\(name)"))
+        case .fsUploadCancel:
+            let id = try decode(params, FileUploadRef.self).uploadId
+            uploads[id] = nil
+            streamOwners[id] = nil
+            return Self.empty
         }
     }
 

@@ -11,10 +11,13 @@ import UIKit
 /// - Attach uses the grid that fits the view; the host replays scrollback
 ///   first, so the surface is reset before every attach (first attach,
 ///   reconnect, return to the screen).
-/// - The keyboard never changes the grid (plans/cmux-next/ios-keyboard.md
-///   D8): the view keeps its height and pans up so its visible bottom sits on
-///   the top of the key bar (and the composer, when shown), on the
-///   keyboard's curve, without pushing the cursor row out of view.
+/// - Keyboard (Aziz's decision, overriding plan D8 for this app): the grid
+///   shrinks to the space between the nav bar and the top of the key bar /
+///   composer while the software keyboard is up, and grows back when it
+///   hides. During the keyboard animation the content slides with it (a
+///   transform); when the animation ends the view takes the new height, the
+///   grid is locked locally (content scrolled so the cursor stays on screen)
+///   and one `term.resize` goes to the host. Full-screen apps redraw.
 /// - Input: typing goes straight to the terminal (raw mode) or through the
 ///   composer row; the key bar works in both.
 /// - A size or text size change locks the new grid locally and sends
@@ -39,6 +42,14 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
     let keyBar = TerminalKeyBar(keys: TerminalKeyBarKey.defaultKeys)
     private var composerHost: UIHostingController<TerminalComposer>?
     private var composerFocused = false
+    /// The settled top of whatever covers the bottom (key bar, composer,
+    /// keyboard), in window coordinates; nil when nothing does. The terminal's
+    /// height follows it only when a keyboard or accessory change settles.
+    private var settledCoverTop: CGFloat?
+    /// The cursor row before a grow; the next draw slides the content from
+    /// there to where Ghostty put it.
+    private var growCompensation: (row: Int, cellHeight: CGFloat)?
+    private var compensating = false
     private let clock: any Clock<Duration>
 
     /// The connection generation the stream belongs to (0: not attached).
@@ -110,6 +121,7 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
         installGestures()
         terminalView.onFocusChange = { [weak self] _ in self?.inputFocusChanged() }
         terminalView.onDraw = { [weak self] in
+            self?.applyGrowCompensation()
             self?.panToCursor()
             self?.sync()
         }
@@ -150,10 +162,13 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
             let bottomInWindow = view.convert(CGPoint(x: 0, y: view.bounds.maxY), to: window).y
             homeIndicator = max(0, window.safeAreaInsets.bottom - (window.bounds.height - bottomInWindow))
         }
-        // The composer row is persistent: in composer mode the grid ends on
-        // its resting top (a grid change, unlike the keyboard's).
-        let composerHeight = model.composerMode ? (composerHost?.view.intrinsicContentSize.height ?? 0) : 0
-        let inset = homeIndicator + max(0, composerHeight)
+        // The grid ends on the settled top of the key bar, composer or
+        // keyboard (never the live, animating one).
+        var inset = homeIndicator
+        if let window = view.window, let coverTop = settledCoverTop {
+            let bottomInWindow = view.convert(CGPoint(x: 0, y: view.bounds.maxY), to: window).y
+            inset = max(inset, bottomInWindow - coverTop)
+        }
         if bottomConstraint?.constant != -inset { bottomConstraint?.constant = -inset }
         if placeAccessories() { view.setNeedsLayout() }
         panToCursor()
@@ -195,17 +210,26 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
         lockGrid(grid)
         let existingId = self.terminalId
         attachTask = Task { [weak self] in
+            // A terminal this attach created; closed on the host if the attach
+            // never completes, so no orphan PTY is left behind.
+            var createdHere: String?
             do {
                 var terminalId = existingId
                 if terminalId == nil {
                     let created = try await client.createTerminal(cols: grid.cols, rows: grid.rows)
+                    createdHere = created.id
                     terminalId = created.id
-                    self?.terminalId = created.id
-                    self?.model.terminal = created
-                    self?.onCreated?(created.id)
+                    guard let self, !Task.isCancelled else {
+                        try? await client.closeTerminal(created.id)
+                        return
+                    }
+                    self.terminalId = created.id
+                    self.model.terminal = created
+                    self.onCreated?(created.id)
                 }
                 guard let terminalId else { return }
                 let result = try await client.attachTerminal(terminalId, cols: grid.cols, rows: grid.rows)
+                createdHere = nil
                 guard let self else { return }
                 self.attaching = false
                 guard !Task.isCancelled, self.visible, self.connection.generation == generation else {
@@ -223,7 +247,9 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
                 // The view may have changed size while attaching.
                 self.sync()
             } catch {
+                if let createdHere { try? await client.closeTerminal(createdHere) }
                 guard let self else { return }
+                if createdHere != nil { self.terminalId = nil }
                 self.attaching = false
                 self.failedGeneration = generation
                 if let rpc = error as? RPCError, rpc.code == .notFound {
@@ -272,6 +298,8 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
     private func lockGrid(_ grid: (cols: Int, rows: Int)) {
         hostGrid = grid
         gridGeneration += 1
+        // Ghostty keeps the cursor on screen itself: a shrink drops top rows,
+        // a grow brings scrollback rows back (like a real terminal).
         terminalView.setGrid(cols: grid.cols, rows: grid.rows, generation: gridGeneration)
         model.grid = "\(grid.cols)×\(grid.rows)"
         updateDebugValue()
@@ -399,7 +427,8 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
         model.uploading += 1
         Task { [weak self] in
             do {
-                let path = try await client.uploadFile(name: attachment.name, mimeType: attachment.mimeType, data: attachment.data)
+                defer { if let temp = attachment.temporary { try? FileManager.default.removeItem(at: temp.deletingLastPathComponent()) } }
+                let path = try await client.uploadFile(name: attachment.name, mimeType: attachment.mimeType, source: attachment.source)
                 guard let self else { return }
                 self.model.uploading -= 1
                 let quoted = shellQuoted(path)
@@ -427,13 +456,55 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
             self.view.layoutIfNeeded()
             self.panToCursor()
         }
+        // Hiding: grow first (the keyboard uncovers the new rows as it goes);
+        // showing: shrink once the keyboard has arrived.
+        let growing = keyboardFrame == nil
+        if growing { settle() }
         if change.duration > 0, !UIAccessibility.isReduceMotionEnabled {
             UIView.animate(withDuration: change.duration, delay: 0,
                            options: [UIView.AnimationOptions(rawValue: change.curve << 16), .beginFromCurrentState],
-                           animations: animations)
+                           animations: animations) { [weak self] _ in
+                if !growing { self?.settle() }
+            }
         } else {
             animations()
+            if !growing { settle() }
         }
+    }
+
+    /// Gives the terminal the height above whatever now covers its bottom,
+    /// locks the matching grid at once and sends one `term.resize`.
+    private func settle() {
+        guard let window = view.window else { return }
+        placeAccessories()
+        view.layoutIfNeeded()
+        // Target positions, not the animating ones: the keyboard's end frame
+        // (or the home indicator) minus the accessories' height.
+        let accessoriesShown = !keyBar.isHidden || !(composerHost?.view.isHidden ?? true)
+        let homeTop = window.bounds.maxY - window.safeAreaInsets.bottom
+        let keyboardTop = min(keyboardFrame?.minY ?? homeTop, homeTop)
+        let coverTop = keyboardTop - (accessoriesShown ? accessoryStack.frame.height : 0)
+        let newTop: CGFloat? = coverTop < homeTop - 0.5 ? coverTop : nil
+        guard newTop != settledCoverTop else { return }
+        settledCoverTop = newTop
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+        resizeNow()
+    }
+
+    /// Locks the grid that fits now and tells the host, without the debounce
+    /// (a settled change, not a drag).
+    private func resizeNow() {
+        resizeTask?.cancel()
+        guard let client, streamId != nil, let terminalId else { return }
+        let fit = terminalView.fittingGrid
+        guard fit.cols >= 2, fit.rows >= 2, hostGrid.map({ $0 != fit }) ?? true else { return }
+        // A grow moves the cursor down (scrollback comes back): slide into it.
+        if let rows = hostGrid?.rows, fit.rows > rows, let cursor = terminalView.cursorRow {
+            growCompensation = (cursor.row, cursor.cellHeight)
+        }
+        lockGrid(fit)
+        Task { try? await client.resizeTerminal(terminalId, cols: fit.cols, rows: fit.rows) }
     }
 
     private func relayoutAccessories(animated: Bool) {
@@ -443,9 +514,10 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
             self.panToCursor()
         }
         if animated, !UIAccessibility.isReduceMotionEnabled, view.window != nil {
-            UIView.animate(springDuration: 0.35, bounce: 0, animations: changes)
+            UIView.animate(springDuration: 0.35, bounce: 0, animations: changes) { [weak self] _ in self?.settle() }
         } else {
             changes()
+            settle()
         }
     }
 
@@ -475,15 +547,34 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
     /// its last row sits on their top edge; it never moves so far that the
     /// cursor row leaves the top, and always far enough that the cursor row
     /// stays above them.
+    /// After a grow Ghostty brings scrollback rows back and the content jumps
+    /// down; start it where it was and let it follow the keyboard down.
+    private func applyGrowCompensation() {
+        guard let before = growCompensation, let after = terminalView.cursorRow else { return }
+        growCompensation = nil
+        let delta = CGFloat(after.row - before.row) * before.cellHeight
+        guard delta > 0.5, !UIAccessibility.isReduceMotionEnabled else { return }
+        compensating = true
+        terminalView.transform = CGAffineTransform(translationX: 0, y: -delta)
+        UIView.animate(withDuration: 0.3, delay: 0, options: [.curveEaseOut, .beginFromCurrentState]) {
+            self.terminalView.transform = .identity
+        } completion: { [weak self] _ in
+            self?.compensating = false
+            self?.panToCursor()
+        }
+    }
+
     private func panToCursor() {
+        guard !compensating else { return }
         let restingTop = terminalView.center.y - terminalView.bounds.height / 2
         let restingBottom = restingTop + terminalView.bounds.height
         let visibleBottom = min(visibleBottomInView, restingBottom)
         let cursor = terminalView.cursorRect
         let accessoriesShown = !keyBar.isHidden || model.composerMode
         // Measured only while something covers the bottom (it reads rows).
-        let contentBottom = accessoriesShown || keyboardFrame != nil
-            ? min(terminalView.contentBottom ?? 0, terminalView.bounds.height) : 0
+        // Not clamped to the view: right after a settle the view is already
+        // shorter while the locally scrolled grid has not been drawn yet.
+        let contentBottom = accessoriesShown || keyboardFrame != nil ? (terminalView.contentBottom ?? 0) : 0
         var shift = max(0, restingTop + contentBottom - visibleBottom)
         if cursor.height > 0 {
             let cursorShift = max(0, restingTop + cursor.maxY + Self.cursorMargin - visibleBottom)

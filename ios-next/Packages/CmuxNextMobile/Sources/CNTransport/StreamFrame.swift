@@ -5,12 +5,14 @@ public enum StreamFrameKind: UInt8, Sendable, Hashable {
     case termOutput = 1
     case termInput = 2
     case browserFrame = 3
+    /// Phone -> host upload bytes: `[u32 seq]` + bytes on an `fs.upload.begin` stream.
+    case fileChunk = 4
 
     /// The lane a frame of this kind travels on.
     public var lane: Lane {
         switch self {
         case .termOutput, .termInput: .interactive
-        case .browserFrame: .bulk
+        case .browserFrame, .fileChunk: .bulk
         }
     }
 }

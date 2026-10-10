@@ -43,6 +43,7 @@ final class GhosttyTerminalView: UIView {
     private let outputQueue = DispatchQueue(label: "cmux.next.terminal.output", qos: .userInteractive)
     private var inputBox: InputBox?
     private(set) var draws = 0
+    private var contentRowCache: (draws: Int, value: (row: Int, cellHeight: CGFloat, paddingTop: CGFloat)?)?
     private var appliedStyle: UIUserInterfaceStyle?
     /// The text size in points (setting `cmuxNext.terminalFontSize`).
     private(set) var fontSize: Double = TerminalFontSize.stored
@@ -306,11 +307,23 @@ final class GhosttyTerminalView: UIView {
         return ghostty_surface_mouse_captured(surface)
     }
 
-    /// The bottom of the last visible row that has text (or of the cursor
-    /// row, whichever is lower), in this view's points. A TUI's footer (a
-    /// prompt hint under the cursor) counts; blank rows under a shell
-    /// prompt do not.
+    /// The last visible row that has text, or the cursor row when lower;
+    /// a TUI's footer under the cursor counts, blank rows under a shell
+    /// prompt do not. Cached per drawn frame: rows are read only after new
+    /// output was drawn, not on every layout pass.
+    var lastContentRow: (row: Int, cellHeight: CGFloat, paddingTop: CGFloat)? {
+        if let cache = contentRowCache, cache.draws == draws { return cache.value }
+        let value = computeLastContentRow()
+        contentRowCache = (draws, value)
+        return value
+    }
+
+    /// The bottom of `lastContentRow` in this view's points.
     var contentBottom: CGFloat? {
+        lastContentRow.map { $0.paddingTop + CGFloat($0.row + 1) * $0.cellHeight }
+    }
+
+    private func computeLastContentRow() -> (row: Int, cellHeight: CGFloat, paddingTop: CGFloat)? {
         guard let surface else { return nil }
         var metrics = ghostty_surface_grid_metrics_s()
         guard ghostty_surface_grid_metrics(surface, &metrics), metrics.rows > 0, metrics.columns > 0 else { return nil }
@@ -320,7 +333,15 @@ final class GhosttyTerminalView: UIView {
             if !isBlankRow(surface, row: row, columns: Int(metrics.columns)) { lastRow = row; break }
             row -= 1
         }
-        return CGFloat(metrics.padding_top + Double(lastRow + 1) * metrics.cell_height)
+        return (lastRow, CGFloat(metrics.cell_height), CGFloat(metrics.padding_top))
+    }
+
+    /// The cursor's row in the viewport and the cell height (points).
+    var cursorRow: (row: Int, cellHeight: CGFloat)? {
+        guard let surface else { return nil }
+        var metrics = ghostty_surface_grid_metrics_s()
+        guard ghostty_surface_grid_metrics(surface, &metrics), metrics.cursor_in_viewport else { return nil }
+        return (Int(metrics.cursor_row), CGFloat(metrics.cell_height))
     }
 
     private func isBlankRow(_ surface: ghostty_surface_t, row: Int, columns: Int) -> Bool {

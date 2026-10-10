@@ -40,11 +40,25 @@ public struct TerminalResizeParams: Codable, Sendable, Hashable {
     public init(terminalId: String, cols: Int, rows: Int) { self.terminalId = terminalId; self.cols = cols; self.rows = rows }
 }
 
-/// `fs.upload` (PROTOCOL §4 files).
-public struct FileUploadParams: Codable, Sendable, Hashable {
-    public var name: String; public var mimeType: String?; public var dataBase64: String
-    public init(name: String, mimeType: String? = nil, dataBase64: String) { self.name = name; self.mimeType = mimeType; self.dataBase64 = dataBase64 }
+/// `fs.upload.begin` (PROTOCOL §4 files); the bytes follow as `fileChunk` frames.
+public struct FileUploadBeginParams: Codable, Sendable, Hashable {
+    public var name: String; public var mimeType: String?; public var size: Int
+    public init(name: String, mimeType: String? = nil, size: Int) { self.name = name; self.mimeType = mimeType; self.size = size }
 }
+
+public struct FileUploadBeginResult: Codable, Sendable, Hashable {
+    public var uploadId: UInt32
+    public init(uploadId: UInt32) { self.uploadId = uploadId }
+}
+
+/// `fs.upload.end` / `fs.upload.cancel`.
+public struct FileUploadRef: Codable, Sendable, Hashable {
+    public var uploadId: UInt32
+    public init(uploadId: UInt32) { self.uploadId = uploadId }
+}
+
+/// Uploads larger than this are refused (PROTOCOL §4 files).
+public let fileUploadMaxBytes = 50 * 1024 * 1024
 
 public struct FileUploadResult: Codable, Sendable, Hashable {
     public var path: String

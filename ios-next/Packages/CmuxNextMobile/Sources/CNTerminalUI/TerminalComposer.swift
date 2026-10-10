@@ -1,5 +1,7 @@
 #if os(iOS)
+import CNCore
 import CNDesign
+import CNTransport
 import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
@@ -71,7 +73,7 @@ struct TerminalComposer: View {
         .fullScreenCover(isPresented: $showCamera) {
             TerminalCameraPicker { image in
                 if let data = image.jpegData(compressionQuality: 0.85) {
-                    onAttach(TerminalAttachment(name: "camera.jpg", mimeType: "image/jpeg", data: data))
+                    onAttach(TerminalAttachment(name: "camera.jpg", mimeType: "image/jpeg", source: .data(data)))
                 }
             }
             .ignoresSafeArea()
@@ -130,19 +132,42 @@ struct TerminalComposer: View {
                 let type = item.supportedContentTypes.first
                 let ext = type?.preferredFilenameExtension ?? "jpg"
                 let mime = type?.preferredMIMEType ?? "image/jpeg"
-                onAttach(TerminalAttachment(name: "photo-\(i + 1).\(ext)", mimeType: mime, data: data))
+                onAttach(TerminalAttachment(name: "photo-\(i + 1).\(ext)", mimeType: mime, source: .data(data)))
             }
             photoItems = []
         }
     }
 
+    /// Checks each file's size before reading anything, then copies it out of
+    /// its security scope off the main actor; the upload reads the copy in chunks.
     private func loadFiles(_ urls: [URL]) {
-        for url in urls {
-            let scoped = url.startAccessingSecurityScopedResource()
-            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-            guard let data = try? Data(contentsOf: url) else { continue }
-            let type = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
-            onAttach(TerminalAttachment(name: url.lastPathComponent, mimeType: type, data: data))
+        Task {
+            for url in urls {
+                let type = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+                switch await Self.stageFile(url) {
+                case .success(let copy):
+                    onAttach(TerminalAttachment(name: url.lastPathComponent, mimeType: type, source: .file(copy), temporary: copy))
+                case .failure(let error):
+                    model.uploadError = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    @concurrent
+    private static func stageFile(_ url: URL) async -> Result<URL, any Error> {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        do {
+            let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+            guard size <= fileUploadMaxBytes else { throw FileUploadError.tooLarge(limit: fileUploadMaxBytes) }
+            let dir = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-upload-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let copy = dir.appendingPathComponent(url.lastPathComponent)
+            try FileManager.default.copyItem(at: url, to: copy)
+            return .success(copy)
+        } catch {
+            return .failure(error)
         }
     }
 }
@@ -151,7 +176,9 @@ struct TerminalComposer: View {
 struct TerminalAttachment: Sendable {
     let name: String
     let mimeType: String
-    let data: Data
+    let source: FileUploadSource
+    /// A staged copy to delete once the upload ends.
+    var temporary: URL? = nil
 }
 
 /// POSIX shell quoting: bare when only safe characters, else single quotes.

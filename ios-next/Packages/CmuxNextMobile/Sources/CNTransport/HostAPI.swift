@@ -196,10 +196,35 @@ extension HostClient {
     }
 
     // files
-    /// Uploads a file to the host's upload folder and returns its absolute path there.
-    public func uploadFile(name: String, mimeType: String?, data: Data, timeout: Duration = .seconds(180)) async throws -> String {
-        let params = FileUploadParams(name: name, mimeType: mimeType, dataBase64: data.base64EncodedString())
-        return try await request(HostMethod.fsUpload.rawValue, params, as: FileUploadResult.self, timeout: timeout).path
+    /// Uploads to the host's upload folder and returns the file's absolute
+    /// path there. The bytes stream as `fileChunk` frames on the bulk lane
+    /// (control replies are never blocked); a file is read in chunks on this
+    /// actor, never all at once and never on the main actor.
+    public func uploadFile(name: String, mimeType: String?, source: FileUploadSource) async throws -> String {
+        let size = try source.byteCount()
+        guard size <= fileUploadMaxBytes else { throw FileUploadError.tooLarge(limit: fileUploadMaxBytes) }
+        let begin: FileUploadBeginResult = try await request(
+            HostMethod.fsUploadBegin.rawValue, FileUploadBeginParams(name: name, mimeType: mimeType, size: size))
+        let id = begin.uploadId
+        do {
+            var seq: UInt32 = 0
+            var reader = try FileUploadReader(source)
+            defer { reader.close() }
+            while let bytes = try reader.next(FileUploadSource.chunkSize) {
+                var payload = Data(capacity: 4 + bytes.count)
+                payload.appendBE(seq)
+                payload.append(bytes)
+                try send(StreamFrame(kind: .fileChunk, streamId: id, payload: payload))
+                seq &+= 1
+                // Let replies and other lanes interleave with a large upload.
+                await Task.yield()
+            }
+            return try await request(HostMethod.fsUploadEnd.rawValue, FileUploadRef(uploadId: id),
+                                     as: FileUploadResult.self, timeout: .seconds(120)).path
+        } catch {
+            try? await call(HostMethod.fsUploadCancel.rawValue, FileUploadRef(uploadId: id))
+            throw error
+        }
     }
 
     // browser
@@ -253,5 +278,59 @@ extension HostClient {
 
     public func screenshot(_ tabId: String) async throws -> BrowserScreenshot {
         try await request(HostMethod.browserScreenshot.rawValue, BrowserTabRef(tabId: tabId))
+    }
+}
+
+/// What `HostClient.uploadFile` sends.
+public enum FileUploadSource: Sendable {
+    case data(Data)
+    /// A local file, read in chunks while uploading.
+    case file(URL)
+
+    static let chunkSize = 64 * 1024
+
+    func byteCount() throws -> Int {
+        switch self {
+        case .data(let data): return data.count
+        case .file(let url): return try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+        }
+    }
+}
+
+/// Reads a source in chunks (a file is never read whole).
+struct FileUploadReader {
+    private var data: Data?
+    private var offset = 0
+    private let handle: FileHandle?
+
+    init(_ source: FileUploadSource) throws {
+        switch source {
+        case .data(let d): data = d; handle = nil
+        case .file(let url): data = nil; handle = try FileHandle(forReadingFrom: url)
+        }
+    }
+
+    mutating func next(_ size: Int) throws -> Data? {
+        if let handle {
+            guard let chunk = try handle.read(upToCount: size), !chunk.isEmpty else { return nil }
+            return chunk
+        }
+        guard let data, offset < data.count else { return nil }
+        let start = data.startIndex + offset
+        let end = min(start + size, data.endIndex)
+        offset += end - start
+        return data.subdata(in: start..<end)
+    }
+
+    func close() { try? handle?.close() }
+}
+
+public enum FileUploadError: Error, Sendable, Hashable, LocalizedError {
+    case tooLarge(limit: Int)
+
+    public var errorDescription: String? {
+        switch self {
+        case .tooLarge(let limit): "Files over \(limit / (1024 * 1024)) MB can't be sent to the Mac."
+        }
     }
 }
