@@ -143,7 +143,7 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
         #expect(!create.message.contains("duplicate session: dev"))
         #expect(!create.message.contains("banner"))
         #expect(!removed.message.contains("control stream refused"))
-        #expect(removed.message.contains("orphan"))
+        #expect(!removed.message.contains("orphan"))
         #expect(left.message.contains("stuck"))
         #expect(removed.message != left.message)
     }
