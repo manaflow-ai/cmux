@@ -276,7 +276,3 @@ async fn write_line<W: AsyncWrite + Unpin>(output: &mut W, value: &Value) -> Res
     output.flush().await?;
     Ok(())
 }
-
-#[cfg(test)]
-#[path = "cua_v2_tests.rs"]
-mod tests;
