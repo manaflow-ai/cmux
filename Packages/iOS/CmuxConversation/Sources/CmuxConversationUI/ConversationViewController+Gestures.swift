@@ -41,6 +41,13 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
     }
 
     public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        // The press clock starts with each new touch on the transcript.
+        if gestureRecognizer.name == Self.pressName {
+            touchDownUptime = touch.timestamp
+            pressClaimedTouch = false
+            pressOpenedMenu = false
+            pressLiftUptime = nil
+        }
         guard gestureRecognizer.name == "conversation.doubleTap" else { return true }
         // Not while bubble text is selected: that tap only ends the selection, at once.
         return !isSelecting && textSelection == nil
@@ -67,13 +74,32 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
     }
 
     public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
-        let presses: Set<String?> = [Self.pressName, Self.pressTimeoutName]
-        if presses.contains(gestureRecognizer.name) {
-            // The two press clocks run together. Until the menu opens a drag
-            // may still scroll or swipe; it cancels the growing bubble.
-            return presses.contains(other.name) || (other is UIPanGestureRecognizer && pressedActions?.isPressing == true)
+        let a = pressArbitration(gestureRecognizer), b = pressArbitration(other)
+        if a == .press || b == .press {
+            // Taps stay alive beside the press and decide at the lift
+            // (tapMayOpenItem); see MessagePressTiming.recognizeTogether.
+            return MessagePressTiming.recognizeTogether(a, b, isGrowing: pressedActions?.isPressing == true)
         }
         return gestureRecognizer is UITapGestureRecognizer || gestureRecognizer.name == Self.composerSwipeDownName
+    }
+
+    /// How the press arbitrates a recognizer on the transcript's touches.
+    private func pressArbitration(_ recognizer: UIGestureRecognizer) -> MessagePressTiming.Gesture {
+        if recognizer.name == Self.pressName || recognizer.name == Self.pressTimeoutName { return .press }
+        if recognizer is UITapGestureRecognizer { return .tap }
+        if recognizer is UIPanGestureRecognizer { return .pan }
+        return .other
+    }
+
+    /// The transcript's tap actions (open a photo, file, link, card, thread,
+    /// mention, the tapback bar...) run only when the lift did not open the
+    /// menu: a press held to the click takes the touch, as in Messages.
+    func tapMayOpenItem(_ tap: UITapGestureRecognizer) -> Bool {
+        guard pressClaimedTouch, let began = touchDownUptime else { return true }
+        // Judge the hold at the lift: the single tap runs only after the
+        // double tap gives up, well after the finger left.
+        let lift = pressLiftUptime ?? ProcessInfo.processInfo.systemUptime
+        return !pressOpenedMenu && MessagePressTiming.tapOpensItem(afterHolding: lift - began)
     }
 
     static let pressName = "conversation.press"
@@ -132,6 +158,7 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
         let point = press.location(in: collectionView)
         switch press.state {
         case .began:
+            pressClaimedTouch = true
             guard pressedActions == nil,
                   let cell = messageCell(at: point, requireContentHit: true),
                   let model = cell.model else { return }
@@ -142,6 +169,7 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
             // UIKit's click driver allows 10 pt of travel before the click.
             if hypot(point.x - pressStart.x, point.y - pressStart.y) > 10 { cancelPressedActions() }
         case .ended:
+            pressLiftUptime = ProcessInfo.processInfo.systemUptime
             let held = ProcessInfo.processInfo.systemUptime - pressBeganUptime + MessagePressTiming.liftBegins
             switch MessagePressTiming.release(afterHolding: held) {
             case .open: commitPressedActions()
@@ -162,6 +190,7 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
     func commitPressedActions() {
         guard let overlay = pressedActions, overlay.isPressing else { return }
         pressedActions = nil
+        pressOpenedMenu = true
         // The menu owns the touch now: a scroll that started under the
         // growing bubble stops.
         collectionView.panGestureRecognizer.isEnabled = false
@@ -177,7 +206,7 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
     }
 
     @objc private func handleDoubleTap(_ tap: UITapGestureRecognizer) {
-        guard tap.state == .ended,
+        guard tap.state == .ended, tapMayOpenItem(tap),
               let cell = messageCell(at: tap.location(in: collectionView), requireContentHit: true),
               let model = cell.model else { return }
         presentActions(for: model, cell: cell, mode: .tapbacks)
@@ -187,6 +216,7 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
 
     @objc private func handleTap(_ tap: UITapGestureRecognizer) {
         let point = tap.location(in: collectionView)
+        guard tapMayOpenItem(tap) else { return }
         if photoDrawer != nil {
             dismissPhotoDrawer()
             return

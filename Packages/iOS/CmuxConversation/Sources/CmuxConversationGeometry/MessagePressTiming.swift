@@ -53,21 +53,25 @@ public enum MessagePressTiming {
         case other
     }
 
-    /// Whether `a` and `b` may both recognize on one touch. Today a press and
-    /// a tap both fire: lifting mid-hold opens the row's item.
+    /// Whether `a` and `b` may both recognize on one touch. The two press
+    /// clocks run together; while the bubble only grows a drag may still
+    /// scroll or swipe (it cancels the press); taps share every touch and
+    /// decide at the lift with `tapOpensItem`.
     public static func recognizeTogether(_ a: Gesture, _ b: Gesture, isGrowing: Bool) -> Bool {
         switch (a, b) {
         case (.press, .press): return true
         case (.press, .pan), (.pan, .press): return isGrowing
-        case (.press, _), (_, .press): return a == .tap || b == .tap
         case (.tap, _), (_, .tap): return true
         default: return false
         }
     }
 
-    /// Whether a tap that lifts after `held` seconds still opens what it hit.
+    /// Whether a tap that lifts after `held` seconds opens what it hit.
+    /// Messages (iOS 26.5, photo bubble): a lift before the click opens the
+    /// item even though the bubble started growing (0.13 to 0.36 s holds); a
+    /// lift at or after the click opens the menu instead, never the item.
     public static func tapOpensItem(afterHolding held: TimeInterval) -> Bool {
-        true
+        held < clickDown
     }
 
     /// Scale of a held bubble of `size` just before the menu opens.

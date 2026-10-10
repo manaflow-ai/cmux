@@ -116,6 +116,14 @@ public final class ConversationViewController: UIViewController {
     var pressedActions: MessageActionOverlay?
     var pressBeganUptime: TimeInterval = 0
     var pressStart: CGPoint = .zero
+    /// When the latest transcript touch went down (system uptime).
+    var touchDownUptime: TimeInterval?
+    /// The press began on that touch (its bubble started growing).
+    var pressClaimedTouch = false
+    /// That press opened the menu, which takes the touch.
+    var pressOpenedMenu = false
+    /// When that press's finger lifted.
+    var pressLiftUptime: TimeInterval?
     var replyDragRowID: String?
     var replyDragOffset: CGFloat = 0
     var replyHapticFired = false
