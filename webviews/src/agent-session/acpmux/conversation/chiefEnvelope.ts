@@ -1,12 +1,13 @@
 /** A Chief subagent's first message (optchat-chief `prompt::subagent_blocks`): the Chief's view,
  * `<chat>` … `</chat>`, then `Your task:` and the task. The pane shows the view as one collapsed
- * line and the task as the message; the session keeps the whole text (the agent read it all). */
+ * line and only the task as the message (no "Your task:" label); the session keeps the whole
+ * text (the agent read it all). */
 export type ChiefEnvelope = {
   /** The view as the agent got it, `<chat>` to `</chat>`. */
   context: string;
   /** Its lines, without the `<chat>` markers. */
   lines: number;
-  /** From `Your task:` on. */
+  /** The task itself, after the `Your task:` label and its blank line. */
   task: string;
 };
 
@@ -26,5 +27,5 @@ export function chiefEnvelope(text: string | undefined): ChiefEnvelope | undefin
   if (start < 0 || !rest.startsWith(TASK, start)) return undefined;
   const context = text.slice(0, end);
   const lines = context.split("\n").filter((line) => line.trim() !== "" && line !== OPEN && line !== CLOSE).length;
-  return { context, lines, task: rest.slice(start) };
+  return { context, lines, task: rest.slice(start + TASK.length).trim() };
 }
