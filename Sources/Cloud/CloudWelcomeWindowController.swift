@@ -1,9 +1,9 @@
 import AppKit
-import CmuxCloud
+import CmuxSettings
 import SwiftUI
 
-/// Shows the 0.65.1 Cloud welcome once for users who have Cloud available and
-/// have not enabled it yet. Debug builds can reopen it from Help.
+/// Shows the 0.65.1 Cloud welcome once, whether Cloud is on or off, unless
+/// MDM blocks Cloud. Debug builds can reopen it from Help.
 @MainActor
 final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
     /// The welcome is a release announcement, rather than a permanent prompt.
@@ -15,25 +15,23 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
     /// Launch presentation is considered once, at the first main window. A
     /// window opened later (Cmd+N an hour in) must not pop the welcome up just
-    /// because remote flags arrived since; an unseen welcome waits for next launch.
+    /// because MDM policy changed since; an unseen welcome waits for next launch.
     private var didConsiderLaunchPresentation = false
 
-    /// Cloud has to be offered on this Mac and still be off. The campaign only
-    /// runs in its target release, and its version marker makes it one-time.
+    /// Cloud's on/off setting does not affect the announcement. Only managed
+    /// DisableCloud policy excludes users from this one-time release campaign.
     nonisolated static func shouldPresentAutomatically(
-        seenVersion: String?,
+        defaults: UserDefaults,
         appVersion: String,
-        cloudAvailable: Bool,
-        cloudEnabled: Bool,
+        policy: ManagedDevicePolicy,
         isDebugBuild: Bool = false,
         isRunningUnderXCTest: Bool = false,
         isUITestMode: Bool = false
     ) -> Bool {
         guard !isDebugBuild, !isRunningUnderXCTest, !isUITestMode else { return false }
         return appVersion == campaignVersion
-            && seenVersion != campaignVersion
-            && cloudAvailable
-            && !cloudEnabled
+            && defaults.string(forKey: seenVersionDefaultsKey) != campaignVersion
+            && !policy.isEnforced(.disableCloud)
     }
 
     /// Records that this release's announcement has been considered. The
@@ -49,10 +47,9 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
         didConsiderLaunchPresentation = true
         let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
         guard Self.shouldPresentAutomatically(
-            seenVersion: defaults.string(forKey: Self.seenVersionDefaultsKey),
+            defaults: defaults,
             appVersion: appVersion,
-            cloudAvailable: CloudMachinesFeature.isAvailable,
-            cloudEnabled: CloudMachinesFeature.isEnabled
+            policy: ManagedDevicePolicy()
         ) else { return }
         Self.markCampaignSeen(in: defaults)
         present(over: parent)

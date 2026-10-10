@@ -10,6 +10,7 @@ import {
   maxMemoryMbForPlan,
   maxVcpusForPlan,
   memoryOptionsMbForPlan,
+  upgradePlanForMemory,
   vcpusForMemoryMb,
   vmDiskMb,
   vmFreeAccessWindowDays,
@@ -76,6 +77,12 @@ describe("free plan VM allowance", () => {
     expect(maxActiveVmsForPlan("unknown", {
       CMUX_VM_PLAN_UNKNOWN_MAX_ACTIVE_VMS: "9",
     })).toBe(0);
+    // Malformed plan metadata follows the closed free shape if an operator
+    // explicitly enables local free provisioning; it never inherits Pro's
+    // per-machine ceiling.
+    expect(maxMemoryMbForPlan("unknown", { CMUX_VM_ALLOW_FREE_PROVISIONING: "1" })).toBe(8192);
+    expect(lockedMemoryOptionsMbForPlan("unknown", { CMUX_VM_ALLOW_FREE_PROVISIONING: "1" }).upgradePlanId).toBe("pro");
+    expect(upgradePlanForMemory(16 * 1024, "unknown", { CMUX_VM_ALLOW_FREE_PROVISIONING: "1" })).toBe("pro");
   });
 });
 
