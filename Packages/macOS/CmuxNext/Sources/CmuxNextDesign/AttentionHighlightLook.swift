@@ -5,7 +5,9 @@ public import AppKit
 /// Leo call of 2026-10-09: the highlight must be subtler by default. Every
 /// look keeps the user's `notifications.attention.*` style, width and color;
 /// it sets only the ring's strength. No look is blue. Lawrence 2026-10-10
-/// dropped the `foreground` look; a stored `foreground` reads as `subtle`.
+/// dropped the `foreground` look. A stored `foreground` override is not
+/// in the choice list, so TunableStore drops it at load and the look is the
+/// `subtle` default.
 public nonisolated enum AttentionHighlightLook: String, Sendable, CaseIterable, Hashable, TunableChoice {
     /// The style's animation runs (a blink by default), then the ring rests
     /// faint (the default). Steady and Reduce Motion fade in to the faint ring.
@@ -42,18 +44,6 @@ public nonisolated enum AttentionHighlightLook: String, Sendable, CaseIterable, 
 
     /// The ring color when neither the source nor `notifications.attention.color` sets one.
     @MainActor public var defaultColor: NSColor { Palette.attention }
-
-    /// Decodes a stored override. `foreground` (a look removed 2026-10-10)
-    /// maps to `subtle`, so an old Debug Settings value keeps working.
-    public init?(tunableValue: TunableValue) {
-        guard let raw = tunableValue.choice else { return nil }
-        if raw == "foreground" {
-            self = .subtle
-            return
-        }
-        guard let value = Self(rawValue: raw) else { return nil }
-        self = value
-    }
 
     public static let tunable = Tunable<AttentionHighlightLook>.choice(
         "notifications.attention.look", .status, "Notification highlight",
