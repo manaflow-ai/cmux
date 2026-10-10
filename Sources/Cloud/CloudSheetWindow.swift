@@ -69,6 +69,7 @@ final class CloudSheetWindow {
                 guard let self else { return }
                 if self.isAttachedToHost {
                     self.recordAttachedSheetMoveIfHostMoveIsPending()
+                    self.scheduleAttachedSheetAnchorCorrection()
                 } else {
                     self.recordFloatingWindowMoveIfStable()
                 }
