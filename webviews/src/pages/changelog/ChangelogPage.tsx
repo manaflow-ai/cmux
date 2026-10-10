@@ -30,7 +30,7 @@ export function ChangelogPage({ store, strings }: { store: ChangelogStore; strin
       </nav>
       <article className="cl-notes">
         {s.failed && <p className="cl-error">{s.failed}</p>}
-        {s.span && (s.inSpan.length === 0 || s.missing) && (
+        {s.span && (s.inSpan.length === 0 || (s.missing && !!s.selected && s.inSpan.includes(s.selected))) && (
           <h1 className="cl-updated" data-testid="changelog.updatedTo">
             {strings.format("changelog.page.updatedTo", s.span.to)}
           </h1>

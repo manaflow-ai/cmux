@@ -18,10 +18,10 @@ enum WhatsNewPage {
     static func open(_ services: AppServices, in state: WindowState? = nil) -> Bool {
         guard ActionRunScope.viewChangeAllowed() else { return false }
         let center = services.updater.whatsNew
-        let unseen = center.open()
-        let oldest = unseen.compactMap { WhatsNewVersion($0.version) }.min()
-        return ChangelogPageTab.open(services, focus: true, from: nil,
-                                     to: center.current?.description ?? oldest?.description)
+        // The span starts at the version seen before this update (read before `open` marks seen).
+        let from = center.lastSeen.flatMap { seen in center.current.map { seen < $0 } == true ? seen : nil }
+        center.open()
+        return ChangelogPageTab.open(services, focus: true, from: from?.description, to: center.current?.description)
     }
 
     /// A click on a client-only sidebar item: the What's New item opens the page.

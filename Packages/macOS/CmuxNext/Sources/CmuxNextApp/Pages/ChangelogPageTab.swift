@@ -62,7 +62,8 @@ final class ChangelogPageTab: InternalPageProvider {
         var query = URLComponents()
         query.queryItems = [from.flatMap { $0.isEmpty ? nil : URLQueryItem(name: "from", value: $0) },
                             URLQueryItem(name: "to", value: to)].compactMap { $0 }
-        return "#/?" + (query.percentEncodedQuery ?? "")
+        // URLSearchParams reads `+` as a space; a version may carry build metadata (`1.2.3+abc`).
+        return "#/?" + (query.percentEncodedQuery ?? "").replacingOccurrences(of: "+", with: "%2B")
     }
 }
 

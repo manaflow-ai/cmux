@@ -37,7 +37,9 @@ export function parseSpan(hash: string): UpdateSpan | undefined {
 /** Orders release versions (`1.2.3`, `1.0.0-nightly.42`): numbers first, a prerelease before its release. */
 export function compareVersions(a: string, b: string): number {
   const split = (v: string) => {
-    const [core = "", pre] = v.split("-", 2);
+    const dash = v.indexOf("-");
+    const core = dash < 0 ? v : v.slice(0, dash);
+    const pre = dash < 0 ? undefined : v.slice(dash + 1);
     return { core: core.split(".").map((n) => Number(n) || 0), pre };
   };
   const x = split(a);
@@ -72,6 +74,9 @@ export class ChangelogStore {
   private readonly listeners = new Set<() => void>();
   private readonly cache = new Map<string, ReleaseNotes>();
   private generation = 0;
+  private listed = false;
+  /** The latest span the route named; applied once the list has loaded. */
+  private latestSpan?: UpdateSpan;
 
   constructor(private readonly client: PageClient | null) {
     this.snapshot = { builds: [], loading: client !== null, missing: false, inSpan: [] };
@@ -92,11 +97,14 @@ export class ChangelogStore {
   /** Loads the list, then the span's newest notes, else the running build's (or the newest listed). */
   async start(span?: UpdateSpan): Promise<void> {
     if (!this.client) return;
+    this.latestSpan = span;
     try {
       const list = await this.client.call<ListResult>(ChangelogOps.list, {});
       const builds = list.builds.length ? list.builds : [];
+      this.listed = true;
       this.set({ builds, current: list.current, loading: false });
-      if (span) return this.setSpan(span);
+      // A route change while the list loaded wins over the first route.
+      if (this.latestSpan) return this.setSpan(this.latestSpan);
       await this.select(list.current || builds[0]?.build);
     } catch (error) {
       this.set({ loading: false, failed: isPageError(error) ? error.message : String(error) });
@@ -105,6 +113,8 @@ export class ChangelogStore {
 
   /** Shows an update's span: its builds marked, the newest one selected. */
   async setSpan(span: UpdateSpan | undefined): Promise<void> {
+    this.latestSpan = span;
+    if (!this.listed) return;
     const inSpan = span ? this.snapshot.builds.filter((b) => within(b.shortVersion, span)) : [];
     const newest = [...inSpan].sort((a, b) => compareVersions(b.shortVersion, a.shortVersion))[0];
     this.set({ span, inSpan: inSpan.map((b) => b.build) });
