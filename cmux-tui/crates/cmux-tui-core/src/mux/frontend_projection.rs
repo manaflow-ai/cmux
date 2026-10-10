@@ -113,7 +113,7 @@ impl Mux {
             .context("frontend projection revision exhausted")?;
         let mut session_selectors = selectors;
         session_selectors.frontend_projection = None;
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.lock_state_pinned(&registry).unwrap();
         let resolved = self
             .resolve_resource_path_in_state(
                 &state,

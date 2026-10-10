@@ -25,6 +25,8 @@ import Testing
         (DeepLink(.session("sess-1", turn: "turn-7")), "cmux://session/sess-1#turn-turn-7"),
         (DeepLink(.tab(tab), machine: machine), "cmux://tab/\(tab)?machine=\(machine)"),
         (DeepLink(.session("s1", turn: "t2"), machine: machine), "cmux://session/s1?machine=\(machine)#turn-t2"),
+        (DeepLink(.chiefSession(home: "0a1b2c3d", session: "01a12318-9c7f-7000-beab-7686172b0ca3")),
+         "cmux://chief/0a1b2c3d/session/01a12318-9c7f-7000-beab-7686172b0ca3"),
     ]
 
     @Test(arguments: DeepLinkTests.routes)
@@ -134,6 +136,19 @@ import Testing
         }
         #expect(DeepLink(.legacyPane(workspace: Self.uuidA, pane: Self.uuidB)).url(scheme: "cmux")?.absoluteString
             == "cmux://workspace/\(a)/pane/\(b)")
+    }
+
+    /// A Chief subagent's link (optchat-chief `workspaces::subagent_link`): the Chief home's id is
+    /// 8 lowercase hex digits (FNV-1a 32 of its path) and the session an acpmux id.
+    @Test func malformedChiefSessionLinksAreNotLinks() {
+        for text in ["cmux://chief/0A1B2C3D/session/s1", "cmux://chief/0a1b2c3/session/s1", "cmux://chief/0a1b2c3dd/session/s1",
+                     "cmux://chief/0a1b2c3g/session/s1", "cmux://chief/0a1b2c3d/session", "cmux://chief/0a1b2c3d/tab/s1",
+                     "cmux://chief/0a1b2c3d/session/s1/extra", "cmux://chief/0a1b2c3d/session/a%2Fb",
+                     "cmux://chief/0a1b2c3d/session/s1#turn-t1", "cmux://chief/session/s1"] {
+            #expect(DeepLink.parse(Self.url(text), scheme: "cmux") == nil, "\(text)")
+        }
+        #expect(DeepLink(.chiefSession(home: "XYZ", session: "s1")).url(scheme: "cmux") == nil)
+        #expect(DeepLink(.chiefSession(home: "0a1b2c3d", session: "a/b")).url(scheme: "cmux") == nil)
     }
 
     @Test func malformedNightlyLinksAreNotLinks() {

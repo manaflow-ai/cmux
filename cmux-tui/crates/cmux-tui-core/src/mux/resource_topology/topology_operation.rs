@@ -62,7 +62,7 @@ impl Mux {
         // Read before the state lock: `surface_notifications` locks state.
         let notifications = self.tree_decorations();
         let mut registry = self.workspace_registry.lock().unwrap();
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.lock_state_pinned(&registry).unwrap();
         self.resolve_resource_path_in_state(&state, &registry, ResourceTarget::Session, &selectors)
             .map_err(anyhow::Error::new)?;
         let reserved_name = name.unwrap_or_else(|| Self::default_workspace_name(&state));
@@ -268,7 +268,7 @@ impl Mux {
     ) -> anyhow::Result<Option<PanePublicId>> {
         let direction = parse_direction(direction)?;
         let registry = self.workspace_registry.lock().unwrap();
-        let state = self.state.lock().unwrap();
+        let state = self.lock_state_pinned(&registry).unwrap();
         let resolved = self
             .resolve_resource_path_in_state(&state, &registry, ResourceTarget::Pane, selectors)
             .map_err(anyhow::Error::new)?;

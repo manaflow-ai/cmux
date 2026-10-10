@@ -80,7 +80,17 @@ describe("agent pane automation", () => {
     expect(missing.missingSession).toBe("old-a1");
     expect(missing.transcript).toEqual([]);
     const long = automationState(
-      host(snapshot({ rows: Array.from({ length: 40 }, (_, k) => ({ id: `u${k}`, version: 1, at: k, kind: "user", text: "x".repeat(900) + k })) as AcpmuxSnapshot["rows"] })).fake,
+      host(
+        snapshot({
+          rows: Array.from({ length: 40 }, (_, k) => ({
+            id: `u${k}`,
+            version: 1,
+            at: k,
+            kind: "user",
+            text: "x".repeat(900) + k,
+          })) as AcpmuxSnapshot["rows"],
+        }),
+      ).fake,
     );
     expect(long.transcript.length).toBe(30);
     expect(long.transcript[0]!.text.length).toBe(500);

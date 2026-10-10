@@ -119,6 +119,7 @@ fn a_registry_without_the_slot_column_gains_it_at_open() {
             .unwrap();
         registry
             .connection
+            .get()
             .execute_batch("ALTER TABLE personal_groups DROP COLUMN top_position")
             .ok();
     }

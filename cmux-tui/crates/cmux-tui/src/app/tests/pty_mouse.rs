@@ -479,7 +479,7 @@ fn scoped_host_mouse_capture_keeps_last_applied_when_state_is_unknowable() {
 /// state so the dropped modes come back.
 #[test]
 fn scoped_focus_gained_reasserts_host_mouse_capture_after_invisible_host_reset() {
-    let mux = Mux::new("scoped-focus-reassert-test", SurfaceOptions::default());
+    let mux = Mux::new("scoped-focus-reassert-test", crate::test_wait::quiet_surface());
     let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
     let mut app = test_app(Session::Local(mux.clone()));
     app.surface_only = Some(surface.id);
@@ -529,7 +529,7 @@ fn scoped_focus_gained_reasserts_host_mouse_capture_after_invisible_host_reset()
 /// on focus-in.
 #[test]
 fn scoped_resize_reasserts_host_mouse_capture_after_invisible_host_reset() {
-    let mux = Mux::new("scoped-resize-reassert-test", SurfaceOptions::default());
+    let mux = Mux::new("scoped-resize-reassert-test", crate::test_wait::quiet_surface());
     let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
     let mut app = test_app(Session::Local(mux.clone()));
     app.surface_only = Some(surface.id);
