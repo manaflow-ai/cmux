@@ -1064,8 +1064,7 @@ def cleanup():
         except subprocess.TimeoutExpired:
             os.kill(app.pid, signal.SIGKILL)
     acpmux("daemon", "shutdown", timeout=30)
-    subprocess.run([CLI, "server", "stop", "--session", f"cmux-app-{TAG}", "--end-terminals"],
-                   env={k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}, capture_output=True, timeout=30)
+    stop_sessions()
     for _ in range(2):
         ps = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True).stdout
         for line in ps.splitlines():
@@ -1077,6 +1076,17 @@ def cleanup():
                 except OSError:
                     pass
         time.sleep(3)  # test harness: let them exit
+
+
+def stop_sessions():
+    """Stops this tag's app session and its Chief owner session (`cmux-chief-<home id>`) by exact
+    name. A Chief owner left by an earlier run of the same tag kept its conversation after the
+    home was deleted, and the new Chief host never saw a Home message (cx-ebm.55 class)."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}
+    for session in (f"cmux-app-{TAG}", f"cmux-chief-{HOME_ID}"):
+        out = subprocess.run([CLI, "server", "stop", "--session", session, "--end-terminals"],
+                             env=env, capture_output=True, text=True, timeout=30)
+        print(f"server stop {session}: exit {out.returncode} {(out.stdout + out.stderr).strip()[:160]}", flush=True)
 
 
 def make_video():
@@ -1093,6 +1103,7 @@ def make_video():
 def main():
     if os.path.exists(SOCKET):
         sys.exit(f"{SOCKET} exists: another {TAG} app runs; pick a fresh tag")
+    stop_sessions()  # an earlier run's Chief owner of this tag must not answer this run's Home
     os.makedirs(WORK, exist_ok=True)
     config = os.path.join(SCRATCH, "cmux.json")
     open(config, "w").write("{}")
