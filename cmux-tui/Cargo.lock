@@ -1417,6 +1417,7 @@ dependencies = [
  "cmux-server-core",
  "cmux-tui-cdp",
  "cmux-tui-core",
+ "cmux-tui-hooks",
  "cmux-tui-machine-agent-protocol",
  "cmux-tui-machine-protocol",
  "cmux-unix-socket",
@@ -1525,6 +1526,23 @@ dependencies = [
  "wait-timeout",
  "windows-sys 0.61.2",
  "zeroize",
+]
+
+[[package]]
+name = "cmux-tui-hooks"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cmux-tui-platform",
+ "getrandom 0.3.4",
+ "libc",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "toml",
+ "toml_edit 0.22.27",
+ "wait-timeout",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

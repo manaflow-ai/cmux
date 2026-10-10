@@ -10,7 +10,7 @@
 mod acp;
 #[cfg(unix)]
 mod agent_browser_provider;
-mod agent_hook_install;
+use cmux_tui_hooks as agent_hook_install;
 mod agent_plugin_config;
 mod app;
 #[cfg(unix)]

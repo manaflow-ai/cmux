@@ -25,6 +25,8 @@ path = "src/bin/cmux-tui-hook.rs"
 [dependencies]
 ghostty-vt.workspace = true
 cmux-tui-core.workspace = true
+# `cmux agent hooks` and the hook paths the Claude wrapper reads.
+cmux-tui-hooks.workspace = true
 cmux-tui-cdp.workspace = true
 cmux-tui-machine-agent-protocol.workspace = true
 cmux-tui-machine-protocol.workspace = true

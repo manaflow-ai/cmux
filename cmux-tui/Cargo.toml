@@ -34,6 +34,7 @@ members = [
     "crates/cmux-tui-cloud-conversations",
     "crates/cmux-tui-platform",
     "crates/cmux-tui-image-paste",
+    "crates/cmux-tui-hooks",
     "crates/cmux-tui-util",
     "crates/cmux-tui-remote-access",
     "crates/cmux-layout-reducer",
@@ -90,6 +91,7 @@ default-members = [
     "crates/cmux-tui-cloud-conversations",
     "crates/cmux-tui-platform",
     "crates/cmux-tui-image-paste",
+    "crates/cmux-tui-hooks",
     "crates/cmux-tui-util",
     "crates/cmux-tui-remote-access",
     "crates/cmux-layout-reducer",
@@ -165,6 +167,7 @@ cmux-local-auth = { path = "crates/cmux-local-auth" }
 cmux-tui-cloud-conversations = { path = "crates/cmux-tui-cloud-conversations" }
 cmux-tui-platform = { path = "crates/cmux-tui-platform" }
 cmux-tui-image-paste = { path = "crates/cmux-tui-image-paste" }
+cmux-tui-hooks = { path = "crates/cmux-tui-hooks" }
 cmux-tui-util = { path = "crates/cmux-tui-util" }
 cmux-tui-remote-access = { path = "crates/cmux-tui-remote-access" }
 cmux-link = { path = "crates/cmux-link" }
