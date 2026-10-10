@@ -188,6 +188,23 @@ export default agentPaneEntry({
         await ctx.hover({ selector: ".acpmux-attachment-image" });
       },
     },
+    "pdf-attached": {
+      note: "A pasted PDF shows a preview card, its file name, and the detected page count before sending.",
+      snapshot: chat(finished),
+      play: async (ctx) => {
+        const view = ctx.document.defaultView!;
+        const pdf = `%PDF-1.4\n1 0 obj << /Type /Page >> endobj\n2 0 obj << /Type /Page >> endobj\n%%EOF`;
+        const file = new view.File([pdf], "design-notes.pdf", { type: "application/pdf" });
+        const field = ctx.find({ selector: ".acpmux-md" });
+        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+        Object.defineProperty(paste, "clipboardData", { value: { files: [file], types: ["Files"] } });
+        field.dispatchEvent(paste);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-document"));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-document[data-page-count='2']"));
+        await ctx.click({ selector: ".acpmux-attachment-document-open" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-pdf-viewer"));
+      },
+    },
     draft: {
       note: "A draft the tab inherited (markdown, two lines).",
       ready: { draft: "Also add a **circuit breaker** after `5` failures.\nKeep the POST rule as is." },
@@ -478,6 +495,16 @@ export default agentPaneEntry({
         await ctx.waitFor(() => {
           const current = search.getAttribute("aria-activedescendant");
           return current !== previous && Boolean(current && ctx.document.getElementById(current));
+        });
+        // Past the visible rows the list follows the highlight (Lawrence 2026-10-09: it did not scroll).
+        for (let step = 0; step < 14; step++) await ctx.press("ArrowDown");
+        await ctx.waitFor(() => {
+          const row = ctx.document.getElementById(search.getAttribute("aria-activedescendant") ?? "");
+          const list = row?.closest(".acpmux-mp-models")?.parentElement;
+          if (!row || !list) return false;
+          const r = row.getBoundingClientRect();
+          const v = list.getBoundingClientRect();
+          return r.top >= v.top - 1 && r.bottom <= v.bottom + 1;
         });
       },
     },

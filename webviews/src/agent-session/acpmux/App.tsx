@@ -111,6 +111,7 @@ import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { sessionLink } from "./links";
 import { ChatHeaderStatus } from "./header/ChatHeaderStatus";
 import { ChatHeaderTools, HEADER_ACTIONS, type ChatMenuItem } from "./header/ChatHeaderTools";
+import { configureQuickActions, type QuickActionMode } from "./header/quickActions";
 import { archiveRow } from "./header/archiveRow";
 import { sideChatRow } from "./header/sideChatRow";
 import { Thinking } from "./conversation/Thinking";
@@ -1604,8 +1605,23 @@ function AcpmuxPane() {
             }).catch(() => undefined),
         }),
       review: hunkReview,
+      route: {
+        harness: snapshot.summary?.harness,
+        name: catalog.find((entry) => entry.id === (snapshot.summary?.harness ?? ""))?.name,
+      },
+      switchModel: () => void openPicker(translate(PICKER_LABELS.model)),
     }),
-    [forkable, forkSeq, connected, hunkReview, loginCommand, snapshot.summary?.hostKind, snapshot.summary?.cwd],
+    [
+      forkable,
+      forkSeq,
+      connected,
+      hunkReview,
+      loginCommand,
+      snapshot.summary?.hostKind,
+      snapshot.summary?.cwd,
+      snapshot.summary?.harness,
+      catalog,
+    ],
   );
   // Streaming text changes rows on every chunk; only the turn's tool calls change its files.
   const diffActivity = useRef<{ key: string; files: ReturnType<typeof turnFiles> }>(undefined);
@@ -1956,6 +1972,7 @@ function AcpmuxPane() {
         }
         if (customization.layout) {
           configureDictation(customization.layout);
+          configureQuickActions(customization.layout);
           window.cmuxAcpmuxRegistry?.configure(customization.layout);
         }
       },
@@ -2477,8 +2494,9 @@ function AcpmuxPane() {
     handoffTargets.length > 0;
   const ignoreFailure = (result: Promise<unknown>) => void result.catch(() => undefined);
   // The header's tools and "..." menu run app actions on this chat's tab.
-  const runHeaderAction = (id: string, cwd?: string) =>
-    ignoreFailure(callNative("pane.action", cwd ? { id, cwd } : { id }));
+  // A quick action names its mode; the App toggles the split it opened (header/quickActions.ts).
+  const runHeaderAction = (id: string, cwd?: string, mode?: QuickActionMode) =>
+    ignoreFailure(callNative("pane.action", { id, ...(cwd ? { cwd } : {}), ...(mode ? { mode } : {}) }));
   // A remote or cloud chat's folder is not on this Mac; its terminal opens in the pane's folder.
   const summary = snapshot.summary;
   const localCwd =
@@ -3099,8 +3117,8 @@ function AcpmuxPane() {
                     )}
                     <ChatHeaderTools
                       tabTools={!quick}
-                      onTerminal={() => runHeaderAction(HEADER_ACTIONS.terminal, localCwd)}
-                      onBrowser={() => runHeaderAction(HEADER_ACTIONS.browser)}
+                      onTerminal={(mode) => runHeaderAction(HEADER_ACTIONS.terminal, localCwd, mode)}
+                      onBrowser={(mode) => runHeaderAction(HEADER_ACTIONS.browser, undefined, mode)}
                       summary={
                         <SummaryButton
                           // Another chat closes its summary and gallery, as it does the image viewer.

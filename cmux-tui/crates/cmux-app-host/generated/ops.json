@@ -381,6 +381,7 @@
     "window_record.list",
     "window_record.put",
     "workspace.create",
+    "workspace.ensure_app",
     "workspace.ensure_home",
     "workspace.focus",
     "workspace.get",

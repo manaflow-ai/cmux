@@ -121,6 +121,15 @@ public final class OverlayHandle {
         host?.layout(self)
     }
 
+    /// From now on clicks pass through the overlay to what is below (it
+    /// is fading out: the page under it gets the next click at once).
+    public func stopTakingMouse() {
+        guard !options.passesThroughClicks else { return }
+        options.passesThroughClicks = true
+        host?.cachedRegions = nil
+        host?.updateMouseRouting()
+    }
+
     public func dismiss() {
         guard !isDismissed else { return }
         isDismissed = true

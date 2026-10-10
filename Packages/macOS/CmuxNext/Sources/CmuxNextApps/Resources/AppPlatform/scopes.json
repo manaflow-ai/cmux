@@ -1573,6 +1573,10 @@
       "scope": "workspace:write",
       "class": "mutation"
     },
+    "workspace.ensure_app": {
+      "scope": "workspace:write",
+      "class": "mutation"
+    },
     "workspace.ensure_home": {
       "scope": "workspace:write",
       "class": "mutation"

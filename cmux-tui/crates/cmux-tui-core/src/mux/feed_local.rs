@@ -113,27 +113,49 @@ impl Mux {
                 Changes::default()
             }
         };
-        let write = |tx: &rusqlite::Transaction<'_>| {
-            write_feed_local_changes(tx, &changes)?;
-            match &folded_into {
-                Some(item) => record_feed_local_folded(
-                    tx,
-                    notification.id.as_str(),
-                    item,
-                    notification.created_at_ms,
-                ),
-                None => Ok(()),
-            }
-        };
+        // The feed rows ride the receipt's transaction (a journal writer
+        // SAVEPOINT, or one request-side transaction when the writer is not
+        // running), so they commit together or not at all.
+        let notification_id = notification.id.as_str().to_string();
+        let created_at_ms = notification.created_at_ms;
+        let write: crate::workspace_registry::OwnedTransactionWrite =
+            Box::new(move |tx: &rusqlite::Transaction<'_>| {
+                write_feed_local_changes(tx, &changes)?;
+                match &folded_into {
+                    Some(item) => {
+                        record_feed_local_folded(tx, &notification_id, item, created_at_ms)
+                    }
+                    None => Ok(()),
+                }
+            });
         let mut registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
-        let revision = registry.commit_resource_effect_with(
+        let (intent, finish) = registry.prepare_effect_outcome_intent_with(
             idempotency_key,
             "notification.create",
             fingerprint,
             outcome,
             Some(deltas),
-            Some(&write),
+            write,
         )?;
+        // The registry stays held across the writer receipt (effect_commit.rs);
+        // the feed lock does too: the writer takes neither.
+        let revision = match self.commit_effect_intent(&mut registry, intent, finish) {
+            Ok(receipt) => receipt.revision(),
+            Err(error) => {
+                // Indeterminate: the writer admitted the batch and almost
+                // always commits it. Keep the in-memory feed on the rows it
+                // is writing, so later posts do not diff against a stale
+                // copy. (If it does not commit, memory is ahead of the
+                // database until the next start reloads the feed.)
+                if error
+                    .downcast_ref::<crate::journal_ingress::JournalCommitIndeterminate>()
+                    .is_some()
+                {
+                    *feed = next;
+                }
+                return Err(error);
+            }
+        };
         *feed = next;
         // The ring goes up with the item, under the feed lock: a read or a
         // tab ack holds this lock while it clears rings, so it sees both the
