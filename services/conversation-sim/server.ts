@@ -2063,8 +2063,24 @@ async function handleHttp(req: Request, server: ReturnType<typeof Bun.serve>): P
       await sleep(lat(400, 900));
       store.broadcastTyping(sender.id, false);
     }
-    const m = store.create(sender.id, text, effect ? { effect: effect as Effect } : {});
-    if (sender.isMe) afterMySend(store, m);
+    // Layout fixtures (JSON only): backdate the message (`ageSeconds`), reply
+    // to the message `replyToIndex` back from the newest, mark it edited, or
+    // pre-load tapbacks (`reactions`: [{participantId, reaction}]).
+    const opts: Partial<Message> = effect ? { effect: effect as Effect } : {};
+    if (isJSON) {
+      if (typeof body.ageSeconds === "number") opts.sentAt = Date.now() - body.ageSeconds * 1000;
+      if (typeof body.replyToIndex === "number") {
+        const target = store.messages[store.messages.length - 1 - body.replyToIndex];
+        if (target) opts.replyToId = target.id;
+      }
+      if (body.edited === true) {
+        opts.editedAt = Date.now();
+        opts.editCount = 1;
+      }
+      if (Array.isArray(body.reactions)) opts.reactions = body.reactions as Message["reactions"];
+    }
+    const m = store.create(sender.id, text, opts);
+    if (sender.isMe && body.quiet !== true) afterMySend(store, m);
     log(`admin say conv=${conv} sender=${sender.id} effect=${effect ?? "-"}`);
     return json({ ok: true, message: wireMessage(m, base) });
   }
