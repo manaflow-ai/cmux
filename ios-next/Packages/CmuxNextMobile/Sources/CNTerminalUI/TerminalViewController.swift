@@ -37,6 +37,24 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
     private var keyboardFrame: CGRect?
     private var keyboardObservers: [any NSObjectProtocol] = []
     private var bottomConstraint: NSLayoutConstraint?
+    private var trailingConstraint: NSLayoutConstraint?
+    /// Mirror mode: the view is the Mac grid's size (at least the screen's).
+    private var mirrorWidth: NSLayoutConstraint?
+    private var mirrorHeight: NSLayoutConstraint?
+    /// The host bridges the Mac's terminals (`term.mirror.v1`): the Mac owns
+    /// the grid; the phone fits the text size to its columns (down to
+    /// `mirrorMinFontSize`, then pans sideways) and never resizes it.
+    private(set) var mirrored = false
+    /// The Mac's grid of a mirrored terminal.
+    private var macGrid: (cols: Int, rows: Int)?
+    /// Sideways offset of a mirrored grid wider than the screen.
+    private var panX: CGFloat = 0
+    private var panAxisHorizontal = false
+    static let mirrorMinFontSize: Double = 7
+    private var lastFitCellWidth: Double = 0
+    /// A pinch on a mirrored grid sets the zoom until the Mac's grid changes.
+    private var mirrorZoomed = false
+    private var fontAtLastFit: Double = 0
     /// Composer (when shown) over the key bar, riding the keyboard's top.
     private let accessoryStack = UIStackView()
     let keyBar = TerminalKeyBar(keys: TerminalKeyBarKey.defaultKeys)
@@ -102,9 +120,13 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
         view.addSubview(terminalView)
         let bottom = terminalView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         bottomConstraint = bottom
+        let trailing = terminalView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor)
+        trailingConstraint = trailing
+        mirrorWidth = terminalView.widthAnchor.constraint(equalToConstant: 320)
+        mirrorHeight = terminalView.heightAnchor.constraint(equalToConstant: 480)
         NSLayoutConstraint.activate([
             terminalView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
-            terminalView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor),
+            trailing,
             terminalView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             // The keyboard never changes the grid's rows: the bottom follows
             // the window's safe area (home indicator), never the keyboard.
@@ -121,9 +143,14 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
         installGestures()
         terminalView.onFocusChange = { [weak self] _ in self?.inputFocusChanged() }
         terminalView.onDraw = { [weak self] in
-            self?.applyGrowCompensation()
-            self?.panToCursor()
-            self?.sync()
+            guard let self else { return }
+            if self.mirrored {
+                if !self.terminalView.pinching && !self.mirrorZoomed { self.fitMirrorFont() }
+                self.view.setNeedsLayout()
+            }
+            self.applyGrowCompensation()
+            self.panToCursor()
+            self.sync()
         }
         terminalView.onReady = { [weak self] in self?.sync() }
         terminalView.onInput = { [weak self] data in self?.send(data) }
@@ -170,6 +197,7 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
             inset = max(inset, bottomInWindow - coverTop)
         }
         if bottomConstraint?.constant != -inset { bottomConstraint?.constant = -inset }
+        layoutMirror(bottomInset: inset)
         if placeAccessories() { view.setNeedsLayout() }
         panToCursor()
         sync()
@@ -192,7 +220,84 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
             attach(client: client, generation: generation, grid: fit)
             return
         }
-        if let hostGrid, hostGrid != fit { scheduleResize(fit) }
+        if !mirrored, let hostGrid, hostGrid != fit { scheduleResize(fit) }
+    }
+
+    // MARK: Mirrored terminals (the Mac owns the grid)
+
+    /// The Mac's grid arrived (attach) or changed (`term.updated`).
+    func macGridChanged(_ terminal: Terminal) {
+        guard mirrored, terminal.cols >= 2, terminal.rows >= 2 else { return }
+        let grid = (cols: terminal.cols, rows: terminal.rows)
+        if let macGrid, macGrid == grid { return }
+        macGrid = grid
+        mirrorZoomed = false
+        lastFitCellWidth = 0
+        lockGrid(grid)
+        fitMirrorFont()
+        view.setNeedsLayout()
+    }
+
+    /// The largest text size (up to the user's) at which every Mac column
+    /// fits the screen's width, never below `mirrorMinFontSize`.
+    private func fitMirrorFont() {
+        guard mirrored, let macGrid, let cell = terminalView.cellMetrics else { return }
+        let available = view.safeAreaLayoutGuide.layoutFrame.width - 2 * cell.padLeft
+        guard available > 0 else { return }
+        // Cell width scales with the text size; the metrics are those of the
+        // size last drawn, so this converges over a draw or two.
+        guard cell.width > 0, abs(Double(cell.width) - lastFitCellWidth) > 0.001 || fontAtLastFit != terminalView.fontSize else { return }
+        lastFitCellWidth = Double(cell.width)
+        let current = terminalView.fontSize
+        let fit = current * Double(available / (CGFloat(macGrid.cols) * cell.width))
+        let size = max(Self.mirrorMinFontSize, min(TerminalFontSize.stored, (fit * 2).rounded(.down) / 2))
+        fontAtLastFit = size
+        if abs(size - current) >= 0.5 {
+            terminalView.setFontSize(size, minimum: Self.mirrorMinFontSize)
+            model.fontSize = terminalView.fontSize
+        }
+    }
+
+    /// Mirror mode sizes the view to the Mac grid (at least the screen) so
+    /// nothing is cropped; the view then pans to show the cursor.
+    private func layoutMirror(bottomInset: CGFloat) {
+        guard mirrored, let macGrid, let cell = terminalView.cellMetrics else { return }
+        let containerWidth = view.safeAreaLayoutGuide.layoutFrame.width
+        let containerHeight = view.bounds.maxY - bottomInset - view.safeAreaLayoutGuide.layoutFrame.minY
+        let gridWidth = 2 * cell.padLeft + CGFloat(macGrid.cols) * cell.width
+        let gridHeight = 2 * cell.padTop + CGFloat(macGrid.rows) * cell.height
+        let width = max(containerWidth, gridWidth.rounded(.up))
+        let height = max(containerHeight, gridHeight.rounded(.up))
+        if mirrorWidth?.constant != width { mirrorWidth?.constant = width }
+        if mirrorHeight?.constant != height { mirrorHeight?.constant = height }
+        panX = min(max(0, panX), max(0, width - containerWidth))
+    }
+
+    private func setMirrored(_ on: Bool) {
+        guard mirrored != on else { return }
+        mirrored = on
+        terminalView.followsStoredFontSize = !on
+        trailingConstraint?.isActive = !on
+        bottomConstraint?.isActive = !on
+        mirrorWidth?.isActive = on
+        mirrorHeight?.isActive = on
+        if !on {
+            macGrid = nil
+            panX = 0
+            terminalView.setFontSize(TerminalFontSize.stored)
+        }
+        view.setNeedsLayout()
+    }
+
+    /// Keeps the cursor column on screen sideways (after typing).
+    private func revealCursorHorizontally() {
+        guard mirrored else { return }
+        let cursor = terminalView.cursorRect
+        let width = view.safeAreaLayoutGuide.layoutFrame.width
+        guard cursor.width > 0, width > 0 else { return }
+        if cursor.maxX - panX > width - 8 { panX = cursor.maxX - width + 24 }
+        if cursor.minX < panX + 8 { panX = max(0, cursor.minX - 24) }
+        panToCursor()
     }
 
     private func attach(client: HostClient, generation: Int, grid: (cols: Int, rows: Int)) {
@@ -243,6 +348,12 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
                 self.attachedGeneration = generation
                 self.model.terminal = result.terminal
                 self.model.status = result.terminal.running ? .live : .exited
+                // The replay is formatted for the Mac's grid: lock it first.
+                self.setMirrored(self.connection.hostInfo?.supports(.terminalMirror) ?? false)
+                if self.mirrored {
+                    self.macGrid = nil
+                    self.macGridChanged(result.terminal)
+                }
                 self.startStream(client: client, streamId: result.streamId)
                 // The view may have changed size while attaching.
                 self.sync()
@@ -331,6 +442,7 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
 
     private func send(_ data: Data) {
         guard let streamId, let client else { return }
+        revealCursorHorizontally()
         try? client.sendTerminalInput(streamId: streamId, data)
     }
 
@@ -488,6 +600,8 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
     /// locks the matching grid at once and sends one `term.resize`.
     private func settle() {
         guard let window = view.window else { return }
+        // A mirrored terminal keeps the Mac's grid: the view slides instead.
+        if mirrored { placeAccessories(); return }
         placeAccessories()
         view.layoutIfNeeded()
         // Target positions, not the animating ones: the keyboard's end frame
@@ -508,6 +622,7 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
     /// (a settled change, not a drag).
     private func resizeNow() {
         resizeTask?.cancel()
+        guard !mirrored else { return }
         guard let client, streamId != nil, let terminalId else { return }
         let fit = terminalView.fittingGrid
         guard fit.cols >= 2, fit.rows >= 2, hostGrid.map({ $0 != fit }) ?? true else { return }
@@ -594,7 +709,7 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
             shift = min(max(shift, cursorShift), cursorTopLimit)
         }
         shift = max(0, shift)
-        let transform = CGAffineTransform(translationX: 0, y: -shift)
+        let transform = CGAffineTransform(translationX: -panX, y: -shift)
         if terminalView.transform != transform { terminalView.transform = transform }
         if model.keyboardShift != shift { model.keyboardShift = shift }
         updateDebugValue()
@@ -640,6 +755,11 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
     /// a fling. Works with the keyboard up.
     @objc private func panned(_ recognizer: UIPanGestureRecognizer) {
         let point = recognizer.location(in: terminalView)
+        // A mirrored grid wider than the screen pans sideways on a horizontal drag.
+        if panAxisHorizontal || (recognizer.state == .began && horizontalPanAllowed && isHorizontal(recognizer)) {
+            panSideways(recognizer)
+            return
+        }
         switch recognizer.state {
         case .began:
             momentum?.stop()
@@ -673,7 +793,33 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
         let v = pan.velocity(in: terminalView)
         let dx = abs(t.x) > 0.5 || abs(t.y) > 0.5 ? abs(t.x) : abs(v.x)
         let dy = abs(t.x) > 0.5 || abs(t.y) > 0.5 ? abs(t.y) : abs(v.y)
-        return dy >= dx
+        return dy >= dx || horizontalPanAllowed
+    }
+
+    /// True when a mirrored grid is wider than the screen.
+    private var horizontalPanAllowed: Bool {
+        mirrored && terminalView.bounds.width > view.safeAreaLayoutGuide.layoutFrame.width + 0.5
+    }
+
+    private func isHorizontal(_ pan: UIPanGestureRecognizer) -> Bool {
+        let t = pan.translation(in: view)
+        let v = pan.velocity(in: view)
+        let use = abs(t.x) > 0.5 || abs(t.y) > 0.5
+        return (use ? abs(t.x) : abs(v.x)) > (use ? abs(t.y) : abs(v.y))
+    }
+
+    private func panSideways(_ recognizer: UIPanGestureRecognizer) {
+        switch recognizer.state {
+        case .began, .changed:
+            panAxisHorizontal = true
+            let dx = recognizer.translation(in: view).x
+            recognizer.setTranslation(.zero, in: view)
+            let maxX = max(0, terminalView.bounds.width - view.safeAreaLayoutGuide.layoutFrame.width)
+            panX = min(max(0, panX - dx), maxX)
+            panToCursor()
+        default:
+            panAxisHorizontal = false
+        }
     }
 
     func gestureRecognizer(_ recognizer: UIGestureRecognizer,
@@ -719,11 +865,13 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
             pinchBase = terminalView.fontSize
             terminalView.pinching = true
         case .changed:
-            terminalView.setFontSize(pinchBase * Double(recognizer.scale))
+            terminalView.setFontSize(pinchBase * Double(recognizer.scale),
+                                     minimum: mirrored ? Self.mirrorMinFontSize : TerminalFontSize.range.lowerBound)
             model.fontSize = terminalView.fontSize
         case .ended, .cancelled:
             terminalView.pinching = false
-            TerminalFontSize.store(terminalView.fontSize)
+            // Mirrored: a pinch zooms this view only (the fit is per Mac grid).
+            if mirrored { mirrorZoomed = true } else { TerminalFontSize.store(terminalView.fontSize) }
             model.fontSize = terminalView.fontSize
         default:
             break

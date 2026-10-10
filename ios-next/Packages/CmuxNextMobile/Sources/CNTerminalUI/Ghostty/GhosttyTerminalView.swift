@@ -49,6 +49,8 @@ final class GhosttyTerminalView: UIView {
     private(set) var fontSize: Double = TerminalFontSize.stored
     /// A pinch owns the text size until it ends.
     var pinching = false
+    /// False while the controller fits the text size to a Mac-owned grid.
+    var followsStoredFontSize = true
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -69,7 +71,7 @@ final class GhosttyTerminalView: UIView {
             forName: UserDefaults.didChangeNotification, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self, !self.pinching else { return }
+                guard let self, !self.pinching, self.followsStoredFontSize else { return }
                 self.setFontSize(TerminalFontSize.stored)
             }
         })
@@ -246,8 +248,9 @@ final class GhosttyTerminalView: UIView {
     // MARK: Font size
 
     /// Sets the text size (points), clamped; the grid follows on the next draw.
-    func setFontSize(_ size: Double) {
-        let clamped = TerminalFontSize.clamp(size)
+    /// `minimum` lets a mirrored Mac grid go below the settings range.
+    func setFontSize(_ size: Double, minimum: Double = TerminalFontSize.range.lowerBound) {
+        let clamped = (min(max(size, minimum), TerminalFontSize.range.upperBound) * 2).rounded() / 2
         guard clamped != fontSize else { return }
         fontSize = clamped
         applyFontSize(clamped)
@@ -334,6 +337,14 @@ final class GhosttyTerminalView: UIView {
             row -= 1
         }
         return (lastRow, CGFloat(metrics.cell_height), CGFloat(metrics.padding_top))
+    }
+
+    /// Cell size and padding in points (from the current font).
+    var cellMetrics: (width: CGFloat, height: CGFloat, padLeft: CGFloat, padTop: CGFloat)? {
+        guard let surface else { return nil }
+        var m = ghostty_surface_grid_metrics_s()
+        guard ghostty_surface_grid_metrics(surface, &m), m.cell_width > 0 else { return nil }
+        return (CGFloat(m.cell_width), CGFloat(m.cell_height), CGFloat(m.padding_left), CGFloat(m.padding_top))
     }
 
     /// The cursor's row in the viewport and the cell height (points).

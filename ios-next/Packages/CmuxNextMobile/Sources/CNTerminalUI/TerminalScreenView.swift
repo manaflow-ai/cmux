@@ -125,6 +125,7 @@ public struct TerminalScreenView: View {
                     switch push {
                     case .terminalUpdated(let terminal) where terminal.id == terminalId && model.status != .ended:
                         model.terminal = terminal
+                        model.controller?.macGridChanged(terminal)
                         if !terminal.running { model.status = .exited }
                     case .terminalExited(let id, _) where id == terminalId:
                         model.status = .exited
