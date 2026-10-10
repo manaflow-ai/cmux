@@ -294,8 +294,8 @@ final class SidebarListView: NSView {
         case let (.section(id), view as SectionHeaderRowView):
             guard let section = sections[id] else { return }
             view.configure(section, row: row)
-        case let (.emptySection(id), view as EmptySectionRowView):
-            view.configure(pinned: id == .pinned)
+        case let (.emptySection(id), view as EmptySectionRowView): view.configure(pinned: id == .pinned)
+        case let (.folder(_, folder), view as FolderHeaderRowView): view.configure(folder: folder)
         default:
             break
         }

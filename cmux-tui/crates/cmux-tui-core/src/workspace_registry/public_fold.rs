@@ -126,7 +126,7 @@ impl WorkspaceRegistry {
         let Some(mut fold) = self.public_fold.take() else { return };
         let caught_up = (|| -> anyhow::Result<bool> {
             loop {
-                let head = current_resource_revision(&self.connection)?;
+                let head = current_resource_revision(&self.connection.get())?;
                 if fold.revision == head {
                     return Ok(true);
                 }
@@ -156,7 +156,7 @@ impl WorkspaceRegistry {
     /// hold only a shared registry borrow).
     pub(crate) fn stated_topology_value(&self, resource: &str, id: &str) -> Option<Option<Value>> {
         let fold = self.public_fold.as_ref()?;
-        let head = current_resource_revision(&self.connection).ok()?;
+        let head = current_resource_revision(&self.connection.get()).ok()?;
         (fold.revision == head)
             .then(|| fold.values.get(&(resource.to_string(), id.to_string())).cloned())
     }

@@ -124,7 +124,7 @@ import { LiveChatChoice } from "./LiveChatChoice";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
 import type { HandoffReviewInput } from "./handoff/review";
-import { continueTargets, mergedCommands, resolveHarnessTarget } from "./cmuxCommands";
+import { continueTargets, mergedCommands, resolveHarnessTarget, type CmuxCommand } from "./cmuxCommands";
 import { importedPrompt, parseImportedSession } from "./importSession";
 import { useCheckpoints } from "./checkpoints/controller";
 import { PermissionPanel } from "./permissions/Panel";
@@ -143,6 +143,7 @@ type RowProps = {
   row: AcpmuxRow;
   onToggleActivity: (id: string) => void;
   expanded: boolean;
+  controls?: string;
   onOpenDiff?: OpenDiff;
   githubRepository?: string;
 };
@@ -323,13 +324,14 @@ const ToolActivityRow = memo(
 
 /// "Worked for 15s": opens the turn's commentary and tool calls (turnView in conversation/turns.ts).
 const WorkedRow = memo(
-  function WorkedRow({ row, onToggleActivity, expanded }: RowProps) {
-    return <WorkedFor row={row} expanded={expanded} onToggle={() => onToggleActivity(row.id)} />;
+  function WorkedRow({ row, onToggleActivity, expanded, controls }: RowProps) {
+    return <WorkedFor row={row} expanded={expanded} controls={controls} onToggle={() => onToggleActivity(row.id)} />;
   },
   (a, b) =>
     a.row.id === b.row.id &&
     a.row.version === b.row.version &&
     a.expanded === b.expanded &&
+    a.controls === b.controls &&
     a.onToggleActivity === b.onToggleActivity,
 );
 
@@ -532,6 +534,7 @@ function RowFrame({
   return (
     <article
       ref={ref}
+      id={rowDomId(row.id)}
       data-row-id={row.id}
       className={`acpmux-row acpmux-${kind}${entering ? " acpmux-row--enter" : ""}`}
       aria-label={speaker(kind, t)}
@@ -553,6 +556,19 @@ const rowKind = (row: AcpmuxRow) =>
   row.items?.some((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange")
     ? "editedFiles"
     : row.kind;
+const rowDomId = (id: string) => `acpmux-row-${encodeURIComponent(id)}`;
+const disclosureControls = (rows: readonly AcpmuxRow[], after: number): string | undefined => {
+  const ids: string[] = [];
+  for (let index = after; index < rows.length; index += 1) {
+    const row = rows[index]!;
+    // turnView marks every row copied under an open Worked-for disclosure as settled. This
+    // includes assistant commentary before the tool calls; stopping on kind alone left that
+    // first commentary row outside aria-controls and made the disclosure target incomplete.
+    if (!row.settled) break;
+    ids.push(rowDomId(row.id));
+  }
+  return ids.length > 0 ? ids.join(" ") : undefined;
+};
 const currentRegistry = (): NativeRegistry => ({
   ...defaultRegistry,
   ...(window.cmuxAcpmuxRegistry as unknown as NativeRegistry | undefined),
@@ -859,6 +875,8 @@ export function VirtualTranscript({
             const kind = rowKind(row);
             const Component = registry[kind] ?? NoticeRow;
             const isExpanded = expanded.has(row.id);
+            const controls =
+              row.kind === WORKED && isExpanded ? disclosureControls(rows, absoluteIndex + 1) : undefined;
             return (
               <RowFrame
                 key={row.id}
@@ -879,6 +897,7 @@ export function VirtualTranscript({
                   onToggleActivity={onToggleActivity}
                   onOpenDiff={onOpenDiff}
                   expanded={isExpanded}
+                  controls={controls}
                   githubRepository={githubRepository}
                 />
               </RowFrame>
@@ -979,6 +998,7 @@ function DefaultComposerChips({
       onAddAgent={() => void callNative("action.run", { id: "agent.harness.add" }).catch(() => undefined)}
       showPlan={false}
       onCompact={() => void callNative("chat.send", { text: "/compact", attachments: [] })}
+      onShowContextUsage={(show) => void callNative("pane.showContextUsage", { show }).catch(() => undefined)}
       pickerCatalog={picker.catalog}
       catalogRefresh={{ status: refreshStatus, date: picker.date, refresh: refreshCatalog }}
       // A prewarm hint for the direct client only: the native host has no daemon to warm.
@@ -1105,6 +1125,14 @@ function AcpmuxPane() {
     !snapshot.handoff?.receipt;
   const handoffLoading = !!snapshot.sessionId && !!snapshot.canHandoff && !snapshot.handoff?.ready;
   const freshChat = !reviewing && !handoffLoading && isNewChat(snapshot, newSession);
+  const continueAvailable =
+    !!snapshot.canHandoff &&
+    !!snapshot.handoff?.ready &&
+    !snapshot.isWorking &&
+    !snapshot.queue.length &&
+    !snapshot.handoff?.busy &&
+    !reviewing &&
+    continueTargets(catalog, snapshot.summary?.harness).length > 0;
   /// Takes acpmux's trust refusal of a prompt (useFolderTrustAsk.ts): the question shows for the
   /// folder it named, and `again` sends the held prompt after Trust.
   const trustRefused = useRef<((error: unknown, again?: () => void) => boolean) | undefined>(undefined);
@@ -1518,11 +1546,14 @@ function AcpmuxPane() {
   }, [showsWhatItIs]);
   const composerSnapshot = useMemo(() => {
     const current = catalog === snapshot.catalog ? snapshot : { ...snapshot, catalog };
-    const withCommands = { ...current, commands: mergedCommands(snapshot.commands) };
+    const enabledCmuxActions = new Set<CmuxCommand["action"]>(["import"]);
+    if (forkable && forkSeq !== undefined) enabledCmuxActions.add("fork");
+    if (continueAvailable) enabledCmuxActions.add("continue");
+    const withCommands = { ...current, commands: mergedCommands(snapshot.commands, enabledCmuxActions) };
     return projectDraft && !snapshot.sessionId
       ? { ...withCommands, summary: { sessionId: "", cwd: projectDraft } }
       : withCommands;
-  }, [snapshot, catalog, projectDraft]);
+  }, [snapshot, catalog, projectDraft, continueAvailable, forkable, forkSeq]);
   useEffect(() => {
     if (snapshot.sessionId) setProjectDraft(undefined);
   }, [snapshot.sessionId]);
@@ -2473,7 +2504,14 @@ function AcpmuxPane() {
           }}
         />
       )}
-      {showsFolderChoice({ offered: chooseFolder, freshChat, quick, projectDraft, sessionId: snapshot.sessionId }) && (
+      {showsFolderChoice({
+        offered: chooseFolder,
+        freshChat,
+        quick,
+        projectDraft,
+        sessionId: snapshot.sessionId,
+        missingFolder: Boolean(folderNeeded && !snapshot.sessionId),
+      }) && (
         <FolderChoice
           error={folderError}
           onChoose={() => {
@@ -2496,6 +2534,11 @@ function AcpmuxPane() {
           chips={ComposerChips}
           draft={draft}
           onCmuxCommand={(command, args) => {
+            if (command.action === "fork") {
+              if (!forkable || forkSeq === undefined || args?.trim()) return false;
+              ignoreFailure(callNative("chat.fork", { throughSeq: forkSeq }));
+              return true;
+            }
             if (command.action !== "continue" || !canContinue) return false;
             if (!args?.trim()) {
               setContinuing(true);
@@ -2623,6 +2666,7 @@ function AcpmuxPane() {
           blocked={trustAsk.blocked}
           accessory={<DictationButton dictation={dictation} />}
           onImportFile={importFile}
+          onEdit={(command) => ignoreFailure(callNative("pane.edit", { command }))}
         />
       </ImageViewerContext.Provider>
     </>

@@ -18,8 +18,12 @@ cmux-unix-socket.workspace = true
 cmux-pty.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-conversation.workspace = true
+cmux-feed-core.workspace = true
 cmux-tui-cloud-conversations.workspace = true
 cmux-tui-platform.workspace = true
+cmux-tui-image-paste.workspace = true
+cmux-tui-remote-access.workspace = true
+cmux-tui-util.workspace = true
 cmux-terminal-iface.workspace = true
 cmux-terminal-sizing.workspace = true
 serde.workspace = true
@@ -36,6 +40,7 @@ cmux-local-auth.workspace = true
 cmux-link.workspace = true
 getrandom.workspace = true
 rusqlite.workspace = true
+parking_lot = { workspace = true, features = ["arc_lock"] }
 fs4.workspace = true
 sha2.workspace = true
 quick-xml.workspace = true
@@ -47,6 +52,8 @@ cmux-app-host.workspace = true
 [dev-dependencies]
 cmux-tui-cloud-conversations = { workspace = true, features = ["test-support"] }
 cmux-tui-platform = { workspace = true, features = ["test-support"] }
+cmux-tui-remote-access = { workspace = true, features = ["test-support"] }
+cmux-tui-util = { workspace = true, features = ["test-support"] }
 cmux-unix-socket = { workspace = true, features = ["test-support"] }
 proptest = { version = "1", default-features = false, features = ["std"] }
 

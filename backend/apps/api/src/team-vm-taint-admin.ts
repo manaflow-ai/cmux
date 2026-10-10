@@ -1,7 +1,7 @@
 import type { OwnerFrame, Principal, RowReader } from "@cmux/ownership"
 import { TeamVmRebuild, TeamVmRetiredDelete, TeamVmRetiredExport, TeamVmTaintAccept } from "@cmux/protocol"
 import { decodeParams } from "./domains/common.ts"
-import { memberOf, roleOf } from "./domains/team-members.ts"
+import { can, memberOf } from "./domains/team-members.ts"
 import type { TeamState } from "./domains/team.ts"
 import type { DomainReply } from "./team-domain-external.ts"
 import type { AdminReply, AdminRequest } from "./team-vm-taint-run.ts"
@@ -28,8 +28,7 @@ export const vmAdminExternal = async (deps: VmAdminDeps, p: Principal, frame: { 
   const fail = (code: string, message: string, retryable = false): DomainReply => ({ ...base, ok: false, error: { code, message, retryable } })
   const state = deps.state()
   if (p.team !== deps.team || !p.user || !memberOf(state, deps.rows, p.user)) return fail("auth.forbidden", "not a member of this team")
-  const role = roleOf(state, deps.rows, p.user)
-  if (p.kind !== "session" || p.agent || (role !== "owner" && role !== "admin")) return fail("auth.forbidden", "only team owners and admins act on the team VM, in a person's session")
+  if (p.kind !== "session" || p.agent || !can(state, deps.rows, p.user, "team.manage")) return fail("auth.forbidden", "only team owners and admins act on the team VM, in a person's session")
   const def = Object.hasOwn(defs, frame.op) ? defs[frame.op as keyof typeof defs] : null
   if (!def) return fail("validation.invalid", `unknown op ${frame.op}`)
   // A rebuild does not carry /srv/team (no journal replay yet): only the owner's word that the files were copied off deletes the paused VM (cx-zr9i).

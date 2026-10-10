@@ -1,43 +1,91 @@
 # Projects: one durable list, owned by the daemon
 
-Status: decision 2026-10-09 (cx-e2aa, New Tab project picker). Binding: layer-ownership.md (L1-L5, section 4 checklist), OWNERSHIP-PRINCIPLES.md.
+Status: design 2026-10-09 (cx-m0p7, follow-up of cx-e2aa). Binding: layer-ownership.md (L1-L5, section 4 checklist), OWNERSHIP-PRINCIPLES.md.
 
-Lawrence (2026-10-09): "let's bring in the model selector into the new tab page, as well as project picker. we need to store projects somewhere too."
+Lawrence (2026-10-09, via the chief): "we need to store projects somewhere too"; then: auto-read and import projects from Claude Code, Codex (CLI and the ChatGPT/Codex desktop app), OpenCode, t3code and the other common tools (Cursor, Zed, VS Code, JetBrains, Conductor, Pi, Gemini CLI, ...); customizable after import; resync smartly when the user later makes a project in one of those tools.
 
-## 1. What exists (tip c0360988c23d)
+## 1. What exists (tip 29ad65d3ddaa)
 
-No project list is stored anywhere. Every list the app shows is rebuilt:
+No project list is stored. Every list the app shows is rebuilt:
 
-- Swift `AgentProjectScan` / `RecentProjectScan` (`CmuxNextOnboarding/System/AgentProjectScan.swift`): agent session files (Claude, Codex, Pi, OpenCode cwds) plus a bounded git-repo walk under common roots. Never saved. It must stay in Swift: it is the code that knows which folders are privacy-protected (no TCC prompt).
-- `OnboardingService.projectFolders`: the scan at launch, in memory; the New Tab handshake carries it as `newTab.projects`.
-- The page bridge `project.list` (`NewTabPage.swift` handler): the scan again on every query, with session and tab cwds as hints. `project.browse` opens an NSOpenPanel; the folder picked is not remembered.
-- acpmux sessions carry `cwd` and `updated_at` (the strongest "last used" signal for agent work).
-- cmux-tui-core `workspace.agent_folder.set` (the chosen agent folder per workspace) and, on `feat-cmux-next-nn3e-folder`, the `workspace.agent_start.get` resolver (cx-nn3e). Neither is a list.
-- A second, separate list: the acpmux standalone web UI keeps its sidebar project order in `localStorage` (`acpmux.sidebar.projects.v1`), a webview owning durable state (L7 violation).
+- Swift `AgentProjectScan` / `RecentProjectScan` (`CmuxNextOnboarding/System/AgentProjectScan.swift`): Claude, Codex, Pi and OpenCode session files plus a bounded git walk under `~/Projects`-style roots, at launch (`OnboardingService.projectFolders`) and again on each `project.list` query from the New Tab page. Never saved.
+- `cmux-chat-index` (Rust, used by acpmux): 23 harness adapters (Claude Code, Codex incl. the desktop app's `originator`, OpenCode, Pi, Gemini, cursor-agent, ...) with per-OS roots and env overrides (`roots/table.rs`), and a `ChatEntry {harness, cwd, updated_ms, source_path}` per chat. acpmux owns the merged index and one FSEvents/inotify watcher (`acpmux/src/chats/watch.rs`).
+- cmux-tui-core: `workspace.agent_folder.set` (chosen folder per workspace) and, coming, `workspace.agent_start.get` (cx-nn3e / cx-9aps). No project table.
+- A second list in a webview: acpmux web `localStorage["acpmux.sidebar.projects.v1"]` (L7 violation).
 
-## 2. Decision
+## 2. Model
 
-The project list is daemon state owned by the cmux-tui-core store (the workspace store), one writer, exposed as v2 resource operations. Not acpmux: projects serve terminals and workspaces (onboarding `openProjects`) as well as agent chats, and the store already owns the per-workspace agent folder and the coming start-folder resolver, so the folder rules (canonical path, never `~` or above, never agent-home) are written once.
+The cmux-tui-core store owns one project table (one writer). A project:
 
-Record: `{path, name, last_used_at, pinned, source}`; `name` defaults to the last path component; `source` is `used | picked | scanned`.
+| Field | Meaning |
+| --- | --- |
+| `path` | canonical key: absolute, `realpath`-resolved, no trailing slash, case as on disk |
+| `name` | display name; defaults to the last path component |
+| `sources[]` | `{source, first_seen_ms, last_used_ms}` per source that reported the path (no "last seen": it would rewrite every row on every resync) |
+| `overlay` | the user's edits: `rename?`, `pinned`, `hidden`, `order?` |
+| `state` | `present` or `missing` (gone from every source and from disk) |
 
-Ops (spec `resource-operations-v2.json`, capability `project-list-v1`):
+`source` is one of the adapter ids (section 3) or `user` (added by hand, Choose Folder, a picker's typed path) or `workspace` (a cmux workspace was made there).
 
-- `project.list {limit?, query?}` -> projects, pinned first, then `last_used_at` descending.
-- `project.touch {path, source}` with an idempotency key: inserts or bumps `last_used_at`. The store calls it itself when `agent_start.get` resolves a folder and when a workspace is created with a cwd; the app sends it when the user picks a folder in a picker or the folder panel.
-- `project.update {path, name?, pinned?}`, `project.remove {path}`.
-- Typed rejects: `invalid_path`, `home_or_above`, `agent_home`.
+Derived for readers: `last_used_ms = max(sources[].last_used_ms)`; the list orders pinned first (by `order`), then `last_used_ms` descending; hidden projects are left out unless asked.
 
-Swift: the `project.list` bridge reads the store list first and appends `RecentProjectScan` results the store does not have (scan results stay hints; the app may `project.touch` them with source `scanned` only on a user pick). TS: `Project` gains `pinned` and `lastUsed` from the generated type; the picker renders, never orders.
+## 3. Source adapters
 
-## 3. Slices
+Each adapter yields `(path, source, last_used_ms)` records and nothing else. They reuse `cmux-chat-index` knowledge (roots per OS, env overrides, cwd extraction) instead of a second copy:
 
-1. (cx-e2aa, landed with this file) New Tab page: project picker and model/effort/speed chip on top, using the existing `project.list` path. No storage change.
-2. Store resource: spec entry, `core/state/project*.rs` reducer with invariant tests, migration, generated Swift/TS types, `agent_start.get` touch (after cx-nn3e lands). Needs the CORE window token.
-3. Swift `project.list` reads the store; picks and the folder panel send `project.touch`.
-4. Remove the second list: acpmux web `acpmux.sidebar.projects.v1` reads the store list.
+- From the chat index (agent harnesses): claude-code, codex (CLI and desktop app, same `CODEX_HOME`), opencode, pi, gemini, cursor-agent, and the other chat-index harnesses. The path is `ChatEntry.cwd`, `last_used_ms` is `updated_ms`.
+- Editor adapters in `cmux-tui-core::state::project_sources` (one module per editor family, same roots-per-OS style):
+  - VS Code family (Code, Insiders, Cursor IDE, Windsurf, VSCodium): `User/globalStorage/state.vscdb` `history.recentlyOpenedPathsList` (local `folderUri` entries, newest first; the list has no times, so the file's mtime is the first entry's use and each later entry gets only its rank, so a write to the file never makes the whole list look just used), else, only when `state.vscdb` does not exist, the `profileAssociations.workspaces` folders of `User/globalStorage/storage.json`. Remote URIs, files and `.code-workspace` files are not projects.
+  - Zed: its `workspaces` table (`~/Library/Application Support/Zed/db/0-stable/db.sqlite`, `$XDG_DATA_HOME/zed/...`, `%LOCALAPPDATA%\Zed\...`): local rows (`remote_connection_id` null), one root per line of `paths`, UTC `timestamp`. Zed keeps a file opened on its own as a root; the store reads no disk, so a root named like a source file (`main.rs`, `notes.md`) is left out by its extension (not `.js` or `.io`, which name real folders such as `three.js`).
+  - JetBrains: `options/recentProjects.xml` of each product config dir. Not in the adapters slice: no JetBrains IDE is installed on the team Macs, so there is no verified fixture yet.
+  - t3code, Conductor: their workspace/repo lists (paths verified from the installed app before the adapter lands; an adapter without a verified fixture does not land).
+- Each adapter has a red test with a fixture dir per OS layout (macOS, Linux, Windows paths), including a missing file and a corrupt file.
 
-## 4. Open questions
+Single watcher rule: acpmux already watches the chat roots and the app already mirrors that index (`ChatsFeed`, one `_acpmux/chats_watch` push connection). The store starts no second watcher on them, and acpmux gets no daemon client: the app relays what the index says. On every index change, `ProjectsImport` (CmuxNextApp) groups the chats by harness, takes each cwd with its newest `updatedAt`, and sends one `project.observe {source: <harness>, entries, complete: true}` per harness whose set changed (content hash; no timer). It sends nothing while the index is still scanning or is turned off (`ready`/`enabled` false): a partial list sent as complete would drop the harness from its projects. The relay holds no rule: refusals, merge and the overlay live in the store. Strongest objection: the import stops while the app is closed. Accepted: the index is acpmux's and survives, so the next app start relays everything; a headless import can move into the daemon when acpmux moves in-process (cx-ncc.27).
 
-- Pin and rename UI: the project picker's row menu (later, with slice 3).
-- Remote machines: a project path is per machine; the record key becomes `(machine, path)` when the Cloud/SSH folder pickers use it. Slice 2 keys local paths only and reserves the column.
+The editor adapters (VS Code family, Zed, JetBrains, later t3code and Conductor) read a few small files under `~/Library/Application Support` (never a privacy-protected folder), so the store runs them itself in `cmux-tui-core::state::project_sources`, with crates it already has (`serde_json`, `rusqlite`, `quick-xml`): on `project.sync` (the app sends one per daemon connection, so at every app launch and daemon restart), and through file watches in slice 3. Each editor's list is `complete`; a missing or unreadable file sends nothing for that editor, so a file caught mid-write never drops its projects. Each yields `(path, source, last_used_ms)` into the same reducer.
+
+## 4. Resync (event-driven, never a timer)
+
+- At daemon start: one full scan of every enabled source.
+- File watches: the editor adapters' source files (FSEvents/inotify through `notify`, debounced like `chats/watch.rs`: 300 ms quiet, 2 s max burst); acpmux pushes chat changes as they happen.
+- On app activation: the app rescans only the sources whose files changed since the last scan (mtime + size check), so a project made in the ChatGPT app while cmux was in the background shows on the next switch to cmux, and sends `project.sync {existing, gone}`: the disk facts it checked with its own privacy rules (PrivacyFolder; a protected folder is never stat'ed unasked). The store reads no disk for observed paths: a read inside a privacy-protected folder raises a macOS prompt attributed to cmux, and a stale network mount would stall the store's locks.
+- No polling interval anywhere.
+
+## 5. Merge rules (the reducer, invariant-tested)
+
+1. A new path from any source: add it, `state = present`, the source's times set.
+2. A known path: update that source's `last_seen_ms`/`last_used_ms` only. Never touch `overlay`.
+3. `hidden` stays hidden on every resync; a hidden project is never re-added as visible.
+4. A path that no source reports any more and that is gone from disk: `state = missing` (shown dimmed, removable). Never deleted automatically.
+5. A `user` source is never dropped by a resync.
+6. Disabling a source removes that source entry from every project; a project left with no source and no overlay is removed, one with an overlay (pinned, renamed) stays.
+7. Paths are normalized lexically (absolute, no trailing slash, no `.`/`..`, the `/System/Volumes/Data` firmlink removed) and compared case-insensitively. Refused paths are never projects: `/`, the home folder itself, temp dirs, agent homes (cmux agent-home and each harness's own config dir), and anything the protected-folder rule refuses to look into is kept only if a source reported it, never walked (`acpmux/src/protected_folders.rs`, one copy).
+
+8. At most 1000 projects: past it, the least recently used imports with no user edit and no `user` source are dropped first.
+
+## 6. Ops (spec `resource-operations-v2.json`, capability `project-list-v1`)
+
+- `project.list {query?, include_hidden?, limit?}` -> projects (section 2 shape).
+- `project.observe {source, entries: [{path, last_used_ms}], complete?}` (acpmux and the editor adapters; at most 10000 entries, a `complete` source sends everything in one batch; a re-observe with the same times changes nothing).
+- `project.sync {existing?, gone?}` (app activation; the app's disk facts, at most 10000 paths).
+- `project.add {path}` (source `user`), `project.update {path, rename?, pinned?, hidden?, order?}`, `project.remove {path}` (drops `user`, sets `hidden` for a path a source still reports, so it does not come back).
+- `project.sources.get` / settings: per-source on/off lives in `settings.projects.sources` (schema, generated), read by the store.
+- Typed rejects: `invalid_path`, `refused_path`, `unknown_project`.
+- Events: `session.events` `state_upsert` for the `projects` resource, as `sidebar_layout` does.
+
+## 7. Privacy
+
+Local only: the table lives in the daemon store; nothing is sent to Cloud, telemetry never carries a path (only counts per source). `~` and `/` are never projects. A source is read only while enabled.
+
+## 8. UI
+
+- Settings: a Projects page (React settings page) listing projects (rename, pin, hide, remove, add folder) and per-source toggles with each source's project count. First import runs silently; onboarding reads the list as detection input (hq-b1).
+- New Tab and composer project pickers read `project.list`; picks and Choose Folder send `project.add`/`project.touch` intents. Swift keeps no copy.
+
+## 9. Slices (one landing each)
+
+1. Store + ops + reducer (CORE window): table, `project.list/observe/add/update/remove/sync`, merge invariants, capability, generated types. Red tests: reducer invariants (rules 1-7), protocol tests.
+2. Adapters: chat-index harness sources via acpmux `project.observe`; editor adapters (VS Code family, Zed, JetBrains), then t3code and Conductor once fixtures are verified. Red test per adapter with fixture dirs.
+3. Resync: daemon-start scan, editor file watches, app activation `project.sync`.
+4. UI: Swift `project.list` reads the store (scan becomes an adapter only); Settings Projects page; acpmux web drops its localStorage list.

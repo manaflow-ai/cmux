@@ -54,6 +54,7 @@ extension WebKitTab: WKNavigationDelegate {
         decidePolicyFor navigationResponse: WKNavigationResponse,
         decisionHandler: @escaping @MainActor (WKNavigationResponsePolicy) -> Void
     ) {
+        mainFrameStatuses.record(navigationResponse)
         let isAttachment = (navigationResponse.response as? HTTPURLResponse)
             .flatMap { $0.value(forHTTPHeaderField: "Content-Disposition") }?
             .lowercased()

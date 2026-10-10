@@ -135,3 +135,40 @@ fn palette_usage_imports_once_per_source_and_survives_a_reopen() {
             .any(|p| p["prefix"] == "new" && p["last"] == true)
     );
 }
+
+#[test]
+fn palette_usage_hides_shows_and_resets_a_row() {
+    let mux = Mux::new_for_test("state-palette-usage-controls", SurfaceOptions::default());
+    record(&mux, "u-1", "action:splitDown", "sp").unwrap();
+    let hidden =
+        send(&mux, "palette_usage.hide", json!({"key": "action:splitDown"}), Some("h-1")).unwrap();
+    assert_eq!(hidden["value"], json!({"revision": "2"}));
+    assert_eq!(read(&mux, "palette_usage.get", json!({}))["hidden"], json!(["action:splitDown"]));
+    let again = send(
+        &mux,
+        "palette_usage.hide",
+        json!({"key": "action:splitDown", "hidden": true}),
+        Some("h-2"),
+    )
+    .unwrap();
+    assert_eq!(again["value"], json!({"revision": "2"}), "hiding a hidden row changes nothing");
+    send(
+        &mux,
+        "palette_usage.hide",
+        json!({"key": "action:splitDown", "hidden": false}),
+        Some("h-3"),
+    )
+    .unwrap();
+    assert_eq!(read(&mux, "palette_usage.get", json!({}))["hidden"], json!([]));
+    let forgotten =
+        send(&mux, "palette_usage.forget", json!({"key": "action:splitDown"}), Some("f-1"))
+            .unwrap();
+    assert_eq!(forgotten["value"], json!({"revision": "4"}));
+    let snapshot = read(&mux, "palette_usage.get", json!({}));
+    assert_eq!(snapshot["entries"], json!([]));
+    assert_eq!(snapshot["picks"], json!([]));
+    assert_eq!(
+        error_code(send(&mux, "palette_usage.forget", json!({"key": " "}), Some("f-2"))),
+        "validation.invalid"
+    );
+}

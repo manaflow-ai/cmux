@@ -83,7 +83,8 @@ nonisolated public enum UpdateIndicatorPhase: Equatable, Sendable {
             switch probe.outcome {
             case .upToDate: self = .note(.upToDate)
             case .updateAvailable(let item): self = .note(.found(version: item.displayVersion))
-            case .requiresNewerSystem(_, let required): self = .note(.needsNewerMacOS(required: required.description))
+            case .requiresNewerSystem(let item, let required):
+                self = .note(.needsNewerMacOS(version: item.displayVersion, required: required.description))
             }
         } else {
             self = .hidden

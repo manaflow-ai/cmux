@@ -92,7 +92,7 @@ fn choose(
 /// One reopen at a time per daemon, from resolving the group to the commit
 /// that removes the restored members: two presses (or two clients) never
 /// restore the same group or member twice.
-static REOPEN: std::sync::Mutex<()> = std::sync::Mutex::new(());
+pub(super) static REOPEN: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// The commit side of a reopen: re-read the group in the transaction, drop
 /// the restored members (by value: members of one group differ at least in
