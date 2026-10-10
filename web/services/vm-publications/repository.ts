@@ -127,6 +127,22 @@ export class PublicationNotFoundError extends Data.TaggedError(
   readonly resource: "domain" | "publication" | "vm";
 }> {}
 
+/**
+ * The provisioning state machine, enforced by the repository updates:
+ *
+ * - `provisioning` with no rule: a provider failure (domain verification,
+ *   forward auth, rule create) moves it to `unavailable`
+ *   (`markPublicationUnavailable`).
+ * - `provisioning` with a recorded rule: it waits for its certificate; a
+ *   later failure (certificate status) leaves it `provisioning`.
+ * - `unavailable`: PATCH refuses it (`publication_failed`); verify and zone
+ *   verification retry it. Recording a rule moves it back to `provisioning`
+ *   (`recordProvisioningTlsRule`), and activation moves it to `active`
+ *   (`activatePublication`). Every move is guarded by `routing_revision`.
+ * - Delete moves any of them through `disabling` to `disabled`.
+ */
+export const PUBLICATION_PROVISIONING_STATES = ["provisioning", "unavailable"] as const;
+
 export type PublicationConflictReason =
   | "organization_slug_reserved"
   | "organization_slug_taken"
@@ -1575,11 +1591,17 @@ export function makeCloudVmPublicationRepository(getDb: typeof cloudDb): CloudVm
                 reason: "invalid_access_policy",
               });
             }
+            // Recording a rule is progress: an `unavailable` row returns to
+            // `provisioning` (see PUBLICATION_PROVISIONING_STATES), and the
+            // state change bumps the routing revision it was guarded by.
+            const recovering = publication.state === "unavailable";
             const [updated] = await tx
               .update(cloudVmPublications)
               .set({
                 providerTlsRuleId: input.providerTlsRuleId,
                 providerForwardAuthId: input.providerForwardAuthId,
+                state: "provisioning",
+                ...(recovering ? { routingRevision: publication.routingRevision + 1 } : {}),
                 updatedAt: input.now,
               })
               .where(eq(cloudVmPublications.id, publication.id))
@@ -1723,9 +1745,11 @@ export function makeCloudVmPublicationRepository(getDb: typeof cloudDb): CloudVm
               reason: "publication_not_active",
             });
           }
-          // Only a row still provisioning becomes unavailable: an active row
-          // (activated by a concurrent request) or one already unavailable is
-          // left as it is.
+          // Only a row still provisioning with no recorded rule becomes
+          // unavailable (see PUBLICATION_PROVISIONING_STATES). Once a rule is
+          // recorded, a later failure leaves the row provisioning, waiting
+          // for its certificate; an active or already unavailable row is left
+          // as it is.
           const [updated] = await tx
             .update(cloudVmPublications)
             .set({
@@ -1736,6 +1760,7 @@ export function makeCloudVmPublicationRepository(getDb: typeof cloudDb): CloudVm
             .where(and(
               eq(cloudVmPublications.id, publication.id),
               eq(cloudVmPublications.state, "provisioning"),
+              isNull(cloudVmPublications.providerTlsRuleId),
             ))
             .returning();
           if (!updated) return publication;

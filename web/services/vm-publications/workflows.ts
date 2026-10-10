@@ -1040,10 +1040,11 @@ function ensureCustomDomainVerification(input: {
 }
 
 /**
- * A provisioning step the provider refused (the account TLS rule cap or any
- * other provider error) leaves the row `unavailable`, which PATCH refuses with
- * `publication_failed`. It is not a dead end: `verify` and every zone
- * verification retry it like a `provisioning` row, and delete removes it. Left `provisioning`, it read as "already being configured" and
+ * Report a provider failure to the state machine (PUBLICATION_PROVISIONING_STATES
+ * in repository.ts). The repository decides: a row with no recorded rule moves
+ * to `unavailable`, which PATCH refuses with `publication_failed` and verify
+ * and zone verification retry; a row whose rule is recorded stays
+ * `provisioning`. Left `provisioning`, it read as "already being configured" and
  * every PATCH answered a retryable 503 forever. Marking is best-effort and
  * never replaces the provider's error.
  */
