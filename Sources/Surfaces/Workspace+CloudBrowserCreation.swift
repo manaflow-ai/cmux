@@ -95,7 +95,10 @@ extension Workspace {
                     correlationKey: "cmux-cloud-browser-\(requestID)"
                 )
                 guard !Task.isCancelled, self.panels[panel.id] === panel,
-                      let remoteView = created.remoteViews?.first else { throw CancellationError() }
+                      let remoteView = created.remoteViews?.first else {
+                    await self.cleanupCancelledCloudBrowser(created, provider: provider, catalog: catalog)
+                    throw CancellationError()
+                }
                 guard let activeProvider = catalog.provider(for: route.machine) as? CmuxTuiSurfaceProvider,
                       activeProvider.isRegisteredInCatalog() else {
                     throw CmuxTuiSurfaceProvider.ProviderError.stateUnavailable(route.machine.rawValue)
@@ -123,5 +126,22 @@ extension Workspace {
             }
         }
         cloudBrowserCreationTasks[panel.id] = task
+    }
+
+    /// Compensates a committed daemon tab when the local placeholder closes
+    /// while its cancellation-safe create is still awaiting the receipt.
+    private func cleanupCancelledCloudBrowser(
+        _ resource: SurfaceResource,
+        provider: CmuxTuiSurfaceProvider,
+        catalog: SurfaceCatalog
+    ) async {
+        guard let view = resource.remoteViews?.first else { return }
+        let activeProvider = catalog.provider(for: resource.machine) as? CmuxTuiSurfaceProvider ?? provider
+        let cleanup = Task { @MainActor in
+            try? await activeProvider.closeRemoteTab(id: view.tabID, inRemoteWorkspace: view.workspace.id)
+            activeProvider.pendingRemoteCreations.removeValue(forKey: resource.id)
+            catalog.remove(resource.id, from: activeProvider)
+        }
+        _ = await cleanup.result
     }
 }
