@@ -539423,6 +539423,65 @@
         }
       }
     },
+    "cloud.browser.creationUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud browsers are unavailable on this machine. Refresh the machine and retry."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Browser sind auf dieser Maschine nicht verfügbar. Aktualisiere die Maschine und versuche es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les navigateurs Cloud ne sont pas disponibles sur cette machine. Actualisez la machine, puis réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "متصفحات Cloud غير متاحة على هذا الجهاز. حدّث الجهاز ثم حاول مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los navegadores de Cloud no están disponibles en esta máquina. Actualiza la máquina y vuelve a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此機器無法使用 Cloud 瀏覽器。請重新整理機器後再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此机器无法使用 Cloud 浏览器。请刷新机器后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 머신에서는 Cloud 브라우저를 사용할 수 없습니다. 머신을 새로 고친 후 다시 시도하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このマシンでは Cloud ブラウザを利用できません。マシンを更新してからもう一度お試しください。"
+          }
+        }
+      }
+    },
     "cloud.display.numberedTitle": {
       "extractionState": "manual",
       "localizations": {

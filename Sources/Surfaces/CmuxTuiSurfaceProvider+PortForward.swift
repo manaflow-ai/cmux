@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxCore
 import CmuxSurfaceCatalogModel
 import Foundation
 
@@ -8,6 +9,11 @@ extension CmuxTuiSurfaceProvider {
         for resource in catalog.snapshot.resources(on: machine) where resource.kind != .terminal {
             for projection in catalog.projections(of: resource.id) {
                 guard let browser = SurfacePaneFactory.browserPanel(panelID: projection.panelID, in: projection.workspaceID) else { continue }
+                if let loopbackURL = cloudLoopbackBrowserURL(for: resource) {
+                    let configured = configureBrowser(browser, url: browser.cloudRestoreURL(on: loopbackURL), resourceID: resource.id)
+                    if configured { browser.pendingCloudRestoreURL = nil }
+                    continue
+                }
                 switch CloudPortRoutePlan.plan(resource: resource, privateAddress: info.privateAddress) {
                 case .privateDirect(let raw):
                     if let url = URL(string: raw) {
@@ -42,6 +48,11 @@ extension CmuxTuiSurfaceProvider {
             // The tab shows the display's name, not the noVNC page title.
             workspace.setPanelCustomTitle(panelId: pane.panelID, title: resource.title,
                                           source: .remote, propagateToCloud: false, catalog: catalog)
+        }
+        if let loopbackURL = cloudLoopbackBrowserURL(for: resource) {
+            let configured = configureBrowser(browser, url: loopbackURL, resourceID: resource.id)
+            guard configured else { throw ProviderError.localForwardURLUnavailable }
+            return pane
         }
         switch CloudPortRoutePlan.plan(resource: resource, privateAddress: info.privateAddress) {
         case .privateDirect(let raw):
@@ -101,8 +112,17 @@ extension CmuxTuiSurfaceProvider {
             browser.cloudAccess.showUnavailable(SurfaceTransferRejection.cloudMachineMismatch.message)
             return false
         }
-        guard let address = info.privateAddress,
-              let privateURL = CloudPortRoutePolicy().privateURL(url.absoluteString, address: address, allowLoopback: machine.isSSH) else {
+        let isCloudLoopback = machine.cloudMachineID != nil
+            && RemoteLoopbackProxyAlias.isLoopbackHost(url.host ?? "")
+        let address = isCloudLoopback ? "127.0.0.1" : info.privateAddress
+        let isHTTPSLoopback = isCloudLoopback && url.scheme?.lowercased() == "https"
+        let route: CloudPortAccessRoute = isHTTPSLoopback ? .browserProxy : (isCloudLoopback ? .loopback : .browserProxy)
+        guard let address,
+              let privateURL = CloudPortRoutePolicy().privateURL(
+                url.absoluteString,
+                address: address,
+                allowLoopback: machine.isSSH || isCloudLoopback
+              ) else {
             browser.cloudAccess.showUnavailable(String(localized: "cloud.portAccess.invalidURL", defaultValue: "This port does not have a valid HTTP or HTTPS address."))
             return false
         }
@@ -117,15 +137,22 @@ extension CmuxTuiSurfaceProvider {
             catalog.restore([SurfaceProjectionRecord(panelID: browser.id, resource: resourceID)], workspaceID: browser.workspaceId)
         }
         let port = privateURL.port ?? (privateURL.scheme?.lowercased() == "https" ? 443 : 80)
-        let model = accessModel(port: port, address: address, scheme: privateURL.scheme ?? "http")
+        let model = accessModel(
+            port: port,
+            address: address,
+            targetHost: isHTTPSLoopback ? url.host : nil,
+            scheme: privateURL.scheme ?? "http",
+            route: route,
+            preservesRemoteHost: isHTTPSLoopback
+        )
         browser.retainTransferredSurfaceMachine(machine)
         if preserveCurrentNavigation {
             browser.prepareCloudBrowserStore(machineID: machineID)
             browser.bindCloudBrowserNavigation()
-            browser.cloudAccess.adoptCommittedRoute(model: model, url: privateURL, resourceID: resourceID)
+            browser.cloudAccess.adoptCommittedRoute(model: model, url: isCloudLoopback ? url : privateURL, resourceID: resourceID)
             model.connect()
         } else {
-            browser.configureCloudBrowser(model: model, url: privateURL, resourceID: resourceID)
+            browser.configureCloudBrowser(model: model, url: isCloudLoopback ? url : privateURL, resourceID: resourceID)
         }
         materializedPanels.insert(browser.id)
         return true
@@ -179,9 +206,54 @@ extension CmuxTuiSurfaceProvider {
         }
     }
 
-    func accessModel(port: Int, address: String, scheme: String = "http") -> CloudPortAccessModel {
-        let target = CloudPortForwardTarget(host: address, port: port)
-        return portAccessStore.model(machineID: machineID, target: target, scheme: scheme) {
+    func accessModel(
+        port: Int,
+        address: String,
+        targetHost: String? = nil,
+        scheme: String = "http",
+        route: CloudPortAccessRoute = .browserProxy,
+        preservesRemoteHost: Bool = false
+    ) -> CloudPortAccessModel {
+        let target = CloudPortForwardTarget(host: targetHost ?? address, port: port)
+        let startBrowserProxy: (@MainActor () async throws -> CloudBrowserProxyEndpoint)? = if route == .browserProxy {
+            { [weak self] in
+                guard let self, self.isRegisteredInCatalog() else { throw ProviderError.hubUnavailable }
+                let generation = self.currentLifecycleGeneration
+#if DEBUG
+                let desktopStartedAt = Date()
+                cmuxDebugLog("cloud.desktop.proxy.begin machine=\(self.machineID) port=\(port)")
+#endif
+                let endpoint = try await self.links.browserProxy(machineID: self.machineID)
+#if DEBUG
+                cmuxDebugLog("cloud.desktop.proxy.endpoint machine=\(self.machineID) port=\(port) elapsedMs=\(Int(Date().timeIntervalSince(desktopStartedAt) * 1000))")
+#endif
+                // Repair only a desktop the probe saw answer with an error. A probe
+                // that timed out (a busy carrier) used to start this repair, a guest
+                // exec of about 12s, on a healthy desktop: display 1 then showed
+                // "Loading Cloud page" for 20s or more.
+                if self.providerID == "freestyle", port == CmuxTuiSnapshotParser.desktopPort,
+                   try await CloudBrowserRouting.desktopReachability(endpoint: endpoint, address: address, port: port) == .unreachable {
+                    try Task.checkCancellation()
+                    guard self.isCurrentLifecycleGeneration(generation), self.isRegisteredInCatalog() else { throw CancellationError() }
+                    guard let client = VMClient.shared else { throw ProviderError.notSignedIn }
+#if DEBUG
+                    cmuxDebugLog("cloud.desktop.proxy.heal.begin machine=\(self.machineID) port=\(port)")
+#endif
+                    _ = try await client.openPort(id: self.machineID, port: port, teamID: self.ownerTeamID)
+#if DEBUG
+                    cmuxDebugLog("cloud.desktop.proxy.heal.complete machine=\(self.machineID) port=\(port) elapsedMs=\(Int(Date().timeIntervalSince(desktopStartedAt) * 1000))")
+#endif
+                }
+#if DEBUG
+                cmuxDebugLog("cloud.desktop.proxy.ready machine=\(self.machineID) port=\(port) elapsedMs=\(Int(Date().timeIntervalSince(desktopStartedAt) * 1000))")
+#endif
+                guard self.isCurrentLifecycleGeneration(generation), self.isRegisteredInCatalog() else { throw CancellationError() }
+                return endpoint
+            }
+        } else {
+            nil
+        }
+        return portAccessStore.model(machineID: machineID, target: target, scheme: scheme, route: route) {
             CloudPortAccessModel(
                 target: target,
                 coordinator: portAccessStore.coordinator,
@@ -213,40 +285,9 @@ extension CmuxTuiSurfaceProvider {
                 stopForward: { [portForwards, machineID] in
                     await portForwards?.close(machineID: machineID, port: port)
                 },
-                startBrowserProxy: { [weak self] in
-                    guard let self, self.isRegisteredInCatalog() else { throw ProviderError.hubUnavailable }
-                    let generation = self.currentLifecycleGeneration
-#if DEBUG
-                    let desktopStartedAt = Date()
-                    cmuxDebugLog("cloud.desktop.proxy.begin machine=\(self.machineID) port=\(port)")
-#endif
-                    let endpoint = try await self.links.browserProxy(machineID: self.machineID)
-#if DEBUG
-                    cmuxDebugLog("cloud.desktop.proxy.endpoint machine=\(self.machineID) port=\(port) elapsedMs=\(Int(Date().timeIntervalSince(desktopStartedAt) * 1000))")
-#endif
-                    // Repair only a desktop the probe saw answer with an error. A probe
-                    // that timed out (a busy carrier) used to start this repair, a guest
-                    // exec of about 12s, on a healthy desktop: display 1 then showed
-                    // "Loading Cloud page" for 20s or more.
-                    if self.providerID == "freestyle", port == CmuxTuiSnapshotParser.desktopPort,
-                       try await CloudBrowserRouting.desktopReachability(endpoint: endpoint, address: address, port: port) == .unreachable {
-                        try Task.checkCancellation()
-                        guard self.isCurrentLifecycleGeneration(generation), self.isRegisteredInCatalog() else { throw CancellationError() }
-                        guard let client = VMClient.shared else { throw ProviderError.notSignedIn }
-#if DEBUG
-                        cmuxDebugLog("cloud.desktop.proxy.heal.begin machine=\(self.machineID) port=\(port)")
-#endif
-                        _ = try await client.openPort(id: self.machineID, port: port, teamID: self.ownerTeamID)
-#if DEBUG
-                        cmuxDebugLog("cloud.desktop.proxy.heal.complete machine=\(self.machineID) port=\(port) elapsedMs=\(Int(Date().timeIntervalSince(desktopStartedAt) * 1000))")
-#endif
-                    }
-#if DEBUG
-                    cmuxDebugLog("cloud.desktop.proxy.ready machine=\(self.machineID) port=\(port) elapsedMs=\(Int(Date().timeIntervalSince(desktopStartedAt) * 1000))")
-#endif
-                    guard self.isCurrentLifecycleGeneration(generation), self.isRegisteredInCatalog() else { throw CancellationError() }
-                    return endpoint
-                }
+                route: route,
+                startBrowserProxy: startBrowserProxy,
+                preservesRemoteHost: preservesRemoteHost
             )
         }
     }
@@ -277,6 +318,14 @@ extension CmuxTuiSurfaceProvider {
             for projection in (resourceIDs == nil ? catalog.projections(of: resource.id) : projectionsByResource?[resource.id] ?? []) where !materializedPanels.contains(projection.panelID) {
                 guard let browser = SurfacePaneFactory.browserPanel(panelID: projection.panelID, in: projection.workspaceID),
                       isCurrentLifecycleGeneration(generation), catalog.canRestoreProjection(projection) else { continue }
+                if let loopbackURL = cloudLoopbackBrowserURL(for: resource) {
+                    let configured = configureBrowser(browser, url: browser.cloudRestoreURL(on: loopbackURL), resourceID: resource.id)
+                    if configured {
+                        browser.pendingCloudRestoreURL = nil
+                        materializedPanels.insert(projection.panelID)
+                    }
+                    continue
+                }
                 switch CloudPortRoutePlan.plan(resource: resource, privateAddress: info.privateAddress) {
                 case .privateDirect(let raw):
                     guard let url = URL(string: raw) else { continue }
@@ -321,6 +370,18 @@ extension CmuxTuiSurfaceProvider {
         guard let client = VMClient.shared else { throw ProviderError.notSignedIn }
         let endpoint = try await client.openPort(id: machineID, port: port, teamID: ownerTeamID)
         guard let url = URL(string: endpoint.openUrl), ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { throw ProviderError.invalidPreviewURL }
+        return url
+    }
+}
+
+
+extension CmuxTuiSurfaceProvider {
+    /// A Cloud daemon browser keeps its loopback origin and uses the authenticated
+    /// loopback forward instead of rewriting it to the machine private address.
+    func cloudLoopbackBrowserURL(for resource: SurfaceResource) -> URL? {
+        guard machine.cloudMachineID != nil, resource.kind == .browser,
+              let raw = resource.url, let url = URL(string: raw),
+              RemoteLoopbackProxyAlias.isLoopbackHost(url.host ?? "") else { return nil }
         return url
     }
 }

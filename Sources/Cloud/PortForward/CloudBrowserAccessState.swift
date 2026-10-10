@@ -468,6 +468,11 @@ final class CloudBrowserAccessState {
             }
             return true
         }
+        if model?.route == .loopback {
+            guard ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+                  RemoteLoopbackProxyAlias.isLoopbackHost(url.host ?? "") else { return false }
+            return navigationURL.map { Self.sameService(url, $0) } == true
+        }
         return Self.sameService(url, remoteURL) || navigationURL.map { Self.sameService(url, $0) } == true
     }
 
@@ -476,6 +481,12 @@ final class CloudBrowserAccessState {
         guard model?.usesBrowserProxy == true, let remoteURL,
               RemoteLoopbackProxyAlias.isLoopbackHost(url.host ?? ""),
               let address = remoteURL.host else { return nil }
+        if model?.route == .browserProxy,
+           RemoteLoopbackProxyAlias.isLoopbackHost(address) {
+            var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            components?.host = address
+            return components?.url
+        }
         return CloudPortRoutePolicy().privateURL(url.absoluteString, address: address)
     }
 

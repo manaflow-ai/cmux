@@ -54,6 +54,151 @@ import Testing
         #expect(CmuxTuiSnapshotParser.createdTerminal(fromRunResult: result)?.attachment == nil)
     }
 
+    @Test func browserCreationReceiptPreservesRemotePlacement() throws {
+        let result: [String: Any] = [
+            "value": [
+                "kind": "browser",
+                "workspace_id": "ws_main",
+                "screen_id": "screen_1",
+                "pane_id": "pane_1",
+                "tab_id": "tab_browser",
+                "browser_id": "browser_cloud",
+            ],
+            "generation": "g1",
+            "revision": "8",
+        ]
+        let created = try #require(CmuxTuiSnapshotParser.createdBrowser(fromCreateResult: result))
+        #expect(created.browserID == "browser_cloud")
+        #expect(created.workspaceID == "ws_main")
+        #expect(created.screenID == "screen_1")
+        #expect(created.paneID == "pane_1")
+        #expect(created.tabID == "tab_browser")
+        #expect(created.cursor == CloudVMCursor(generation: "g1", revision: 8))
+    }
+
+    @Test func browserCreationReceiptRejectsAnUnboundRemotePath() {
+        let result: [String: Any] = [
+            "value": [
+                "kind": "browser",
+                "workspace_id": "ws_main",
+                "screen_id": "screen_1",
+                "pane_id": "pane_1",
+                "browser_id": "browser_cloud",
+            ]
+        ]
+        #expect(CmuxTuiSnapshotParser.createdBrowser(fromCreateResult: result) == nil)
+    }
+
+    @Test func malformedBrowserCreationReceiptHasAResponseFailure() {
+        #expect(CloudDiagnosticFailure.classify(CmuxTuiSurfaceProvider.ProviderError.browserNotCreated) == .response)
+    }
+
+    @Test @MainActor
+    func committedBrowserReceiptMovesToTheReplacementProvider() throws {
+        let catalog = SurfaceCatalog()
+        let summary = VMSummary(id: "browser-replacement-\(UUID())", provider: "freestyle", status: "running", image: "fixture", createdAt: 0, base: nil)
+        let links = CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil })
+        let original = CmuxTuiSurfaceProvider(summary: summary, ownerTeamID: "team", links: links, catalog: catalog)
+        let replacement = CmuxTuiSurfaceProvider(summary: summary, ownerTeamID: "team", links: links, catalog: catalog)
+        catalog.register(original)
+        original.suspendForFeatureFlag()
+        catalog.register(replacement)
+        defer {
+            original.suspendForFeatureFlag()
+            replacement.suspendForFeatureFlag()
+            catalog.unregister(machine: original.machine)
+        }
+        let receipt = CmuxTuiSnapshotParser.CreatedBrowserPath(
+            browserID: "browser_created", workspaceID: "ws_main", screenID: "screen_1",
+            paneID: "pane_1", tabID: "tab_created", cursor: CloudVMCursor(generation: "g1", revision: 8)
+        )
+
+        let resource = try original.recordCommittedBrowser(receipt, url: URL(string: "http://localhost:4312/health")!, name: nil)
+
+        #expect(original.pendingRemoteCreations.isEmpty)
+        #expect(replacement.pendingRemoteCreations[resource.id]?.receipt == receipt.cursor)
+        #expect(catalog.resources[resource.id]?.remoteViews?.first?.tabID == "tab_created")
+        #expect(catalog.resources[resource.id]?.remoteViews?.first?.workspace.id == "ws_main")
+    }
+
+    @Test @MainActor
+    func committedBrowserReceiptCannotCrossOwnershipTeardown() throws {
+        let catalog = SurfaceCatalog()
+        let summary = VMSummary(id: "browser-retirement-\(UUID())", provider: "freestyle", status: "running", image: "fixture", createdAt: 0, base: nil)
+        let links = CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil })
+        let original = CmuxTuiSurfaceProvider(summary: summary, ownerTeamID: "old-team", links: links, catalog: catalog)
+        let replacement = CmuxTuiSurfaceProvider(summary: summary, ownerTeamID: "new-team", links: links, catalog: catalog)
+        catalog.register(original)
+        original.suspendForFeatureFlag()
+        catalog.register(replacement)
+        defer {
+            replacement.suspendForFeatureFlag()
+            catalog.unregister(machine: original.machine)
+        }
+        let receipt = CmuxTuiSnapshotParser.CreatedBrowserPath(
+            browserID: "browser_created", workspaceID: "ws_main", screenID: "screen_1",
+            paneID: "pane_1", tabID: "tab_created", cursor: CloudVMCursor(generation: "g1", revision: 8)
+        )
+
+        #expect(throws: (any Error).self) {
+            try original.recordCommittedBrowser(receipt, url: URL(string: "http://localhost:4312/health")!, name: nil)
+        }
+        #expect(replacement.pendingRemoteCreations.isEmpty)
+        #expect(catalog.resources.isEmpty)
+    }
+
+    @Test func browserCreationRequestTargetsTheBoundMachineWorkspaceAndPane() {
+        let request = CloudTuiRequests.createBrowserArguments(
+            socketPath: "/tmp/cmux-tui.sock",
+            workspaceID: "ws_main",
+            screenID: "screen_1",
+            paneID: "pane_1",
+            url: "http://127.0.0.1:4312/health",
+            name: "health",
+            idempotencyKey: "browser-attempt",
+            correlationKey: "browser-correlation"
+        )
+        #expect(request.operation == "tab.create_browser")
+        #expect(request.params["machine"] as? String == "current")
+        #expect(request.params["workspace"] as? String == "ws_main")
+        #expect(request.params["screen"] as? String == "screen_1")
+        #expect(request.params["pane"] as? String == "pane_1")
+        #expect(request.params["url"] as? String == "http://127.0.0.1:4312/health")
+        #expect(request.params["name"] as? String == "health")
+        #expect(request.params["correlation_key"] as? String == "browser-correlation")
+        #expect(request.idempotencyKey == "browser-attempt")
+    }
+
+    @Test func browserSnapshotKeepsTheRemoteWorkspaceAndTabPlacement() throws {
+        var snapshot = Self.sessionSnapshot
+        snapshot["browsers"] = [[
+            "id": "browser_cloud",
+            "tab_id": "tab_3",
+            "url": "http://127.0.0.1:4312/health",
+            "title": "Cloud health",
+            "status": "ready",
+        ]]
+        // The tab's content identity is the browser row's daemon id. Keep the
+        // fixture's foreign-key edge consistent so the parser exercises the
+        // placement join rather than rejecting a malformed snapshot.
+        snapshot["tabs"] = (snapshot["tabs"] as? [[String: Any]] ?? []).map { tab in
+            guard tab["id"] as? String == "tab_3" else { return tab }
+            var corrected = tab
+            corrected["content_id"] = "browser_cloud"
+            return corrected
+        }
+        let browser = try #require(
+            CmuxTuiSnapshotParser.terminals(fromSnapshot: snapshot, machine: Self.machine)
+                .first(where: { $0.id == SurfaceResourceID(machine: Self.machine, kind: .browser, key: "browser_cloud") })
+        )
+        let view = try #require(browser.remoteViews?.first)
+        #expect(browser.remoteWorkspace?.id == "ws_main")
+        #expect(browser.url == "http://127.0.0.1:4312/health")
+        #expect(view.tabID == "tab_3")
+        #expect(view.screenID == "screen_1")
+        #expect(view.paneID == "pane_1")
+    }
+
     @Test func legacyScreensKeepArrivalOrderAndExplicitPositions() throws {
         var snapshot = Self.sessionSnapshot
         snapshot["screens"] = [
@@ -1052,6 +1197,13 @@ import Testing
             ["remote", "connect", "r", "--device-name", "d", "--state-dir", "/s", "--headless", "--json", "--exit-with-parent", "--lanes", "single"])
         #expect(CloudTuiCommandLine.wireGuardHubArguments(configPath: "/w/cmux-app.conf", socketPath: "/w/hub-1.sock") ==
             ["wg", "hub", "--config", "/w/cmux-app.conf", "--socket", "/w/hub-1.sock", "--exit-with-parent"])
+        let browserProxy = CloudTuiCommandLine.browserProxyArguments(
+            route: "ws://10.0.0.4:1337/v1/link", addresses: ["10.0.0.4"],
+            stateDir: "/s", wireGuardHubSocket: "/h.sock", carrier: false
+        )
+        #expect(browserProxy.contains("--allow-loopback"))
+        #expect(browserProxy.contains("localhost"))
+        #expect(browserProxy.contains("::1"))
         #expect(CloudTuiCommandLine.snapshotArguments(socketPath: "/k.sock") == ["--socket", "/k.sock", "--json", "session", "current", "snapshot"])
         #expect(CloudTuiCommandLine.eventsArguments(socketPath: "/k.sock") == ["--socket", "/k.sock", "--jsonl", "session", "current", "events"])
         #expect(CloudTuiCommandLine.runArguments(socketPath: "/k.sock", workspaceID: "ws_main", command: ["claude", "-p", "fix it"]) ==

@@ -7,14 +7,19 @@ public struct CloudPortAccessKey: Hashable, Sendable {
     public init(
         machineID: String,
         port: Int,
-        scheme: String
+        scheme: String,
+        route: CloudPortAccessRoute = .browserProxy
     ) {
         self.machineID = machineID
         self.port = port
         self.scheme = scheme
+        self.route = route
     }
 
     public let machineID: String
     public let port: Int
     public let scheme: String
+    /// The transport route is part of identity: a private-address proxy and a
+    /// remote-loopback forward can serve the same port without sharing state.
+    public let route: CloudPortAccessRoute
 }

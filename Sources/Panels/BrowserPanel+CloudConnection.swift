@@ -109,6 +109,12 @@ extension BrowserPanel {
             )
             return
         }
+        if let loopbackURL = provider.cloudLoopbackBrowserURL(for: known) {
+            let restoredURL = Self.cloudRestoredURL(pendingCloudRestoreURL, on: loopbackURL)
+            let configured = provider.configureBrowser(self, url: restoredURL, resourceID: resource)
+            if configured { pendingCloudRestoreURL = nil }
+            return
+        }
         switch CloudPortRoutePlan.plan(resource: known, privateAddress: provider.info.privateAddress) {
         case .privateDirect(let raw):
             if let url = URL(string: raw) {
@@ -187,6 +193,11 @@ extension BrowserPanel {
     /// a loopback URL routes only to the machine that owns this browser.
     func privateAddressRouteProvider(for url: URL) -> CmuxTuiSurfaceProvider? {
         let catalog = SurfaceCatalog.shared
+        if RemoteLoopbackProxyAlias.isLoopbackHost(url.host ?? ""),
+           let owner = privateAddressRouteOwner,
+           owner.cloudMachineID != nil {
+            return catalog.provider(for: owner) as? CmuxTuiSurfaceProvider
+        }
         let addresses = catalog.machines.compactMapValues(\.privateAddress)
         let machine = PrivateAddressRouteSelector<SurfaceMachineID>().machine(
             forHost: url.host,
