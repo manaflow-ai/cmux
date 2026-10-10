@@ -10,6 +10,7 @@ import type { CloudDO } from "./cloud-do.ts"
 import type { ConnectionDO } from "./connection-do.ts"
 import type { FeedDO } from "./feed-do.ts"
 import type { UsageMeterDO } from "./usage-meter-do.ts"
+import type { SpendGuardDO } from "./inference/spend-guard-do.ts"
 import type { AutomationRunParams, SchedulerDO } from "./scheduler-do.ts"
 import type { TeamDO } from "./team-do.ts"
 import type { UserDO } from "./user-do.ts"
@@ -207,6 +208,37 @@ export interface Env {
   readonly APNS_TEAM_ID?: string
   /** One UsageMeterDO per team: the automation usage ledger and hard cap (automations-billing.md). */
   readonly USAGE_METER_DO: DurableObjectNamespace<UsageMeterDO>
+  /** Model router (src/inference, plans/cmux-next/model-router.md). One instance "global": daily caps and provider health. */
+  readonly SPEND_GUARD_DO: DurableObjectNamespace<SpendGuardDO>
+  /** Workers AI binding for the model router; absent = the workers-ai provider is not configured. */
+  readonly AI?: Ai
+  /** Router switch, fail-closed: only "1" serves /v1/inference/chat/completions. */
+  readonly INFERENCE_ENABLED?: string
+  /** Free tier switch (attested devices without sign-in), fail-closed: only "1". */
+  readonly INFERENCE_FREE_ENABLED?: string
+  /** "1" lets VM installs call the router. */
+  readonly INFERENCE_MACHINES_ENABLED?: string
+  /** Comma list of providers switched off (kill switch per provider), for example "openrouter,bedrock". */
+  readonly INFERENCE_DISABLED_PROVIDERS?: string
+  /** Hard USD cap per provider per UTC day; INFERENCE_DAILY_CAP_USD_<PROVIDER> overrides one provider. Missing = 0 = refuse. */
+  readonly INFERENCE_DAILY_CAP_USD?: string
+  readonly INFERENCE_DAILY_CAP_USD_OPENROUTER?: string
+  readonly INFERENCE_DAILY_CAP_USD_VERCEL?: string
+  readonly INFERENCE_DAILY_CAP_USD_WORKERS_AI?: string
+  readonly INFERENCE_DAILY_CAP_USD_DEEPSEEK?: string
+  readonly INFERENCE_DAILY_CAP_USD_DEEPINFRA?: string
+  readonly INFERENCE_DAILY_CAP_USD_BEDROCK?: string
+  /** Hard USD cap per UTC day for all free-tier requests together. Missing = 0 = refuse. */
+  readonly INFERENCE_FREE_DAILY_CAP_USD?: string
+  /** Largest max_tokens of a free-tier request (default 4096). */
+  readonly INFERENCE_FREE_MAX_TOKENS?: string
+  /** Secrets: provider keys. A provider without its key is skipped. */
+  readonly INFERENCE_OPENROUTER_KEY?: string
+  readonly INFERENCE_VERCEL_GATEWAY_KEY?: string
+  readonly INFERENCE_DEEPSEEK_KEY?: string
+  readonly INFERENCE_DEEPINFRA_KEY?: string
+  readonly INFERENCE_BEDROCK_KEY?: string
+  readonly INFERENCE_BEDROCK_REGION?: string
   /**
    * Hard cap per team per UTC month for automations (USD, decision A18). Staging and development: "25"
    * until Lawrence sets the value (Stripe TEST only). Missing = 0 = no metered run may start.
