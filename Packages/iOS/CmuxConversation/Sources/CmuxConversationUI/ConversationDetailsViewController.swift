@@ -95,20 +95,26 @@ final class ConversationDetailsViewController: UIViewController, UIScrollViewDel
         // Content under the collapsed header blurs out with UIKit's scroll
         // edge effect (Messages' details: ScrollEdgeEffectView, soft).
         if #available(iOS 26.0, *) {
-            let interaction = UIScrollEdgeElementContainerInteraction()
-            interaction.scrollView = infoPage.table
-            interaction.edge = .top
-            header.addInteraction(interaction)
-            edgeInteractions = [interaction]
+            // The pocket spans the header and the tabs down to where the
+            // content starts, as Messages' DetailsHeaderContainer (263.67 pt
+            // at rest and 166.44 collapsed without tabs).
+            let headerInteraction = UIScrollEdgeElementContainerInteraction()
+            headerInteraction.scrollView = infoPage.table
+            headerInteraction.edge = .top
+            header.addInteraction(headerInteraction)
+            edgeInteractions = [headerInteraction]
             if let tabBar {
-                let tabs = UIScrollEdgeElementContainerInteraction()
-                tabs.scrollView = infoPage.table
-                tabs.edge = .top
-                tabBar.addInteraction(tabs)
-                edgeInteractions.append(tabs)
+                let tabsInteraction = UIScrollEdgeElementContainerInteraction()
+                tabsInteraction.scrollView = infoPage.table
+                tabsInteraction.edge = .top
+                tabBar.addInteraction(tabsInteraction)
+                edgeInteractions.append(tabsInteraction)
             }
-            infoPage.table.topEdgeEffect.style = .soft
-            backgroundsPage?.scroll.topEdgeEffect.style = .soft
+            // The page scroller has no edges of its own (Messages' page
+            // view controller); each page's scroll view draws them.
+            for edge in [pages.topEdgeEffect, pages.bottomEdgeEffect, pages.leftEdgeEffect, pages.rightEdgeEffect] { edge.isHidden = true }
+            infoPage.table.topEdgeEffect.style = Self.edgeStyle
+            backgroundsPage?.scroll.topEdgeEffect.style = Self.edgeStyle
         }
 
         backButton.setImage(UIImage(systemName: "chevron.left", withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold)), for: .normal)
@@ -208,13 +214,12 @@ final class ConversationDetailsViewController: UIViewController, UIScrollViewDel
         let bounds = view.bounds
         guard bounds.width > 0 else { return }
         let layout = ConversationDetailsHeaderGeometry.layout(width: bounds.width, safeTop: view.safeAreaInsets.top, offset: currentOffset, showsTabs: tabBar != nil, isGroup: isGroup)
-        // The header spans to the tabs (or its own bottom): UIKit's scroll
-        // edge effect sizes its pocket from it, as in Messages (166.44 pt
-        // collapsed, soft blur 64.8 pt past it).
         header.frame = CGRect(x: 0, y: 0, width: bounds.width, height: tabBar == nil ? layout.height : layout.tabBar.maxY)
         header.apply(layout)
         if let tabBar {
-            tabBar.frame = layout.tabBar
+            // The bar reaches down to where the content starts: the scroll
+            // edge pocket ends there, as Messages' header container does.
+            tabBar.frame = CGRect(x: layout.tabBar.minX, y: layout.tabBar.minY, width: layout.tabBar.width, height: layout.tabBar.height + ConversationDetailsHeaderGeometry.sectionGap)
             tabBar.followPages(pageFraction)
         }
 
@@ -238,6 +243,15 @@ final class ConversationDetailsViewController: UIViewController, UIScrollViewDel
     }
 
     private var edgeInteractions: [AnyObject] = []
+
+    /// iOS 26 Messages blurs softly (variable blur); iOS 27 draws a hard
+    /// pocket with a hairline at the header's bottom.
+    @available(iOS 26.0, *)
+    static var edgeStyle: UIScrollEdgeEffect.Style {
+        if #available(iOS 27.0, *) { return .hard }
+        return .soft
+    }
+
 
     private func pageDidSettle(_ index: Int) {
         tabBar?.selectedIndex = index
