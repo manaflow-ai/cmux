@@ -4,7 +4,7 @@
 `workspace.newLikeThis` opens a workspace like the target one: in its directory, right below it
 (so in its group) and with a first tab of the same kind (a terminal, or the New Tab page). It
 folds New Workspace in This Group and in Same Directory: their ids still run it, and a workspace
-row's menu offers New Workspace Like This in their place.
+row's New menu offers New Workspace Like This in their place.
 
 The script attaches to an app already running (a capture slot's `capture-host launch`, or a
 tagged build) through its debug socket. It runs actions the way the palette does (`action.run`),
@@ -74,8 +74,8 @@ def workspaces():
 
 
 def ids(entry):
-    """Every id the daemon gives a workspace (the sidebar keys rows by one of them)."""
-    return {v for k, v in entry.items() if isinstance(v, str) and "id" in k and v}
+    """Every string id the daemon gives a workspace (the sidebar keys rows by one of them)."""
+    return {v for k, v in entry.items() if isinstance(v, str) and ("id" in k or k == "key") and v}
 
 
 def first_tab(entry):
@@ -123,7 +123,7 @@ def shows_new_tab_page():
 
 def target_of(entry):
     """An action target for a workspace: its public id."""
-    return "workspace:" + (entry.get("id") or sorted(ids(entry))[0])
+    return "workspace:" + next((v for v in sorted(ids(entry)) if v.startswith("ws_")), sorted(ids(entry))[0])
 
 
 def row(check, expected, observed, ok):
@@ -148,7 +148,7 @@ def main():
     anchor = (wait(lambda: new_workspaces(before), 20) or [None])[0]
     if not anchor:
         sys.exit("no workspace opened")
-    print("anchor ids:", sorted(ids(anchor)), "first tab:", (first_tab(anchor) or {}).get("kind"), flush=True)
+    print("anchor:", {k: v for k, v in anchor.items() if not isinstance(v, (list, dict))}, flush=True)
     print("workspace.moveToNewGroup:", action("workspace.moveToNewGroup", {"name": "like this e2e"}, target=target_of(anchor)), flush=True)
     time.sleep(1)  # test harness: the group lists
     before = known()
@@ -191,13 +191,17 @@ def main():
 
     rows = workspace_rows()
     at = row_index(anchor, rows)
-    menu = None
+    menu, folder = None, None
     if at is not None:
         frame = rows[at].get("window_frame") or {}
         x, y = frame.get("x", 0) + frame.get("width", 0) / 2, frame.get("y", 0) + frame.get("height", 0) / 2
-        menu = (rpc("debug.sidebar_rows", {"menu_x": x, "menu_y": y}) or {}).get("menu")
-    row("a workspace row's menu offers New Workspace Like This", "'New Workspace Like This' in the menu",
-        f"menu {menu}", bool(menu) and "New Workspace Like This" in menu)
+        reply = rpc("debug.sidebar_rows", {"menu_x": x, "menu_y": y}) or {}
+        menu, folder = reply.get("menu"), (reply.get("submenus") or {}).get("New")
+    # Its New folder: the menu's top level is capped at twelve rows (ActionSurfaceParityTests).
+    row("a workspace row's New menu offers New Workspace Like This, not the actions it folds",
+        "'New Workspace Like This' first under New; no 'in This Group' or 'in Same Directory'", f"menu {menu}; New {folder}",
+        bool(folder) and folder[0] == "New Workspace Like This"
+        and not any(t in ("New Workspace in This Group", "New Workspace in Same Directory") for t in folder))
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "new-workspace-like-this.png")})
 
 
