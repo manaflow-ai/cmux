@@ -340,6 +340,7 @@ final class CloudBrowserAccessState {
 
     func configure(model: CloudPortAccessModel, url: URL, resourceID: SurfaceResourceID? = nil,
                    request: URLRequest? = nil) {
+        let replacesService = remoteURL.map { !Self.sameService($0, url) } ?? true
         observationGeneration &+= 1
         cancelUnavailableRetry()
         unavailable = nil
@@ -356,7 +357,7 @@ final class CloudBrowserAccessState {
         starting = nil
         remoteURL = url
         pendingNavigationRequest = request ?? URLRequest(url: url)
-        retiredListenerURLs.removeAll(keepingCapacity: true)
+        if replacesService { retiredListenerURLs.removeAll(keepingCapacity: true) }
         navigationURL = nil
         preservingCommittedRoute = false
         hasCommittedNavigation = false
