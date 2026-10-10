@@ -1,11 +1,10 @@
-import AppKit
+import CoreGraphics
 import CoreText
 import os
 
-// cmux (crash program, plans/cmux-next/crash-elimination.md): Core Graphics and Core
-// Text constructors MessagesLab force-unwrapped. Each returns a working value or a
-// stated fallback instead of trapping; Tests/MessagesLabHomeTests/CrashSafeGraphicsTests
-// pins that every named literal resolves, so the fallbacks never run in practice.
+// Crash safety (cx-3cb): Core Graphics and Core Text constructors that were force-unwrapped.
+// Each returns a working value or a stated fallback instead of trapping; every named literal
+// resolves, so the fallbacks do not run in practice.
 
 /// The named color spaces MessagesLab draws in.
 enum LabColorSpace {
@@ -35,7 +34,7 @@ extension CGContext {
 /// as a fault (failure is data, no stand-in image hides it).
 enum BitmapFailure {
     private static let logged = OSAllocatedUnfairLock(initialState: false)
-    private static let log = Logger(subsystem: "ai.manaflow.cmux", category: "messageslab-bitmap")
+    private static let log = Logger(subsystem: "com.cmux.prototype.messageslab", category: "bitmap")
 
     /// `image` unchanged; logs the first nil.
     static func checked(_ image: CGImage?, size: CGSize) -> CGImage? {
@@ -44,6 +43,24 @@ enum BitmapFailure {
             return !alreadyLogged
         }) {
             log.fault("bitmap allocation failed at \(size.width, privacy: .public) x \(size.height, privacy: .public) pt; drawing nothing")
+        }
+        return image
+    }
+}
+
+/// A sidebar bitmap that could not be allocated: the caller draws nothing and the first
+/// failure in a process is logged as a fault (failure is data, no stand-in image).
+enum SidebarBitmapFailure {
+    private static let logged = OSAllocatedUnfairLock(initialState: false)
+    private static let log = Logger(subsystem: "com.cmux.prototype.messageslab", category: "sidebar-bitmap")
+
+    /// `image` unchanged; logs the first nil.
+    static func checked(_ image: CGImage?, size: CGSize) -> CGImage? {
+        if image == nil, logged.withLock({ alreadyLogged in
+            defer { alreadyLogged = true }
+            return !alreadyLogged
+        }) {
+            log.fault("sidebar bitmap allocation failed at \(size.width, privacy: .public) x \(size.height, privacy: .public) pt; drawing nothing")
         }
         return image
     }

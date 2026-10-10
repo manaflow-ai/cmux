@@ -15,9 +15,9 @@ final class HeaderView: UIView {
     private let overlay: CanvasView
     // Display P3: the same transfer curve as sRGB (the fitted blur is unchanged for
     // greys) without clipping the P3 blues under the header.
-    // cmux: LabColorSpace (no force unwrap; crash program).
+    // LabColorSpace (no force unwrap; crash program).
     private static let ci = CIContext(options: [.workingColorSpace: LabColorSpace.displayP3,
-                                                .outputColorSpace: LabColorSpace.displayP3])
+                                              .outputColorSpace: LabColorSpace.displayP3])
     // Fitted to the reference header (least squares over three frames):
     // out = base + gain * (w * blur(s1) + (1 - w) * blur(s2)), sigmas in 2x px.
     static let blurSigma1: Double = 5.3
@@ -75,7 +75,7 @@ final class HeaderView: UIView {
         // Outside the window there is nothing to blur, so pad with the
         // background colour (this gives the darker fringe at the edges).
         let rect = CGRect(x: -pad, y: -pad, width: bounds.width + 2 * pad, height: bounds.height + 2 * pad)
-        // cmux: a backdrop that could not be allocated keeps the previous one (BitmapFailure logged it).
+        // a backdrop that could not be allocated keeps the previous one (BitmapFailure logged it).
         guard let img = WideBitmap.make(size: rect.size, scale: scale, opaque: true, { c in
             c.setFillColor(Fixture.background.cgColor)
             c.fill(CGRect(origin: .zero, size: rect.size))
@@ -169,7 +169,7 @@ final class ChromeView: UIView {
         super.init(frame: frame)
         isUserInteractionEnabled = false
         addSubview(canvas)
-        // cmux: weak capture, not unowned (crash program: no trap after the view is freed).
+        // weak capture, not unowned (crash program: no trap after the view is freed).
         canvas.drawer = { [weak self] ctx, b in
             guard let self else { return }
             if self.drawsTrafficLights {
@@ -187,7 +187,7 @@ final class ChromeView: UIView {
                     }
                     ctx.saveGState()
                     UIBezierPath(ovalIn: r).addClip()
-                    // cmux: an optional gradient draws nothing when it fails (CrashSafeGraphics).
+                    // an optional gradient draws nothing when it fails (CrashSafeGraphics).
                     let g = CGGradient(colorsSpace: space, colors: [col(c.0), col(c.1)] as CFArray, locations: [0.15, 0.85])
                     ctx.drawLinearGradient(g, start: CGPoint(x: 0, y: r.minY), end: CGPoint(x: 0, y: r.maxY), options: [])
                     ctx.restoreGState()

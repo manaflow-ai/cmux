@@ -82,7 +82,7 @@ enum MarkdownLinkPolicy {
         // "&" (an entity), "%" (percent-encoding), "/" (relative) or anything else before the
         // colon means no scheme: not a link.
         guard let colon = u.firstIndex(of: ":"), colon > 0 else { return nil }
-        let head = u.prefix(upTo: colon) // cmux: no range subscript
+        let head = u.prefix(upTo: colon) // no range subscript
         func ascii(_ c: Unicode.Scalar) -> Bool { c.isASCII && (("a"..."z").contains(c) || ("A"..."Z").contains(c)) }
         guard let first = head.first, ascii(first),
               head.allSatisfy({ ascii($0) || ($0.isASCII && ("0"..."9").contains($0)) || $0 == "+" || $0 == "-" || $0 == "." }) else { return nil }
@@ -233,19 +233,19 @@ enum MDLines {
         let u = text.unicodeScalars
         var si = u.startIndex
         while si < u.endIndex {
-            guard let c = u[checked: si] else { break } // cmux: checked (si < u.endIndex is the loop condition)
+            guard let c = u[checked: si] else { break } // checked (si < u.endIndex is the loop condition)
             if c == "\n" || c == "\r" {
                 i = si
-                out.append(text.slice(start, i)) // cmux: clamped slice
+                out.append(text.slice(start, i)) // clamped slice
                 var next = u.index(after: si)
-                if c == "\r", next < u.endIndex, u[checked: next] == "\n" { next = u.index(after: next) } // cmux: checked
+                if c == "\r", next < u.endIndex, u[checked: next] == "\n" { next = u.index(after: next) } // checked
                 start = next
                 si = next
                 continue
             }
             si = u.index(after: si)
         }
-        if start < text.endIndex { out.append(text.slice(from: start)) } // cmux: clamped slice
+        if start < text.endIndex { out.append(text.slice(from: start)) } // clamped slice
         return out
     }
 }
@@ -272,23 +272,23 @@ struct MDLine {
     func dropping(cols: Int) -> MDLine {
         var col = 0, i = 0
         while i < s.count, col < cols {
-            if s[checked: i] == " " { col += 1; i += 1 } // cmux: checked
-            else if s[checked: i] == "\t" { // cmux: checked
+            if s[checked: i] == " " { col += 1; i += 1 } // checked
+            else if s[checked: i] == "\t" { // checked
                 let w = 4 - col % 4
                 if col + w > cols {
                     let rest = col + w - cols
-                    return MDLine(scalars: Array(repeating: " ", count: rest) + s.slice(from: i + 1)) // cmux: clamped slice
+                    return MDLine(scalars: Array(repeating: " ", count: rest) + s.slice(from: i + 1)) // clamped slice
                 }
                 col += w; i += 1
             } else { break }
         }
-        return MDLine(scalars: Array(s.slice(from: i))) // cmux: clamped slice
+        return MDLine(scalars: Array(s.slice(from: i))) // clamped slice
     }
 
     /// Leading whitespace removed.
-    var trimmedLeading: MDLine { var i = 0; while i < s.count, s[checked: i] == " " || s[checked: i] == "\t" { i += 1 }; return MDLine(scalars: Array(s.slice(from: i))) } // cmux: checked
+    var trimmedLeading: MDLine { var i = 0; while i < s.count, s[checked: i] == " " || s[checked: i] == "\t" { i += 1 }; return MDLine(scalars: Array(s.slice(from: i))) } // checked
     var string: String { var v = String.UnicodeScalarView(); v.append(contentsOf: s); return String(v) }
-    func string(_ r: Range<Int>) -> String { var v = String.UnicodeScalarView(); v.append(contentsOf: s.slice(r.lowerBound, r.upperBound)); return String(v) } // cmux: clamped slice
+    func string(_ r: Range<Int>) -> String { var v = String.UnicodeScalarView(); v.append(contentsOf: s.slice(r.lowerBound, r.upperBound)); return String(v) } // clamped slice
 }
 
 // MARK: - Link reference definitions
@@ -317,14 +317,14 @@ enum MDBlockParser {
             out.append(MDBlock(kind: k, blankBefore: blank && !out.isEmpty, lines: topLevel ? from..<i : 0..<0))
             blank = false
         }
-        while i < lines.count, let line = lines[checked: i] { // cmux: checked
+        while i < lines.count, let line = lines[checked: i] { // checked
             if line.isBlank { blank = true; i += 1; continue }
             let start = i
             let ind = line.indent
             // Indented code.
             if ind >= 4 {
                 var body: [MDLine] = []
-                while i < lines.count, let l = lines[checked: i], l.isBlank || l.indent >= 4 { // cmux: checked
+                while i < lines.count, let l = lines[checked: i], l.isBlank || l.indent >= 4 { // checked
                     body.append(l.dropping(cols: 4)); i += 1
                 }
                 while body.last?.isBlank == true { body.removeLast(); i -= 1 }
@@ -337,7 +337,7 @@ enum MDBlockParser {
                 var body: [MDLine] = []
                 var closed = false
                 i += 1
-                while i < lines.count, let l = lines[checked: i] { // cmux: checked
+                while i < lines.count, let l = lines[checked: i] { // checked
                     if l.indent < 4, let c = fence(l.dropping(cols: l.indent)), c.char == f.char, c.count >= f.count, c.info.isEmpty {
                         closed = true; i += 1; break
                     }
@@ -356,7 +356,7 @@ enum MDBlockParser {
             if nest, t.s.first == ">" {
                 var inner: [MDLine] = []
                 var lastParagraph = false
-                while i < lines.count, let l = lines[checked: i] { // cmux: checked
+                while i < lines.count, let l = lines[checked: i] { // checked
                     let li = l.indent
                     if li < 4, l.dropping(cols: li).s.first == ">" {
                         var q = l.dropping(cols: li)
@@ -384,7 +384,7 @@ enum MDBlockParser {
                 var startNumber = m.number
                 let ordered = m.ordered
                 let delim = m.delim
-                while i < lines.count, let l = lines[checked: i] { // cmux: checked
+                while i < lines.count, let l = lines[checked: i] { // checked
                     let li = l.indent
                     guard li < 4, let mk = listMarker(l.dropping(cols: li), interruptsParagraph: false),
                           mk.ordered == ordered, mk.delim == delim else { break }
@@ -395,7 +395,7 @@ enum MDBlockParser {
                     var lastParagraph = !mk.first.isBlank
                     var sawBlank = mk.first.isBlank
                     var innerBlank = false
-                    while i < lines.count, let l2 = lines[checked: i] { // cmux: checked
+                    while i < lines.count, let l2 = lines[checked: i] { // checked
                         if l2.isBlank {
                             // An item may start with at most one blank line.
                             if body.count == 1, body[0].isBlank { break }
@@ -429,7 +429,7 @@ enum MDBlockParser {
                     items.append(MDItem(marker: mk.marker, task: task, blocks: blocks))
                     if trailing > 0 {
                         // A blank line then another item of this list: loose.
-                        if i < lines.count, let next = lines[checked: i], next.indent < 4, // cmux: checked
+                        if i < lines.count, let next = lines[checked: i], next.indent < 4, // checked
                            let n = listMarker(next.dropping(cols: next.indent), interruptsParagraph: false),
                            n.ordered == ordered, n.delim == delim { loose = true } else { blankAfter = true; break }
                     }
@@ -451,7 +451,7 @@ enum MDBlockParser {
             i += 1
             var setext = 0
             var tableAt: Int?
-            while i < lines.count, let l = lines[checked: i] { // cmux: checked
+            while i < lines.count, let l = lines[checked: i] { // checked
                 if l.isBlank { break }
                 let li = l.indent
                 let d = l.dropping(cols: li)
@@ -469,7 +469,7 @@ enum MDBlockParser {
             } else if !text.isEmpty {
                 let p = MDInlineParser.parse(text, refs: known)
                 add(.paragraph(p), start)
-                if let last = out.indices.last { out.update(at: last) { $0.rich = MDBlock.paragraphIsRich(p, source: text) } } // cmux: no index math
+                if let last = out.indices.last { out.update(at: last) { $0.rich = MDBlock.paragraphIsRich(p, source: text) } } // no index math
             }
             if let at = tableAt, let tb = table(lines, at: at, known) {
                 let s2 = i
@@ -486,7 +486,7 @@ enum MDBlockParser {
     static func fence(_ t: MDLine) -> Fence? {
         guard let c = t.s.first, c == "`" || c == "~" else { return nil }
         var n = 0
-        while n < t.s.count, t.s[checked: n] == c { n += 1 } // cmux: checked
+        while n < t.s.count, t.s[checked: n] == c { n += 1 } // checked
         guard n >= 3 else { return nil }
         let info = t.string(n..<t.s.count).trimmingCharacters(in: .whitespaces)
         if c == "`", info.contains("`") { return nil }
@@ -495,12 +495,12 @@ enum MDBlockParser {
 
     static func atxHeading(_ t: MDLine) -> (Int, String)? {
         var n = 0
-        while n < t.s.count, t.s[checked: n] == "#" { n += 1 } // cmux: checked
-        guard (1...6).contains(n), n == t.s.count || t.s[checked: n] == " " || t.s[checked: n] == "\t" else { return nil } // cmux: checked
+        while n < t.s.count, t.s[checked: n] == "#" { n += 1 } // checked
+        guard (1...6).contains(n), n == t.s.count || t.s[checked: n] == " " || t.s[checked: n] == "\t" else { return nil } // checked
         var body = t.string(n..<t.s.count).trimmingCharacters(in: .whitespaces)
         // Closing sequence: spaces then #s at the end.
         if let r = body.range(of: "#+$", options: .regularExpression) {
-            let before = body.prefix(upTo: r.lowerBound) // cmux: no range subscript
+            let before = body.prefix(upTo: r.lowerBound) // no range subscript
             if before.isEmpty || before.hasSuffix(" ") || before.hasSuffix("\t") {
                 body = String(before).trimmingCharacters(in: .whitespaces)
             }
@@ -520,8 +520,8 @@ enum MDBlockParser {
     static func setextLevel(_ t: MDLine) -> Int? {
         guard let c = t.s.first, c == "=" || c == "-" else { return nil }
         var i = 0
-        while i < t.s.count, t.s[checked: i] == c { i += 1 } // cmux: checked
-        while i < t.s.count, t.s[checked: i] == " " || t.s[checked: i] == "\t" { i += 1 } // cmux: checked
+        while i < t.s.count, t.s[checked: i] == c { i += 1 } // checked
+        while i < t.s.count, t.s[checked: i] == " " || t.s[checked: i] == "\t" { i += 1 } // checked
         guard i == t.s.count else { return nil }
         return c == "=" ? 1 : 2
     }
@@ -536,15 +536,15 @@ enum MDBlockParser {
             markerLen = 1
         } else if c.properties.numericType != nil, ("0"..."9").contains(c) {
             var j = 0
-            while j < t.s.count, j < 10, let d = t.s[checked: j], ("0"..."9").contains(d) { j += 1 } // cmux: checked
-            guard j <= 9, j < t.s.count, t.s[checked: j] == "." || t.s[checked: j] == ")" else { return nil } // cmux: checked
+            while j < t.s.count, j < 10, let d = t.s[checked: j], ("0"..."9").contains(d) { j += 1 } // checked
+            guard j <= 9, j < t.s.count, t.s[checked: j] == "." || t.s[checked: j] == ")" else { return nil } // checked
             number = Int(t.string(0..<j)) ?? 1
-            delim = t.s[checked: j] ?? c // cmux: checked (j < t.s.count above)
+            delim = t.s[checked: j] ?? c // checked (j < t.s.count above)
             ordered = true
             markerLen = j + 1
         } else { return nil }
-        let rest = MDLine(scalars: Array(t.s.slice(from: markerLen))) // cmux: clamped slice
-        if !rest.s.isEmpty, rest.s[checked: 0] != " ", rest.s[checked: 0] != "\t" { return nil } // cmux: checked
+        let rest = MDLine(scalars: Array(t.s.slice(from: markerLen))) // clamped slice
+        if !rest.s.isEmpty, rest.s[checked: 0] != " ", rest.s[checked: 0] != "\t" { return nil } // checked
         if interruptsParagraph {
             if rest.isBlank { return nil }
             if ordered, number != 1 { return nil }
@@ -566,12 +566,12 @@ enum MDBlockParser {
 
     static func taskPrefix(_ p: MDText) -> (Bool, MDText)? {
         let u = Array(p.string.utf16)
-        guard u.count >= 3, u[checked: 0] == 91, u[checked: 2] == 93, u.count == 3 || u[checked: 3] == 32 || u[checked: 3] == 9 || u[checked: 3] == 10 else { return nil } // cmux: checked
+        guard u.count >= 3, u[checked: 0] == 91, u[checked: 2] == 93, u.count == 3 || u[checked: 3] == 32 || u[checked: 3] == 9 || u[checked: 3] == 10 else { return nil } // checked
         let checked: Bool
-        switch u[checked: 1] { case 32: checked = false; case 120, 88: checked = true; default: return nil } // cmux: checked (u.count >= 3 above)
+        switch u[checked: 1] { case 32: checked = false; case 120, 88: checked = true; default: return nil } // checked (u.count >= 3 above)
         let cut = min(u.count, 4)
         var rest = MDText()
-        rest.string = String(utf16CodeUnits: Array(u.slice(from: cut)), count: u.count - cut) // cmux: clamped slice
+        rest.string = String(utf16CodeUnits: Array(u.slice(from: cut)), count: u.count - cut) // clamped slice
         rest.spans = p.spans.compactMap { s in
             let lo = max(s.location, cut), hi = s.location + s.length
             guard hi > lo else { return nil }
@@ -590,12 +590,12 @@ enum MDBlockParser {
         var i = 0
         if t.first == "|" { i = 1 }
         var ticks = 0           // open code span's backtick count
-        while i < t.count, let c = t[checked: i] { // cmux: checked
-            if c == "\\", i + 1 < t.count, t[checked: i + 1] == "|" { cur.append("|"); i += 2; continue } // cmux: checked
-            if c == "\\", i + 1 < t.count, let next = t[checked: i + 1] { cur.append(c); cur.append(next); i += 2; continue } // cmux: checked
+        while i < t.count, let c = t[checked: i] { // checked
+            if c == "\\", i + 1 < t.count, t[checked: i + 1] == "|" { cur.append("|"); i += 2; continue } // checked
+            if c == "\\", i + 1 < t.count, let next = t[checked: i + 1] { cur.append(c); cur.append(next); i += 2; continue } // checked
             if c == "`" {
                 var n = 0
-                while i + n < t.count, t[checked: i + n] == "`" { n += 1 } // cmux: checked
+                while i + n < t.count, t[checked: i + n] == "`" { n += 1 } // checked
                 if ticks == 0 { if hasClosingTicks(t, from: i + n, count: n) { ticks = n } }
                 else if n == ticks { ticks = 0 }
                 for _ in 0..<n { cur.append("`") }
@@ -608,15 +608,15 @@ enum MDBlockParser {
             cur.append(c); i += 1
         }
         let last = String(cur).trimmingCharacters(in: .whitespaces)
-        if !last.isEmpty || t.last != "|" || (t.count >= 2 && t[checked: t.count - 2] == "\\") { cells.append(last) } // cmux: checked
+        if !last.isEmpty || t.last != "|" || (t.count >= 2 && t[checked: t.count - 2] == "\\") { cells.append(last) } // checked
         return cells
     }
     private static func hasClosingTicks(_ t: [Unicode.Scalar], from: Int, count: Int) -> Bool {
         var i = from
         while i < t.count {
-            if t[checked: i] == "`" { // cmux: checked
+            if t[checked: i] == "`" { // checked
                 var n = 0
-                while i + n < t.count, t[checked: i + n] == "`" { n += 1 } // cmux: checked
+                while i + n < t.count, t[checked: i + n] == "`" { n += 1 } // checked
                 if n == count { return true }
                 i += n
             } else { i += 1 }
@@ -646,14 +646,14 @@ enum MDBlockParser {
 
     static func table(_ lines: [MDLine], at i: Int, _ known: MDRefs?) -> (table: MDTable, end: Int)? {
         guard i + 1 < lines.count else { return nil }
-        guard i >= 0, let h = lines[checked: i], let below = lines[checked: i + 1] else { return nil } // cmux: checked
+        guard i >= 0, let h = lines[checked: i], let below = lines[checked: i + 1] else { return nil } // checked
         guard h.indent < 4, h.s.contains("|"), let aligns = delimiterRow(below) else { return nil }
         let header = splitRow(h)
         guard header.count == aligns.count else { return nil }
         var rows: [[MDText]] = []
         var cols = aligns.count
         var j = i + 2
-        while j < lines.count, let l = lines[checked: j] { // cmux: checked
+        while j < lines.count, let l = lines[checked: j] { // checked
             if l.isBlank || (l.indent < 4 && startsBlock(l.dropping(cols: l.indent))) { break }
             let cells = splitRow(l).map { MDInlineParser.parse($0, breaks: false, refs: known) }
             cols = max(cols, cells.count)
@@ -677,34 +677,34 @@ enum MDBlockParser {
         var rest = Substring(text)
         while rest.hasPrefix("[") {
             guard let close = rest.firstIndex(of: "]"), rest.index(after: close) < rest.endIndex,
-                  rest[checked: rest.index(after: close)] == ":" else { break } // cmux: checked
-            let label = String(rest.slice(rest.index(after: rest.startIndex), close)) // cmux: clamped slice
+                  rest[checked: rest.index(after: close)] == ":" else { break } // checked
+            let label = String(rest.slice(rest.index(after: rest.startIndex), close)) // clamped slice
             guard !label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !label.contains("[") else { break }
             var j = rest.index(close, offsetBy: 2)
-            while j < rest.endIndex, rest[checked: j] == " " || rest[checked: j] == "\t" || rest[checked: j] == "\n" { j = rest.index(after: j) } // cmux: checked
+            while j < rest.endIndex, rest[checked: j] == " " || rest[checked: j] == "\t" || rest[checked: j] == "\n" { j = rest.index(after: j) } // checked
             var dest = ""
-            if j < rest.endIndex, rest[checked: j] == "<" { // cmux: checked
-                guard let e = rest.slice(from: j).firstIndex(of: ">") else { break } // cmux: clamped slices
+            if j < rest.endIndex, rest[checked: j] == "<" { // checked
+                guard let e = rest.slice(from: j).firstIndex(of: ">") else { break } // clamped slices
                 dest = String(rest.slice(rest.index(after: j), e)); j = rest.index(after: e)
             } else {
-                let e = rest.slice(from: j).firstIndex { $0 == " " || $0 == "\n" || $0 == "\t" } ?? rest.endIndex // cmux: clamped slices
+                let e = rest.slice(from: j).firstIndex { $0 == " " || $0 == "\n" || $0 == "\t" } ?? rest.endIndex // clamped slices
                 dest = String(rest.slice(j, e)); j = e
             }
             guard !dest.isEmpty else { break }
             // Optional title on the same line; then the line must end.
             var title: String?
             var k = j
-            while k < rest.endIndex, rest[checked: k] == " " || rest[checked: k] == "\t" { k = rest.index(after: k) } // cmux: checked
-            if k < rest.endIndex, let q = rest[checked: k] == "\"" ? Character("\"") : rest[checked: k] == "'" ? Character("'") : rest[checked: k] == "(" ? Character(")") : nil { // cmux: checked
-                if let e = rest.slice(from: rest.index(after: k)).firstIndex(of: q) { // cmux: clamped slices
+            while k < rest.endIndex, rest[checked: k] == " " || rest[checked: k] == "\t" { k = rest.index(after: k) } // checked
+            if k < rest.endIndex, let q = rest[checked: k] == "\"" ? Character("\"") : rest[checked: k] == "'" ? Character("'") : rest[checked: k] == "(" ? Character(")") : nil { // checked
+                if let e = rest.slice(from: rest.index(after: k)).firstIndex(of: q) { // clamped slices
                     title = String(rest.slice(rest.index(after: k), e)); k = rest.index(after: e)
                 }
             }
-            while k < rest.endIndex, rest[checked: k] == " " || rest[checked: k] == "\t" { k = rest.index(after: k) } // cmux: checked
-            guard k == rest.endIndex || rest[checked: k] == "\n" else { break } // cmux: checked
+            while k < rest.endIndex, rest[checked: k] == " " || rest[checked: k] == "\t" { k = rest.index(after: k) } // checked
+            guard k == rest.endIndex || rest[checked: k] == "\n" else { break } // checked
             let key = MDRefs.normalize(label)
-            if !refs.map.keys.contains(key) { refs.map.updateValue((MDInlineParser.unescape(dest), title), forKey: key) } // cmux: dictionary
-            rest = k == rest.endIndex ? "" : rest.slice(from: rest.index(after: k)) // cmux: clamped slice
+            if !refs.map.keys.contains(key) { refs.map.updateValue((MDInlineParser.unescape(dest), title), forKey: key) } // dictionary
+            rest = k == rest.endIndex ? "" : rest.slice(from: rest.index(after: k)) // clamped slice
         }
         return String(rest)
     }
@@ -748,21 +748,21 @@ enum MDInlineParser {
         var text = String.UnicodeScalarView()
         var i = 0
         func flush() { if !text.isEmpty { nodes.append(.text(String(text))); text = .init() } }
-        func prev(_ i: Int) -> Unicode.Scalar? { i > 0 ? src[checked: i - 1] : nil } // cmux: checked
+        func prev(_ i: Int) -> Unicode.Scalar? { i > 0 ? src[checked: i - 1] : nil } // checked
 
-        while i < src.count, let c = src[checked: i] { // cmux: checked
+        while i < src.count, let c = src[checked: i] { // checked
             switch c {
             case "\\":
-                if i + 1 < src.count, let next = src[checked: i + 1], isASCIIPunct(next) { text.append(next); i += 2; continue } // cmux: checked
-                if i + 1 < src.count, src[checked: i + 1] == "\n" { flush(); nodes.append(.br); i += 2; continue } // cmux: checked
+                if i + 1 < src.count, let next = src[checked: i + 1], isASCIIPunct(next) { text.append(next); i += 2; continue } // checked
+                if i + 1 < src.count, src[checked: i + 1] == "\n" { flush(); nodes.append(.br); i += 2; continue } // checked
                 text.append(c); i += 1
             case "`":
                 var n = 0
-                while i + n < src.count, src[checked: i + n] == "`" { n += 1 } // cmux: checked
+                while i + n < src.count, src[checked: i + n] == "`" { n += 1 } // checked
                 if let end = closingTicks(src, from: i + n, count: n) {
                     flush()
                     var body = String.UnicodeScalarView()
-                    for x in src.slice(i + n, end) { body.append(x == "\n" ? " " : x) } // cmux: clamped slice
+                    for x in src.slice(i + n, end) { body.append(x == "\n" ? " " : x) } // clamped slice
                     var code = String(body)
                     if code.count >= 2, code.hasPrefix(" "), code.hasSuffix(" "), code.contains(where: { $0 != " " }) {
                         code = String(code.dropFirst().dropLast())
@@ -784,12 +784,12 @@ enum MDInlineParser {
                 flush()
                 if breaks { nodes.append(.br) } else { text.append(" ") }
                 i += 1
-                while i < src.count, src[checked: i] == " " || src[checked: i] == "\t" { i += 1 } // cmux: checked
+                while i < src.count, src[checked: i] == " " || src[checked: i] == "\t" { i += 1 } // checked
             case "*", "_", "~":
                 var n = 0
-                while i + n < src.count, src[checked: i + n] == c { n += 1 } // cmux: checked
+                while i + n < src.count, src[checked: i + n] == c { n += 1 } // checked
                 if c == "~", n > 2 { for _ in 0..<n { text.append(c) }; i += n; continue }
-                let before = prev(i), after: Unicode.Scalar? = i + n < src.count ? src[checked: i + n] : nil // cmux: checked
+                let before = prev(i), after: Unicode.Scalar? = i + n < src.count ? src[checked: i + n] : nil // checked
                 let bWS = before.map(isWS) ?? true, aWS = after.map(isWS) ?? true
                 let bP = before.map(isPunct) ?? false, aP = after.map(isPunct) ?? false
                 let left = !aWS && (!aP || bWS || bP)
@@ -802,7 +802,7 @@ enum MDInlineParser {
                     delims.append(Delim(node: nodes.count - 1, char: c, count: n, origCount: n, canOpen: canOpen, canClose: canClose))
                 }
                 i += n
-            case "!" where i + 1 < src.count && src[checked: i + 1] == "[": // cmux: checked
+            case "!" where i + 1 < src.count && src[checked: i + 1] == "[": // checked
                 flush()
                 nodes.append(.text("!["))
                 brackets.append(Bracket(node: nodes.count - 1, image: true, active: true, delimBottom: delims.count, pos: i + 2))
@@ -820,8 +820,8 @@ enum MDInlineParser {
                 if let (d, _, e) = inlineLinkTail(src, i + 1) { dest = d; end = e }
                 else if let refs {
                     // [text][label], [text][], [text]
-                    let inner = String(String.UnicodeScalarView(src.slice(b.pos, i))) // cmux: clamped slices
-                    if i + 1 < src.count, src[checked: i + 1] == "[", let close = src.slice(from: i + 2).firstIndex(of: "]") { // cmux: checked
+                    let inner = String(String.UnicodeScalarView(src.slice(b.pos, i))) // clamped slices
+                    if i + 1 < src.count, src[checked: i + 1] == "[", let close = src.slice(from: i + 2).firstIndex(of: "]") { // checked
                         let label = String(String.UnicodeScalarView(src.slice(i + 2, close)))
                         let key = MDRefs.normalize(label.isEmpty ? inner : label)
                         if let r = refs.map[key] { dest = r.0; end = close + 1 }
@@ -835,17 +835,17 @@ enum MDInlineParser {
                     // Never loaded: the text "[Image: alt]", so a reader knows it is an image and
                     // that it was not loaded; a link when the URL is allowed. The source goes to the
                     // host's image provider only.
-                    let alt = plain(nodes.slice(from: b.node + 1)) // cmux: clamped slice
-                    nodes.removeLast(nodes.count - min(max(0, b.node), nodes.count)) // cmux: no range that can trap
+                    let alt = plain(nodes.slice(from: b.node + 1)) // clamped slice
+                    nodes.removeLast(nodes.count - min(max(0, b.node), nodes.count)) // no range that can trap
                     nodes.append(.image(MarkdownLinkPolicy.imagePlaceholder(alt), link: safe, source: dest))
                     brackets.removeAll { $0.node > b.node }
                 } else {
                     // A refused URL: the link text stays, as plain text (no link, no target).
-                    // cmux: checked writes.
+                    // checked writes.
                     if let safe { if let at = nodes.checkedIndex(b.node) { nodes[at] = .linkOpen(safe) }; nodes.append(.linkClose) } else if let at = nodes.checkedIndex(b.node) { nodes[at] = .text("") }
                     // No links inside links (a refused link is still a link for this rule).
                     brackets.removeAll { $0.node > b.node }
-                    brackets = brackets.map { var x = $0; if !x.image { x.active = false }; return x } // cmux: no index writes
+                    brackets = brackets.map { var x = $0; if !x.image { x.active = false }; return x } // no index writes
                 }
                 i = end
             default:
@@ -853,16 +853,16 @@ enum MDInlineParser {
                 if (c == "w" || c == "h" || c == "W" || c == "H"), prev(i).map({ isWS($0) || $0 == "(" || $0 == "*" || $0 == "_" || $0 == "~" || $0 == "\"" || $0 == "'" }) ?? true,
                    let (url, len) = extendedAutolink(src, i), let safe = MarkdownLinkPolicy.sanitize(url) {
                     flush()
-                    nodes.append(.styled(String(String.UnicodeScalarView(src.slice(i, i + len))), .link, safe)) // cmux: clamped slice
+                    nodes.append(.styled(String(String.UnicodeScalarView(src.slice(i, i + len))), .link, safe)) // clamped slice
                     i += len
                     continue
                 }
                 if c == "@", let (start, len) = emailAutolink(src, i, textTail: text),
-                   MarkdownLinkPolicy.allows("mailto:x@" + String(String.UnicodeScalarView(src.slice(i + 1, i + len)))) { // cmux: clamped slice
+                   MarkdownLinkPolicy.allows("mailto:x@" + String(String.UnicodeScalarView(src.slice(i + 1, i + len)))) { // clamped slice
                     // Pull the local part back out of the pending text.
                     let local = Array(text)
                     let keep = local.count - start
-                    var t2 = String.UnicodeScalarView(); t2.append(contentsOf: local.slice(0, keep)) // cmux: clamped slices
+                    var t2 = String.UnicodeScalarView(); t2.append(contentsOf: local.slice(0, keep)) // clamped slices
                     let addr = String(String.UnicodeScalarView(local.slice(from: keep))) + String(String.UnicodeScalarView(src.slice(i, i + len)))
                     text = t2
                     flush()
@@ -886,13 +886,13 @@ enum MDInlineParser {
         // Openers bottom per (char, closer can open, closer count % 3).
         var bottoms: [String: Int] = [:]
         var ci = bottom
-        while ci < delims.count, let closer = delims[checked: ci] { // cmux: checked
+        while ci < delims.count, let closer = delims[checked: ci] { // checked
             guard closer.canClose, closer.count > 0 else { ci += 1; continue }
             let key = "\(closer.char)\(closer.canOpen)\(closer.origCount % 3)"
             let floor = max(bottom, bottoms[key] ?? bottom)
             var oi = ci - 1
             var found = -1
-            while oi >= floor, let o = delims[checked: oi] { // cmux: checked
+            while oi >= floor, let o = delims[checked: oi] { // checked
                 if o.char == closer.char, o.canOpen, o.count > 0 {
                     if closer.char == "~" {
                         if o.count == closer.count { found = oi; break }
@@ -912,25 +912,25 @@ enum MDInlineParser {
             let use: Int
             let style: MDStyle
             if closer.char == "~" { use = closer.count; style = .strike }
-            else { use = (delims[checked: found]?.count ?? 0) >= 2 && closer.count >= 2 ? 2 : 1; style = use == 2 ? .strong : .emphasis } // cmux
-            // cmux: checked in-place updates (crash program); found < ci < delims.count here.
+            else { use = (delims[checked: found]?.count ?? 0) >= 2 && closer.count >= 2 ? 2 : 1; style = use == 2 ? .strong : .emphasis }
+            // checked in-place updates ; found < ci < delims.count here.
             delims.update(at: found) { $0.count -= use }
             delims.update(at: ci) { $0.count -= use }
             // Marks: inner first. After the opener's node, before the closer's node.
-            if let n = delims[checked: found]?.node { insertMark(&nodes, &delims, after: n, .open(style)) } // cmux
-            if let n = delims[checked: ci]?.node { insertMark(&nodes, &delims, before: n, .close(style)) } // cmux
+            if let n = delims[checked: found]?.node { insertMark(&nodes, &delims, after: n, .open(style)) }
+            if let n = delims[checked: ci]?.node { insertMark(&nodes, &delims, before: n, .close(style)) }
             // Delimiters between them are literal.
-            for k in (found + 1)..<ci { delims.update(at: k) { $0.canOpen = false; $0.canClose = false } } // cmux
-            if delims[checked: found]?.count == 0 { delims.update(at: found) { $0.canOpen = false } } // cmux
-            if delims[checked: ci]?.count == 0 { ci += 1 } // cmux
+            for k in (found + 1)..<ci { delims.update(at: k) { $0.canOpen = false; $0.canClose = false } }
+            if delims[checked: found]?.count == 0 { delims.update(at: found) { $0.canOpen = false } }
+            if delims[checked: ci]?.count == 0 { ci += 1 }
         }
         // What matching left of each run prints as literal characters.
-        for d in delims.dropFirst(max(0, bottom)) { nodes.update(at: d.node) { $0 = .delim(d.char, count: d.count) } } // cmux: checked
-        delims.removeLast(max(0, delims.count - max(0, bottom))) // cmux: no range that can trap
+        for d in delims.dropFirst(max(0, bottom)) { nodes.update(at: d.node) { $0 = .delim(d.char, count: d.count) } } // checked
+        delims.removeLast(max(0, delims.count - max(0, bottom))) // no range that can trap
     }
 
     /// Inserting a node shifts every later delimiter's node index.
-    /// cmux: an insertion point outside the nodes inserts nothing (fault once), no index writes.
+    /// an insertion point outside the nodes inserts nothing (fault once), no index writes.
     private static func insertMark(_ nodes: inout [Node], _ delims: inout [Delim], after n: Int, _ m: Node) {
         guard n + 1 >= 0, n + 1 <= nodes.count else { CrashGuard.fault("mark after \(n) outside \(nodes.count) nodes"); return }
         nodes.insert(m, at: n + 1)
@@ -990,7 +990,7 @@ enum MDInlineParser {
         var out: [MDSpan] = []
         for x in s {
             if var l = out.last, l.location + l.length == x.location, l.style == x.style, l.link == x.link, l.image == x.image {
-                l.length += x.length; if let last = out.indices.last { out.update(at: last) { $0 = l } } // cmux: no index math
+                l.length += x.length; if let last = out.indices.last { out.update(at: last) { $0 = l } } // no index math
             } else { out.append(x) }
         }
         return out
@@ -1002,14 +1002,14 @@ enum MDInlineParser {
         let u = Array(t.string.utf16)
         var keep = [Bool](repeating: true, count: u.count)
         var j = u.count - 1
-        while j >= 0, u[checked: j] == 32 { keep.update(at: j) { $0 = false }; j -= 1 } // cmux: checked
+        while j >= 0, u[checked: j] == 32 { keep.update(at: j) { $0 = false }; j -= 1 } // checked
         var k = 0
-        while k < u.count, u[checked: k] == 32 { keep.update(at: k) { $0 = false }; k += 1 } // cmux: checked
-        for x in u.indices where u[checked: x] == 10 { // cmux: checked
+        while k < u.count, u[checked: k] == 32 { keep.update(at: k) { $0 = false }; k += 1 } // checked
+        for x in u.indices where u[checked: x] == 10 { // checked
             var y = x - 1
-            while y >= 0, u[checked: y] == 32 { keep.update(at: y) { $0 = false }; y -= 1 } // cmux: checked
+            while y >= 0, u[checked: y] == 32 { keep.update(at: y) { $0 = false }; y -= 1 } // checked
         }
-        // cmux: built by appending (no index writes); spans outside the text are dropped (no trap).
+        // built by appending (no index writes); spans outside the text are dropped (no trap).
         var map: [Int] = []
         map.reserveCapacity(u.count + 1)
         var out: [UInt16] = []
@@ -1044,7 +1044,7 @@ enum MDInlineParser {
         return (33...47).contains(v) || (58...64).contains(v) || (91...96).contains(v) || (123...126).contains(v)
     }
     static func isWS(_ c: Unicode.Scalar) -> Bool { c == " " || c == "\t" || c == "\n" || c == "\r" || c.properties.isWhitespace }
-    /// cmux: a letter or an ASCII digit; nil (outside the text) is neither.
+    /// a letter or an ASCII digit; nil (outside the text) is neither.
     static func isAlnum(_ c: Unicode.Scalar?) -> Bool { c.map { $0.properties.isAlphabetic || ("0"..."9").contains($0) } ?? false }
     static func isPunct(_ c: Unicode.Scalar) -> Bool {
         if isASCIIPunct(c) { return true }
@@ -1058,9 +1058,9 @@ enum MDInlineParser {
     private static func closingTicks(_ s: [Unicode.Scalar], from: Int, count: Int) -> Int? {
         var i = from
         while i < s.count {
-            if s[checked: i] == "`" { // cmux: checked
+            if s[checked: i] == "`" { // checked
                 var n = 0
-                while i + n < s.count, s[checked: i + n] == "`" { n += 1 } // cmux: checked
+                while i + n < s.count, s[checked: i + n] == "`" { n += 1 } // checked
                 if n == count { return i }
                 i += n
             } else { i += 1 }
@@ -1076,13 +1076,13 @@ enum MDInlineParser {
         "para": "¶", "laquo": "«", "raquo": "»", "le": "≤", "ge": "≥", "ne": "≠", "infin": "∞",
     ]
     private static func entity(_ s: [Unicode.Scalar], _ i: Int) -> (String, Int)? {
-        guard let semi = s.slice(from: i + 1).prefix(34).firstIndex(of: ";") else { return nil } // cmux: clamped slices
+        guard let semi = s.slice(from: i + 1).prefix(34).firstIndex(of: ";") else { return nil } // clamped slices
         let body = String(String.UnicodeScalarView(s.slice(i + 1, semi)))
         if body.hasPrefix("#") {
             let hex = body.hasPrefix("#x") || body.hasPrefix("#X")
             let digits = body.dropFirst(hex ? 2 : 1)
             guard !digits.isEmpty, digits.count <= (hex ? 6 : 7), let v = UInt32(digits, radix: hex ? 16 : 10) else { return nil }
-            let replacement: Unicode.Scalar = "\u{FFFD}" // cmux: a literal, no force unwrap
+            let replacement: Unicode.Scalar = "\u{FFFD}" // a literal, no force unwrap
             let scalar = (v == 0 || v > 0x10FFFF) ? replacement : (Unicode.Scalar(v) ?? replacement)
             return (String(scalar), semi - i + 1)
         }
@@ -1091,12 +1091,12 @@ enum MDInlineParser {
     }
 
     private static func angleAutolink(_ s: [Unicode.Scalar], _ i: Int) -> (String, Int, String)? {
-        guard let end = s.slice(from: i + 1).prefix(2048).firstIndex(of: ">") else { return nil } // cmux: clamped slices
+        guard let end = s.slice(from: i + 1).prefix(2048).firstIndex(of: ">") else { return nil } // clamped slices
         let body = String(String.UnicodeScalarView(s.slice(i + 1, end)))
         guard !body.isEmpty, !body.contains(where: { $0 == " " || $0 == "<" || $0 == "\n" }) else { return nil }
         if let colon = body.firstIndex(of: ":") {
-            let scheme = body.prefix(upTo: colon) // cmux: no range subscript
-            guard (2...32).contains(scheme.count), scheme.first?.isLetter == true, // cmux: no force unwrap
+            let scheme = body.prefix(upTo: colon) // no range subscript
+            guard (2...32).contains(scheme.count), scheme.first?.isLetter == true, // no force unwrap
                   scheme.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "+" || $0 == "." || $0 == "-" }) else { return nil }
             return (body, end - i + 1, body)
         }
@@ -1113,7 +1113,7 @@ enum MDInlineParser {
         func has(_ p: String) -> Bool {
             let u = Array(p.unicodeScalars)
             guard i + u.count <= s.count else { return false }
-            for (a, b) in zip(s.slice(from: i), u) where Character(a).lowercased() != Character(b).lowercased() { return false } // cmux: no index math
+            for (a, b) in zip(s.slice(from: i), u) where Character(a).lowercased() != Character(b).lowercased() { return false } // no index math
             return true
         }
         var start = i
@@ -1121,35 +1121,35 @@ enum MDInlineParser {
         if has("https://") { start += 8 } else if has("http://") { start += 7 } else if has("www.") { prefix = "http://" } else { return nil }
         // Domain: alphanumerics, "-", "_", "." ; at least one "."; no "_" in the last two labels.
         var j = start
-        while j < s.count, isAlnum(s[checked: j]) || s[checked: j] == "-" || s[checked: j] == "_" || s[checked: j] == "." { j += 1 } // cmux: checked
-        let domain = String(String.UnicodeScalarView(s.slice(start, j))) // cmux: clamped slice
+        while j < s.count, isAlnum(s[checked: j]) || s[checked: j] == "-" || s[checked: j] == "_" || s[checked: j] == "." { j += 1 } // checked
+        let domain = String(String.UnicodeScalarView(s.slice(start, j))) // clamped slice
         let labels = domain.split(separator: ".", omittingEmptySubsequences: false)
-        let port = j < s.count && s[checked: j] == ":" // cmux: checked
+        let port = j < s.count && s[checked: j] == ":" // checked
         guard !domain.isEmpty, !domain.hasPrefix("."), !labels.suffix(2).contains(where: { $0.contains("_") }) else { return nil }
-        if labels.count < 2 || labels.last?.isEmpty != false { // cmux: no force unwrap
+        if labels.count < 2 || labels.last?.isEmpty != false { // no force unwrap
             // "www." needs a real domain; "http://" also takes localhost and a host with a port.
             guard prefix.isEmpty, domain == "localhost" || port else { return nil }
         }
-        while j < s.count, !(s[checked: j].map(isWS) ?? true), s[checked: j] != "<" { j += 1 } // cmux: checked
+        while j < s.count, !(s[checked: j].map(isWS) ?? true), s[checked: j] != "<" { j += 1 } // checked
         var end = j
         // Trailing punctuation and unbalanced parentheses.
         while end > start {
-            guard let c = s[checked: end - 1] else { break } // cmux: checked
+            guard let c = s[checked: end - 1] else { break } // checked
             if "?!.,:*_~'\"".unicodeScalars.contains(c) { end -= 1; continue }
             if c == ")" {
                 var open = 0, close = 0
-                for k in i..<end { if s[checked: k] == "(" { open += 1 } else if s[checked: k] == ")" { close += 1 } } // cmux: checked
+                for k in i..<end { if s[checked: k] == "(" { open += 1 } else if s[checked: k] == ")" { close += 1 } } // checked
                 if close > open { end -= 1; continue }
             }
             if c == ";" {
                 var k = end - 2
                 while k > start, isAlnum(s[checked: k]) { k -= 1 }
-                if k >= start, s[checked: k] == "&" { end = k; continue } // cmux: checked
+                if k >= start, s[checked: k] == "&" { end = k; continue } // checked
             }
             break
         }
         guard end > start else { return nil }
-        let raw = String(String.UnicodeScalarView(s.slice(i, end))) // cmux: clamped slice
+        let raw = String(String.UnicodeScalarView(s.slice(i, end))) // clamped slice
         return (prefix + raw, end - i)
     }
 
@@ -1159,11 +1159,11 @@ enum MDInlineParser {
         var k = tail.count
         while k > 0, isAlnum(tail[checked: k - 1]) || (tail[checked: k - 1].map({ ".-_+".unicodeScalars.contains($0) }) ?? false) { k -= 1 }
         let localLen = tail.count - k
-        guard localLen > 0, k == 0 || (tail[checked: k - 1].map(isWS) ?? false) || tail[checked: k - 1] == "(" else { return nil } // cmux: checked
+        guard localLen > 0, k == 0 || (tail[checked: k - 1].map(isWS) ?? false) || tail[checked: k - 1] == "(" else { return nil } // checked
         var j = i + 1
-        while j < s.count, isAlnum(s[checked: j]) || s[checked: j] == "-" || s[checked: j] == "_" || s[checked: j] == "." { j += 1 } // cmux: checked
-        while j > i + 1, s[checked: j - 1] == "." || s[checked: j - 1] == "-" || s[checked: j - 1] == "_" { j -= 1 } // cmux: checked
-        let domain = String(String.UnicodeScalarView(s.slice(i + 1, j))) // cmux: clamped slice
+        while j < s.count, isAlnum(s[checked: j]) || s[checked: j] == "-" || s[checked: j] == "_" || s[checked: j] == "." { j += 1 } // checked
+        while j > i + 1, s[checked: j - 1] == "." || s[checked: j - 1] == "-" || s[checked: j - 1] == "_" { j -= 1 } // checked
+        let domain = String(String.UnicodeScalarView(s.slice(i + 1, j))) // clamped slice
         guard domain.contains("."), !domain.hasPrefix("."), let last = domain.split(separator: ".").last,
               !last.contains("_"), last.count >= 2 else { return nil }
         return (localLen, j - i)
@@ -1171,44 +1171,44 @@ enum MDInlineParser {
 
     /// `(dest "title")` after "]". Returns (dest, title, index after ")").
     private static func inlineLinkTail(_ s: [Unicode.Scalar], _ i: Int) -> (String, String?, Int)? {
-        guard i < s.count, s[checked: i] == "(" else { return nil } // cmux: checked
+        guard i < s.count, s[checked: i] == "(" else { return nil } // checked
         var j = i + 1
-        func ws() { while j < s.count, s[checked: j] == " " || s[checked: j] == "\t" || s[checked: j] == "\n" { j += 1 } } // cmux: checked
+        func ws() { while j < s.count, s[checked: j] == " " || s[checked: j] == "\t" || s[checked: j] == "\n" { j += 1 } } // checked
         ws()
         var dest = String.UnicodeScalarView()
-        if j < s.count, s[checked: j] == "<" { // cmux: checked
+        if j < s.count, s[checked: j] == "<" { // checked
             j += 1
-            while j < s.count, s[checked: j] != ">", s[checked: j] != "\n" { // cmux: checked
-                if s[checked: j] == "\\", j + 1 < s.count, let next = s[checked: j + 1], isASCIIPunct(next) { dest.append(next); j += 2; continue } // cmux: checked
-                if let c = s[checked: j] { dest.append(c) }; j += 1 // cmux: checked
+            while j < s.count, s[checked: j] != ">", s[checked: j] != "\n" { // checked
+                if s[checked: j] == "\\", j + 1 < s.count, let next = s[checked: j + 1], isASCIIPunct(next) { dest.append(next); j += 2; continue } // checked
+                if let c = s[checked: j] { dest.append(c) }; j += 1 // checked
             }
-            guard j < s.count, s[checked: j] == ">" else { return nil } // cmux: checked
+            guard j < s.count, s[checked: j] == ">" else { return nil } // checked
             j += 1
         } else {
             var depth = 0
             while j < s.count, !(s[checked: j].map(isWS) ?? true), (s[checked: j]?.value ?? 0) >= 32 {
-                if s[checked: j] == "\\", j + 1 < s.count, let next = s[checked: j + 1], isASCIIPunct(next) { dest.append(next); j += 2; continue } // cmux: checked
-                if s[checked: j] == "(" { depth += 1 } // cmux: checked
-                if s[checked: j] == ")" { if depth == 0 { break }; depth -= 1 } // cmux: checked
-                if let c = s[checked: j] { dest.append(c) }; j += 1 // cmux: checked
+                if s[checked: j] == "\\", j + 1 < s.count, let next = s[checked: j + 1], isASCIIPunct(next) { dest.append(next); j += 2; continue } // checked
+                if s[checked: j] == "(" { depth += 1 } // checked
+                if s[checked: j] == ")" { if depth == 0 { break }; depth -= 1 } // checked
+                if let c = s[checked: j] { dest.append(c) }; j += 1 // checked
             }
             guard depth == 0 else { return nil }
         }
         ws()
         var title: String?
-        if j < s.count, let q: Unicode.Scalar = s[checked: j] == "\"" ? "\"" : s[checked: j] == "'" ? "'" : s[checked: j] == "(" ? ")" : nil { // cmux: checked
+        if j < s.count, let q: Unicode.Scalar = s[checked: j] == "\"" ? "\"" : s[checked: j] == "'" ? "'" : s[checked: j] == "(" ? ")" : nil { // checked
             var t = String.UnicodeScalarView()
             j += 1
-            while j < s.count, s[checked: j] != q { // cmux: checked
-                if s[checked: j] == "\\", j + 1 < s.count, let next = s[checked: j + 1], isASCIIPunct(next) { t.append(next); j += 2; continue } // cmux: checked
-                if let c = s[checked: j] { t.append(c) }; j += 1 // cmux: checked
+            while j < s.count, s[checked: j] != q { // checked
+                if s[checked: j] == "\\", j + 1 < s.count, let next = s[checked: j + 1], isASCIIPunct(next) { t.append(next); j += 2; continue } // checked
+                if let c = s[checked: j] { t.append(c) }; j += 1 // checked
             }
             guard j < s.count else { return nil }
             j += 1
             title = String(t)
             ws()
         }
-        guard j < s.count, s[checked: j] == ")" else { return nil } // cmux: checked
+        guard j < s.count, s[checked: j] == ")" else { return nil } // checked
         return (String(dest), title, j + 1)
     }
 
@@ -1218,7 +1218,7 @@ enum MDInlineParser {
         let u = Array(s.unicodeScalars)
         var i = 0
         while i < u.count {
-            if u[checked: i] == "\\", i + 1 < u.count, let next = u[checked: i + 1], isASCIIPunct(next) { out.append(next); i += 2 } else { if let c = u[checked: i] { out.append(c) }; i += 1 } // cmux: checked
+            if u[checked: i] == "\\", i + 1 < u.count, let next = u[checked: i + 1], isASCIIPunct(next) { out.append(next); i += 2 } else { if let c = u[checked: i] { out.append(c) }; i += 1 } // checked
         }
         return String(out)
     }

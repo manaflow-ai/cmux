@@ -66,7 +66,7 @@ final class RowRecycler: UIScrollView, TranscriptList {
     var visibleCells: [UICollectionViewCell] { Array(visible.values) }
 
     func indexPath(for cell: UICollectionViewCell) -> IndexPath? {
-        index.value(for: ObjectIdentifier(cell)).map { /* cmux: dictionary read */ IndexPath(item: $0, section: 0) }
+        index.value(for: ObjectIdentifier(cell)).map { /* dictionary read */ IndexPath(item: $0, section: 0) }
     }
 
     /// All rows may have changed: reconfigure every visible cell on the next pass.
@@ -116,7 +116,7 @@ final class RowRecycler: UIScrollView, TranscriptList {
             }
             if cell.frame != a.frame { cell.frame = a.frame }
             cell.layer.zPosition = CGFloat(a.zIndex)
-            next.updateValue(cell, forKey: k) /* cmux */
+            next.updateValue(cell, forKey: k)
             newIndex[ObjectIdentifier(cell)] = i
         }
         // Rows that left the rect: back to the pool (hidden, not removed), in row order: the

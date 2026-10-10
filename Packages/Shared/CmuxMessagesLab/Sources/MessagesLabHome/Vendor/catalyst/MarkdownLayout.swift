@@ -102,11 +102,11 @@ extension Markdown {
     /// Body text baseline below a line top (13 pt SF in a 16 pt line; Fixture.textBaseline - bubblePadY).
     static let bodyBaseline: CGFloat = 13
     static let codeBaseline: CGFloat = 12.5
-    static let codeFont = HomeFonts.monospaced(ofSize: 12, weight: .regular) // cmux: nil-checked (HomeFonts, cx-qpqs)
-    static let codeBoldFont = HomeFonts.monospaced(ofSize: 12, weight: .semibold) // cmux: nil-checked (HomeFonts, cx-qpqs)
-    static let inlineCodeFont = HomeFonts.monospaced(ofSize: 12, weight: .regular) // cmux: nil-checked (HomeFonts, cx-qpqs)
+    static let codeFont = HomeFonts.monospaced(ofSize: 12, weight: .regular) // nil-checked (HomeFonts, cx-qpqs)
+    static let codeBoldFont = HomeFonts.monospaced(ofSize: 12, weight: .semibold) // nil-checked (HomeFonts, cx-qpqs)
+    static let inlineCodeFont = HomeFonts.monospaced(ofSize: 12, weight: .regular) // nil-checked (HomeFonts, cx-qpqs)
     /// Headings are body size (Lawrence, 2026-10-06): weight only, one step.
-    static func headingFont(_ level: Int) -> UIFont { HomeFonts.system(ofSize: Fixture.bodyFont.pointSize, weight: level <= 2 ? .bold : .semibold) } // cmux: held for the process (HomeFonts, cx-qpqs)
+    static func headingFont(_ level: Int) -> UIFont { HomeFonts.system(ofSize: Fixture.bodyFont.pointSize, weight: level <= 2 ? .bold : .semibold) } // held for the process (HomeFonts, cx-qpqs)
     static let codePadX: CGFloat = 8
     /// Space under a scrollable block's content for its scroll indicator.
     static let indicatorRoom: CGFloat = 5
@@ -233,7 +233,7 @@ enum MarkdownLayoutEngine {
         // Inner width: the widest content, at most the column. Stretchable boxes and
         // regions fill it; wider regions scroll.
         let inner = fill ? maxWidth : min(maxWidth, max(extent, 1).rounded(.up))
-        // cmux: mutated element by element in place (no index math, crash program).
+        // mutated element by element in place (no index math, crash program).
         boxes = boxes.map { box in
             guard box.stretch else { return box }
             var box = box
@@ -250,7 +250,7 @@ enum MarkdownLayoutEngine {
         // Region boxes that span the region (code background) follow the frame.
         let regionsNow = regions
         boxes = boxes.map { box in
-            guard box.kind == .codeBlock, box.region >= 0, let r = regionsNow[checked: box.region] else { return box } // cmux: checked region
+            guard box.kind == .codeBlock, box.region >= 0, let r = regionsNow[checked: box.region] else { return box } // checked region
             var box = box
             box.rect.size.width = max(r.frame.width, r.contentWidth)
             return box
@@ -336,7 +336,7 @@ enum MarkdownLayoutEngine {
                 blocks(bs, x: x + inner, width: w - inner, depth: depth + 1, listDepth: listDepth)
                 quoteDepth -= 1
                 out.boxes.append(MDBox(rect: CGRect(x: x + 1, y: top + 1, width: 3, height: max(14, y - top - 2)), kind: .quoteBar, region: -1))
-                let kids = Array(out.ax.dropFirst(children0)); out.ax.removeLast(kids.count) // cmux: no range subscript
+                let kids = Array(out.ax.dropFirst(children0)); out.ax.removeLast(kids.count) // no range subscript
                 out.ax.append(MDAXNode(kind: .quote, range: NSRange(location: p0, length: plainLen - p0), frame: CGRect(x: x, y: top, width: w, height: y - top), children: kids))
             case let .list(l):
                 list(l, x: x, width: w, depth: depth, listDepth: listDepth)
@@ -487,7 +487,7 @@ enum MarkdownLayoutEngine {
                 if l.ordered { return "\(l.start + i)" + (it.marker.last == ")" ? ")" : ".") }
                 return ["•", "◦", "▪"][min(listDepth, 2)]
             }
-            let widest = l.items.enumerated().map { TextDraw.width(markerText($0.offset, $0.element), font: markerFont) }.max() ?? 0 // cmux
+            let widest = l.items.enumerated().map { TextDraw.width(markerText($0.offset, $0.element), font: markerFont) }.max() ?? 0
             let markerW = max(anyTask ? 14 : 0, widest)
             let wanted = markerW + Markdown.markerGap + (listDepth == 0 && depth == 0 ? 2 : 0)
             let ind = MarkdownLayoutEngine.indent(x: x, wanted: wanted, width: w, level: listDepth + depth)
@@ -515,7 +515,7 @@ enum MarkdownLayoutEngine {
                 let n0 = out.ax.count
                 if it.blocks.isEmpty { y += Markdown.lineHeight }
                 else { blocks(it.blocks, x: x + ind, width: w - ind, depth: depth, listDepth: listDepth + 1, tight: !l.loose) }
-                let sub = Array(out.ax.dropFirst(n0)); out.ax.removeLast(sub.count) // cmux: no range subscript
+                let sub = Array(out.ax.dropFirst(n0)); out.ax.removeLast(sub.count) // no range subscript
                 kids.append(MDAXNode(kind: .item, range: NSRange(location: ip0, length: plainLen - ip0), frame: CGRect(x: x, y: itTop, width: w, height: y - itTop), children: sub))
                 out.extent = max(out.extent, x + ind + 4)
             }
@@ -529,7 +529,7 @@ enum MarkdownLayoutEngine {
             let rid = out.regions.count
             let cols = max(1, t.columns)
             let pad = Markdown.cellPadX
-            let headFont = HomeFonts.system(ofSize: Fixture.bodyFont.pointSize, weight: .semibold) // cmux: held for the process (HomeFonts, cx-qpqs)
+            let headFont = HomeFonts.system(ofSize: Fixture.bodyFont.pointSize, weight: .semibold) // held for the process (HomeFonts, cx-qpqs)
             let all: [[MDText]] = [t.header] + t.rows
             // Column widths: min = widest unbreakable word (capped), max = widest one-line cell.
             var minW = [CGFloat](repeating: 16, count: cols), maxW = [CGFloat](repeating: 16, count: cols)
@@ -539,13 +539,13 @@ enum MarkdownLayoutEngine {
             for (ri, row) in all.enumerated() {
                 var ra: [NSAttributedString] = []
                 for c in 0..<cols {
-                    let cell = row.dropFirst(c).first ?? MDText() // cmux: no index math
+                    let cell = row.dropFirst(c).first ?? MDText() // no index math
                     let a = MarkdownLayoutEngine.attributed(cell, font: ri == 0 ? headFont : Fixture.bodyFont, role: ri == 0 ? .header : .body, kern: Fixture.bodyKern)
                     ra.append(a)
                     if ri < 2000, a.length > 0 {
                         let line = CTLineCreateWithAttributedString(a)
                         let word = MarkdownLayoutEngine.longestWord(a, line)
-                        // cmux: c < cols == every width array's count; written through checked slots.
+                        // c < cols == every width array's count; written through checked slots.
                         if let s = maxW.checkedIndex(c) { maxW[s] = max(maxW[s], CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)).rounded(.up)) }
                         if let s = wordW.checkedIndex(c) { wordW[s] = max(wordW[s], word) }
                         if let s = minW.checkedIndex(c) { minW[s] = max(minW[s], min(140, word)) }
@@ -559,18 +559,18 @@ enum MarkdownLayoutEngine {
             var colW: [CGFloat]
             if let fixed = fixedColumns, !fixed.isEmpty {
                 // Continued table: the first block's widths; extra columns get their one-line width.
-                colW = maxW.enumerated().map { fixed.dropFirst($0.offset).first ?? min($0.element, 200) } // cmux: no index math
+                colW = maxW.enumerated().map { fixed.dropFirst($0.offset).first ?? min($0.element, 200) } // no index math
                 fixedColumns = nil
             } else if sumMax <= avail { colW = maxW }
             else if sumMin >= avail {
                 // The table scrolls anyway: no column narrower than its longest word (up to
                 // 320 pt) or 200 pt, so cells do not break inside words.
-                colW = zip(maxW, wordW).map { min($0, max(min($1, 320), 200)) } // cmux: no index math
+                colW = zip(maxW, wordW).map { min($0, max(min($1, 320), 200)) } // no index math
             }
             else {
                 // Auto layout: every column gets its minimum, the rest in proportion to (max - min).
                 let extra = avail - sumMin, want = sumMax - sumMin
-                colW = zip(minW, maxW).map { ($0 + ($1 - $0) * extra / want).rounded(.down) } // cmux: no index math
+                colW = zip(minW, maxW).map { ($0 + ($1 - $0) * extra / want).rounded(.down) } // no index math
             }
             let tableW = colW.reduce(0, +) + chrome
             region = rid
@@ -585,7 +585,7 @@ enum MarkdownLayoutEngine {
                 var rowH: CGFloat = Markdown.lineHeight
                 var cellNodes: [MDAXNode] = []
                 let rp0 = plainLen
-                for (c, (cellText, cw)) in zip(ra, colW).enumerated() { // cmux: no index math (ra and colW have cols entries)
+                for (c, (cellText, cw)) in zip(ra, colW).enumerated() { // no index math (ra and colW have cols entries)
                     if c > 0 { appendPlain("\t"); tsv += "\t" }
                     let save = y
                     y = rowTop + Markdown.cellPadY
@@ -602,7 +602,7 @@ enum MarkdownLayoutEngine {
                     cx += cw + 2 * pad
                 }
                 let h = rowH + 2 * Markdown.cellPadY
-                cellNodes = cellNodes.map { var n = $0; n.frame.size.height = h; return n } // cmux: no index writes
+                cellNodes = cellNodes.map { var n = $0; n.frame.size.height = h; return n } // no index writes
                 axRows.append(MDAXNode(kind: .row, range: NSRange(location: rp0, length: plainLen - rp0), frame: CGRect(x: x, y: rowTop, width: tableW, height: h), children: cellNodes))
                 y = rowTop + h
             }
@@ -663,7 +663,7 @@ enum MarkdownLayoutEngine {
                 var traits: UIFontDescriptor.SymbolicTraits = []
                 if s.style.contains(.strong) { traits.insert(.traitBold) }
                 if s.style.contains(.emphasis) { traits.insert(.traitItalic) }
-                // cmux: the bold/italic face held for the process (HomeFonts, cx-qpqs); no font attribute when there is none.
+                // The bold/italic face held for the process (HomeFonts, cx-qpqs); no font attribute when there is none.
                 if !traits.isEmpty, let f = HomeFonts.font(font, adding: traits) {
                     a.addAttribute(.font, value: f, range: r)
                 }
@@ -693,13 +693,13 @@ final class MDLRU<K: Hashable, V>: @unchecked Sendable {
     func get(_ k: K) -> V? {
         lock.lock(); defer { lock.unlock() }
         guard let v = map[k] else { return nil }
-        tick += 1; map.updateValue((v.0, tick), forKey: k) // cmux: dictionary write
+        tick += 1; map.updateValue((v.0, tick), forKey: k) // dictionary write
         return v.0
     }
     func set(_ k: K, _ v: V) {
         lock.lock(); defer { lock.unlock() }
         tick += 1
-        map.updateValue((v, tick), forKey: k) // cmux: dictionary write
+        map.updateValue((v, tick), forKey: k) // dictionary write
         if map.count > capacity {
             // Drop the older half (amortized O(1) per insert).
             let cut = map.values.map(\.1).sorted()[map.count / 2]

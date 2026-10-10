@@ -58,8 +58,8 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
         documentView = document
         verticalScroller = SequenceScroller()
         let nc = NotificationCenter.default
-        // cmux: a block observer on queue: .main (inline for the clip's post on main), not a selector:
-        // a selector into this main-actor view trapped on a post off main (crash program). Tokens kept and removed.
+        // a block observer on queue: .main (inline for the clip's post on main), not a selector:
+        // a selector into this main-actor view trapped on a post off main . Tokens kept and removed.
         observers = [
             nc.addObserver(forName: NSView.boundsDidChangeNotification, object: clip, queue: .main) { [weak self] n in self?.clipMoved(n) },
             nc.addObserver(forName: NSScrollView.willStartLiveScrollNotification, object: self, queue: nil) { [weak self] _ in self?.setLive(true) },
@@ -67,8 +67,8 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
         ]
     }
     required init?(coder: NSCoder) { fatalError() }
-    private var observers: [NSObjectProtocol] = []  // cmux
-    deinit { observers.forEach { NotificationCenter.default.removeObserver($0) } }  // cmux
+    private var observers: [NSObjectProtocol] = []
+    deinit { observers.forEach { NotificationCenter.default.removeObserver($0) } }
 
     /// The shared window view's transcript list (a layer-only scroll view).
     var collection: UIScrollView? { demo?.collection }
@@ -127,7 +127,7 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
 
     // MARK: Clip view -> model
 
-    private func clipMoved(_ n: Notification) {  // cmux: no selector
+    private func clipMoved(_ n: Notification) {  // no selector
         pinContent()
         guard applyingModel == 0, let demo, let cv = collection else { return }
         let y = clip.bounds.origin.y - shift
@@ -306,7 +306,7 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
         let rect = dir > 0 ? CGRect(x: b.minX, y: b.maxY, width: b.width, height: h) : CGRect(x: b.minX, y: b.minY - h, width: b.width, height: h)
         let n = r.layout.model.count
         for a in r.layout.layoutAttributesForElements(in: rect) ?? [] where a.indexPath.item < n {
-            guard let spec = r.layout.model.rows[checked: a.indexPath.item]?.spec else { continue } // cmux: checked
+            guard let spec = r.layout.model.rows[checked: a.indexPath.item]?.spec else { continue } // checked
             switch spec.kind { case .receipt, .typing: continue; default: break }
             if !RowBitmaps.shared.has(spec) { RowBitmaps.shared.request(spec) }
         }
@@ -463,7 +463,7 @@ final class SequenceScroller: NSScroller {
     ///   30; the window's edge column 53 -> 76 under it), from x 612 to the window edge, with a
     ///   faint left rim (70, 61 at 612 and 612.5).
     /// - fades: wheel reveal 0.24 s cubic-bezier (0.3, 1, 0.6, 1); after the last wheel event
-    ///   0.72 s, then 0.092 s linear; after the pointer leaves the strip 0.80 s, then 0.22 s
+    ///   0.72 s, then 0.125 s linear; after the pointer leaves the strip 0.80 s, then 0.22 s
     ///   cubic-bezier (0.294, 0.493, 0.389, 0.946) (scrollbar-hover, rms 0.003).
     /// - a press while hidden goes to the transcript (scrollbar-hidden-press).
     override func drawKnobSlot(in slotRect: NSRect, highlight flag: Bool) {
@@ -497,7 +497,9 @@ final class SequenceScroller: NSScroller {
     }
     /// Messages' visual holds (lossless strips): 0.72 s after the last wheel event, 0.78 s
     /// after the pointer leaves the strip, 0.53 s after a drag's release outside it.
-    static let holdTime: TimeInterval = 0.72, fadeTime: TimeInterval = 0.092
+    /// The wheel fade-out: 0.125 s linear (120 Hz strip takes, drain window 2026-10-09 20:56:
+    /// 0.092 s showed 41-50 ms against real Messages' 58-67 ms; scaled by the mean, 62.5 / 45.5).
+    static let holdTime: TimeInterval = 0.72, fadeTime: TimeInterval = 0.125
     /// The leave hold counts from the pointer's exit from the strip (scrollbar-hover: exit at
     /// +7.1425 s, fade from +7.917-7.925 s: 0.775-0.783 s; 0.80 was measured from the 'leave' mark).
     static let leaveHold: TimeInterval = 0.78, leaveFade: TimeInterval = 0.22
@@ -632,7 +634,7 @@ final class SequenceScroller: NSScroller {
         }
     }
     /// The thumb's right edge (scroller coordinates): the window's right edge minus 2 pt.
-    /// cmux: the scroller's own right edge: in a Home pane the window's right edge is not
+    /// The scroller's own right edge: in a cmux-next Home pane the window's right edge is not
     /// the transcript's (the same place when the pane is the window).
     private var barRight: CGFloat { bounds.maxX - 2 }
     /// The drawn bar (scroller coordinates): 7 pt (11 pt expanded) wide, right edge at the
@@ -748,7 +750,7 @@ final class SequenceScroller: NSScroller {
         guard abs(shownTop - bar.minY) >= 0.25, let s = window?.backingScaleFactor else { endSlide(); return }
         var from = bar
         from.origin.y = (shownTop * s).rounded() / s
-        guard let clockLayer = layer ?? v.layer else { endSlide(); return } // cmux: no force unwrap
+        guard let clockLayer = layer ?? v.layer else { endSlide(); return } // no force unwrap
         slideKnob(from: from, Self.slideStop, begin: Animate.now(clockLayer))
         if slideKeys.isEmpty { endSlide() }
     }

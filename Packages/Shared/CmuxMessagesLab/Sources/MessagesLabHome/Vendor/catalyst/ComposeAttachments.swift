@@ -88,7 +88,7 @@ final class ComposeAttachmentStrip {
     static func kindText(_ a: Attachment) -> String {
         let kind = UTType(mimeType: a.mimeType)?.localizedDescription ?? a.mimeType
         guard a.byteSize > 0 else { return kind }
-        return "\(kind) \u{00B7} \(ByteCountFormatter.string(fromByteCount: Int64(clamping: a.byteSize) /* cmux */, countStyle: .file))"
+        return "\(kind) \u{00B7} \(ByteCountFormatter.string(fromByteCount: Int64(clamping: a.byteSize), countStyle: .file))"
     }
 
     /// Mirror the draft's attachments for a field of this width.
@@ -206,7 +206,7 @@ final class ComposeAttachmentStrip {
 
     private func loadThumbnail(_ a: Attachment, into l: CALayer, pixels: CGSize) {
         guard let asset = a.asset else { return }
-        let maxPx = CrashGuard.int(ceil(max(pixels.width, pixels.height))) // cmux: no trap on NaN
+        let maxPx = CrashGuard.int(ceil(max(pixels.width, pixels.height))) // no trap on NaN
         let key = "\(asset)#\(maxPx)"
         if let img = thumbs[key] { l.contents = img; return }
         let id = a.id

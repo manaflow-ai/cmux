@@ -13,7 +13,7 @@ enum RowDraw {
     static let margin: CGFloat = 24
 
     static func receiptParts(_ bold: String, _ rest: String) -> [(String, UIFont, UIColor)] {
-        // cmux: fonts held for the process (HomeFonts, cx-qpqs); receipts draw on RowBitmaps' threads.
+        // Fonts held for the process (HomeFonts, cx-qpqs); receipts draw on RowBitmaps' threads.
         [(bold, HomeFonts.system(ofSize: Fixture.captionSize, weight: .semibold), Fixture.secondaryText),
          (rest, HomeFonts.system(ofSize: Fixture.captionSize), Fixture.secondaryText)]
     }
@@ -32,19 +32,36 @@ enum RowDraw {
         return max(0, x - 36 - (p.outgoing ? extra : 0))...min(spec.width, x + p.size.width + 20 + (p.outgoing ? 0 : extra))
     }
 
-    /// Whether a part row's bitmap is the same at every row width: its drawn span is not cut by
-    /// the row's edges, so the bubble, its tail, badges and save button are drawn at the same
-    /// place relative to the span's start (render translates by it). Custom rows draw through
-    /// providers and long text through tiles: never.
+    /// Whether a row's bitmap is the same at every row width: its drawn span is the same size at
+    /// every width and the row is drawn at the same place relative to the span's start (render
+    /// translates by it), so the bubble, its tail, badges and save button (or the receipt's text)
+    /// have the same pixels. Custom rows draw through providers and long text through tiles: never.
+    /// - An outgoing bubble moves with the right edge: its span must not be cut by the row's edges.
+    /// - An incoming bubble stays at the left edge: its span starts at 0 at every width (the
+    ///   36 pt margin left of the bubble is cut there the same way), so only the right edge must
+    ///   not cut it. (Before, the left cut made every incoming row width-dependent: in a divider
+    ///   drag on the idle mini, macOS 26, 639 of 1969 rows the width passes drew again were
+    ///   incoming bubbles of the same size, same pixels.)
+    /// - A receipt is drawn right-aligned at `receiptRight`, which moves with the width, in the
+    ///   span from 170 pt left of it to the row's right edge (235 more rows in that drag).
+    /// `--row-width-keys` or MLAB_EXP=rowwidthkeys: only outgoing bubbles that no edge cuts (the
+    /// rule before; the A/B control).
     static func widthInvariant(_ spec: RowSpec) -> Bool {
+        if case .receipt = spec.kind { return fixedSpanKeys && spec.metrics.receiptRight - 170 >= 0 }
         guard case let .part(p) = spec.kind else { return false }
         if case .custom = p.part { return false }
         let x = p.outgoing ? spec.metrics.rightEdge - p.size.width : Fixture.leftEdge
         var media = false
         if case let .attachment(a) = p.part, a.kind == "image" || a.kind == "video" { media = true }
         let extra: CGFloat = media ? 46 : 0
-        return x - 36 - (p.outgoing ? extra : 0) >= 0 && x + p.size.width + 20 + (p.outgoing ? 0 : extra) <= spec.width
+        let rightFits = x + p.size.width + 20 + (p.outgoing ? 0 : extra) <= spec.width
+        if !p.outgoing, fixedSpanKeys { return rightFits }
+        return x - 36 - (p.outgoing ? extra : 0) >= 0 && rightFits
     }
+    static let fixedSpanKeys: Bool = {
+        let exp = (ProcessInfo.processInfo.environment["MLAB_EXP"] ?? "").split(separator: ",")
+        return !(CommandLine.arguments.contains("--row-width-keys") || exp.contains("rowwidthkeys"))
+    }()
 
     /// Body rect of a part row in row coordinates (window width, margin above).
     static func bodyRect(_ spec: RowSpec) -> CGRect {
@@ -80,17 +97,17 @@ enum RowDraw {
             }
         case let .unsent(outgoing):
             let s = outgoing ? Strings.unsentMine : Strings.unsentTheirs
-            let f = HomeFonts.system(ofSize: 11) // cmux: HomeFonts (cx-qpqs)
+            let f = HomeFonts.system(ofSize: 11) // HomeFonts (cx-qpqs)
             let w = TextDraw.width(s, font: f)
             TextDraw.line(s, font: f, color: Fixture.secondaryText, x: m.centerX + 0.1 - w / 2, baseline: top + 12, in: ctx)
         case let .label(text, outgoing, color):
-            let f = HomeFonts.system(ofSize: 10, weight: .medium) // cmux: HomeFonts (cx-qpqs)
+            let f = HomeFonts.system(ofSize: 10, weight: .medium) // HomeFonts (cx-qpqs)
             let c: UIColor = color == .failure ? UIColor(red: 1, green: 0.27, blue: 0.23, alpha: 1)
                 : color == .link ? UIColor(red: 0.2, green: 0.55, blue: 1, alpha: 1) : Fixture.secondaryText
             let w = TextDraw.width(text, font: f)
             TextDraw.line(text, font: f, color: c, x: outgoing ? m.receiptRight - w : Fixture.labelLeft, baseline: top + 11, in: ctx)
         case let .replies(count, _, outgoing):
-            let f = HomeFonts.system(ofSize: 10, weight: .semibold) // cmux: HomeFonts (cx-qpqs)
+            let f = HomeFonts.system(ofSize: 10, weight: .semibold) // HomeFonts (cx-qpqs)
             let s = Strings.replies(count)
             let w = TextDraw.width(s, font: f, kern: captionKern)
             TextDraw.line(s, font: f, color: PreviewStyle.repliesBlue,
@@ -166,7 +183,7 @@ enum PartRenderer {
                 UIColor(white: light ? 0 : 1, alpha: 0.25 + 0.6 * CGFloat(k) / 7).setStroke(); p.stroke()
             }
             let host = URL(string: url).map(TextParts.host) ?? url
-            let f = HomeFonts.system(ofSize: 10) // cmux: HomeFonts (cx-qpqs)
+            let f = HomeFonts.system(ofSize: 10) // HomeFonts (cx-qpqs)
             TextDraw.line(host, font: f, color: Fixture.secondaryText, x: body.midX - TextDraw.width(host, font: f) / 2, baseline: c.y + 24, in: ctx)
         case let .link(_, title, site, image, theme):
             // A light appearance draws every card light; a dark one keeps the card's
@@ -193,7 +210,7 @@ enum PartRenderer {
             let c = CGPoint(x: body.minX - 14, y: body.midY)
             UIColor(red: 1, green: 0.27, blue: 0.23, alpha: 1).setFill()
             UIBezierPath(ovalIn: CGRect(x: c.x - 8, y: c.y - 8, width: 16, height: 16)).fill()
-            let f = HomeFonts.system(ofSize: 12, weight: .bold) // cmux: HomeFonts (cx-qpqs)
+            let f = HomeFonts.system(ofSize: 12, weight: .bold) // HomeFonts (cx-qpqs)
             TextDraw.line("!", font: f, color: .white, x: c.x - TextDraw.width("!", font: f) / 2, baseline: c.y + 4.5, in: ctx)
         }
         drawReactions(ctx, p.reactions, body: body, outgoing: p.outgoing, windowY: windowY)
@@ -238,7 +255,7 @@ enum PartRenderer {
             TextDraw.line(s, font: Sizing.linkTitleFont, color: titleColor, x: card.minX + 10, baseline: y, in: ctx, kern: -0.005)
             y += 12
         }
-        TextDraw.line(site, font: HomeFonts.system(ofSize: 10), color: siteColor, x: card.minX + 10.25, baseline: y + 2.8, in: ctx, kern: -0.03) // cmux: HomeFonts (cx-qpqs)
+        TextDraw.line(site, font: HomeFonts.system(ofSize: 10), color: siteColor, x: card.minX + 10.25, baseline: y + 2.8, in: ctx, kern: -0.03) // HomeFonts (cx-qpqs)
     }
 
     static func drawAttachment(_ ctx: CGContext, _ a: Attachment, body: CGRect, row p: PartRow, windowY: CGFloat) {
@@ -267,7 +284,7 @@ enum PartRenderer {
                 UIColor(white: 1, alpha: 0.85).setFill()
                 tri.fill()
             }
-            // cmux: an undelivered photo shows only the red badge (Messages); the button sat under it.
+            // An undelivered photo shows only the red badge (Messages); the button sat under it.
             if !p.failed { drawSaveButton(ctx, body: body, outgoing: p.outgoing) }
         case "voiceMemo":
             fillBubble(ctx, shape, outgoing: p.outgoing, windowY: windowY)
@@ -289,7 +306,7 @@ enum PartRenderer {
                              cornerRadius: 1).fill()
             }
             let d = Format.duration(a.durationSeconds ?? 0)
-            TextDraw.line(d, font: HomeFonts.monospacedDigit(ofSize: 11, weight: .regular), color: fg, x: body.maxX - 36, // cmux: HomeFonts (cx-qpqs)
+            TextDraw.line(d, font: HomeFonts.monospacedDigit(ofSize: 11, weight: .regular), color: fg, x: body.maxX - 36, // HomeFonts (cx-qpqs)
                           baseline: body.midY + 4, in: ctx)
         default:
             fillBubble(ctx, shape, outgoing: p.outgoing, windowY: windowY)
@@ -299,11 +316,11 @@ enum PartRenderer {
                 UIColor(white: 0.55, alpha: 1).setFill()
                 UIBezierPath(ovalIn: CGRect(x: body.minX + 9, y: body.minY + 10, width: 36, height: 36)).fill()
                 let initial = String(a.fileName.prefix(1)).uppercased()
-                let f = HomeFonts.system(ofSize: 17, weight: .semibold) // cmux: HomeFonts (cx-qpqs)
+                let f = HomeFonts.system(ofSize: 17, weight: .semibold) // HomeFonts (cx-qpqs)
                 TextDraw.line(initial, font: f, color: .white, x: body.minX + 27 - TextDraw.width(initial, font: f) / 2,
                               baseline: body.minY + 34, in: ctx)
                 let name = (a.fileName as NSString).deletingPathExtension
-                TextDraw.line(name, font: HomeFonts.system(ofSize: 13, weight: .semibold), color: fg, x: body.minX + 54, baseline: body.minY + 33, in: ctx) // cmux: HomeFonts (cx-qpqs)
+                TextDraw.line(name, font: HomeFonts.system(ofSize: 13, weight: .semibold), color: fg, x: body.minX + 54, baseline: body.minY + 33, in: ctx) // HomeFonts (cx-qpqs)
                 let chev = UIBezierPath()
                 chev.move(to: CGPoint(x: body.maxX - 18, y: body.midY - 5))
                 chev.addLine(to: CGPoint(x: body.maxX - 13, y: body.midY))
@@ -363,25 +380,25 @@ enum PartRenderer {
                 }
             }
             let label = ext.uppercased()
-            let f = HomeFonts.system(ofSize: 7, weight: .regular) // cmux: HomeFonts (cx-qpqs)
+            let f = HomeFonts.system(ofSize: 7, weight: .regular) // HomeFonts (cx-qpqs)
             TextDraw.line(label, font: f, color: UIColor(white: 0.6, alpha: 1), x: icon.midX - TextDraw.width(label, font: f) / 2,
                           baseline: icon.maxY - 5, in: ctx)
         }
-        let nameFont = HomeFonts.system(ofSize: 13, weight: .semibold) // cmux: HomeFonts (cx-qpqs)
+        let nameFont = HomeFonts.system(ofSize: 13, weight: .semibold) // HomeFonts (cx-qpqs)
         var name = a.fileName
         while TextDraw.width(name, font: nameFont) > body.width - 100, name.count > 4 { name = String(name.dropLast(5)) + "…" }
         let x = body.minX + 84.5
         TextDraw.line(name, font: nameFont, color: fg, x: x, baseline: body.minY + 43, in: ctx)
         var sub = Strings.fileKind(a) + " \u{00B7} " + Format.bytes(a.byteSize)
         if case let .uploading(pr) = a.transfer {
-            sub = Format.bytes(CrashGuard.int(Double(a.byteSize) * pr)) /* cmux: no trap on a NaN progress */ + " / " + Format.bytes(a.byteSize)
+            sub = Format.bytes(CrashGuard.int(Double(a.byteSize) * pr)) /* no trap on a NaN progress */ + " / " + Format.bytes(a.byteSize)
             let bar = CGRect(x: x, y: body.minY + 64, width: body.width - 100, height: 4)
             fg.withAlphaComponent(0.3).setFill()
             UIBezierPath(roundedRect: bar, cornerRadius: 2).fill()
             fg.setFill()
             UIBezierPath(roundedRect: CGRect(x: bar.minX, y: bar.minY, width: bar.width * CGFloat(pr), height: 4), cornerRadius: 2).fill()
         }
-        TextDraw.line(sub, font: HomeFonts.system(ofSize: 11), color: fg.withAlphaComponent(0.6), x: x, baseline: body.minY + 58.5, in: ctx) // cmux: HomeFonts (cx-qpqs)
+        TextDraw.line(sub, font: HomeFonts.system(ofSize: 11), color: fg.withAlphaComponent(0.6), x: x, baseline: body.minY + 58.5, in: ctx) // HomeFonts (cx-qpqs)
     }
 
     /// The round save button beside a photo or video (measured: 28 pt, 14 pt
@@ -449,7 +466,7 @@ enum PartRenderer {
         Fixture.connector.setFill()
         UIBezierPath(roundedRect: CGRect(x: 32.5, y: stubTop, width: 2.5, height: stubH), cornerRadius: 1.25).fill()
         if pv.count >= 2 {
-            let f = HomeFonts.system(ofSize: 10, weight: .semibold) // cmux: HomeFonts (cx-qpqs)
+            let f = HomeFonts.system(ofSize: 10, weight: .semibold) // HomeFonts (cx-qpqs)
             TextDraw.line(Strings.replies(pv.count), font: f, color: PreviewStyle.repliesBlue, x: 44.5, baseline: box.maxY + (pv.isText ? 12.5 : 11.5), in: ctx,
                           kern: RowDraw.captionKern)
         }
@@ -478,7 +495,7 @@ enum PartRenderer {
         BubblePath.make(body: full, outgoing: outgoing, tail: tail).addClip()
         img.draw(in: full)
         ctx.restoreGState()
-        TextDraw.line(caption, font: HomeFonts.system(ofSize: 12), color: .white, x: full.minX + 13, baseline: full.maxY - 14, in: ctx) // cmux: HomeFonts (cx-qpqs)
+        TextDraw.line(caption, font: HomeFonts.system(ofSize: 12), color: .white, x: full.minX + 13, baseline: full.maxY - 14, in: ctx) // HomeFonts (cx-qpqs)
     }
 
     static func drawLocation(_ ctx: CGContext, body: CGRect, title: String, subtitle: String, tail: Bool, outgoing: Bool) {
@@ -516,7 +533,7 @@ enum PartRenderer {
         UIBezierPath(ovalIn: CGRect(x: pin.x - 2, y: pin.y - 2, width: 4, height: 4)).fill()
         ctx.restoreGState()
         TextDraw.line(title, font: Sizing.linkTitleFont, color: UIColor(white: 0.93, alpha: 1), x: body.minX + 10, baseline: map.maxY + 18, in: ctx)
-        TextDraw.line(subtitle, font: HomeFonts.system(ofSize: 10), color: UIColor(white: 0.68, alpha: 1), x: body.minX + 10, baseline: map.maxY + 32, in: ctx) // cmux: HomeFonts (cx-qpqs)
+        TextDraw.line(subtitle, font: HomeFonts.system(ofSize: 10), color: UIColor(white: 0.68, alpha: 1), x: body.minX + 10, baseline: map.maxY + 32, in: ctx) // HomeFonts (cx-qpqs)
     }
 
     /// The person whose tapbacks draw blue (the conversation's own participant).
@@ -584,7 +601,7 @@ enum PartRenderer {
 
     /// `scale` sizes the 15 pt emoji about the rect's center (the context menu palette: 0.89).
     static func drawEmoji(_ e: String, in rect: CGRect, ctx: CGContext, scale: CGFloat = 1) {
-        let f = HomeFonts.system(ofSize: 15 * scale) // cmux: HomeFonts (cx-qpqs)
+        let f = HomeFonts.system(ofSize: 15 * scale) // HomeFonts (cx-qpqs)
         let w = TextDraw.width(e, font: f)
         TextDraw.line(e, font: f, color: .white, x: rect.midX - w / 2, baseline: rect.midY + 5.5 * scale, in: ctx)
     }
@@ -647,7 +664,7 @@ enum TapbackGlyph {
             let s = img.size
             img.draw(in: CGRect(x: r.midX - s.width / 2, y: r.midY - s.height / 2, width: s.width, height: s.height))
         } else {
-            let f = HomeFonts.system(ofSize: r.height * 0.42, weight: .heavy) // cmux: HomeFonts (cx-qpqs)
+            let f = HomeFonts.system(ofSize: r.height * 0.42, weight: .heavy) // HomeFonts (cx-qpqs)
             let lines = Strings.laughGlyph.components(separatedBy: "\n")
             for (i, l) in lines.enumerated() {
                 TextDraw.line(l, font: f, color: color, x: r.midX - TextDraw.width(l, font: f) / 2,
@@ -684,16 +701,16 @@ final class RowBitmaps {
         k.width = 0
         return k
     }
-    func image(for spec: RowSpec) -> CGImage? { cache.value(for: RowBitmaps.key(spec)) } // cmux: dictionary read
-    func has(_ spec: RowSpec) -> Bool { TiledBubble.applies(spec) || cache.keys.contains(RowBitmaps.key(spec)) || waiters.keys.contains(spec) } // cmux
+    func image(for spec: RowSpec) -> CGImage? { cache.value(for: RowBitmaps.key(spec)) } // dictionary read
+    func has(_ spec: RowSpec) -> Bool { TiledBubble.applies(spec) || cache.keys.contains(RowBitmaps.key(spec)) || waiters.keys.contains(spec) }
 
     /// Main thread: get the bitmap now or when it is rendered.
     func request(_ spec: RowSpec, _ done: ((CGImage) -> Void)? = nil) {
         // Long text rows are tiles (TiledBubble.swift): no bitmap, and no spec (with its text) held here.
-        // cmux: without the empty image (allocation failed) a tiled row has no bitmap to report.
+        // without the empty image (allocation failed) a tiled row has no bitmap to report.
         if TiledBubble.applies(spec) { if let empty = TiledBubble.emptyImage { done?(empty) }; return }
         if let img = cache[RowBitmaps.key(spec)] { done?(img); return }
-        if waiters[spec] != nil { if let done { waiters[spec]?.append(done) }; return } // cmux: no force unwrap
+        if waiters[spec] != nil { if let done { waiters[spec]?.append(done) }; return } // no force unwrap
         waiters[spec] = done.map { [$0] } ?? []
         let gen = Fixture.paletteGeneration
         // Newest first: older pending renders drop a priority step (a fling's rows that left
@@ -719,7 +736,7 @@ final class RowBitmaps {
                 }
                 return
             }
-            // cmux: a bitmap that could not be allocated is not delivered; the waiters are dropped
+            // a bitmap that could not be allocated is not delivered; the waiters are dropped
             // and the row shows no bitmap (BitmapFailure logged it).
             guard let img = RowBitmaps.render(spec) else {
                 DispatchQueue.main.async { self.waiters[spec] = nil }
@@ -794,14 +811,14 @@ final class RowBitmaps {
         if TiledBubble.applies(s) { return }
         let spec = RowBitmaps.key(s)
         if let old = cache[spec] { bytes -= old.bytesPerRow * old.height } else { order.append(spec) }
-        cache.updateValue(img, forKey: spec) // cmux: dictionary write
+        cache.updateValue(img, forKey: spec) // dictionary write
         bytes += img.bytesPerRow * img.height
         // Trim in chunks (removing from the front of the order array on every
         // insert copied it each time). Bounded by rows and by bytes (media rows are large).
         if order.count > RowBitmaps.capacity + 100 || bytes > RowBitmaps.byteBudget {
             var n = max(0, order.count - RowBitmaps.capacity), freed = 0
             if bytes > RowBitmaps.byteBudget {
-                for spec in order.dropFirst(n) { // cmux: no index math
+                for spec in order.dropFirst(n) { // no index math
                     guard bytes - freed > RowBitmaps.byteBudget * 4 / 5 else { break }
                     freed += cache.value(for: spec).map { $0.bytesPerRow * $0.height } ?? 0
                     n += 1
@@ -835,11 +852,11 @@ final class RowBitmaps {
     static func prerender(_ specs: ArraySlice<RowSpec>) -> [(RowSpec, CGImage)] {
         guard prerenderEnabled else { return [] }
         return specs.compactMap { spec in
-            switch spec.kind { case .receipt, .typing: return nil; default: return render(spec).map { (spec, $0) } } // cmux: unallocated rows are skipped
+            switch spec.kind { case .receipt, .typing: return nil; default: return render(spec).map { (spec, $0) } } // unallocated rows are skipped
         }
     }
 
-    static func render(_ spec: RowSpec) -> CGImage? { // cmux: nil when allocation fails
+    static func render(_ spec: RowSpec) -> CGImage? { // nil when allocation fails
         if TiledBubble.applies(spec) { return TiledBubble.emptyImage }
         let span = RowDraw.drawSpan(spec)
         let size = CGSize(width: span.upperBound - span.lowerBound, height: spec.height + 2 * RowDraw.margin)
@@ -856,8 +873,8 @@ final class RowBitmaps {
 /// pixel as the sRGB `.standard` renderer it replaces. AppKit builds draw through the
 /// shim's renderer, whose bitmaps are in the window's colour space already.
 enum WideBitmap {
-    static let space = LabColorSpace.displayP3 // cmux: no force unwrap
-    /// cmux: nil when the bitmap cannot be allocated (a huge size, memory pressure); the
+    static let space = LabColorSpace.displayP3 // no force unwrap
+    /// nil when the bitmap cannot be allocated (a huge size, memory pressure); the
     /// caller draws nothing and BitmapFailure logs the first one (crash program, no trap).
     static func make(size: CGSize, scale: CGFloat, opaque: Bool, _ draw: (CGContext) -> Void) -> CGImage? {
         #if canImport(UIKit)

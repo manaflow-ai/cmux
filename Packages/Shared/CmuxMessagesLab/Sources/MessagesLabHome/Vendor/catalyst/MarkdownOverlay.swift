@@ -130,7 +130,7 @@ final class MarkdownOverlay {
     }
 
     private func render(_ r: RegionLayers, _ md: MarkdownLayout, _ outgoing: Bool) {
-        guard let reg = md.regions[checked: r.index] else { return } // cmux: a region of an older layout renders nothing
+        guard let reg = md.regions[checked: r.index] else { return } // a region of an older layout renders nothing
         let size = CGSize(width: reg.contentWidth, height: reg.frame.height)
         let gen = generation
         let idx = r.index
@@ -150,7 +150,7 @@ final class MarkdownOverlay {
     static let queue = DispatchQueue(label: "messages.markdown.overlay", qos: .userInitiated)
 
     private func place(_ r: RegionLayers) {
-        guard let md = layout, let reg = md.regions[checked: r.index] else { return } // cmux: checked
+        guard let md = layout, let reg = md.regions[checked: r.index] else { return } // checked
         let off = min(reg.maxOffset, max(0, MarkdownScroll.offset(identity: md.identity, region: r.index)))
         r.clip.frame = reg.frame.offsetBy(dx: bodyOrigin.x, dy: bodyOrigin.y)
         r.cover.frame = r.clip.frame
@@ -174,7 +174,7 @@ final class MarkdownOverlay {
     /// passes the gesture on).
     @discardableResult
     func scroll(region i: Int, by dx: CGFloat) -> Bool {
-        guard let md = layout, i < md.regions.count, let reg = md.regions[checked: i] else { return false } // cmux: checked
+        guard let md = layout, i < md.regions.count, let reg = md.regions[checked: i] else { return false } // checked
         let old = MarkdownScroll.offset(identity: md.identity, region: i)
         let new = min(reg.maxOffset, max(0, old + dx))
         guard abs(new - old) > 0.01 else { return false }
@@ -204,7 +204,7 @@ final class MarkdownOverlay {
     static var copiedTitle: String { MessagesLabLocalization.string("markdown.copied", "Copied") }
 
     func copyRect(_ i: Int) -> CGRect? {
-        guard let md = layout, i < md.regions.count, let f = md.regions[checked: i]?.frame else { return nil } // cmux: checked
+        guard let md = layout, i < md.regions.count, let f = md.regions[checked: i]?.frame else { return nil } // checked
         let w = max(40, (MarkdownOverlay.copyTitle as NSString).size(withAttributes: [.font: UIFont.systemFont(ofSize: 10, weight: .medium)]).width + 14)
         return CGRect(x: f.maxX - w - 4, y: f.minY + 4, width: w, height: 18)
     }
@@ -228,6 +228,6 @@ final class MarkdownOverlay {
         guard let i = hoverRegion, let r = copyRect(i), r.insetBy(dx: -2, dy: -2).contains(p), let md = layout else { return nil }
         copiedRegion = i
         CATransaction.begin(); CATransaction.setDisableActions(true); placeCopy(); CATransaction.commit()
-        return md.regions[checked: i]?.copyText // cmux: checked
+        return md.regions[checked: i]?.copyText // checked
     }
 }

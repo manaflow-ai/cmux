@@ -111,7 +111,7 @@ enum Fixture {
                    colors: gradientStops.map { color($0.1, $0.2).cgColor } as CFArray,
                    locations: gradientStops.map { $0.0 / 2082 })
     }
-    // cmux: optional, no force unwrap (crash program); a nil gradient draws nothing.
+    // optional, no force unwrap ; a nil gradient draws nothing.
     private static let darkGradient = gradient { p3($0, $1, 247) }
     private static let lightGradient = gradient(lightGradientColor)
     private static var measuredGradient: CGGradient? { (lightAppearance ? lightGradient : nil) ?? darkGradient }

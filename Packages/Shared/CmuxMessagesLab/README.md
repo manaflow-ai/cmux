@@ -14,10 +14,15 @@ and render-server field animation, blurred header and native scrolling.
     of HomeStore), Layout, Transcript, Recycler, RowDrawing, Springs, Morph,
     Shapes, Fixture, Header, WindowView, Replay, ComposeAttachments (the
     field's attachments: images as the image, 177 x 118 pt, stacked; files as
-    tiles), LinkPreviews; `Resources/springs.json`.
+    tiles), LinkPreviews; `Resources/springs.json`; CrashGuard and
+    CrashSafeGraphics (checked indexing, clamped conversions, named colour
+    spaces and fonts with fallbacks; also vendored into MessagesLabSidebar)
+    and HomeFonts (fonts the off-main row renderers share for the life of the
+    process, at the exact size, at most 512 held).
   - appkit-port shim: UIKitNames, RoundedRect, LayerViews.
-  - appkit-native: Compose, Materials, NativeScroll, HeaderBar,
-    HeaderBackdrop, TranscriptAccess, SwipeReply (installed only when the
+  - appkit-native: Compose, Materials, LabGlass (system glass on macOS 26
+    and newer, an NSVisualEffectView stand-in on 14 and 15), NativeScroll,
+    HeaderBar, HeaderBackdrop, TranscriptAccess, SwipeReply (installed only when the
     owner can take a reply: `ChatIntents.canReply`, false until HomeOp has one),
     FlightRecorder (off until the app's policy, `HomeFlightRecorder`, turns it
     on: a Debug Settings opt-in in DEV and NIGHTLY until it costs at most 0.3 ms a
@@ -40,8 +45,7 @@ and render-server field animation, blurred header and native scrolling.
   disc while paused), `CmuxStrings` (Resources/CmuxHome.xcstrings),
   `HomeLinkPreviews` (which links may fetch a preview),
   `HomeMarkdown` (an agent's Markdown as MessagesLab text and style runs;
-  people's text stays plain), `HomeFonts` (fonts the off-main row renderers
-  share for the life of the process), `HomeFlightRecorder` (the flight recorder's
+  people's text stays plain), `HomeFlightRecorder` (the flight recorder's
   policy, log folder and Save Last 10 Seconds, plus the helpers it calls from
   unvendored MessagesLab files),
   `FixtureTheme` (cmux theme to Fixture colours), `MessagesLabHomeView`
@@ -53,7 +57,6 @@ and render-server field animation, blurred header and native scrolling.
 | --- | --- |
 | Springs, Layout, TranscriptAccess, Model (fixture root) | resources live in the package bundle, not the app's main bundle |
 | Model, Layout | live dates in the user's zone and locale (fixtures keep -07:00 and en_US) |
-| WindowView, Compose | rows and field lines follow the view's own width (several Home tabs), not the process-wide `Metrics.current` |
 | Fixture, Transcript, Morph | optional cmux theme; nil keeps MessagesLab's measured palette |
 | Fixture | a theme without an accent keeps MessagesLab's measured blue, gradient and white text (`FixtureTheme.measuredAccent`) |
 | Fixture, Transcript, Compose | typing dots, placeholder, waveform, caret and chip fill from the theme on a light theme; a dark theme keeps MessagesLab's measured values (the field glass and its buttons follow with the view appearance, `FieldChrome.applyTheme`) |
@@ -61,23 +64,19 @@ and render-server field animation, blurred header and native scrolling.
 | Layout, Localizable.xcstrings | the placeholder says Message, not iMessage; every string carries all 21 app languages (upstream has en and ja; the rest machine translated, `needs_review`) |
 | AppKitNative.xcstrings | every string in all 21 app languages (machine translated, `needs_review`); `check-l10n.sh` scans this package's tables |
 | Layout | a failed send that reached the owner unanswered says May Not Have Been Delivered (`CmuxStrings`, Resources/CmuxHome.xcstrings in every app language) |
-| Engine, Materials | Xcode 26.6 compile fixes (`self.` capture; a macOS 27 SDK property by key) |
 | SwipeReply | the pane controller's window is optional |
 | RowDrawing | file, audio, contact and voice memo rows on my side use the theme's sent text colour (white by default; a light accent showed white text) |
 | Engine, WindowView | `cmuxSetAttachment`: an attachment part's picture or upload state changed in HomeStore (no content change, no transition; the row redraws in place) |
 | Engine, Layout, Transcript | `cmuxNotice`: the host's notice (Home's merge notice) is MessagesLab's centered system row under the newest message, not an overlay; its accessibility label has no leading space |
 | Compose | `onPastePasteboard`: the field's paste reaches the host's attachment intake first (Home's type rule, prepared by HomeStore) |
 | Layout | styled runs (an agent's Markdown) break lines with the fonts they draw with; `code` runs draw monospaced with one font held for the process (`HomeFonts.code`: a font made per run on the row render threads came back nil and crashed) |
-| Layout | below 434 pt (Messages' window minimum; a Home pane has no per-content minimum and can be 80 pt) the text column keeps its 434 pt share of the width instead of the measured rule reaching 0 pt |
-| NativeScroll | the drawn scroll indicator sits 2 pt from the scroller's own right edge (in a pane the window's edge is not the transcript's) |
-| LinkPreviews | the cache lives in the app's own caches folder (`<bundle id>/link-previews`), not MessagesLab's; `cached(_:)` lets a HomeStore rebuild show a fetched preview again |
+| LinkPreviews | the cache lives in the app's own caches folder (`<bundle id>/link-previews`), not MessagesLab's |
 | ComposeAttachments | the image placeholder and file tile fill use the theme's chip fill on a light theme (a dark theme keeps the measured white) |
 | Fixture | the gradient mix falls back to the measured blue when a colour cannot convert (never reads components of an unconverted colour; the Markdown getWhite fix is upstream as 40b9869) |
 | SidebarView (sidebar) | Messages' pin drags (reorder a pinned tile, drag it onto the list to unpin, drag a row into the grid to pin it there, Escape cancels): the mouse-down hands off to `Cmux/SidebarPinDragging.swift`, a reload lets the drag follow or the drop land, and the tile layers, render context and avatar cache are readable by that file (the drag copies the drawn tile's parts, so it works on single-bitmap and layered tiles); upstream ask |
 | FlightRecorder | the app's policy and log folder (`HomeFlightRecorder`), window captures behind their own opt-in, the pane's optional window (attached from `ChatController.windowChanged`, observers replaced), FlashCheck/LiveProbes/Bench/LiveRecord helpers from `HomeFlightRecorder` |
 | Layout | `MessagesLabLocalization`'s default is the package bundle (`Bundle(for:)` of a class in a linked package is the app's); the image placeholder and code-text strings carry all 21 app languages in Localizable.xcstrings |
-| ComposeAttachments, WindowView, TiledBubble | checked casts instead of `as!` (crash ratchet, cx-6so) |
-| Compose, FlightRecorder, SwipeReply, HeaderBar, UIKitNames, ComposeAttachments, Engine, Fixture, Header, Layout, LinkPreviews, LongText, MarkdownParser, Model, Shapes, Springs, TiledBubble, Transcript, WindowView, Sidebar{Drawing,Model,View} | crash program (plans/cmux-next/crash-elimination.md): no force unwraps, `try!`, `as!` or IUOs; named color spaces and UI fonts through `CrashSafeGraphics`/`SidebarCrashSafe` with stated fallbacks, an optional gradient draws nothing, a fixture that cannot load is an empty conversation |
+| SwipeReply, TranscriptAccess (own pins) | crash program (plans/cmux-next/crash-elimination.md): no force unwraps, `try!`, `as!` or IUOs. From eb1ed28 the rest of the crash program is upstream (586d5f0 CrashGuard/CrashSafeGraphics, ef7da0a the decided hunks), and so are the per-view widths, the 434 pt text column, the scroller's own right edge and the macOS 14 gates (60e79ec LabGlass) |
 
 ## Updating
 
@@ -92,7 +91,7 @@ A patch that no longer applies stops the sync; fix that file by hand, then
 
 Partial roll-ins: a vendor.tsv row with a third column takes that file from
 its own MessagesLab commit (the pin stays for the rest), for upstream commits
-that are wip checkpoints. Current pins (2026-10-10): every file at 92186cc (main 000a74c: during a send the compose tint stays over the bubble part still inside the field, bubble.opacity refit for macOS 27; a2e2fe0: the title pill re-centres on its accessory's layout. Not ported: a2e2fe0's FrameSplitView, the sidebar divider at most once per frame: Home's split view is the app's, not MessagesLab's window). Before that ced183d (main ac069b9: the palette follows the appearance (`Fixture.lightAppearance`; Home sets it and its theme from the cmux theme, a theme colour wins over the measured light or dark one), one transcript width pass per display frame in a divider drag or live resize (`widthFrameScheduler` on the pane's FrameTick), the field press light and release flash, the animated track-click page, row bitmaps kept across widths for width-invariant rows, Sidebar v1.2 (all six filters; `CmuxSidebarEntry` carries knownSender, spam and deletedAt, and a filter is offered only when the host names its source in `filterSources`: Home names none yet, HomeStore has no contact, spam or deletion state, so Home shows All Messages and Unread Messages; `movePinned` goes to the same placement as a pin drag; swipe actions; our pin drag stays, a superset of the tile reorder), the context menu as Host.swift draws it (`Cmux/MenuGlyphs.swift`: Messages.app's tapback art with the drawn glyphs as fallback, 20 pt palette images, fitted emoji and face sizes, item icons 11.7 pt medium, `sticker.badge.plus`; the highlight starts with the press and is committed before the menu's layout, incoming white 0.2; Esc starts its fade before AppKit's teardown, `PaneMenu.swift`). Not ported: the launch context-menu pre-warm (MessagesLab removes it too; `Cmux/PaneHost+FrameWiring.swift` says why), `HeaderBackdrop.setLight`: it sets Messages' tint (light white, dark 27.34 / 255 / 0.604 = 45 / 255), and Home's theme background is the cmux terminal theme's, equal to neither in general, so Home keeps `setTint(Fixture.background)`. Before that every file at 54bdedc (cd850a3 plus 2ecc9be's Xcode 26.3 build fix, 34faeea's send
+that are wip checkpoints. Current pins (2026-10-10): every file at eb1ed28 (upstream main eb1ed28: macOS 14 gates and LabGlass, CrashGuard/CrashSafeGraphics and HomeFonts upstream (our Cmux/ copies are gone; HomeFonts keeps the exact size, so the tapback glyphs no longer round to the half point), the tapback picker glass at the picker's bounds, the compose text in a scroll view past 8 lines, incoming bubbles, receipts and sidebar rows keep their bitmap across widths. Not ported: 8930efb's FrameSplitView rule, Home's split view is the app's). Before that every file at 92186cc (main 000a74c: during a send the compose tint stays over the bubble part still inside the field, bubble.opacity refit for macOS 27; a2e2fe0: the title pill re-centres on its accessory's layout. Not ported: a2e2fe0's FrameSplitView, the sidebar divider at most once per frame: Home's split view is the app's, not MessagesLab's window). Before that ced183d (main ac069b9: the palette follows the appearance (`Fixture.lightAppearance`; Home sets it and its theme from the cmux theme, a theme colour wins over the measured light or dark one), one transcript width pass per display frame in a divider drag or live resize (`widthFrameScheduler` on the pane's FrameTick), the field press light and release flash, the animated track-click page, row bitmaps kept across widths for width-invariant rows, Sidebar v1.2 (all six filters; `CmuxSidebarEntry` carries knownSender, spam and deletedAt, and a filter is offered only when the host names its source in `filterSources`: Home names none yet, HomeStore has no contact, spam or deletion state, so Home shows All Messages and Unread Messages; `movePinned` goes to the same placement as a pin drag; swipe actions; our pin drag stays, a superset of the tile reorder), the context menu as Host.swift draws it (`Cmux/MenuGlyphs.swift`: Messages.app's tapback art with the drawn glyphs as fallback, 20 pt palette images, fitted emoji and face sizes, item icons 11.7 pt medium, `sticker.badge.plus`; the highlight starts with the press and is committed before the menu's layout, incoming white 0.2; Esc starts its fade before AppKit's teardown, `PaneMenu.swift`). Not ported: the launch context-menu pre-warm (MessagesLab removes it too; `Cmux/PaneHost+FrameWiring.swift` says why), `HeaderBackdrop.setLight`: it sets Messages' tint (light white, dark 27.34 / 255 / 0.604 = 45 / 255), and Home's theme background is the cmux terminal theme's, equal to neither in general, so Home keeps `setTint(Fixture.background)`. Before that every file at 54bdedc (cd850a3 plus 2ecc9be's Xcode 26.3 build fix, 34faeea's send
 motion without full-window masks, 8229d7e's opt-in Markdown per message (`Message.format`, plain by default:
 HomeMapping marks an agent's text without mentions `.markdown`; our isPlain patch is gone) and one string bundle
 (`MessagesLabLocalization`: Home's is the package bundle, a one-line Layout patch; the sidebar module has its own

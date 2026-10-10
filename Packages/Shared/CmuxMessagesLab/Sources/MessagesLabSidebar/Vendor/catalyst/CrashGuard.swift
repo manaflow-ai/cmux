@@ -2,8 +2,8 @@ import CoreGraphics
 import Foundation
 import os
 
-// cmux (crash program, plans/cmux-next/crash-elimination.md): the same accessors as
-// CmuxHomeRender's CrashGuard, for the vendored MessagesLab code (internal to this module).
+// Crash safety (cx-3cb): checked indexing and conversions for the shared transcript and the
+// sidebar. cmux-next vendors these sources and runs the same crash ratchet over them.
 
 /// Checked indexing and integer conversion for the render code. Layout state
 /// can be stale (a row index from a previous model, a pixel size computed
@@ -12,7 +12,7 @@ import os
 /// log a fault once per call site, so a wrong index stays visible in the log
 /// without flooding it from a render loop.
 enum CrashGuard {
-    static let log = Logger(subsystem: "ai.manaflow.cmux", category: "messageslab-sidebar-crash-guard")
+    static let log = Logger(subsystem: "com.cmux.prototype.messageslab", category: "crash-guard")
     private static let reported = OSAllocatedUnfairLock(initialState: Set<String>())
 
     /// Logs `message` as a fault the first time `site` reports.
@@ -73,7 +73,45 @@ extension Collection {
 }
 
 extension CrashGuard {
-    /// Row and tile positions (RowList keeps rows as Int32): a clamped position stays far
-    /// from Int overflow when the list adds a margin or a screen to it.
+    /// Line, row and tile counts and positions: clamped far from Int overflow when a
+    /// caller adds a margin to them.
+    static let countRange: ClosedRange<Int> = -(1 << 31)...((1 << 31) - 1)
+    /// Row and tile positions (the sidebar's RowList keeps rows as Int32): a clamped position
+    /// stays far from Int overflow when the list adds a margin or a screen to it.
     static let rowRange: ClosedRange<Int> = -(1 << 31)...((1 << 31) - 1)
+}
+
+extension Dictionary {
+    /// The value for `key`, or nil. A dictionary read never traps; this spelling keeps a
+    /// read whose name the crash ratchet cannot type (a name declared otherwise elsewhere
+    /// in the module) apart from the index subscripts it counts.
+    func value(for key: Key) -> Value? { index(forKey: key).map { values[$0] } } // crash-allow: an index from index(forKey:) of this dictionary
+}
+
+extension Collection {
+    /// The elements in lower..<upper, clamped to the collection: a bound outside it or an
+    /// inverted pair gives the part that exists (maybe empty), with a fault logged once per
+    /// call site, instead of trapping on the range.
+    func slice(_ lower: Index, _ upper: Index, fileID: StaticString = #fileID, line: UInt = #line) -> SubSequence {
+        let lo = Swift.min(Swift.max(lower, startIndex), endIndex)
+        let hi = Swift.min(Swift.max(upper, lo), endIndex)
+        if lo != lower || hi != upper {
+            CrashGuard.fault("slice \(lower)..<\(upper) outside \(startIndex)..<\(endIndex)", fileID: fileID, line: line)
+        }
+        return self[lo..<hi] // crash-allow: lo and hi clamped into startIndex...endIndex, lo <= hi
+    }
+
+    /// The elements from `lower` to the end (see `slice(_:_:)`).
+    func slice(from lower: Index, fileID: StaticString = #fileID, line: UInt = #line) -> SubSequence {
+        slice(lower, endIndex, fileID: fileID, line: line)
+    }
+}
+
+extension MutableCollection {
+    /// Runs `body` on the element at `index` in place; an index outside the collection
+    /// changes nothing and logs a fault once per call site.
+    mutating func update(at index: Index, fileID: StaticString = #fileID, line: UInt = #line, _ body: (inout Element) -> Void) {
+        guard let i = checkedIndex(index, fileID: fileID, line: line) else { return }
+        body(&self[i]) // crash-allow: i checked above
+    }
 }

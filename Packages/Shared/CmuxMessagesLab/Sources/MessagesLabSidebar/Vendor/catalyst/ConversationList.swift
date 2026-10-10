@@ -118,7 +118,7 @@ struct ConversationListSnapshot {
     /// The unpinned rows' indices into `items`.
     func listIndices() -> [Int] {
         let p = Set(pinned)
-        return items.enumerated().filter { !p.contains($0.element.id) }.map(\.offset) // cmux: no index math
+        return items.enumerated().filter { !p.contains($0.element.id) }.map(\.offset) // no index math
     }
 }
 
@@ -195,9 +195,9 @@ enum ConversationListFixture {
             z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
             return z ^ (z >> 31)
         }
-        mutating func int(_ n: Int) -> Int { Int(truncatingIfNeeded: next() % UInt64(clamping: max(1, n))) } // cmux: the remainder is < n, so it fits
+        mutating func int(_ n: Int) -> Int { Int(truncatingIfNeeded: next() % UInt64(clamping: max(1, n))) } // the remainder is < n, so it fits
         mutating func chance(_ p: Double) -> Bool { Double(next() % 1_000_000) / 1_000_000 < p }
-        mutating func pick<T>(_ a: [T]) -> T { a[checked: int(a.count)] ?? a[0] } // cmux: int(n) < n; an empty array still traps at a[0] (the fixture lists are literals)
+        mutating func pick<T>(_ a: [T]) -> T { a[checked: int(a.count)] ?? a[0] } // int(n) < n; an empty array still traps at a[0] (the fixture lists are literals)
     }
 
     static let firstNames = ["Lucas", "Maya", "Noah", "Ava", "Ethan", "Zoe", "Oliver", "Priya", "Mateo", "Hana",
@@ -251,22 +251,22 @@ enum ConversationListFixture {
             if i == 0, let lead { items.append(lead); continue }
             // Gaps grow down the list: minutes at the top, days further down.
             let spread = i < 12 ? 2_400.0 : i < 60 ? 14_000 : 90_000
-            t = t.addingTimeInterval(-Double(r.int(Int(exactly: spread) ?? 0)) - 30) // cmux: spread is an integer literal
+            t = t.addingTimeInterval(-Double(r.int(Int(exactly: spread) ?? 0)) - 30) // spread is an integer literal
             items.append(conversation(i, &r, at: t))
         }
         var pins: [ConversationID] = []
         // Pins: a mix of recent ones (unread, typing) and older ones.
         var i = 1
         while pins.count < min(9, pinned), i < items.count {
-            // cmux: i < items.count (loop condition); the checked index keeps it explicit.
+            // i < items.count (loop condition); the checked index keeps it explicit.
             if i % 3 != 2 || pins.count >= min(9, pinned) - 2, let slot = items.checkedIndex(i) { items[slot].pinned = true; pins.append(items[slot].id) }
             i += 1
         }
         // Pinned tiles show unread and typing as Messages does: one of each among the pins.
         if pins.count >= 3, let a = items.firstIndex(where: { $0.id == pins[1] }), let b = items.firstIndex(where: { $0.id == pins[2] }) {
-            items[a].unreadCount = max(1, items[a].unreadCount) // crash-allow: (cmux) a and b come from firstIndex on items
-            items[a].lastReaction = nil // crash-allow: (cmux) firstIndex
-            items[b].typing = true // crash-allow: (cmux) firstIndex
+            items[a].unreadCount = max(1, items[a].unreadCount) // crash-allow: a and b come from firstIndex on items
+            items[a].lastReaction = nil // crash-allow: firstIndex
+            items[b].typing = true // crash-allow: firstIndex
         }
         return ConversationListSnapshot(items: items, pinned: pins)
     }
@@ -364,7 +364,7 @@ enum ConversationListFixture {
         items.sort { $0.lastAt > $1.lastAt }
         // Two unknown senders (the Unknown Senders filter).
         let pins = ["pin-unread", "pin-typing", "pin-group-unread", "pin-unread-typing", "pin-muted-group", "pin-read"].map { "state-" + $0 }
-        // cmux: element-wise, no index math (crash ratchet)
+        // element-wise, no index math (crash ratchet)
         items = items.map { item in
             var item = item
             if ["state-row-date", "state-row-long-name"].contains(item.id) { item.knownSender = false }

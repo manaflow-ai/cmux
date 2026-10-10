@@ -274,7 +274,7 @@ enum Instant {
         guard b.count == 20 || b.count == 25 else { return nil }
         func num(_ i: Int, _ n: Int) -> Int? {
             var v = 0
-            for c in b.slice(i, i + n) { guard c >= 48, c <= 57 else { return nil }; v = v * 10 + Int(truncatingIfNeeded: c - 48) } // cmux: no index math
+            for c in b.slice(i, i + n) { guard c >= 48, c <= 57 else { return nil }; v = v * 10 + Int(truncatingIfNeeded: c - 48) } // no index math
             return v
         }
         guard b[4] == 45, b[7] == 45, b[10] == 84, b[13] == 58, b[16] == 58,
@@ -341,7 +341,7 @@ enum Fixtures {
     }
     static func loadConversation() -> Conversation {
         let url = sharedDirectory.appendingPathComponent("conversation.json")
-        // cmux: no try! (crash program); a missing or unreadable fixture is an empty conversation.
+        // no try! ; a missing or unreadable fixture is an empty conversation.
         guard let data = try? Data(contentsOf: url),
               let conversation = try? JSONDecoder().decode(Conversation.self, from: data) else {
             return Conversation(id: "", title: "", participants: [], messages: [])
@@ -350,7 +350,7 @@ enum Fixtures {
     }
     /// Resolve an AssetRef: a path relative to shared/assets or a file URL.
     static func assetURL(_ ref: String) -> URL {
-        // cmux: no force unwrap; a file: ref that does not parse resolves like any other ref.
+        // no force unwrap; a file: ref that does not parse resolves like any other ref.
         if ref.hasPrefix("file:"), let url = URL(string: ref) { return url }
         // Catalyst fixture assets (Fixtures/real, bundled as `real/`).
         // isDirectory given: no file system lookup per call (a stat for every image row in each

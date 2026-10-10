@@ -19,8 +19,8 @@ final class MediaCache: @unchecked Sendable {
     static let maxPixels = 2048
     var budget: Int = {
         let a = ProcessInfo.processInfo.arguments
-        let mb = a.firstIndex(of: "--image-cache-mb").flatMap { a.dropFirst($0 + 1).first }.flatMap { Int.init($0) } ?? 96 // cmux: no index math
-        return min(max(mb, 1), 1 << 20) << 20 // cmux: a huge value cannot overflow the shift
+        let mb = a.firstIndex(of: "--image-cache-mb").flatMap { a.dropFirst($0 + 1).first }.flatMap { Int.init($0) } ?? 96 // no index math
+        return min(max(mb, 1), 1 << 20) << 20 // a huge value cannot overflow the shift
     }()
     private let lock = NSLock()
     private var map: [String: (UIImage, Int, Int)] = [:]
@@ -35,23 +35,23 @@ final class MediaCache: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         guard let e = map[key] else { return nil }
         tick += 1
-        map.updateValue((e.0, e.1, tick), forKey: key) // cmux: dictionary write
+        map.updateValue((e.0, e.1, tick), forKey: key) // dictionary write
         return e.0
     }
-    func isCached(_ key: String) -> Bool { lock.lock(); defer { lock.unlock() }; return map.keys.contains(key) } // cmux
+    func isCached(_ key: String) -> Bool { lock.lock(); defer { lock.unlock() }; return map.keys.contains(key) }
 
     func store(_ key: String, _ img: UIImage) {
         let b = img.cgImage.map { $0.bytesPerRow * $0.height } ?? 0
         lock.lock()
         if let old = map[key] { bytes -= old.1 }
         tick += 1
-        map.updateValue((img, b, tick), forKey: key) // cmux: dictionary write
+        map.updateValue((img, b, tick), forKey: key) // dictionary write
         bytes += b
         var freed: [UIImage] = []
         if bytes > budget {
             for (k, e) in map.sorted(by: { $0.value.2 < $1.value.2 }) {
                 if bytes <= budget * 4 / 5 { break }
-                map.removeValue(forKey: k); bytes -= e.1; /* cmux */ freed.append(e.0); evicted += 1
+                map.removeValue(forKey: k); bytes -= e.1; freed.append(e.0); evicted += 1
             }
         }
         lock.unlock()
@@ -66,7 +66,7 @@ final class MediaCache: @unchecked Sendable {
         lock.unlock()
         guard let src = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
               let p = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
-              let w = (p.value(for: kCGImagePropertyPixelWidth) as? NSNumber)?.doubleValue, // cmux: dictionary reads
+              let w = (p.value(for: kCGImagePropertyPixelWidth) as? NSNumber)?.doubleValue, // dictionary reads
               let h = (p.value(for: kCGImagePropertyPixelHeight) as? NSNumber)?.doubleValue else { return nil }
         let orient = (p.value(for: kCGImagePropertyOrientation) as? NSNumber)?.intValue ?? 1
         let s = orient >= 5 ? CGSize(width: h, height: w) : CGSize(width: w, height: h)
@@ -288,7 +288,7 @@ final class ScrollPrefetcher {
                                 : CGRect(x: 0, y: r.bounds.maxY, width: r.bounds.width, height: far)
         let n = r.layout.model.count
         for a in r.layout.layoutAttributesForElements(in: rect) ?? [] where a.indexPath.item < n {
-            guard let spec = r.layout.model.rows[checked: a.indexPath.item]?.spec, let ref = MediaPlaceholder.ref(spec) else { continue } // cmux: checked
+            guard let spec = r.layout.model.rows[checked: a.indexPath.item]?.spec, let ref = MediaPlaceholder.ref(spec) else { continue } // checked
             if MediaCache.thumb(ref) == nil { MediaCache.requestThumb(ref) }
             let dist = velocity < 0 ? r.bounds.minY - a.frame.maxY : a.frame.minY - r.bounds.maxY
             if dist < near, !RowBitmaps.shared.has(spec) { RowBitmaps.shared.request(spec); ScrollPrefetcher.requests += 1 }

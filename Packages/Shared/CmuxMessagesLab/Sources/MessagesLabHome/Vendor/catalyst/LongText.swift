@@ -47,7 +47,7 @@ struct Fenwick {
     private var tree: [Int]
     init(_ v: [Int32]) {
         values = v
-        // cmux: checked writes (crash program); tree has v.count + 1 slots, k and j stay inside.
+        // checked writes ; tree has v.count + 1 slots, k and j stay inside.
         var tree = [Int](repeating: 0, count: v.count + 1)
         for (i, x) in v.enumerated() {
             let k = i + 1
@@ -59,17 +59,17 @@ struct Fenwick {
     }
     var count: Int { values.count }
     mutating func set(_ i: Int, _ v: Int32) {
-        guard let old = values[checked: i] else { return } // cmux: a block index from another layout sets nothing
+        guard let old = values[checked: i] else { return } // a block index from another layout sets nothing
         let d = Int(truncatingIfNeeded: v) - Int(truncatingIfNeeded: old)
         guard d != 0 else { return }
         if let slot = values.checkedIndex(i) { values[slot] = v }
         var k = i + 1
-        while k <= values.count { if let s = tree.checkedIndex(k) { tree[s] += d }; k += k & -k } // cmux
+        while k <= values.count { if let s = tree.checkedIndex(k) { tree[s] += d }; k += k & -k }
     }
     /// Sum of values[0..<i].
     func prefix(_ i: Int) -> Int {
         var s = 0, k = min(i, values.count)
-        while k > 0 { s += tree[checked: k] ?? 0; k -= k & -k } // cmux: checked
+        while k > 0 { s += tree[checked: k] ?? 0; k -= k & -k } // checked
         return s
     }
     var total: Int { prefix(values.count) }
@@ -80,7 +80,7 @@ struct Fenwick {
         var step = 1
         while step * 2 <= values.count { step *= 2 }
         while step > 0 {
-            if pos + step <= values.count, let t = tree[checked: pos + step], t <= rem { pos += step; rem -= t } // cmux: checked
+            if pos + step <= values.count, let t = tree[checked: pos + step], t <= rem { pos += step; rem -= t } // checked
             step /= 2
         }
         return min(pos, values.count - 1)
@@ -118,7 +118,7 @@ final class LongTextIndex: @unchecked Sendable {
     /// the block's display string (markers, tabs, newlines) at any width, so offsets never move
     /// when a block is laid out (offsets past a block's display string are unused).
     let selStarts: [Int]
-    func carry(_ b: Int) -> MDCarry { b >= 0 && b < carries.count ? carries[checked: b] ?? .none : .none } // cmux: checked
+    func carry(_ b: Int) -> MDCarry { b >= 0 && b < carries.count ? carries[checked: b] ?? .none : .none } // checked
 
     init(lineage: Int, text: String, starts: [Int], u16Starts: [Int], pieces: [Int32], units: [Float], estRef: [Int32],
          newlines: [Int32] = [], ready: Bool, markdown: Bool = false, carries: [MDCarry] = [], selStarts: [Int]? = nil) {
@@ -126,7 +126,7 @@ final class LongTextIndex: @unchecked Sendable {
         self.starts = starts; self.u16Starts = u16Starts; self.pieces = pieces; self.units = units; self.estRef = estRef; self.ready = ready
         self.newlines = newlines
         self.markdown = markdown; self.carries = carries; self.selStarts = selStarts ?? u16Starts
-        hardLines = newlines.reduce(1) { $0 + Int(truncatingIfNeeded: $1) } // cmux: Int32 widens exactly
+        hardLines = newlines.reduce(1) { $0 + Int(truncatingIfNeeded: $1) } // Int32 widens exactly
     }
 
     static func placeholder(_ text: String, lineage: Int) -> LongTextIndex {
@@ -169,7 +169,7 @@ final class LongTextIndex: @unchecked Sendable {
                 let limit = min(n, i + LongText.blockBytes)
                 var end = limit
                 if limit < n {
-                    // cmux: searches on slices, no index math (p is an unsafe buffer: its subscript does not check in release).
+                    // searches on slices, no index math (p is an unsafe buffer: its subscript does not check in release).
                     if let j = p.prefix(limit).dropFirst(i).lastIndex(of: 10) {
                         end = j + 1
                     } else {
@@ -184,15 +184,15 @@ final class LongTextIndex: @unchecked Sendable {
                 let carryHere = st
                 if md { (end, st) = MarkdownLong.cut(p, from: i, plainEnd: end, block: starts.count, state: st) }
                 var nl: Int32 = 0, w: Float = 0, c16 = 0, para: Float = 0, est: Int32 = 0
-                for b in p.prefix(end).dropFirst(i) { // cmux: no index math
+                for b in p.prefix(end).dropFirst(i) { // no index math
                     if b < 0x80 {
                         c16 += 1
-                        if b == 10 { nl += 1; est += max(1, Int32(clamping: CrashGuard.int(Double((para / wrap).rounded(.up))))); para = 0 } // cmux
+                        if b == 10 { nl += 1; est += max(1, Int32(clamping: CrashGuard.int(Double((para / wrap).rounded(.up))))); para = 0 }
                         else if b == 9 { w += 4 * ascii; para += 4 * ascii } else { w += ascii; para += ascii }
                     } else if b >= 0xF0 { c16 += 2; w += emoji; para += emoji } else if b >= 0xE0 { c16 += 1; w += wide; para += wide }
                     else if b >= 0xC0 { c16 += 1; w += ascii; para += ascii }
                 }
-                let lastByte = p.prefix(end).last // cmux: the block's last byte, no index math
+                let lastByte = p.prefix(end).last // the block's last byte, no index math
                 if lastByte != 10 || end == n { est += max(1, Int32(clamping: CrashGuard.int(Double((para / wrap).rounded(.up))))) }
                 let endsNL = lastByte == 10
                 starts.append(i); u16.append(u16Pos); sel.append(selPos)
@@ -215,9 +215,9 @@ final class LongTextIndex: @unchecked Sendable {
 
     /// The block's text as an NSString (UTF-16, for Core Text).
     func blockString(_ b: Int) -> NSString {
-        guard let a = starts[checked: b], let e = starts[checked: b + 1], a <= e else { return "" } // cmux: a stale block is empty
+        guard let a = starts[checked: b], let e = starts[checked: b + 1], a <= e else { return "" } // a stale block is empty
         return withBytes { p in
-            guard let base = p.baseAddress else { return "" } // cmux: no force unwrap
+            guard let base = p.baseAddress else { return "" } // no force unwrap
             return NSString(bytes: base + a, length: e - a, encoding: String.Encoding.utf8.rawValue) ?? ""
         }
     }
@@ -227,7 +227,7 @@ final class LongTextIndex: @unchecked Sendable {
         var lo = 0, hi = blockCount - 1
         while lo < hi {
             let mid = (lo + hi + 1) / 2
-            if (selStarts[checked: mid] ?? .max) <= o { lo = mid } else { hi = mid - 1 } // cmux: checked
+            if (selStarts[checked: mid] ?? .max) <= o { lo = mid } else { hi = mid - 1 } // checked
         }
         return max(0, lo)
     }
@@ -237,7 +237,7 @@ final class LongTextIndex: @unchecked Sendable {
         var lo = 0, hi = blockCount - 1
         while lo < hi {
             let mid = (lo + hi + 1) / 2
-            if (u16Starts[checked: mid] ?? .max) <= o { lo = mid } else { hi = mid - 1 } // cmux: checked
+            if (u16Starts[checked: mid] ?? .max) <= o { lo = mid } else { hi = mid - 1 } // checked
         }
         return max(0, lo)
     }
@@ -248,7 +248,7 @@ final class LongTextIndex: @unchecked Sendable {
         guard !n.isEmpty, from < count else { return nil }
         return withBytes { p in
             n.withUnsafeBufferPointer { q in
-                // cmux: no force unwraps (crash program)
+                // no force unwraps 
                 guard let base = p.baseAddress, let needle = q.baseAddress,
                       let r = memmem(base + from, count - from, needle, q.count) else { return nil }
                 let o = UnsafeRawPointer(r) - UnsafeRawPointer(base)
@@ -262,11 +262,11 @@ final class LongTextIndex: @unchecked Sendable {
         var lo = 0, hi = blockCount - 1
         while lo < hi {
             let mid = (lo + hi + 1) / 2
-            if (starts[checked: mid] ?? .max) <= o { lo = mid } else { hi = mid - 1 } // cmux: checked
+            if (starts[checked: mid] ?? .max) <= o { lo = mid } else { hi = mid - 1 } // checked
         }
         let a = starts[checked: lo] ?? 0
         let local = withBytes { p in
-            // cmux: the slice is clamped to the buffer (an unsafe buffer does not check its range).
+            // the slice is clamped to the buffer (an unsafe buffer does not check its range).
             let from = min(max(0, a), p.count), to = min(max(from, o), p.count)
             return String(decoding: UnsafeBufferPointer(rebasing: p.prefix(to).dropFirst(from)), as: UTF8.self).utf16.count
         }
@@ -305,7 +305,7 @@ final class BlockLayout: @unchecked Sendable {
             let nl = r.string.range(of: "\n", options: .backwards, range: NSRange(location: 0, length: r.string.length - 1))
             if nl.location != NSNotFound {
                 from = nl.location + 1
-                for (l, w) in zip(r.lines, r.widths) where l.location < from { lines.append(l); widths.append(w) } // cmux: no index math
+                for (l, w) in zip(r.lines, r.widths) where l.location < from { lines.append(l); widths.append(w) } // no index math
             }
         }
         let tail = from == 0 ? string : string.substring(from: from) as NSString
@@ -351,7 +351,7 @@ final class BlockLayout: @unchecked Sendable {
         drawAttr[outgoing] = a
         return a
     }
-    // cmux: optional, no try! (crash program); without it no link is underlined.
+    // optional, no try! ; without it no link is underlined.
     static let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
 }
 
@@ -367,13 +367,13 @@ final class BlockLayoutCache: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         guard let e = map[k] else { return nil }
         tick += 1
-        map.updateValue((e.0, tick), forKey: k) // cmux: dictionary write
+        map.updateValue((e.0, tick), forKey: k) // dictionary write
         return e.0
     }
     func put(_ k: Key, _ v: BlockLayout) {
         lock.lock(); defer { lock.unlock() }
         tick += 1
-        map.updateValue((v, tick), forKey: k) // cmux: dictionary write
+        map.updateValue((v, tick), forKey: k) // dictionary write
         if map.count > BlockLayoutCache.capacity + 64 {
             let keep = map.sorted { $0.value.1 > $1.value.1 }.prefix(BlockLayoutCache.capacity)
             map = Dictionary(uniqueKeysWithValues: keep.map { ($0.key, $0.value) })
@@ -427,14 +427,14 @@ final class LongTextLayout: @unchecked Sendable {
         let col = Float(column)
         var ex = [Bool](repeating: false, count: index.blockCount)
         let k = LongTextIndex.refColumn / col
-        // cmux: built with map and checked reads (crash program).
+        // built with map and checked reads.
         var v = (0..<index.blockCount).map { (b: Int) -> Int32 in
             max(index.pieces[checked: b] ?? 1, Int32(clamping: CrashGuard.int(Double((Float(index.estRef[checked: b] ?? 0) * k).rounded()))))
         }
         if let c = carry, c.column == column, c.markdown == self.markdown {
             c.lock.lock()
             let n = min(c.index.blockCount, index.blockCount)
-            // cmux: checked reads and writes (crash program).
+            // checked reads and writes.
             for b in 0..<n where (c.exact[checked: b] ?? false) && c.index.starts[checked: b] == index.starts[checked: b]
                 && c.index.starts[checked: b + 1] == index.starts[checked: b + 1]
                 && !(c.index.isFinal(b) != index.isFinal(b)) && c.index.carry(b + 1) == index.carry(b + 1) {
@@ -442,18 +442,18 @@ final class LongTextLayout: @unchecked Sendable {
             }
             if let k = keep, k >= 0, k < index.blockCount {
                 if let slot = v.checkedIndex(k) { v[slot] = k < c.index.blockCount ? c.tree.values[checked: k] ?? 0 : 0 }
-                v.replaceSubrange((k + 1)..<v.count, with: repeatElement(0, count: v.count - k - 1)) // cmux: no index writes
+                v.replaceSubrange((k + 1)..<v.count, with: repeatElement(0, count: v.count - k - 1)) // no index writes
             }
             hint = c.hint
             c.lock.unlock()
         }
         tree = Fenwick(v)
-        estimatedLines = v.reduce(0) { $0 + Int(truncatingIfNeeded: $1) } // cmux: Int32 widens exactly
+        estimatedLines = v.reduce(0) { $0 + Int(truncatingIfNeeded: $1) } // Int32 widens exactly
         exact = ex
         measured = ex.filter { $0 }.count
         placeholderLines = index.ready ? 0 : max(1, CrashGuard.int(Double(index.count) * Double(Fixture.bodyFont.pointSize) * 0.5 * 1.06 / Double(column),
-                                                                   in: CrashGuard.countRange)) // cmux: no trap on a zero column
-        if index.ready, index.count <= 512 * 1024 { require(blocks: 0..<max(0, min(index.blockCount, keep ?? index.blockCount))) } // cmux: a negative keep built an inverted range
+                                                                   in: CrashGuard.countRange)) // no trap on a zero column
+        if index.ready, index.count <= 512 * 1024 { require(blocks: 0..<max(0, min(index.blockCount, keep ?? index.blockCount))) } // a negative keep built an inverted range
     }
 
     var totalLines: Int {
@@ -465,15 +465,15 @@ final class LongTextLayout: @unchecked Sendable {
         CGSize(width: column + 2 * Fixture.bubblePadX, height: textHeight + 2 * Fixture.bubblePadY)
     }
     var blockCount: Int { index.blockCount }
-    func lines(ofBlock b: Int) -> Int { lock.lock(); defer { lock.unlock() }; return Int(truncatingIfNeeded: tree.values[checked: b] ?? 0) } // cmux
+    func lines(ofBlock b: Int) -> Int { lock.lock(); defer { lock.unlock() }; return Int(truncatingIfNeeded: tree.values[checked: b] ?? 0) }
     func firstLine(ofBlock b: Int) -> Int { lock.lock(); defer { lock.unlock() }; return tree.prefix(b) }
     func block(containingLine l: Int) -> Int { lock.lock(); defer { lock.unlock() }; return tree.find(max(0, l)) }
-    func isExact(_ b: Int) -> Bool { lock.lock(); defer { lock.unlock() }; return exact[checked: b] ?? false } // cmux
+    func isExact(_ b: Int) -> Bool { lock.lock(); defer { lock.unlock() }; return exact[checked: b] ?? false }
     var exactCount: Int { lock.lock(); defer { lock.unlock() }; return measured }
 
     func key(_ b: Int) -> BlockLayoutCache.Key {
         // A markdown block's layout also depends on whether the next block continues it.
-        BlockLayoutCache.Key(lineage: index.lineage, start: index.starts[checked: b] ?? -1, end: index.starts[checked: b + 1] ?? -1, // cmux
+        BlockLayoutCache.Key(lineage: index.lineage, start: index.starts[checked: b] ?? -1, end: index.starts[checked: b + 1] ?? -1,
                              final: index.isFinal(b) || (markdown && index.carry(b + 1).isOpen), column: column, md: markdown)
     }
 
@@ -539,14 +539,14 @@ final class LongTextLayout: @unchecked Sendable {
                     let from = b == blocks.lowerBound ? max(0, oldFirst - 1) / n : 0
                     for chunk in from..<max(from, (c + n - 1) / n) where line + chunk * n + n > total - 80 {
                         let k = TiledBubble.tileKey(self, block: b, chunk: chunk, outgoing: h.outgoing, scale: h.scale, palette: h.palette)
-                        // cmux: a tile that could not be allocated is not prerendered.
+                        // a tile that could not be allocated is not prerendered.
                         if let img = TiledBubble.render(layout, chunk: chunk, outgoing: h.outgoing, width: h.width, scale: h.scale) { tiles.append((k, img)) }
                     }
                     line += c
                 }
             }
             self.lock.lock()
-            for (b, c) in counts { self.inFlight.remove(b); if !(self.exact[checked: b] ?? true) { self.pending.updateValue(Int32(clamping: c), forKey: b) } } // cmux
+            for (b, c) in counts { self.inFlight.remove(b); if !(self.exact[checked: b] ?? true) { self.pending.updateValue(Int32(clamping: c), forKey: b) } }
             self.pendingTiles += tiles
             self.lock.unlock()
             LongTextCenter.schedule(self)
@@ -574,12 +574,12 @@ final class LongTextLayout: @unchecked Sendable {
     func require(blocks: Range<Int>) {
         var todo: [Int] = []
         lock.lock()
-        for b in blocks where !(exact[checked: b] ?? true) && !pending.keys.contains(b) && !inFlight.contains(b) { inFlight.insert(b); todo.append(b) } // cmux
+        for b in blocks where !(exact[checked: b] ?? true) && !pending.keys.contains(b) && !inFlight.contains(b) { inFlight.insert(b); todo.append(b) }
         lock.unlock()
         guard !todo.isEmpty else { return }
         // Chunks of 8 blocks per operation (fewer queue hops).
         for i in stride(from: 0, to: todo.count, by: 8) {
-            let chunk = Array(todo.dropFirst(i).prefix(8)) // cmux: no range subscript
+            let chunk = Array(todo.dropFirst(i).prefix(8)) // no range subscript
             LongTextLayout.measureQueue.addOperation { [weak self] in
                 guard let self, !self.retired else { return }
                 for b in chunk { _ = self.blockLayout(b) }
@@ -596,7 +596,7 @@ final class LongTextLayout: @unchecked Sendable {
     func report(_ b: Int, _ n: Int) {
         lock.lock()
         inFlight.remove(b)
-        let fresh = !(exact[checked: b] ?? true) && !pending.keys.contains(b) // cmux: checked
+        let fresh = !(exact[checked: b] ?? true) && !pending.keys.contains(b) // checked
         if fresh { pending.updateValue(Int32(clamping: n), forKey: b) }
         lock.unlock()
         if fresh { LongTextCenter.schedule(self) }
@@ -607,7 +607,7 @@ final class LongTextLayout: @unchecked Sendable {
     func applyPending() -> Bool {
         lock.lock(); defer { lock.unlock() }
         var changed = false
-        for (b, n) in pending where !(exact[checked: b] ?? true) { // cmux: checked
+        for (b, n) in pending where !(exact[checked: b] ?? true) { // checked
             if tree.values[checked: b] != n { changed = true }
             tree.set(b, n)
             if let slot = exact.checkedIndex(b) { exact[slot] = true }
@@ -628,7 +628,7 @@ final class LongTextLayout: @unchecked Sendable {
         let lh = Fixture.lineHeight
         let frac = y / max(1, textHeight)
         guard index.ready, blockCount > 0 else { return Anchor(start: -1, dy: 0, fraction: frac) }
-        let line = CrashGuard.int(floor(max(0, y) / lh), in: CrashGuard.countRange) // cmux: no trap on NaN
+        let line = CrashGuard.int(floor(max(0, y) / lh), in: CrashGuard.countRange) // no trap on NaN
         let b = block(containingLine: line)
         return Anchor(start: index.starts[checked: b] ?? -1, dy: y - CGFloat(firstLine(ofBlock: b)) * lh, fraction: frac)
     }
@@ -637,7 +637,7 @@ final class LongTextLayout: @unchecked Sendable {
         var lo = 0, hi = blockCount - 1
         while lo < hi {
             let mid = (lo + hi + 1) / 2
-            if (index.starts[checked: mid] ?? .max) <= a.start { lo = mid } else { hi = mid - 1 } // cmux: checked
+            if (index.starts[checked: mid] ?? .max) <= a.start { lo = mid } else { hi = mid - 1 } // checked
         }
         return CGFloat(firstLine(ofBlock: lo)) * Fixture.lineHeight + a.dy
     }
@@ -650,7 +650,7 @@ final class LongTextLayout: @unchecked Sendable {
     /// (word and paragraph rules). Plain: the block's source; markdown: its display string.
     func selectionBlock(_ offset: Int) -> (NSString, Int) {
         let b = index.block(sel: max(0, min(offset, max(0, selectionLength - 1))))
-        return (selectionString(b), index.selStarts[checked: b] ?? 0) // cmux
+        return (selectionString(b), index.selStarts[checked: b] ?? 0)
     }
     func selectionBlockIndex(_ offset: Int) -> Int { index.block(sel: max(0, min(offset, max(0, selectionLength - 1)))) }
     func selectionString(_ b: Int) -> NSString { markdown ? blockLayout(b).string : index.blockString(b) }
@@ -661,27 +661,27 @@ final class LongTextLayout: @unchecked Sendable {
     /// Text offset at a text-local point (x from the text's left edge).
     func offset(at p: CGPoint) -> Int {
         guard index.ready, blockCount > 0 else { return 0 }
-        let line = max(0, min(totalLines - 1, CrashGuard.int(floor(p.y / Fixture.lineHeight), in: CrashGuard.countRange))) // cmux
+        let line = max(0, min(totalLines - 1, CrashGuard.int(floor(p.y / Fixture.lineHeight), in: CrashGuard.countRange)))
         let b = block(containingLine: line)
         let bl = blockLayout(b)
         if let md = bl.md {
             let local = CGPoint(x: p.x + Fixture.bubblePadX, y: p.y - mdTop(b) + Fixture.bubblePadY)
-            return (index.selStarts[checked: b] ?? 0) + min(md.length, md.offset(at: local)) // cmux
+            return (index.selStarts[checked: b] ?? 0) + min(md.length, md.offset(at: local))
         }
         let j = max(0, min(bl.lines.count - 1, line - firstLine(ofBlock: b)))
-        guard let r = bl.lines[checked: j] else { return index.selStarts[checked: b] ?? 0 } // cmux: a block with no lines
+        guard let r = bl.lines[checked: j] else { return index.selStarts[checked: b] ?? 0 } // a block with no lines
         let attr = NSAttributedString(string: bl.string.substring(with: r), attributes: [.font: Fixture.bodyFont])
         let ct = CTLineCreateWithAttributedString(attr)
         var i = CTLineGetStringIndexForPosition(ct, CGPoint(x: p.x, y: 0))
         if i == kCFNotFound { i = 0 }
-        return (index.selStarts[checked: b] ?? 0) + r.location + min(i, r.length) // cmux
+        return (index.selStarts[checked: b] ?? 0) + r.location + min(i, r.length)
     }
 
     /// Selection rects (text-local) of `range`, only for lines in `visible` (text-local y).
     func rects(for range: NSRange, visible: ClosedRange<CGFloat>) -> [CGRect] {
         guard index.ready, blockCount > 0, range.length > 0 else { return [] }
         let lh = Fixture.lineHeight
-        let l0 = max(0, CrashGuard.int(floor(visible.lowerBound / lh), in: CrashGuard.countRange)) // cmux: no trap on NaN
+        let l0 = max(0, CrashGuard.int(floor(visible.lowerBound / lh), in: CrashGuard.countRange)) // no trap on NaN
         let l1 = min(totalLines, CrashGuard.int(ceil(visible.upperBound / lh), in: CrashGuard.countRange))
         guard l0 < l1 else { return [] }
         var out: [CGRect] = []
@@ -690,7 +690,7 @@ final class LongTextLayout: @unchecked Sendable {
             let b = block(containingLine: line)
             let first = firstLine(ofBlock: b)
             let bl = blockLayout(b)
-            let base = index.selStarts[checked: b] ?? 0 // cmux
+            let base = index.selStarts[checked: b] ?? 0
             if let md = bl.md {
                 let top = CGFloat(first) * lh
                 let local = NSRange(location: range.location - base, length: range.length)
@@ -709,18 +709,18 @@ final class LongTextLayout: @unchecked Sendable {
                 line = max(first + max(1, bl.lineCount), firstLine(ofBlock: b + 1))
                 continue
             }
-            for (j, lr) in bl.lines.enumerated().dropFirst(max(0, line - first)) { // cmux: no range that can invert
+            for (j, lr) in bl.lines.enumerated().dropFirst(max(0, line - first)) { // no range that can invert
                 let gl = first + j
                 if gl >= l1 { break }
                 let lineRange = NSRange(location: base + lr.location, length: lr.length)
                 // A hard line end owns its newline; a soft wrap does not (the next line starts there).
-                let soft = bl.lines.dropFirst(j + 1).first.map { $0.location == NSMaxRange(lr) } ?? false // cmux
+                let soft = bl.lines.dropFirst(j + 1).first.map { $0.location == NSMaxRange(lr) } ?? false
                 let s = max(range.location, lineRange.location), e = min(NSMaxRange(range), NSMaxRange(lineRange) + (soft ? 0 : 1))
                 if s < e || (lr.length == 0 && NSLocationInRange(lineRange.location, range)) {
                     let attr = NSAttributedString(string: bl.string.substring(with: lr), attributes: [.font: Fixture.bodyFont])
                     let ct = CTLineCreateWithAttributedString(attr)
                     let x0 = CTLineGetOffsetForStringIndex(ct, max(0, s - lineRange.location), nil)
-                    let x1 = e > NSMaxRange(lineRange) ? (bl.widths[checked: j] ?? 0) + 4 : /* cmux */ CTLineGetOffsetForStringIndex(ct, min(lr.length, e - lineRange.location), nil)
+                    let x1 = e > NSMaxRange(lineRange) ? (bl.widths[checked: j] ?? 0) + 4 : CTLineGetOffsetForStringIndex(ct, min(lr.length, e - lineRange.location), nil)
                     out.append(CGRect(x: x0, y: CGFloat(gl) * lh, width: max(1, x1 - x0), height: lh))
                 }
             }
@@ -737,7 +737,7 @@ final class LongTextLayout: @unchecked Sendable {
         guard index.ready, blockCount > 0, range.length > 0 else { return "" }
         var out = ""
         var b = index.block(sel: range.location)
-        while b < blockCount, let base = index.selStarts[checked: b], base < NSMaxRange(range) { // cmux: checked
+        while b < blockCount, let base = index.selStarts[checked: b], base < NSMaxRange(range) { // checked
             let s = selectionString(b)
             let lo = max(0, range.location - base), hi = min(s.length, NSMaxRange(range) - base)
             if lo < hi { out += s.substring(with: NSRange(location: lo, length: hi - lo)) }
@@ -768,7 +768,7 @@ enum LongTextCenter {
 
     static func schedule(_ l: LongTextLayout) {
         lock.lock()
-        dirty.updateValue(l, forKey: ObjectIdentifier(l)) // cmux: dictionary write
+        dirty.updateValue(l, forKey: ObjectIdentifier(l)) // dictionary write
         let go = !scheduled
         scheduled = true
         lock.unlock()
@@ -834,14 +834,14 @@ final class LongTextStore: @unchecked Sendable {
     /// markdown (`markdown`, Message.format; plain by default) and not shown as source
     /// (MarkdownStore.showsSource); otherwise a markdown index is laid out as plain text.
     func layout(_ text: String, width: CGFloat, message: ID? = nil, markdown: Bool = false) -> LongTextLayout {
-        // cmux: index(for:) builds one when asked to; an unregistered index stands in (crash program).
+        // index(for:) builds one when asked to; an unregistered index stands in.
         let idx = index(for: text) ?? LongTextIndex.build(text, lineage: 0)
         let md = idx.markdown && markdown && !(message.map { MarkdownStore.shared.showsSource($0) } ?? false)
         let wk = md || !idx.markdown ? width : -width
         lock.lock()
         let id = ObjectIdentifier(idx)
         tick += 1
-        recent.updateValue(tick, forKey: id) // cmux: dictionary write
+        recent.updateValue(tick, forKey: id) // dictionary write
         if let l = layouts[id]?[wk] { lock.unlock(); return l }
         let carry = layouts[id]?.values.first { $0.markdown == md }
         lock.unlock()
@@ -849,7 +849,7 @@ final class LongTextStore: @unchecked Sendable {
         lock.lock()
         var per = layouts[id] ?? [:]
         if per.count >= 3 { per.values.forEach { $0.retired = true }; per.removeAll() }
-        per.updateValue(l, forKey: wk) // cmux: dictionary write
+        per.updateValue(l, forKey: wk) // dictionary write
         layouts[id] = per
         lock.unlock()
         return l
@@ -861,13 +861,13 @@ final class LongTextStore: @unchecked Sendable {
     private static func print(_ p: UnsafeBufferPointer<UInt8>) -> Print {
         var h = Hasher(), t = Hasher()
         let n = p.count, k = min(n, 1024)
-        h.combine(bytes: UnsafeRawBufferPointer(UnsafeBufferPointer(rebasing: p.prefix(k)))) // cmux: no range subscripts
+        h.combine(bytes: UnsafeRawBufferPointer(UnsafeBufferPointer(rebasing: p.prefix(k)))) // no range subscripts
         t.combine(bytes: UnsafeRawBufferPointer(UnsafeBufferPointer(rebasing: p.suffix(k))))
         return Print(count: n, head: h.finalize(), tail: t.finalize())
     }
     private static func head(_ p: UnsafeBufferPointer<UInt8>) -> Int {
         var h = Hasher()
-        h.combine(bytes: UnsafeRawBufferPointer(UnsafeBufferPointer(rebasing: p.prefix(512)))) // cmux: no range subscript
+        h.combine(bytes: UnsafeRawBufferPointer(UnsafeBufferPointer(rebasing: p.prefix(512)))) // no range subscript
         return h.finalize()
     }
 
@@ -887,10 +887,10 @@ final class LongTextStore: @unchecked Sendable {
             // Streaming: the same text with more at the end keeps every block but the last
             // (a plain stream that turns into markdown is indexed again from its start).
             if let prev, prev.ready, prev.count < p.count, prev.blockCount > 0,
-               prev.markdown || !LongTextIndex.isMarkdown(String(decoding: UnsafeBufferPointer(rebasing: p.dropFirst(max(0, prev.starts.dropLast().last ?? 0))) /* cmux: the last block start, no index math */, as: UTF8.self)) {
+               prev.markdown || !LongTextIndex.isMarkdown(String(decoding: UnsafeBufferPointer(rebasing: p.dropFirst(max(0, prev.starts.dropLast().last ?? 0))) /* the last block start, no index math */, as: UTF8.self)) {
                 let keep = prev.blockCount - 1
-                let from = max(0, (prev.starts[checked: keep] ?? 0) - 256) // cmux: checked
-                let same = prev.withBytes { q in // cmux: no force unwraps
+                let from = max(0, (prev.starts[checked: keep] ?? 0) - 256) // checked
+                let same = prev.withBytes { q in // no force unwraps
                     guard let qb = q.baseAddress, let pb = p.baseAddress else { return false }
                     return memcmp(qb + from, pb + from, prev.count - from) == 0
                 }
@@ -907,11 +907,11 @@ final class LongTextStore: @unchecked Sendable {
                         let tailOffMain = LongText.offMainTail
                         let l = LongTextLayout(index: i, width: o.width, carry: o, markdown: o.markdown, provisional: tailOffMain ? keep : nil)
                         lock.lock(); layouts[ObjectIdentifier(i), default: [:]][o.markdown || !i.markdown ? o.width : -o.width] = l; lock.unlock()
-                        if tailOffMain { l.measureTail(keep..<max(keep, i.blockCount)); continue } // cmux: never an inverted range
+                        if tailOffMain { l.measureTail(keep..<max(keep, i.blockCount)); continue } // never an inverted range
                         // The previous rule: the new tail is measured now (about 4 KB).
                         let reuse = BlockLayoutCache.shared.get(o.key(keep))
-                        let tail = max(0, keep)..<max(max(0, keep), i.blockCount) // cmux: never an inverted range
-                        if i.count - (i.starts[checked: tail.lowerBound] ?? 0) <= 16 * 1024 /* cmux */ { l.measureNow(tail, reuse: reuse) } else { l.require(blocks: tail) }
+                        let tail = max(0, keep)..<max(max(0, keep), i.blockCount) // never an inverted range
+                        if i.count - (i.starts[checked: tail.lowerBound] ?? 0) <= 16 * 1024 { l.measureNow(tail, reuse: reuse) } else { l.require(blocks: tail) }
                     }
                     return i
                 }
@@ -948,7 +948,7 @@ final class LongTextStore: @unchecked Sendable {
             let oid = ObjectIdentifier(old)
             layouts[oid]?.values.forEach { $0.retired = true }
             layouts[oid] = nil
-            recent.removeValue(forKey: oid) // cmux: dictionary write
+            recent.removeValue(forKey: oid) // dictionary write
             byAddr = byAddr.filter { $0.value !== old }
             byPrint = byPrint.filter { $0.value !== old }
         }
@@ -956,7 +956,7 @@ final class LongTextStore: @unchecked Sendable {
         byPrint[print] = i
         byHead[head] = i
         tick += 1
-        recent.updateValue(tick, forKey: ObjectIdentifier(i)) // cmux: dictionary write
+        recent.updateValue(tick, forKey: ObjectIdentifier(i)) // dictionary write
         // Bounded: the least recently used indexes go (their texts with them).
         let live = Set(byAddr.values.map { ObjectIdentifier($0) })
         if live.count > LongTextStore.maxIndexes {
@@ -964,7 +964,7 @@ final class LongTextStore: @unchecked Sendable {
             byAddr = byAddr.filter { !drop.contains(ObjectIdentifier($0.value)) }
             byPrint = byPrint.filter { !drop.contains(ObjectIdentifier($0.value)) }
             byHead = byHead.filter { !drop.contains(ObjectIdentifier($0.value)) }
-            for d in drop { layouts[d]?.values.forEach { $0.retired = true }; layouts[d] = nil; recent.removeValue(forKey: d) } // cmux
+            for d in drop { layouts[d]?.values.forEach { $0.retired = true }; layouts[d] = nil; recent.removeValue(forKey: d) }
         }
     }
 
@@ -978,7 +978,7 @@ final class LongTextStore: @unchecked Sendable {
 enum LongTextFold {
     static let headLines = 40, tailLines = 40
     /// 3 screens (the 1041 pt window).
-    static var maxLines: Int { CrashGuard.int(3 * 1041 / Fixture.lineHeight, in: CrashGuard.countRange) } // cmux
+    static var maxLines: Int { CrashGuard.int(3 * 1041 / Fixture.lineHeight, in: CrashGuard.countRange) }
     static var bandHeight: CGFloat { 2 * Fixture.lineHeight }
     static let defaultsKey = "messageslab.collapseLongMessages"
     /// Setting (UserDefaults, default on). `--no-collapse` turns it off for one run.

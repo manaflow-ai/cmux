@@ -80,7 +80,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     /// width it is designed for (to verify against Messages' default).
     var minimumWidth: CGFloat { SidebarMetrics.minimumWidth }
     var preferredWidth: CGFloat? { SidebarMetrics.preferredWidth }
-    private var palette = SidebarPalette.resolve(NSAppearance(named: .darkAqua) ?? NSAppearance.currentDrawing()) // cmux: no force unwrap
+    private var palette = SidebarPalette.resolve(NSAppearance(named: .darkAqua) ?? NSAppearance.currentDrawing()) // no force unwrap
     private var generation = 0
     /// The palette, scale and color-space generation (tests).
     var renderGeneration: Int { generation }
@@ -113,6 +113,8 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
             if syncLog.count > 8 { syncLog.removeFirst() }
         }
         var syncRenders = 0; var asyncRenders = 0; var layersCreated = 0; var tiles = 0
+        /// Visible rows of a width change whose text bitmap stayed (same line breaks and truncation).
+        var keptTexts = 0
         /// Main-thread time in the list's own tiling, layout and selection (ms, cumulative).
         var workMs = 0.0
         /// Of a width change (ms, cumulative): the pinned tiles' redraw and the rows' relayout.
@@ -131,7 +133,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     /// A pinned tile's laid-out parts in tile coordinates (tests): the unread dot (nil: hidden),
     /// the bubble without its tail (nil: none shown), the avatar and the tile's bounds.
     func tileGeometry(_ t: Int) -> (dot: CGRect?, bubble: CGRect?, avatar: CGRect, bounds: CGRect) {
-        guard let l = tileLayers[checked: t] else { return (nil, nil, .zero, .zero) } // cmux: a stale tile index (no trap)
+        guard let l = tileLayers[checked: t] else { return (nil, nil, .zero, .zero) } // a stale tile index (no trap)
         let b = l.time.isHidden ? nil : CGRect(x: l.time.frame.minX + 1, y: l.time.frame.minY, width: l.time.frame.width - 1, height: l.time.frame.height - 5)
         return (l.dot.isHidden ? nil : l.dot.frame, b, l.avatar.frame, l.bounds)
     }
@@ -142,7 +144,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     func indicators(_ h: Hit) -> Indicators? {
         let l: SidebarRowLayer?
         switch h {
-        case let .tile(t): l = tileLayers[checked: t] // cmux: checked
+        case let .tile(t): l = tileLayers[checked: t] // checked
         case let .row(r): l = rowLayers[r]
         }
         guard let l, !l.isHidden else { return nil }
@@ -189,8 +191,8 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         scrollView.documentView = document
         document.controller = self
         root.addSubview(scrollView)
-        // cmux: block observers on queue: .main (inline for a post on main), not selectors: a selector into
-        // this main-actor controller trapped on a post off main (crash program).
+        // block observers on queue: .main (inline for a post on main), not selectors: a selector into
+        // this main-actor controller trapped on a post off main.
         let nc = NotificationCenter.default
         clipObservers = [
             nc.addObserver(forName: NSView.boundsDidChangeNotification, object: scrollView.contentView, queue: .main) { [weak self] _ in self?.clipMoved() },
@@ -212,8 +214,8 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         root.addSubview(noResults)
     }
 
-    private var clipObservers: [NSObjectProtocol] = []  // cmux
-    deinit { clipObservers.forEach { NotificationCenter.default.removeObserver($0) } }  // cmux
+    private var clipObservers: [NSObjectProtocol] = []
+    deinit { clipObservers.forEach { NotificationCenter.default.removeObserver($0) } }
 
     // MARK: Data
 
@@ -286,7 +288,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         switch phase {
         case .began:
             guard query.isEmpty, case let .row(r)? = hit(p), !metrics.compact,
-                  let c = rowItems[checked: r].flatMap({ snapshot.items[checked: $0] }) else { return false } // cmux: checked
+                  let c = rowItems[checked: r].flatMap({ snapshot.items[checked: $0] }) else { return false } // checked
             guard !Self.isExtra(c.id) else { return false }
             if let s = swipe, s.id != c.id { closeSwipe() }
             if swipe == nil { swipeToken += 1 }
@@ -295,7 +297,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         case .changed:
             return swipe == nil ? false : swipeBy(dx)
         case .ended, .cancelled:
-            guard let s = swipe, let c = rowItems[checked: s.row].flatMap({ snapshot.items[checked: $0] }) else { return false } // cmux: checked
+            guard let s = swipe, let c = rowItems[checked: s.row].flatMap({ snapshot.items[checked: $0] }) else { return false } // checked
             let n = CGFloat(swipeActions(c, leading: s.offset > 0).count)
             if phase == .ended, abs(s.offset) >= metrics.width * Self.swipeFullFraction, n > 0 {
                 let act = s.offset > 0 ? swipeActions(c, leading: true).first : swipeActions(c, leading: false).last
@@ -311,7 +313,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         }
     }
     private func swipeBy(_ dx: CGFloat) -> Bool {
-        guard let s = swipe, let c = rowItems[checked: s.row].flatMap({ snapshot.items[checked: $0] }) else { return false } // cmux: checked
+        guard let s = swipe, let c = rowItems[checked: s.row].flatMap({ snapshot.items[checked: $0] }) else { return false } // checked
         var o = s.offset + dx
         // No actions on a side: the row does not move that way.
         if o > 0, swipeActions(c, leading: true).isEmpty { o = 0 }
@@ -322,7 +324,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     }
     /// Slides the row and sizes the strip behind it (the revealed part only, so the glass shows elsewhere).
     private func setSwipeOffset(_ o: CGFloat, animated: Bool) {
-        guard var s = swipe, let l = rowLayers[s.row], let c = rowItems[checked: s.row].flatMap({ snapshot.items[checked: $0] }) else { return } // cmux: checked
+        guard var s = swipe, let l = rowLayers[s.row], let c = rowItems[checked: s.row].flatMap({ snapshot.items[checked: $0] }) else { return } // checked
         let rect = rowRect(s.row)
         // Where the row shows now: its translation plus any running move (additive position).
         let old = l.affineTransform().tx + SidebarMotion.presented(l).position.x - l.position.x
@@ -380,7 +382,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         if animated {
             SidebarMotion.move(l, by: CGPoint(x: old - o, y: 0))
             SidebarMotion.reframe(mask, from: oldMask)
-            for (b, oldFrame) in zip(swipeButtons, oldButtons) { // cmux: no index math
+            for (b, oldFrame) in zip(swipeButtons, oldButtons) { // no index math
                 SidebarMotion.reframe(b.layer, from: oldFrame)
                 if let g = b.layer.sublayers?.first { SidebarMotion.reframe(g, from: CGRect(origin: .zero, size: oldFrame.size)) }
             }
@@ -425,7 +427,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     /// A click while a row is open: on one of its buttons runs it; anywhere closes the row. True: handled.
     func swipeClick(at p: CGPoint) -> Bool {
         guard let s = swipe else { return false }
-        guard let c = rowItems[checked: s.row].flatMap({ snapshot.items[checked: $0] }) else { closeSwipe(); return true } // cmux: checked
+        guard let c = rowItems[checked: s.row].flatMap({ snapshot.items[checked: $0] }) else { closeSwipe(); return true } // checked
         let hitButton = swipeButtons.first { swipeStrip.convert($0.layer.frame, to: document.layer).contains(p) }?.action
         closeSwipe()
         if let a = hitButton { runSwipe(a, c) }
@@ -466,7 +468,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     static let dragThreshold: CGFloat = 4
 
     func tileDragBegan(_ t: Int, at p: CGPoint) {
-        guard query.isEmpty, filter == .all, let tile = tileLayers[checked: t], pinnedItems.count > 1 else { return } // cmux: checked
+        guard query.isEmpty, filter == .all, let tile = tileLayers[checked: t], pinnedItems.count > 1 else { return } // checked
         tileDrag = TileDrag(tile: t, start: p, origin: tile.position, slot: t)
     }
     func tileDragMoved(to p: CGPoint) {
@@ -475,7 +477,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
             guard hypot(p.x - d.start.x, p.y - d.start.y) >= Self.dragThreshold else { return }
             d.active = true
         }
-        guard let l = tileLayers[checked: d.tile] else { tileDrag = nil; return } // cmux: checked
+        guard let l = tileLayers[checked: d.tile] else { tileDrag = nil; return } // checked
         CATransaction.begin(); CATransaction.setDisableActions(true)
         l.zPosition = 10
         l.position = CGPoint(x: d.origin.x + p.x - d.start.x, y: d.origin.y + p.y - d.start.y)
@@ -489,7 +491,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
             order.insert(d.tile, at: slot)
             CATransaction.begin(); CATransaction.setDisableActions(true)
             for (k, t) in order.enumerated() where t != d.tile {
-                guard let m = tileLayers[checked: t] else { continue } // cmux: checked
+                guard let m = tileLayers[checked: t] else { continue } // checked
                 let old = SidebarMotion.presented(m).position
                 let r = tileRect(k)
                 m.position = CGPoint(x: r.midX, y: r.midY)
@@ -504,7 +506,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         guard let d = tileDrag else { return }
         tileDrag = nil
         guard d.active, let l = tileLayers[checked: d.tile],
-              let id = pinnedItems[checked: d.tile].flatMap({ snapshot.items[checked: $0] })?.id else { return } // cmux: checked
+              let id = pinnedItems[checked: d.tile].flatMap({ snapshot.items[checked: $0] })?.id else { return } // checked
         let before = reloadCount
         l.zPosition = 0
         if d.slot != d.tile { delegate?.sidebar(self, movePinned: id, to: d.slot) }
@@ -512,7 +514,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
             // Not moved (same slot, or the host kept the order): every tile goes back to its place.
             CATransaction.begin(); CATransaction.setDisableActions(true)
             for t in pinnedItems.indices {
-                guard let m = tileLayers[checked: t] else { continue } // cmux: checked
+                guard let m = tileLayers[checked: t] else { continue } // checked
                 let old = SidebarMotion.presented(m).position
                 let r = tileRect(t)
                 m.position = CGPoint(x: r.midX, y: r.midY)
@@ -526,7 +528,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     private func slotAt(_ p: CGPoint) -> Int {
         let cols = metrics.columns, tw = metrics.tileWidth, th = metrics.tileHeight
         let x0 = tileRect(0).minX
-        // cmux: no trap on NaN (a zero tile size) or a huge position
+        // no trap on NaN (a zero tile size) or a huge position
         let c = min(cols - 1, max(0, CrashGuard.int((p.x - x0) / tw, in: CrashGuard.rowRange)))
         let r = max(0, CrashGuard.int(p.y / th, in: CrashGuard.rowRange))
         return min(pinnedItems.count - 1, r * cols + c)
@@ -638,25 +640,25 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         init(pinned: [Int], rows: [Int], count: Int, searching: Bool) {
             self.pinned = pinned; self.rows = rows; self.searching = searching
             rowOf = [Int32](repeating: -1, count: count)
-            for (r, i) in rows.enumerated() { if let slot = rowOf.checkedIndex(i) { rowOf[slot] = Int32(clamping: r) } } // cmux: checked
+            for (r, i) in rows.enumerated() { if let slot = rowOf.checkedIndex(i) { rowOf[slot] = Int32(clamping: r) } } // checked
         }
         /// The pinned grid and every other conversation in the snapshot's order.
         static func full(_ s: ConversationListSnapshot, _ index: [ConversationID: Int], filter: SidebarFilter = .all) -> RowList {
             if filter != .all {
-                // cmux: no index math
+                // no index math
                 return RowList(pinned: [], rows: zip(s.items.indices, s.items).filter { filter.includes($0.1) }.map(\.0), count: s.items.count, searching: true)
             }
             // All: spam and deleted conversations stay out (also out of the pinned grid).
-            let pinned = s.pinned.compactMap { index[$0] }.filter { s.items[checked: $0].map(filter.includes) ?? false } // cmux: checked
+            let pinned = s.pinned.compactMap { index[$0] }.filter { s.items[checked: $0].map(filter.includes) ?? false } // checked
             var isPinned = [Bool](repeating: false, count: s.items.count)
-            for i in pinned { if let slot = isPinned.checkedIndex(i) { isPinned[slot] = true } } // cmux: checked
-            // cmux: no index math
+            for i in pinned { if let slot = isPinned.checkedIndex(i) { isPinned[slot] = true } } // checked
+            // no index math
             return RowList(pinned: pinned, rows: zip(s.items.indices, zip(isPinned, s.items)).filter { !$0.1.0 && filter.includes($0.1.1) }.map(\.0), count: s.items.count, searching: false)
         }
     }
 
-    func summary(_ id: ConversationID) -> ConversationSummary? { indexByID[id].flatMap { snapshot.items[checked: $0] } } // cmux: checked
-    /// cmux: the conversation under a hit, nil when the hit is stale (no trap).
+    func summary(_ id: ConversationID) -> ConversationSummary? { indexByID[id].flatMap { snapshot.items[checked: $0] } } // checked
+    /// the conversation under a hit, nil when the hit is stale (no trap).
     func summary(_ h: Hit) -> ConversationSummary? { item(h).flatMap { snapshot.items[checked: $0] } }
 
     private func applyRows(_ list: RowList) {
@@ -730,10 +732,10 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
             return nil
         }
         if let h = sectionHeaderRect, h.contains(p) { return nil }
-        let r = CrashGuard.int(rowPosition(p.y).rounded(.down), in: CrashGuard.rowRange) // cmux: no trap on NaN
+        let r = CrashGuard.int(rowPosition(p.y).rounded(.down), in: CrashGuard.rowRange) // no trap on NaN
         return r >= 0 && r < rowItems.count ? .row(r) : nil
     }
-    func item(_ h: Hit) -> Int? { switch h { case let .tile(t): return pinnedItems[checked: t]; case let .row(r): return rowItems[checked: r] } } // cmux: nil when stale
+    func item(_ h: Hit) -> Int? { switch h { case let .tile(t): return pinnedItems[checked: t]; case let .row(r): return rowItems[checked: r] } } // nil when stale
     func rect(_ h: Hit) -> CGRect {
         switch h { case let .tile(t): return tileRect(t).insetBy(dx: 2, dy: 2); case let .row(r): return selectionRect(r) }
     }
@@ -746,10 +748,18 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     func position(of id: ConversationID) -> Hit? {
         guard let i = indexByID[id] else { return nil }
         if let t = pinnedItems.firstIndex(of: i) { return .tile(t) }
-        guard let row = rowOfItem[checked: i] else { return nil } // cmux: checked
-        let r = Int(truncatingIfNeeded: row) // cmux: Int32 widens exactly
+        guard let row = rowOfItem[checked: i] else { return nil } // checked
+        let r = Int(truncatingIfNeeded: row) // Int32 widens exactly
         return r >= 0 ? .row(r) : nil
     }
+
+    /// A width change keeps a visible row's text bitmap when its lines break and truncate the same
+    /// way (configure, flushBatch). `--sidebar-width-redraw` or MLAB_EXP=sbredraw: every visible
+    /// row's text is drawn again at each width (the rule before; the A/B control).
+    static let keepSameText: Bool = {
+        let exp = (ProcessInfo.processInfo.environment["MLAB_EXP"] ?? "").split(separator: ",")
+        return !(CommandLine.arguments.contains("--sidebar-width-redraw") || exp.contains("sbredraw"))
+    }()
 
     func layout(in bounds: CGRect) {
         let M = SidebarMetrics.self
@@ -787,7 +797,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
 
     // MARK: Tiling (O(visible))
 
-    private func clipMoved() { tile(force: false) }  // cmux: no selector
+    private func clipMoved() { tile(force: false) }  // no selector
 
     var renderContext: SidebarRenderContext { // cmux: internal, the pin drag draws its tile
         SidebarRenderContext(metrics: metrics, palette: palette, scale: scale,
@@ -796,15 +806,15 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
                              failed: failedGlyph, failedSelected: failedSelected, now: now())
     }
 
-    func key(_ kind: SidebarBitmapKey.Kind, item i: Int, emphasized: Bool) -> SidebarBitmapKey? { // cmux: nil for a stale item
+    func key(_ kind: SidebarBitmapKey.Kind, item i: Int, emphasized: Bool) -> SidebarBitmapKey? { // nil for a stale item
         guard let c = snapshot.items[checked: i] else { return nil }
         return key(kind, summary: c, emphasized: emphasized)
     }
-    private func key(_ kind: SidebarBitmapKey.Kind, summary c: ConversationSummary, emphasized: Bool) -> SidebarBitmapKey { // cmux
+    private func key(_ kind: SidebarBitmapKey.Kind, summary c: ConversationSummary, emphasized: Bool) -> SidebarBitmapKey {
         SidebarBitmapKey(kind: kind, id: c.id, version: c.version, width: kind == .row ? metrics.width : kind == .tile ? metrics.tileWidth : 0,
                                 emphasized: emphasized, generation: generation)
     }
-    private func emphasized(_ i: Int) -> Bool { windowActive && (snapshot.items[checked: i].map { $0.id == highlightID } ?? false) } // cmux: checked
+    private func emphasized(_ i: Int) -> Bool { windowActive && (snapshot.items[checked: i].map { $0.id == highlightID } ?? false) } // checked
 
     /// Lays out the rows the clip view shows, with a margin of a few rows; renders missing
     /// visible bitmaps now and the next screen's in the background.
@@ -812,8 +822,8 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         guard !rowItems.isEmpty || !rowLayers.isEmpty else { return }
         let clip = scrollView.contentView.bounds
         let margin = 3
-        let top = CrashGuard.int(rowPosition(clip.minY).rounded(.down), in: CrashGuard.rowRange) // cmux: no trap on NaN
-        let bottom = CrashGuard.int(rowPosition(clip.maxY).rounded(.up), in: CrashGuard.rowRange) // cmux
+        let top = CrashGuard.int(rowPosition(clip.minY).rounded(.down), in: CrashGuard.rowRange) // no trap on NaN
+        let bottom = CrashGuard.int(rowPosition(clip.maxY).rounded(.up), in: CrashGuard.rowRange)
         let first = max(0, top - margin)
         let last = min(rowItems.count, bottom + margin)
         let range = first < last ? first..<last : 0..<0
@@ -825,7 +835,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         CATransaction.begin(); CATransaction.setDisableActions(true)
         batching = true
         for (r, l) in rowLayers where !range.contains(r) { recycle(l); rowLayers[r] = nil }
-        let visible = top..<max(top, bottom) // cmux: the clamped positions above
+        let visible = top..<max(top, bottom) // the clamped positions above
         for r in range {
             // A row already laid out keeps its layer as is (selection and data changes
             // reconfigure it through refresh); only new rows cost work.
@@ -856,45 +866,58 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     /// Visible rows with no bitmap in one tiling pass: drawn on all cores at once (the main
     /// thread takes a share), so a jump or a width change costs about one row's time per core.
     private var batching = false
-    private var batch: [(SidebarRowLayer, SidebarBitmapKey, ConversationSummary)] = []
+    /// A batch row: its layer, key and summary, and the text bitmap the layer shows now when it is
+    /// this row's at another width (with that bitmap's layout): kept if the new width breaks and
+    /// truncates the text the same way.
+    private var batch: [(SidebarRowLayer, SidebarBitmapKey, ConversationSummary, (CGImage, SidebarDraw.RowTextLayout)?)] = []
     private func flushBatch() {
         batching = false
         guard !batch.isEmpty else { return }
         let work = batch
         batch.removeAll(keepingCapacity: true)
         let job = rowJob()
-        var out = [(time: CGImage, text: CGImage)?](repeating: nil, count: work.count)
+        var out = [(time: CGImage, text: CGImage?, layout: SidebarDraw.RowTextLayout)?](repeating: nil, count: work.count)
         let cachedTimes = work.map { cache.image(timeKey($0.1)) }
         out.withUnsafeMutableBufferPointer { o in
             DispatchQueue.concurrentPerform(iterations: work.count) { j in
-                guard let w = work[checked: j] else { return } // cmux: checked (an unsafe buffer does not check)
-                if let slot = o.checkedIndex(j) { o[slot] = job(w.2, w.1, cachedTimes[checked: j] ?? nil) }
+                guard let w = work[checked: j] else { return } // checked (an unsafe buffer does not check)
+                if let slot = o.checkedIndex(j) { o[slot] = job(w.2, w.1, cachedTimes[checked: j] ?? nil, w.3?.1) }
             }
         }
-        for ((l, k, _), result) in zip(work, out) { // cmux: no index math
+        for ((l, k, _, shown), result) in zip(work, out) { // no index math
             guard let r = result else { continue }
-            stats.logSync(k)
             cache.insert(timeKey(k), r.time)
-            cache.insert(k, r.text)
-            show(l, k, time: r.time, text: r.text)
+            if let text = r.text {
+                stats.logSync(k)
+                cache.insert(k, text)
+                show(l, k, time: r.time, text: text, layout: r.layout)
+            } else if let shown {
+                stats.keptTexts += 1
+                show(l, k, time: r.time, text: shown.0, layout: r.layout)
+            }
         }
     }
 
-    /// Renders a row's time and text from values only (any thread).
-    /// cmux: nil when a bitmap cannot be allocated; the row then waits undrawn (no trap).
-    private func rowJob() -> (ConversationSummary, SidebarBitmapKey, CGImage?) -> (time: CGImage, text: CGImage)? {
+    /// Renders a row's time and text from values only (any thread). With the layout of the text
+    /// bitmap on screen: no text bitmap (nil) when the layout is the same.
+    /// nil when a bitmap cannot be allocated; the row then waits undrawn (no trap).
+    private func rowJob() -> (ConversationSummary, SidebarBitmapKey, CGImage?, SidebarDraw.RowTextLayout?)
+        -> (time: CGImage, text: CGImage?, layout: SidebarDraw.RowTextLayout)? {
         let ctx = renderContext, time = timeFormatter, text = textCache
-        return { c, k, cachedTime in
+        return { c, k, cachedTime, shown in
             guard let t = cachedTime ?? SidebarDraw.rowTime(c, emphasized: k.emphasized, ctx: ctx, time: time),
-                  let x = SidebarDraw.rowText(c, emphasized: k.emphasized, ctx: ctx, timeWidth: SidebarDraw.rowTimeWidth(t, scale: ctx.scale), text: text)
+                  let x = SidebarDraw.rowText(c, emphasized: k.emphasized, ctx: ctx, timeWidth: SidebarDraw.rowTimeWidth(t, scale: ctx.scale),
+                                              text: text, unless: shown)
             else { return nil }
-            return (t, x)
+            return (t, x.image, x.layout)
         }
     }
     private func timeKey(_ k: SidebarBitmapKey) -> SidebarBitmapKey {
         var t = k; t.kind = .time; t.width = 0; return t
     }
-    private func show(_ l: SidebarRowLayer, _ k: SidebarBitmapKey, time: CGImage, text: CGImage) {
+    private func show(_ l: SidebarRowLayer, _ k: SidebarBitmapKey, time: CGImage, text: CGImage, layout: SidebarDraw.RowTextLayout? = nil) {
+        l.shownLayout = layout
+        l.shownText = text
         let s = renderContext.scale
         let tw = CGFloat(time.width) / s
         l.time.contents = time
@@ -917,6 +940,8 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         l.setAffineTransform(.identity)
         l.removeAnimation(forKey: "move"); l.removeAnimation(forKey: "appear")
         l.shownKey = nil
+        l.shownLayout = nil
+        l.shownText = nil
         l.content.contents = nil
         l.time.contents = nil
         l.setTyping(nil)
@@ -924,7 +949,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     }
 
     private func configure(_ l: SidebarRowLayer, row r: Int, sync: Bool) {
-        guard let i = rowItems[checked: r], let c = snapshot.items[checked: i] else { return } // cmux: a stale row draws nothing
+        guard let i = rowItems[checked: r], let c = snapshot.items[checked: i] else { return } // a stale row draws nothing
         let frame = rowRect(r)
         let selected = c.id == highlightID
         let k = key(.row, summary: c, emphasized: emphasized(i))
@@ -937,7 +962,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         l.selection.isHidden = !selected
         l.selection.backgroundColor = windowActive ? palette.selectionActive : palette.selectionInactive
         // The separator under the text, hidden next to the selection (as NSTableView does).
-        let nextSelected = rowItems.dropFirst(r + 1).first.flatMap { snapshot.items[checked: $0] }.map { $0.id == highlightID } ?? false // cmux
+        let nextSelected = rowItems.dropFirst(r + 1).first.flatMap { snapshot.items[checked: $0] }.map { $0.id == highlightID } ?? false
         l.separator.isHidden = selected || nextSelected || r == rowItems.count - 1 || r + 1 == extraStart
         let s = 1 / max(1, document.window?.backingScaleFactor ?? 2)
         l.separator.frame = CGRect(x: SidebarMetrics.textX, y: frame.height - s, width: frame.width - SidebarMetrics.textX - SidebarMetrics.separatorInsetRight, height: s)
@@ -971,13 +996,23 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         if let text = cache.image(k), let time = cache.image(timeKey(k)) {
             show(l, k, time: time, text: text)
         } else if sync, batching {
-            // Drawn with the other visible rows of this pass, in parallel (flushBatch).
+            // Drawn with the other visible rows of this pass, in parallel (flushBatch). A width
+            // change keeps the text bitmap on screen when it is this row's, drawn at another width,
+            // and the new width breaks and truncates its lines the same way (the same pixels: in a
+            // divider drag most rows' text does not change; the redraw of every visible row was
+            // up to 40 % of the missed frames on the idle mini, macOS 26).
+            var shown: (CGImage, SidebarDraw.RowTextLayout)?
+            if Self.keepSameText, let old = l.shownKey, old.kind == .row, old.id == k.id, old.version == k.version,
+               old.emphasized == k.emphasized, old.generation == k.generation, let layout = l.shownLayout,
+               let image = l.shownText {
+                shown = (image, layout)
+            }
             l.shownKey = nil
-            batch.append((l, k, c))
-        } else if sync, let r = rowJob()(c, k, cache.image(timeKey(k))) { // cmux: an unallocated row stays undrawn
+            batch.append((l, k, c, shown))
+        } else if sync, let r = rowJob()(c, k, cache.image(timeKey(k)), nil) { // an unallocated row stays undrawn
             stats.logSync(k)
-            cache.insert(timeKey(k), r.time); cache.insert(k, r.text)
-            show(l, k, time: r.time, text: r.text)
+            cache.insert(timeKey(k), r.time)
+            if let text = r.text { cache.insert(k, text); show(l, k, time: r.time, text: text, layout: r.layout) }
         } else {
             l.shownKey = nil
             request(k, item: i)
@@ -986,23 +1021,24 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
 
     /// Background render of a row's time and text; the result goes to whichever layer shows that key.
     private func request(_ k: SidebarBitmapKey, item i: Int) {
-        guard !pending.contains(k), !cache.contains(k), let c = snapshot.items[checked: i] else { return } // cmux: checked
+        guard !pending.contains(k), !cache.contains(k), let c = snapshot.items[checked: i] else { return } // checked
         pending.insert(k)
         let job = rowJob(), cachedTime = cache.image(timeKey(k))
         renderQueue.async { [weak self] in
-            let r = job(c, k, cachedTime)
+            let r = job(c, k, cachedTime, nil)
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.pending.remove(k)
-                guard let r else { return } // cmux: an unallocated row stays undrawn
+                guard let r else { return } // an unallocated row stays undrawn
                 guard k.generation == self.generation, k.width == self.metrics.width else { return }
                 self.stats.asyncRenders += 1
                 self.cache.insert(self.timeKey(k), r.time)
-                self.cache.insert(k, r.text)
+                guard let text = r.text else { return }
+                self.cache.insert(k, text)
                 CATransaction.begin(); CATransaction.setDisableActions(true)
                 for (row, l) in self.rowLayers where l.shownKey == nil && row < self.rowItems.count
-                    && self.rowItems[checked: row].flatMap({ self.key(.row, item: $0, emphasized: self.emphasized($0)) }) == k { // cmux
-                    self.show(l, k, time: r.time, text: r.text)
+                    && self.rowItems[checked: row].flatMap({ self.key(.row, item: $0, emphasized: self.emphasized($0)) }) == k {
+                    self.show(l, k, time: r.time, text: text, layout: r.layout)
                 }
                 CATransaction.commit()
             }
@@ -1013,7 +1049,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         var r = start
         for _ in 0..<count {
             guard r >= 0, r < rowItems.count else { return }
-            guard let i = rowItems[checked: r], let k = key(.row, item: i, emphasized: emphasized(i)) else { return } // cmux
+            guard let i = rowItems[checked: r], let k = key(.row, item: i, emphasized: emphasized(i)) else { return }
             if !cache.contains(k) { request(k, item: i) }
             r += direction
         }
@@ -1035,7 +1071,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         let ctx = renderContext
         var work: [(SidebarBitmapKey, ConversationSummary)] = []
         if !metrics.compact {
-            for i in pinnedItems { // cmux: no index math; a stale item is skipped
+            for i in pinnedItems { // no index math; a stale item is skipped
                 guard let c = snapshot.items[checked: i], let keys = tileKeys(i) else { continue }
                 for k in [keys.name, keys.bubble].compactMap({ $0 }) where !cache.contains(k) { work.append((k, c)) }
             }
@@ -1044,10 +1080,10 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
             var images = [CGImage?](repeating: nil, count: work.count)
             images.withUnsafeMutableBufferPointer { out in
                 DispatchQueue.concurrentPerform(iterations: work.count) { j in
-                    if let w = work[checked: j], let slot = out.checkedIndex(j) { out[slot] = SidebarController.tilePart(w.0, w.1, ctx) } // cmux
+                    if let w = work[checked: j], let slot = out.checkedIndex(j) { out[slot] = SidebarController.tilePart(w.0, w.1, ctx) }
                 }
             }
-            for (w, image) in zip(work, images) { if let img = image { cache.insert(w.0, img); stats.tiles += 1 } } // cmux: no index math
+            for (w, image) in zip(work, images) { if let img = image { cache.insert(w.0, img); stats.tiles += 1 } } // no index math
         }
         for t in pinnedItems.indices { configureTile(t) }
         CATransaction.commit()
@@ -1062,7 +1098,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         return n
     }
     /// The keys of a tile's name and bubble (nil: no bubble) at the current width.
-    private func tileKeys(_ i: Int) -> (name: SidebarBitmapKey, bubble: SidebarBitmapKey?)? { // cmux: nil for a stale item
+    private func tileKeys(_ i: Int) -> (name: SidebarBitmapKey, bubble: SidebarBitmapKey?)? { // nil for a stale item
         guard let c = snapshot.items[checked: i] else { return nil }
         let n = natural(c), tw = metrics.tileWidth
         return SidebarController.tileKeys(c, natural: n, tileWidth: tw, emphasized: emphasized(i), generation: generation)
@@ -1077,20 +1113,20 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         return (name, bubble)
     }
     /// Renders one tile part for its key (any thread).
-    static func tilePart(_ k: SidebarBitmapKey, _ c: ConversationSummary, _ ctx: SidebarRenderContext) -> CGImage? { // cmux: nil when unallocated
+    static func tilePart(_ k: SidebarBitmapKey, _ c: ConversationSummary, _ ctx: SidebarRenderContext) -> CGImage? { // nil when unallocated
         k.kind == .tileBubble ? SidebarDraw.tileBubbleImage(c, keyWidth: k.width, ctx: ctx)
             : SidebarDraw.tileNameImage(c, emphasized: k.emphasized, keyWidth: k.width, ctx: ctx)
     }
     private func tileImage(_ k: SidebarBitmapKey, _ c: ConversationSummary) -> CGImage? {
         if let img = cache.image(k) { return img }
-        guard let img = SidebarController.tilePart(k, c, renderContext) else { return nil } // cmux
+        guard let img = SidebarController.tilePart(k, c, renderContext) else { return nil }
         stats.tiles += 1
         cache.insert(k, img)
         return img
     }
 
     private func configureTile(_ t: Int) {
-        guard let l = tileLayers[checked: t], let i = pinnedItems[checked: t], let c = snapshot.items[checked: i] else { return } // cmux
+        guard let l = tileLayers[checked: t], let i = pinnedItems[checked: t], let c = snapshot.items[checked: i] else { return }
         let f = tileRect(t)
         let s = renderContext.scale
         l.frame = f
@@ -1124,13 +1160,13 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
             l.content.isHidden = true
             l.time.isHidden = true
         } else {
-            let keys = SidebarController.tileKeys(c, natural: natural(c), tileWidth: metrics.tileWidth, emphasized: emphasized(i), generation: generation) // cmux
+            let keys = SidebarController.tileKeys(c, natural: natural(c), tileWidth: metrics.tileWidth, emphasized: emphasized(i), generation: generation)
             let name = tileImage(keys.name, c)
-            let nw = CGFloat(name?.width ?? 0) / s // cmux: an unallocated name shows nothing
+            let nw = CGFloat(name?.width ?? 0) / s // an unallocated name shows nothing
             l.content.isHidden = false
             l.content.contents = name
             l.content.frame = CGRect(x: ((f.width - nw) / 2).rounded(), y: ar.maxY + SidebarMetrics.pinNameGap, width: nw, height: SidebarMetrics.pinNameHeight)
-            if let bk = keys.bubble, let b = tileImage(bk, c) { // cmux: an unallocated bubble is not shown
+            if let bk = keys.bubble, let b = tileImage(bk, c) { // an unallocated bubble is not shown
                 // The newest unread message over the avatar's top (the typing bubble, a layer,
                 // takes its place while someone types).
                 let bw = CGFloat(b.width) / s, bh = CGFloat(b.height) / s
@@ -1167,7 +1203,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
             l.senders.append(s)
         }
         let d = SidebarDraw.senderDiameter(avatar: ar.width)
-        for (k, (spec, s)) in zip(specs, l.senders).enumerated() { // cmux: no index math
+        for (k, (spec, s)) in zip(specs, l.senders).enumerated() { // no index math
             s.frame = SidebarDraw.senderRect(k, avatar: ar, diameter: d)
             s.cornerRadius = d / 2
             s.borderWidth = 1.5
@@ -1177,7 +1213,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         }
     }
     /// A tile's recent-sender avatars (tests): their frames in tile coordinates.
-    func tileSenders(_ t: Int) -> [CGRect] { tileLayers[checked: t]?.senders.map(\.frame) ?? [] } // cmux: checked
+    func tileSenders(_ t: Int) -> [CGRect] { tileLayers[checked: t]?.senders.map(\.frame) ?? [] } // checked
 
     // MARK: Selection
 
@@ -1231,7 +1267,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         }
         let next = cur < 0 ? (delta > 0 ? 0 : order - 1) : min(order - 1, max(0, cur + delta))
         guard next != cur else { return }
-        guard let i = next < pinnedItems.count ? pinnedItems[checked: next] : rowItems[checked: next - pinnedItems.count], // cmux
+        guard let i = next < pinnedItems.count ? pinnedItems[checked: next] : rowItems[checked: next - pinnedItems.count],
               let c = snapshot.items[checked: i] else { return }
         highlight(c.id)
     }
@@ -1288,7 +1324,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
             var shown = snap, shownIndex = index
             if let idx {
                 guard var m = idx.matches(q, cancelled: { stale.get() != gen }) else { return }
-                m = m.filter { snap.items[checked: $0].map(filterNow.includes) ?? false } // cmux: checked
+                m = m.filter { snap.items[checked: $0].map(filterNow.includes) ?? false } // checked
                 if let extras {
                     // The host's rows after the conversations, as summaries of their own.
                     let start = m.count
@@ -1298,8 +1334,8 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
                                                     pinned: false, muted: false, typing: false, lastReaction: nil)
                         var h = Hasher(); h.combine(r.title); h.combine(r.subtitle); h.combine(r.avatar)
                         c.version = h.finalize()
-                        guard !shownIndex.keys.contains(c.id) else { continue } // cmux: dictionary spelled apart from index subscripts
-                        shownIndex.updateValue(shown.items.count, forKey: c.id) // cmux
+                        guard !shownIndex.keys.contains(c.id) else { continue } // dictionary spelled apart from index subscripts
+                        shownIndex.updateValue(shown.items.count, forKey: c.id)
                         m.append(shown.items.count)
                         shown.items.append(c)
                     }
@@ -1359,40 +1395,40 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
             }
             var rows = Set<Int>()
             for top in [0, min(clip.minY, docHeight - clip.height)] {
-                // cmux: no trap on NaN or a huge position (CrashGuard.int).
+                // no trap on NaN or a huge position (CrashGuard.int).
                 let first = max(0, CrashGuard.int(position(top).rounded(.down), in: CrashGuard.rowRange))
                 let last = min(list.rows.count, CrashGuard.int(position(top + clip.height).rounded(.up), in: CrashGuard.rowRange))
                 if first < last { for r in first..<last { rows.insert(r) } }
             }
             // Row avatars too (the avatar cache is locked): a result row whose avatar is not
             // drawn yet would draw it on the main thread.
-            let screenItems = rows.compactMap { r in list.rows[checked: r].flatMap { i in snap.items[checked: i] } } // cmux: checked
+            let screenItems = rows.compactMap { r in list.rows[checked: r].flatMap { i in snap.items[checked: i] } } // checked
             DispatchQueue.concurrentPerform(iterations: screenItems.count) { j in
-                if let item = screenItems[checked: j] { _ = avatars.image(item.avatar, diameter: SidebarMetrics.avatar, ctx: ctx) } // cmux
+                if let item = screenItems[checked: j] { _ = avatars.image(item.avatar, diameter: SidebarMetrics.avatar, ctx: ctx) }
             }
             let rowWork = screenItems.map { (key(.row, $0), $0) }.filter { !cached.contains($0.0) }
-            let tileWork: [(SidebarBitmapKey, ConversationSummary)] = m.compact ? [] : list.pinned.compactMap { snap.items[checked: $0] }.flatMap { c -> [(SidebarBitmapKey, ConversationSummary)] in // cmux: checked
+            let tileWork: [(SidebarBitmapKey, ConversationSummary)] = m.compact ? [] : list.pinned.compactMap { snap.items[checked: $0] }.flatMap { c -> [(SidebarBitmapKey, ConversationSummary)] in // checked
                 let k = SidebarController.tileKeys(c, natural: SidebarDraw.tileNatural(c), tileWidth: m.tileWidth, emphasized: c.id == selected, generation: ctx.generation)
                 return [k.name, k.bubble].compactMap { $0 }.map { ($0, c) }
             }.filter { !cached.contains($0.0) }
             var out = Prerendered()
             guard !m.compact || !tileWork.isEmpty else { return out }
             let n = (m.compact ? 0 : rowWork.count) + tileWork.count
-            var rowsOut = [(time: CGImage, text: CGImage)?](repeating: nil, count: rowWork.count)
+            var rowsOut = [(time: CGImage, text: CGImage?, layout: SidebarDraw.RowTextLayout)?](repeating: nil, count: rowWork.count)
             var tilesOut = [CGImage?](repeating: nil, count: tileWork.count)
             rowsOut.withUnsafeMutableBufferPointer { ro in
                 tilesOut.withUnsafeMutableBufferPointer { to in
                     DispatchQueue.concurrentPerform(iterations: n) { j in
-                        if j < tileWork.count { // cmux: checked (unsafe buffers do not check)
+                        if j < tileWork.count { // checked (unsafe buffers do not check)
                             if let w = tileWork[checked: j], let slot = to.checkedIndex(j) { to[slot] = SidebarController.tilePart(w.0, w.1, ctx) }
                         } else {
-                            if let w = rowWork[checked: j - tileWork.count], let slot = ro.checkedIndex(j - tileWork.count) { ro[slot] = job(w.1, w.0, nil) }
+                            if let w = rowWork[checked: j - tileWork.count], let slot = ro.checkedIndex(j - tileWork.count) { ro[slot] = job(w.1, w.0, nil, nil) }
                         }
                     }
                 }
             }
-            for (w, result) in zip(rowWork, rowsOut) { if let r = result { out.rows.append((w.0, r.time, r.text)) } } // cmux
-            for (w, image) in zip(tileWork, tilesOut) { if let img = image { out.tiles.append((w.0, img)) } } // cmux
+            for (w, result) in zip(rowWork, rowsOut) { if let r = result, let text = r.text { out.rows.append((w.0, r.time, text)) } }
+            for (w, image) in zip(tileWork, tilesOut) { if let img = image { out.tiles.append((w.0, img)) } }
             return out
         }
     }
@@ -1426,7 +1462,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         case #selector(NSResponder.moveDown(_:)): moveSelection(1); return true
         case #selector(NSResponder.moveUp(_:)): moveSelection(-1); return true
         case #selector(NSResponder.insertNewline(_:)):
-            if highlightID.map({ position(of: $0) == nil }) ?? true { moveSelection(1) } // cmux: no force unwrap
+            if highlightID.map({ position(of: $0) == nil }) ?? true { moveSelection(1) } // no force unwrap
             view.window?.makeFirstResponder(document)
             return true
         case #selector(NSResponder.cancelOperation(_:)):
@@ -1442,7 +1478,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
 
     private var menuTarget: ConversationID?
     func menu(at p: CGPoint) -> NSMenu? {
-        guard let h = hit(p), let c = summary(h) else { return nil } // cmux: a stale hit has no menu
+        guard let h = hit(p), let c = summary(h) else { return nil } // a stale hit has no menu
         // The host's extra search rows have no menu.
         guard !Self.isExtra(c.id) else { return nil }
         menuTarget = c.id
@@ -1501,7 +1537,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         failedSelected = Self.symbol("exclamationmark.circle.fill", size: 12, NSColor.white, view.effectiveAppearance, scale: renderContext.scale)
         invalidateAll()
     }
-    private func colorsChanged() {  // cmux: no selector
+    private func colorsChanged() {  // no selector
         guard isViewLoaded else { return }
         palette = resolvePalette()
         invalidateAll()
@@ -1542,7 +1578,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         var img: CGImage?
         appearance.performAsCurrentDrawingAppearance {
             let r = NSRect(origin: .zero, size: sym.size)
-            let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: CrashGuard.int(sym.size.width * scale), pixelsHigh: CrashGuard.int(sym.size.height * scale), // cmux
+            let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: CrashGuard.int(sym.size.width * scale), pixelsHigh: CrashGuard.int(sym.size.height * scale),
 
                                        bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)
             rep?.size = sym.size
@@ -1572,7 +1608,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     /// One element per pinned tile and visible row (the rows are layers).
     private func buildAccessibility() -> [NSAccessibilityElement] {
         var out: [NSAccessibilityElement] = []
-        func element(_ h: Hit) -> NSAccessibilityElement? { // cmux: nil for a stale hit
+        func element(_ h: Hit) -> NSAccessibilityElement? { // nil for a stale hit
             guard let c = summary(h) else { return nil }
             let e = SidebarAccessibilityRow(controller: self, id: c.id)
             e.setAccessibilityRole(.row)
@@ -1589,8 +1625,8 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
             e.setAccessibilityParent(document)
             return e
         }
-        for t in pinnedItems.indices { if let e = element(.tile(t)) { out.append(e) } } // cmux
-        for r in lastVisible where r < rowItems.count { if let e = element(.row(r)) { out.append(e) } } // cmux
+        for t in pinnedItems.indices { if let e = element(.tile(t)) { out.append(e) } }
+        for r in lastVisible where r < rowItems.count { if let e = element(.row(r)) { out.append(e) } }
         return out
     }
 }
@@ -1622,6 +1658,10 @@ final class SidebarRowLayer: CALayer {
     /// The conversation this layer shows (nil: in the pool).
     var conversationID: ConversationID?
     var shownKey: SidebarBitmapKey?
+    /// The line breaks and truncation of the text bitmap on screen (nil: not known, e.g. from the cache).
+    var shownLayout: SidebarDraw.RowTextLayout?
+    /// The text bitmap show() put in `content` (with `shownLayout`).
+    var shownText: CGImage?
     var avatarSpec: AvatarSpec?
     var avatarGeneration = -1
     override init() {
@@ -1694,7 +1734,7 @@ final class SidebarDocumentView: NSView {
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         if let c = controller, c.swipeClick(at: point(event)) { return }
-        guard let c = controller, let h = c.hit(point(event)), let s = c.summary(h) else { return } // cmux: a stale hit selects nothing
+        guard let c = controller, let h = c.hit(point(event)), let s = c.summary(h) else { return } // a stale hit selects nothing
         c.highlight(s.id, reveal: false)
         // cmux: press and drag a tile or row (Cmux/SidebarPinDragging.swift: reorder, pin and unpin
         // by drag, Escape cancels), a superset of MessagesLab's tile reorder (tileDragBegan).

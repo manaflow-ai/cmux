@@ -1,7 +1,15 @@
+#if canImport(UIKit)
+import UIKit
+#else
 import AppKit
+#endif
 import os
 
+// Shared by appkit-native (AppKit, `UIFont` is NSFont through the appkit-port shim), Catalyst
+// and iOS (UIKit), and by cmux-next, which vendors these sources (cx-3cb).
+
 /// Fonts the off-main row renderers share for the life of the process.
+/// (`Home` is cmux-next's name for the transcript tab that vendors this code.)
 ///
 /// AppKit's `monospacedSystemFont(ofSize:weight:)` is annotated nonnull but
 /// returns nil when another thread releases the last instance of that font
@@ -12,50 +20,71 @@ import os
 /// came back nil and `addAttribute` threw "nil value" (cx-qpqs). One font
 /// held here keeps the instance alive, so no lookup races its release.
 enum HomeFonts {
+    #if canImport(UIKit)
+    typealias Weight = UIFont.Weight
+    #else
+    typealias Weight = NSFont.Weight
+    #endif
+
     /// Inline code and code blocks in an agent's Markdown (TextLayout.attributed):
     /// SF Mono one point under the body. Built from the body font's monospaced
     /// design (the same font as `monospacedSystemFont(ofSize: 12, weight: .regular)`)
     /// through APIs that really return optionals, so a failure falls back to the
     /// user's fixed-pitch font instead of a nil inside the attributes.
-    static let code: NSFont = {
+    static let code: UIFont = {
         let size = Fixture.bodyFont.pointSize - 1
-        if let d = Fixture.bodyFont.fontDescriptor.withDesign(.monospaced), let f = NSFont(descriptor: d, size: size) { return f }
+        #if canImport(UIKit)
+        if let d = Fixture.bodyFont.fontDescriptor.withDesign(.monospaced) { return UIFont(descriptor: d, size: size) }
+        return UIFont.monospacedSystemFont(ofSize: size, weight: .regular)
+        #else
+        if let d = Fixture.bodyFont.fontDescriptor.withDesign(.monospaced), let f = UIFont(descriptor: d, size: size) { return f }
         return NSFont.userFixedPitchFont(ofSize: size) ?? Fixture.bodyFont
+        #endif
     }()
 
     /// `systemFont(ofSize:weight:)` for the off-main row renderers (RowDrawing,
     /// MarkdownLayout): made once per size and weight and held for the life of
     /// the process, so no lookup races the release of the last instance. The
     /// nonnull annotation is not trusted: a nil from AppKit falls back to the
-    /// body font with the weight through `NSFont(descriptor:size:)`, which
+    /// body font with the weight through `UIFont(descriptor:size:)`, which
     /// returns an optional, and then to the body font itself.
-    static func system(ofSize size: CGFloat, weight: NSFont.Weight = .regular) -> NSFont {
+    static func system(ofSize size: CGFloat, weight: Weight = .regular) -> UIFont {
         let key = Key(size: quantized(size), weight: weight.rawValue, traits: 0, monospaced: false)
         return cached(key) { makeSystem(key.size, weight) }
     }
 
     /// Not cached: `cached` calls it under the store's lock (not reentrant).
-    private static func makeSystem(_ size: CGFloat, _ weight: NSFont.Weight) -> NSFont {
-        if let font = unannotated(NSFont.systemFont(ofSize: size, weight: weight)) { return font }
-        let d = Fixture.bodyFont.fontDescriptor.addingAttributes([.traits: [NSFontDescriptor.TraitKey.weight: weight.rawValue]])
+    private static func makeSystem(_ size: CGFloat, _ weight: Weight) -> UIFont {
+        if let font = unannotated(UIFont.systemFont(ofSize: size, weight: weight)) { return font }
+        #if canImport(UIKit)
+        let d = Fixture.bodyFont.fontDescriptor.addingAttributes([.traits: [UIFontDescriptor.TraitKey.weight: weight.rawValue]])
+        return UIFont(descriptor: d, size: size)
+        #else
+        let d = Fixture.bodyFont.fontDescriptor.addingAttributes([.traits: [UIFontDescriptor.TraitKey.weight: weight.rawValue]])
         return NSFont(descriptor: d, size: size) ?? Fixture.bodyFont
+        #endif
     }
 
     /// `monospacedSystemFont(ofSize:weight:)`, held like `system(ofSize:weight:)`.
-    static func monospaced(ofSize size: CGFloat, weight: NSFont.Weight = .regular) -> NSFont {
+    static func monospaced(ofSize size: CGFloat, weight: Weight = .regular) -> UIFont {
         let key = Key(size: quantized(size), weight: weight.rawValue, traits: 0, monospaced: true)
         return cached(key) {
-            if let font = unannotated(NSFont.monospacedSystemFont(ofSize: key.size, weight: weight)) { return font }
-            if let d = Fixture.bodyFont.fontDescriptor.withDesign(.monospaced), let f = NSFont(descriptor: d, size: key.size) { return f }
+            if let font = unannotated(UIFont.monospacedSystemFont(ofSize: key.size, weight: weight)) { return font }
+            #if canImport(UIKit)
+            if let d = Fixture.bodyFont.fontDescriptor.withDesign(.monospaced) { return UIFont(descriptor: d, size: key.size) }
+            return Fixture.bodyFont
+            #else
+            if let d = Fixture.bodyFont.fontDescriptor.withDesign(.monospaced), let f = UIFont(descriptor: d, size: key.size) { return f }
             return NSFont.userFixedPitchFont(ofSize: key.size) ?? Fixture.bodyFont
+            #endif
         }
     }
 
     /// `monospacedDigitSystemFont(ofSize:weight:)`, held like `system(ofSize:weight:)`.
-    static func monospacedDigit(ofSize size: CGFloat, weight: NSFont.Weight = .regular) -> NSFont {
+    static func monospacedDigit(ofSize size: CGFloat, weight: Weight = .regular) -> UIFont {
         let key = Key(size: quantized(size), weight: weight.rawValue, traits: 0, monospaced: false, name: "digits")
         return cached(key) {
-            unannotated(NSFont.monospacedDigitSystemFont(ofSize: key.size, weight: weight)) ?? makeSystem(key.size, weight)
+            unannotated(UIFont.monospacedDigitSystemFont(ofSize: key.size, weight: weight)) ?? makeSystem(key.size, weight)
         }
     }
 
@@ -63,14 +92,19 @@ enum HomeFonts {
     /// base font, size and traits; nil when the font has no such face, so a
     /// caller adds no font attribute instead of a nil (`addAttribute` would
     /// store NSNull for an optional and throw for a nil).
-    static func font(_ base: NSFont, adding traits: NSFontDescriptor.SymbolicTraits) -> NSFont? {
+    static func font(_ base: UIFont, adding traits: UIFontDescriptor.SymbolicTraits) -> UIFont? {
         let all = base.fontDescriptor.symbolicTraits.union(traits)
         let key = Key(size: quantized(base.pointSize), weight: 0, traits: all.rawValue, monospaced: false, name: base.fontName)
         if let hit = store.withLock({ $0[key] }) { return hit }
-        guard let d = base.fontDescriptor.withSymbolicTraits(all), let font = NSFont(descriptor: d, size: key.size) else { return nil }
+        #if canImport(UIKit)
+        guard let d = base.fontDescriptor.withSymbolicTraits(all) else { return nil }
+        let font = UIFont(descriptor: d, size: key.size)
+        #else
+        guard let d = base.fontDescriptor.withSymbolicTraits(all), let font = UIFont(descriptor: d, size: key.size) else { return nil }
+        #endif
         return store.withLock { fonts in
             if let held = fonts[key] { return held }
-            fonts.updateValue(font, forKey: key) // // crash program: dictionary write
+            if fonts.count < limit { fonts.updateValue(font, forKey: key) } // dictionary write
             return font
         }
     }
@@ -83,19 +117,22 @@ enum HomeFonts {
         var name = ""
     }
 
-    private static let store = OSAllocatedUnfairLock<[Key: NSFont]>(initialState: [:])
+    private static let store = OSAllocatedUnfairLock<[Key: UIFont]>(initialState: [:])
 
-    /// Sizes to the half point, so a size computed from a frame (a reaction
-    /// glyph at 42% of its circle) does not grow the store without bound.
-    private static func quantized(_ size: CGFloat) -> CGFloat { (size * 2).rounded() / 2 }
+    /// The exact size: a rounded size draws other pixels (the HA HA glyph is 42% of its box,
+    /// 7.56 pt, which a half-point store drew at 7.5 pt). The store is bounded by `limit`
+    /// instead, so sizes computed from frames cannot grow it without bound.
+    private static func quantized(_ size: CGFloat) -> CGFloat { size }
+    /// At most this many held fonts; past it a font is made and returned unheld.
+    private static let limit = 512
 
-    private static func cached(_ key: Key, make: () -> NSFont) -> NSFont {
+    private static func cached(_ key: Key, make: () -> UIFont) -> UIFont {
         // Made under the lock: one creation per key, and no thread drops it.
         // `make` must not call back into the store (the lock is not reentrant).
         store.withLock { fonts in
             if let held = fonts[key] { return held }
             let font = make()
-            fonts.updateValue(font, forKey: key) // // crash program: dictionary write
+            if fonts.count < limit { fonts.updateValue(font, forKey: key) } // dictionary write
             return font
         }
     }
@@ -103,8 +140,8 @@ enum HomeFonts {
     /// The reference an AppKit factory annotated nonnull returned, read as an
     /// optional: under concurrency these factories can return nil (cx-qpqs),
     /// and Swift would trust the annotation.
-    private static func unannotated(_ font: NSFont) -> NSFont? {
-        unsafeBitCast(font, to: NSFont?.self)
+    private static func unannotated(_ font: UIFont) -> UIFont? {
+        unsafeBitCast(font, to: UIFont?.self)
     }
 }
 

@@ -53,7 +53,7 @@ struct MDPalette {
         let p = make(outgoing: outgoing)
         cacheLock.lock()
         if cache.count > 8 { cache.removeAll() }
-        cache.updateValue(p, forKey: k) // cmux: dictionary write
+        cache.updateValue(p, forKey: k) // dictionary write
         cacheLock.unlock()
         return p
     }
@@ -103,7 +103,7 @@ enum MarkdownDraw {
         ctx.translateBy(x: body.minX, y: body.minY)
         if case let .region(r) = mode {
             // A region alone, in content coordinates (overlay bitmaps): origin = region's left/top.
-            guard let reg = md.regions[checked: r] else { ctx.restoreGState(); return } // cmux: a region of another layout draws nothing
+            guard let reg = md.regions[checked: r] else { ctx.restoreGState(); return } // a region of another layout draws nothing
             ctx.translateBy(x: -reg.frame.minX, y: -reg.frame.minY)
             drawContent(ctx, md, region: r, pal: pal)
             ctx.restoreGState()
