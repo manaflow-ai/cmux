@@ -56,7 +56,9 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
     private var mirrorZoomed = false
     private var fontAtLastFit: Double = 0
     /// Composer (when shown) over the key bar, riding the keyboard's top.
-    private let accessoryStack = UIStackView()
+    let accessoryStack = UIStackView()
+    /// The host places the composer and key bar itself (`TerminalAccessory`).
+    let externalAccessory: Bool
     let keyBar = TerminalKeyBar(keys: TerminalKeyBarKey.defaultKeys)
     private var composerHost: UIHostingController<TerminalComposer>?
     private var composerFocused = false
@@ -97,7 +99,8 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
     static let cursorMargin: CGFloat = 4
 
     init(connection: HostConnection, terminalId: String?, model: TerminalScreenModel,
-         clock: any Clock<Duration> = ContinuousClock()) {
+         externalAccessory: Bool = false, clock: any Clock<Duration> = ContinuousClock()) {
+        self.externalAccessory = externalAccessory
         self.connection = connection
         self.terminalId = terminalId
         self.model = model
@@ -470,20 +473,28 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
             onHeightChange: { [weak self] in
                 guard let self, let host = self.composerHost else { return }
                 host.view.invalidateIntrinsicContentSize()
+                self.model.accessoryRevision += 1
                 self.relayoutAccessories(animated: true)
             }
         ))
         composer.sizingOptions = [.intrinsicContentSize]
         composer.view.backgroundColor = CNTheme.shared.palette.terminalBackground
         composer.view.isHidden = true
-        addChild(composer)
+        // Inline: a child view controller. External: the host places the
+        // stack outside this controller's view, where containment would be
+        // invalid, so the hosting view is used on its own.
+        if !externalAccessory { addChild(composer) }
         accessoryStack.addArrangedSubview(composer.view)
-        composer.didMove(toParent: self)
+        if !externalAccessory { composer.didMove(toParent: self) }
         composerHost = composer
         keyBar.isHidden = true
         keyBar.onKey = { [weak self] key in self?.keyBarKey(key) }
         terminalView.keyBarView = keyBar
         accessoryStack.addArrangedSubview(keyBar)
+        view.keyboardLayoutGuide.followsUndockedKeyboard = true
+        // External: the host places the stack (TerminalAccessory) above its
+        // own toolbar; the terminal measures against wherever it is.
+        guard !externalAccessory else { return }
         view.addSubview(accessoryStack)
         // The keyboard layout guide includes the keyboard's own bars and
         // follows the keyboard's animation; the stack rides its top.
@@ -520,6 +531,9 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
         }
         relayoutAccessories(animated: true)
     }
+
+    /// The host dismisses the keyboard (its own toolbar or gesture).
+    func endInputFocusFromHost() { endInputFocus() }
 
     private func endInputFocus() {
         if composerFocused {
@@ -609,7 +623,10 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
         let accessoriesShown = !keyBar.isHidden || !(composerHost?.view.isHidden ?? true)
         let homeTop = window.bounds.maxY - window.safeAreaInsets.bottom
         let keyboardTop = min(keyboardFrame?.minY ?? homeTop, homeTop)
-        let coverTop = keyboardTop - (accessoriesShown ? accessoryStack.frame.height : 0)
+        var coverTop = keyboardTop - (accessoriesShown ? accessoryStack.frame.height : 0)
+        if externalAccessory, accessoriesShown, accessoryStack.window != nil {
+            coverTop = accessoryStack.convert(accessoryStack.bounds, to: window).minY
+        }
         let newTop: CGFloat? = coverTop < homeTop - 0.5 ? coverTop : nil
         guard newTop != settledCoverTop else { return }
         settledCoverTop = newTop
@@ -659,6 +676,7 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
         let showComposer = model.composerMode
         if keyBar.isHidden == showBar { keyBar.isHidden = !showBar; changed = true }
         if let host = composerHost, host.view.isHidden == showComposer { host.view.isHidden = !showComposer; changed = true }
+        if changed { model.accessoryRevision += 1 }
         return changed
     }
 
@@ -666,7 +684,12 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
     /// bar when shown, else the keyboard's top (layout must be current).
     private var visibleBottomInView: CGFloat {
         let accessoriesShown = !keyBar.isHidden || !(composerHost?.view.isHidden ?? true)
-        return accessoriesShown ? accessoryStack.frame.minY : view.keyboardLayoutGuide.layoutFrame.minY
+        guard accessoriesShown else { return view.keyboardLayoutGuide.layoutFrame.minY }
+        if externalAccessory {
+            guard accessoryStack.window != nil else { return view.keyboardLayoutGuide.layoutFrame.minY }
+            return view.convert(accessoryStack.bounds, from: accessoryStack).minY
+        }
+        return accessoryStack.frame.minY
     }
 
     /// The keyboard never changes the grid (D8). While the key bar, composer

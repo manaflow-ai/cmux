@@ -1,6 +1,7 @@
 #if os(iOS)
 public import CNTransport
 import CNCore
+import Foundation
 import CNDesign
 public import SwiftUI
 
@@ -11,6 +12,7 @@ public struct TerminalsRoot: View {
     let connection: HostConnection
     @State private var model: TerminalListModel
     @State private var path: [TerminalRoute] = []
+    @State private var showCards = false
 
     public init(connection: HostConnection) {
         self.connection = connection
@@ -42,6 +44,14 @@ public struct TerminalsRoot: View {
             .navigationTitle(TerminalText.listTitle)
             .cnShellLeadingBarItem()
             .toolbar {
+                #if DEBUG
+                if ProcessInfo.processInfo.environment["CMUX_NEXT_TERMINAL_CARDS"] == "1" {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Cards", systemImage: "square.grid.2x2") { showCards = true }
+                            .accessibilityIdentifier("terminal.cards")
+                    }
+                }
+                #endif
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         // The screen creates the terminal with the grid that fits it.
@@ -57,6 +67,11 @@ public struct TerminalsRoot: View {
                 TerminalScreenView(connection: connection, route: route)
             }
             .refreshable { await model.reload() }
+            #if DEBUG
+            .fullScreenCover(isPresented: $showCards) {
+                TerminalCardsDemo(connection: connection, terminals: model.terminals)
+            }
+            #endif
         }
         .task(id: connection.generation) { await model.reload() }
         .task { await model.listen() }
