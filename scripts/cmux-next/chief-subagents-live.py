@@ -651,6 +651,33 @@ def stale_tab_never_shows_another_session():
 
 
 @flow
+def subagent_link_opens_its_chat():
+    """Lawrence 2026-10-09: "you need to be able to link to a subagent so I can just click here to
+    get to it". The Chief names its new subagent as a link, Home renders it as a link, and a click
+    (Home's own click path) shows that subagent's workspace with its chat tab."""
+    reply = ask(f"Use spawn to start exactly one subagent with cwd {WORK} whose task is: reply with only the "
+                "word link-probe. Then tell me its name, written as its link from the spawn answer.")
+    print("chief:", reply[:300], flush=True)
+    sub = wait(lambda: next((i for i, v in subs().items() if v.get("session_id") and "link-probe" in (v.get("title") or "")), None), 120)
+    session = (subs().get(sub) or {}).get("session_id")
+    show_home()
+    snapshot("link-home")
+    clicked = rpc("debug.home.drive", {"action": "link", "prefix": "cmux://chief/"}) or {}
+    print("link click:", json.dumps(clicked)[:300], flush=True)
+    state = wait(lambda: (lambda st: st if st.get("sessionId") == session else None)(
+        rpc("debug.agent_pane", {"action": "chat_state"}) or {}), 30) or rpc("debug.agent_pane", {"action": "chat_state"}) or {}
+    time.sleep(3)  # test harness: let the agent pane render its transcript
+    snapshot("link-opened")
+    url = clicked.get("url") or ""
+    row("subagent link opens its chat", "the Chief's reply links the subagent; a click shows its workspace and chat",
+        f"sub {sub}; link in reply={'](cmux://chief/' in reply}; clicked {url[:90]!r}; pane session {state.get('sessionId')} "
+        f"(want {session}); task in pane={'link-probe' in pane_text(state)}",
+        bool(session) and "](cmux://chief/" in reply and url.endswith("/session/" + session)
+        and state.get("sessionId") == session and "link-probe" in pane_text(state))
+    show_home()
+
+
+@flow
 def harness_follows_chief():
     """Subagents run on the Chief's harness: claude, then codex."""
     seen = {}
