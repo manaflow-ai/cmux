@@ -11,6 +11,7 @@ import os
 import signal
 import shutil
 import subprocess
+import sys
 import socket
 import tempfile
 import time
@@ -323,10 +324,81 @@ def verify_hook_persistence(cli_path: str, root: Path, base_env: dict[str, str])
     return True
 
 
+def verify_launch_capture(bun: str, extension_path: Path, root: Path) -> None:
+    """Execute the extension's lifecycle and inspect the environment sent to cmux."""
+    shim = root / "original" / "omp"
+    script = root / "oh-my-pi" / "cli.js"
+    alternate = root / "alternate" / "omp"
+    for executable in (shim, script, alternate):
+        executable.parent.mkdir(parents=True, exist_ok=True)
+        make_executable(executable, "#!/usr/bin/env bun\n")
+    output = root / "launch-capture.json"
+    fake_cmux = root / "capture-cmux"
+    make_executable(fake_cmux, f"#!{bun}\n" +
+                    'require("node:fs").writeFileSync(process.env.CAPTURE_OUTPUT, JSON.stringify(process.env));\n')
+    options = ["--model", "sonnet"]
+    cases = [
+        ("absolute binary", [str(shim), *options], "", [str(shim), *options]),
+        ("absolute shebang without PATH", [bun, str(shim), *options], "", [str(shim), *options]),
+        ("absolute script without PATH", [bun, str(script), *options], "", [str(script), *options]),
+        ("absolute shebang with competing PATH", [bun, str(shim), *options], str(alternate.parent), [str(shim), *options]),
+        ("relative binary", ["./original/omp", *options], str(alternate.parent), [str(shim), *options]),
+        ("relative shebang", [bun, "./original/omp", *options], str(alternate.parent), [str(shim), *options]),
+        ("PATH lookup", ["omp", *options], str(alternate.parent), [str(alternate), *options]),
+        ("relative PATH entry", ["omp", *options], "alternate", [str(alternate), *options]),
+        ("unresolved launch", ["omp", *options], "", None),
+        ("unresolved runtime", [bun, "unknown.js", *options], "", None),
+    ]
+    runner = """
+const mod = await import(process.env.CAPTURE_EXTENSION);
+const handlers = new Map();
+mod.default({ on(name, handler) { handlers.set(name, handler); } });
+process.argv = JSON.parse(process.env.CAPTURE_ARGV);
+const ctx = { cwd: process.cwd(), sessionManager: {
+  getSessionId() { return "capture-session"; },
+  getSessionFile() { return undefined; }
+} };
+await handlers.get("session_start")({}, ctx);
+await handlers.get("session_shutdown")({}, ctx);
+"""
+    failures = []
+    for name, argv, path_value, expected in cases:
+        env = {key: value for key, value in os.environ.items()
+               if not key.startswith("CMUX_AGENT_LAUNCH_")}
+        env.update(PATH=path_value, CMUX_SURFACE_ID="capture-surface",
+                   CMUX_OMP_CMUX_BIN=str(fake_cmux), CMUX_OMP_HOOKS_DISABLED="0",
+                   CAPTURE_OUTPUT=str(output), CAPTURE_EXTENSION=str(extension_path),
+                   CAPTURE_ARGV=json.dumps(argv))
+        output.unlink(missing_ok=True)
+        subprocess.run([bun, "--eval", runner], cwd=root, env=env, check=True, timeout=20)
+        captured = json.loads(output.read_text())
+        encoded = captured.get("CMUX_AGENT_LAUNCH_ARGV_B64")
+        actual = base64.b64decode(encoded).decode().rstrip("\0").split("\0") if encoded else None
+        if actual != expected:
+            failures.append(f"{name}: expected {expected!r}, got {actual!r}")
+        if expected is not None:
+            if captured.get("CMUX_AGENT_LAUNCH_EXECUTABLE") != expected[0]:
+                failures.append(f"{name}: executable metadata differs from expected argv")
+        elif any(key.startswith("CMUX_AGENT_LAUNCH_") for key in captured):
+            failures.append(f"{name}: unresolved capture published launch metadata")
+    assert not failures, "\n".join(failures)
+    print(f"PASS: {len(cases)} OMP lifecycle launch capture cases")
+
+
 def main() -> int:
     bun = shutil.which("bun")
     if bun is None:
         print("SKIP: bun not found")
+        return 0
+
+    if "--launch-capture-only" in sys.argv:
+        with tempfile.TemporaryDirectory(prefix="cmux-omp-capture-") as td:
+            root = Path(td).resolve()
+            # Execute the embedded artifact, without asserting its source shape.
+            source = (Path(__file__).resolve().parents[1] / "CLI/CMUXCLI+OmpExtension.swift").read_text()
+            extension = root / "extension.ts"
+            extension.write_text(source.split('private static let ompExtensionSource = #"""', 1)[1].split('"""#', 1)[0])
+            verify_launch_capture(bun, extension, root)
         return 0
 
     try:
@@ -395,6 +467,8 @@ def main() -> int:
         extension_override = os.environ.get("CMUX_TEST_OMP_EXTENSION_OVERRIDE")
         if extension_override:
             shutil.copyfile(extension_override, extension_path)
+
+        verify_launch_capture(bun, extension_path, root)
 
         fake_cmux = root / "fake-cmux"
         fake_args_log = root / "fake-cmux-args.log"
