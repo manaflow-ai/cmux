@@ -2441,6 +2441,61 @@ struct ClientFocusRecord {
 
 /// Bounded size of the per-client focus memory.
 const CLIENT_FOCUS_MEMORY_LIMIT: usize = 64;
+const JOURNAL_MAINTENANCE_INTERVAL: Duration = Duration::from_secs(30);
+const JOURNAL_MAINTENANCE_CHECKPOINT_RECORDS: u64 = 4_096;
+const JOURNAL_MAINTENANCE_SEAL_BATCHES_PER_TICK: usize = 8;
+
+struct JournalMaintenanceControl {
+    stopped: Mutex<bool>,
+    changed: Condvar,
+}
+
+struct JournalMaintenance {
+    control: Arc<JournalMaintenanceControl>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl JournalMaintenance {
+    fn start(mux: &Arc<Mux>) -> anyhow::Result<Self> {
+        let control = Arc::new(JournalMaintenanceControl {
+            stopped: Mutex::new(false),
+            changed: Condvar::new(),
+        });
+        let worker_control = control.clone();
+        let weak_mux = Arc::downgrade(mux);
+        let thread = std::thread::Builder::new()
+            .name("cmux-journal-maintenance".into())
+            .spawn(move || loop {
+                let mut stopped = worker_control.stopped.lock().unwrap();
+                if *stopped {
+                    return;
+                }
+                let (next, timeout) = worker_control
+                    .changed
+                    .wait_timeout(stopped, JOURNAL_MAINTENANCE_INTERVAL)
+                    .unwrap();
+                stopped = next;
+                if *stopped {
+                    return;
+                }
+                if !timeout.timed_out() {
+                    continue;
+                }
+                drop(stopped);
+                let Some(mux) = weak_mux.upgrade() else { return };
+                mux.run_journal_maintenance();
+            })?;
+        Ok(Self { control, thread: Some(thread) })
+    }
+
+    fn stop(mut self) {
+        *self.control.stopped.lock().unwrap() = true;
+        self.control.changed.notify_all();
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
 
 pub struct Mux {
     /// Serializes durable workspace commits, their in-memory projection, and
@@ -2570,6 +2625,7 @@ pub struct Mux {
     resource_machine_service: OnceLock<Arc<dyn crate::ResourceMachineService>>,
     journal_kernel: Arc<crate::journal_kernel::JournalKernel>,
     journal_ingress: crate::journal_ingress::JournalIngressSender,
+    journal_maintenance: Mutex<Option<JournalMaintenance>>,
     journal_hook_dispatcher_started: AtomicBool,
     journal_hook_runtime: Arc<crate::journal_hooks::JournalHookRuntime>,
     /// Wake-only signal for durable journal subscribers. Consumers always
@@ -2989,6 +3045,7 @@ impl Mux {
             resource_machine_service: OnceLock::new(),
             journal_kernel,
             journal_ingress,
+            journal_maintenance: Mutex::new(None),
             journal_hook_dispatcher_started: AtomicBool::new(false),
             journal_hook_runtime: Arc::new(crate::journal_hooks::JournalHookRuntime::default()),
             journal_event_epoch: Mutex::new(0),
@@ -3072,6 +3129,16 @@ impl Mux {
         }
         mux.retry_pending_agent_hooks()?;
         crate::journal_hooks::start(&mux)?;
+        if mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .session_journal_database_path()
+            .is_some()
+        {
+            let maintenance = JournalMaintenance::start(&mux)?;
+            *mux.journal_maintenance.lock().unwrap() = Some(maintenance);
+        }
         Ok(mux)
     }
 
@@ -5980,6 +6047,22 @@ impl Mux {
         });
     }
 
+    pub(crate) fn try_journal_terminal_output_gap(
+        &self,
+        terminal_id: Arc<TerminalPublicId>,
+        generation: Arc<str>,
+        reason: &'static str,
+    ) {
+        let _ = self.journal_ingress.try_send(
+            crate::journal_ingress::JournalIngressEvent::TerminalOutputGap {
+                terminal_id,
+                generation,
+                occurred_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
+                reason,
+            },
+        );
+    }
+
     pub(crate) fn commit_session_journal_events<F>(
         &self,
         events: &[&crate::journal_ingress::JournalIngressEvent],
@@ -6945,6 +7028,53 @@ impl Mux {
         &self,
     ) -> anyhow::Result<Vec<crate::workspace_registry::JournalCheckpointSummary>> {
         self.workspace_registry.lock().unwrap().journal_checkpoints()
+    }
+
+    fn run_journal_maintenance(&self) {
+        let result = (|| -> anyhow::Result<()> {
+            let head = self.workspace_registry.lock().unwrap().session_journal_head()?;
+            let latest = self
+                .workspace_registry
+                .lock()
+                .unwrap()
+                .journal_checkpoints()?
+                .into_iter()
+                .next();
+            let checkpoint_source = latest.map_or(0, |checkpoint| checkpoint.source_sequence);
+            if head.saturating_sub(checkpoint_source) < JOURNAL_MAINTENANCE_CHECKPOINT_RECORDS {
+                return Ok(());
+            }
+
+            let checkpoint_key = format!("auto_checkpoint_{head}");
+            let checkpoint =
+                self.create_journal_checkpoint("journal-maintenance", &checkpoint_key)?;
+            let target = checkpoint.checkpoint.source_sequence;
+            if target == 0 {
+                return Ok(());
+            }
+
+            let mut sealed_through =
+                self.workspace_registry.lock().unwrap().journal_segments_end()?;
+            for batch in 0..JOURNAL_MAINTENANCE_SEAL_BATCHES_PER_TICK {
+                if sealed_through >= target {
+                    break;
+                }
+                let key = format!("auto_segment_{target}_{batch}_{sealed_through}");
+                let commit = self.seal_journal_segments(target, "journal-maintenance", &key)?;
+                if commit.through_sequence <= sealed_through {
+                    break;
+                }
+                sealed_through = commit.through_sequence;
+            }
+            self.workspace_registry
+                .lock()
+                .unwrap()
+                .incremental_journal_vacuum()?;
+            Ok(())
+        })();
+        if let Err(error) = result {
+            self.report_internal_diagnostic(format!("journal maintenance deferred: {error:#}"));
+        }
     }
 
     pub(crate) fn journal_restore_preview(&self, selector: &str) -> anyhow::Result<Value> {
@@ -11782,6 +11912,7 @@ impl Mux {
     pub fn shutdown(&self) {
         self.shutting_down.store(true, Ordering::Release);
         self.config_reload_changed.notify_all();
+        self.stop_journal_maintenance();
         self.journal_plugin.shutdown();
         self.journal_kernel.wake_waiters();
         let hook_deadline = Instant::now() + crate::journal_hooks::SHUTDOWN_WAIT;
@@ -11850,6 +11981,12 @@ impl Mux {
         }
         if let Err(error) = self.journal_ingress.close_and_join() {
             eprintln!("cmux-tui: stop session journal writer during {context}: {error:#}");
+        }
+    }
+
+    fn stop_journal_maintenance(&self) {
+        if let Some(maintenance) = self.journal_maintenance.lock().unwrap().take() {
+            maintenance.stop();
         }
     }
 
@@ -18895,6 +19032,9 @@ fn sidebar_retry_delay(failures: u32) -> Duration {
 
 impl Drop for Mux {
     fn drop(&mut self) {
+        if let Some(maintenance) = self.journal_maintenance.get_mut().unwrap().take() {
+            maintenance.stop();
+        }
         self.journal_plugin.shutdown();
         self.finalize_terminal_journal("mux drop");
         self.journal_kernel.shutdown();

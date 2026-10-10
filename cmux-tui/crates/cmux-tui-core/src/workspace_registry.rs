@@ -2365,6 +2365,14 @@ impl WorkspaceRegistry {
         database_path: Option<PathBuf>,
     ) -> anyhow::Result<Self> {
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
+        let fresh_database = connection.query_row(
+            "SELECT COUNT(*) = 0 FROM sqlite_master WHERE type = 'table'",
+            [],
+            |row| row.get::<_, bool>(0),
+        )?;
+        if fresh_database {
+            connection.execute_batch("PRAGMA auto_vacuum=INCREMENTAL;")?;
+        }
         connection.execute_batch(
             "PRAGMA foreign_keys=ON;
              PRAGMA journal_mode=WAL;
