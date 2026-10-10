@@ -4228,6 +4228,7 @@ final class BrowserPanel: Panel, ObservableObject {
     func setRemoteWorkspaceStatus(_ status: BrowserRemoteWorkspaceStatus?) {
         guard remoteWorkspaceStatus != status else { return }
         remoteWorkspaceStatus = status
+        resumePendingRemoteNavigationIfNeeded()
     }
 
     private func applyProxyConfigurationIfAvailable() {
@@ -5577,13 +5578,20 @@ final class BrowserPanel: Panel, ObservableObject {
         recordTypedNavigation: Bool = false,
         onNavigationStarted: ((WKNavigation?) -> Void)? = nil
     ) -> WKNavigation? {
+        var url = url
         var leaveCloudRouteAfterValidation = false
-        if cloudAccess.model != nil && cloudAccess.owns(url) {
-            if cloudAccess.model?.isReady != true { return nil }
+        if let model = cloudAccess.model, cloudAccess.owns(url) {
+            if !model.isReady { return nil }
             prepareCloudBrowserNavigation()
+            // A forwarded route serves the remote service on a local listener.
+            // Never load the remote address itself: on SSH it is this Mac's loopback.
+            if model.route == .loopback {
+                guard let forwarded = model.url(for: url) else { return nil }
+                url = forwarded
+            }
         } else if ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
                   let provider = privateAddressRouteProvider(for: url) {
-            provider.configureBrowser(self, url: url)
+            provider.configureBrowser(self, url: provider.sshServiceURL(forForwardListener: url) ?? url)
             return nil
         } else {
             leaveCloudRouteAfterValidation = retainsCloudResourceForDuplication
@@ -5657,6 +5665,9 @@ final class BrowserPanel: Panel, ObservableObject {
             navigationDelegate?.blockURLAllowlistNavigation(url, in: webView)
             return nil
         }
+        if cloudAccess.model != nil, cloudAccess.owns(url) {
+            cloudAccess.rememberNavigationRequest(request)
+        }
         if trustedInternalNavigation {
             if url.isFileURL {
                 beginTrustedLocalFileNavigation(url)
@@ -5664,19 +5675,27 @@ final class BrowserPanel: Panel, ObservableObject {
                 clearTrustedLocalFileDocumentIfNeeded(for: url)
             }
         }
-        if cloudBrowserMachineID == nil, usesRemoteWorkspaceProxy, remoteProxyEndpoint == nil {
-            pendingRemoteNavigation?.onNavigationStarted?(nil)
-            pendingRemoteNavigation = PendingRemoteNavigation(
-                request: request,
-                recordTypedNavigation: recordTypedNavigation,
-                preserveRestoredSessionHistory: preserveRestoredSessionHistory,
-                onNavigationStarted: onNavigationStarted
-            )
-            hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
-            currentURL = Self.remoteProxyDisplayURL(for: url) ?? url
-            navigationDelegate?.recordAttemptedRequest(request)
-            refreshBackgroundAppearance()
-            shouldRenderWebView = true
+        let routesThroughSSHTui = owningWorkspaceRoutesThroughSSHTui
+        if routesThroughSSHTui, let serviceURL = sshLoopbackServiceURL(for: url) {
+            // Every entry point (history, restore, heal, page links) lands here.
+            // A loopback URL belongs to the SSH host: hand it to that machine's
+            // forward, or wait for the machine, never this Mac's same-port service.
+            if let provider = privateAddressRouteProvider(for: serviceURL) {
+                onNavigationStarted?(nil)
+                provider.configureBrowser(self, url: serviceURL, request: request)
+            } else {
+                var serviceRequest = request
+                serviceRequest.url = serviceURL
+                queueRemoteNavigation(serviceRequest, recordTypedNavigation: recordTypedNavigation,
+                                      preserveRestoredSessionHistory: preserveRestoredSessionHistory,
+                                      onNavigationStarted: onNavigationStarted)
+            }
+            return nil
+        }
+        if cloudBrowserMachineID == nil, usesRemoteWorkspaceProxy, remoteProxyEndpoint == nil, !routesThroughSSHTui {
+            queueRemoteNavigation(request, recordTypedNavigation: recordTypedNavigation,
+                                  preserveRestoredSessionHistory: preserveRestoredSessionHistory,
+                                  onNavigationStarted: onNavigationStarted)
             return nil
         }
         return performNavigation(
@@ -5688,11 +5707,38 @@ final class BrowserPanel: Panel, ObservableObject {
         )
     }
 
+    private func queueRemoteNavigation(
+        _ request: URLRequest,
+        recordTypedNavigation: Bool,
+        preserveRestoredSessionHistory: Bool,
+        onNavigationStarted: ((WKNavigation?) -> Void)?
+    ) {
+        pendingRemoteNavigation?.onNavigationStarted?(nil)
+        pendingRemoteNavigation = PendingRemoteNavigation(
+            request: request,
+            recordTypedNavigation: recordTypedNavigation,
+            preserveRestoredSessionHistory: preserveRestoredSessionHistory,
+            onNavigationStarted: onNavigationStarted
+        )
+        hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
+        if let url = request.url { currentURL = Self.remoteProxyDisplayURL(for: url) ?? url }
+        navigationDelegate?.recordAttemptedRequest(request)
+        refreshBackgroundAppearance()
+        shouldRenderWebView = true
+    }
+
     private func resumePendingRemoteNavigationIfNeeded() {
         // Resume on endpoint arrival, or directly once the pane turned local
         // (a stranded queue pins the hidden pane as non-discardable forever).
-        guard remoteProxyEndpoint != nil || !usesRemoteWorkspaceProxy,
-              let navigation = pendingRemoteNavigation else {
+        guard let navigation = pendingRemoteNavigation else { return }
+        if remoteProxyEndpoint == nil, usesRemoteWorkspaceProxy {
+            // Managed SSH has no workspace proxy: a waiting loopback URL resumes
+            // on its machine's forward once that machine is registered.
+            guard let url = navigation.request.url, owningWorkspaceRoutesThroughSSHTui,
+                  let provider = privateAddressRouteProvider(for: url) else { return }
+            pendingRemoteNavigation = nil
+            navigation.onNavigationStarted?(nil)
+            provider.configureBrowser(self, url: url, request: navigation.request)
             return
         }
         guard let originalURL = navigation.request.url else {

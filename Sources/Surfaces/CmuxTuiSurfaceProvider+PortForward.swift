@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxCore
 import CmuxSurfaceCatalogModel
 import Foundation
 
@@ -56,7 +57,7 @@ extension CmuxTuiSurfaceProvider {
     /// Bind the page to its machine proxy without activating a system VPN.
     @discardableResult
     func configureBrowser(_ browser: BrowserPanel, url: URL, resourceID: SurfaceResourceID? = nil,
-                          preserveCurrentNavigation: Bool = false) -> Bool {
+                          preserveCurrentNavigation: Bool = false, request: URLRequest? = nil) -> Bool {
         let requestedPort = url.port ?? (url.scheme?.lowercased() == "https" ? 443 : 80)
         let fallbackID: SurfaceResourceID = if info.hasDesktop, (CmuxTuiSnapshotParser.desktopPort...6916).contains(requestedPort) {
             SurfaceResourceID(machine: machine, kind: .display, key: "display:\(requestedPort - 6900)")
@@ -106,6 +107,10 @@ extension CmuxTuiSurfaceProvider {
             browser.cloudAccess.showUnavailable(String(localized: "cloud.portAccess.invalidURL", defaultValue: "This port does not have a valid HTTP or HTTPS address."))
             return false
         }
+        if machine.isSSH, privateURL.scheme?.lowercased() == "https" {
+            browser.cloudAccess.showUnavailable(String(localized: "ssh.tui.browserForward.httpsUnsupported", defaultValue: "HTTPS services on an SSH host can't open in the browser yet. Use http:// instead."))
+            return false
+        }
         // Check the VM origin before rewriting it to localhost. Otherwise the
         // implicit localhost allowance could bypass a private-origin deny rule.
         guard browserPolicy().allowsTrustedInternalURL(privateURL) else {
@@ -125,7 +130,7 @@ extension CmuxTuiSurfaceProvider {
             browser.cloudAccess.adoptCommittedRoute(model: model, url: privateURL, resourceID: resourceID)
             model.connect()
         } else {
-            browser.configureCloudBrowser(model: model, url: privateURL, resourceID: resourceID)
+            browser.configureCloudBrowser(model: model, url: privateURL, resourceID: resourceID, request: request)
         }
         materializedPanels.insert(browser.id)
         return true
@@ -181,6 +186,31 @@ extension CmuxTuiSurfaceProvider {
 
     func accessModel(port: Int, address: String, scheme: String = "http") -> CloudPortAccessModel {
         let target = CloudPortForwardTarget(host: address, port: port)
+        if machine.isSSH, let sshLinks = links as? SSHTuiLinkManager {
+            // WebKit never sends loopback hosts through a proxy, so an SSH
+            // service is served from a local listener forwarded over SSH.
+            return portAccessStore.model(machineID: machineID, target: target, scheme: scheme) {
+                CloudPortAccessModel(
+                    target: target,
+                    coordinator: nil,
+                    wake: { [weak self] in
+                        guard let self, self.isRegisteredInCatalog() else { throw CancellationError() }
+                    },
+                    startForward: { [machine, machineID] target in
+                        try await sshLinks.loopbackForward(machineID: machineID, port: target.port) {
+                            Task { @MainActor in
+                                (SurfaceCatalog.shared.provider(for: machine) as? CmuxTuiSurfaceProvider)?
+                                    .restartSSHForward(port: target.port)
+                            }
+                        }
+                    },
+                    stopForward: { [machineID] in
+                        await sshLinks.closeLoopbackForward(machineID: machineID, port: port)
+                    },
+                    route: .loopback
+                )
+            }
+        }
         return portAccessStore.model(machineID: machineID, target: target, scheme: scheme) {
             CloudPortAccessModel(
                 target: target,
@@ -248,6 +278,29 @@ extension CmuxTuiSurfaceProvider {
                     return endpoint
                 }
             )
+        }
+    }
+
+    /// The SSH service behind one of this machine's forward listeners, so a
+    /// listener URL opened in another pane reaches the service, not that port.
+    func sshServiceURL(forForwardListener url: URL) -> URL? {
+        guard machine.isSSH,
+              PrivateNetworkHostPolicy().isLoopback(host: url.host ?? ""),
+              let port = url.port else { return nil }
+        for (key, model) in portAccessStore.models where key.machineID == machineID {
+            guard case .forwarded(let localPort) = model.phase, Int(localPort) == port,
+                  var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { continue }
+            parts.port = model.target.port
+            return parts.url
+        }
+        return nil
+    }
+
+    /// A forward whose child exited reconnects on a new listener, and the panes
+    /// on it follow, instead of pointing at a port this Mac no longer owns.
+    func restartSSHForward(port: Int) {
+        for (key, model) in portAccessStore.models where key.machineID == machineID && key.port == port {
+            model.retry()
         }
     }
 

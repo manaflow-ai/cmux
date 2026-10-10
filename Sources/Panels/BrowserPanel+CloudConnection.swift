@@ -8,15 +8,31 @@ extension BrowserPanel {
     /// Keeps the browser-owned readiness callback installed while a committed
     /// WebKit document is rebound to a new same-VM route.
     func bindCloudBrowserNavigation() {
-        cloudAccess.automaticallyNavigate { [weak self] url in
+        cloudAccess.automaticallyNavigateRequest { [weak self] request in
             guard let self, !self.isClosingWebViewLifecycle else { return }
-            _ = self.navigate(to: url)
+            // Readiness callbacks used to enter through `navigate(to:)`, which
+            // installs the authenticated proxy before the first WebKit load.
+            // Keep that preparation when the request-preserving path is used;
+            // otherwise a proxied Cloud route can reach WebKit before its
+            // profile has the proxy configuration.
+            if let model = self.cloudAccess.model,
+               model.usesBrowserProxy,
+               let url = request.url,
+               self.cloudAccess.owns(url) {
+                self.prepareCloudBrowserNavigation()
+            }
+            _ = self.navigateWithoutInsecureHTTPPrompt(
+                request: request,
+                recordTypedNavigation: false,
+                trustedInternalNavigation: true
+            )
         }
     }
 
     /// Activates an admitted Cloud route independently of the SwiftUI host.
     /// Callers validate resource ownership before reaching this boundary.
-    func configureCloudBrowser(model: CloudPortAccessModel, url: URL, resourceID: SurfaceResourceID? = nil) {
+    func configureCloudBrowser(model: CloudPortAccessModel, url: URL, resourceID: SurfaceResourceID? = nil,
+                               request: URLRequest? = nil) {
         guard !isClosingWebViewLifecycle else { return }
         webView.stopLoading()
         if let machineID = (resourceID ?? cloudAccess.resourceID)?.machine.rawValue ?? cloudBrowserMachineID {
@@ -25,7 +41,7 @@ extension BrowserPanel {
         showCloudAddress(url)
         // A cached model can navigate synchronously. Its machine/profile store
         // must be installed first, including on reconfiguration and duplication.
-        cloudAccess.configure(model: model, url: url, resourceID: resourceID)
+        cloudAccess.configure(model: model, url: url, resourceID: resourceID, request: request)
         bindCloudBrowserNavigation()
         model.connect()
     }
@@ -189,11 +205,59 @@ extension BrowserPanel {
         let catalog = SurfaceCatalog.shared
         let addresses = catalog.machines.compactMapValues(\.privateAddress)
         let machine = PrivateAddressRouteSelector<SurfaceMachineID>().machine(
-            forHost: url.host,
+            forHost: Self.privateAddressRouteHost(url.host),
             owner: privateAddressRouteOwner,
             addresses: addresses
         )
         return machine.flatMap { catalog.provider(for: $0) as? CmuxTuiSurfaceProvider }
+    }
+
+    /// SSH machines advertise `127.0.0.1`, so every loopback spelling
+    /// (`localhost`, `::1`, `0.0.0.0`) names that same private address.
+    nonisolated static func privateAddressRouteHost(_ host: String?) -> String? {
+        guard let host, PrivateNetworkHostPolicy().isLoopback(host: host) else { return host }
+        return "127.0.0.1"
+    }
+
+    /// Managed SSH workspaces have no workspace-wide browser proxy.
+    var owningWorkspaceRoutesThroughSSHTui: Bool {
+        AppDelegate.shared?.tabManagerFor(tabId: workspaceId)?.tabs
+            .first { $0.id == workspaceId }?
+            .usesSSHTui ?? false
+    }
+
+    /// The SSH service a loopback URL in a managed SSH workspace names, or `nil`
+    /// when the URL loads from this Mac as is: a non-loopback page, or this
+    /// pane's own forward listener. A listener URL copied from another pane
+    /// maps back to the service it forwards.
+    func sshLoopbackServiceURL(for url: URL) -> URL? {
+        guard PrivateNetworkHostPolicy().isLoopback(host: url.host ?? "") else { return nil }
+        if let listenerPort = cloudAccess.model?.localAddress
+            .flatMap({ Int($0.split(separator: ":").last ?? "") }),
+           url.scheme?.lowercased() == "http",
+           url.port == listenerPort { return nil }
+        if let serviceURL = privateAddressRouteProvider(for: url)?.sshServiceURL(forForwardListener: url) {
+            return serviceURL
+        }
+        if let remoteURL = cloudAccess.remoteURL,
+           cloudAccess.model?.route == .loopback,
+           var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            if cloudAccess.isRetiredListener(url) {
+                // A forward restart leaves WebKit history and in-flight
+                // commits pointing at the retired listener. Resolve only that
+                // known stale port against the stable service identity.
+                parts.scheme = remoteURL.scheme
+                parts.host = remoteURL.host
+                parts.port = remoteURL.port
+            } else {
+                // A different loopback port can be another SSH service. Keep
+                // its port while using this machine's private service host.
+                parts.scheme = remoteURL.scheme
+                parts.host = remoteURL.host
+            }
+            return parts.url
+        }
+        return url
     }
 
     /// The machine this browser belongs to: its current cloud route, or the
@@ -210,6 +274,15 @@ extension BrowserPanel {
     func rebindCloudRouteIfNeeded(to url: URL) -> Bool {
         guard let provider = privateAddressRouteProvider(for: url) else {
             return false
+        }
+        // A loopback URL that commits before the navigation delegate can
+        // intercept it has already loaded this Mac's service. Reconfigure the
+        // SSH route so the browser follows its listener instead of preserving
+        // the wrong local document. Same-VM non-loopback redirects can retain
+        // their committed document safely.
+        if owningWorkspaceRoutesThroughSSHTui,
+           let serviceURL = sshLoopbackServiceURL(for: url) {
+            return provider.configureBrowser(self, url: serviceURL)
         }
         return provider.configureBrowser(self, url: url, preserveCurrentNavigation: true)
     }

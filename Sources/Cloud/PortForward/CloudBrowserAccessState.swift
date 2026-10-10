@@ -39,6 +39,9 @@ final class CloudBrowserAccessState {
     @ObservationIgnored private var restoreFailureMessage: String?
     @ObservationIgnored private var restoreDeadlineDuration: Duration = .seconds(30)
     @ObservationIgnored private var navigate: (@MainActor (URL) -> Void)?
+    @ObservationIgnored private var navigateRequest: (@MainActor (URLRequest) -> Void)?
+    @ObservationIgnored private var pendingNavigationRequest: URLRequest?
+    @ObservationIgnored private var retiredListenerURLs: [URL] = []
     @ObservationIgnored private var observationGeneration: UInt64 = 0
     @ObservationIgnored private var preservingCommittedRoute = false
     private var activeNavigationID: ObjectIdentifier?
@@ -70,6 +73,16 @@ final class CloudBrowserAccessState {
     /// cached retry cannot lose a connecting → ready change to view coalescing.
     func automaticallyNavigate(_ action: @escaping @MainActor (URL) -> Void) {
         navigate = action
+        navigateRequest = nil
+        observeRoute()
+    }
+
+    /// Installs a readiness callback that preserves the complete request,
+    /// including its method, headers, and body, while replacing only its URL
+    /// with the local SSH listener.
+    func automaticallyNavigateRequest(_ action: @escaping @MainActor (URLRequest) -> Void) {
+        navigateRequest = action
+        navigate = nil
         observeRoute()
     }
 
@@ -108,7 +121,7 @@ final class CloudBrowserAccessState {
     private func observeRoute() {
         observationGeneration &+= 1
         let generation = observationGeneration
-        guard let model, navigate != nil else { return }
+        guard let model, navigate != nil || navigateRequest != nil else { return }
         withObservationTracking {
             _ = model.phase
         } onChange: { [weak self] in
@@ -124,7 +137,10 @@ final class CloudBrowserAccessState {
             if model.isReady { preservingCommittedRoute = false }
             return
         }
-        if let url = nextURL() { navigate?(url) }
+        if let request = nextRequest() {
+            if let navigateRequest { navigateRequest(request) }
+            else if let url = request.url { navigate?(url) }
+        }
     }
 
     private func trace(_ event: String) {
@@ -270,16 +286,20 @@ final class CloudBrowserAccessState {
             error = nil
             desktopFailure = nil
             dismissedFailure = nil
-        } else if !hasConnectedOnRoute, desktopRetries < Self.desktopRetryDelays.count, navigate != nil {
+        } else if !hasConnectedOnRoute, desktopRetries < Self.desktopRetryDelays.count,
+                  navigate != nil || navigateRequest != nil {
             let delay = Self.desktopRetryDelays[desktopRetries]
             desktopRetries += 1
             desktopConnected = false
             trace("rfb_retry")
             desktopRetry.schedule(after: delay) { [weak self] in
                 guard let self, self.isDesktop, !self.desktopConnected, self.failureMessage == nil else { return }
-                // Reissue the same route: nextURL() skips an unchanged URL.
+                // Reissue the same route: nextRequest() skips an unchanged URL.
                 self.navigationURL = nil
-                if let url = self.nextURL() { self.navigate?(url) }
+                if let request = self.nextRequest() {
+                    if let navigateRequest = self.navigateRequest { navigateRequest(request) }
+                    else if let url = request.url { self.navigate?(url) }
+                }
             }
             return
         } else {
@@ -318,7 +338,9 @@ final class CloudBrowserAccessState {
         return remoteURL
     }
 
-    func configure(model: CloudPortAccessModel, url: URL, resourceID: SurfaceResourceID? = nil) {
+    func configure(model: CloudPortAccessModel, url: URL, resourceID: SurfaceResourceID? = nil,
+                   request: URLRequest? = nil) {
+        let replacesService = remoteURL.map { !Self.sameService($0, url) } ?? true
         observationGeneration &+= 1
         cancelUnavailableRetry()
         unavailable = nil
@@ -334,6 +356,8 @@ final class CloudBrowserAccessState {
         self.model = model
         starting = nil
         remoteURL = url
+        pendingNavigationRequest = request ?? URLRequest(url: url)
+        if replacesService { retiredListenerURLs.removeAll(keepingCapacity: true) }
         navigationURL = nil
         preservingCommittedRoute = false
         hasCommittedNavigation = false
@@ -354,7 +378,7 @@ final class CloudBrowserAccessState {
         observeRoute()
     }
 
-    func nextURL() -> URL? {
+    func nextRequest() -> URLRequest? {
         guard let remoteURL, let url = model?.url(for: remoteURL) else {
             hasCommittedNavigation = false
             desktopConnected = false
@@ -363,6 +387,13 @@ final class CloudBrowserAccessState {
             return nil
         }
         guard navigationURL != url else { return nil }
+        rememberRetiredListener(navigationURL)
+        // Keep the original request as the route's replay template. A forward
+        // child can exit after readiness and be replaced on a new listener;
+        // rebuilding from the URL alone would silently turn a POST into a GET
+        // and drop its headers/body on that recovery path.
+        var request = pendingNavigationRequest ?? URLRequest(url: url)
+        request.url = url
         navigationURL = url
         hasCommittedNavigation = false
         error = nil
@@ -372,7 +403,41 @@ final class CloudBrowserAccessState {
         startDeadline()
         loaded = false
         trace("route_ready")
-        return url
+        return request
+    }
+
+    /// The routed URL for callers that only need a GET navigation.
+    func nextURL() -> URL? { nextRequest()?.url }
+
+    /// Replaces the request template used if the shared forward must be
+    /// recreated. BrowserPanel calls this for each new service navigation so
+    /// recovery replays the current request rather than an older POST.
+    func rememberNavigationRequest(_ request: URLRequest) {
+        guard let url = request.url, owns(url),
+              let serviceURL = sessionURL(currentURL: url) else { return }
+        pendingNavigationRequest = request
+        // Keep the remote authority stable when WebKit loads a local listener,
+        // but carry the latest path/query/fragment into a replacement forward.
+        remoteURL = serviceURL
+        // This request is about to load. Retain its routed identity so delegate
+        // callbacks can finish it and readiness cannot issue a duplicate load.
+        navigationURL = model?.url(for: serviceURL)
+    }
+
+    /// Returns whether a loopback URL was a listener this route replaced.
+    /// Other loopback ports may identify a different SSH service and must keep
+    /// their own port when the browser asks to open them.
+    func isRetiredListener(_ url: URL) -> Bool {
+        retiredListenerURLs.contains { Self.sameService($0, url) }
+    }
+
+    private func rememberRetiredListener(_ url: URL?) {
+        guard let url,
+              url.scheme?.lowercased() == "http",
+              PrivateNetworkHostPolicy().isLoopback(host: url.host ?? "") else { return }
+        guard !retiredListenerURLs.contains(where: { Self.sameService($0, url) }) else { return }
+        retiredListenerURLs.append(url)
+        if retiredListenerURLs.count > 8 { retiredListenerURLs.removeFirst() }
     }
 
     func didStart(url: URL?, navigationID: ObjectIdentifier? = nil) {
@@ -442,6 +507,7 @@ final class CloudBrowserAccessState {
         trace("retry")
         // An explicit retry is a new first connection with its own quiet retries.
         resetDesktopRetries()
+        rememberRetiredListener(navigationURL)
         navigationURL = nil
         preservingCommittedRoute = false
         hasCommittedNavigation = false
@@ -492,6 +558,9 @@ final class CloudBrowserAccessState {
         resetDesktopRetries()
         observationGeneration &+= 1
         navigate = nil
+        navigateRequest = nil
+        pendingNavigationRequest = nil
+        retiredListenerURLs.removeAll(keepingCapacity: false)
         connectionDeadline.cancel()
         desktopConnected = false
         resourceID = nil
@@ -512,8 +581,15 @@ final class CloudBrowserAccessState {
     }
 
     private static func sameService(_ a: URL, _ b: URL) -> Bool {
-        a.scheme?.lowercased() == b.scheme?.lowercased() && a.host?.lowercased() == b.host?.lowercased()
+        a.scheme?.lowercased() == b.scheme?.lowercased() && serviceHost(a) == serviceHost(b)
             && (a.port ?? (a.scheme == "https" ? 443 : 80)) == (b.port ?? (b.scheme == "https" ? 443 : 80))
+    }
+
+    /// Treat the loopback spellings accepted by SSH routing as one service
+    /// identity, so a localhost redirect reuses the ready listener.
+    private static func serviceHost(_ url: URL) -> String? {
+        guard let host = url.host?.lowercased() else { return nil }
+        return PrivateNetworkHostPolicy().isLoopback(host: host) ? "127.0.0.1" : host
     }
 
     private static func resourcePort(for resource: SurfaceResourceID) -> Int? {

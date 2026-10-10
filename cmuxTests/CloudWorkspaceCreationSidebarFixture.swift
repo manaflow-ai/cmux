@@ -23,15 +23,29 @@ final class CloudWorkspaceCreationSidebarFixture {
     let originalWorkspaceID: UUID
     private let defaults: UserDefaults
     private let defaultsName = "cloud-workspace-creation-\(UUID().uuidString)"
+    private let previousSharedRenameService: CloudWorkspaceRenameService?
 
     init(useSharedCatalog: Bool = false, machine: SurfaceMachineID? = nil) throws {
         defaults = try #require(UserDefaults(suiteName: defaultsName))
         manager = TabManager(autoWelcomeIfNeeded: false, settings: UserDefaultsSettingsClient(defaults: defaults))
         originalWorkspaceID = try #require(manager.selectedTabId)
         let owner = manager
-        catalog = useSharedCatalog ? SurfaceCatalog.shared : SurfaceCatalog(cloudWorkspaceRenameService: CloudWorkspaceRenameService(environment: .init(
-            workspace: { owner.workspacesById[$0] }, tabManager: { _ in owner }, workspaces: { owner.tabs }
-        )))
+        if useSharedCatalog {
+            catalog = SurfaceCatalog.shared
+            previousSharedRenameService = catalog.cloudWorkspaceRenameService
+            // Production shortcut composition uses SurfaceCatalog.shared for
+            // the reservation binding path. Give that shared catalog the same
+            // manager-backed environment as private fixtures so the test can
+            // observe the binding on its own workspaces.
+            catalog.installCloudWorkspaceRenameService(CloudWorkspaceRenameService(environment: .init(
+                workspace: { owner.workspacesById[$0] }, tabManager: { _ in owner }, workspaces: { owner.tabs }
+            )))
+        } else {
+            previousSharedRenameService = nil
+            catalog = SurfaceCatalog(cloudWorkspaceRenameService: CloudWorkspaceRenameService(environment: .init(
+                workspace: { owner.workspacesById[$0] }, tabManager: { _ in owner }, workspaces: { owner.tabs }
+            )))
+        }
         if let machine {
             provider = CloudWorkspaceCreationSidebarProvider(catalog: catalog, machine: machine)
         } else {
@@ -71,6 +85,9 @@ final class CloudWorkspaceCreationSidebarFixture {
         manager.tabs.forEach { $0.teardownAllPanels() }
         app.unregisterMainWindowContextForTesting(windowId: windowID)
         window.close()
+        if let previousSharedRenameService {
+            catalog.installCloudWorkspaceRenameService(previousSharedRenameService)
+        }
         AppDelegate.shared = previousApp
         TerminalController.shared.setActiveTabManager(previousManager)
         defaults.removePersistentDomain(forName: defaultsName)
