@@ -488,17 +488,17 @@ jobs:
       # Keep cargo's registry and cmux-tui/target between runs. Without it every
       # Linux test run compiled the whole workspace (test (linux) about 921 s).
       # verify-cmux-tui-hosted.sh dispatches on the branch under test, so a rerun on
-      # the same branch builds incrementally. GitHub keeps branch caches scoped;
-      # the default branch supplies the shared seed and dispatch reruns retain
-      # their branch-local warm target.
+      # the same branch builds incrementally; the shared Linux key also preserves
+      # unchanged crate outputs across trusted branches.
       - name: Cache cargo build
         id: cargo-cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: cmux-tui -> target
-          # Keep a stable cache family while GitHub scopes entries by branch.
-          # Cargo fingerprints still invalidate changed crates. Main supplies
-          # the default-branch seed; dispatch reruns can warm their own branch.
+          # Share the workspace target cache across trusted branches. Cargo's
+          # fingerprints still invalidate changed crates. Only main saves this
+          # key; PRs restore the default-branch cache and cannot seed one for
+          # another PR.
           shared-key: cmux-tui-${{ matrix.os }}
           # Workspace crate outputs are only restored for the exact workspace
           # source tree; Cargo's environment hash alone does not include .rs
@@ -506,7 +506,7 @@ jobs:
           key: cmux-tui-source-${{ hashFiles('cmux-tui/**/*.rs', 'cmux-tui/**/Cargo.toml', 'cmux-tui/Cargo.lock') }}
           cache-all-crates: true
           cache-workspace-crates: true
-          save-if: ${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Report cargo cache hit rate
         if: always()
