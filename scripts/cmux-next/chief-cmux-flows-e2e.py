@@ -10,7 +10,7 @@ requests a user makes, waits for each reply, then checks the tagged daemon
 row per flow: flow | expected | observed | pass/fail.
 
 Launches the tagged app itself (no-activate, scratch config), and on exit
-quits it with quitEndSessions, shuts down the tag's acpmux daemon, stops the
+quits it with the debug.quit fixture_quit end-sessions fixture, shuts down the tag's acpmux daemon, stops the
 tag's cmux-tui session and the Chief host, by exact PID only.
 
 Usage: chief-cmux-flows-e2e.py --tag <tag> --app PATH --debug-cli PATH [--out DIR] [--only N,M]
@@ -259,7 +259,7 @@ def cleanup():
     if opts.keep:
         return
     print("cleanup", flush=True)
-    rpc("action.run", {"id": "quitEndSessions"}, timeout=10)
+    rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=10)
     if app:
         try:
             app.wait(timeout=20)

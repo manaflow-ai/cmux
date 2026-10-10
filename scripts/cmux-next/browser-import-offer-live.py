@@ -269,7 +269,7 @@ try:
     rpc("debug.onboarding", {"action": "close"})
     prompt("reset")
 finally:
-    rpc("action.run", {"action": "quitEndSessions"})
+    rpc("debug.quit", {"fixture_quit": "end-sessions"})
     try:
         app.wait(timeout=20)
     except subprocess.TimeoutExpired:

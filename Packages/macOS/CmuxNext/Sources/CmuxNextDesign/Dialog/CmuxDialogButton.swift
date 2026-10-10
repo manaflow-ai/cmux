@@ -19,12 +19,16 @@ public nonisolated struct CmuxDialogButton: Equatable, Sendable {
     public var role: Role
     /// A lowercase character pressed with Command ("d" for Don't Save).
     public var key: Character?
+    /// What a press of this button grants (cx-zk9t); `none` takes the dialog's
+    /// `CmuxDialogSpec.confirmKind`. A cancel button never needs the person.
+    public var confirmKind: CmuxDialogConfirmKind
 
-    public init(id: String, title: String, role: Role = .normal, key: Character? = nil) {
+    public init(id: String, title: String, role: Role = .normal, key: Character? = nil, confirmKind: CmuxDialogConfirmKind = .none) {
         self.id = id
         self.title = title
         self.role = role
         self.key = key
+        self.confirmKind = confirmKind
     }
 
     public static func ok(_ title: String = CmuxDialogStrings.ok) -> CmuxDialogButton {

@@ -14,7 +14,7 @@ enum UserOnlySettingConfirmation {
                 title: ConfirmationStrings.userOnlySettingTitle(key),
                 // A reset shows the value it returns to (the schema default).
                 body: ConfirmationStrings.userOnlySettingBody(key, (value ?? Self.defaultValue(key)).compactText),
-                button: ConfirmationStrings.userOnlySettingButton)
+                button: ConfirmationStrings.userOnlySettingButton, kind: .trust)
             // The request may end first (deadline, Ctrl-C): then the sheet goes, answered no.
             guard !Task.isCancelled else { return false }
             let shown = ShownDialog()

@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextDesign
 import Foundation
 import CmuxNextRemote
 
@@ -16,7 +17,7 @@ enum RemoteConfirmation {
                 title: RemoteStrings.installTitle(host.label),
                 body: RemoteStrings.installBody(commit: commit, path: host.remoteBinary, destination: host.destination.description)
                     + (RemoteStrings.detail(session).map { "\n\n" + $0 } ?? ""),
-                button: RemoteStrings.install)
+                button: RemoteStrings.install, kind: .trust)
         default:
             return DestructiveConfirmation.Prompt(title: RemoteStrings.forgetTitle(host.label), body: RemoteStrings.forgetBody,
                                                   button: RemoteStrings.forget)
