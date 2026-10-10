@@ -29,6 +29,21 @@ public enum SendMenuGeometry {
     /// `sendMenuPlusSymbolScale`: the "+" grows to this while it fades out.
     public static let plusSymbolScale: CGFloat = 2
 
+    /// The round plate inside each 54 pt icon image: ChatKit's
+    /// `send-menu-*-glass` artwork is a 38.67 pt disc on iOS 26 and its
+    /// `-glass-calistoga` artwork a 36.67 pt disc with a 1 pt rim on iOS 27,
+    /// centered in the 54 pt image (measured from the 3x assets).
+    public static func iconDiscDiameter(iOS27: Bool) -> CGFloat { iOS27 ? 110.0 / 3 : 116.0 / 3 }
+
+    /// `sendMenuListItemTextColor` in light mode as it reaches the screen:
+    /// gray 12 on iOS 26.5 and 13 on 27.0, measured in screenshots
+    /// (ChatKit reports 0.06 white, which would draw as 15).
+    public static func labelWhite(iOS27: Bool) -> CGFloat { iOS27 ? 13.0 / 255 : 12.0 / 255 }
+
+    /// Label frame inside a row: SF 24 regular's 28.67 pt line box, centered
+    /// in the 66 pt row (Messages: label y = row + 18.67).
+    public static let labelHeight: CGFloat = 86.0 / 3
+
     /// Corner radius part way through the morph: the "+" circle stays round
     /// (a capsule of the shorter side) as it grows and only settles into the
     /// menu's corners as it reaches its height, as in the recorded frames.
@@ -53,14 +68,21 @@ public enum SendMenuGeometry {
     /// The open popover: centered vertically on the "+" button, kept inside
     /// `bounds` less the safe area, `edgeInset` and `bottomInset` (Messages
     /// measured on iOS 26.5: a 456.6 pt menu at y 373 above an iPhone 17
-    /// Pro's home indicator; on 27.0, at y 281 centered on a "+" raised by
-    /// the keyboard).
-    public static func openFrame(anchor: CGRect, in bounds: CGRect, safeArea: (top: CGFloat, left: CGFloat, bottom: CGFloat, right: CGFloat), itemCount: Int, bottomInset: CGFloat = edgeInset) -> CGRect {
+    /// Pro's home indicator; on 27.0 at y 383.3).
+    ///
+    /// With the keyboard up (`keyboardTop`), Messages centers the menu on
+    /// the raised "+" and draws it over the keyboard (26.5: "+" {16, 483},
+    /// popover y 274; 27.0: "+" {16, 490}, y 281), using a private keyboard
+    /// snapshot. An app cannot draw over the system keyboard, so the menu
+    /// stays centered on the "+" as far as it can while ending `edgeInset`
+    /// above the keyboard, fully visible, with the keyboard kept up.
+    public static func openFrame(anchor: CGRect, in bounds: CGRect, safeArea: (top: CGFloat, left: CGFloat, bottom: CGFloat, right: CGFloat), itemCount: Int, bottomInset: CGFloat = edgeInset, keyboardTop: CGFloat? = nil) -> CGRect {
         let minX = bounds.minX + safeArea.left + edgeInset
         let maxX = bounds.maxX - safeArea.right - edgeInset
         let width = min(maximumWidth, maxX - minX)
         let minY = bounds.minY + safeArea.top + edgeInset
-        let maxY = bounds.maxY - safeArea.bottom - bottomInset
+        var maxY = bounds.maxY - safeArea.bottom - bottomInset
+        if let keyboardTop { maxY = min(maxY, keyboardTop - edgeInset) }
         let height = min(height(itemCount: itemCount), maxY - minY)
         var y = anchor.midY - height / 2
         y = min(y, maxY - height)

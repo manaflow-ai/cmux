@@ -17,6 +17,9 @@ final class AppsMenuOverlay: UIView {
         var color: UIColor
         /// Drawn instead of `symbol` on `color` (Send Later's dashed clock).
         var customIcon: UIImage? = nil
+        /// A full 54 pt row image drawn as is (Messages' app artwork, see
+        /// `SendMenuIcons`), replacing `symbol`, `color` and `customIcon`.
+        var artwork: UIImage? = nil
         var handler: () -> Void
     }
 
@@ -34,6 +37,8 @@ final class AppsMenuOverlay: UIView {
     private let plusX = UIView()
     private let plusY = UIImageView()
     private let anchor: CGRect
+    /// Top of the shown keyboard, which the menu stays above.
+    var keyboardTop: CGFloat?
     private var openFrame: CGRect = .zero
     private var isDismissing = false
     /// Called once the menu has folded back into the "+" circle.
@@ -73,19 +78,25 @@ final class AppsMenuOverlay: UIView {
     private func makeRow(_ item: Item) -> UIView {
         let row = UIButton(type: .custom)
         let iconSize = G.iconSize
-        let icon = UIImageView(image: item.customIcon ?? UIImage(systemName: item.symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 25, weight: .semibold)))
-        icon.tintColor = .white
+        let icon: UIImageView
+        if let artwork = item.artwork {
+            icon = UIImageView(image: artwork)
+        } else {
+            icon = UIImageView(image: item.customIcon ?? UIImage(systemName: item.symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 25, weight: .semibold)))
+            icon.tintColor = .white
+            icon.backgroundColor = item.color
+            icon.layer.cornerRadius = iconSize / 2
+        }
         icon.contentMode = .center
-        icon.backgroundColor = item.color
-        icon.layer.cornerRadius = iconSize / 2
         icon.frame = CGRect(x: G.iconLeading, y: (G.rowHeight - iconSize) / 2, width: iconSize, height: iconSize)
         row.addSubview(icon)
         let labelX = G.iconLeading + iconSize + G.iconToLabel
-        let label = UILabel(frame: CGRect(x: labelX, y: 0, width: G.maximumWidth - labelX - 16, height: G.rowHeight))
+        let label = UILabel(frame: CGRect(x: labelX, y: (G.rowHeight - G.labelHeight) / 2, width: G.maximumWidth - labelX - 16, height: G.labelHeight))
         label.text = item.title
         label.font = .systemFont(ofSize: G.labelFontSize)
-        // `sendMenuListItemTextColor`.
-        label.textColor = UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.7) : UIColor(white: 0.06, alpha: 1) }
+        // `sendMenuListItemTextColor`, as measured on screen.
+        let lightWhite = G.labelWhite(iOS27: SendMenuIcons.isIOS27)
+        label.textColor = UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.7) : UIColor(white: lightWhite, alpha: 1) }
         label.adjustsFontSizeToFitWidth = true
         label.minimumScaleFactor = 0.6
         row.addSubview(label)
@@ -103,7 +114,7 @@ final class AppsMenuOverlay: UIView {
         let insets = superview?.safeAreaInsets ?? .zero
         var iOS27 = false
         if #available(iOS 27, *) { iOS27 = true }
-        openFrame = G.openFrame(anchor: anchor, in: bounds, safeArea: (insets.top, insets.left, insets.bottom, insets.right), itemCount: rows.arrangedSubviews.count, bottomInset: G.bottomInset(iOS27: iOS27))
+        openFrame = G.openFrame(anchor: anchor, in: bounds, safeArea: (insets.top, insets.left, insets.bottom, insets.right), itemCount: rows.arrangedSubviews.count, bottomInset: G.bottomInset(iOS27: iOS27), keyboardTop: keyboardTop)
         let size = openFrame.size
         for view in [contentX, contentY] { view.bounds = CGRect(origin: .zero, size: size) }
         contentY.center = CGPoint(x: size.width / 2, y: size.height / 2)
@@ -306,9 +317,10 @@ private final class DisplayLinkTarget: NSObject {
 }
 
 extension ConversationViewController {
-    /// Messages' order (iOS 26 and 27 agree on these): Camera, Photos,
-    /// Audio, then the iMessage apps. Items Messages lists that cmux has no
-    /// counterpart for are left out.
+    /// Camera (when the device has one), Photos and Files. Messages lists
+    /// Camera and Photos first in the same artwork; it has no Files row, so
+    /// Files is drawn in that style (`SendMenuIcons`). Audio stays on the
+    /// composer's record button.
     func presentAppsMenu() {
         dismissPhotoDrawer()
         // Messages (iOS 26.5 and 27.0) keeps the keyboard up under the menu,
@@ -316,21 +328,26 @@ extension ConversationViewController {
         // place (Photos) dismiss it themselves.
         var items: [AppsMenuOverlay.Item] = []
         if UIImagePickerController.isSourceTypeAvailable(.camera) {
-            items.append(.init(title: String(localized: "conversation.apps.camera", defaultValue: "Camera", bundle: .module), symbol: "camera.fill", color: .systemGray) { [weak self] in
+            items.append(.init(title: String(localized: "conversation.apps.camera", defaultValue: "Camera", bundle: .module), symbol: "camera.fill", color: .clear, artwork: SendMenuIcons.image(.camera)) { [weak self] in
                 self?.presentCamera()
             })
         }
-        items.append(.init(title: String(localized: "conversation.apps.photos", defaultValue: "Photos", bundle: .module), symbol: "photo.on.rectangle", color: .systemBlue) { [weak self] in
+        items.append(.init(title: String(localized: "conversation.apps.photos", defaultValue: "Photos", bundle: .module), symbol: "photo.on.rectangle", color: .clear, artwork: SendMenuIcons.image(.photos)) { [weak self] in
             self?.presentPhotoDrawer()
         })
-        items.append(.init(title: String(localized: "conversation.apps.audio", defaultValue: "Audio", bundle: .module), symbol: "waveform", color: UIColor(red: 1, green: 0.43, blue: 0.32, alpha: 1)) { [weak self] in
-            self?.audioComposer.start()
+        items.append(.init(title: String(localized: "conversation.apps.files", defaultValue: "Files", bundle: .module), symbol: "folder.fill", color: .clear, artwork: SendMenuIcons.image(.files)) { [weak self] in
+            self?.presentFilePicker()
         })
-        items.append(pollsAppsMenuItem())
-        items.append(sendLaterMenuItem())
         view.layoutIfNeeded()
         let anchor = composer.plusGlassFrame(in: view)
         let overlay = AppsMenuOverlay(frame: view.bounds, anchor: anchor, plusImage: composer.plusButton.image(for: .normal), items: items)
+        // The keyboard stays up. Messages draws its menu over the keyboard
+        // with a private keyboard snapshot; the system draws the keyboard
+        // (and any input view) above every app window, so the menu stays
+        // above it instead.
+        if keyboardProgress > 0 {
+            overlay.keyboardTop = view.keyboardLayoutGuide.layoutFrame.minY
+        }
         overlay.onDismissed = { [weak self] in self?.composer.isPlusGlassHidden = false }
         view.addSubview(overlay)
         composer.isPlusGlassHidden = true
@@ -449,6 +466,13 @@ extension ConversationViewController {
             springDuration: 0.2667, bounce: 0, options: [.beginFromCurrentState],
             animations: animations, completion: completion
         )
+    }
+
+    /// Files: the system document picker, for an image to attach.
+    private func presentFilePicker() {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.image], asCopy: true)
+        picker.delegate = cameraDelegate
+        present(picker, animated: true)
     }
 
     private func composerBottomConstraintConstant(_ value: CGFloat) {

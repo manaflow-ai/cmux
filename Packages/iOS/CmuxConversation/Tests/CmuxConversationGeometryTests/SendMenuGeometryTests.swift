@@ -31,6 +31,50 @@ import Testing
         #expect(frame.origin == CGPoint(x: 10, y: 281))
     }
 
+    @Test func keyboardUpMenuCentersOnTheRaisedPlusOnBothReleases() {
+        // Messages draws the menu over the keyboard, centered on the raised
+        // "+": iOS 26.5 "+" {16, 483} -> popover y 274; 27.0 "+" {16, 490} -> y 281.
+        let frame26 = SendMenuGeometry.openFrame(anchor: CGRect(x: 16, y: 483, width: 40, height: 40), in: screen, safeArea: safe, itemCount: 9)
+        #expect(frame26.origin == CGPoint(x: 10, y: 274))
+        let frame27 = SendMenuGeometry.openFrame(anchor: CGRect(x: 16, y: 490, width: 40, height: 40), in: screen, safeArea: safe, itemCount: 9, bottomInset: SendMenuGeometry.bottomInset(iOS27: true))
+        #expect(frame27.origin == CGPoint(x: 10, y: 281))
+    }
+
+    @Test func cameraPhotosFilesMenuStaysAboveTheKeyboard() {
+        // Three rows (Camera, Photos, Files): 21 + 3 x 66 + 21 = 240 pt.
+        // iOS 26.5 keyboard up: "+" {16, 483}, keyboard top 535. Centered
+        // on the "+" the menu would end at 623, under the keyboard; it ends
+        // 10 pt above it instead and still covers the "+" it grew from.
+        let plus = CGRect(x: 16, y: 483, width: 40, height: 40)
+        let frame = SendMenuGeometry.openFrame(anchor: plus, in: screen, safeArea: safe, itemCount: 3, keyboardTop: 535)
+        #expect(frame.height == 240)
+        #expect(frame.maxY == 525)
+        #expect(frame.minY <= plus.minY && frame.maxY >= plus.maxY)
+        // iOS 27.0: "+" {16, 490}, keyboard top 542.
+        let frame27 = SendMenuGeometry.openFrame(anchor: CGRect(x: 16, y: 490, width: 40, height: 40), in: screen, safeArea: safe, itemCount: 3, bottomInset: 0, keyboardTop: 542)
+        #expect(frame27.maxY == 532)
+        // A keyboard low enough leaves the menu centered on the "+".
+        let low = SendMenuGeometry.openFrame(anchor: plus, in: screen, safeArea: safe, itemCount: 3, keyboardTop: 700)
+        #expect(abs(low.midY - plus.midY) <= 0.5)
+        // Keyboard down: the same menu centered on the resting "+" still fits.
+        let resting = SendMenuGeometry.openFrame(anchor: CGRect(x: 28, y: 806, width: 40, height: 40), in: screen, safeArea: safe, itemCount: 3)
+        #expect(resting.maxY <= screen.maxY - safe.bottom - SendMenuGeometry.edgeInset)
+        #expect(resting.maxY > 806)
+    }
+
+    @Test func rowArtworkMatchesMessages() {
+        // ChatKit's send-menu-*-glass artwork: 54 pt images whose plate is
+        // 116 px @3x on iOS 26.5 and 110 px @3x on 27.0.
+        #expect(SendMenuGeometry.iconSize == 54)
+        #expect(abs(SendMenuGeometry.iconDiscDiameter(iOS27: false) * 3 - 116) < 0.001)
+        #expect(abs(SendMenuGeometry.iconDiscDiameter(iOS27: true) * 3 - 110) < 0.001)
+        // Icon at x 37 (panel 10 + 27) and the label at x 109, 18.67 pt
+        // into its 66 pt row, as in the AX frames.
+        #expect(SendMenuGeometry.edgeInset + SendMenuGeometry.iconLeading == 37)
+        #expect(SendMenuGeometry.edgeInset + SendMenuGeometry.iconLeading + SendMenuGeometry.iconSize + SendMenuGeometry.iconToLabel == 109)
+        #expect(abs((SendMenuGeometry.rowHeight - SendMenuGeometry.labelHeight) / 2 - 18.67) < 0.01)
+    }
+
     @Test func shortMenuFitsItsRows() {
         #expect(SendMenuGeometry.height(itemCount: 4) == CGFloat(21 + 4 * 66 + 21))
     }
