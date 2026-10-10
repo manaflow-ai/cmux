@@ -224,6 +224,7 @@ final class SidebarListView: NSView {
                         view.frame = SidebarRowTransition.insertFrame(row, target: target, runTop: insertRuns[row.key], from: old, to: layout)
                         view.alphaValue = 0
                         view.clipsToBounds = true
+                        view.opens += 1
                     } else {
                         view.frame = animate ? old.row(for: row.key).map { frame(for: $0) } ?? target : target
                     }

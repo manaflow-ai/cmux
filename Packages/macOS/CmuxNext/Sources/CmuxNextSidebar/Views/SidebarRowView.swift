@@ -95,6 +95,11 @@ class SidebarRowView: NSView {
         fadesNextFill = false
     }
 
+    /// Counts the times this row started opening its slot (clipped): an
+    /// earlier open's completion, run early when a later update reopens the
+    /// row, leaves the later open's clip alone (cx-ai79).
+    var opens = 0
+
     /// Size the row is animating toward. Content lays out for the final size
     /// up front, so an animated frame change never shows a stale layout.
     var targetSize: NSSize? {

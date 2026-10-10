@@ -30,6 +30,7 @@ struct RowMotion {
             return
         }
         passOver(in: list, from: old, to: layout)
+        let opens = appearing.map(\.0.opens)
         Motion.animate(.move, in: list, {
             moves()
             lines.changes()
@@ -41,12 +42,11 @@ struct RowMotion {
                 view.animator().alphaValue = 0
                 view.animator().frame = end
             }
-        }, completion: { [weak list, appearing, leaving, leavingLines = lines.leaving] in
+        }, completion: { [weak list, appearing, opens, leaving, leavingLines = lines.leaving] in
             leavingLines.forEach { $0.removeFromSuperview() }
             guard let list else { return }
-            // A row reopened by a later update (its animations removed, so this
-            // completion runs early) keeps clipping until its own open ends.
-            for (view, _) in appearing where view.layer?.animationKeys()?.isEmpty ?? true { view.clipsToBounds = false }
+            // A row reopened since keeps clipping until its own open ends.
+            for ((view, _), open) in zip(appearing, opens) where view.opens == open { view.clipsToBounds = false }
             for (view, _) in leaving where !list.rowViews.values.contains(where: { $0 === view }) { list.recycle(view) }
             list.pruneOffscreen()
         })
@@ -67,11 +67,13 @@ struct RowMotion {
             view.alphaValue = 0
             view.clipsToBounds = true
         }
+        view.opens += 1
+        let open = view.opens
         Motion.animate(.move, in: list, {
             view.animator().frame = target
             view.animator().alphaValue = 1
         }, completion: { [view] in
-            if view.layer?.animationKeys()?.isEmpty ?? true { view.clipsToBounds = false }
+            if view.opens == open { view.clipsToBounds = false }
         })
     }
 
