@@ -2695,7 +2695,7 @@ function AcpmuxPane() {
     <ShortcutsContext.Provider value={shortcuts}>
       <section className="acpmux-shell" aria-label={composerSnapshot.summary?.title || t("header.agentChat")}>
         <div className="acpmux-main" data-new-chat={freshView && !showNewTab ? "" : undefined}>
-          {showNewTab && (
+          {showNewTab && newTab.templateSwitcher && (
             <TemplateDots
               current={shownTemplate(newTab)}
               onPick={(template) =>
