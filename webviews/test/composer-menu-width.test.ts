@@ -44,7 +44,8 @@ await requireBrowserLane("composer-menu-width.test.ts", async () => {
   const row = (label: string) =>
     `<div class="acpmux-menu-item"><span class="acpmux-menu-text"><span class="acpmux-menu-label">${label}</span></span></div>`;
   const harness = (label: string) => `<button type="button" class="acpmux-mp-harness">${label}</button>`;
-  const model = (label: string) => `<button type="button" class="acpmux-mp-row"><span class="acpmux-menu-label">${label}</span></button>`;
+  const model = (label: string) =>
+    `<button type="button" class="acpmux-mp-row"><span class="acpmux-menu-label">${label}</span></button>`;
   const PAGE = `<!doctype html><html><head><style>
 :root{--agent-text:rgb(205,214,244);--agent-accent-text:rgb(30,30,46);--agent-page-bg:rgb(30,30,46);--agent-muted:rgb(166,173,200)}
 ${css}
