@@ -42,6 +42,7 @@ pub(super) fn seen(mux: &Mux, key: &str, operation: &str) -> Result<bool, Resour
     let registry = mux.workspace_registry.lock().unwrap_or_else(|poison| poison.into_inner());
     registry
         .connection
+        .get()
         .query_row("SELECT 1 FROM resource_mutations WHERE idempotency_key = ?1", [key], |_| Ok(()))
         .optional()
         .map(|row| row.is_some())
