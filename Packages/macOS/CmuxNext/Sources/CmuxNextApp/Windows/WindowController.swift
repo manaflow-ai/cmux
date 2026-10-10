@@ -391,8 +391,8 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
         // after-pass work, so an occluder change it causes joins that work.
         if overlayLayer.layoutDepth == 1 {
             (contentView as? WindowRootView)?.windowDidLayout()
-            let blocks = afterLayoutPass
-            afterLayoutPass.removeAll()
+            let blocks = pendingAfterLayout
+            pendingAfterLayout.removeAll()
             for block in blocks { block() }
         }
         overlayLayer.windowDidLayout()
@@ -403,13 +403,13 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     /// exception AppKit caught skipped the end of a pass.
     var isInLayoutPass: Bool { overlayLayer.layoutDepth > 0 }
 
-    private var afterLayoutPass: [() -> Void] = []
+    private var pendingAfterLayout: [() -> Void] = []
 
     /// Runs `block` after the window's current layout pass, or now when no
     /// pass runs: for a view that must ask an ancestor for another layout
     /// from inside its own `layout()`.
     func afterLayoutPass(_ block: @escaping () -> Void) {
-        if isInLayoutPass { afterLayoutPass.append(block) } else { block() }
+        if isInLayoutPass { pendingAfterLayout.append(block) } else { block() }
     }
 
     // MARK: OverlayPlaneHosting
