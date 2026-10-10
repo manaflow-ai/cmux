@@ -112,6 +112,9 @@ final class ScreenContentView: NSView {
 
         // Panes.
         let style = context.style
+        // Found once: a scan of every subview per mounted pane made mounting N panes O(N^2).
+        // Hosts go below it, so adding them does not change it.
+        var dividerAnchor: NSView?? = nil
         for (pane, target) in baseGeometry.panes {
             if var existing = paneFrames[pane] {
                 existing.setTarget(target, alpha: 1)
@@ -120,7 +123,8 @@ final class ScreenContentView: NSView {
             } else {
                 let host = context.host(for: pane)
                 if host.superview !== self {
-                    addSubview(host, positioned: .below, relativeTo: firstDividerView)
+                    if dividerAnchor == nil { dividerAnchor = .some(firstDividerView) }
+                    addSubview(host, positioned: .below, relativeTo: dividerAnchor ?? nil)
                 }
                 paneFrames[pane] = AnimatedFrame(target)
             }
