@@ -145,13 +145,14 @@ describe("CloudDO provider-call ledger", { timeout: 60_000 }, () => {
     expect(await stub.fakeControl({})).toMatchObject({ creates: STUB_PLAN.max_active })
   })
 
-  it("refuses an install for create and delete even when its grant has money and destructive (user principal only until ORIGIN)", async () => {
+  it("never runs an install's create or delete directly, even when its grant has money and destructive: both wait for the person's approval (G8, cx-wb5.65)", async () => {
     const { team, alice, stub } = people()
     const inst = `inst_${"b".repeat(20)}`
     const install: Principal = { identity: `install:${inst}`, user: alice.user, team, kind: "install", install: inst, grant_classes: ["read", "mutate-own", "mutate-shared", "money", "destructive"] }
-    expect(await create(stub, team, install)).toMatchObject({ t: "reject", code: "auth.forbidden" })
+    expect(await create(stub, team, install)).toMatchObject({ t: "reject", code: "approval.pending" })
     const m = (await create(stub, team, alice)).value.machine
-    expect(reply(await stub.submit(team, install, frame("cloud.machine.delete", { machine: m.id })))).toMatchObject({ t: "reject", code: "auth.forbidden" })
+    expect(reply(await stub.submit(team, install, frame("cloud.machine.delete", { machine: m.id })))).toMatchObject({ t: "reject", code: "approval.pending" })
+    expect(await stub.fakeControl({})).toMatchObject({ creates: 1, deletes: 0 })
     // Reads and non-person mutations stay open to the install.
     expect(await stub.readOp(team, install, "cloud.machine.get", { machine: m.id })).toMatchObject({ ok: true, value: { id: m.id } })
   })
@@ -305,6 +306,7 @@ describe("Cloud plan allowlist (P1-1)", { timeout: 60_000 }, () => {
 })
 
 describe("cloud driver prefix guard", () => {
+  const EDGE_RULE = { action: "allow", domain: "coderouter.cmux.internal", source: {}, destination: { host: "coderouter.example.com", port: 443 }, transform: [{ headers: { "x-chatmux-vm-authorization": "Bearer t" } }] } as const
   const counting = () => {
     const calls: Array<string> = []
     const raw: RawCloudDriver = {
@@ -320,7 +322,8 @@ describe("cloud driver prefix guard", () => {
       resources: async () => null,
       findSnapshot: async (slug) => (calls.push(`findSnapshot:${slug}`), null),
       createSnapshot: async (id) => (calls.push(`createSnapshot:${id}`), { id: "sh-1" }),
-      deleteSnapshot: async (id) => void calls.push(`deleteSnapshot:${id}`)
+      deleteSnapshot: async (id) => void calls.push(`deleteSnapshot:${id}`),
+      replaceTlsRule: async (id) => (calls.push(`replaceTlsRule:${id}`), true)
     }
     return { calls, raw }
   }
@@ -348,6 +351,8 @@ describe("cloud driver prefix guard", () => {
       await expect(driver.power(name, tag, "start")).rejects.toMatchObject({ code: "cloud.provider.refused", final: true })
       await expect(driver.resize(name, tag, { cpu: 4, memory: 8192, storage: 16384 })).rejects.toMatchObject({ code: "cloud.provider.refused", final: true })
       await expect(driver.snapshot(name, tag, "cmuxnp-test-cld-snap-00000000000000000001")).rejects.toMatchObject({ code: "cloud.provider.refused", final: true })
+      // The coderouter edge token refresh (cloud-coderouter-edge.ts) never touches a name outside the prefix either.
+      await expect(driver.replaceEdgeRule(name, tag, EDGE_RULE)).rejects.toMatchObject({ code: "cloud.provider.refused", final: true })
     }
     // Snapshot slugs carry the prefix and the snap- tail, also for a restore's boot snapshot.
     for (const slug of ["cmuxnp-test-cld-vm-00000000000000000001", "cmuxnp-dev-cld-snap-00000000000000000001", "freestyle/ubuntu", "cmuxnp-test-cld-snap-x"]) {
@@ -400,6 +405,9 @@ describe("cloud driver prefix guard", () => {
       },
       deleteSnapshot: async () => {
         throw new Error("must not delete a snapshot")
+      },
+      replaceTlsRule: async () => {
+        throw new Error("must not replace another VM's TLS rule")
       }
     }
     const driver = new GuardedCloudDriver(raw, "cmuxnp-test-cld-")
@@ -407,5 +415,6 @@ describe("cloud driver prefix guard", () => {
     await expect(driver.ensure("cmuxnp-test-cld-vm-00000000000000000001", tag, { idleSeconds: 0 })).rejects.toMatchObject({ final: true })
     await expect(driver.power("cmuxnp-test-cld-vm-00000000000000000001", tag, "pause")).rejects.toMatchObject({ code: "cloud.provider.name_conflict", final: true })
     await expect(driver.remove("cmuxnp-test-cld-vm-00000000000000000001", tag)).rejects.toMatchObject({ final: true })
+    await expect(driver.replaceEdgeRule("cmuxnp-test-cld-vm-00000000000000000001", tag, EDGE_RULE)).rejects.toMatchObject({ code: "cloud.provider.name_conflict", final: true })
   })
 })

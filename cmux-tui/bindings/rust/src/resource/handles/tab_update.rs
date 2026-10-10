@@ -1,6 +1,7 @@
 //! `tab.pin`, `tab.unpin`, and `tab.update` on a tab handle. The result's
 //! `TabSnapshot.extra` carries `pinned`, `zoom`, a browser tab's `back` and
-//! `forward` URL lists, and a frontend-rendered browser's `owner`.
+//! `forward` URL lists, a frontend-rendered browser's `owner`, and the
+//! user's `icon`.
 
 use super::super::*;
 
@@ -22,6 +23,9 @@ pub struct TabUpdateOptions {
     /// Install id of the app that hosts a frontend-rendered browser tab,
     /// 1 to 128 bytes. Only that app sends it.
     pub owner: Option<String>,
+    /// The tab's user icon: an SF Symbol name or one emoji (the daemon
+    /// validates the shape). `Update::Clear` sends `null`.
+    pub icon: Update<String>,
 }
 
 impl Tab {
@@ -44,8 +48,8 @@ impl Tab {
         mutation_snapshot(self.client().mutate(ops::TAB_UNPIN, self.params(), mutation)?, "tab")
     }
 
-    /// Sets the tab's zoom, browser history lists, or frontend owner with a
-    /// fresh idempotency key.
+    /// Sets the tab's zoom, browser history lists, frontend owner, or icon
+    /// with a fresh idempotency key.
     pub fn update(&self, options: TabUpdateOptions) -> Result<MutationResult<TabSnapshot>> {
         self.update_with(options, MutationOptions::unique()?)
     }
@@ -65,10 +69,15 @@ impl Tab {
 }
 
 fn tab_update_params(params: Params, options: TabUpdateOptions) -> Result<Params> {
-    let TabUpdateOptions { zoom, back, forward, owner } = options;
-    if matches!(zoom, Update::Unchanged) && back.is_none() && forward.is_none() && owner.is_none() {
+    let TabUpdateOptions { zoom, back, forward, owner, icon } = options;
+    if matches!(zoom, Update::Unchanged)
+        && matches!(icon, Update::Unchanged)
+        && back.is_none()
+        && forward.is_none()
+        && owner.is_none()
+    {
         return Err(Error::InvalidArgument(
-            "tab update must set zoom, back, forward, or owner".to_string(),
+            "tab update must set zoom, back, forward, owner, or icon".to_string(),
         ));
     }
     let mut params = match zoom {
@@ -99,6 +108,16 @@ fn tab_update_params(params: Params, options: TabUpdateOptions) -> Result<Params
             ));
         }
         params = params.string("owner", owner);
+    }
+    match icon {
+        Update::Unchanged => {}
+        Update::Clear => params = params.value("icon", Value::Null),
+        Update::Set(icon) if !icon.is_empty() && icon.len() <= 128 => {
+            params = params.string("icon", icon);
+        }
+        Update::Set(_) => {
+            return Err(Error::InvalidArgument("tab icon must contain 1 to 128 bytes".to_string()));
+        }
     }
     Ok(params)
 }

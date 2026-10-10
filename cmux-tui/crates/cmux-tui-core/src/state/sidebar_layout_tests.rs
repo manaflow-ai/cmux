@@ -47,8 +47,7 @@ fn defaults_match_the_app() {
              "contribution": "cmux/agent-chats#recents", "items": []},
             {"id": "sec_bottom", "shows_title": true, "region": "bottom", "look": "built_in",
              "arrangement": {"layout": "inline", "align": "leading"}, "content": "items", "items": [
-                {"id": "itm_account", "ref": {"kind": "built_in", "value": "account"}, "shows_label": false},
-                {"id": "itm_settings", "ref": {"kind": "built_in", "value": "settings"}, "shows_label": false}]}
+                {"id": "itm_account", "ref": {"kind": "built_in", "value": "account"}, "shows_label": false}]}
         ]})
     );
     let round: Document = serde_json::from_value(value).unwrap();
@@ -149,14 +148,14 @@ fn moves() {
         ok(&d, json!({"kind": "item.move", "id": "itm_home", "section": "sec_bottom", "index": 1}));
     assert_eq!(
         find(&across, "sec_bottom").items.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(),
-        ["itm_account", "itm_home", "itm_settings"]
+        ["itm_account", "itm_home"]
     );
     let within = ok(
         &d,
-        json!({"kind": "item.move", "id": "itm_account", "section": "sec_bottom", "index": 1}),
+        json!({"kind": "item.move", "id": "itm_app_store", "section": "sec_top", "index": 0}),
     );
-    assert_eq!(find(&within, "sec_bottom").items[0].id, "itm_settings");
-    assert_eq!(find(&within, "sec_bottom").items[1].id, "itm_account");
+    assert_eq!(find(&within, "sec_top").items[0].id, "itm_app_store");
+    assert_eq!(find(&within, "sec_top").items[1].id, "itm_home");
     assert_eq!(
         ok(&d, json!({"kind": "item.move", "id": "itm_home", "section": "sec_top", "index": 0})),
         d
@@ -195,7 +194,7 @@ fn duplicate_ref_on_move_and_unknowns() {
         err(&d, json!({"kind": "item.update", "id": "itm_nope", "shows_label": true})),
         Reject::UnknownItem
     );
-    let dup = json!({"id": "itm_settings", "ref": {"kind": "built_in", "value": "history"}});
+    let dup = json!({"id": "itm_account", "ref": {"kind": "built_in", "value": "history"}});
     assert_eq!(
         err(&d, json!({"kind": "item.add", "item": dup, "section": "sec_top", "index": 0})),
         Reject::DuplicateId

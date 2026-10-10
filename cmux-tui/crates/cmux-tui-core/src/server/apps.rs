@@ -223,6 +223,8 @@ fn cancel_request(mux: &Arc<Mux>, client: u64, value: Value, writer: &MessageWri
         );
     }
     mux.control_clients.apps.cancel_request(client, &request.target);
+    // The same frame ends a running script cell (server/scripts.rs).
+    mux.control_clients.scripts.cancel_request(client, &request.target);
     reply(writer, request.id, Ok(json!({})))
 }
 

@@ -51,17 +51,14 @@ enum DebugPaneChrome {
                 "scale": .number(Double(window.backingScaleFactor)),
                 "pane_padding": .number(Double(Metrics.panePadding)),
                 "panes": .array(panes),
-                // nxdog41: what decides the collapsed window controls (sidebar hidden, corner hover).
-                "window_controls": {
-                    let corner = controller.root.cornerReveal.state
-                    return .object([
-                        "collapsed": .bool(controller.root.windowControlsCollapsed), "sidebar_hidden": .bool(controller.root.sidebarHidden),
-                        "enabled": .bool(corner.isEnabled), "pointer_inside": .bool(corner.pointerInside),
-                        "focus_inside": .bool(corner.focusInside), "holds": .number(Double(corner.holds)),
-                        "first_responder": .string(window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"),
-                        "corner": rect(controller.root.cornerRegionFrameInWindow),
-                    ])
-                }(),
+                "window_controls": .object([
+                    "sidebar_hidden": .bool(controller.root.sidebarHidden),
+                    "toggle_symbol": .string(controller.root.toolbarBand.sidebarToggle.symbol),
+                    "toggle_icon": .string(SidebarToggleIcon.tunable.value.rawValue),
+                    "band_presence": .number(Double(controller.root.toolbarBand.presence)),
+                    "band_frame": rect(controller.root.toolbarBand.frame),
+                    "first_responder": .string(window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"),
+                ]),
                 // 2026-10-05: the title bar buttons' reveal (top row or sidebar hover) and what is drawn.
                 "titlebar_buttons": {
                     let root = controller.root, reveal = root.titlebarReveal.state, band = root.toolbarBand

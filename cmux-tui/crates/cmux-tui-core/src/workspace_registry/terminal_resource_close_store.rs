@@ -30,7 +30,8 @@ impl WorkspaceRegistry {
         let fingerprint = terminal_close_fingerprint(mutation, terminal_id, expected_incarnation)?;
         let resource_result_json = canonical_json(resource_result)?;
         let resource_deltas = &self.prune_stated_topology_deltas(resource_deltas)?;
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         let terminal_batch = [(terminal_id.to_string(), expected_incarnation.map(str::to_string))];
         let (patch, resource_deltas) =
             complete_terminal_close_patch(&tx, &terminal_batch, patch, resource_deltas)?;
@@ -102,19 +103,13 @@ impl WorkspaceRegistry {
             "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
             [revision.to_string()],
         )?;
-        tx.execute(
-            "INSERT INTO resource_mutations(
-                   origin, idempotency_key, operation, fingerprint, result_json,
-                   committed_revision
-                 ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
-            params![
-                mutation.origin,
-                mutation.id,
-                OPERATION,
-                fingerprint,
-                resource_result_json,
-                sqlite_revision,
-            ],
+        insert_resource_mutation(
+            &tx,
+            mutation,
+            OPERATION,
+            &fingerprint,
+            &resource_result_json,
+            sqlite_revision,
         )?;
         append_resource_journal_record(
             &tx,
@@ -131,6 +126,7 @@ impl WorkspaceRegistry {
         let resource =
             ResourcePatchCommit { revision, result: resource_result.clone(), replayed: false };
         tx.commit()?;
+        drop(db);
         self.record_public_fold(previous_revision, revision, &resource_deltas, true);
         Ok(TerminalResourceCloseCommit::Committed { terminal, resource, workspace_revision })
     }

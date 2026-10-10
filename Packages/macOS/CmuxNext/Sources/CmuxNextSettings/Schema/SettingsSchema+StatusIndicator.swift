@@ -40,6 +40,20 @@ nonisolated enum StatusIndicatorSettingsSchema {
                 kind: .color, default: nil, defaultLabel: SettingsText.keyed("settings.default.theme", "Theme")
             ),
             SettingDescriptor(
+                path + ["showAgentWorkingOnTabs"], section: .appearance, group: group,
+                title: SettingsText.keyed("settings.statusIndicator.showAgentWorkingOnTabs", "Show Agent Working on Tabs"),
+                help: SettingsText.keyed("settings.statusIndicator.showAgentWorkingOnTabs.help",
+                                        "Three dots take the tab's icon place while an agent works."),
+                kind: .toggle, default: .bool(defaults.showsAgentWorkingOnTabs), keywords: ["agent", "working", "thinking", "dots"]
+            ),
+            SettingDescriptor(
+                path + ["showPageLoading"], section: .appearance, group: group,
+                title: SettingsText.keyed("settings.statusIndicator.showPageLoading", "Show Page Loading on Tabs"),
+                help: SettingsText.keyed("settings.statusIndicator.showPageLoading.help",
+                                        "A spinner takes a browser tab's icon place while its page loads."),
+                kind: .toggle, default: .bool(defaults.showsPageLoading), keywords: ["browser", "loading", "spinner", "page"]
+            ),
+            SettingDescriptor(
                 path + ["honorStatusStyle"], section: .appearance, group: group,
                 title: SettingsText.keyed("settings.statusIndicator.honorStatusStyle", "Let Statuses Choose Their Style"),
                 help: SettingsText.keyed("settings.statusIndicator.honorStatusStyle.help",

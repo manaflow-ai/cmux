@@ -124,6 +124,40 @@ Default: `always` for stable, nightly, and RC builds. DEV builds always behave a
 
 The older boolean `app.warnBeforeQuit` still works as a fallback when `app.confirmQuit` is not set. `true` maps to `always`; `false` maps to `never`.
 
+## `tabs.cmdWClosesPinnedTabs`
+
+What Cmd-W does on a pinned tab.
+
+```json
+{
+  "tabs": { "cmdWClosesPinnedTabs": true }
+}
+```
+
+- `false` (default): Cmd-W on a pinned tab selects the next tab and keeps the pinned tab, as in Chrome. When the pinned tab is the only tab in its pane, Cmd-W keeps it and shows a short notice. Close a pinned tab from its right-click menu.
+- `true`: Cmd-W closes a pinned tab like any other tab.
+
+A tab closed by name (its menu, `cmux tab close`, MCP) closes with either value. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.cmdWClosesPinnedTabs true`.
+
+## `tabs.newTabTemplate`
+
+The layout of the New Tab page. The dots at the bottom of the page switch it in place and save the choice here.
+
+```json
+{
+  "tabs": { "newTabTemplate": "terminal" }
+}
+```
+
+- `default`: one field with agent rows, recent chats as cards, and Tools.
+- `composer`: one large prompt field, with nothing else.
+- `threads`: the field and the recent chats as a list.
+- `console`: a monospace field with a `>` prompt and the recent chats as lines.
+- `classic`: the Terminal, Browser and Agent switch.
+- `terminal`: no page. Cmd-T, the + button and a new workspace open a terminal. New Tab Page (`newTab.page`) and Focus Location Bar (Cmd-L) still show the page, so you can pick another template.
+
+The template applies when `tabs.newTabKind` is `page` (the default). Change it in **Settings > General > Tabs** or with `cmux settings set tabs.newTabTemplate console`.
+
 ## `app.forkConversationDefaultDestination`
 
 Controls what the tab right-click `Fork Conversation` item does. The submenu still exposes every destination.
@@ -199,6 +233,53 @@ What a Go Back / Go Forward step is (the toolbar arrows, Ctrl-- and Ctrl-Shift--
 - `everything`: every tab, pane and page focus is a step, as in earlier builds.
 
 A web page's own Back and Forward (⌘[ and ⌘] in a browser tab) stay the page's history. Change it in **Settings > General > History** or with `cmux settings set navigation.history.scope everything`.
+
+## `layout.newPanePlacement` and `layout.tileBrowsers`
+
+Where a new terminal or browser opens when you create it (New Terminal, Cmd-T, the strip's +, the palette).
+
+```json
+{
+  "layout": { "newPanePlacement": "split", "tileBrowsers": false }
+}
+```
+
+- `newPanePlacement: "tab"` (default): a new tab in the focused pane.
+- `newPanePlacement: "split"`: a new pane, the same as New Pane (Auto Layout) (Ctrl-Cmd-N). The largest pane on screen splits along its longer side, like Zellij. A docked column never splits. The new terminal starts in the focused terminal's folder.
+- `tileBrowsers` (default `false`): with `split`, new browsers also get their own pane instead of a tab.
+
+The CLI and MCP always open a tab, so scripts get a predictable result; a command that names a pane opens in that pane. Change these in **Settings > General > Columns** or with `cmux settings set layout.newPanePlacement split`.
+
+## `workspaces.newPlacement`
+
+Where a new workspace goes in the sidebar when you do not pick a place: Cmd-N, New Workspace in the palette or menu, the sidebar's +, `cmux workspace new`, Home, and a tab moved to a new workspace.
+
+```json
+{
+  "workspaces": { "newPlacement": "top" }
+}
+```
+
+- `"top"` (default): first in the workspace list, above every group. Pinned workspaces stay above it in the Pinned section, and it goes below the Home row when the list shows one.
+- `"afterCurrent"`: right after the workspace the window shows, inside that workspace's group when it has one. When that workspace is pinned, is Home, or is on another machine, the new one goes to the top.
+- `"bottom"`: after the last workspace that is not in a group.
+
+A place you pick always wins: a tab dropped on a gap in the sidebar, New Workspace Above, Below, at Top or at Bottom, and New Workspace in This Group. A reopened workspace (Reopen Closed Workspace) comes back where it was. The position is written to the sidebar order cmux keeps for you, so it survives a relaunch and shows the same in every window. Change it in **Settings > General > Sidebar** or with `cmux settings set workspaces.newPlacement afterCurrent`.
+
+## `sidebar.groupByComputer`
+
+Whether the sidebar groups workspaces by computer.
+
+```json
+{
+  "sidebar": { "groupByComputer": false }
+}
+```
+
+- `false` (default): one list of workspaces with no computer headers. A workspace on another computer (a Cloud machine, an SSH host) shows that computer's name first on its second line. The Pinned section and your workspace groups stay.
+- `true`: a section per computer, each under a header you can collapse.
+
+Change it in **Settings > General > Sidebar** or with `cmux settings set sidebar.groupByComputer true`.
 
 ## `sidebar.numbering`, `sidebar.cmd9`, `sidebar.stepping`, `sidebar.steppingWraps`
 
@@ -320,6 +401,34 @@ When `ui.newWorkspace.contextMenu` is not set, the plus-button menu lists `cmux.
 ## Search Tabs shortcut
 
 Cmd+Shift+A opens Search Tabs: every tab in every window, workspace, pane and connected machine, with recently closed tabs below. Type to match a tab's title, URL, folder or the agent running in it. Return focuses and reveals the tab (or reopens a closed one), and Cmd+W closes the selected tab, or removes a closed one from the list, without closing the search. Rebind or unbind it from Settings > Keyboard Shortcuts or with `shortcuts.bindings["tab.search"]`, for example `"tab.search": "cmd+shift+f"` or `"tab.search": null`. A focused Simulator keeps Cmd+Shift+A for its own Toggle Appearance. Focus TextBox moved to Cmd+Option+A so a terminal does not take the chord.
+
+## Tab and Space number shortcuts (Ctrl+1…9)
+
+Ctrl+1 through Ctrl+8 select tab 1 through 8 of the focused pane and Ctrl+9 selects its last tab (`selectSurfaceByNumber`). Ctrl+Option+1…9 select Space 1…9 (`space.selectByNumber`), and Cmd+1…9 select workspaces. The keys work in every surface, including a focused terminal, so a terminal program does not receive Ctrl+1…9 while they are bound.
+
+The first-run Number Keys screen (also under Help > Continue Setup) offers the other order: Spaces on Ctrl+1…9 and tabs on Ctrl+Option+1…9. It writes the two bindings into `cmux.json`, and choosing Tabs removes them again:
+
+```json
+{ "shortcuts": { "bindings": { "space.selectByNumber": "ctrl+1", "selectSurfaceByNumber": "ctrl+opt+1" } } }
+```
+
+A binding you set yourself for either action stays when you pick a choice. Rebind or unbind each family from Settings > Keyboard Shortcuts or `shortcuts.bindings`; the first key names the whole 1…9 family. To give Ctrl+digits back to terminal programs (for example Ctrl+6 for Vim's alternate file), set `"selectSurfaceByNumber": "cmd+opt+1"` or `null`. macOS Mission Control "Switch to Desktop N" uses Ctrl+1…9 when you turn it on in System Settings > Keyboard > Keyboard Shortcuts; macOS then takes those keys before cmux sees them.
+
+## Start Agent and `app.startAgentGlobalHotKey`
+
+Start Agent… (File menu, command palette, `cmux agent quick`, Ctrl+Cmd+Return) opens a small floating panel for one new agent session. The folder row at its top picks the folder or checkout, and the composer's chips pick the harness, model and mode. Return sends the prompt and starts the session in the background: the panel closes and the session appears in the sidebar as a new workspace, without taking focus. Cmd+Return starts it and opens it in the main window. Escape hides the panel and keeps the draft. Rebind the panel's key from Settings > Keyboard Shortcuts or with `shortcuts.bindings["palette.quickAgentChat"]`.
+
+The panel can also open while another app is in front. This system-wide key is off by default, because it takes the key from every other app:
+
+```json
+{
+  "app": {
+    "startAgentGlobalHotKey": true
+  }
+}
+```
+
+Turn it on in Settings > General > Start Agent from Any App. Its key is a separate row, Start Agent from Any App (default Ctrl+Option+Cmd+Space), rebound from Settings > Keyboard Shortcuts or with `shortcuts.bindings["palette.startAgentFromAnyApp"]`. When another app (or another cmux global key) already holds the key, the Keyboard Shortcuts row shows a warning and the key works only inside cmux.
 
 ## `palette.scopes.<scope>.prefix`
 

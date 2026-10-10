@@ -32,6 +32,7 @@ import {
   normalizedBakeScript,
   normalizedDockerfileInstructions,
   rewriteDevboxAgentPins,
+  devboxDaemonUnit,
 } from "../scripts/devbox-image-common";
 import { DEVBOX_DESKTOP_USER } from "../services/vms/images/desktop";
 import {
@@ -582,9 +583,9 @@ describe("devbox image template", () => {
 
   test("the Freestyle boot path supervises the daemon through systemd", () => {
     const freestyleScript = readScript("build-devbox-freestyle.ts");
-    expect(freestyleScript).toContain("ExecStart=/usr/local/bin/cmux-devbox-boot");
+    expect(devboxDaemonUnit()).toContain("ExecStart=/usr/local/bin/cmux-devbox-boot");
     expect(freestyleScript).toContain("cmux-tui-daemon.service");
-    expect(freestyleScript).toContain("Restart=always");
+    expect(devboxDaemonUnit()).toContain("Restart=always");
   });
 
   test("the Freestyle replay carries the ble.sh cache bake", () => {
@@ -763,9 +764,7 @@ describe("devbox image template", () => {
     expect(readScript("verify-devbox-image.ts")).not.toContain("freestyle-beta");
     // The freestyle bake's systemd unit binds the daemon dual-stack: the
     // driver's route is the VM's public IPv6 straight to port 1337.
-    expect(readScript("build-devbox-freestyle.ts")).toContain(
-      "Environment=CMUX_TUI_REMOTE_WS_BIND=[::]:1337",
-    );
+    expect(devboxDaemonUnit()).toContain("Environment=CMUX_TUI_REMOTE_WS_BIND=[::]:1337");
     // Both the bake and the verifier must pin root: the 0.2 API's default guest
     // user is uid 1000, which the devbox image ships.
     expect(readScript("build-devbox-freestyle.ts")).toContain('linuxUser: "root"');

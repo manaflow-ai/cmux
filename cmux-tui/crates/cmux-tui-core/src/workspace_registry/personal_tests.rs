@@ -22,7 +22,7 @@ fn seed(registry: &mut WorkspaceRegistry, keys: &[&str]) {
         });
         registry
             .commit(
-                &WorkspaceMutation::new(format!("create-{key}"), "test").unwrap(),
+                &WorkspaceMutation::daemon(format!("create-{key}"), "test").unwrap(),
                 &json!({"op":"create","key":key}),
                 None,
                 Some(revision),
@@ -38,12 +38,14 @@ fn seed(registry: &mut WorkspaceRegistry, keys: &[&str]) {
 fn count(registry: &WorkspaceRegistry, table: &str) -> i64 {
     registry
         .connection
+        .get()
         .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row.get(0))
         .unwrap()
 }
 
 fn strings(registry: &WorkspaceRegistry, sql: &str) -> Vec<String> {
-    let mut statement = registry.connection.prepare(sql).unwrap();
+    let db = registry.connection.get();
+    let mut statement = db.prepare(sql).unwrap();
     statement.query_map([], |row| row.get::<_, String>(0)).unwrap().map(Result::unwrap).collect()
 }
 
@@ -74,7 +76,7 @@ fn shared_groups_and_order_migrate_into_personal_rows_once() {
         seed(&mut registry, &[first, second]);
         registry.create_workspace_group("grp_shared", "Shared", Some("red"), false, None).unwrap();
         registry
-            .connection
+            .connection.get()
             .execute(
                 "INSERT INTO workspace_presentation(workspace_key, group_id) VALUES(?1, 'grp_shared')",
                 [second],
@@ -83,6 +85,7 @@ fn shared_groups_and_order_migrate_into_personal_rows_once() {
         // Simulate a registry written by a build without personal state.
         registry
             .connection
+            .get()
             .execute_batch(
                 "DELETE FROM meta WHERE key IN ('personal_migrated_v1', 'personal_revision');
                  DELETE FROM profiles; DELETE FROM profile_follows; DELETE FROM sessions;
@@ -131,6 +134,7 @@ fn personal_state_does_not_bump_the_schema_version() {
     let registry = WorkspaceRegistry::in_memory("personal-additive").unwrap();
     let schema: String = registry
         .connection
+        .get()
         .query_row("SELECT value FROM meta WHERE key = 'schema_version'", [], |row| row.get(0))
         .unwrap();
     assert_eq!(schema, SCHEMA_VERSION.to_string());

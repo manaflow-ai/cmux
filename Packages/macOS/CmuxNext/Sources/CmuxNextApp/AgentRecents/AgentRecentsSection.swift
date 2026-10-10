@@ -1,31 +1,52 @@
 import AppKit
 import CmuxAgentBrands
+import CmuxNextAgentPane
 import CmuxNextSidebar
+import Observation
 
-/// One window's Recents section (`SidebarRecentsView.contribution`): the
-/// shared feed's chats as rows, each opening its chat as a session link
-/// does. With no chats there is no view, so the section draws nothing.
+/// One window's All chats section, backed by the shared device-wide chat feed.
 @MainActor
 final class AgentRecentsSection {
-    private let feed: AgentRecentsFeed
-    private let view = SidebarRecentsView()
+    private let feed: ChatsFeed
+    private let view = SidebarChatsView()
+    /// Follows the TEMPORARY Debug Settings design picker (cx-xub5 vote).
+    private var designObservation: Task<Void, Never>?
     var onContentChange: (() -> Void)?
-
-    init(feed: AgentRecentsFeed, open: @escaping (String) -> Void) {
-        self.feed = feed
-        view.onOpen = open
-        refresh()
-        feed.observe(self) { [weak self] in self?.refresh() }
+    /// A row's Open in Terminal (its right-click menu).
+    var openInTerminal: ((String) -> Void)? {
+        get { view.onOpenInTerminal }
+        set { view.onOpenInTerminal = newValue }
+    }
+    /// The header's right-click menu (Hide Section).
+    var headerMenu: (() -> NSMenu?)? {
+        get { view.headerMenu }
+        set { view.headerMenu = newValue }
     }
 
-    var contentView: NSView? { feed.chats.isEmpty ? nil : view }
-    var height: CGFloat { SidebarRecentsView.height(rows: feed.chats.count) }
+    init(feed: ChatsFeed, open: @escaping (String) -> Void) {
+        self.feed = feed
+        view.onOpen = open
+        view.onLayoutChange = { [weak self] in self?.onContentChange?() }
+        refresh()
+        feed.observe(self) { [weak self] in self?.refresh() }
+        // task-owner: the section (cancelled in deinit); event-driven (Observation)
+        designObservation = Task { [weak self] in
+            for await design in Observations({ SidebarChatsDesign.tunable.value }) { self?.view.design = design }
+        }
+    }
+
+    isolated deinit { designObservation?.cancel() }
+
+    var contentView: NSView? { view }
+    var height: CGFloat { view.preferredHeight }
 
     private func refresh() {
-        view.update(feed.chats.map { chat in
-            SidebarRecentsView.Row(id: chat.id, title: chat.title ?? SidebarRecentsView.newChatTitle,
-                                   brand: AgentBrandCatalog.brand(for: chat.harness)?.rawValue)
-        })
+        let rows = feed.chats.map { chat in
+            SidebarChatsView.Row(id: chat.id, title: chat.title ?? SidebarChatsView.newChatTitle,
+                                 harness: chat.harness, brand: AgentBrandCatalog.brand(for: chat.harness)?.rawValue,
+                                 folder: chat.cwd, account: chat.accounts.first, updatedAt: chat.updatedAt)
+        }
+        view.update(rows, enabled: feed.isEnabled, ready: feed.isReady)
         onContentChange?()
     }
 }

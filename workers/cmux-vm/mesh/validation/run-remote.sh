@@ -17,7 +17,10 @@ if [[ "${1:-}" == "--key-remove" ]]; then
 fi
 script="$1"; shift || true
 ssh "$HOST" 'mkdir -p ~/mesh-validation && chmod 700 ~/mesh-validation'
-rsync -a --exclude out --exclude 'wgprobe/wgprobe' "$HERE/" "$HOST:mesh-validation/"
+# Only files Git tracks: an untracked .env, key or scratch file here never leaves
+# this Mac (cx-44j.25). New scripts must be committed (or git add-ed) to run.
+git -C "$HERE" ls-files -z --cached -- . \
+  | rsync -a --from0 --files-from=- "$HERE/" "$HOST:mesh-validation/"
 ssh "$HOST" 'test -x ~/mesh-validation/wgprobe/wgprobe || (cd ~/mesh-validation/wgprobe && PATH=/opt/homebrew/bin:$PATH go build -o wgprobe .)'
 ssh "$HOST" 'test -s ~/mesh-validation/.key' || ssh "$HOST" 'umask 077; cat > ~/mesh-validation/.key' < "$KEY_FILE"
 set +e

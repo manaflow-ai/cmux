@@ -15,10 +15,13 @@ import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { Effect, Layer, Option, Redacted } from "effect";
 import { makeWebHandler } from "../../src/app.ts";
+import { makeServiceKeys, ServiceKeys } from "../../src/auth/service-keys.ts";
 import { generateApiKey, hashApiKey, SessionVerifier, TeamMembership } from "../../src/auth/credentials.ts";
 import { TeamAdmin } from "../../src/auth/team-admin.ts";
 import { ApiKeyAdminStore } from "../../src/db/api-keys.ts";
 import { makeMemoryMeshStore } from "../../src/db/mesh-memory.ts";
+import { makeMemoryMembershipCache } from "../../src/auth/membership-cache.ts";
+import { makeMemoryWebhookDeliveryStore } from "../../src/db/identity.ts";
 import { SnapshotStore } from "../../src/db/snapshots.ts";
 import { ApiKeyStore, AuditStore, OwnershipStore, type OwnedResource } from "../../src/db/stores.ts";
 import { SCOPES } from "../../src/domain/scopes.ts";
@@ -127,6 +130,7 @@ const services = Layer.mergeAll(
     markDeleted: (_t, _kind, id) => Effect.sync(() => void deleted.add(id)),
   }),
   Layer.succeed(AuditStore, { append: (entry) => Effect.sync(() => void audit.push({ ...entry, at: entry.at.toISOString() })) }),
+  Layer.succeed(ServiceKeys, makeServiceKeys([])),
   Layer.succeed(ApiKeyStore, {
     findActiveByHash: (hash) =>
       Effect.succeed(
@@ -160,6 +164,9 @@ const services = Layer.mergeAll(
   Layer.succeed(UpstreamSnapshots, makeUpstreamSnapshots(upstreamConfig)),
   Layer.succeed(UpstreamTerminals, makeUpstreamTerminals(upstreamConfig)),
   makeMemoryMeshStore().layer,
+  // Mesh M4 services (unused by this run).
+  makeMemoryMembershipCache().layer,
+  makeMemoryWebhookDeliveryStore().layer,
   Layer.succeed(UpstreamMesh, makeUpstreamMesh(upstreamConfig)),
   meshConfigLayer({ experiment: true, tenantIds: [TENANT] }),
 );

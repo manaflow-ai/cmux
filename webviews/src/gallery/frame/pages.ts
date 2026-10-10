@@ -70,6 +70,7 @@ export async function mountMarkdownPage(state: MarkdownPageVariant, context: Sta
       text: file.text,
       hash: file.hash,
       readOnly: state.readOnly === true,
+      githubRepository: state.githubRepository,
       assetBase: "/__gallery/none/",
       libBase: "/__gallery/none/",
       settings,

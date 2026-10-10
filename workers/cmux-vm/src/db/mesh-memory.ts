@@ -13,6 +13,9 @@ export type MemoryEnrollmentCode = Omit<MeshEnrollmentCodeRow, "expiresAt" | "us
 export function makeMemoryMeshStore() {
   const slots = new Map<number, { readonly tenantId: string; readonly meshId: string; readonly cidr: string }>();
   const devices: Array<MeshDeviceRow & { readonly tenantId: string; deletedAt: Date | null }> = [];
+  /** Published public IPv6 addresses (migration 0009), by device id. */
+  const addresses = new Map<string, string>();
+  const addressTimes = new Map<string, Date>();
   const members: Array<MeshMemberRow & { readonly tenantId: string; detachedAt: Date | null }> = [];
   const acls: Array<MeshAclVersion & { readonly tenantId: string; readonly meshId: string }> = [];
   const rules: Array<MeshRuleRow & { readonly tenantId: string; deletedAt: Date | null }> = [];
@@ -55,6 +58,10 @@ export function makeMemoryMeshStore() {
       Effect.sync(() => {
         for (const row of devices) if (row.tenantId === tenantId && row.deviceId === deviceId && row.deletedAt === null) row.deletedAt = at;
       }),
+    listDevicesCreatedBy: (tenantId, createdBy) =>
+      Effect.sync(() => devices.filter((row) => row.tenantId === tenantId && row.createdBy === createdBy && row.deletedAt === null)),
+    listTenantsWithDevicesCreatedBy: (createdBy) =>
+      Effect.sync(() => [...new Set(devices.filter((row) => row.createdBy === createdBy && row.deletedAt === null).map((row) => row.tenantId))].sort().map((id) => TenantId.make(id))),
     updateDeviceKey: (tenantId, deviceId, wgPublicKey, _at) =>
       Effect.sync(() => {
         const index = devices.findIndex((row) => row.tenantId === tenantId && row.deviceId === deviceId && row.deletedAt === null);
@@ -63,6 +70,35 @@ export function makeMemoryMeshStore() {
         if (devices.some((row) => row.meshId === current.meshId && row.wgPublicKey === wgPublicKey && row.deletedAt === null && row.deviceId !== deviceId)) return false;
         devices[index] = { ...current, wgPublicKey };
         return true;
+      }),
+    setDeviceAddress: (tenantId, deviceId, publicIpv6, at) =>
+      Effect.sync(() => {
+        const live = devices.some((row) => row.tenantId === tenantId && row.deviceId === deviceId && row.deletedAt === null);
+        if (!live) return false;
+        if (at === null) addressTimes.delete(deviceId);
+        else addressTimes.set(deviceId, at);
+        if (publicIpv6 === null) addresses.delete(deviceId);
+        else addresses.set(deviceId, publicIpv6);
+        return true;
+      }),
+    getDeviceAddress: (tenantId, deviceId) =>
+      Effect.sync(() =>
+        devices.some((row) => row.tenantId === tenantId && row.deviceId === deviceId && row.deletedAt === null)
+          ? Option.some({ publicIpv6: addresses.get(deviceId) ?? null, at: addressTimes.get(deviceId) ?? null })
+          : Option.none(),
+      ),
+    deviceAddresses: (tenantId, meshId) =>
+      Effect.sync(() => {
+        const out = new Map<string, string>();
+        const live = devices
+          .filter((row) => row.tenantId === tenantId && row.meshId === meshId && row.deletedAt === null)
+          .map((row) => row.deviceId)
+          .sort();
+        for (const deviceId of live) {
+          const address = addresses.get(deviceId);
+          if (address !== undefined) out.set(deviceId, address);
+        }
+        return out;
       }),
     claimSignedRequest: (_tenantId, messageSha256, _purpose, expiresAt, now) =>
       Effect.sync(() => {

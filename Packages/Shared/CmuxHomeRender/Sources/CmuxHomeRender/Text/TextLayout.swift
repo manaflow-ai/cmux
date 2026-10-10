@@ -67,8 +67,8 @@ struct TextLayout: Hashable, Sendable {
     func lineOffset(_ i: Int, hard: CGFloat = Style.lineHeight) -> CGFloat {
         var y: CGFloat = 0
         let ns = text as NSString
-        for j in 1..<max(1, i + 1) where j < lines.count {
-            let loc = lines[j].range.location
+        for line in lines.prefix(max(1, i + 1)).dropFirst() {
+            let loc = line.range.location
             let afterNewline = loc > 0 && loc <= ns.length && ns.character(at: loc - 1) == 10
             y += afterNewline ? hard : Style.lineHeight
         }

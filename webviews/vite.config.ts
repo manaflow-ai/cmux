@@ -35,10 +35,6 @@ export default defineConfig({
       "src/agent-session/shared/agentBrands.generated.ts",
       // scripts/icon-picker/gen-emoji-data.mjs --check owns these bytes.
       "src/icon-picker/generated/**",
-      // The markdown round-trip corpus: real files whose exact bytes the editor must preserve.
-      "test/fixtures/markdown-roundtrip/**",
-      // Agent replies as an agent writes them (the transcript renderer's corpus).
-      "src/agent-session/acpmux/conversation/fixtures/**",
     ],
   }),
   define: {
@@ -156,6 +152,11 @@ export default defineConfig({
         // Grammars are resolved on the main thread and posted to the workers.
         codeSplitting: {
           groups: [
+            {
+              name: "createBaseUIEventDetails",
+              test: (id: string) => id.includes("/@base-ui/react/internals/createBaseUIEventDetails"),
+              priority: 6,
+            },
             // Lazy chunks take only their own module. Rolldown groups capture
             // dependencies by default, which would fold a grammar that another
             // grammar embeds into whichever language chunk claims it first.
@@ -276,6 +277,12 @@ function sharedChunkName(id: string): string | null {
     )
   ) {
     return "ui-vendor";
+  }
+  // react-dom's server renderer (~190 KB) renders the markdown editor's read-only task checkbox to
+  // static markup. Only the markdown page imports it, so it stays out of the eager `vendor` chunk
+  // that the diff and code editor pages load too.
+  if (/\/react-dom\/(server|cjs\/react-dom-server)/.test(id)) {
+    return null;
   }
   // Framework code both surfaces share. Pinning it to a stable `vendor`
   // chunk name keeps the shared chunk from being renamed (and rehashed)

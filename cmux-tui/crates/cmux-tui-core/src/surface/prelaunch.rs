@@ -1,4 +1,5 @@
-//! Launching a new terminal's host before its creation commits.
+//! Launching a new terminal's host before its creation commits, and a new
+//! host for a terminal whose shell was lost with its host (L2 respawn).
 
 use super::*;
 
@@ -50,5 +51,69 @@ impl Surface {
             terminal_public_id,
             resource_identity,
         })
+    }
+
+    /// Launch a new host and shell for terminal `terminal_id` whose previous
+    /// shell was lost with its host (cx-6so.49 L2): the same terminal and
+    /// tab identity (`resource_identity`, the slot `id`), a new incarnation.
+    /// The host applies `seed` (VT replay of the previous screen) to its
+    /// parser before the shell's first byte. The terminal row must be
+    /// `launching`; activation waits until the caller commits the respawn.
+    pub(crate) fn respawn_hosted(
+        id: SurfaceId,
+        opts: SurfaceOptions,
+        mux: Weak<Mux>,
+        terminal_id: crate::terminal_host::TerminalId,
+        resource_identity: TabResourceIdentity,
+        cell_pixels: (u16, u16),
+        seed: &[u8],
+    ) -> anyhow::Result<Arc<Surface>> {
+        let root = opts
+            .terminal_host_root
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("respawn needs a terminal host root"))?;
+        let (opts, terminal_public_id, kitty_reservation) =
+            Self::spawn_prelude(id, opts, &mux, Some(&resource_identity), KittyQuota::AtLaunch)?;
+        let initial_kitty_limits = kitty_reservation
+            .as_ref()
+            .map(crate::mux::KittyImageBudgetReservation::initial_limits)
+            .unwrap_or_default();
+        let default_colors = mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
+        let attachment = crate::terminal_host_runtime::launch_terminal_host_seeded(
+            &opts,
+            &root,
+            (default_colors, cell_pixels, initial_kitty_limits),
+            terminal_id,
+            None,
+            seed,
+        )?;
+        Self::spawn_hosted(
+            id,
+            opts,
+            mux,
+            HostedSurfaceLaunch {
+                attachment,
+                kitty_reservation,
+                terminate_on_error: true,
+                defer_launch_activation: true,
+                lifetime: PtyLifetime::SessionOwned,
+                terminal_public_id,
+                resource_identity: Some(resource_identity),
+            },
+        )
+    }
+}
+
+#[cfg(unix)]
+impl PrelaunchedHost {
+    /// The caller's tab id (`split-client-keys-v1`) for the tab that adopts
+    /// this host; the host's environment carries only the terminal id, so
+    /// the tab id may change until adoption.
+    pub(crate) fn with_tab_id(mut self, tab_id: Option<crate::resource::TabPublicId>) -> Self {
+        if let Some(tab_id) = tab_id {
+            let content_id = self.resource_identity.content_id.clone();
+            self.resource_identity = TabResourceIdentity::new(tab_id, content_id);
+        }
+        self
     }
 }

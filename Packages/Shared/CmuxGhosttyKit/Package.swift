@@ -18,6 +18,9 @@ import PackageDescription
 // local-history restore with no frame between its swaps (PR 26), and fetches
 // its build dependencies from our release mirror (PR 25).
 // Since 3320bd06e the Apple slices contain no GNU libintl (i18n off; PR 27).
+// Since 3339f2ada it reports OSC 7501 program status (ghostty-next PR 29).
+// Since 673a6369c its terminfo and XTGETTCAP advertise Pst (PR 32), and its
+// non-Darwin builds localize compiler-rt's libSystem symbols (PR 31).
 //
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
@@ -42,8 +45,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-2199dc93ee3bf6ed9423dc5a814b079bba7d0ccf-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "8ef3906625d23ee463cf2e83a598bed2dd72de0d310a8dab5e067cfc573737c1"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-673a6369c4ba43cddcc94ff67361872824ffa528-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "e1005a1245250b232c744a49a277eaa218c33590f938775b0564c7d9c3e216a2"
         ),
     ]
 )

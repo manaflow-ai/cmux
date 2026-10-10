@@ -75,10 +75,21 @@ final class FieldChrome: NSView {
     }
     required init?(coder: NSCoder) { fatalError() }
     override var isFlipped: Bool { true }
-    /// Only the buttons take clicks; the field's clicks reach the text view.
+    /// The field's text view. A click in the field hits `pressSensor` (the field glass's content
+    /// view), so the interactive glass sees the press as its own (Messages: the field brightens about
+    /// 1.2 levels from +6 ms after the release, gone by +0.36 s); the sensor hands the event to
+    /// the text view, which tracks the drag itself.
+    weak var pressTarget: NSView? {
+        didSet { if pressTarget != nil, Self.pressGlow { pressSensor.target = pressTarget; field.contentView = pressSensor } }
+    }
+    private let pressSensor = PressSensor()
+    static let pressGlow = ProcessInfo.processInfo.arguments.contains("--field-press-sensor")
+    /// Only the buttons (and, with the sensor, the field) take clicks; else the field's clicks reach
+    /// the text view.
     override func hitTest(_ point: NSPoint) -> NSView? {
         let p = convert(point, from: superview)
         for g in [plusGlass, emojiGlass] where g.frame.contains(p) { return g.contentView }
+        if pressTarget != nil, field.contentView === pressSensor, field.frame.contains(p) { return pressSensor }
         return nil
     }
     @objc private func plusClicked() { onPlus() }
@@ -132,22 +143,30 @@ final class FieldChrome: NSView {
     /// Messages fades only the field, not the "+" and emoji glass). Opacity on
     /// the glass view's layer, on its internal layers, or the glass view's own
     /// `alphaValue` shows nothing (A/B takes ffalpha/ffhide-*-take80): the
-    /// system draws the glass from its container. The field container's
-    /// `alphaValue` does fade it, so it is set on the main thread at each
-    /// display frame from the same closed form (value at the frame's display
-    /// time). `MLAB_FIELD_FADE=off` (A/B only) leaves the field at full alpha.
+    /// system draws the glass from its container. The field's own container
+    /// fades it: an opacity keyframe animation on the container's layer, on the
+    /// render server (no main-thread frame can delay it).
+    /// `MLAB_FIELD_FADE` (A/B only): `link` sets the container's `alphaValue`
+    /// on the main thread at each display frame instead (one frame late in
+    /// take 83 when the send's commit ran long), `off` leaves the field as is.
     func sendPulse(begin: CFTimeInterval) {
-        guard !FieldChrome.fadeOff else { return }
-        fadeBegin = begin
-        if fadeLink == nil {
-            let l = displayLink(target: self, selector: #selector(fadeFrame(_:)))
-            l.add(to: .main, forMode: .common)
-            fadeLink = l
+        switch FieldChrome.fadeMode {
+        case "off": return
+        case "link":
+            fadeBegin = begin
+            if fadeLink == nil {
+                let l = displayLink(target: self, selector: #selector(fadeFrame(_:)))
+                l.add(to: .main, forMode: .common)
+                fadeLink = l
+            }
+            fadeLink?.isPaused = false
+        default:
+            guard let l = fieldContainer.layer else { return }
+            Animate.sampledPulse(l, "opacity", Springs.fieldOpacity, base: 1, begin: begin)
         }
-        fadeLink?.isPaused = false
     }
 
-    private static let fadeOff = ProcessInfo.processInfo.environment["MLAB_FIELD_FADE"] == "off"
+    private static let fadeMode = ProcessInfo.processInfo.environment["MLAB_FIELD_FADE"] ?? "layer"
     private var fadeBegin: CFTimeInterval = 0
     private var fadeLink: CADisplayLink?
 
@@ -185,7 +204,7 @@ enum FieldAnimation: String {
 
     static let mode: FieldAnimation = {
         let a = ProcessInfo.processInfo.arguments
-        return a.firstIndex(of: "--field-anim").flatMap { $0 + 1 < a.count ? FieldAnimation(rawValue: a[$0 + 1]) : nil } ?? .`internal`
+        return a.firstIndex(of: "--field-anim").flatMap { a.dropFirst($0 + 1).first }.flatMap { FieldAnimation(rawValue: $0) } /* cmux */ ?? .`internal`
     }()
 
     func run(_ chrome: FieldChrome, from start: CGRect, to target: CGRect, _ el: SpringElement, begin: CFTimeInterval) {
@@ -248,6 +267,17 @@ enum FieldAnimation: String {
             }
         }
     }
+}
+
+/// The field glass's content: takes the field's mouse events for the glass and gives them to the
+/// text view (FieldChrome.pressTarget).
+final class PressSensor: NSView {
+    weak var target: NSView?
+    override func mouseDown(with event: NSEvent) { target.map { $0.mouseDown(with: event) } ?? super.mouseDown(with: event) }
+    override func rightMouseDown(with event: NSEvent) { target.map { $0.rightMouseDown(with: event) } ?? super.rightMouseDown(with: event) }
+    override func otherMouseDown(with event: NSEvent) { target.map { $0.otherMouseDown(with: event) } ?? super.otherMouseDown(with: event) }
+    override func scrollWheel(with event: NSEvent) { target.map { $0.scrollWheel(with: event) } ?? super.scrollWheel(with: event) }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { target?.acceptsFirstMouse(for: event) ?? false }
 }
 
 final class FlippedView: NSView {
@@ -347,7 +377,7 @@ final class TapbackPickerView: NSGlassEffectView {
         }
     }
 
-    private static func drawGlyph(_ kind: Reaction.Kind, in g: CGRect, ctx: CGContext) {
+    static func drawGlyph(_ kind: Reaction.Kind, in g: CGRect, ctx: CGContext) {
         switch kind {
         case .tapback("love"): PartRenderer.drawEmoji("\u{1FA77}", in: g, ctx: ctx)
         case .tapback("laugh"): TapbackGlyph.draw("laugh", in: g.insetBy(dx: 1, dy: 1), color: NSColor(srgbRed: 0.33, green: 0.64, blue: 1, alpha: 1), ctx: ctx)

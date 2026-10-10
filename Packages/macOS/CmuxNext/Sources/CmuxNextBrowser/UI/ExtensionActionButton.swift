@@ -35,7 +35,8 @@ final class ExtensionActionButton: NSButton {
             density.bind(widthAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.buttonSize },
             density.bind(heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.buttonSize },
         ])
-        density.update { [unowned self] in
+        density.update { [weak self] in
+            guard let self else { return }
             layer?.cornerRadius = OmnibarStyle.buttonCornerRadius
             needsLayout = true
         }

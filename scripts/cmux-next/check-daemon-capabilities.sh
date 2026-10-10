@@ -131,5 +131,8 @@ if now_served:
     print("check-daemon-capabilities: error: the bundled cmux-tui now serves "
           + ", ".join(now_served)
           + "; move them from DaemonCapabilities.unservedByBundledDaemon to optional", file=sys.stderr)
+if not failed:
+    print(f"check-daemon-capabilities: PASS: {binary} serves all {len(needed)} needed capabilities "
+          f"({len(served)} served)")
 sys.exit(1 if failed else 0)
 PY

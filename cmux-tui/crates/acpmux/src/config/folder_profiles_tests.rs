@@ -23,6 +23,7 @@ fn fx(name: &str) -> Fx {
             claude_json: root.join("claude.json"),
             codex_config: root.join("config.toml"),
             record: root.join("acpmux").join("trust.json"),
+            agent_home: None,
         },
     };
     let mut cfg = Config { folder_gate: Some(gate.clone()), ..Default::default() };
@@ -74,7 +75,8 @@ impl Fx {
         cwd: &Path,
         remote: bool,
     ) -> Option<Result<HarnessProfile, String>> {
-        resolve_for_session(&self.cfg, id, cwd, remote).map(|r| r.map(|(p, _)| p))
+        resolve_for_session(&self.cfg, id, cwd, remote)
+            .map(|r| r.map(|(p, _)| p).map_err(|e| e.message))
     }
     fn inside(&self) -> PathBuf {
         self.folder.join("sub")

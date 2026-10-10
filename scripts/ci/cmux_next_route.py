@@ -10,6 +10,8 @@ runs the tiers its changed files reach (docs/ci/cmux-next-tiers.md):
               generated action catalog, surfaces and inventory and the CI target
               graph are fresh (a mini; a stale file is fixed by a bot commit)
   native      Swift or app sources: the Release compile
+  canary      changed CmuxNext Swift targets type-check on a warm mini; this
+              is the pull-request gate for small package-only Swift diffs
   scheme      app host, Xcode project, webviews or other local packages: the
               Debug compile of the cmux app scheme
   swift       the CmuxNext test targets the change can affect, from the SwiftPM
@@ -94,6 +96,12 @@ SWIFT_JOB_INPUTS = (
     "scripts/cmux-next/build-app-ffi.sh",
 )
 
+# Keep the fast gate narrow. App-host, manifest, resource and toolchain edits
+# continue to use the Release configuration as their pull-request gate.
+CANARY_SWIFT_PREFIXES = (
+    PACKAGE + "Sources/",
+)
+
 GENERATED_INPUTS = (
     PACKAGE,
     "plans/cmux-next/",
@@ -112,17 +120,75 @@ WEBVIEW = (
     "scripts/build-webviews-app.sh", "scripts/check-webviews-react-compiler.mjs",
 )
 
+# The web bundles are build output since cx-vn5 (scripts/cmux-next/build-web-bundles.sh
+# runs before every package build). A change to what they are built from is a
+# change to the targets that ship them: their tests read the built pages, as they
+# read the committed copies before.
+BUNDLE_INPUTS = (
+    "webviews/src/*", "webviews/scripts/*", "webviews/package.json", "webviews/bun.lock",
+    "webviews/reactCompiler.mjs", "webviews/vite.config.ts", "schemas/settings/*",
+    "Resources/markdown-viewer/marked.min.js",
+    "scripts/build-webviews-app.sh", "scripts/check-webviews-bun-version.sh",
+    "scripts/cmux-next/build-agent-pane-web.sh", "scripts/cmux-next/build-pages-web.sh",
+    "scripts/cmux-next/build-agent-activity-web.sh", "scripts/cmux-next/build-palette-ranker.sh",
+    "scripts/cmux-next/build-optchat-inspector-web.sh",
+    "scripts/cmux-next/build-web-bundles.sh", "scripts/cmux-next/web-bundle-key.py",
+)
+BUNDLE_TARGETS = ("CmuxNextAgentPane", "CmuxNextPages", "CmuxNextAgentActivity", "CmuxNextPalette")
+# Committed web bundles that ci-web rebuilds and compares (`--check`) on every pull request,
+# and that the app takes as a `.copy` resource: a change to them needs no compile.
+CHECKED_WEB_BUNDLES = (
+    PACKAGE + "Sources/CmuxNextAgentPane/Resources/agent-pane/*",
+)
+
+# CI-only files: workflows, CI scripts, the router and gh-merge-green, and their tests. actionlint
+# and the CI unit tests (ci.yml's guards) and the routing replay (the checks job) cover them on
+# Linux, and `gh-merge-green --revert` undoes one in a command.
+CI_ONLY = (
+    ".github/workflows/*", "scripts/ci/*", "scripts/gh-merge-green",
+    "tests/test_cmux_next_route.py", "tests/test_cmux_next_route_replay.py",
+    "tests/test_cmux_next_checks_workflow.py", "tests/test_gh_merge_green*.py",
+    "tests/test_base_red_excuse.py", "tests/test_ci_*.py",
+)
+# The CI files that route themselves (the router reads them; the replay checks them).
+CI_SELF = (".github/workflows/cmux-next.yml", "scripts/ci/cmux_next_route.py", "scripts/ci/select_package_tests.py")
+
+
+def web_fast(path: str) -> bool:
+    """Web sources, their checked bundles, docs: ci-web and the checks job cover them all."""
+    if any(fnmatch.fnmatch(path, pattern) for pattern in WEBVIEW + CHECKED_WEB_BUNDLES):
+        return True
+    return any(fnmatch.fnmatch(path, pattern) for pattern in WEB_ONLY) and not path.startswith(PACKAGE)
+
+
+def ci_only(path: str) -> bool:
+    return any(fnmatch.fnmatch(path, pattern) for pattern in CI_ONLY)
+
+
+def consumed(path: str, tree_inputs: list[str], read) -> bool:
+    """A Mac tier reads this file (a toolchain pin, a job script, a daemon or tree input, a
+    generated-file input or a test fixture), whatever its name looks like."""
+    if path in FULL_INPUTS and path not in CI_SELF:
+        return True
+    if path in DAEMON_PATHS or any(matches(path, p) for p in SWIFT_JOB_INPUTS + tuple(tree_inputs)):
+        return True
+    if any(matches(path, p) for p in GENERATED_INPUTS) and not any(fnmatch.fnmatch(path, b) for b in CHECKED_WEB_BUNDLES):
+        return True
+    return read(path)
+
 
 @dataclass
 class Route:
     full: bool = False
     native: bool = False
+    swift_canary: bool = False
     webview: bool = False
     scheme: bool = False
     generated: bool = False
     swift: bool = False
     daemon: bool = False
     tests: set[str] = field(default_factory=set)
+    swift_canary_targets: set[str] = field(default_factory=set)
     reasons: list[str] = field(default_factory=list)
 
     def everything(self, reason: str) -> None:
@@ -195,6 +261,17 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str]) -
 
     graph = load_graph(root)
     tests = {name for name, target in graph["targets"].items() if target["kind"] == "test"}
+    read = lambda path: any(matches(path, r) for name in tests for r in graph["targets"][name].get("reads", []))  # noqa: E731
+    # The fast tiers: a web nit or a CI change lands in minutes. ci-web's bundle --check stands in for
+    # the app compile; actionlint, the CI tests and the routing replay check CI changes. A file a Mac
+    # tier reads keeps its tier, and a dev-build PR still compiles its dogfood app.
+    tree_inputs_early = tree_input_paths(root)
+    if "dev-build" not in labels and all(
+        (web_fast(path) or ci_only(path)) and not consumed(path, tree_inputs_early, read) for path in changed
+    ):
+        kinds = sorted({"CI" if ci_only(path) else "web" for path in changed})
+        result.reasons.append(f"only {' and '.join(kinds)} files changed: Linux checks cover them (no Mac tier)")
+        return result
     packages = package_inputs(root, graph)
     tree_inputs = tree_input_paths(root)
     daemon_closure = closure(graph, set(LIVE_DAEMON_SUBJECTS))
@@ -221,6 +298,12 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str]) -
         if any(matches(path, prefix) for prefix in SWIFT_JOB_INPUTS):
             result.swift = True
             result.reasons.append(f"{path} is a swift test job script")
+
+        if any(fnmatch.fnmatch(path, pattern) for pattern in BUNDLE_INPUTS):
+            shipped = {name for name in BUNDLE_TARGETS if name in graph["targets"]}
+            changed_targets |= shipped
+            result.native = True
+            result.reasons.append(f"{path} is built into the web bundles of {', '.join(sorted(shipped))}")
 
         owner = owning_target(graph, path)
         if owner is not None:
@@ -258,6 +341,13 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str]) -
     if result.tests:
         result.swift = True
         result.generated = True
+    if result.swift and changed_targets and all(canary_swift_path(path) for path in changed):
+        result.swift_canary_targets = canary_targets(graph, changed_targets)
+        result.swift_canary = bool(result.swift_canary_targets)
+        if result.swift_canary:
+            result.reasons.append(
+                "small CmuxNext Swift-only diff: the canary gates this pull request; Release remains advisory"
+            )
     if result.webview:
         result.scheme = True
     if "dev-build" in labels and result.native:
@@ -274,12 +364,34 @@ def swift_filter(result: Route) -> str:
     return "^(" + "|".join(sorted(result.tests)) + ")\\." if result.tests else ""
 
 
+def canary_swift_path(path: str) -> bool:
+    return path.endswith(".swift") and any(path.startswith(prefix) for prefix in CANARY_SWIFT_PREFIXES)
+
+
+def canary_targets(graph: dict, changed_targets: set[str]) -> set[str]:
+    """Return buildable production targets affected by changed package targets.
+
+    Test sources remain covered by the normal swift-test tier. Mapping a test
+    target to its direct production targets keeps this lane a short module
+    type-check instead of rebuilding and linking every test bundle.
+    """
+    targets: set[str] = set()
+    for name in changed_targets:
+        target = graph["targets"].get(name)
+        if not target:
+            continue
+        if target["kind"] in {"regular", "executable"}:
+            targets.add(name)
+    return targets
+
+
 def outputs(result: Route) -> dict[str, str]:
     flag = lambda value: "true" if value else "false"  # noqa: E731
     # Any tier that needs a Mac: the placement job places these runs.
     macos = result.native or result.webview or result.swift or result.generated or result.daemon
     return {
         "native": flag(result.native),
+        "swift_canary": flag(result.swift_canary),
         "macos": flag(macos),
         "scheme": flag(result.scheme or result.webview or result.full),
         "generated": flag(result.generated),
@@ -288,6 +400,7 @@ def outputs(result: Route) -> dict[str, str]:
         "full": flag(result.full),
         "swift_filter": swift_filter(result),
         "swift_targets": "all" if result.full else " ".join(sorted(result.tests)),
+        "swift_canary_targets": " ".join(sorted(result.swift_canary_targets)),
     }
 
 
@@ -315,9 +428,10 @@ def main(argv: list[str]) -> int:
     if args.summary:
         with args.summary.open("a", encoding="utf-8") as stream:
             stream.write("### cmux-next tiers\n\n| tier | runs |\n| --- | --- |\n")
-            for key in ("generated", "native", "scheme", "swift", "daemon", "full"):
+            for key in ("generated", "native", "swift_canary", "scheme", "swift", "daemon", "full"):
                 stream.write(f"| {key} | {values[key]} |\n")
             stream.write(f"\nSwift test targets: {values['swift_targets'] or 'none'}\n\n")
+            stream.write(f"Swift canary targets: {values['swift_canary_targets'] or 'none'}\n\n")
             for reason in dict.fromkeys(result.reasons):
                 stream.write(f"- {reason}\n")
     return 0

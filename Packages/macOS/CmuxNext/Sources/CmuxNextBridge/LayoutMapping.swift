@@ -78,7 +78,8 @@ public struct LayoutMapping {
         case .top: .top
         case .bottom: .bottom
         }
-        return DockColumn(edge: edge, mode: snapshot.mode == .overlay ? .overlay : .docked)
+        return DockColumn(edge: edge, mode: snapshot.mode == .overlay ? .overlay : .docked,
+                          role: snapshot.role.map { _ in .agentChat })
     }
 
     /// The layout's dock as the daemon's value. Top and bottom need a daemon
@@ -91,7 +92,8 @@ public struct LayoutMapping {
         case .top: .top
         case .bottom: .bottom
         }
-        return DockSnapshot(edge: edge, mode: dock.mode == .overlay ? .overlay : .docked)
+        return DockSnapshot(edge: edge, mode: dock.mode == .overlay ? .overlay : .docked,
+                            role: dock.role.map { _ in .agentChat })
     }
 
     /// Converts one daemon layout node. Nil when nothing in it can be shown.

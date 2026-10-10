@@ -36,7 +36,8 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "newPaneAutoLayout",
                 title: String(localized: "action.newPaneAutoLayout", defaultValue: "New Pane (Auto Layout)", bundle: .module),
-                keywords: ["split", "pane"], defaultShortcut: Shortcut("n", modifiers: [.control, .command]),
+                // Zellij's new pane: the largest scrolling pane splits along its longer side.
+                keywords: ["split", "pane", "smart arrange", "auto arrange", "tile", "zellij"], defaultShortcut: Shortcut("n", modifiers: [.control, .command]),
                 category: .pane, symbol: "rectangle.badge.plus", surfaces: [.palette, .keyboard, .menu],
                 targets: [.pane], cliName: "pane new-auto-layout", mainMenu: .view, startsTerminal: true
             ),

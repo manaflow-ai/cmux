@@ -92,6 +92,8 @@ export interface UserConfirmEnv {
   readonly chiefs: ReadonlyArray<string>
   /** Locale for the notices (from the user profile), default en. */
   readonly locale?: string
+  /** Verified addresses for the security notice email (the current one, plus a previous one for 14 days after a change); empty sends none. */
+  readonly emails?: ReadonlyArray<string>
 }
 
 export const USER_CONFIRM_OPS = new Set([

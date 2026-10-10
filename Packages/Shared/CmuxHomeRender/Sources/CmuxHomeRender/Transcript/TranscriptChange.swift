@@ -46,7 +46,7 @@ enum TranscriptChange: Equatable {
         if old.isEmpty { return new.isEmpty ? (typing.old != typing.new ? .typing(typing.new) : .other) : .initial }
         let oldKeys = Set(old.map(\.key))
         if let firstOld = old.first?.key, let k = new.firstIndex(where: { $0.key == firstOld }), k > 0,
-           new[..<k].allSatisfy({ !oldKeys.contains($0.key) }) {
+           new.prefix(k).allSatisfy({ !oldKeys.contains($0.key) }) {
             return .prepend
         }
         let lastOldIndex = new.lastIndex { oldKeys.contains($0.key) } ?? -1

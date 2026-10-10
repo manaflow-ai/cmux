@@ -119,8 +119,8 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "updates.whatsNew",
                 title: String(localized: "action.updates.whatsNew", defaultValue: "What's New in cmux", bundle: .module),
-                keywords: ["changelog", "release notes", "update", "new"], category: .settings, symbol: "sparkles",
-                surfaces: [.palette, .menu], cliName: "settings whats-new", mainMenu: .app
+                keywords: ["changelog", "release notes", "update", "new", "whats new"], category: .settings, symbol: "sparkles",
+                surfaces: [.palette, .menu], cliName: "settings whats-new", mainMenu: .help
             ),
             ActionDescriptor(
                 id: "announcements.show",
@@ -165,6 +165,13 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 keywords: ["onboarding", "getting started", "welcome", "import", "theme", "default browser", "tour"],
                 category: .settings, symbol: "sparkles",
                 surfaces: [.palette, .menu], cliName: "settings onboarding", mainMenu: .app
+            ),
+            ActionDescriptor(
+                id: "onboarding.continueSetup",
+                title: String(localized: "action.onboarding.continueSetup", defaultValue: "Continue Setup…", bundle: .module),
+                keywords: ["onboarding", "setup", "continue", "resume", "first run", "getting started"],
+                category: .settings, symbol: "arrow.forward.circle",
+                surfaces: [.palette, .menu], cliName: "settings continue-setup", mainMenu: .help
             ),
             ActionDescriptor(
                 id: "palette.importClassicSessions",

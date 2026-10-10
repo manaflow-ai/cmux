@@ -12184,137 +12184,6 @@
         }
       }
     },
-    "onboarding.chats.subtitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Your Claude Code and Codex chats, newest first. Each one you check reopens in its project, where it left off."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Deine Chats aus Claude Code und Codex, die neuesten zuerst. Jeder markierte Chat öffnet sich in seinem Projekt dort, wo er aufgehört hat."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vos discussions Claude Code et Codex, les plus récentes d’abord. Chaque discussion cochée se rouvre dans son projet, là où elle s’était arrêtée."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "محادثاتك في Claude Code وCodex، الأحدث أولاً. كل محادثة تحددها تُفتح من جديد في مشروعها من حيث توقفت."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tus chats de Claude Code y Codex, los más recientes primero. Cada uno que marques se reabre en su proyecto, donde lo dejaste."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "你的 Claude Code 與 Codex 對話，最新的在前。勾選的對話會在其專案中從上次中斷處重新開啟。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "你的 Claude Code 和 Codex 对话，最新的在前。勾选的对话会在其项目中从上次中断处重新打开。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude Code와 Codex 대화를 최신순으로 보여 줍니다. 선택한 대화는 해당 프로젝트에서 멈춘 곳부터 다시 열립니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude Code と Codex のチャットを新しい順に表示します。チェックしたチャットは、そのプロジェクトで中断したところから再開します。"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vaši razgovori iz Claude Codea i Codexa, najnoviji prvi. Svaki koji označite ponovo se otvara u svom projektu, tamo gdje je stao."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dine chats fra Claude Code og Codex, de nyeste først. Hver chat, du markerer, åbner igen i sit projekt, hvor den slap."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Le tue chat di Claude Code e Codex, dalla più recente. Ogni chat selezionata si riapre nel suo progetto, da dove era rimasta."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការជជែក Claude Code និង Codex របស់អ្នក ថ្មីបំផុតមុនគេ។ ការជជែកនីមួយៗដែលអ្នកធីក នឹងបើកឡើងវិញក្នុងគម្រោងរបស់វា ពីកន្លែងដែលវាបានឈប់។"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chattene dine fra Claude Code og Codex, nyeste først. Hver chat du huker av, åpnes igjen i prosjektet sitt der den slapp."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Twoje czaty z Claude Code i Codex, od najnowszych. Każdy zaznaczony czat otworzy się ponownie w swoim projekcie, tam gdzie skończył."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Seus chats do Claude Code e do Codex, do mais recente ao mais antigo. Cada um que você marcar reabre no projeto dele, de onde parou."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ваши чаты Claude Code и Codex, сначала новые. Каждый отмеченный чат снова откроется в своём проекте с того места, где он остановился."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แชท Claude Code และ Codex ของคุณ เรียงจากล่าสุด แชทที่คุณเลือกจะเปิดอีกครั้งในโปรเจกต์ของมัน ต่อจากจุดที่ค้างไว้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Claude Code ve Codex sohbetlerin, en yenisi önce. İşaretlediğin her sohbet kendi projesinde kaldığı yerden yeniden açılır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ваші чати Claude Code і Codex, спершу нові. Кожен позначений чат знову відкриється у своєму проєкті з того місця, де зупинився."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Các cuộc trò chuyện Claude Code và Codex của bạn, mới nhất trước. Mỗi cuộc bạn chọn sẽ mở lại trong dự án của nó, ngay chỗ đã dừng."
-          }
-        }
-      }
-    },
     "onboarding.chats.scanning": {
       "extractionState": "manual",
       "localizations": {
@@ -13097,137 +12966,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Bring over your cmux workspaces"
-          }
-        }
-      }
-    },
-    "onboarding.classicSessions.subtitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Import names, folders, tabs and split layouts from classic cmux. Saved commands are never run."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Namen, Ordner, Tabs und Teilungen aus dem klassischen cmux importieren. Gespeicherte Befehle werden nie ausgeführt."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Importez noms, dossiers, onglets et dispositions de classic cmux. Les commandes enregistrées ne sont jamais exécutées."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "استورد الأسماء والمجلدات وعلامات التبويب والتخطيطات من cmux الكلاسيكي. لا تُنفذ الأوامر المحفوظة."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Importa nombres, carpetas, pestañas y diseños divididos de cmux clásico. Los comandos guardados nunca se ejecutan."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "從經典 cmux 匯入名稱、資料夾、分頁和分割配置。不會執行已儲存的命令。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "从经典 cmux 导入名称、文件夹、标签页和分割布局。不会执行已保存的命令。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "클래식 cmux에서 이름, 폴더, 탭 및 분할 레이아웃을 가져옵니다. 저장된 명령은 실행되지 않습니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "クラシック cmux から名前、フォルダ、タブ、分割レイアウトを取り込みます。保存されたコマンドは実行しません。"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Import names, folders, tabs and split layouts from classic cmux. Saved commands are never run."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Import names, folders, tabs and split layouts from classic cmux. Saved commands are never run."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Import names, folders, tabs and split layouts from classic cmux. Saved commands are never run."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Import names, folders, tabs and split layouts from classic cmux. Saved commands are never run."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Import names, folders, tabs and split layouts from classic cmux. Saved commands are never run."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Import names, folders, tabs and split layouts from classic cmux. Saved commands are never run."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Import names, folders, tabs and split layouts from classic cmux. Saved commands are never run."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Import names, folders, tabs and split layouts from classic cmux. Saved commands are never run."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Import names, folders, tabs and split layouts from classic cmux. Saved commands are never run."
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Import names, folders, tabs and split layouts from classic cmux. Saved commands are never run."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Import names, folders, tabs and split layouts from classic cmux. Saved commands are never run."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Import names, folders, tabs and split layouts from classic cmux. Saved commands are never run."
           }
         }
       }
@@ -14538,6 +14276,923 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "已用其他密碼儲存：%@。cmux 保留了已儲存的密碼。"
+          }
+        }
+      }
+    },
+    "onboarding.computerUse.off": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use is off. Allow turns it on, then shows its permissions here."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンピュータ操作はオフです。「許可」でオンにすると、ここに権限が表示されます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "استخدام الكمبيوتر متوقف. يشغّله «سماح» ثم يعرض أذوناته هنا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use je isključen. Dozvoli ga uključuje, a zatim ovdje prikazuje njegove dozvole."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use er slået fra. Tillad slår det til og viser derefter tilladelserne her."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use ist aus. „Erlauben“ schaltet es ein und zeigt dann hier die Berechtigungen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use está desactivado. Permitir lo activa y luego muestra sus permisos aquí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use est désactivé. Autoriser l’active, puis affiche ses autorisations ici."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use è disattivato. Consenti lo attiva e poi ne mostra qui i permessi."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use ត្រូវបានបិទ។ អនុញ្ញាត នឹងបើកវា បន្ទាប់មកបង្ហាញសិទ្ធិរបស់វានៅទីនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use가 꺼져 있습니다. 허용을 누르면 켜지고 여기에 권한이 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use er av. Tillat slår det på og viser deretter tillatelsene her."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use jest wyłączone. Zezwól włącza je, a potem pokazuje tu jego uprawnienia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O Computer Use está desativado. Permitir o ativa e depois mostra as permissões aqui."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use выключен. «Разрешить» включит его и покажет здесь разрешения."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use ปิดอยู่ อนุญาตจะเปิดใช้งาน แล้วแสดงสิทธิ์ที่นี่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use kapalı. İzin Ver onu açar ve izinlerini burada gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use вимкнено. «Дозволити» вмикає його й показує тут дозволи."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use đang tắt. Cho phép sẽ bật nó rồi hiển thị quyền ở đây."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "电脑操作已关闭。“允许”会将其打开，然后在此显示权限。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "電腦操作已關閉。「允許」會將其開啟，然後在此顯示權限。"
+          }
+        }
+      }
+    },
+    "onboarding.tabKeys.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Number Keys"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "数字キー"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مفاتيح الأرقام"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tipke s brojevima"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Taltaster"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zifferntasten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Teclas numéricas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Touches numériques"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tasti numerici"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្រាប់ចុចលេខ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "숫자 키"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Talltaster"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Klawisze cyfr"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Teclas numéricas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цифровые клавиши"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปุ่มตัวเลข"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sayı tuşları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цифрові клавіші"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phím số"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "数字键"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "數字鍵"
+          }
+        }
+      }
+    },
+    "onboarding.tabKeys.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What ⌃1…9 select."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 で選択するもの。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ما يحدده ⌃1…9."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Šta biraju ⌃1…9."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvad ⌃1…9 vælger."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Was ⌃1…9 auswählt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Qué seleccionan ⌃1…9."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ce que ⌃1…9 sélectionnent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cosa selezionano ⌃1…9."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អ្វីដែល ⌃1…9 ជ្រើស។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9로 선택할 항목."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hva ⌃1…9 velger."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Co wybierają ⌃1…9."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O que ⌃1…9 selecionam."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Что выбирают ⌃1…9."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สิ่งที่ ⌃1…9 เลือก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 neyi seçer."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Що вибирають ⌃1…9."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 chọn gì."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 选择什么。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 選取什麼。"
+          }
+        }
+      }
+    },
+    "onboarding.tabKeys.tabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tabs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "タブ"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "علامات التبويب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tabovi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Faner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tabs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pestañas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Onglets"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Schede"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ថេប"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "탭"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Faner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вкладки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sekmeler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вкладки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "標籤頁"
+          }
+        }
+      }
+    },
+    "onboarding.tabKeys.spaces": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "スペース"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "المساحات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prostori"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Områder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Spaces"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Espacios"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Espaces"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Spazi"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លំហ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "스페이스"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Områder"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Obszary"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Espaços"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Области"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พื้นที่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alanlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Простори"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không gian"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "空间"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "空間"
+          }
+        }
+      }
+    },
+    "onboarding.tabKeys.tabs.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌃1…9 tabs · ⌃⌥1…9 Spaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 でタブ · ⌃⌥1…9 でスペース"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 علامات التبويب · ⌃⌥1…9 المساحات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 tabovi · ⌃⌥1…9 prostori"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 faner · ⌃⌥1…9 områder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 Tabs · ⌃⌥1…9 Spaces"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 pestañas · ⌃⌥1…9 espacios"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 onglets · ⌃⌥1…9 espaces"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 schede · ⌃⌥1…9 spazi"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 ថេប · ⌃⌥1…9 លំហ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 탭 · ⌃⌥1…9 스페이스"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 faner · ⌃⌥1…9 områder"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 karty · ⌃⌥1…9 obszary"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 abas · ⌃⌥1…9 espaços"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 вкладки · ⌃⌥1…9 области"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 แท็บ · ⌃⌥1…9 พื้นที่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 sekmeler · ⌃⌥1…9 alanlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 вкладки · ⌃⌥1…9 простори"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 tab · ⌃⌥1…9 không gian"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 标签页 · ⌃⌥1…9 空间"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 標籤頁 · ⌃⌥1…9 空間"
+          }
+        }
+      }
+    },
+    "onboarding.tabKeys.spaces.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌃1…9 Spaces · ⌃⌥1…9 tabs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 でスペース · ⌃⌥1…9 でタブ"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 المساحات · ⌃⌥1…9 علامات التبويب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 prostori · ⌃⌥1…9 tabovi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 områder · ⌃⌥1…9 faner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 Spaces · ⌃⌥1…9 Tabs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 espacios · ⌃⌥1…9 pestañas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 espaces · ⌃⌥1…9 onglets"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 spazi · ⌃⌥1…9 schede"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 លំហ · ⌃⌥1…9 ថេប"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 스페이스 · ⌃⌥1…9 탭"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 områder · ⌃⌥1…9 faner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 obszary · ⌃⌥1…9 karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 espaços · ⌃⌥1…9 abas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 области · ⌃⌥1…9 вкладки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 พื้นที่ · ⌃⌥1…9 แท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 alanlar · ⌃⌥1…9 sekmeler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 простори · ⌃⌥1…9 вкладки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 không gian · ⌃⌥1…9 tab"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 空间 · ⌃⌥1…9 标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃1…9 空間 · ⌃⌥1…9 標籤頁"
           }
         }
       }

@@ -9,6 +9,8 @@ extension SidebarListView {
     override func mouseDown(with event: NSEvent) {
         hoverCards.dismiss(.click)
         if inlineRename.isActive { inlineRename.end(commit: true) }
+        // A click in the list closes the group editor, like a click outside it.
+        if groupEditor.isVisible { groupEditor.hide() }
         window?.makeFirstResponder(self)
         let point = convert(event.locationInWindow, from: nil)
         guard let row = displayed.row(at: point.y) else {
@@ -24,6 +26,7 @@ extension SidebarListView {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         switch row.key {
         case let .workspace(id):
+            SidebarGroupKeys(list: self).setFocus(nil)
             guard !model.isPlaceholder(id) else {
                 self.press = nil
                 return
@@ -46,30 +49,30 @@ extension SidebarListView {
             }
             reload(animated: true)
         case let .group(group):
-            if event.clickCount == 2 {
-                // The first click's toggle is still pending (it waits out the
-                // double-click interval): cancel it and rename, so the group
-                // never collapses and re-expands under the pointer.
-                if pendingGroupToggle?.group == group { cancelPendingGroupToggle() }
+            SidebarGroupKeys(list: self).setFocus(group)
+            // The first click already toggled (at once, cx-qno.17); the second
+            // click of a double click does nothing, so it never flickers.
+            if event.clickCount >= 2 {
                 self.press = nil
-                inlineRename.begin(row.key)
                 return
             }
         case let .tab(workspace, tab):
-            self.press = nil
+            // Selected at once; the press stays so a drag can take the tab.
             model.send(.selectTab(workspace: workspace, tab: tab))
-            return
-        case .section, .emptySection:
+        case .section, .emptySection, .folder:
             break
         }
         self.press = press
     }
     override func mouseDragged(with event: NSEvent) {
         guard let press, !press.cancelled else { return }
+        if case let .tab(workspace, tab) = press.key {
+            return tabRowDrag.dragged(workspace, tab, press: press, event: event, in: self)
+        }
         if drag == nil {
             let point = convert(event.locationInWindow, from: nil)
             guard hypot(point.x - press.point.x, point.y - press.point.y) >= SidebarStyle.dragThreshold,
-                  !model.isFiltering else { return }
+                  !model.locksReorder else { return }
             beginDrag(press)
             guard drag != nil else { return }
         }
@@ -93,16 +96,16 @@ extension SidebarListView {
             // An empty saved group reopens; any other group toggles.
             if let g = model.group(group), g.isPinned, g.workspaces.isEmpty {
                 model.send(.openGroup(group))
-            } else if isOnDisclosure(point, group: group) {
-                // The chevron has no double-click meaning: toggle at once.
-                model.send(.toggleCollapse(.group(group)))
+            } else if groupEditing.isOnChip(point, group: group) {
+                // The chip opens the group editor (cx-rcby); its chevron and
+                // the rest of the row toggle at once.
+                return groupEditing.open(group)
             } else {
-                scheduleGroupToggle(group)
-                return
+                model.send(.toggleCollapse(.group(group)))
             }
         case let .section(section):
             model.send(.toggleCollapse(.section(section)))
-        case .emptySection:
+        case .emptySection, .folder:
             break
         }
         reload(animated: true)
@@ -110,35 +113,11 @@ extension SidebarListView {
     // MARK: - Middle click (MIDDLE-CLICK-CLOSES-WORKSPACE; SidebarMiddleClick)
     override func otherMouseDown(with event: NSEvent) { if !middleClick.down(event, in: self) { super.otherMouseDown(with: event) } }
     override func otherMouseUp(with event: NSEvent) { if !middleClick.up(event, in: self) { super.otherMouseUp(with: event) } }
-    // MARK: - Group header single vs double click
-    struct PendingGroupToggle {
-        let group: GroupID
-        let task: Task<Void, Never>
-    }
+    // MARK: - Group header hit testing
     /// Whether `point` (list coordinates) is on the group's chevron/folder.
     func isOnDisclosure(_ point: NSPoint, group: GroupID) -> Bool {
         guard let view = rowViews[.group(group)] as? GroupHeaderRowView else { return false }
         return view.disclosureFrame.contains(convert(point, to: view))
-    }
-    /// A single click on a group header's title toggles after the system
-    /// double-click interval, so a double-click can rename instead.
-    func scheduleGroupToggle(_ group: GroupID) {
-        cancelPendingGroupToggle()
-        let clock = clickClock
-        let delay = groupToggleDelay
-        let task = Task { [weak self] in
-            // wakeup-allow: one-shot double-click disambiguation delay, cancelled by the second click
-            do { try await clock.sleep(for: delay) } catch { return }
-            guard let self, self.pendingGroupToggle?.group == group else { return }
-            self.pendingGroupToggle = nil
-            self.model.send(.toggleCollapse(.group(group)))
-            self.reload(animated: true)
-        }
-        pendingGroupToggle = PendingGroupToggle(group: group, task: task)
-    }
-    func cancelPendingGroupToggle() {
-        pendingGroupToggle?.task.cancel()
-        pendingGroupToggle = nil
     }
     // MARK: - Keyboard
     override func keyDown(with event: NSEvent) {
@@ -153,6 +132,7 @@ extension SidebarListView {
                 return
             }
         }
+        if flags.isEmpty, SidebarGroupKeys(list: self).handle(event) { return }
         switch event.specialKey {
         case .upArrow?, .downArrow?:
             let up = event.specialKey == .upArrow

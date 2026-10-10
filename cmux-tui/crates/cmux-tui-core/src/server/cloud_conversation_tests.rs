@@ -368,3 +368,24 @@ fn a_later_subscriber_gets_the_current_state_and_a_state_event_after_its_reply()
     });
     mux.cloud_conversations().unwrap().shutdown();
 }
+
+/// G9: a client cannot name a chief. `cloud-mux-ack` takes ids only (an
+/// `agent` field is refused at parse), and `cloud-mux-subscribe` with a
+/// person's lease is refused: the queue is the chief token's own.
+#[test]
+fn the_mux_commands_never_take_a_chief_from_the_request() {
+    let (mux, client, _backend) = cloud_mux();
+    let named = serde_json::from_value::<Command>(json!({
+        "cmd": "cloud-mux-ack", "conversation": CONV, "seq": 3, "agent": "agent_other"
+    }));
+    assert!(named.is_err(), "an agent field must not parse");
+    let subscribe_named = serde_json::from_value::<Command>(json!({
+        "cmd": "cloud-mux-subscribe", "agent": "agent_other"
+    }));
+    assert!(subscribe_named.is_err(), "subscribe takes no agent");
+    run(&mux, client, json!({"cmd": "cloud-session-set", "api_base_url": "https://api.cmux.test",
+                             "access_token": "stack.jwt.token", "expires_at": 9_999_999_999_999u64}))
+        .unwrap();
+    let refused = run(&mux, client, json!({"cmd": "cloud-mux-subscribe"})).unwrap_err();
+    assert!(refused.to_string().contains("chief token"), "{refused}");
+}

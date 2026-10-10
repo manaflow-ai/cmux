@@ -16,9 +16,14 @@ let package = Package(
     products: [
         .library(name: "CmuxHomeCore", targets: ["CmuxHomeCore"]),
     ],
+    dependencies: [
+        // Agent questions (plans/cmux-next/agent-questions.md): the `question` part's model.
+        .package(path: "../CmuxAgentQuestion"),
+    ],
     targets: [
         .target(
             name: "CmuxHomeCore",
+            dependencies: [.product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         // One condition-polling wait for every suite (no per-suite yield loops).

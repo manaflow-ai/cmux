@@ -1,6 +1,5 @@
-// The chat header's top right, after the Codex app's: Changes with the last turn's counts, which
-// opens the changes view beside the transcript; Terminal and Browser, which split the pane in the
-// chat's folder; and the "..." chat menu. Every control renders from the first frame at its final
+// The chat header's top right, after the Codex app's: Terminal and Browser, which split the pane in
+// the chat's folder; the summary (Sources) button, whose popover also opens the last turn's changes; and the "..." chat menu. Every control renders from the first frame at its final
 // size; data fills in place.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
@@ -17,6 +16,7 @@ export const HEADER_ACTIONS = {
   pin: "palette.toggleTabPin",
   moveRight: "moveSurfaceToPaneRight",
   newWorkspace: "palette.moveTabToNewWorkspace",
+  newWindow: "tab.moveToNewWindow",
   close: "closeTab",
 } as const;
 

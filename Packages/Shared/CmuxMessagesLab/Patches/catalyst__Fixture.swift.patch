@@ -35,30 +35,34 @@
      /// Outgoing bubbles shade with their position in the window (measured:
      /// lighter near the top, deeper blue near the compose field).
      /// (window y in 2x px, red, green), Display P3.
-@@ -88,13 +98,40 @@
+@@ -88,13 +98,43 @@
          (1500, 68.8, 145.8), (1800, 65.2, 144.1), (2082, 62.8, 142)]
      /// A gradient colour (red, green from the stops) in Display P3.
      static func gradientColor(_ r: CGFloat, _ g: CGFloat) -> UIColor { p3(r, g, gradientBlue) }
 -    static let outgoingGradient: CGGradient = CGGradient(
-+    private static let measuredGradient: CGGradient = CGGradient(
++    // cmux: optional, no force unwrap (crash program); a nil gradient draws nothing.
++    private static let measuredGradient: CGGradient? = CGGradient(
          colorsSpace: CGColorSpace(name: CGColorSpace.displayP3),
          colors: gradientStops.map { gradientColor($0.1, $0.2).cgColor } as CFArray,
-         locations: gradientStops.map { $0.0 / 2082 })!
+-        locations: gradientStops.map { $0.0 / 2082 })!
++        locations: gradientStops.map { $0.0 / 2082 })
 +    /// cmux: the themed outgoing gradient as (2x px window y, colour) stops;
 +    /// nil keeps the measured stops (`gradientStops`, `gradientBlue`).
 +    static var themedGradient: [(CGFloat, UIColor)]? { themedAccent ? theme.map { (inactive ? $0.inactive : $0.active).gradientStops } : nil }
 +    static func color(in s: [(CGFloat, UIColor)], atPx px: CGFloat) -> UIColor {
 +        guard s.count > 1 else { return s.first?.1 ?? outgoing }
-+        var i = 1
-+        while i < s.count - 1, s[i].0 < px { i += 1 }
-+        let a = s[i - 1], b = s[i]
++        // cmux: the first inner stop at or past px, else the last; checked reads.
++        let upper = s.dropFirst().dropLast().firstIndex(where: { $0.0 >= px }) ?? s.count - 1
++        guard let a = s[checked: upper - 1], let b = s[checked: upper] else { return s.first?.1 ?? outgoing }
 +        let f = max(0, min(1, (px - a.0) / max(1, b.0 - a.0)))
-+        let ca = a.1.usingColorSpace(.displayP3) ?? a.1, cb = b.1.usingColorSpace(.displayP3) ?? b.1
++        // cmux: a colour that cannot convert (pattern, catalog) falls back to the measured blue, never
++        // the unconverted colour (its redComponent throws).
++        let ca = a.1.usingColorSpace(.displayP3) ?? Fixture.p3(2, 132, 254), cb = b.1.usingColorSpace(.displayP3) ?? Fixture.p3(2, 132, 254)
 +        return UIColor(displayP3Red: ca.redComponent + (cb.redComponent - ca.redComponent) * f,
 +                       green: ca.greenComponent + (cb.greenComponent - ca.greenComponent) * f,
 +                       blue: ca.blueComponent + (cb.blueComponent - ca.blueComponent) * f, alpha: 1)
 +    }
-+    static var outgoingGradient: CGGradient {
++    static var outgoingGradient: CGGradient? {
 +        if let t = theme, themedAccent { return (inactive ? t.inactive : t.active).outgoingGradient }
 +        return measuredGradient
 +    }

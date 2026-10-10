@@ -43,4 +43,8 @@ public nonisolated enum BrowserEngineAvailability: Hashable, Sendable {
 public nonisolated enum BrowserEngineError: Error, Hashable, Sendable {
     case engineNotRegistered(BrowserEngineKind)
     case engineUnavailable(BrowserEngineKind, reason: String)
+    /// A configuration with a machine store (a proxied tab) asked for an
+    /// engine other than Chromium. Only Chromium sends loopback requests to
+    /// the store's proxy; any other engine would load this Mac's localhost.
+    case machineStoreRequiresChromium
 }

@@ -19,8 +19,15 @@ final class WebKitWebView: WKWebView {
     override func rightMouseDown(with event: NSEvent) {
         lastUserInput = .now
         owner?.automaticDownloads.userGesture()
+        // An event the app is not dispatching was handed in by automation:
+        // its context menu would take the user's mouse and keyboard.
+        suppressesNextMenu = NSApplication.shared.currentEvent !== event
         super.rightMouseDown(with: event)
     }
+
+    /// Whether the next context menu comes from an automation right-click
+    /// (`willOpenMenu` empties it, so AppKit shows nothing).
+    private var suppressesNextMenu = false
 
     override func otherMouseDown(with event: NSEvent) {
         lastUserInput = .now
@@ -51,6 +58,11 @@ final class WebKitWebView: WKWebView {
     /// open cmux tabs (the request arrives at `createWebViewWith`), so they
     /// are renamed to match.
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
+        if suppressesNextMenu {
+            suppressesNextMenu = false
+            menu.removeAllItems()
+            return
+        }
         super.willOpenMenu(menu, with: event)
         adjustContextMenu(menu)
     }
