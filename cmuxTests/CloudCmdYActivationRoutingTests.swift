@@ -8,10 +8,10 @@ import Testing
 @testable import cmux
 #endif
 
-/// Cmd-Y must lead a first-use user to the Cloud Settings toggle before any
+/// Cmd-Shift-Y must lead a first-use user to the Cloud Settings toggle before any
 /// machine provisioning operation is admitted.
 @MainActor
-@Suite("Cloud Cmd-Y activation routing", .serialized, .exclusiveAppContext)
+@Suite("Cloud Cmd-Shift-Y activation routing", .serialized, .exclusiveAppContext)
 struct CloudCmdYActivationRoutingTests {
     @Test("Cloud activation-off opens Cloud Settings")
     func commandYOpensCloudSettingsBeforeProvisioning() {

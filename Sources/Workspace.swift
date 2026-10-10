@@ -601,6 +601,7 @@ extension Workspace {
         var simulatorSnapshot: SessionSimulatorPanelSnapshot? = nil
         let agentSessionSnapshot: SessionAgentSessionPanelSnapshot?
         let projectSnapshot: SessionProjectPanelSnapshot?; var workspaceTodoSnapshot: SessionWorkspaceTodoPanelSnapshot? = nil
+        var coderouterGuideSnapshot: SessionCoderouterGuidePanelSnapshot? = nil
         var notificationsPanelSnapshot: SessionNotificationsPanelSnapshot? = nil
         switch panel.panelType {
         case .terminal:
@@ -806,6 +807,10 @@ extension Workspace {
             terminalSnapshot = nil; browserSnapshot = nil; markdownSnapshot = nil; filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil; agentSessionSnapshot = nil; projectSnapshot = nil
             workspaceTodoSnapshot = SessionWorkspaceTodoPanelSnapshot()
+        case .coderouterGuide:
+            terminalSnapshot = nil; browserSnapshot = nil; markdownSnapshot = nil; filePreviewSnapshot = nil
+            rightSidebarToolSnapshot = nil; agentSessionSnapshot = nil; projectSnapshot = nil
+            coderouterGuideSnapshot = SessionCoderouterGuidePanelSnapshot()
         case .notifications:
             terminalSnapshot = nil; browserSnapshot = nil; markdownSnapshot = nil; filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil; agentSessionSnapshot = nil; projectSnapshot = nil
@@ -850,6 +855,7 @@ extension Workspace {
             agentSession: agentSessionSnapshot,
             project: projectSnapshot,
             workspaceTodo: workspaceTodoSnapshot,
+            coderouterGuide: coderouterGuideSnapshot,
             notificationsPanel: notificationsPanelSnapshot
         )
     }
@@ -2330,6 +2336,11 @@ extension Workspace {
             guard let todoPanel = newWorkspaceTodoSurface(inPane: paneId, focus: false) else { return nil }
             applySessionPanelMetadata(snapshot, toPanelId: todoPanel.id)
             return todoPanel.id
+        case .coderouterGuide:
+            guard snapshot.coderouterGuide != nil,
+                  let guidePanel = newCoderouterGuideSurface(inPane: paneId, focus: false) else { return nil }
+            applySessionPanelMetadata(snapshot, toPanelId: guidePanel.id)
+            return guidePanel.id
         case .notifications:
             guard snapshot.notificationsPanel != nil,
                   let notificationsPanel = newNotificationsSurface(inPane: paneId, focus: false) else { return nil }
@@ -4970,7 +4981,30 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         guard isRemoteTmuxMirror else { return false }
         pendingRemoteDisconnectReplacementsBySurfaceId.removeAll(); remoteTmuxKeepWorkspaceOpenAfterSessionEnd = false; isRemoteTmuxMirror = false; remoteTmuxWindowMirrors.removeAll()
         AppDelegate.shared?.remoteTmuxController.detachMirrorWorkspaceKeptOpenLocally(workspaceId: id)
+        repairRetiredRemoteTmuxContainerPanelsAfterDetach()
         return true
+    }
+
+    /// A window mirror retires its outer container panel after it mounts the
+    /// mirror-owned pane surface. If the workspace is later kept open while the
+    /// mirror detaches, that container remains in the bonsplit tree with a
+    /// permanently closed TerminalSurface. Remove it before the workspace is
+    /// presented as a local tab, and provide a fresh shell when nothing usable
+    /// remains. This closes the stale blank-tab path without touching live
+    /// panels (for example a user-created browser split).
+    private func repairRetiredRemoteTmuxContainerPanelsAfterDetach() {
+        let retiredPanelIDs = panels.values.compactMap { panel -> UUID? in
+            guard let terminalPanel = panel as? TerminalPanel,
+                  terminalPanel.surface.runtimeUnavailableReason == .closing else {
+                return nil
+            }
+            return terminalPanel.id
+        }
+        for panelID in retiredPanelIDs {
+            _ = closePanel(panelID, force: true)
+        }
+        guard panels.isEmpty, !isRetiredFromOwningTabManager else { return }
+        _ = createReplacementTerminalPanel()
     }
     private func clearRemoteTmuxWorkspaceCloseIntent(tabId: TabID) {
         remoteTmuxWorkspaceCloseButtonByTabId.removeValue(forKey: tabId); remoteTmuxKeepWorkspaceOpenTabIds.remove(tabId)
@@ -12640,8 +12674,28 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return min(0.25, baseDelay * pow(2.0, Double(exponent)))
     }
 
+    /// Flushes only the host window that owns this workspace's layout.
+    ///
+    /// Layout follow-ups are emitted from AppKit and SwiftUI callbacks. Keep
+    /// the ownership lookup on MainActor so window and tab-manager state is
+    /// never read concurrently with window replacement.
     private func flushWorkspaceWindowLayouts() {
-        for window in NSApp.windows where window.isVisible {
+        // A follow-up belongs to this workspace's host window. Laying out
+        // every visible application window here made each workspace retry
+        // perform unrelated AppKit layout work (and multiplied the cost when
+        // several workspaces were converging at once).
+        MainActor.assumeIsolated {
+            // The owning manager is the common case and gives us an O(1)
+            // lookup. Recovery scans are reserved for window replacement or
+            // orphaned workspaces whose live owner has not been restored yet.
+            let visibleWindow: (NSWindow?) -> NSWindow? = { candidate in
+                guard let candidate, candidate.isVisible else { return nil }
+                return candidate
+            }
+            let window = visibleWindow(owningTabManager?.window)
+                ?? visibleWindow(AppDelegate.shared?.mainWindowContainingWorkspace(id))
+                ?? visibleWindow(AppDelegate.shared?.tabManagerFor(tabId: id)?.window)
+            guard let window else { return }
             window.contentView?.layoutSubtreeIfNeeded()
         }
     }
@@ -12690,6 +12744,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return !browserPortalReady(for: browserPanel)
     }
 
+    /// Runs one scheduled follow-up, flushing only when the pending state
+    /// requires fresh AppKit geometry before readiness can be checked.
     private func attemptEventDrivenLayoutFollowUp() {
         guard layoutFollowUpTimeoutScheduler.isScheduled, !isAttemptingLayoutFollowUp else { return }
         guard portalRenderingEnabled else {
@@ -12701,8 +12757,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         isAttemptingLayoutFollowUp = true
         defer { isAttemptingLayoutFollowUp = false }
 
-        flushWorkspaceWindowLayouts()
-
         let geometryPendingBefore = layoutFollowUpNeedsGeometryPass
         let terminalPortalPendingBefore = terminalPortalVisibilityNeedsFollowUp()
         let browserVisibilityPendingBefore = browserPortalVisibilityNeedsFollowUp()
@@ -12710,6 +12764,17 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         let browserPanelPendingBefore = browserPanelNeedsFollowUp()
         let browserExitPendingBefore = layoutFollowUpBrowserExitFocusPanelId != nil
         let reparentFocusPendingBefore = !pendingReparentFocusSuppressionViews.isEmpty
+
+        // `reconcileTerminalGeometryPass` performs its own flush immediately
+        // before reading terminal bounds. Avoid doing that same layout pass a
+        // second time here. Browser-only follow-ups still need one pass to
+        // materialize their portal anchor before readiness is checked.
+        if !layoutFollowUpNeedsGeometryPass,
+           (layoutFollowUpBrowserPanelId != nil ||
+            layoutFollowUpTerminalFocusPanelId != nil ||
+            browserVisibilityPendingBefore) {
+            flushWorkspaceWindowLayouts()
+        }
 
         if layoutFollowUpNeedsGeometryPass {
             layoutFollowUpNeedsGeometryPass = reconcileTerminalGeometryPass()
@@ -12817,10 +12882,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         var needsFollowUpPass = false
         let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
 
-        // Flush pending AppKit layout first so terminal-host bounds reflect latest split topology.
-        for window in NSApp.windows where window.isVisible {
-            window.contentView?.layoutSubtreeIfNeeded()
-        }
+        // Flush pending AppKit layout first so terminal-host bounds reflect
+        // latest split topology. Keep the flush scoped to this workspace's
+        // host window; unrelated windows must not participate in a terminal
+        // geometry repair.
+        flushWorkspaceWindowLayouts()
 
         for panel in panels.values {
             guard let terminalPanel = panel as? TerminalPanel else { continue }
@@ -15117,7 +15183,7 @@ extension Workspace: BonsplitDelegate {
         if let builtInAction = executable.builtInAction {
             switch builtInAction {
             case .newWorkspace:
-                _ = AppDelegate.shared?.performNewWorkspaceAction(
+                _ = AppDelegate.shared?.performNewLocalWorkspaceAction(
                     tabManager: owningTabManager, debugSource: "surfaceTabBar.newWorkspace"
                 )
             case .newAgentChat: performSurfaceTabBarNewAgentChatAction(presentingWindow: presentingWindow)

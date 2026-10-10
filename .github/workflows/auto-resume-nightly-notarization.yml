@@ -379,6 +379,7 @@ jobs:
           set -euo pipefail
           mkdir -p verified
           if [ "${RECOVERY_KIND:-dmg}" = "computer-use-helper" ]; then
+            outer_state="$RUNNER_TEMP/cmux-outer-dmg-notarization.state"
             # Leave enough of the 90-minute job budget to write and upload an
             # exact outer-DMG recovery artifact if Apple is still processing.
             CMUX_CHANNEL="$CHANNEL" \
@@ -388,7 +389,7 @@ jobs:
             CMUX_OUTER_NOTARY_WAIT_TIMEOUT=40m \
               ./scripts/ci/resume-helper-notarization.sh \
               "$HELPER_STATE_FILE" "$APP_PATH" "$DMG_RELEASE" "verified/$IMMUTABLE_NAME" \
-              "${APP_ENTITLEMENTS:-cmux.$CHANNEL.entitlements}" "$APPLE_SIGNING_IDENTITY" "$OUTER_STATE"
+              "${APP_ENTITLEMENTS:-cmux.$CHANNEL.entitlements}" "$APPLE_SIGNING_IDENTITY" "$outer_state"
           else
             CMUX_CHANNEL="$CHANNEL" \
             CMUX_NOTARY_WAIT_TIMEOUT=2m \
@@ -401,13 +402,15 @@ jobs:
         if: always() && steps.wait-staple.outcome == 'failure' && env.RECOVERY_KIND == 'computer-use-helper'
         run: |
           set -euo pipefail
-          for required in "$OUTER_STATE" "$OUTER_LOG" "$DMG_RELEASE" recovery/cmux-nightly-notarization-recovery-app.tar.gz recovery/cmux-nightly-notarization-recovery.json; do
+          outer_state="$RUNNER_TEMP/cmux-outer-dmg-notarization.state"
+          outer_log="$RUNNER_TEMP/cmux-outer-dmg-notarization.state.log"
+          for required in "$outer_state" "$outer_log" "$DMG_RELEASE" recovery/cmux-nightly-notarization-recovery-app.tar.gz recovery/cmux-nightly-notarization-recovery.json; do
             [ -s "$required" ] || { echo "missing outer recovery input: $required" >&2; exit 1; }
           done
           mkdir -p outer-recovery-staging outer-metadata-staging
           python3 - \
             recovery/cmux-nightly-notarization-recovery.json \
-            "$OUTER_STATE" "$DMG_RELEASE" "$OUTER_LOG" \
+            "$outer_state" "$DMG_RELEASE" "$outer_log" \
             "$SOURCE_RUN_ID" "$SOURCE_HEAD_SHA" "$SOURCE_RUN_ATTEMPT" \
             "$CHANNEL" "$VARIANT" "$RELEASE_TAG" "$DMG_PREFIX" "$SHORT_SHA" <<'PY'
           import hashlib

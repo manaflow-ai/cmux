@@ -4942,5 +4942,9 @@
     "identityLocales": {
       "fr": "Question has the same spelling in this locale; the placeholder is invariant."
     }
+  },
+  "globalSearch.agent.claude": {
+    "class": "brand",
+    "source": "Claude"
   }
 }
