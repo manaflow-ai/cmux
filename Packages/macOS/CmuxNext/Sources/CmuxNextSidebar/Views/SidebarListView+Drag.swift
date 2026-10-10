@@ -41,11 +41,10 @@ extension SidebarListView {
             hiddenKeys: hidden,
             grabOffsetY: press.point.y - rowFrame.minY,
             gapHeight: rowFrame.height,
-            lift: lift,
+            lift: lift, head: rows.first?.height,
             target: origin
         )
         drag.grabOffsetX = press.point.x - rowFrame.minX
-        if case .workspaces = payload { drag.headHeight = displayed.row(for: press.key)?.height }
         drag.lastY = press.point.y
         self.drag = drag
         suppressed.formUnion(hidden)
@@ -81,10 +80,7 @@ extension SidebarListView {
         if SidebarListPinDrop.finish(self, drag) { return }
         guard let target = drag.target else { return cancelDrag() }
         self.drag = nil
-        // A drop moves rows, never the list: with no active row to hold, the
-        // reload anchors on the first visible row, so a group header the drop
-        // adds above the active row cannot scroll the list's top away (cx-fnfj).
-        revealedActive = nil
+        revealedActive = nil // A drop moves rows, not the list: its reload anchors on the first visible row (cx-fnfj).
         switch (drag.payload, target) {
         case let (.workspaces(ids), .position(position)):
             model.send(.reorder(ids, to: position))
