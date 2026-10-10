@@ -10,8 +10,8 @@ export type TurnActions = {
   fork?: (throughSeq: number) => void;
   /// The only turn `fork` goes through (`latestForkSeq`): the latest completed turn.
   forkSeq?: number;
-  /// Send a turn's prompt again (the last turn's Retry).
-  retry?: (prompt: string) => void;
+  /// Send a turn's prompt again (the last turn's Retry), preserving its attachments.
+  retry?: (rowId: string, prompt: string) => void;
   /// Re-run the current harness's declared login command after an authentication failure.
   reauthenticate?: () => void;
   /// The changes view's hunk decisions; a card's Undo asks for its turn's hunks through it, so

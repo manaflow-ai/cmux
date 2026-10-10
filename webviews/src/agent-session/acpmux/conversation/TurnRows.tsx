@@ -124,7 +124,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             className="cv-iconbtn cv-iconbtn--compact"
             aria-label={t("turn.retry")}
             title={t("turn.retryLabel")}
-            onClick={() => retry(prompt)}
+            onClick={() => retry(row.retryRowId ?? "", prompt)}
           >
             <Retry size={14} />
           </button>
