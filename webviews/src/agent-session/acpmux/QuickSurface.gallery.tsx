@@ -55,6 +55,20 @@ export default componentEntry<Props>({
   height: 360,
   widths: { narrow: 360, normal: 520, wide: 720 },
   anchors: [{ selector: "[data-quick-surface-fixture]" }],
+  checks: {
+    anchorMovePx: {
+      value: 0,
+      reason: "The quick surface host and its footer must keep the panel anchor stable across transcript states.",
+    },
+    layoutShiftMax: {
+      value: 0,
+      reason: "Adding a transcript or trust ask must not reflow the fixed composer host or shortcut footer.",
+    },
+    longFrameFailMs: {
+      value: 33,
+      reason: "Quick surface state changes should remain responsive on the gallery host.",
+    },
+  },
   covers: [
     "agent-session/acpmux/QuickSurface.tsx#QuickSurface",
     "agent-session/acpmux/QuickKeyHints.tsx#QuickKeyHints",
