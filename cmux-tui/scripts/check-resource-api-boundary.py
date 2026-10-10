@@ -2479,9 +2479,14 @@ def _operation_catalog(
     if "StreamEnd" in types:
         stream_end_fields = types.get("StreamEnd", {}).get("fields", {})
         stream_error_fields = types.get("StreamError", {}).get("fields", {})
-        resource_source = path.parent.parent / "crates/cmux-tui-core/src/resource.rs"
-        resource_text = (
-            resource_source.read_text(encoding="utf-8") if resource_source.exists() else ""
+        # The stream envelopes live in resource/envelope.rs (moved out of resource.rs).
+        resource_text = "".join(
+            source.read_text(encoding="utf-8")
+            for source in (
+                path.parent.parent / "crates/cmux-tui-core/src/resource.rs",
+                path.parent.parent / "crates/cmux-tui-core/src/resource/envelope.rs",
+            )
+            if source.exists()
         )
         if (
             stream_end_fields.get("error", {}).get("type")
