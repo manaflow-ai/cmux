@@ -15,7 +15,9 @@ struct AgentChatTabActions {
     /// `target` (a header split opening right of the one before it, AgentChatSplitToggles).
     func run(_ id: String, cwd: String?, on target: String? = nil) {
         let arguments: [String: ActionValue] = cwd.map { ["cwd": .string($0)] } ?? [:]
-        let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: target ?? tab()), arguments: arguments, origin: .user)
+        var invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: target ?? tab()), arguments: arguments, origin: .user)
+        // The header's Terminal opens a terminal, not the New Tab page a person's Split Right from a chat opens.
+        invocation.opensTerminal = id == "splitRight"
         _ = registry()?.perform(ActionID(rawValue: id), invocation: invocation)
     }
 
