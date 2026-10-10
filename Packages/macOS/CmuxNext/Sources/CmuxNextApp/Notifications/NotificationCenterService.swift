@@ -22,6 +22,9 @@ final class NotificationCenterService {
     /// hidden. A newer notification rings again. Presentation only: the
     /// notifications stay unread in the daemon.
     var dismissedHighlights: [String: UInt64] = [:]
+    /// The daemon session the dismissed ids belong to: ids restart with a
+    /// new session, so the dismissals apply only within this one.
+    var dismissedHighlightSession: String?
     @ObservationIgnored weak var services: AppServices?
     @ObservationIgnored let desktop = DesktopNotifier()
     @ObservationIgnored private var lastKeystroke: [String: ContinuousClock.Instant] = [:]

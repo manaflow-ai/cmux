@@ -7,7 +7,8 @@ public import AppKit
 /// it sets only the ring's strength, and `foreground` swaps the default theme
 /// yellow for the theme's foreground. No look is blue.
 public nonisolated enum AttentionHighlightLook: String, Sendable, CaseIterable, Hashable, TunableChoice {
-    /// The ring flashes at full strength, then rests faint (the default).
+    /// The style's animation runs (a blink by default), then the ring rests
+    /// faint (the default). Steady and Reduce Motion fade in to the faint ring.
     case subtle
     /// The ring flashes and rests at full strength (the look before cx-epgo).
     case strong

@@ -196,7 +196,9 @@ final class PaneOverlayView: NSView {
         self.attentionSettings = attentionSettings
         if shapeChanged { layoutLayers() }
         let style = showsRing ? focusRing.effectiveStyle : .none
+        // A ring that rests invisible (the flash look) keeps the border.
         let marksAttention = mark != nil && attentionSettings.style != .none
+            && Motion.attentionRestingOpacity(attentionSettings, look: AttentionHighlightLook.tunable.value) > 0
         Motion.transaction(animated ? .focus : nil) {
             ring.opacity = style == .ring ? 1 : 0
             glowClip.opacity = style == .glow ? 1 : 0

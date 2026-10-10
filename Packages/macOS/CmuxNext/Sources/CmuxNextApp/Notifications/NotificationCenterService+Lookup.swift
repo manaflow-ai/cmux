@@ -147,7 +147,8 @@ extension NotificationCenterService {
     /// its color is the notification source's override, if any.
     func attentionMarks(for workspace: WorkspaceModel) -> [LayoutPaneID: AttentionMark] {
         guard DesignSettings.shared.attention.style != .none, !preferences.mutedWorkspaces.contains(workspace.id) else { return [:] }
-        let dismissed = dismissedHighlights[workspace.id] ?? 0
+        let sameSession = dismissedHighlightSession == services?.daemon.identity?.session
+        let dismissed = sameSession ? dismissedHighlights[workspace.id] ?? 0 : 0
         var marks: [LayoutPaneID: AttentionMark] = [:]
         for screen in workspace.screens {
             for pane in screen.panes {
@@ -174,6 +175,11 @@ extension NotificationCenterService {
     func dismissHighlight(_ workspace: WorkspaceModel) {
         let newest = workspace.screens.flatMap(\.panes).flatMap(\.tabs).filter(\.hasUnread)
             .map { $0.notification?.notification.rawValue ?? 1 }.max() ?? 0
+        let session = services?.daemon.identity?.session
+        if session != dismissedHighlightSession {
+            dismissedHighlights = [:]
+            dismissedHighlightSession = session
+        }
         guard newest > (dismissedHighlights[workspace.id] ?? 0) else { return }
         dismissedHighlights[workspace.id] = newest
         note("highlight dismissed workspace=\(workspace.id) through=\(newest)")

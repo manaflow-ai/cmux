@@ -50,7 +50,18 @@ extension Motion {
             pulse.autoreverses = true
             pulse.repeatDuration = min(max(settings.duration, AttentionSettings.durationRange.lowerBound), AttentionSettings.durationRange.upperBound)
             pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            return pulse
+            guard rest != peak else { return pulse }
+            // The pulse ends at its peak: settle to the resting strength
+            // instead of jumping to it.
+            let settle = CABasicAnimation(keyPath: "opacity")
+            settle.fromValue = peak
+            settle.toValue = rest
+            settle.beginTime = pulse.repeatDuration
+            settle.duration = duration(.fadeIn)
+            let group = CAAnimationGroup()
+            group.animations = [pulse, settle]
+            group.duration = pulse.repeatDuration + settle.duration
+            return group
         }
     }
 }
