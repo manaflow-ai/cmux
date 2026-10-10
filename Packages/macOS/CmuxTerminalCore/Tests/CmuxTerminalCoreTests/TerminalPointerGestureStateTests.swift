@@ -56,7 +56,8 @@ import Testing
         #expect(!state.isDrag)
         state.markDragged(atX: 14, y: 20)
         #expect(state.isDrag)
-        let completion = try #require(state.complete(windowNumber: 7, timestamp: 11))
+        let rawCompletion = state.complete(windowNumber: 7, timestamp: 11)
+        let completion = try #require(rawCompletion)
         #expect(completion.isDrag)
         #expect(!state.isDrag)
     }
