@@ -9,7 +9,7 @@ section is refused.
 The script attaches to an app already running (a capture slot's `capture-host launch`, or a
 tagged build) through its debug socket. It makes a two-workspace group and a titled section,
 runs the action the way the palette does (`action.run`, the section named by its title, as the
-CLI may), and reads the layout's workspace items from `debug.sidebar_rows` `items`. It never
+CLI may), and reads the workspace items of that section from `debug.sidebar_rows` `items` (`section_title`). It never
 launches or quits the app.
 
 Usage: workspace-group-section-e2e.py --socket /tmp/cmux-debug-<tag>[-capslot<N>].sock [--daemon-socket PATH] [--out DIR]
@@ -121,10 +121,10 @@ def row(check, expected, observed, ok):
     print(f"{'PASS' if ok else 'FAIL'} | {check} | {expected} | {observed}", flush=True)
 
 
-def workspace_items():
-    """Every workspace item in the sidebar layout (the first window's top and bottom regions)."""
+def workspace_items(section_title):
+    """The workspace items of the section titled `section_title` (`debug.sidebar_rows` `items`)."""
     items = (windows() or [{}])[0].get("items") or []
-    return [i for i in items if i.get("ref_kind") == "workspace"]
+    return [i for i in items if i.get("ref_kind") == "workspace" and i.get("section_title") == section_title]
 
 
 def holds(item, entry):
@@ -164,18 +164,18 @@ def main():
     print("sidebar.section.add:", action("sidebar.section.add", {"title": title, "region": "top"}), flush=True)
     time.sleep(1)  # test harness: the layout applies
 
-    held_before = [i for i in workspace_items() if any(holds(i, m) for m in members)]
+    held_before = [i for i in workspace_items(title) if any(holds(i, m) for m in members)]
     reply = action("workspaceGroup.addToSection", {"section": title}, target="workspace-group:" + group)
     added = wait(lambda: (lambda now: now if all(any(holds(i, m) for i in now) for m in members) else None)(
-        [i for i in workspace_items() if any(holds(i, m) for m in members)]), 10) or []
+        [i for i in workspace_items(title) if any(holds(i, m) for m in members)]), 10) or []
     row("Add Group to Section adds every member to the section", "a workspace item for each of the 2 members",
         f"reply {reply}; member items before {len(held_before)}, after {len(added)}",
         "error" not in (reply or {}) and len(added) - len(held_before) == len(members))
 
     again = action("workspaceGroup.addToSection", {"section": title}, target="workspace-group:" + group)
     row("Adding it again is refused, not duplicated", "an error naming the members already there; no new items",
-        f"reply {again}; member items {len([i for i in workspace_items() if any(holds(i, m) for m in members)])}",
-        refused(again) and len([i for i in workspace_items() if any(holds(i, m) for m in members)]) == len(added))
+        f"reply {again}; member items {len([i for i in workspace_items(title) if any(holds(i, m) for m in members)])}",
+        refused(again) and len([i for i in workspace_items(title) if any(holds(i, m) for m in members)]) == len(added))
 
     unknown = action("workspaceGroup.addToSection", {"section": "no such section e2e"}, target="workspace-group:" + group)
     row("An unknown section is refused", "a refusal", f"reply {unknown}", refused(unknown))

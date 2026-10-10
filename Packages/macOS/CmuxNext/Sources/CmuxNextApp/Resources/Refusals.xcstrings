@@ -23583,6 +23583,137 @@
           }
         }
       }
+    },
+    "handlers.refusal.groupCannotJoinSection": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يمكن إضافة مساحات عمل المجموعة إلى قسم بعد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "radni prostori grupe još se ne mogu dodati u odjeljak"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "gruppens arbejdsområder kan endnu ikke føjes til en sektion"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "die Arbeitsbereiche der Gruppe können noch keinem Abschnitt hinzugefügt werden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the group's workspaces cannot be added to a section yet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "los espacios de trabajo del grupo aún no se pueden añadir a una sección"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "les espaces de travail du groupe ne peuvent pas encore être ajoutés à une section"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "gli spazi di lavoro del gruppo non possono ancora essere aggiunti a una sezione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "グループのワークスペースはまだセクションに追加できません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនទាន់អាចបន្ថែមកន្លែងធ្វើការរបស់ក្រុមទៅផ្នែកបានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "그룹의 작업 공간을 아직 섹션에 추가할 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "gruppens arbeidsområder kan ikke legges til i en seksjon ennå"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "obszarów roboczych grupy nie można jeszcze dodać do sekcji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "os espaços de trabalho do grupo ainda não podem ser adicionados a uma seção"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "рабочие пространства группы пока нельзя добавить в раздел"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยังเพิ่มพื้นที่ทำงานของกลุ่มไปยังส่วนไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "grubun çalışma alanları henüz bir bölüme eklenemiyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "робочі простори групи поки не можна додати до розділу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "chưa thể thêm các không gian làm việc của nhóm vào mục"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "暂时无法将分组的工作区添加到区块"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "暫時無法將群組的工作區加入區塊"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -7,7 +7,8 @@ import CmuxNextSidebar
 /// Section and Reveal in Finder). Show Group in Finder selects every member's
 /// folder in one Finder window. Add Group to Section adds every member to a
 /// sidebar section as workspace items, as Add to Sidebar does for one
-/// workspace, in one undo step; the group itself stays where it is.
+/// workspace, in one undo step. The group stays a group; as with Add to Top,
+/// a member held by a top-region section leaves the workspace list.
 enum WorkspaceGroupPlaces {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("workspaceGroup.revealInFinder", run: { invocation in
@@ -33,10 +34,12 @@ enum WorkspaceGroupPlaces {
         guard case .items = section.content else { throw ActionFailure(message: RefusalStrings.sectionTakesNoWorkspaces) }
         let refs = WorkspaceLayoutRefs(machines: context.services.machines)
         var listed = Set(section.items.map(\.ref))
-        let ops = try WorkspaceGroupHandlers.members(invocation, context).compactMap { workspace -> SidebarLayoutOp? in
-            guard let ref = refs.ref(forWorkspace: workspace.id), listed.insert(ref).inserted else { return nil }
-            let label = refs.workspace(for: ref)?.0.displayName
-            return .itemAdd(LayoutItem(id: .mint(), ref: ref, label: label), section: section.id, index: Int.max)
+        // A workspace without a session or resource id has no layout ref (as
+        // for Add to Sidebar); it is skipped.
+        let named = try WorkspaceGroupHandlers.members(invocation, context).compactMap { refs.ref(forWorkspace: $0.id) }
+        guard !named.isEmpty else { throw ActionFailure(message: RefusalStrings.groupCannotJoinSection) }
+        let ops = named.filter { listed.insert($0).inserted }.map { ref -> SidebarLayoutOp in
+            .itemAdd(LayoutItem(id: .mint(), ref: ref, label: refs.workspace(for: ref)?.0.displayName), section: section.id, index: Int.max)
         }
         guard !ops.isEmpty else { throw ActionFailure(message: RefusalStrings.groupAlreadyInSection) }
         let title = context.registry.descriptor(for: "workspaceGroup.addToSection")?.title ?? ""
