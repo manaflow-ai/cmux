@@ -85,14 +85,16 @@ struct DiffSidecarProcessTests {
     @Test func aNonZeroExitIsAFailure() async throws {
         let sidecar = try Self.script("\(Self.marker)\ncat > /dev/null\nprintf 'partial'\nexit 3")
         await #expect(throws: DiffSidecarError.failed(status: 3)) {
-            try await DiffSidecarProcess.run(executable: sidecar, arguments: [], request: Data("{}".utf8), limits: Self.fast)
+            try await DiffSidecarProcess.run(executable: sidecar, arguments: [], request: Data("{}".utf8), limits: Self.fast,
+                                             clock: ManualClock())
         }
     }
 
     @Test func anEmptyReplyIsAFailure() async throws {
         let sidecar = try Self.script("\(Self.marker)\ncat > /dev/null")
         await #expect(throws: DiffSidecarError.failed(status: 0)) {
-            try await DiffSidecarProcess.run(executable: sidecar, arguments: [], request: Data("{}".utf8), limits: Self.fast)
+            try await DiffSidecarProcess.run(executable: sidecar, arguments: [], request: Data("{}".utf8), limits: Self.fast,
+                                             clock: ManualClock())
         }
     }
 
