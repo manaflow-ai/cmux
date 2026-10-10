@@ -277,6 +277,24 @@
    "family": "app.sample"
   },
   {
+   "name": "appearance.dark",
+   "meaning": "Page color scheme forced dark (browser theme button)",
+   "sf": "questionmark.square.dashed",
+   "family": "appearance"
+  },
+  {
+   "name": "appearance.light",
+   "meaning": "Page color scheme forced light (browser theme button)",
+   "sf": "sun.max",
+   "family": "appearance"
+  },
+  {
+   "name": "appearance.system",
+   "meaning": "Page color scheme follows the app (browser theme button)",
+   "sf": "questionmark.square.dashed",
+   "family": "appearance"
+  },
+  {
    "name": "apps.stack",
    "meaning": "Apps / group selected",
    "sf": "square.stack.3d.up",
@@ -467,6 +485,12 @@
    "name": "computeruse.observe",
    "meaning": "Computer-use observe screen.",
    "sf": "eye",
+   "family": "computeruse"
+  },
+  {
+   "name": "computeruse.scroll",
+   "meaning": "Computer use: the agent scrolled (Agent Activity event rows).",
+   "sf": "scroll",
    "family": "computeruse"
   },
   {
@@ -859,6 +883,18 @@
    "meaning": "Notifications",
    "sf": "bell",
    "family": "notification"
+  },
+  {
+   "name": "omnibar.answer",
+   "meaning": "Omnibar suggestion: a computed answer (calculator, conversion)",
+   "sf": "equal.circle",
+   "family": "omnibar"
+  },
+  {
+   "name": "omnibar.switchtab",
+   "meaning": "Omnibar suggestion: switch to an open tab",
+   "sf": "rectangle.on.rectangle",
+   "family": "omnibar"
   },
   {
    "name": "overflow.more",

@@ -3663,6 +3663,8 @@ mod explicit_socket;
 #[cfg(unix)]
 #[path = "cli/feed_local.rs"]
 mod feed_local;
+#[path = "cli/launch_credential.rs"]
+mod launch_credential;
 #[cfg(unix)]
 #[path = "cli/left_dock_undock.rs"]
 mod left_dock_undock;

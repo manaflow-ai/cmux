@@ -119,6 +119,7 @@ pub(super) fn advertised_capabilities(
         TERMINAL_STATE_CAPABILITY,
         FRONTEND_BROWSER_OWNER_CAPABILITY,
         crate::state::frontend_browser_keys::FRONTEND_BROWSER_TAB_KEYS_CAPABILITY,
+        crate::launch_credential::LAUNCH_CREDENTIAL_CAPABILITY,
         crate::state::home_store::WORKSPACE_KIND_CAPABILITY,
         crate::state::app_workspaces::APP_SCREENS_CAPABILITY,
         crate::state::agent_folder::CAPABILITY,
