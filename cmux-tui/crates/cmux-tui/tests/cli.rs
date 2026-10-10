@@ -3648,6 +3648,9 @@ mod chief;
 #[path = "cli/closed_delete.rs"]
 mod closed_delete;
 #[cfg(unix)]
+#[path = "cli/left_dock_undock.rs"]
+mod left_dock_undock;
+#[cfg(unix)]
 #[path = "cli/wg_hub.rs"]
 mod wg_hub;
 
