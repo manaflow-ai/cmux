@@ -1,0 +1,185 @@
+/* Composer designs (composerDesign.ts; UI tournament round 1b, bead cx-9hje). One composer, several layouts:
+   every design keeps every control; only where they sit and how loud they are changes. Scoped by the form's
+   data-design, so the default composer is untouched. Board principles 2, 3, 5 and 11: one quiet surface, plain
+   muted text controls with small chevrons, no chip fills, a low-contrast send. Type and layer tokens only. */
+
+/* Shared by every design: the prompt's own surface draws nothing, and quiet-line's Return key is hidden. */
+.acpmux-composer-surface { display: contents; }
+.acpmux-composer-return { display: none; }
+
+/* Plain-text controls (quiet-line, two-row, bare, stacked): no fills at rest, a soft wash on hover. */
+.acpmux-composer:not([data-design="default"]) .acpmux-composer-bar .acpmux-picker-button,
+.acpmux-composer:not([data-design="default"]) .acpmux-composer-bar .acpmux-composer-plus .acpmux-picker-button,
+.acpmux-composer:not([data-design="default"]) .acpmux-composer-context .acpmux-location-button {
+  background: none;
+  color: var(--acpmux-composer-dim);
+  border-radius: 6px;
+}
+.acpmux-composer:not([data-design="default"]) .acpmux-composer-bar .acpmux-picker-button:hover,
+.acpmux-composer:not([data-design="default"]) .acpmux-composer-bar .acpmux-picker-button[aria-expanded="true"],
+.acpmux-composer:not([data-design="default"]) .acpmux-composer-context .acpmux-location-button:hover {
+  background: color-mix(in srgb, var(--agent-text) 7%, transparent);
+  color: var(--agent-text);
+}
+
+/* A small square send, low contrast until there is something to send (board 008). */
+.acpmux-composer[data-design="two-row"] .acpmux-send,
+.acpmux-composer[data-design="stacked"] .acpmux-send,
+.acpmux-composer[data-design="bare"] .acpmux-send {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+}
+.acpmux-composer[data-design="two-row"] .acpmux-send:not(.acpmux-send-ready):not(.acpmux-cancel):not(:hover),
+.acpmux-composer[data-design="stacked"] .acpmux-send:not(.acpmux-send-ready):not(.acpmux-cancel):not(:hover),
+.acpmux-composer[data-design="bare"] .acpmux-send:not(.acpmux-send-ready):not(.acpmux-cancel):not(:hover) {
+  background: color-mix(in srgb, var(--agent-text) 12%, var(--acpmux-base));
+  color: var(--acpmux-composer-dim);
+}
+
+/* quiet-line (board 007): the prompt is the one box, one line at rest and growing with the text, with the
+   Return key's glyph at its end; every control is plain text on one line under the box. No send button. */
+.acpmux-composer[data-design="quiet-line"] .acpmux-composer-box {
+  background: none;
+  box-shadow: none;
+  border-radius: 0;
+}
+.acpmux-composer[data-design="quiet-line"] .acpmux-composer-surface {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 4px;
+  min-height: 40px;
+  padding: 2px 6px 2px 4px;
+  box-sizing: border-box;
+  border-radius: 14px;
+  background: var(--acpmux-composer-bg);
+  box-shadow: inset 0 0 0 0.5px var(--acpmux-composer-edge);
+}
+.acpmux-composer[data-design="quiet-line"] .acpmux-composer-surface > .acpmux-attachments { flex: 1 0 100%; }
+/* The field's context-menu wrapper is display: contents, so the field itself is the surface's flex item. */
+.acpmux-composer[data-design="quiet-line"] .acpmux-composer-surface .acpmux-composer-prompt,
+.acpmux-composer[data-design="quiet-line"] .acpmux-composer-surface .acpmux-shell-prompt {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.acpmux-composer[data-design="quiet-line"] .acpmux-composer-return {
+  display: flex;
+  align-items: center;
+  flex: none;
+  height: 36px;
+}
+.acpmux-return-key {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--acpmux-composer-dim);
+  font-size: var(--text-title);
+  line-height: 1;
+  cursor: pointer;
+}
+.acpmux-return-key[data-ready] { color: var(--agent-text); }
+.acpmux-return-key:hover:not(:disabled) { background: color-mix(in srgb, var(--agent-text) 8%, transparent); color: var(--agent-text); }
+.acpmux-return-key:disabled { cursor: default; opacity: 0.5; }
+.acpmux-return-key:focus-visible { outline: 1.5px solid var(--agent-text); outline-offset: 1px; }
+.acpmux-return-key .acpmux-icon { width: 14px; height: 14px; }
+.acpmux-composer[data-design="quiet-line"] .acpmux-composer-bar {
+  height: auto;
+  min-height: 32px;
+  gap: 2px;
+  padding: 4px 4px 0;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+.acpmux-composer[data-design="quiet-line"] .acpmux-composer-actions > .acpmux-send { display: none; }
+.acpmux-composer[data-design="quiet-line"] .acpmux-composer-context {
+  height: 26px;
+  padding: 0 4px;
+  border: 0;
+  box-shadow: none;
+  background: none;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+
+/* two-row (board 008): one box, the prompt on top, the controls on its bottom row with the folder and computer
+   folded into that row (Composer.tsx contextInBar), and a small square send at the right. */
+.acpmux-composer[data-design="two-row"] .acpmux-composer-box { --acpmux-composer-radius: 16px; }
+.acpmux-composer[data-design="two-row"] .acpmux-composer-bar {
+  height: auto;
+  min-height: 44px;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 4px 8px 8px;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+.acpmux-composer[data-design="two-row"] .acpmux-composer-bar > .acpmux-chips { flex: 0 1 auto; min-width: 0; }
+.acpmux-composer[data-design="two-row"] .acpmux-composer-bar > .acpmux-composer-actions { margin-left: auto; }
+.acpmux-composer[data-design="two-row"] .acpmux-composer-bar > .acpmux-composer-context > .acpmux-location-leading {
+  flex: 0 1 auto;
+  margin-right: 0;
+}
+.acpmux-composer[data-design="two-row"] .acpmux-composer-bar > .acpmux-composer-context {
+  flex: 0 1 auto;
+  width: auto;
+  min-width: 0;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  background: none;
+}
+
+/* bare: only the prompt shows at rest, on a hairline; the controls open under it while the composer is in use
+   (focus inside, pointer over, a menu open, a turn running, or text to send) and stay reachable by keyboard. */
+.acpmux-composer[data-design="bare"] .acpmux-composer-box {
+  background: none;
+  border-radius: 0;
+  box-shadow: inset 0 -0.5px 0 var(--acpmux-composer-edge);
+}
+.acpmux-composer[data-design="bare"] .acpmux-composer-bar,
+.acpmux-composer[data-design="bare"] .acpmux-composer-context {
+  max-height: 0;
+  min-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  border: 0;
+  box-shadow: none;
+  background: none;
+}
+.acpmux-composer[data-design="bare"] .acpmux-composer-bar { height: auto; padding-block: 0; font-size: var(--text-body); }
+.acpmux-composer[data-design="bare"]:is(:focus-within, :hover, :has([aria-expanded="true"]), :has(.acpmux-cancel), :has(.acpmux-send-ready)) .acpmux-composer-bar {
+  max-height: 48px;
+  padding-block: 6px;
+  opacity: 1;
+}
+.acpmux-composer[data-design="bare"]:is(:focus-within, :hover, :has([aria-expanded="true"]), :has(.acpmux-cancel), :has(.acpmux-send-ready)) .acpmux-composer-context {
+  max-height: 32px;
+  opacity: 1;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-composer[data-design="bare"] .acpmux-composer-bar,
+  .acpmux-composer[data-design="bare"] .acpmux-composer-context {
+    transition: max-height 160ms ease-out, opacity 120ms ease-out, padding 160ms ease-out;
+  }
+}
+
+/* stacked: today's card and footer row, made quiet: plain-text controls, one hairline, the small square send. */
+.acpmux-composer[data-design="stacked"] .acpmux-composer-box { --acpmux-composer-radius: 16px; }
+.acpmux-composer[data-design="stacked"] .acpmux-composer-bar {
+  gap: 2px;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+.acpmux-composer[data-design="stacked"] .acpmux-composer-context {
+  height: 32px;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}

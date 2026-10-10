@@ -136,6 +136,7 @@ import { checkpointStrings } from "./checkpoints/strings";
 import { QUICK_MESSAGES, readSurface, useEscapeToDismiss, type PaneSurface } from "./paneSurface";
 import { QuickSurface } from "./QuickSurface";
 import { FailedPrompt } from "./FailedPrompt";
+import { composerDesign, type ComposerDesign } from "./composerDesign";
 
 type MeasurableRenderer = React.ComponentType<RowProps> & { measure?: (row: AcpmuxRow, width: number) => number };
 type NativeRegistry = Record<string, MeasurableRenderer>;
@@ -1243,6 +1244,8 @@ function AcpmuxPane() {
   const [projectDraft, setProjectDraft] = useState<string | undefined>();
   /// The host offers Choose Folder… (a new chat in a workspace without a folder).
   const [chooseFolder, setChooseFolder] = useState(false);
+  // The composer's layout (composerDesign.ts): the host's DEV/NIGHTLY setting, sent with `ready`.
+  const [composerLayout, setComposerLayout] = useState<ComposerDesign>("default");
   /// A chat that opened without its folder (cx-nn3e.1): acpmux's reason, until a pick works.
   const [folderNeeded, setFolderNeeded] = useState<{ reason: string; error?: string }>();
   /// The host's localized refusal of the last Choose Folder… click.
@@ -1991,6 +1994,7 @@ function AcpmuxPane() {
           sessionMustExist?: boolean;
           revealTurn?: unknown;
           chooseFolder?: boolean;
+          composerDesign?: unknown;
           folderNeeded?: { reason?: unknown };
           machineName?: unknown;
           githubRepository?: unknown;
@@ -2000,6 +2004,7 @@ function AcpmuxPane() {
         setNewSession(host.newSession === true && !host.sessionId);
         if (host.newSession && !host.sessionId && typeof host.cwd === "string" && host.cwd) setProjectDraft(host.cwd);
         setChooseFolder(host.chooseFolder === true);
+        setComposerLayout(composerDesign(host.composerDesign));
         setFolderNeeded(
           typeof host.folderNeeded?.reason === "string" && host.folderNeeded.reason
             ? { reason: host.folderNeeded.reason }
@@ -2766,6 +2771,7 @@ function AcpmuxPane() {
       {/* An attached image opens in the chat's image viewer, as a transcript image does. */}
       <ImageViewerContext.Provider value={quick ? undefined : openImage}>
         <Composer
+          design={composerLayout}
           snapshot={composerSnapshot}
           sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
           chips={ComposerChips}

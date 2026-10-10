@@ -2,7 +2,7 @@
 // The composer's states (Composer.tsx, ComposerPickers.tsx, ComposerContext.tsx: the prompt,
 // the mode and model chips, the location row, Send and Stop), through the pane's own inputs: the
 // `ready` answer's draft and new-chat fields, and the snapshot.
-import { agentPaneEntry } from "../../gallery/format";
+import { agentPaneEntry, type AgentPaneVariant } from "../../gallery/format";
 import { assistant, chat, CWD, noChat, session, summary, user } from "../../gallery/fixtures/acpmux";
 
 const working = [user("Add retries", 1), assistant("Reading the helper…", 0.5, { streaming: true })];
@@ -38,6 +38,106 @@ const composerControls = {
     ],
   },
 };
+
+/// A pasted screenshot (an image the field draws as a cropped thumbnail).
+const pasteScreenshot = async (ctx: Parameters<NonNullable<AgentPaneVariant["play"]>>[0]) => {
+  const view = ctx.document.defaultView!;
+  const canvas = new view.OffscreenCanvas(320, 200);
+  const paint = canvas.getContext("2d")!;
+  const gradient = paint.createLinearGradient(0, 0, 320, 200);
+  gradient.addColorStop(0, "#f2b134");
+  gradient.addColorStop(1, "#3a7bd5");
+  paint.fillStyle = gradient;
+  paint.fillRect(0, 0, 320, 200);
+  paint.fillStyle = "#ffffff";
+  paint.fillRect(40, 60, 240, 16);
+  paint.fillRect(40, 92, 180, 16);
+  const file = new view.File([await canvas.convertToBlob({ type: "image/png" })], "screenshot.png", {
+    type: "image/png",
+  });
+  const field = ctx.find({ selector: ".acpmux-md" });
+  const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(paste, "clipboardData", { value: { files: [file], types: ["Files"] } });
+  field.dispatchEvent(paste);
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img[src^='data:image/png']"));
+  await ctx.hover({ selector: ".acpmux-attachment-image" });
+};
+
+// Round 1b (bead cx-9hje): the composer's layout designs (composerDesign.ts, composerDesigns.css). Each design
+// gets the same states; the host picks the design with the `ready` answer's `composerDesign`.
+const DESIGNS = ["quiet-line", "two-row", "bare", "stacked"] as const;
+const DRAFT = "Also add a **circuit breaker** after `5` failures.\nKeep the POST rule as is.";
+/// The play's proof that a design's controls are on screen: the bar is laid out and not transparent.
+const barShows = (ctx: { document: Document }) => {
+  const bar = ctx.document.querySelector<HTMLElement>(".acpmux-composer-bar");
+  const view = ctx.document.defaultView;
+  if (!bar || !view) return false;
+  return bar.getBoundingClientRect().height > 20 && Number(view.getComputedStyle(bar).opacity) > 0.9;
+};
+const designVariants = Object.fromEntries(
+  DESIGNS.flatMap((design) => [
+    [
+      `design-${design}`,
+      {
+        note: `Design ${design}: a new chat, empty prompt.`,
+        ready: { newSession: true, cwd: CWD, composerDesign: design },
+        snapshot: noChat([session({ sessionId: "older", title: "An older chat" })], {
+          summary: { sessionId: "", cwd: CWD, harness: "claude", model: "claude-opus-5-5", effort: "high" },
+        }),
+        ...(design === "bare"
+          ? {
+              play: async (ctx: Parameters<NonNullable<AgentPaneVariant["play"]>>[0]) => {
+                // At rest only the prompt shows; focus in the field opens the controls under it.
+                await ctx.click({ selector: "[contenteditable='true']" });
+                await ctx.waitFor(() => barShows(ctx));
+              },
+            }
+          : {}),
+      },
+    ],
+    [
+      `design-${design}-draft`,
+      {
+        note: `Design ${design}: a two-line draft, Send ready.`,
+        ready: { draft: DRAFT, composerDesign: design },
+        snapshot: chat(finished),
+        play: async (ctx: Parameters<NonNullable<AgentPaneVariant["play"]>>[0]) => {
+          // Every design keeps a send: quiet-line's is the Return key at the end of the box.
+          const send = design === "quiet-line" ? ".acpmux-return-key[data-ready]" : ".acpmux-send.acpmux-send-ready";
+          await ctx.waitFor(() => ctx.document.querySelector(send));
+          await ctx.waitFor(() => barShows(ctx));
+        },
+      },
+    ],
+    [
+      `design-${design}-busy`,
+      {
+        note: `Design ${design}: a turn running; Stop replaces Send.`,
+        ready: { composerDesign: design },
+        snapshot: chat(working, { isWorking: true }),
+      },
+    ],
+    [
+      `design-${design}-attachments`,
+      {
+        note: `Design ${design}: a pasted screenshot above the prompt.`,
+        ready: { composerDesign: design },
+        snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
+          chat(finished),
+        ),
+        play: pasteScreenshot,
+      },
+    ],
+    [
+      `design-${design}-narrow`,
+      {
+        note: `Design ${design}: the draft at the narrow (400px) width; open with width=narrow.`,
+        ready: { draft: DRAFT, composerDesign: design },
+        snapshot: chat(finished, { branch: "feature/composer-location-tray" }),
+      },
+    ],
+  ]),
+);
 
 export default agentPaneEntry({
   id: "agent-pane.composer",
@@ -77,6 +177,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/ComposerQueue.tsx#ComposerQueue",
   ],
   variants: {
+    ...designVariants,
     "new-chat": {
       note: "A new chat: empty prompt; the card's footer row holds the folder and computer, under a hairline.",
       ready: { newSession: true, cwd: CWD },
@@ -159,28 +260,7 @@ export default agentPaneEntry({
       snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
         chat(finished),
       ),
-      play: async (ctx) => {
-        const view = ctx.document.defaultView!;
-        const canvas = new view.OffscreenCanvas(320, 200);
-        const paint = canvas.getContext("2d")!;
-        const gradient = paint.createLinearGradient(0, 0, 320, 200);
-        gradient.addColorStop(0, "#f2b134");
-        gradient.addColorStop(1, "#3a7bd5");
-        paint.fillStyle = gradient;
-        paint.fillRect(0, 0, 320, 200);
-        paint.fillStyle = "#ffffff";
-        paint.fillRect(40, 60, 240, 16);
-        paint.fillRect(40, 92, 180, 16);
-        const file = new view.File([await canvas.convertToBlob({ type: "image/png" })], "screenshot.png", {
-          type: "image/png",
-        });
-        const field = ctx.find({ selector: ".acpmux-md" });
-        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
-        Object.defineProperty(paste, "clipboardData", { value: { files: [file], types: ["Files"] } });
-        field.dispatchEvent(paste);
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img[src^='data:image/png']"));
-        await ctx.hover({ selector: ".acpmux-attachment-image" });
-      },
+      play: pasteScreenshot,
     },
     draft: {
       note: "A draft the tab inherited (markdown, two lines).",

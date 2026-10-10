@@ -55,6 +55,7 @@ import { MarkdownField, type MarkdownFieldHandle } from "./MarkdownField";
 import { type StringKey, type Translate, useT } from "./i18n";
 import { remoteComposer } from "./remoteEditing";
 import type { SendBlock } from "./useFolderTrustAsk";
+import type { ComposerDesign } from "./composerDesign";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -106,6 +107,8 @@ export type ComposerHandle = {
 
 type Props = {
   snapshot: AcpmuxSnapshot;
+  /// Where the controls sit and how loud they are (composerDesign.ts); every design keeps every function.
+  design?: ComposerDesign;
   chips: React.ComponentType<{ snapshot: AcpmuxSnapshot }>;
   /// Sends a prompt. False when nothing can take it yet (no acpmux), so the prompt keeps it. A
   /// promise holds the prompt in the composer until the host takes it: it clears when the promise
@@ -176,6 +179,7 @@ type Props = {
 /// so its arguments can follow.
 export function Composer({
   snapshot,
+  design = "default",
   chips: Chips,
   onSend,
   onStop,
@@ -718,6 +722,8 @@ export function Composer({
 
   // The location row: the card's footer (one fill, one edge, a hairline above it), or its header
   // where `contextFirst` is set (Start Agent).
+  // two-row keeps the folder and computer on the controls row; the others give them their own line.
+  const contextInBar = design === "two-row";
   const context = (
     <ComposerContext
       projectChoices={projectChoices}
@@ -752,6 +758,7 @@ export function Composer({
     <form
       ref={form}
       className="acpmux-composer"
+      data-design={design}
       data-shell={shell ? "" : undefined}
       onSubmit={(event) => {
         if (!shell) return submit(event);
@@ -789,7 +796,7 @@ export function Composer({
         )}
       <div className="acpmux-composer-box" data-context-first={contextFirst ? "" : undefined}>
         <ComposerQueue queue={snapshot.queue} t={t} />
-        {contextFirst && context}
+        {contextFirst && !contextInBar && context}
         <input
           ref={importInput}
           className="acpmux-import-input"
@@ -814,77 +821,109 @@ export function Composer({
             onPick={pick}
           />
         )}
-        {(attachments.length > 0 || attachError || dropping) && (
-          <fieldset className="acpmux-attachments" aria-label={t(COMPOSER_LABELS.attachments)}>
-            {attachments.map((attachment) => (
-              <AttachmentChip
-                key={attachment.id}
-                attachment={attachment}
-                onRemove={(id) => {
-                  setAttachments((current) => current.filter((item) => item.id !== id));
-                  field.current?.focus();
-                }}
-              />
-            ))}
-            {dropping ? (
-              <span className="acpmux-attachment-note">{t(COMPOSER_LABELS.dropFiles)}</span>
-            ) : (
-              attachError && <output className="acpmux-attachment-note">{attachError}</output>
-            )}
-          </fieldset>
-        )}
-        {/* The prompt's own right-click menu (POLISH.md right-click contract); WebKit's never shows. */}
-        <ContextMenu className="acpmux-composer-field-menu" items={fieldMenu} selection="menu" onOpen={noteSelection}>
-          {/* An editable prompt that drives a listbox: a native combobox cannot hold a multi-line prompt. */}
-          <MarkdownField
-            ref={fieldRef}
-            className={shell ? "acpmux-composer-prompt is-hidden" : "acpmux-composer-prompt"}
-            value={text}
-            placeholder={t(COMPOSER_LABELS.placeholder)}
-            attributes={{
-              role: "combobox",
-              "aria-label": t(COMPOSER_LABELS.prompt),
-              "aria-multiline": "true",
-              "aria-expanded": String(open),
-              "aria-controls": open ? "acpmux-slash-menu" : undefined,
-              "aria-autocomplete": "list",
-              "aria-activedescendant": open && matches.length > 0 ? `acpmux-slash-${selected}` : undefined,
-            }}
-            onBeforeInput={(data, state) => {
-              // `!` first: shell mode, in place. A pasted `!cmd` keeps what follows the `!`.
-              if (!onShell || state.composing || !state.empty || !data.startsWith("!")) return false;
-              enterShell(data.slice(1));
-              return true;
-            }}
-            onChange={(markdown, at) => edit(markdown, at)}
-            onCaret={setCaret}
-            onKeyDown={keyDown}
-            onCompositionChange={(value) => {
-              composing.current = value;
-            }}
-          />
-          {shell && (
-            <div className="acpmux-shell-prompt">
-              <span className="acpmux-shell-glyph" aria-hidden="true">
-                !
-              </span>
-              <textarea
-                ref={shellField}
-                className="acpmux-shell-field"
-                rows={1}
-                value={shellText}
-                aria-label={t("composer.shell")}
-                placeholder={t("composer.shellPlaceholder")}
-                spellCheck={false}
-                autoCapitalize="off"
-                autoCorrect="off"
-                onChange={(event) => setShellText(event.target.value)}
-                // ui-allow: the shell field's own editing keys (Enter runs, Esc or empty Backspace leaves, Ctrl-C stops).
-                onKeyDown={shellKeyDown}
-              />
-            </div>
+        {/* The prompt's own surface: in the default design it draws nothing (display: contents); in
+            quiet-line it is the one box, and the controls sit on a plain line under it. */}
+        <div className="acpmux-composer-surface">
+          {(attachments.length > 0 || attachError || dropping) && (
+            <fieldset className="acpmux-attachments" aria-label={t(COMPOSER_LABELS.attachments)}>
+              {attachments.map((attachment) => (
+                <AttachmentChip
+                  key={attachment.id}
+                  attachment={attachment}
+                  onRemove={(id) => {
+                    setAttachments((current) => current.filter((item) => item.id !== id));
+                    field.current?.focus();
+                  }}
+                />
+              ))}
+              {dropping ? (
+                <span className="acpmux-attachment-note">{t(COMPOSER_LABELS.dropFiles)}</span>
+              ) : (
+                attachError && <output className="acpmux-attachment-note">{attachError}</output>
+              )}
+            </fieldset>
           )}
-        </ContextMenu>
+          {/* The prompt's own right-click menu (POLISH.md right-click contract); WebKit's never shows. */}
+          <ContextMenu className="acpmux-composer-field-menu" items={fieldMenu} selection="menu" onOpen={noteSelection}>
+            {/* An editable prompt that drives a listbox: a native combobox cannot hold a multi-line prompt. */}
+            <MarkdownField
+              ref={fieldRef}
+              className={shell ? "acpmux-composer-prompt is-hidden" : "acpmux-composer-prompt"}
+              value={text}
+              placeholder={t(COMPOSER_LABELS.placeholder)}
+              attributes={{
+                role: "combobox",
+                "aria-label": t(COMPOSER_LABELS.prompt),
+                "aria-multiline": "true",
+                "aria-expanded": String(open),
+                "aria-controls": open ? "acpmux-slash-menu" : undefined,
+                "aria-autocomplete": "list",
+                "aria-activedescendant": open && matches.length > 0 ? `acpmux-slash-${selected}` : undefined,
+              }}
+              onBeforeInput={(data, state) => {
+                // `!` first: shell mode, in place. A pasted `!cmd` keeps what follows the `!`.
+                if (!onShell || state.composing || !state.empty || !data.startsWith("!")) return false;
+                enterShell(data.slice(1));
+                return true;
+              }}
+              onChange={(markdown, at) => edit(markdown, at)}
+              onCaret={setCaret}
+              onKeyDown={keyDown}
+              onCompositionChange={(value) => {
+                composing.current = value;
+              }}
+            />
+            {shell && (
+              <div className="acpmux-shell-prompt">
+                <span className="acpmux-shell-glyph" aria-hidden="true">
+                  !
+                </span>
+                <textarea
+                  ref={shellField}
+                  className="acpmux-shell-field"
+                  rows={1}
+                  value={shellText}
+                  aria-label={t("composer.shell")}
+                  placeholder={t("composer.shellPlaceholder")}
+                  spellCheck={false}
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  onChange={(event) => setShellText(event.target.value)}
+                  // ui-allow: the shell field's own editing keys (Enter runs, Esc or empty Backspace leaves, Ctrl-C stops).
+                  onKeyDown={shellKeyDown}
+                />
+              </div>
+            )}
+          </ContextMenu>
+          {/* quiet-line's send: the Return key's glyph at the end of the box (Stop while a turn runs). Only
+            that design shows it; the bar's Send and Stop serve every other design. */}
+          <span className="acpmux-composer-return">
+            {stop ? (
+              <button
+                type="button"
+                className="acpmux-return-key"
+                aria-label={t(COMPOSER_LABELS.stop)}
+                title={t(COMPOSER_LABELS.stop)}
+                onClick={stopTurn}
+              >
+                <StopIcon />
+              </button>
+            ) : remote.canSend ? (
+              <button
+                type="submit"
+                className="acpmux-return-key"
+                disabled={Boolean(blocked) && !shell}
+                data-ready={
+                  (shell ? shellText.trim() : !blocked && (text.trim() || attachments.length)) ? "" : undefined
+                }
+                aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
+                title={shell ? t("composer.shellRun") : blocked?.reason ? t(blocked.reason) : t("composer.sendTooltip")}
+              >
+                <span aria-hidden="true">↵</span>
+              </button>
+            ) : null}
+          </span>
+        </div>
         <div className="acpmux-composer-bar">
           <input
             ref={chooser}
@@ -944,6 +983,7 @@ export function Composer({
             />
           )}
           <Chips snapshot={snapshot} />
+          {contextInBar && context}
           <span className="acpmux-composer-actions">
             {accessory}
             {stop ? (
@@ -973,7 +1013,7 @@ export function Composer({
             ) : null}
           </span>
         </div>
-        {!contextFirst && context}
+        {!contextFirst && !contextInBar && context}
       </div>
     </form>
   );
