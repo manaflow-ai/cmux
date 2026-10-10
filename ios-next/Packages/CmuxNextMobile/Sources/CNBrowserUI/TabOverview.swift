@@ -3,51 +3,6 @@ import CNCore
 import SwiftUI
 import UIKit
 
-/// Card grid geometry (section 9.1): two columns of 177 x 249.3 cards with
-/// 16 pt insets and gutter, a 23 pt title row and 16 pt between rows.
-struct OverviewLayout {
-    var size: CGSize
-    var safeTop: CGFloat
-    var safeBottom: CGFloat
-    var count: Int
-
-    private var m: BrowserMetrics { BrowserStyle.shared.metrics }
-    /// Two columns with 16 pt insets and gutter: 177 pt on a 402 pt
-    /// screen, 196 pt on 440 (measured on an iPhone 17 Pro Max).
-    var cardWidth: CGFloat { ((size.width - 3 * m.gridInset) / 2).rounded(.down) }
-    var cardHeight: CGFloat { cardWidth * m.cardAspect }
-    /// Card corner radius: 18 pt at 177 pt wide, scaled with the card.
-    var cardRadius: CGFloat { m.cardRadius * cardWidth / 177 }
-    var pitch: CGFloat { cardHeight + m.titleRow + m.rowGap }
-    /// First row: 60 pt below the safe area (card top at 122 on a 62 pt
-    /// safe area, device recording).
-    var top: CGFloat { safeTop + 60 }
-    /// Bottom bar: 48 pt controls whose bottom sits 38 pt above the screen bottom.
-    var barRect: CGRect {
-        let bottom = size.height - max(safeBottom, 20) - 4
-        return CGRect(x: 0, y: bottom - m.control, width: size.width, height: m.control)
-    }
-    var bottomPadding: CGFloat { size.height - barRect.minY + 12 }
-    var rows: Int { (count + 1) / 2 }
-    var contentHeight: CGFloat { top + CGFloat(rows) * pitch - m.rowGap + bottomPadding }
-
-    /// Card frame in content coordinates.
-    func card(_ index: Int) -> CGRect {
-        let col = index % 2, row = index / 2
-        let x = col == 0 ? m.gridInset : size.width - m.gridInset - cardWidth
-        return CGRect(x: x, y: top + CGFloat(row) * pitch, width: cardWidth, height: cardHeight)
-    }
-
-    var maxOffset: CGFloat { max(0, contentHeight - size.height) }
-
-    /// Scroll offset that brings `index` fully into view above the bottom bar.
-    func offset(revealing index: Int) -> CGFloat {
-        let r = card(index)
-        let visibleBottom = barRect.minY - 12
-        let needed = r.maxY + m.titleRow - visibleBottom
-        return min(maxOffset, max(0, needed))
-    }
-}
 
 /// One tab card: snapshot with rounded corners, close button, title row.
 struct TabCard: View {
@@ -156,6 +111,9 @@ struct ScaledPage: View {
     }
 }
 
+/// The browser screen's coordinate space (zoom rects and card frames).
+let browserScreenSpace = "cn.browser.screen"
+
 /// A pinch update. The first `.changed` that passes the caller's threshold begins the interaction.
 enum PinchPhase: Sendable { case changed, ended }
 
@@ -183,6 +141,11 @@ struct TabOverview: View {
     var onDone: () -> Void
     var onCloseAll: () -> Void
     var onCardPinch: (String, PinchPhase, CGFloat, CGFloat) -> Void = { _, _, _, _ in }
+    /// A tab being created with (+): its start-page card is already in the
+    /// grid (at index tabs.count) so the zoom can land on its real frame.
+    var placeholderId: String?
+    /// Each card's snapshot frame in the screen's coordinate space.
+    var onCardFrame: (String, CGRect) -> Void = { _, _ in }
 
     private let style = BrowserStyle.shared
 
@@ -204,7 +167,22 @@ struct TabOverview: View {
                             .onTapGesture { onSelect(tab.id) }
                             .simultaneousGesture(cardPinch(tab.id))
                             .offset(x: r.minX, y: r.minY)
+                            .onGeometryChange(for: CGPoint.self, of: { $0.frame(in: .named(browserScreenSpace)).origin }) { origin in
+                                onCardFrame(tab.id, CGRect(origin: origin, size: r.size))
+                            }
                             .transition(.asymmetric(insertion: .opacity, removal: .opacity.combined(with: .scale(scale: 0.9))))
+                    }
+                    if let placeholderId {
+                        let r = layout.card(model.tabs.count)
+                        TabCard(tab: BrowserTab(id: placeholderId, url: "", title: ""), image: nil, topColor: .white, startPage: true,
+                                tabs: model.tabs, pageSize: layout.size, safeTop: layout.safeTop, width: r.width, height: r.height,
+                                radius: layout.cardRadius, showsClose: false, detailsOpacity: detailsOpacity, onClose: {})
+                            .opacity(placeholderId == hiddenTabId ? 0 : 1)
+                            .offset(x: r.minX, y: r.minY)
+                            .onGeometryChange(for: CGPoint.self, of: { $0.frame(in: .named(browserScreenSpace)).origin }) { origin in
+                                onCardFrame(placeholderId, CGRect(origin: origin, size: r.size))
+                            }
+                            .allowsHitTesting(false)
                     }
                 }
                 .frame(width: layout.size.width, height: layout.contentHeight, alignment: .topLeading)

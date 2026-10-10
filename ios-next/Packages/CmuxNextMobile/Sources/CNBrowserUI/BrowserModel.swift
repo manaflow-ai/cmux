@@ -363,11 +363,12 @@ final class BrowserModel {
 
     /// Opens a new tab showing the start page; returns its id.
     @discardableResult
-    func newTab(url: String? = nil) async -> String? {
+    func newTab(url: String? = nil, onCreated: ((String) -> Void)? = nil) async -> String? {
         guard let client = connection.client else { return nil }
         do {
             let tab = try await client.createTab(url: url ?? "about:blank")
             merge(tab)
+            onCreated?(tab.id)
             if url == nil { startPageTabs.insert(tab.id) }
             activeTabId = tab.id
             await attach(tab.id)

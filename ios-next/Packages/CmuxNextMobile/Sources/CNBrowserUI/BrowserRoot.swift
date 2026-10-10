@@ -75,8 +75,10 @@ struct BrowserScreen: View {
     @State private var zoomDriver = TabZoomDriver()
     /// Tab the zoom shows: the active tab, a tapped card, or `newTabMarker`.
     @State private var zoomTabId: String?
-    /// Grid slot a tab created with (+) grows from.
-    @State private var newTabSlot = 0
+    /// Card snapshot frames in the screen's coordinate space, reported by the grid.
+    @State private var cardFrames: [String: CGRect] = [:]
+    /// (+) pressed and the tab not created yet: the grid shows a placeholder card.
+    @State private var newTabPending = false
     /// A pinch on the page or on a card drives the zoom.
     @State private var pinching = false
     @State private var overviewScroll: CGFloat = 0
@@ -109,22 +111,32 @@ struct BrowserScreen: View {
     private var overviewDetails: Double { min(1, max(0, (zoomState.progress - 0.8) / 0.2)) }
 
     /// The zooming tab's rect: full screen at progress 0, its card at 1.
+    /// The zooming tab's rect: full screen at progress 0, its card at 1.
+    /// The card end is the card's actual frame in the grid, read every frame
+    /// (so it follows the grid's scroll offset and layout changes mid-flight);
+    /// before the grid has reported it, it is computed from the grid layout
+    /// at the grid's current scroll offset.
     private func zoomGeometry() -> (rect: CGRect, radius: CGFloat, strip: CGFloat) {
         let layout = overviewLayout
-        let index: Int
-        if zoomTabId == Self.newTabMarker {
-            index = newTabSlot
-        } else {
-            index = zoomTabId.flatMap { id in model.tabs.firstIndex { $0.id == id } } ?? (model.activeIndex ?? 0)
-        }
-        let grid = OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: max(model.tabs.count, index + 1))
-        let card = grid.card(index).offsetBy(dx: 0, dy: -overviewScroll)
+        let card = zoomEndpoint()
         let p = CGFloat(zoomState.progress)
         func lerp(_ a: CGFloat, _ b: CGFloat) -> CGFloat { a + (b - a) * p }
         let rect = CGRect(x: lerp(0, card.minX), y: lerp(0, card.minY), width: lerp(size.width, card.width),
                           height: lerp(size.height, card.height))
         let q = min(1, max(0, p))
         return (rect, style.metrics.screenRadius + (layout.cardRadius - style.metrics.screenRadius) * q, safeTop * (1 - q))
+    }
+
+    private func zoomEndpoint() -> CGRect {
+        if let id = zoomTabId, let measured = cardFrames[id] { return measured }
+        let index: Int
+        if zoomTabId == Self.newTabMarker {
+            index = model.tabs.count
+        } else {
+            index = zoomTabId.flatMap { id in model.tabs.firstIndex { $0.id == id } } ?? (model.activeIndex ?? 0)
+        }
+        let grid = OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: max(model.tabs.count, index + 1))
+        return grid.screenFrame(index, offset: overviewScroll)
     }
 
     var body: some View {
@@ -153,7 +165,9 @@ struct BrowserScreen: View {
                             onNewTab: newTabFromOverview,
                             onDone: { closeOverview(selecting: model.activeTabId) },
                             onCloseAll: closeAll,
-                            onCardPinch: { id, phase, scale, velocity in cardPinch(id, phase, scale: scale, velocity: velocity) })
+                            onCardPinch: { id, phase, scale, velocity in cardPinch(id, phase, scale: scale, velocity: velocity) },
+                            placeholderId: newTabPending ? Self.newTabMarker : nil,
+                            onCardFrame: { id, frame in if cardFrames[id] != frame { cardFrames[id] = frame } })
                     .opacity(overviewVisible ? 1 : 0)
                     .allowsHitTesting(overviewVisible)
                     .accessibilityHidden(!zoomState.gridInteractive)
@@ -223,6 +237,7 @@ struct BrowserScreen: View {
             }
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
+        .coordinateSpace(.named(browserScreenSpace))
         .onChange(of: geometryKey, initial: true) { _, _ in pushGeometry() }
         // A browser row in the drawer opens that tab (by id).
         .onChange(of: shellRoute?.nonce, initial: true) { _, _ in
@@ -434,7 +449,7 @@ struct BrowserScreen: View {
     // MARK: Tab overview
 
     private var overviewLayout: OverviewLayout {
-        OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: model.tabs.count)
+        OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: model.tabs.count + (newTabPending ? 1 : 0))
     }
 
     /// What the zooming rect shows: the same image the card shows (or the
@@ -453,10 +468,17 @@ struct BrowserScreen: View {
         chrome.pageKeyboard = false
         model.refreshThumbnails()
         captureOverviewImages()
+        // Safari: before the page shrinks into its card, the grid jumps (no
+        // animation) so the card is fully on screen (OverviewLayout.offset(revealing:from:)).
         let grid = OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: count)
-        let offset = grid.offset(revealing: index)
-        overviewPosition = ScrollPosition(y: offset)
-        overviewScroll = offset
+        let offset = grid.offset(revealing: index, from: overviewScroll)
+        if abs(offset - overviewScroll) > 0.5 {
+            var t = Transaction()
+            t.disablesAnimations = true
+            withTransaction(t) { overviewPosition = ScrollPosition(y: offset) }
+            // Until the scroll view reports it, the fallback endpoint uses it too.
+            overviewScroll = offset
+        }
     }
 
     /// Tabs button: page -> grid, or reverse a zoom that is heading to the page.
@@ -493,22 +515,19 @@ struct BrowserScreen: View {
     /// screen, as the overview does for the active card.
     private func newTabFromOverview() {
         guard zoomState.phase == .overview else { return }
-        let index = model.tabs.count
-        newTabSlot = index
-        let next = OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: index + 1)
-        let offset = next.offset(revealing: index)
-        if abs(offset - overviewScroll) > 0.5 {
-            overviewPosition = ScrollPosition(y: offset)
-            overviewScroll = offset
-        }
+        // The new start page's card goes into the grid now (placeholder) so
+        // the zoom grows from its real frame; the created tab takes its place.
+        newTabPending = true
         zoomTabId = Self.newTabMarker
         creatingTab = true
         zoomDriver.start(from: 1, toOverview: false)
         Task {
-            let id = await model.newTab()
+            let id = await model.newTab(onCreated: { id in
+                newTabPending = false
+                if zoomTabId == Self.newTabMarker { zoomTabId = id }
+            })
+            newTabPending = false
             creatingTab = false
-            // The zoom keeps running; it now shows the created tab (or ends
-            // on whatever tab is active if creation failed).
             if zoomTabId == Self.newTabMarker { zoomTabId = id ?? model.activeTabId }
         }
     }
