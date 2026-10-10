@@ -59,3 +59,26 @@ fn a_terminal_host_command_line_names_no_tag_and_no_bundle() {
         );
     }
 }
+
+/// cx-hostorphan: `ps` names the app and tag that own a host through
+/// `--owner <bundle>:<tag>@<daemon pid>`, a value with no path in it.
+#[test]
+fn a_terminal_host_command_line_names_its_owner_without_a_path() {
+    let mut harness = RecoveryHarness::start_unstarted("host-argv-owner");
+    let mut command = harness.daemon_command();
+    command.env("CMUX_BUNDLE_ID", "dev.cmux.test.owner").env("CMUX_TAG", "owner tag/x.app/");
+    harness.child = Some(command.spawn().unwrap());
+    wait_for_socket(&harness.socket);
+    request(
+        &harness.socket,
+        serde_json::json!({"id":1,"cmd":"run","argv":["/bin/cat"],"new_workspace":true,"name":"owner"}),
+    );
+    let (_, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    let daemon = harness.child.as_ref().unwrap().id();
+    let output =
+        Command::new("ps").args(["-o", "args=", "-p", &record.host_pid.to_string()]).output();
+    let args = String::from_utf8_lossy(&output.unwrap().stdout).trim().to_owned();
+    let expected = format!("--owner dev.cmux.test.owner:owner_tag_x.app_@{daemon}");
+    assert!(args.ends_with(&expected), "ps does not name the owner: {args}");
+    assert!(!args.contains(".app/"), "the host command line holds a bundle path: {args}");
+}
