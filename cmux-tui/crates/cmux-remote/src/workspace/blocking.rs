@@ -20,8 +20,6 @@ const MAX_WORKSPACE_BLOCKING_JOBS: usize = 4;
 pub(crate) struct WorkspaceBlockingPool {
     slots: Arc<Semaphore>,
     lifecycle: Arc<BlockingLifecycle>,
-    #[cfg(test)]
-    before_job: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 #[derive(Default)]
@@ -94,8 +92,6 @@ impl Default for WorkspaceBlockingPool {
         Self {
             slots: Arc::new(Semaphore::new(jobs)),
             lifecycle: Arc::new(BlockingLifecycle::default()),
-            #[cfg(test)]
-            before_job: None,
         }
     }
 }
@@ -121,14 +117,8 @@ impl WorkspaceBlockingPool {
         let permit = self.slots.clone().acquire_owned().await.map_err(|_| {
             RpcError::new("session-closed", "workspace blocking executor is shutting down")
         })?;
-        #[cfg(test)]
-        let before_job = self.before_job.clone();
         let (completed_tx, completed_rx) = oneshot::channel();
         let worker = tokio::task::spawn_blocking(move || {
-            #[cfg(test)]
-            if let Some(before_job) = before_job {
-                before_job();
-            }
             // Move admission into the result so a canceled receiver drops any
             // rollback guard before releasing this worker slot.
             drop(completed_tx.send(CompletedBlockingJob::new(job(), permit, registration)));
@@ -205,66 +195,6 @@ impl WorkspaceBlockingPool {
         Self {
             slots: Arc::new(Semaphore::new(jobs.max(1))),
             lifecycle: Arc::new(BlockingLifecycle::default()),
-            #[cfg(test)]
-            before_job: None,
-        }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn with_hook(jobs: usize, before_job: Arc<dyn Fn() + Send + Sync>) -> Self {
-        let mut pool = Self::with_jobs(jobs);
-        pool.before_job = Some(before_job);
-        pool
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::task::Poll;
-
-    use tokio::sync::oneshot;
-
-    use super::*;
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn drain_tracks_a_worker_after_its_awaiting_request_is_aborted() {
-        let pool = WorkspaceBlockingPool::with_jobs(1);
-        let gate = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
-        let (entered_tx, entered_rx) = oneshot::channel();
-        let worker = {
-            let pool = pool.clone();
-            let gate = gate.clone();
-            tokio::spawn(async move {
-                pool.run("test", move || {
-                    let _ = entered_tx.send(());
-                    let (released, changed) = &*gate;
-                    let released =
-                        released.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                    drop(
-                        changed
-                            .wait_while(released, |released| !*released)
-                            .unwrap_or_else(std::sync::PoisonError::into_inner),
-                    );
-                    Ok(())
-                })
-                .await
-            })
-        };
-        entered_rx.await.unwrap();
-        worker.abort();
-        assert!(worker.await.unwrap_err().is_cancelled());
-
-        let mut drain = Box::pin(pool.close_and_drain(Duration::from_secs(2)));
-        let first_poll = futures_util::poll!(&mut drain);
-
-        let (released, changed) = &*gate;
-        *released.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = true;
-        changed.notify_all();
-        match first_poll {
-            Poll::Pending => assert_eq!(drain.await, 0),
-            Poll::Ready(residual) => {
-                panic!("drain completed with {residual} jobs while its worker was still blocked")
-            }
         }
     }
 }

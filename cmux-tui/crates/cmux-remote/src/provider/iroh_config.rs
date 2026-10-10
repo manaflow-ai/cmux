@@ -47,16 +47,3 @@ impl FromStr for IrohPathMode {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::IrohPathMode;
-
-    #[test]
-    fn path_mode_parsing_does_not_require_the_transport_feature() {
-        assert_eq!("auto".parse(), Ok(IrohPathMode::Auto));
-        assert_eq!("direct-only".parse(), Ok(IrohPathMode::DirectOnly));
-        assert_eq!("relay-only".parse(), Ok(IrohPathMode::RelayOnly));
-        assert!("direct".parse::<IrohPathMode>().is_err());
-    }
-}

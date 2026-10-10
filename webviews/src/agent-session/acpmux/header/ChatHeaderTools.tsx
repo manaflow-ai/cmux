@@ -1,6 +1,5 @@
-// The chat header's top right, after the Codex app's: Changes with the last turn's counts, which
-// opens the changes view beside the transcript; Terminal and Browser, which split the pane in the
-// chat's folder; and the "..." chat menu. Every control renders from the first frame at its final
+// The chat header's top right, after the Codex app's: Terminal and Browser, which split the pane in
+// the chat's folder; the summary (Sources) button, whose popover also opens the last turn's changes; and the "..." chat menu. Every control renders from the first frame at its final
 // size; data fills in place.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
@@ -35,9 +34,6 @@ export type ChatMenuItem =
     };
 
 export function ChatHeaderTools({
-  changes,
-  changesOpen,
-  onChanges,
   onTerminal,
   onBrowser,
   tabTools = true,
@@ -47,10 +43,6 @@ export function ChatHeaderTools({
   expand,
   onExpanded,
 }: {
-  /// The last turn that edited files, with its counts; undefined before any edit.
-  changes?: { additions: number; deletions: number };
-  changesOpen: boolean;
-  onChanges: () => void;
   onTerminal: () => void;
   onBrowser: () => void;
   /// Terminal and Browser split the chat's tab; Quick Chat's panel has none.
@@ -67,22 +59,8 @@ export function ChatHeaderTools({
   const t = useT();
   const terminalKey = useShortcut(HEADER_ACTIONS.terminal);
   const browserKey = useShortcut(HEADER_ACTIONS.browser);
-  const changesLabel = changes
-    ? `${t("header.changes")}: +${changes.additions} -${changes.deletions}`
-    : t("header.changes");
   return (
     <div className="acpmux-header-tools">
-      <button
-        type="button"
-        className="acpmux-header-changes"
-        aria-pressed={changesOpen}
-        aria-label={changesLabel}
-        title={t("header.changes")}
-        disabled={!changes}
-        onClick={onChanges}
-      >
-        <Icon name="diff.file" size={15} />
-      </button>
       {tabTools && (
         <>
           <button

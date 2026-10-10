@@ -89,10 +89,11 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `appearance.surfaces.<surface>.color|opacity` (R55); no override
     /// (every surface shows the window's backdrop) when unset or invalid.
     public var surfaceBackgrounds = SurfaceBackgrounds.none
-    /// `appearance.backdropArt`; nil disables the bundled painting.
-    public var backdropArt: BackdropArt?
-    /// `appearance.background`; nil leaves the desktop untouched.
-    public var backdropSelection: BackdropSelection?
+    /// The bundled art of ``backdropSelection``; nil for none or another source.
+    public var backdropArt: BackdropArt? = BackdropSelectionSetting.defaultArt
+    /// `appearance.background`: ``BackdropSelectionSetting/defaultSelection`` (off) when unset,
+    /// nil for `none`.
+    public var backdropSelection: BackdropSelection? = BackdropSelectionSetting.defaultSelection
     /// `appearance.experimentalControls`; off unless explicitly enabled.
     public var experimentalAppearance = false
     /// `appearance.glassTransparency`, `appearance.hue` and
@@ -236,7 +237,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.windowBackground = WindowBackgroundSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.surfaceBackgrounds = SurfaceBackgroundSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.backdropSelection = BackdropSelectionSetting().parse(root, diagnostics: &snapshot.diagnostics)
-        if case .art(let art) = snapshot.backdropSelection { snapshot.backdropArt = art }
+        if case .art(let art) = snapshot.backdropSelection { snapshot.backdropArt = art } else { snapshot.backdropArt = nil }
         snapshot.experimentalAppearance = ExperimentalAppearanceSetting().parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.appearanceTuning = AppearanceTuningSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusIndicator = StatusIndicatorConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
