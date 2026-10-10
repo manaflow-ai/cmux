@@ -34,6 +34,15 @@ final class FeedInstallPrincipal {
         }
     }
 
+    /// This Mac's install id, minting an install token when it is not known yet (the first
+    /// prompt can come before the sign-in's refresh settles); nil while signed out.
+    func ensureInstallID() async -> String? {
+        if let installID { return installID }
+        guard let token = try? await identity.installToken() else { return nil }
+        if let install = Self.install(ofToken: token) { installID = install }
+        return installID
+    }
+
     /// POSTs `body` to `path` (`v1/ops` or `v1/read`) as this install and
     /// returns the owner's reply; an owner error is `FeedServiceError.owner`.
     func call(_ path: String, _ body: [String: Any]) async throws -> [String: Any] {
