@@ -46,7 +46,7 @@ enum ClipboardReadStrings {
                 CmuxDialogButton(id: denyID, title: deny, role: .cancel),
                 CmuxDialogButton(id: allowID, title: allow, role: .normal),
             ],
-            identifier: identifier)
+            identifier: identifier, confirmKind: .consent)
     }
 
     /// The dialog's accessibility identifier; automation may not press it.

@@ -25,9 +25,12 @@ final class QuitOriginTracker {
     /// The origin of the quit AppKit is asking about, cleared for the next.
     /// `appleEventReason` is the quit Apple event's `kAEQuitReason`, when
     /// the quit came from one (logout and shutdown send one).
-    func consume(appleEventReason: OSType? = nil) -> QuitOrigin {
+    func consume(appleEventReason: OSType? = nil, appleEventQuit: Bool = false) -> QuitOrigin {
         defer { pending = nil }
         if isPoweringOff || appleEventReason.map(Self.powerOffReasons.contains) == true { return .powerOff }
+        // A quit Apple Event (osascript, another app, the Dock) may come from any process:
+        // it is scripted, so it never answers or skips the person's sheet (cx-zk9t).
+        if pending == nil, appleEventQuit { return .scripted }
         return pending ?? .interactive
     }
 

@@ -6,6 +6,10 @@ public nonisolated struct CmuxDialogStrings {
     public nonisolated init() {}
     public static var ok: String { String(localized: "dialog.ok", defaultValue: "OK", bundle: .module) }
     public static var cancel: String { String(localized: "dialog.cancel", defaultValue: "Cancel", bundle: .module) }
+    /// Under a field of a user-only dialog that another app or automation changed (cx-zk9t).
+    public static var changedByAnotherApp: String {
+        String(localized: "dialog.changedByAnotherApp", defaultValue: "Changed by another app. Check it before you continue.", bundle: .module)
+    }
     /// The line that names the web origin that asked.
     public static func from(_ origin: String) -> String {
         String(format: String(localized: "dialog.from", defaultValue: "From %@", bundle: .module), origin)

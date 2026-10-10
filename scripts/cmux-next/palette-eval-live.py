@@ -9,7 +9,7 @@ Launches the tagged app headless (no activation, bounded window), then:
      (score them with `bun webviews/scripts/palette-eval.ts --live OUT/live-results.json`);
   3. opens the palette with each --shot query and captures it (debug.palette.capture) to
      OUT/shot-<n>-<slug>.png.
-Then quits with quitEndSessions and stops the tag's daemons. Kills only the PID it started.
+Then quits with debug.quit fixture_quit end-sessions and stops the tag's daemons. Kills only the PID it started.
 
 Usage: palette-eval-live.py TAG APP OUT_DIR CASES_JSON [--shot QUERY ...]
 """
@@ -109,7 +109,7 @@ try:
         time.sleep(0.5)
     rc = 0
 finally:
-    print("quit:", json.dumps(rpc("action.run", {"action": "quitEndSessions"}, timeout=10))[:200], flush=True)
+    print("quit:", json.dumps(rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=10))[:200], flush=True)
     try:
         app.wait(timeout=30)
         print("app exited %s" % app.returncode, flush=True)

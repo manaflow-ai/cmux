@@ -41,6 +41,8 @@ public struct RegistryKeyBindings {
     @discardableResult
     public func run(_ binding: KeyBinding, keyContext: ActionContext) -> Bool {
         var invocation = ActionInvocation(arguments: binding.arguments)
+        // A key binding never confirms a person-only action (cx-zk9t): its dialog still asks.
+        if registry.descriptor(for: binding.command)?.isPersonOnly == true { invocation.arguments[ActionArgument.confirmName] = nil }
         if let argument = binding.argument {
             let schema = registry.descriptor(for: binding.command)?.arguments.first
             invocation.arguments[schema?.name ?? "value"] = schema?.parse(argument) ?? .string(argument)
