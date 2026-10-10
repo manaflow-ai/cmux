@@ -496,7 +496,7 @@ guest_auth_status() {
   [ "\$cmux_tls_reachable" -eq 1 ] && cmux_tls_bool=true
   [ "\$cmux_authenticated" -eq 1 ] && cmux_authenticated_bool=true
   if [ "\$cmux_auth_json" -eq 1 ]; then
-    printf '{"authenticated":%s,"daemon":{"running":%s,"authenticated":%s,"session":"%s"},"tls":{"reachable":%s},"coderouter":{"configured":%s,"route_authenticated":"%s","http_status":"%s"},"identity":%s,"control_plane":"host-only"}\\n' \\
+    printf '{"authenticated":%s,"daemon":{"running":%s,"authenticated":%s,"session":"%s"},"tls":{"reachable":%s},"coderouter":{"configured":%s,"route_authenticated":"%s","http_status":"%s"},"identity":%s,"credential_boundaries":{"github_cli":"machine_home","ssh":"remote_home","snapshot":"inherits_files","workspace":"shared_machine_home"},"control_plane":"host-only"}\\n' \\
       "\$cmux_authenticated_bool" "\$cmux_daemon_bool" "\$cmux_daemon_auth_bool" "\$LOCAL_SESSION" \\
       "\$cmux_tls_bool" "\$cmux_model_bool" "\$cmux_route_auth" "\$cmux_edge_status" "\$cmux_identity_json"
   else
@@ -525,6 +525,9 @@ guest_auth_status() {
     fi
     printf '%s\\n' "\$cmux_identity_line"
     cmux_message hostTokens
+    cmux_message githubScope
+    cmux_message sshScope
+    cmux_message snapshotScope
   fi
   [ "\$cmux_daemon_running" -eq 1 ] || return 1
   [ "\$cmux_authenticated" -eq 1 ] || return 1

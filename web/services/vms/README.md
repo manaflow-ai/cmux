@@ -45,6 +45,23 @@ billing attribution do not independently grant access. Personal machines use
 the user's personal scope. Model credentials are further constrained by the
 machine's coderouter pool; see `services/coderouter/README.md`.
 
+### Credentials inside a Cloud machine
+
+`cmux auth status --json` reports the credential boundaries that apply inside a
+machine. The GitHub CLI (`gh`) uses the machine's Unix `HOME` (normally
+`~/.config/gh`), so its login is shared by workspaces on that machine and is not
+isolated per workspace or per cmux user. SSH uses the target machine's own
+`HOME` and SSH configuration; a local Mac login does not automatically become a
+Cloud login, and a Cloud login does not become an SSH target login. GitHub and
+SSH credentials are separate from Stack/CodeRouter authentication, which
+remains host-owned and edge-scoped.
+
+VM snapshots and forks copy files from the source machine. A snapshot can
+therefore carry `gh` or SSH credential files unless they are removed first.
+Treat snapshots as containing the source machine's local identity and scrub
+credential files before sharing or promoting one. This readout documents the
+boundary; it does not claim per-workspace or per-user credential isolation.
+
 Cookie-authenticated browser mutations also require a same-origin browser request. Native macOS
 calls use `Authorization: Bearer` plus `X-Stack-Refresh-Token` and are not subject to browser CSRF.
 For cookie calls, `POST`/`DELETE` routes reject cross-site `Origin` or `Sec-Fetch-Site` requests

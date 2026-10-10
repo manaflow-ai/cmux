@@ -213,6 +213,12 @@ esac
       expect(payload.daemon).toMatchObject({ running: true, authenticated: true, session: "cloud" });
       expect(payload.tls).toEqual({ reachable: true });
       expect(payload.coderouter).toMatchObject({ configured: true, route_authenticated: "accepted", http_status: "200" });
+      expect(payload.credential_boundaries).toEqual({
+        github_cli: "machine_home",
+        ssh: "remote_home",
+        snapshot: "inherits_files",
+        workspace: "shared_machine_home",
+      });
       expect(run.stdout).not.toContain("crt_");
     });
 
@@ -1830,6 +1836,8 @@ describe("in-VM cmux shim: reflection", () => {
     expect(payload.identity).toEqual({ vm_id: "11111111-2222-4333-8444-555555555555", name: "build-box" });
     const human = await runShim(["auth", "status"], REFLECTION_ENV, fakeReflectionCurl);
     expect(human.stdout).toContain("Identity: build-box (11111111-2222-4333-8444-555555555555)");
+    expect(human.stdout).toContain("GitHub CLI: machine HOME-scoped");
+    expect(human.stdout).toContain("SSH credentials: target-machine HOME-scoped");
     const denied = await runShim(["auth", "status", "--json"], { ...REFLECTION_ENV, CMUX_TEST_REFLECTION: "deny" }, fakeReflectionCurl);
     expect((JSON.parse(denied.stdout) as Record<string, any>).identity).toBeNull();
     expect((await runShim(["auth", "status"], { ...REFLECTION_ENV, CMUX_TEST_REFLECTION: "deny" }, fakeReflectionCurl)).stdout).toContain("Identity: unavailable (reflection: this machine has no VM identity");
