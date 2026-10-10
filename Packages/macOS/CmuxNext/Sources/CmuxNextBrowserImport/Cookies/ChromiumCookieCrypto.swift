@@ -30,7 +30,9 @@ public struct ChromiumCookieCrypto: Sendable {
             CCKeyDerivationPBKDF(CCPBKDFAlgorithm(kCCPBKDF2), raw.baseAddress?.assumingMemoryBound(to: Int8.self), password.count,
                                  salt, salt.count, CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA1), 1003, &key, key.count)
         }
-        precondition(status == kCCSuccess, "PBKDF2 with fixed parameters cannot fail")
+        // An empty key never decrypts: decrypt and encrypt then throw `badPadding`
+        // (CCCrypt refuses the key length) instead of the process trapping.
+        guard status == kCCSuccess else { return Data() }
         return Data(key)
     }
 

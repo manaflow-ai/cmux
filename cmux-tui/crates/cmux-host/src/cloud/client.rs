@@ -255,14 +255,17 @@ impl<H: Http> CloudClient<H> {
         Ok(access)
     }
 
-    /// One op on `/v1/ops`. A 401 or 403 drops the cached token and retries
-    /// once.
-    pub fn op(&mut self, request: &OpRequest, now_wall_ms: u64) -> Answer {
-        let body = json!({ "op": request.op, "params": request.params });
-        let url = self.url("/v1/ops");
+    /// One read on `/v1/read` (`{op, params}`), with the same token
+    /// handling as [`CloudClient::op`].
+    pub fn read(&mut self, op: &str, params: &Value, now_wall_ms: u64) -> Answer {
+        self.post_with_token("/v1/read", &json!({ "op": op, "params": params }), now_wall_ms)
+    }
+
+    fn post_with_token(&mut self, path: &str, body: &Value, now_wall_ms: u64) -> Answer {
+        let url = self.url(path);
         let send = |client: &mut Self| -> Option<(u16, Value)> {
             let token = client.token(now_wall_ms).ok()?;
-            client.http.post(&url, &body, Some(&token)).ok()
+            client.http.post(&url, body, Some(&token)).ok()
         };
         let Some((mut status, mut answer)) = send(self) else { return Answer::Transport };
         if status == 401 || status == 403 {
@@ -271,5 +274,12 @@ impl<H: Http> CloudClient<H> {
             (status, answer) = again;
         }
         Answer::Http { status, body: answer }
+    }
+
+    /// One op on `/v1/ops`. A 401 or 403 drops the cached token and retries
+    /// once.
+    pub fn op(&mut self, request: &OpRequest, now_wall_ms: u64) -> Answer {
+        let body = json!({ "op": request.op, "params": request.params });
+        self.post_with_token("/v1/ops", &body, now_wall_ms)
     }
 }

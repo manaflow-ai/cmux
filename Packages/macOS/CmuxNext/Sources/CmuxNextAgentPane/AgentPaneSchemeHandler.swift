@@ -8,8 +8,9 @@ import WebKit
 /// `file://` page. acpmux's localhost listeners then allow exactly this
 /// origin (plans/cmux-next/identity.md).
 ///
-/// Only GET requests for files directly beside the page are answered; any
-/// other host, an escaping path or a missing file fails the request.
+/// Only GET requests for files directly beside the page, and for the render
+/// frame (`AgentPaneRenderFrame`), are answered; any other host, an escaping
+/// path or a missing file fails the request.
 /// Media the host granted the page (``AgentPaneMediaGrants``) is served from
 /// `__media/` in byte ranges, and the chart library from `__lib/vega.js`.
 final class AgentPaneSchemeHandler: NSObject, WKURLSchemeHandler {
@@ -26,6 +27,16 @@ final class AgentPaneSchemeHandler: NSObject, WKURLSchemeHandler {
     var active: Set<ObjectIdentifier> = []
 
     func webView(_ webView: WKWebView, start task: any WKURLSchemeTask) {
+        if task.request.httpMethod.map({ $0 == "GET" }) ?? true,
+           let url = task.request.url, AgentPaneRenderFrame.isFrame(url) {
+            let data = AgentPaneRenderFrame.document
+            let headers = AgentPaneRenderFrame.headers(length: data.count)
+            let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: headers)
+            task.didReceive(response ?? URLResponse(url: url, mimeType: "text/html", expectedContentLength: data.count, textEncodingName: "utf-8"))
+            task.didReceive(data)
+            task.didFinish()
+            return
+        }
         if task.request.httpMethod.map({ $0 == "GET" }) ?? true, let url = task.request.url, let media = Self.mediaFile(for: url) {
             return serveMedia(media, url: url, task: task)
         }

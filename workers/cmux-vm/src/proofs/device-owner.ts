@@ -29,6 +29,7 @@ export interface CallerActsOnDevice<C, R> extends Proof<"CallerActsOnDevice", [C
 export const isTenantAdmin = (principal: Principal): Effect.Effect<boolean, IdentityUnavailable, TeamAdmin> => {
   const actor = principal.actor;
   if (actor.kind === "api_key") return Effect.succeed(principal.scopes.has("admin"));
+  if (actor.kind === "service") return Effect.succeed(false);
   return Effect.flatMap(TeamAdmin, (admins) => admins.isAdmin(principal.tenantId, actor.userId));
 };
 

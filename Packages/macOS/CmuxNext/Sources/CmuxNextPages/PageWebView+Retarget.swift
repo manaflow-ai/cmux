@@ -21,6 +21,8 @@ extension PageWebView {
             return false
         }
         router.rebind(descriptor: descriptor, routes: routes)
+        // The new claim gets no gesture the person made for the previous one.
+        (webView as? PageWKWebView)?.forgetUserActivation()
         self.descriptor = descriptor
         self.dynamicResources = dynamicResources
         themeSurface = surface
@@ -59,6 +61,7 @@ extension PageWebView {
     /// Clears the router before an untouched host is parked for another claim.
     func resetPooledPage() async {
         router.rebind(descriptor: descriptor, routes: [])
+        (webView as? PageWKWebView)?.forgetUserActivation()
         dynamicResources = nil
         route = nil
         countsTouches = false

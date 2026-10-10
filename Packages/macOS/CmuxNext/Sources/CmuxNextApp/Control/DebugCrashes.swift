@@ -62,7 +62,9 @@ enum DebugCrashes {
     #if DEBUG
     /// `debug.crash.app`: ends this process like a crash (DEBUG builds), to
     /// verify relaunch recovery. `signal`: "segv" (default), "abort", "trap".
-    static func crashApp(_ params: [String: JSONValue]) -> Never {
+    /// `reporting` tags the Sentry event `deliberate_crash`, so it can be filtered out.
+    static func crashApp(_ params: [String: JSONValue], _ reporting: AppCrashReporting? = nil) -> Never {
+        reporting?.reporter.markDeliberateCrash("debug.crash.app")
         switch params["signal"]?.stringValue {
         case "abort": abort()
         case "trap": fatalError("debug.crash.app")
@@ -77,7 +79,8 @@ enum DebugCrashes {
     /// unless NSApplicationCrashOnExceptions is on, cx-r3q). A DEV build
     /// then crashes at this throw, and the report names
     /// `DebugExceptionRaiser.raiseNow`.
-    static func raiseException() -> JSONValue {
+    static func raiseException(_ reporting: AppCrashReporting? = nil) -> JSONValue {
+        reporting?.reporter.markDeliberateCrash("debug.crash.exception")
         DebugExceptionRaiser.shared.perform(#selector(DebugExceptionRaiser.raiseNow), with: nil, afterDelay: 0)
         return .object(["scheduled": .bool(true),
                         "crash_on_exceptions": .bool(UserDefaults.standard.bool(forKey: CrashOnExceptions.key))])

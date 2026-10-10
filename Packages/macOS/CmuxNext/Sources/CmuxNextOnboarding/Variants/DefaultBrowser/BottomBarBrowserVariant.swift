@@ -37,11 +37,10 @@ struct BottomBarBrowser: OnboardingScreenVariant {
 
 final class BottomBarBrowserBar: BrowserClaimView {
     private let status = OnboardingLabel.make(lines: 2)
-    private var button: NSButton!
+    private lazy var button: NSButton = OnboardingControl.button(OnboardingStrings.makeDefaultBrowser, target: self, action: #selector(requestClaim))  // no IUO (crash program)
 
     override init(model: DefaultAppsStepModel) {
         super.init(model: model)
-        button = OnboardingControl.button(OnboardingStrings.makeDefaultBrowser, target: self, action: #selector(requestClaim))
         button.setContentCompressionResistancePriority(.required, for: .horizontal)
         addSubview(status)
         addSubview(button)

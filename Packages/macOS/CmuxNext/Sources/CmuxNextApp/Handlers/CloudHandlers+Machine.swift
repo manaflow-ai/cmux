@@ -8,7 +8,7 @@ import CmuxNextDaemon
 // restore, fork, and snapshot deletion.
 extension CloudHandlers {
     static func bindMachineActions(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
-        let cloud = context.services.cloud!
+        let cloud = context.services.cloud
         bind("cloudOpenMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
             // An app link waits for the user after it ended: opening the
@@ -262,7 +262,7 @@ extension CloudHandlers {
     }
 
     static func describe(_ session: CloudMachineSession, _ stats: CloudMachineStats) -> String {
-        var lines = ["\(session.machine.title) (\(session.machineID))", "state: \(stats.state), status: \(session.machine.status.rawValue)"]
+        var lines = ["\(session.machine.title) (\(session.machineID))", "state: \(stats.state), status: \(session.effectiveStatus.rawValue)"]
         if let cpus = stats.cpus { lines.append("cpus: \(cpus)" + (stats.cpuPercent.map { String(format: ", %.0f%%", $0) } ?? "")) }
         if let used = stats.memoryUsedMb, let total = stats.memoryTotalMb { lines.append(String(format: "memory: %.0f / %.0f MB", used, total)) }
         if let used = stats.diskUsedMb, let total = stats.diskTotalMb { lines.append(String(format: "disk: %.0f / %.0f MB", used, total)) }

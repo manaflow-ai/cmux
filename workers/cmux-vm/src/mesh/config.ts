@@ -27,6 +27,8 @@ export interface MeshBudgets {
   readonly rulesPerResource: number;
   /** ACL applies per mesh per minute (`aclApply.perMeshPerMinute`). */
   readonly aclAppliesPerMinute: number;
+  /** Least time between two changes of one device's published IPv6 address (each change reconciles the mesh). */
+  readonly addressChangeIntervalMs: number;
   /** Enrollment codes per mesh per hour (`enrollmentCode.perMeshPerHour`, M2). */
   readonly enrollmentCodesPerHour: number;
 }
@@ -37,6 +39,7 @@ export const DEFAULT_MESH_BUDGETS: MeshBudgets = {
   rulesPerMesh: 500,
   rulesPerResource: 180,
   aclAppliesPerMinute: 10,
+  addressChangeIntervalMs: 10_000,
   enrollmentCodesPerHour: 20,
 };
 

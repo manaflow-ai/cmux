@@ -100,6 +100,17 @@ class StubTests(unittest.TestCase):
         self.assertEqual(installed.read_text(), (self.dir / "CoreFoundation.tbd").read_text())
         self.assertTrue((sysroot / "System/Library/Frameworks/Security.framework/Security.tbd").exists())
 
+    def test_a_libsystem_routine_bound_to_a_framework_needs_no_stub(self) -> None:
+        # A Mac link with the macOS 15 SDK binds log2 to CoreServices (an
+        # umbrella re-export); the Linux link binds it to libSystem, which
+        # exports it too. The stub must not have to carry it.
+        stubs.cmd_generate(self.dir, ["a"])
+        stubs._run = FakeTools({"d": (DYLIBS, NM + "                 (undefined) external _log2 (from CoreFoundation)\n")})
+        system = self.dir / "libSystem.tbd"
+        system.write_text("--- !tapi-tbd\nexports:\n  - symbols: [ _log2, _write ]\n...\n")
+        self.assertEqual(stubs.cmd_check(self.dir, ["d"]), 1)
+        self.assertEqual(stubs.cmd_check(self.dir, ["d"], system), 0)
+
     def test_two_versions_of_one_framework_are_refused(self) -> None:
         stubs._run = FakeTools({"a": (DYLIBS, NM), "c": (DYLIBS.replace("5026.5.4", "4000.0.0"), NM)})
         with self.assertRaises(SystemExit):

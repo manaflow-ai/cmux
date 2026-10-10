@@ -128,6 +128,11 @@ pub fn find(family: &str, id: &str, homes: &HarnessHomes) -> Result<Adoptable, S
     Ok(Adoptable { file, cwd })
 }
 
+/// Whether the Claude store at `root` (a CLAUDE_CONFIG_DIR) has session `id`.
+pub fn claude_session_exists(root: &Path, id: &str) -> bool {
+    is_bare_id(id) && find_claude(root, id).is_some()
+}
+
 /// `<claude>/projects/<project>/<id>.jsonl`.
 fn find_claude(root: &Path, id: &str) -> Option<PathBuf> {
     let name = format!("{id}.jsonl");

@@ -47,7 +47,9 @@ pub(super) fn request_custody(surface: &Arc<Surface>) {
     // while it waits for its reply, and only this reader delivers the reply.
     // Every lock and the custody exchange happen on a short-lived thread.
     let surface = Arc::downgrade(surface);
-    let _ = std::thread::Builder::new().name("terminal-host-custody".into()).spawn(move || {
+    // The name is unique and within Linux's 15-byte thread name, so a
+    // boundary test sees in `/proc` when the custody exchange has finished.
+    let _ = std::thread::Builder::new().name("pty-custody".into()).spawn(move || {
         let discovery = {
             let Some(surface) = surface.upgrade() else { return };
             let Some(pty) = surface.as_pty() else { return };

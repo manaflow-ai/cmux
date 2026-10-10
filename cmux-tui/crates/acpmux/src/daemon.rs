@@ -177,6 +177,26 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     if fetch_catalog {
         tokio::spawn(hub.catalog.clone().run());
     }
+    // The ACP Registry (`registry.rs`): fetched once per daemon start; a copy
+    // that changes which installed agents are harnesses reloads them (and
+    // only then: a reload restarts pooled sessions).
+    // `ACPMUX_REGISTRY_FETCH=0` keeps the cached copy.
+    if !std::env::var("ACPMUX_REGISTRY_FETCH").is_ok_and(|v| v == "0") {
+        let hub = hub.clone();
+        tokio::spawn(async move {
+            let installed = || tokio::task::spawn_blocking(|| crate::registry::installed(&home()));
+            let before = installed().await.ok();
+            match crate::registry::refresh(&home()).await {
+                Ok(true) if installed().await.ok() != before => {
+                    if let Err(e) = hub.reload_catalog().await {
+                        tracing::warn!(error = %e.message, "harness reload after the ACP Registry refresh");
+                    }
+                }
+                Ok(_) => {}
+                Err(e) => tracing::info!(error = %e, "ACP Registry not refreshed"),
+            }
+        });
+    }
     // The app's pane sends no prompt before the folder's trust answer (`server/trust_gate.rs`).
     // Without a home directory no file can answer, so every folder waits (fails closed).
     hub.set_trust_gate(Some(crate::trust::Paths::current().unwrap_or_else(|| {
@@ -196,6 +216,11 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     {
         hub.set_idle_child((secs > 0).then(|| std::time::Duration::from_secs(secs)));
     }
+    // `ACPMUX_PROBE_HARNESSES=a,b`: the model probes start only these
+    // harnesses (the Chief lists the ones it uses); unset, every harness.
+    hub.set_probe_only(Hub::probe_only_from_env(
+        std::env::var("ACPMUX_PROBE_HARNESSES").ok().as_deref(),
+    ));
     if !std::env::var("ACPMUX_AGENT_HOSTS").is_ok_and(|v| v == "0") {
         hub.enable_agent_hosts();
     }
@@ -261,8 +286,28 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         socket_path().display(),
         bound.as_deref().unwrap_or("none")
     );
+    // The stop signals are registered before the ready line: a launcher may
+    // stop the daemon as soon as it reads the line, and a signal that came
+    // before registration would end the daemon by the default action
+    // (no shutdown path: the token, pid file and socket would stay).
+    #[cfg(unix)]
+    let mut stop_signals = {
+        use tokio::signal::unix::{SignalKind, signal};
+        (signal(SignalKind::terminate()).ok(), signal(SignalKind::interrupt()).ok())
+    };
+    #[cfg(not(unix))]
+    let ctrl_c = tokio::signal::ctrl_c();
     if let Some(fd) = opts.ready_fd {
         write_ready(fd, &ready);
+    }
+    // Debug builds only: `ACPMUX_TEST_HOLD_AFTER_READY_MS` holds the daemon
+    // right after the ready line, so integration tests can stop it in that
+    // window. Bounded; release builds have no seam.
+    #[cfg(debug_assertions)]
+    if let Some(ms) =
+        std::env::var("ACPMUX_TEST_HOLD_AFTER_READY_MS").ok().and_then(|v| v.parse::<u64>().ok())
+    {
+        tokio::time::sleep(Duration::from_millis(ms.min(5_000))).await;
     }
     // Profile files hot-reload (no polling); before startup work writes the config.
     hub.start_harness_watch();
@@ -284,14 +329,12 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     tokio::spawn(notify_loop(hub.clone()));
 
     let shutdown = async {
-        let ctrl_c = tokio::signal::ctrl_c();
         #[cfg(unix)]
         {
-            let mut term =
-                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).ok();
+            let (term, int) = &mut stop_signals;
             tokio::select! {
-                _ = ctrl_c => {},
-                _ = async { match term.as_mut() { Some(t) => { t.recv().await; } None => std::future::pending::<()>().await } } => {},
+                _ = next_signal(term.as_mut()) => {},
+                _ = next_signal(int.as_mut()) => {},
                 _ = hub.shutdown.notified() => {},
             }
         }
@@ -321,6 +364,17 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     }
     tracing::info!("stopped");
     Ok(())
+}
+
+/// The next delivery of a registered signal; never, if registration failed.
+#[cfg(unix)]
+async fn next_signal(stream: Option<&mut tokio::signal::unix::Signal>) {
+    match stream {
+        Some(stream) => {
+            stream.recv().await;
+        }
+        None => std::future::pending::<()>().await,
+    }
 }
 
 /// Write the readiness line to an inherited descriptor and close it.

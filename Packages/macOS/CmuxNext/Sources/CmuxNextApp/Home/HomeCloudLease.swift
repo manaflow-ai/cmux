@@ -108,13 +108,6 @@ final class HomeCloudLease {
         }
     }
 
-    #if DEBUG
-    /// Waits for the lease work started so far (tests).
-    func settle() async {
-        _ = await leasing?.value
-    }
-    #endif
-
     private func lease(_ sessions: any CloudLeaseSessions, expectedUserID: String?, forceRefresh: Bool,
                        clearOnFailure: Bool) async -> Outcome {
         do {

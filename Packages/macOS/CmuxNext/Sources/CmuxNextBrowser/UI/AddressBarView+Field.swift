@@ -5,9 +5,26 @@ public import AppKit
 extension AddressBarView: OmnibarPopupSurface {
     func showRows(_ rows: [BrowserSuggestion], highlighted: Int?) {
         guard let window else { return }
-        // The card is clipped to the browser pane (the chrome view), else to the window.
-        let pane = sequence(first: superview, next: { $0?.superview }).lazy.compactMap { $0 as? BrowserChromeView }.first
-        panel.show(rows, highlighted: highlighted, below: self, pane: pane ?? window.contentView ?? self, in: window)
+        panel.show(rows, highlighted: highlighted, below: self, pane: cardPane(in: window), in: window)
+    }
+
+    /// Keeps an open card flush under the bar after the chrome laid out again.
+    func followLayout() {
+        guard let window else { return }
+        panel.follow(below: self, pane: cardPane(in: window), in: window)
+    }
+
+    /// The card is clipped to the browser pane (the chrome view), or to the surface an omnibar row
+    /// sits on (`OmnibarToolbarView.cardClip`), else to the window.
+    private func cardPane(in window: NSWindow) -> NSView {
+        cardClipView ?? window.contentView ?? self
+    }
+
+    /// What the card is clipped to, when not the whole window.
+    var cardClipView: NSView? {
+        let chain = sequence(first: superview, next: { $0?.superview })
+        if let row = chain.lazy.compactMap({ $0 as? OmnibarToolbarView }).first, let clip = row.cardClip { return clip }
+        return chain.lazy.compactMap { $0 as? BrowserChromeView }.first
     }
 
     func highlightRow(_ row: Int?) { panel.highlight(row) }

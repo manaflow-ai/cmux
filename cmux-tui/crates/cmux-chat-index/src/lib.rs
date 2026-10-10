@@ -21,9 +21,10 @@ pub use adapters::{PathRole, classify_path};
 pub use entry::{AdapterKind, ChatEntry, ChatKey, Resume, TitleSource};
 pub use index::{ChatChange, ChatIndex, IndexedChat};
 pub use roots::{
-    ChatRoot, Discovery, DiscoveryInput, RecordedRoots, RefusedRoot, RootSource, RootSpec, discover,
+    ChatRoot, Discovery, DiscoveryInput, Platform, RecordedRoots, RefusedRoot, RootSource,
+    RootSpec, default_roots, discover, discover_on,
 };
 pub use scan::{AdapterConfig, FileRead, RootScan, read_file, scan_root};
-pub use stamp::{Change, FileStamp, FileState, Tally};
+pub use stamp::{Change, FileStamp, FileState, HeadPrint, Tally};
 pub use text::title_line;
 pub use time::parse_rfc3339_ms;

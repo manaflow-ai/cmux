@@ -90,7 +90,11 @@ extension DaemonTree {
                 }
             }
         }
-        for index in savedTabGroups.indices { savedTabGroups[index].openGroup = open[savedTabGroups[index].id] }
+        savedTabGroups = savedTabGroups.map { saved in
+            var saved = saved
+            saved.openGroup = open[saved.id]
+            return saved
+        }
     }
 }
 

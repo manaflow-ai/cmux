@@ -16,6 +16,7 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
     const PROJECTION: &str = "projection_0000000000000000000000000000000c";
     const VIEW: &str = "sidebar_view_0000000000000000000000000000000d";
     const CHECKPOINT: &str = "ckpt_0000000000000000000000000000000e";
+    const CONVERSATION: &str = "conv_01J00000000000000000000000";
 
     let mut cases: Vec<(Vec<&'static str>, &'static str)> = vec![
         (vec!["machine", "list"], "machine.list"),
@@ -750,6 +751,31 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
             vec!["git", "checkpoint", "unpin", CHECKPOINT, "--pin", "user:keep"],
             "git.checkpoint.unpin",
         ),
+        (vec!["conversation", "list"], "conversation.list"),
+        (vec!["conversation", CONVERSATION, "get", "--tail", "5"], "conversation.get"),
+        (
+            vec!["conversation", CONVERSATION, "history", "--before-seq", "9", "--limit", "20"],
+            "conversation.history",
+        ),
+        (vec!["conversation", "search", "status", "--limit", "5"], "conversation.search"),
+        (
+            vec![
+                "conversation",
+                CONVERSATION,
+                "send",
+                "--text",
+                "hi",
+                "--reply-to",
+                "msg_01J00000000000000000000000",
+                "--reply-part",
+                "0",
+            ],
+            "conversation.send",
+        ),
+        (
+            vec!["conversation", CONVERSATION, "events", "--tail", "3", "--cursor-rev", "4"],
+            "conversation.events",
+        ),
     ];
     cases.extend(state_resource_cases(WORKSPACE, SCREEN, PANE, TAB));
     cases
@@ -910,6 +936,7 @@ fn state_resource_cases<'a>(
         (vec!["screen", "group", "g", "ungroup"], "screen_group.ungroup"),
         (vec!["closed", "list", "--window", "i/w", "--limit", "5"], "closed.list"),
         (vec!["closed", "c1", "reopen", "--window", "i/w", "--members", "0,2"], "closed.reopen"),
+        (vec!["closed", "clear", "--since-ms", "5"], "closed.delete"),
         (vec!["workspace", workspace, "status", "list"], "workspace_status.list"),
         (
             vec!["workspace", workspace, "status", "set", "k", "t", "--icon", "i", "--color", "c"],

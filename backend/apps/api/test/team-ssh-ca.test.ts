@@ -129,7 +129,7 @@ describe("team SSH CA (TeamDO, workerd)", () => {
     expect(c.certType).toBe(1)
     expect(c.principals).toEqual(["lawrence-agents"])
     expect(c.keyId).toMatch(new RegExp(`^${t.owner}/session/session/[0-9a-f]{12}$`))
-    expect(c.critical).toEqual({ "force-command": "cmux team restricted-shell" })
+    expect(c.critical).toEqual({ "force-command": "/opt/cmux/current/bin/cmux team restricted-shell" })
     expect(c.extensions).toEqual({ "cmux-teams@cmux.dev": t.team })
     // A full shell needs a fresh presence proof (decision SSH-1), even from a signed-in session. A session asks for a
     // full shell unless it names the agent class, so it gets an explicit error (the CLI then asks for presence), never a silent agent certificate.
@@ -162,7 +162,7 @@ describe("team SSH CA (TeamDO, workerd)", () => {
     expect(agent.value).toMatchObject({ class: "agent", principals: ["lawrence-agents"] })
     const c = await readCert(agent.value.certificate, agent.value.ca_public_key)
     expect(c.verified).toBe(true)
-    expect(c.critical).toEqual({ "force-command": "cmux team restricted-shell" })
+    expect(c.critical).toEqual({ "force-command": "/opt/cmux/current/bin/cmux team restricted-shell" })
     expect(c.extensions).toEqual({ "cmux-teams@cmux.dev": t.team })
     expect(c.keyId.startsWith(`${t.owner}/grant_00000000000000000081/inst_00000000000000000081/`)).toBe(true)
     expect((await t.op(t.install(t.owner, ["read", "mutate-own", "cloud-link"]), "team_vm.ssh_cert", { public_key: key, class: "human" })).error!.code).toBe("team_vm.ssh_class_refused")

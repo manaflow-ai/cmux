@@ -100,6 +100,7 @@ jobs:
             CMUX_CI_RUNNER_OVERRIDES=${{ vars.CMUX_CI_RUNNER_OVERRIDES }}
             LINUX_ARM64_RUNNER=${{ vars.LINUX_ARM64_RUNNER }}
             LINUX_RUNNER=${{ vars.LINUX_RUNNER }}
+            LINUX_RUNNER_DARWIN_CROSS=${{ vars.LINUX_RUNNER_DARWIN_CROSS }}
             MACOS_RUNNER_15=${{ vars.MACOS_RUNNER_15 }}
             MACOS_RUNNER_26=${{ vars.MACOS_RUNNER_26 }}
             MACOS_RUNNER_26_LARGE=${{ vars.MACOS_RUNNER_26_LARGE }}
