@@ -357,15 +357,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
             let range = max(0, (sv.documentView?.frame.height ?? 0) - clip.bounds.height)
             clip.scroll(to: NSPoint(x: clip.bounds.origin.x, y: (CGFloat(v) * range).rounded())); sv.reflectScrolledClipView(clip)
         }
-        (host.scrollView.verticalScroller as? SequenceScroller)?.onPage = { [weak self] dir in
-            guard let self else { return }
-            // One page: the visible height less a line, as the Page keys do.
-            let sv = self.host.scrollView, clip = sv.contentView
-            var o = clip.bounds.origin
-            o.y += CGFloat(dir) * max(40, clip.bounds.height - 40)
-            o.y = max(0, min(o.y, (sv.documentView?.frame.height ?? 0) - clip.bounds.height))
-            clip.scroll(to: o); sv.reflectScrolledClipView(clip)
-        }
+        installFrameAndPressWiring(demo) // MessagesLab ced183d (PaneHost+FrameWiring.swift)
         // An attachment grows the field at once (MessagesLab cd2bc08): the glass follows without animating.
         demo.compose.onFieldJump = { [weak self] in
             guard let self, let demo = self.demo else { return }
@@ -684,19 +676,6 @@ final class ChatController: NSObject, NSTextViewDelegate {
         demo.setInactive(inactive)
         demo.compose.rescale()
     }
-}
-
-/// An NSMenuItem with a closure.
-final class MenuAction: NSMenuItem {
-    private let run: () -> Void
-    init(title: String, symbol: String? = nil, _ run: @escaping () -> Void) {
-        self.run = run
-        super.init(title: title, action: #selector(fire), keyEquivalent: "")
-        target = self
-        if let symbol { image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) }
-    }
-    required init(coder: NSCoder) { fatalError() }
-    @objc private func fire() { run() }
 }
 
 /// Keeps every content-less layer of the hosted trees at the window's scale.

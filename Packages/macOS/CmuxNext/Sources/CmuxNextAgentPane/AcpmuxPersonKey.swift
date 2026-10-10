@@ -1,6 +1,6 @@
 import Foundation
 import os
-import Synchronization
+import CmuxNextCompat
 
 /// This app launch's person key (acpmux `hub/person.rs`, cx-1l61): the daemon accepts an allow,
 /// a question's answer, or a grant that widens what runs without asking only from a connection

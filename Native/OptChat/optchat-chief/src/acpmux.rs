@@ -116,6 +116,14 @@ pub fn query_harnesses(socket: &std::path::Path, log: &dyn Fn(&str)) -> Result<V
     result
 }
 
+/// Whether the daemon's `initialize` says it defines the Chief's presets
+/// (`_meta.acpmux.features` has `chiefBuiltinPresets`).
+fn builtin_presets(init: &Value) -> bool {
+    init.pointer("/_meta/acpmux/features")
+        .and_then(Value::as_array)
+        .is_some_and(|f| f.iter().any(|v| v == "chiefBuiltinPresets"))
+}
+
 /// What a running turn hears about its session.
 #[derive(Clone, Debug, PartialEq)]
 pub enum TurnSignal {
@@ -331,7 +339,11 @@ impl Acpmux {
     /// the preset is installed again without it, and its users keep the
     /// layout without (args before #17283, systemPrompt before the preset
     /// system prompt).
-    fn install_presets(&self, client: &RpcClient, log: &dyn Fn(&str)) {
+    /// `builtins`: the daemon defines the Chief's presets itself
+    /// (acpmux `config/chief_builtins.rs`): they are installed by name with
+    /// no env, which only the person may set since acpmux cx-1l61. An
+    /// older daemon gets the env as before.
+    fn install_presets(&self, client: &RpcClient, log: &dyn Fn(&str), builtins: bool) {
         let mut ready = HashSet::new();
         let mut with_args = HashSet::new();
         let mut with_prompt = HashSet::new();
@@ -339,9 +351,11 @@ impl Acpmux {
         for (preset, required) in all.chain(self.required.iter().map(|p| (p, true))) {
             let mut set = json!({
                 "harness": preset.harness,
-                "env": preset.env,
                 "description": "optchat-chief: an isolated Claude Code configuration",
             });
+            if !builtins {
+                set["env"] = json!(preset.env);
+            }
             // Always say both: acpmux merges a set into the preset it saved,
             // and the last host's Claude args or system prompt (an engine
             // switch on the same daemon) would stay and refuse a codex set.
@@ -514,7 +528,7 @@ impl Acpmux {
         })
         .map_err(|e| format!("connect {}: {e}", self.socket.display()))?;
         let result = (|| {
-            client
+            let init = client
                 .request(
                     "initialize",
                     json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "optchat-chief", "version": env!("CARGO_PKG_VERSION")}}),
@@ -523,11 +537,11 @@ impl Acpmux {
             client
                 .request("_acpmux/watch", json!({"enabled": true}))
                 .map_err(|e| format!("watch: {e}"))?;
-            sessions(&client)
+            Ok::<_, String>((sessions(&client)?, builtin_presets(&init)))
         })();
         match result {
-            Ok(list) => {
-                self.install_presets(&client, log);
+            Ok((list, builtins)) => {
+                self.install_presets(&client, log, builtins);
                 *self
                     .client
                     .lock()

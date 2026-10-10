@@ -1,5 +1,5 @@
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// Request ids between the page and acpmux (ad349, round 6). Every request the relay forwards gets
 /// an id the relay owns (a counter per connection), so a page cannot make two requests share an
