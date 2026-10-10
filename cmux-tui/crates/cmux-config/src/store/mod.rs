@@ -66,6 +66,11 @@ impl Origin {
         }
     }
 
+    /// The person, through the app or a declared `--origin user`.
+    pub fn is_person(self) -> bool {
+        matches!(self, Origin::User | Origin::App)
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Origin::User => "user",

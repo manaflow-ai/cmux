@@ -88,12 +88,17 @@ fn writable_path(state: &State, target: &Target) -> Result<Vec<String>, Refusal>
     Ok(path)
 }
 
-/// Origin `mcp` may change only schema rows that are agent-settable.
+/// A user-only row (`agent_settable: false`) changes only for origin `user`
+/// or `app` (the person, through the app or `--origin user`), like the app
+/// socket's user-only refusal. Origin `mcp` may change only agent-settable
+/// rows. Origins are declared by the client: this stops cooperative agents
+/// and scripts; sandboxed apps and remote peers are always `mcp`.
 fn check_agent(row: Option<&Row>, path: &[String], meta: &WriteMeta) -> Result<(), Refusal> {
-    if meta.origin != Origin::Mcp {
+    if meta.origin.is_person() {
         return Ok(());
     }
     match row {
+        None if meta.origin != Origin::Mcp => Ok(()),
         None => Err(Refusal::AgentRefused { key: dotted(path), reason: None }),
         Some(row) if !row.agent_settable => {
             Err(Refusal::AgentRefused { key: row.key.clone(), reason: row.agent_refusal.clone() })
@@ -123,10 +128,10 @@ fn set_text(
     }
     let row = state.schema.row_at(&path);
     check_agent(row, &path, meta)?;
+    check_managed(state, &path)?;
     if let Some(row) = row {
         accepts(row, &value, &state.domains)?;
     }
-    check_managed(state, &path)?;
     if row.is_none() {
         check_row_overlap(state, &path)?;
     }
@@ -170,7 +175,7 @@ fn reset_text(state: &State, target: &Target, meta: &WriteMeta) -> Result<String
 /// tab bar buttons, keys the schema does not know, `kept_on_reset_all` rows
 /// and managed keys stay.
 fn reset_all_text(state: &State, meta: &WriteMeta) -> Result<String, Refusal> {
-    if meta.origin == Origin::Mcp {
+    if !meta.origin.is_person() {
         return Err(Refusal::AgentRefused {
             key: "settings.reset_all".to_string(),
             reason: Some("destructive".to_string()),

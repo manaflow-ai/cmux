@@ -2,7 +2,8 @@
 //! (`cmux raw operation settings.*`) and a real daemon: in-place edits keep
 //! the comments of the settings file, a managed key and an invalid value are
 //! refused, an agent may not change a user-only key, and a hand edit of the
-//! file raises `settings-changed` on the subscribe stream.
+//! file raises `settings-changed` on the subscribe stream. The managed key
+//! comes from CMUX_NEXT_MANAGED_PREFS_FILE, which only debug builds read.
 #![cfg(unix)]
 
 use super::*;
@@ -161,7 +162,25 @@ fn settings_owner_edits_the_file_in_place_and_refuses_managed_invalid_and_agent_
         ),
         "settings.agent_refused"
     );
+    assert_eq!(
+        daemon.refused(
+            "settings.set",
+            serde_json::json!({"key": "history.terminalCommands", "value": true})
+        ),
+        "settings.agent_refused",
+        "a user-only key needs origin user, like the app socket's --confirm"
+    );
+    assert_eq!(
+        daemon.refused("settings.reset_all", serde_json::json!({})),
+        "settings.agent_refused"
+    );
     assert_eq!(daemon.file(), before, "a refused write changed the file");
+    daemon.ok(
+        "settings.set",
+        serde_json::json!({"key": "history.terminalCommands", "value": true, "origin": "user"}),
+        true,
+    );
+    assert_eq!(daemon.get("history.terminalCommands")["value"], true);
 
     let rows = daemon.ok("settings.list", serde_json::json!({}), false);
     let row =

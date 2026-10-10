@@ -179,14 +179,15 @@ fn read_team_policy(state_dir: &Path, schema: &Schema) -> Option<TeamPolicyLayer
     TeamPolicyLayer::from_device_policy(&document, schema)
 }
 
-/// An exclusive advisory lock on `.<name>.lock` beside the (resolved) file.
+/// An exclusive advisory lock on `.<name>.lock` beside the configured file.
 /// `None` when the lock file cannot be opened (a read-only directory): the
 /// write then goes ahead like before, and the publish reports any error.
 fn lock_config(config_path: &Path) -> Option<std::fs::File> {
-    let target = resolve_symlinks(config_path);
-    let directory = target.parent().filter(|dir| !dir.as_os_str().is_empty())?;
+    // Beside the configured path, not a symlink's target: a dotfiles repo
+    // never gets a lock file.
+    let directory = config_path.parent().filter(|dir| !dir.as_os_str().is_empty())?;
     std::fs::create_dir_all(directory).ok()?;
-    let name = target.file_name()?.to_string_lossy().into_owned();
+    let name = config_path.file_name()?.to_string_lossy().into_owned();
     let file = std::fs::OpenOptions::new()
         .create(true)
         .truncate(false)
