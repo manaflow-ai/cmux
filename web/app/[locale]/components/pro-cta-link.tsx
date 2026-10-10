@@ -13,6 +13,7 @@ export function ProCtaLink({
   size = "default",
   location = "pricing_page",
   interval = "month",
+  plan = "pro",
 }: {
   checkoutHref: string;
   requiresSignIn?: boolean;
@@ -20,6 +21,7 @@ export function ProCtaLink({
   size?: PricingActionSize;
   location?: string;
   interval?: BillingInterval;
+  plan?: "pro" | "max";
 }) {
   return (
     <PricingCheckoutButton
@@ -27,6 +29,7 @@ export function ProCtaLink({
       requiresSignIn={requiresSignIn}
       location={location}
       interval={interval}
+      plan={plan}
       size={size}
     >
       {children}

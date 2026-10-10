@@ -3913,7 +3913,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             return nil
         case .unusable:
-            return loadManualRestoreSessionSnapshotPruningCrashDiagnostics()
+            // Session data exists but cannot be restored: never start empty
+            // while the backup or an archived launch can still be restored.
+            if let backup = loadManualRestoreSessionSnapshotPruningCrashDiagnostics() {
+                return backup
+            }
+            guard let recovered = sessionSnapshotStore.newestRestorableHistorySnapshot({
+                SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: $0).snapshot
+            }) else {
+                return nil
+            }
+            // The launch baseline came from files that could not be read;
+            // hold poorer saves back against the layout actually restored.
+            if let overwriteGuard = sessionSnapshotOverwriteGuard,
+               overwriteGuard.baseline < recovered.richness {
+                sessionSnapshotOverwriteGuard = SessionSnapshotOverwriteGuard(
+                    baseline: recovered.richness,
+                    launchDate: overwriteGuard.launchDate
+                )
+            }
+            return recovered
         }
     }
 
@@ -16336,25 +16355,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // intentionally reuses nextSurface/prevSurface for Dock ownership so
         // both strokes follow the same routing classification.
         if matchesLegacyNextSurfaceShortcut(event: event) {
-            if performFocusedDockShortcut(
-                .selectNextSurface,
-                action: .nextSurface,
+            stepTabOrWorkspace(
+                forward: true,
+                tabManager: preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager,
                 event: event
-            ) {
-                return true
-            }
-            (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?.selectNextSurface()
+            )
             return true
         }
         if matchesLegacyPreviousSurfaceShortcut(event: event) {
-            if performFocusedDockShortcut(
-                .selectPreviousSurface,
-                action: .prevSurface,
+            stepTabOrWorkspace(
+                forward: false,
+                tabManager: preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager,
                 event: event
-            ) {
-                return true
-            }
-            (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?.selectPreviousSurface()
+            )
             return true
         }
 

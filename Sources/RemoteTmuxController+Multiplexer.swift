@@ -126,7 +126,8 @@ extension RemoteTmuxController {
         host: RemoteTmuxHost,
         windowTarget: RemoteTmuxAttachWindowTarget,
         activate: Bool,
-        workspaceName: String? = nil
+        workspaceName: String? = nil,
+        sessionName: String? = nil
     ) async throws -> RemoteTmuxAttachOutcome {
         guard let appDelegate = AppDelegate.shared else {
             throw RemoteTmuxError.unreachable("app not ready")
@@ -162,10 +163,18 @@ extension RemoteTmuxController {
                     host: host, manager: targetManager, workspaces: view.workspaces, shared: shared)
             }
             let workspaceIds = sessionMirrors.values.compactMap { mirror -> UUID? in
-                guard mirror.host.connectionHash == host.connectionHash else { return nil }
+                guard mirror.host.connectionHash == host.connectionHash,
+                      sessionName == nil || mirror.sessionName == sessionName else { return nil }
                 return mirror.mirroredWorkspaceId
             }
             guard !workspaceIds.isEmpty else {
+                if let sessionName,
+                   !view.workspaces.isEmpty,
+                   !view.workspaces.contains(where: { $0.sessionName == sessionName }) {
+                    requestedMultiplexSessionByHost.removeValue(forKey: host.connectionHash)
+                    throw RemoteTmuxError.unreachable(
+                        "tmux session '\(sessionName)' was not found on \(host.destination)")
+                }
                 throw multiplexedMirrorFailure(
                     host: host, view: multiplexedViewsByHost[host.connectionHash])
             }
@@ -181,6 +190,11 @@ extension RemoteTmuxController {
             return .mirrored(windowId: resolvedWindowId, workspaceIds: workspaceIds)
         }
         defer { windowRegistry.endAttach(hostHash: host.connectionHash) }
+        if let sessionName {
+            requestedMultiplexSessionByHost[host.connectionHash] = sessionName
+        } else {
+            requestedMultiplexSessionByHost.removeValue(forKey: host.connectionHash)
+        }
 
         // No preflight here, deliberately, and this is the point of multiplexing: the view stream is
         // the ONLY connection this path opens.
@@ -290,10 +304,23 @@ extension RemoteTmuxController {
             }
         }
         let workspaceIds = sessionMirrors.values.compactMap { mirror -> UUID? in
-            guard mirror.host.connectionHash == host.connectionHash else { return nil }
+            guard mirror.host.connectionHash == host.connectionHash,
+                  sessionName == nil || mirror.sessionName == sessionName else { return nil }
             return mirror.mirroredWorkspaceId
         }
         guard !workspaceIds.isEmpty else {
+            if let sessionName,
+               !(heldView?.workspaces.contains { $0.sessionName == sessionName } ?? false) {
+                if let dedicatedWindowId {
+                    appDelegate.discardMainWindowWithoutClosedHistory(windowId: dedicatedWindowId)
+                }
+                requestedMultiplexSessionByHost.removeValue(forKey: host.connectionHash)
+                if !hostHasLiveMirror(host) {
+                    stopMultiplexedHost(host: host)
+                }
+                throw RemoteTmuxError.unreachable(
+                    "tmux session '\(sessionName)' was not found on \(host.destination)")
+            }
             // Nothing mirrored because the stream parked for interactive credentials: hand the
             // socket caller the same interactive invocation the GA preflight returns, so the
             // `cmux ssh-tmux` CLI can authenticate inline in the user's own terminal. The parked
@@ -475,7 +502,14 @@ extension RemoteTmuxController {
             existingMirrors: existingMirrors,
             intents: incomingIntents
         )
-        let plan = result.plan
+        var plan = result.plan
+        if let requested = requestedMultiplexSessionByHost[hostHash] {
+            // A narrow attach shares the host's control stream with any existing
+            // mirrors, but must not create every other session that the stream
+            // publishes. Keep updates/removals for existing mirrors intact so a
+            // later bulk attach or remote rename cannot leave stale workspaces.
+            plan.create.removeAll { $0.view.sessionName != requested }
+        }
         storeMultiplexIntents(result.survivingIntents, hostHash: hostHash)
 
         if let view = multiplexedViewsByHost[hostHash] {
@@ -608,6 +642,7 @@ extension RemoteTmuxController {
         multiplexIntentsByHost[host.connectionHash] = nil
         viewEpochSessionIdByHost[host.connectionHash] = nil
         pendingMultiplexWorkspaceNamesByHost[host.connectionHash] = nil
+        requestedMultiplexSessionByHost[host.connectionHash] = nil
         releaseLoginOfferIfHostHasNoMirrors(host: host)
         if !multiplexerHostStillInUse(host) {
             transportRegistry.remove(connectionHash: host.connectionHash)
