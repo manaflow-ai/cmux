@@ -133,6 +133,8 @@ export type PublicationConflictReason =
   | "provider_rule_in_use"
   | "invalid_access_policy"
   | "publication_not_active"
+  /** Provisioning failed at the provider; the row is `unavailable` until deleted or re-verified. */
+  | "publication_failed"
   | "publication_revision_changed"
   | "vm_publication_frozen"
   | "publication_operation_lost"

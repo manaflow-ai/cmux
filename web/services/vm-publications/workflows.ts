@@ -18,6 +18,7 @@ import {
 } from "./repository";
 import {
   VmPublicationProvider,
+  VmPublicationProviderError,
   VmPublicationProviderLive,
   isFreestylePlatformHostname,
   publicationRoutingDnsInstruction,
@@ -151,6 +152,7 @@ export class PublicationInvariantError extends Data.TaggedError(
 
 export const VmPublicationWorkflowLive = Layer.mergeAll(
   CloudVmPublicationRepositoryLive,
+  VmPublicationProviderError,
   VmPublicationProviderLive,
 );
 
@@ -664,6 +666,9 @@ export function updatePublicationAccess(input: {
     if (access.accessMode === "team" && target.vm.billingTeamId && access.teamId !== target.vm.billingTeamId) {
       return yield* new PublicationConflictError({ reason: "invalid_access_policy" });
     }
+    if (publication.state === "unavailable") {
+      return yield* new PublicationConflictError({ reason: "publication_failed" });
+    }
     if (publication.state !== "active") {
       return yield* new PublicationProvisioningBusyError({
         retryAt: new Date(now.getTime() + 5_000),
@@ -1022,6 +1027,37 @@ function ensureCustomDomainVerification(input: {
   });
 }
 
+/**
+ * A provisioning step the provider refused (the account TLS rule cap or any
+ * other provider error) leaves the row `unavailable`, a terminal state PATCH
+ * refuses with `publication_failed`; `verify` can still retry it and delete
+ * removes it. Left `provisioning`, it read as "already being configured" and
+ * every PATCH answered a retryable 503 forever. Marking is best-effort and
+ * never replaces the provider's error.
+ */
+function markUnavailableOnProviderFailure<A, E, R>(
+  input: {
+    readonly repository: CloudVmPublicationRepositoryShape;
+    readonly target: CloudVmPublicationTarget;
+    readonly now: Date;
+  },
+  operation: Effect.Effect<A, E, R>,
+): Effect.Effect<A, E, R> {
+  return operation.pipe(Effect.tapError((error) => {
+    if (!(error instanceof VmPublicationProviderError)) return Effect.void;
+    return input.repository.markPublicationUnavailable({
+      id: input.target.publication.id,
+      expectedRoutingRevision: input.target.publication.routingRevision,
+      now: input.now,
+    }).pipe(
+      Effect.asVoid,
+      Effect.catchAllCause((cause) => Effect.sync(() => {
+        console.error("[vm-publications] could not mark a failed publication unavailable", input.target.publication.id, cause);
+      })),
+    );
+  }));
+}
+
 function provisionReservedPublication(input: {
   readonly repository: CloudVmPublicationRepositoryShape;
   readonly provider: VmPublicationProviderShape;
@@ -1037,7 +1073,7 @@ function provisionReservedPublication(input: {
       publicationId: input.target.publication.id,
       ownerUserId: input.ownerUserId,
       now: input.now,
-    }, Effect.gen(function* () {
+    }, markUnavailableOnProviderFailure(input, Effect.gen(function* () {
       let domain = input.target.domain;
       if (domain?.kind === "custom") {
         if (domain.verificationState !== "verified") {
@@ -1108,7 +1144,7 @@ function provisionReservedPublication(input: {
         now: input.now,
       });
       return { ...input.target, publication: active, domain };
-    }));
+    })));
   });
 }
 

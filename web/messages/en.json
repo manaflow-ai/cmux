@@ -7175,6 +7175,10 @@
     "rule_capacity": {
       "message": "The Cloud VM domain was not published: cmux Cloud has reached its network rule capacity.",
       "action": "The cmux team has been alerted. Run `cmux cloud domains list` and remove the provisioning entry, or contact support."
+    },
+    "publication_failed": {
+      "message": "This Cloud VM domain failed to publish.",
+      "action": "Delete it with `cmux cloud domains rm <id>` and publish again, or run `cmux cloud domains verify <id>` to retry."
     }
   },
   "cliAuthIdentity": {

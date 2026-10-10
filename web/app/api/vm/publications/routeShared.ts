@@ -431,6 +431,8 @@ function conflictCopy(reason: PublicationConflictError["reason"], language?: str
         action: "Choose another running Cloud VM for this domain.",
         status: 409,
       };
+    case "publication_failed":
+      return { ...publicationApiCopy("publication_failed", language), status: 409 };
     case "publication_not_active":
       return {
         message: "That publication is not ready for this change.",
