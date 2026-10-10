@@ -4,7 +4,7 @@ extension CMUXCLI {
     private static let ompExtensionMarker = "cmux-omp-session-extension-marker"
     private static let ompExtensionFilename = "cmux-omp-session.ts"
     private static let ompExtensionSource = #"""
-// cmux-omp-session-extension-marker v3
+// cmux-omp-session-extension-marker v4
 // Bridges OMP session lifecycle events into cmux's restorable session store.
 // Installed by `cmux hooks omp install` or `cmux hooks setup`.
 // DO NOT EDIT MANUALLY. cmux upgrades this file in place.
@@ -22,6 +22,10 @@ function firstString(...values: unknown[]): string | null {
 }
 
 function resolveExecutable(name: string): string | null {
+  // A launch path already identifies the executable; never replace it with
+  // another installation found through PATH.
+  if (path.isAbsolute(name)) return name;
+  if (name.includes(path.sep)) return path.resolve(name);
   const pathEnv = process.env.PATH || "";
   for (const dir of pathEnv.split(path.delimiter)) {
     if (!dir) continue;
@@ -60,12 +64,13 @@ function normalizedLaunchArgv(): string[] | null {
     return executable ? [executable] : null;
   }
   if (looksLikeOmpExecutable(raw[0])) {
-    if (path.isAbsolute(raw[0])) return raw;
-    const executable = resolveExecutable("omp");
+    const executable = resolveExecutable(raw[0]);
     return executable ? [executable, ...raw.slice(1)] : null;
   }
   if (raw.length > 1 && (looksLikeOmpScript(raw[1]) || looksLikeJavaScriptRuntime(raw[0]))) {
-    const executable = resolveExecutable("omp");
+    const executable = resolveExecutable(
+      looksLikeOmpExecutable(raw[1]) || looksLikeOmpScript(raw[1]) ? raw[1] : "omp"
+    );
     return executable ? [executable, ...raw.slice(2)] : null;
   }
   const executable = resolveExecutable("omp");

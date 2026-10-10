@@ -208,25 +208,6 @@ struct SurfaceResumeAgentHookDowngradeTests {
     }
 
     @Test
-    func ompUnavailableLaunchCaptureIsNotDurableResumeEvidence() {
-        let cli = CMUXCLI(args: [])
-        let unresolvedRefresh = AgentLaunchCommand(
-            launcher: "omp",
-            arguments: [],
-            workingDirectory: "/tmp/omp-project",
-            environment: ["PATH": "/usr/bin:/bin"],
-            source: "environment"
-        )
-
-        #expect(
-            !cli.agentHookSessionHasDurableResumeEvidence(
-                kind: "omp",
-                launchCommand: unresolvedRefresh
-            )
-        )
-    }
-
-    @Test
     func workspaceKeepsCapturedExecutableWhenSameSessionHookRefreshLosesIt() throws {
         let workspace = Workspace()
         defer { workspace.teardownAllPanels() }

@@ -69,9 +69,8 @@ public struct AgentRestorePlanner: Sendable {
         if kind == "omp",
            request.mode != .direct,
            let launchCommand = request.launchCommand,
-           launchCommand.arguments.isEmpty,
            request.preparedArguments?.isEmpty != false,
-           normalized(launchCommand.executablePath)?.contains("/") != true {
+           !AgentLaunchCaptureTrust.ompLaunchHasDurableResumeEvidence(launchCommand) {
             return nil
         }
         let routedClaudeLaunch = routedClaudeResumeLaunch(

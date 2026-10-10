@@ -56,10 +56,7 @@ extension CMUXCLI {
     ) -> Bool {
         guard launchCommand?.isRejectedCapture != true else { return false }
         if kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "omp" {
-            // A restore-time hook may lose the launch capture when PATH no
-            // longer exposes a shebang shim. An argv-less refresh must not
-            // replace the previously captured absolute launch.
-            guard let launchCommand, !launchCommand.arguments.isEmpty else { return false }
+            return AgentLaunchCaptureTrust.ompLaunchHasDurableResumeEvidence(launchCommand)
         }
         guard kind == "codex" else { return true }
         guard let launchCommand else { return true }

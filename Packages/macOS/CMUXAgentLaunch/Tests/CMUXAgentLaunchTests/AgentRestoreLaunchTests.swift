@@ -149,8 +149,8 @@ import Testing
         try assertOmpRestoreKeepsExecutablePath("/Users/test/.bun/bin/omp")
     }
 
-    @Test
-    func structuredOmpRestoreRejectsUnresolvedLaunchCapture() {
+    @Test(arguments: [[], ["omp", "--model", "sonnet"]])
+    func structuredOmpRestoreRejectsUnresolvedLaunchCapture(arguments: [String]) {
         let request = AgentRestoreRequest(
             mode: .resumeAgent,
             kind: "omp",
@@ -160,7 +160,7 @@ import Testing
             environment: [:],
             launchCommand: AgentLaunchCommand(
                 launcher: "omp",
-                arguments: [],
+                arguments: arguments,
                 workingDirectory: "/tmp/omp-project",
                 environment: ["PATH": "/usr/bin:/bin"],
                 source: "environment"
@@ -175,6 +175,29 @@ import Testing
                 ambientEnvironment: ["PATH": "/usr/bin:/bin"]
             ) == nil
         )
+    }
+
+    @Test func structuredOmpRestoreKeepsExecutableOnlyCapture() throws {
+        let executable = "/Users/test/.bun/bin/omp"
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "omp",
+            checkpointID: sessionID,
+            source: "agent-hook",
+            workingDirectory: "/tmp/omp-project",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                launcher: "omp", executablePath: executable, arguments: []
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+        let invocation = try #require(
+            AgentRestorePlanner(isExecutableFile: { _ in false }).invocation(
+                for: request, ambientEnvironment: ["PATH": "/usr/bin:/bin"]
+            )
+        )
+        #expect(invocation.arguments == [executable, "--session", sessionID])
     }
 
     private func assertOmpRestoreKeepsExecutablePath(_ executable: String) throws {
