@@ -166,7 +166,7 @@ jobs:
             # The full Linux test gate is compile- and process-heavy. Keep the
             # fork path on the public 4-vCPU fallback, while trusted repository
             # runs use the available 32-vCPU Blacksmith lane.
-            runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+            runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -495,10 +495,13 @@ jobs:
         with:
           workspaces: cmux-tui -> target
           # Share the workspace target cache across trusted branches. Cargo's
-          # fingerprints still invalidate changed crates; the shared key keeps
-          # unchanged workspace crates warm for the next PR.
+          # fingerprints still invalidate changed crates. Only main saves this
+          # key; PRs restore the default-branch cache and cannot seed one for
+          # another PR.
           shared-key: cmux-tui-${{ matrix.os }}
           cache-all-crates: true
+          cache-workspace-crates: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Report cargo cache hit rate
         if: always()
@@ -506,16 +509,11 @@ jobs:
           CACHE_HIT: ${{ steps.cargo-cache.outputs.cache-hit }}
           CACHE_SCOPE: ${{ matrix.os }}
         run: |
-          hit_rate=0
-          if [[ "$CACHE_HIT" == "true" ]]; then
-            hit_rate=100
-          fi
           {
             echo "### Rust compile cache"
             echo
             echo "- scope: \`$CACHE_SCOPE\`"
             echo "- exact cache hit: \`$CACHE_HIT\`"
-            echo "- hit rate: \`${hit_rate}%\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Test isolated TUI test-runner policy
