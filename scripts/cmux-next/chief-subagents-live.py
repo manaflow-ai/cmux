@@ -796,6 +796,29 @@ def cli_osc8_link_opens_the_subagent():
 
 
 @flow
+def subagent_context_is_collapsed():
+    """hq-6d item 23 (cx-ebm.56): a subagent's first message (the Chief's view, then its task)
+    shows as one collapsed line, "Context from the Chief (N lines)", and the task as the message;
+    the disclosure opens the view. The session keeps the full text."""
+    answer = spawn(["Reply with only the word context-probe."])
+    ids = ids_in(answer)
+    wait_done(ids, 300)
+    ws = wait(lambda: next((w for w in workspaces() if ws_name(w).lstrip("✓ ").startswith(ids[0] + " ")), None) if ids else None, 60)
+    if not ws:
+        row("subagent context collapsed", "a subagent workspace", f"answer {json.dumps(answer)[:160]}", False)
+        return
+    focus_workspace(ws.get("id"), f"context-{ids[0]}-collapsed")
+    zoomed = tools({"tool": "zoom", "id": ids[0]}).get("text", "")
+    opened = rpc("debug.agent_pane", {"action": "click", "text": "Context from the Chief"}) or {}
+    time.sleep(2)  # test harness: let the disclosure open
+    snapshot(f"context-{ids[0]}-expanded")
+    row("subagent context collapsed", "one collapsed \"Context from the Chief\" line opens the view; the task is the message",
+        f"disclosure {json.dumps(opened)[:160]}; zoom keeps the task={'Your task' in zoomed}",
+        bool(opened.get("clicked")) and "Your task" in zoomed)
+    show_home()
+
+
+@flow
 def group_move_stays_in_its_row():
     """A workspace group holds workspaces of one machine row (hq-6d 2026-10-09). A drag refuses a
     Chief-row subagent workspace into a This Mac group; the palette/CLI move (moveWorkspaceToGroup,
