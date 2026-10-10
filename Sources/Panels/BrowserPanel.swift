@@ -5679,9 +5679,11 @@ final class BrowserPanel: Panel, ObservableObject {
             // forward, or wait for the machine, never this Mac's same-port service.
             if let provider = privateAddressRouteProvider(for: serviceURL) {
                 onNavigationStarted?(nil)
-                provider.configureBrowser(self, url: serviceURL)
+                provider.configureBrowser(self, url: serviceURL, request: request)
             } else {
-                queueRemoteNavigation(URLRequest(url: serviceURL), recordTypedNavigation: recordTypedNavigation,
+                var serviceRequest = request
+                serviceRequest.url = serviceURL
+                queueRemoteNavigation(serviceRequest, recordTypedNavigation: recordTypedNavigation,
                                       preserveRestoredSessionHistory: preserveRestoredSessionHistory,
                                       onNavigationStarted: onNavigationStarted)
             }
@@ -5733,7 +5735,7 @@ final class BrowserPanel: Panel, ObservableObject {
                   let provider = privateAddressRouteProvider(for: url) else { return }
             pendingRemoteNavigation = nil
             navigation.onNavigationStarted?(nil)
-            provider.configureBrowser(self, url: url)
+            provider.configureBrowser(self, url: url, request: navigation.request)
             return
         }
         guard let originalURL = navigation.request.url else {

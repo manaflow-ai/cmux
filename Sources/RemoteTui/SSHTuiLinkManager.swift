@@ -156,6 +156,10 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
                          onExit: @escaping @Sendable () -> Void = {}) async throws -> UInt16 {
         guard machineID == connection.id, (1...Int(UInt16.max)).contains(port) else { throw CancellationError() }
         _ = try await connected(machineID: machineID)
+        // The access model may have been stopped while the carrier was
+        // connecting. A completed carrier must never resurrect that route by
+        // launching a new forward after cancellation.
+        try Task.checkCancellation()
         // Each await can interleave with another caller, so re-read the tables
         // until this caller either joins a forward or owns a fresh start.
         while true {

@@ -39,6 +39,8 @@ final class CloudBrowserAccessState {
     @ObservationIgnored private var restoreFailureMessage: String?
     @ObservationIgnored private var restoreDeadlineDuration: Duration = .seconds(30)
     @ObservationIgnored private var navigate: (@MainActor (URL) -> Void)?
+    @ObservationIgnored private var navigateRequest: (@MainActor (URLRequest) -> Void)?
+    @ObservationIgnored private var pendingNavigationRequest: URLRequest?
     @ObservationIgnored private var observationGeneration: UInt64 = 0
     @ObservationIgnored private var preservingCommittedRoute = false
     private var activeNavigationID: ObjectIdentifier?
@@ -70,6 +72,16 @@ final class CloudBrowserAccessState {
     /// cached retry cannot lose a connecting → ready change to view coalescing.
     func automaticallyNavigate(_ action: @escaping @MainActor (URL) -> Void) {
         navigate = action
+        navigateRequest = nil
+        observeRoute()
+    }
+
+    /// Installs a readiness callback that preserves the complete request,
+    /// including its method, headers, and body, while replacing only its URL
+    /// with the local SSH listener.
+    func automaticallyNavigateRequest(_ action: @escaping @MainActor (URLRequest) -> Void) {
+        navigateRequest = action
+        navigate = nil
         observeRoute()
     }
 
@@ -124,7 +136,10 @@ final class CloudBrowserAccessState {
             if model.isReady { preservingCommittedRoute = false }
             return
         }
-        if let url = nextURL() { navigate?(url) }
+        if let request = nextRequest() {
+            if let navigateRequest { navigateRequest(request) }
+            else if let url = request.url { navigate?(url) }
+        }
     }
 
     private func trace(_ event: String) {
@@ -277,9 +292,12 @@ final class CloudBrowserAccessState {
             trace("rfb_retry")
             desktopRetry.schedule(after: delay) { [weak self] in
                 guard let self, self.isDesktop, !self.desktopConnected, self.failureMessage == nil else { return }
-                // Reissue the same route: nextURL() skips an unchanged URL.
+                // Reissue the same route: nextRequest() skips an unchanged URL.
                 self.navigationURL = nil
-                if let url = self.nextURL() { self.navigate?(url) }
+                if let request = self.nextRequest() {
+                    if let navigateRequest = self.navigateRequest { navigateRequest(request) }
+                    else if let url = request.url { self.navigate?(url) }
+                }
             }
             return
         } else {
@@ -318,7 +336,8 @@ final class CloudBrowserAccessState {
         return remoteURL
     }
 
-    func configure(model: CloudPortAccessModel, url: URL, resourceID: SurfaceResourceID? = nil) {
+    func configure(model: CloudPortAccessModel, url: URL, resourceID: SurfaceResourceID? = nil,
+                   request: URLRequest? = nil) {
         observationGeneration &+= 1
         cancelUnavailableRetry()
         unavailable = nil
@@ -334,6 +353,7 @@ final class CloudBrowserAccessState {
         self.model = model
         starting = nil
         remoteURL = url
+        pendingNavigationRequest = request ?? URLRequest(url: url)
         navigationURL = nil
         preservingCommittedRoute = false
         hasCommittedNavigation = false
@@ -354,7 +374,7 @@ final class CloudBrowserAccessState {
         observeRoute()
     }
 
-    func nextURL() -> URL? {
+    func nextRequest() -> URLRequest? {
         guard let remoteURL, let url = model?.url(for: remoteURL) else {
             hasCommittedNavigation = false
             desktopConnected = false
@@ -363,6 +383,9 @@ final class CloudBrowserAccessState {
             return nil
         }
         guard navigationURL != url else { return nil }
+        var request = pendingNavigationRequest ?? URLRequest(url: url)
+        request.url = url
+        pendingNavigationRequest = nil
         navigationURL = url
         hasCommittedNavigation = false
         error = nil
@@ -372,8 +395,11 @@ final class CloudBrowserAccessState {
         startDeadline()
         loaded = false
         trace("route_ready")
-        return url
+        return request
     }
+
+    /// The routed URL for callers that only need a GET navigation.
+    func nextURL() -> URL? { nextRequest()?.url }
 
     func didStart(url: URL?, navigationID: ObjectIdentifier? = nil) {
         guard let url, navigationURL != nil else { return }
@@ -492,6 +518,8 @@ final class CloudBrowserAccessState {
         resetDesktopRetries()
         observationGeneration &+= 1
         navigate = nil
+        navigateRequest = nil
+        pendingNavigationRequest = nil
         connectionDeadline.cancel()
         desktopConnected = false
         resourceID = nil

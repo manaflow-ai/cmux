@@ -8,15 +8,20 @@ extension BrowserPanel {
     /// Keeps the browser-owned readiness callback installed while a committed
     /// WebKit document is rebound to a new same-VM route.
     func bindCloudBrowserNavigation() {
-        cloudAccess.automaticallyNavigate { [weak self] url in
+        cloudAccess.automaticallyNavigateRequest { [weak self] request in
             guard let self, !self.isClosingWebViewLifecycle else { return }
-            _ = self.navigate(to: url)
+            _ = self.navigateWithoutInsecureHTTPPrompt(
+                request: request,
+                recordTypedNavigation: false,
+                trustedInternalNavigation: true
+            )
         }
     }
 
     /// Activates an admitted Cloud route independently of the SwiftUI host.
     /// Callers validate resource ownership before reaching this boundary.
-    func configureCloudBrowser(model: CloudPortAccessModel, url: URL, resourceID: SurfaceResourceID? = nil) {
+    func configureCloudBrowser(model: CloudPortAccessModel, url: URL, resourceID: SurfaceResourceID? = nil,
+                               request: URLRequest? = nil) {
         guard !isClosingWebViewLifecycle else { return }
         webView.stopLoading()
         if let machineID = (resourceID ?? cloudAccess.resourceID)?.machine.rawValue ?? cloudBrowserMachineID {
@@ -25,7 +30,7 @@ extension BrowserPanel {
         showCloudAddress(url)
         // A cached model can navigate synchronously. Its machine/profile store
         // must be installed first, including on reconfiguration and duplication.
-        cloudAccess.configure(model: model, url: url, resourceID: resourceID)
+        cloudAccess.configure(model: model, url: url, resourceID: resourceID, request: request)
         bindCloudBrowserNavigation()
         model.connect()
     }
@@ -198,7 +203,7 @@ extension BrowserPanel {
 
     /// SSH machines advertise `127.0.0.1`, so every loopback spelling
     /// (`localhost`, `::1`, `0.0.0.0`) names that same private address.
-    static func privateAddressRouteHost(_ host: String?) -> String? {
+    nonisolated static func privateAddressRouteHost(_ host: String?) -> String? {
         guard let host, PrivateNetworkHostPolicy().isLoopback(host: host) else { return host }
         return "127.0.0.1"
     }
@@ -235,6 +240,15 @@ extension BrowserPanel {
     func rebindCloudRouteIfNeeded(to url: URL) -> Bool {
         guard let provider = privateAddressRouteProvider(for: url) else {
             return false
+        }
+        // A loopback URL that commits before the navigation delegate can
+        // intercept it has already loaded this Mac's service. Reconfigure the
+        // SSH route so the browser follows its listener instead of preserving
+        // the wrong local document. Same-VM non-loopback redirects can retain
+        // their committed document safely.
+        if owningWorkspaceRoutesThroughSSHTui,
+           let serviceURL = sshLoopbackServiceURL(for: url) {
+            return provider.configureBrowser(self, url: serviceURL)
         }
         return provider.configureBrowser(self, url: url, preserveCurrentNavigation: true)
     }
