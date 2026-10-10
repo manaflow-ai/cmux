@@ -33,15 +33,9 @@ extension BookmarkService {
         }
     }
 
-    /// The favicon URL of a bookmark: an open (not incognito) tab's on the same origin, else
-    /// the origin's `/favicon.ico`.
+    /// The favicon URL of a bookmark (``AppServices/siteFaviconAddress(origin:)``).
     private func faviconAddress(of node: BookmarkNode) -> String? {
         guard !node.isFolder, let origin = node.faviconKey ?? node.url.flatMap(BookmarkURL.faviconKey(for:)) else { return nil }
-        let tabs = services.machines.local.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
-        let open = tabs.first { tab in
-            tab.kind == .browser && tab.faviconURL != nil && !services.cache.browserTabs.isIncognitoTab(tab.id)
-                && tab.url.flatMap(URL.init(string:)).flatMap(BookmarkURL.faviconKey(for:)) == origin
-        }
-        return open?.faviconURL ?? origin + "/favicon.ico"
+        return services.siteFaviconAddress(origin: origin)
     }
 }
