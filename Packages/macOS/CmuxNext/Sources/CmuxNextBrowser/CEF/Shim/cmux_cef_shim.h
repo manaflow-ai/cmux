@@ -137,6 +137,11 @@ typedef enum {
   // CEFShim/src/local_file_handoff.h). The shim cancelled it; s1 = url. The
   // host opens the file in cmux's markdown page or a WebKit tab.
   CMUX_SHIM_LOCAL_FILE_HANDOFF = 38,
+  // The chrome.bookmarks bridge (fork API 22): s1 = one cmux_bookmarks_observe
+  // event (JSON), s2 = the profile cache path. Every persistent profile is
+  // watched once its request context is initialized; {"op": "loaded"} asks
+  // the host to sync (cmux_shim_bookmarks_sync).
+  CMUX_SHIM_BOOKMARKS_EVENT = 39,
 } cmux_shim_event_kind_t;
 
 typedef enum {
@@ -629,6 +634,13 @@ CMUX_SHIM_EXPORT int cmux_shim_pref_set_bool(const char* profile_cache_path, con
 // unknown profile (enable only), a name not allowed, or a failed
 // registration. Shutdown releases every watch.
 CMUX_SHIM_EXPORT int cmux_shim_pref_watch(const char* profile_cache_path, const char* pref_name, int enabled);
+
+// The chrome.bookmarks bridge (fork API 22, cmux_bookmarks_sync): makes
+// Chromium's Bookmarks bar and Other bookmarks of the profile equal to
+// tree_json ({"nodes": [...]}, pre-order). 1 applied; 0 the model is not
+// loaded yet (CMUX_SHIM_BOOKMARKS_EVENT "loaded" follows); -1 refused, also
+// when the engine has no bridge.
+CMUX_SHIM_EXPORT int cmux_shim_bookmarks_sync(const char* profile_cache_path, const char* tree_json);
 
 // cmux-page:// pages served from a folder. The scheme
 // is registered at startup in every process (standard, secure,

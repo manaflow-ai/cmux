@@ -58,8 +58,12 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
 
     private var boundsObserver: (any NSObjectProtocol)?
 
-    isolated deinit {
-        if let boundsObserver { NotificationCenter.default.removeObserver(boundsObserver) }
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            if let boundsObserver { NotificationCenter.default.removeObserver(boundsObserver) }
+        }
     }
 
     // MARK: Updates from the model

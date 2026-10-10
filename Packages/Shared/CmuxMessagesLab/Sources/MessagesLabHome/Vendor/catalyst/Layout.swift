@@ -14,9 +14,13 @@ struct TextLayout: Hashable {
     var width: CGFloat
 
     static func make(_ text: String, runs: [TextRun], maxWidth: CGFloat, font: UIFont = Fixture.bodyFont) -> TextLayout {
-        // cmux: styled runs (an agent's Markdown, HomeMarkdown) break lines with the fonts they draw with, so a bold or code line fits its bubble; plain text keeps the measured rule.
-        let styled = font == Fixture.bodyFont && runs.contains { !($0.style ?? []).isEmpty }
-        let attr = styled ? TextLayout(text: text, runs: runs, lines: [], width: 0).attributed(color: .white, linkColor: .white, kern: 0)
+        // Measured with the faces the bubble draws: a bold or italic run (or a mention, drawn bold)
+        // is wider than the plain body font, and the plain measure left the drawn text 8 pt past a
+        // bubble's right padding (cmux-next's harness, 2026-10-10: m01 "Q3 plan" bold, right
+        // padding 12 px against 26 px on the left). No kern, as the plain measure.
+        let drawnFaces = font == Fixture.bodyFont && runs.contains { !($0.style ?? []).isEmpty || $0.mention != nil }
+        let attr = drawnFaces
+            ? TextLayout(text: text, runs: runs, lines: [], width: 0).attributed(color: .white, linkColor: .white, kern: 0)
             : NSAttributedString(string: text, attributes: [.font: font])
         let ts = CTTypesetterCreateWithAttributedString(attr)
         let len = (text as NSString).length
