@@ -7729,6 +7729,399 @@
           }
         }
       }
+    },
+    "remote.machineBrowser.tooOld": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui on %@ is too old for browser tabs. Update it, then try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إصدار cmux-tui على %@ قديم جدًا لعلامات تبويب المتصفح. حدّثه ثم حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui na %@ je prestar za kartice preglednika. Ažurirajte ga, pa pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui på %@ er for gammel til browserfaner. Opdater den, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui auf %@ ist zu alt für Browser-Tabs. Aktualisiere es und versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui en %@ es demasiado antiguo para las pestañas del navegador. Actualízalo y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui sur %@ est trop ancien pour les onglets de navigateur. Mettez-le à jour, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui su %@ è troppo vecchio per le schede del browser. Aggiornalo, poi riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の cmux-tui は古いため、ブラウザタブを使えません。更新してから、もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui នៅលើ %@ ចាស់ពេកសម្រាប់ផ្ទាំងកម្មវិធីរុករក។ សូមធ្វើបច្ចុប្បន្នភាព រួចព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@의 cmux-tui가 너무 오래되어 브라우저 탭을 사용할 수 없습니다. 업데이트한 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui på %@ er for gammel for nettleserfaner. Oppdater den, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui na %@ jest za stary na karty przeglądarki. Zaktualizuj go i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux-tui em %@ é antigo demais para abas do navegador. Atualize-o e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui на %@ слишком старый для вкладок браузера. Обновите его и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui บน %@ เก่าเกินไปสำหรับแท็บเบราว์เซอร์ อัปเดตแล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ üzerindeki cmux-tui, tarayıcı sekmeleri için çok eski. Güncelleyip yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui на %@ застарий для вкладок браузера. Оновіть його та спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui trên %@ quá cũ cho các thẻ trình duyệt. Hãy cập nhật rồi thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 上的 cmux-tui 版本过旧，无法使用浏览器标签页。请更新后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 上的 cmux-tui 版本過舊，無法使用瀏覽器分頁。請更新後再試一次。"
+          }
+        }
+      }
+    },
+    "remote.machineBrowser.starting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starting the browser on %@…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "جارٍ تشغيل المتصفح على %@…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokretanje preglednika na %@…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Starter browseren på %@…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Browser auf %@ wird gestartet …"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iniciando el navegador en %@…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Démarrage du navigateur sur %@…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avvio del browser su %@…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ でブラウザを起動しています…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងចាប់ផ្តើមកម្មវិធីរុករកនៅលើ %@…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@에서 브라우저를 시작하는 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Starter nettleseren på %@…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uruchamianie przeglądarki na %@…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iniciando o navegador em %@…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запуск браузера на %@…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังเริ่มเบราว์เซอร์บน %@…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ üzerinde tarayıcı başlatılıyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запуск браузера на %@…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang khởi động trình duyệt trên %@…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在 %@ 上启动浏览器…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在 %@ 上啟動瀏覽器…"
+          }
+        }
+      }
+    },
+    "remote.machineBrowser.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The browser on %1$@ did not start: %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يبدأ المتصفح على %1$@: %2$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preglednik na %1$@ se nije pokrenuo: %2$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Browseren på %1$@ startede ikke: %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Browser auf %1$@ wurde nicht gestartet: %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El navegador en %1$@ no se inició: %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le navigateur sur %1$@ n’a pas démarré : %2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il browser su %1$@ non si è avviato: %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ のブラウザを起動できませんでした: %2$@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីរុករកនៅលើ %1$@ មិនបានចាប់ផ្តើមទេ៖ %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@의 브라우저가 시작되지 않았습니다: %2$@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nettleseren på %1$@ startet ikke: %2$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przeglądarka na %1$@ nie uruchomiła się: %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O navegador em %1$@ não iniciou: %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Браузер на %1$@ не запустился: %2$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เบราว์เซอร์บน %1$@ ไม่เริ่มทำงาน: %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ üzerindeki tarayıcı başlamadı: %2$@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Браузер на %1$@ не запустився: %2$@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trình duyệt trên %1$@ không khởi động được: %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ 上的浏览器未能启动：%2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ 上的瀏覽器未能啟動：%2$@"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -23,6 +23,12 @@ final class MachineBrowserPageTab: BrowserTab {
     @ObservationIgnored private let view: MachineBrowserStateView
     @ObservationIgnored private let currentState: @MainActor () -> MachineBrowserState
     @ObservationIgnored private let openLocallyHandler: @MainActor (URL?) -> Void
+    /// Starts the machine's browser (Retry, and once at creation); unset: Retry only rereads the state.
+    @ObservationIgnored var onStart: (@MainActor () -> Void)?
+    /// A start in progress or its failure, over the machine's state.
+    @ObservationIgnored var phase: MachineBrowserState? {
+        didSet { view.show(phase ?? currentState(), queued: queuedURL) }
+    }
     /// The address the person typed (or the record's first page): it opens
     /// when the machine's browser is ready, or here with Open Locally Instead.
     private(set) var queuedURL: URL?
@@ -55,11 +61,17 @@ final class MachineBrowserPageTab: BrowserTab {
         guard !MachineBrowserRecord.matches(url) else { return reload() }
         queuedURL = url
         state.url = url
-        view.show(currentState(), queued: url)
+        view.show(phase ?? currentState(), queued: url)
     }
 
-    /// Retry: checks the machine again.
-    func reload() { view.show(currentState(), queued: queuedURL) }
+    /// Retry: checks the machine again and starts its browser when it can.
+    func reload() {
+        if let onStart, phase.map({ if case .starting = $0 { false } else { true } }) ?? true {
+            onStart()
+        } else {
+            view.show(phase ?? currentState(), queued: queuedURL)
+        }
+    }
     func goBack() {}
     func goForward() {}
     func stop() {}
@@ -71,7 +83,7 @@ final class MachineBrowserPageTab: BrowserTab {
 
     func setContentVisible(_ visible: Bool) {
         contentView.isHidden = !visible
-        if visible { reload() }
+        if visible { view.show(phase ?? currentState(), queued: queuedURL) }
     }
 
     func snapshot() async throws -> CGImage {
@@ -162,6 +174,19 @@ nonisolated enum MachineBrowserStrings {
     static func notConnected(_ machine: String) -> String {
         String(format: String(localized: "remote.machineBrowser.notConnected",
                               defaultValue: "%@ is not connected.", table: "Remote", bundle: .module), machine)
+    }
+    static func tooOld(_ machine: String) -> String {
+        String(format: String(localized: "remote.machineBrowser.tooOld",
+                              defaultValue: "cmux-tui on %@ is too old for browser tabs. Update it, then try again.",
+                              table: "Remote", bundle: .module), machine)
+    }
+    static func starting(_ machine: String) -> String {
+        String(format: String(localized: "remote.machineBrowser.starting",
+                              defaultValue: "Starting the browser on %@…", table: "Remote", bundle: .module), machine)
+    }
+    static func failed(_ machine: String, _ reason: String) -> String {
+        String(format: String(localized: "remote.machineBrowser.failed",
+                              defaultValue: "The browser on %1$@ did not start: %2$@", table: "Remote", bundle: .module), machine, reason)
     }
     static func waiting(_ address: String) -> String {
         String(format: String(localized: "remote.machineBrowser.waiting",
