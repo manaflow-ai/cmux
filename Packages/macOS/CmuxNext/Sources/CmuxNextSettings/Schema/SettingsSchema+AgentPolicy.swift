@@ -165,6 +165,8 @@ extension SettingsSchema {
         "history.terminalCommands": .privacy,
         "feed.mirrorNotifications.agents": .privacy,
         "feed.mirrorNotifications.terminal": .privacy,
+        // An agent must not turn on sending its own prompts to the phone (cx-aocz).
+        "feed.agentPermissionPrompts": .privacy,
         "feed.github.enabled": .network,
         "feed.github.pollIntervalSeconds": .network,
         "browser.remoteLocalhost": .network,
