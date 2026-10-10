@@ -26,7 +26,7 @@ struct NewMachineSheetData {
 }
 
 /// App-level, account-scoped cache of ``NewMachineSheetData`` so New Cloud
-/// Machine (Cmd+Y) presents a fully populated sheet without waiting on the
+/// Machine (Cmd+Shift+Y) presents a fully populated sheet without waiting on the
 /// network.
 ///
 /// Ownership: created once at the composition root after `VMClient` is
@@ -182,7 +182,7 @@ final class NewMachineSheetDataCache {
                 waiters[id] = continuation
                 // The refresh task can finish between refresh() above and
                 // waiter registration. Re-check readiness so that completion
-                // cannot leave Cmd-Y waiting forever for an answer that already
+                // cannot leave Cmd-Shift-Y waiting forever for an answer that already
                 // arrived.
                 if readyData != nil {
                     resumeWaiter(id)

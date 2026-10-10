@@ -107,6 +107,62 @@ describe("FreestyleProvider transport contract", () => {
   });
 });
 
+describe("Freestyle fork readiness", () => {
+  // The fork readiness error is stored on the row and alerted on, so it names
+  // the stalled stage from the guest's fixed vocabulary and nothing else; the
+  // guest's log lines go only to the server log.
+  const forkClient = (stderr: string | Error) => {
+    const deletes: string[] = [];
+    const exec = async () => {
+      if (stderr instanceof Error) throw stderr;
+      return { statusCode: 1, stdout: "", stderr };
+    };
+    return {
+      deletes,
+      client: {
+        vms: {
+          create: async () => ({
+            vmId: VM_ID,
+            data: {},
+            vm: { exec, delete: async () => { deletes.push(VM_ID); } },
+          }),
+        },
+      } as unknown as Freestyle,
+    };
+  };
+
+  test("names the stalled stage without guest log text", async () => {
+    const fake = forkClient("cmux fork daemon did not become ready: stage=unbound supervisor=active\ncmux-tui: /home/cmux/private-path refused\n");
+    const error = await providerWith(fake).create({ image: "sh-fork", forked: true }).catch((err: unknown) => err);
+    expect(error).toBeInstanceOf(ProviderError);
+    expect((error as Error).message).toContain("forked machine daemon did not become ready (stage=unbound supervisor=active)");
+    expect((error as Error).message).not.toContain("private-path");
+    expect(fake.deletes).toEqual([VM_ID]);
+  });
+
+  test("a stage outside the fixed set reads as unknown", async () => {
+    const fake = forkClient("cmux fork daemon did not become ready: stage=leaked-token supervisor=active\n");
+    const error = await providerWith(fake).create({ image: "sh-fork", forked: true }).catch((err: unknown) => err);
+    expect((error as Error).message).toContain("forked machine daemon did not become ready (stage=unknown)");
+    expect((error as Error).message).not.toContain("leaked-token");
+  });
+
+  test("a readiness exec that never answered reads as exec-unavailable and the clone is deleted", async () => {
+    const fake = forkClient(new Error("exec transport failed"));
+    const error = await providerWith(fake).create({ image: "sh-fork", forked: true }).catch((err: unknown) => err);
+    expect(error).toBeInstanceOf(ProviderError);
+    expect((error as Error).message).toContain("forked machine daemon did not become ready (stage=exec-unavailable)");
+    expect(fake.deletes).toEqual([VM_ID]);
+  });
+
+  test("does not echo an unrecognized guest answer into the error", async () => {
+    const fake = forkClient("something else entirely: stage=$(rm -rf /)\n");
+    const error = await providerWith(fake).create({ image: "sh-fork", forked: true }).catch((err: unknown) => err);
+    expect((error as Error).message).toContain("forked machine daemon did not become ready (stage=unknown)");
+    expect((error as Error).message).not.toContain("rm -rf");
+  });
+});
+
 describe("Freestyle platform contract", () => {
   test("firewall on a private-network machine: outbound only, no inbound at all", () => {
     // The VPC's members-reach-each-other rule is what admits the daemon port;

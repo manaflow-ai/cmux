@@ -195,10 +195,45 @@ struct SidebarCloudWorkspaceBadgeTests {
             let badge = try #require(SidebarAppKitRowCellTests.descendants(of: rendered).compactMap { $0 as? NSImageView }.first {
                 $0.accessibilityIdentifier() == "sidebarCloudBadge"
             })
-            #expect(badge.isHidden == hidden)
+            #expect(badge.isHidden == (hidden && hideAll))
             #expect(rendered.accessibilityLabel()?.contains("Cloud workspace on vivid-newt") == true)
             #expect(workspace.cloudVMBinding == binding)
         }
+    }
+
+    @Test
+    func cloudDeviceIconsDefaultOnAndIndependentOfBranchDirectory() throws {
+        let defaults = Self.makeDefaults()
+        let sidebar = SidebarCatalogSection()
+        defaults.set(false, forKey: sidebar.showBranchDirectory.userDefaultsKey)
+        let defaultSettings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        #expect(defaultSettings.showsCloudDeviceIcons)
+
+        let workspace = Workspace(workingDirectory: "/home/cmux", initialSurface: .terminal)
+        defer { for panel in workspace.panels.values { panel.close() } }
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: true)
+        workspace.updateCloudPanelDirectory(panelId: try #require(workspace.focusedPanelId), directory: "/home/cmux")
+        let factory = SidebarWorkspaceSnapshotFactory(
+            workspace: workspace, settings: defaultSettings, showsAgentActivity: false
+        )
+        let snapshot = factory.makeSnapshot()
+        let shown = SidebarAppKitRowCellTests.configuredCell(
+            model: Self.makeModel(settings: defaultSettings, workspaceSnapshot: snapshot), tab: workspace
+        )
+        let badge = try #require(SidebarAppKitRowCellTests.descendants(of: shown).compactMap { $0 as? NSImageView }.first {
+            $0.accessibilityIdentifier() == "sidebarCloudBadge"
+        })
+        #expect(!badge.isHidden)
+
+        defaults.set(false, forKey: sidebar.showCloudDeviceIcons.userDefaultsKey)
+        let hiddenSettings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        let hidden = SidebarAppKitRowCellTests.configuredCell(
+            model: Self.makeModel(settings: hiddenSettings, workspaceSnapshot: snapshot), tab: workspace
+        )
+        let hiddenBadge = try #require(SidebarAppKitRowCellTests.descendants(of: hidden).compactMap { $0 as? NSImageView }.first {
+            $0.accessibilityIdentifier() == "sidebarCloudBadge"
+        })
+        #expect(hiddenBadge.isHidden)
     }
 
     /// Ensures restored Cloud identity survives every connection presentation state.

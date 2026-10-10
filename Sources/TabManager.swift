@@ -225,6 +225,9 @@ class TabManager: ObservableObject {
     }
     let workspaceSwitchCoordinator = WorkspaceSwitchCoordinator()
     let cloudWorkspaceSelection: CloudWorkspaceSelectionState
+    /// Shared by the inline Cloud sidebar and any Cloud tool pane in this
+    /// window so CodeRouter reads and removals never overlap.
+    let coderouterAccountStore = CoderouterAccountStore()
 
     var tabs: [Workspace] {
         get { workspaces.tabs }
@@ -2291,7 +2294,8 @@ class TabManager: ObservableObject {
         initialBrowserURL: URL? = nil,
         initialBrowserOmnibarVisible: Bool = true,
         initialBrowserTransparentBackground: Bool = false,
-        applyCreationTitleAsCustomTitle: Bool = true
+        applyCreationTitleAsCustomTitle: Bool = true,
+        inheritWorkingDirectory: Bool? = nil
     ) -> Workspace? {
         workspaceGrouping.createWorkspaceInGroup(
             groupId: groupId,
@@ -2303,7 +2307,8 @@ class TabManager: ObservableObject {
             initialBrowserURL: initialBrowserURL,
             initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
             initialBrowserTransparentBackground: initialBrowserTransparentBackground,
-            applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
+            applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle,
+            inheritWorkingDirectory: inheritWorkingDirectory
         )
     }
 

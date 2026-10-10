@@ -152,7 +152,9 @@ Para más información sobre cómo configurar cmux, [visita nuestra documentaci�
 
 | Atajo | Acción |
 |----------|--------|
-| ⌘ N | Nuevo espacio de trabajo |
+| ⌘ N | Nuevo espacio de trabajo local |
+| ⌘ Y | Nuevo espacio de trabajo Cloud en el último contexto Cloud utilizable; abre New Cloud Machine cuando no hay ninguno |
+| ⌘ ⇧ Y | Nueva máquina Cloud |
 | ⌘ 1–8 | Ir al espacio de trabajo 1–8 |
 | ⌘ 9 | Ir al último espacio de trabajo |
 | ⌃ ⌘ ] | Siguiente espacio de trabajo |

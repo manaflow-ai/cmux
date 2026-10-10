@@ -885,7 +885,7 @@ struct cmuxApp: App {
 
                 splitCommandButton(title: String(localized: "menu.file.newWorkspace", defaultValue: "New Workspace"), shortcut: menuShortcut(for: .newTab)) {
                     if let appDelegate = AppDelegate.shared {
-                        appDelegate.performNewWorkspaceAction(
+                        appDelegate.performNewLocalWorkspaceAction(
                             tabManager: activeTabManager,
                             debugSource: "menu.newWorkspace"
                         )

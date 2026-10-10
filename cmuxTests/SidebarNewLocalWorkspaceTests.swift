@@ -13,7 +13,7 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct SidebarNewLocalWorkspaceTests {
-    @Test func plusMenuCreatesLocalWhileCommandNStillTargetsSelectedCloudMachine() async throws {
+    @Test func plusMenuAndCommandNCreateLocalWhileCloudIsSelected() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let fixture = try Fixture()
             defer { fixture.tearDown() }
@@ -53,17 +53,23 @@ struct SidebarNewLocalWorkspaceTests {
 
             fixture.manager.selectedTabId = cloudWorkspace.id
             targets.removeAll()
-            // This is the same action called by the File menu and shortcut.cmdN.
-            #expect(fixture.app.performNewWorkspaceAction(tabManager: fixture.manager))
+            // This is the action called by the File menu and shortcut.cmdN.
+            #expect(fixture.app.performNewLocalWorkspaceAction(
+                tabManager: fixture.manager,
+                debugSource: "test.shortcut.cmdN"
+            ))
             await fixture.app.cloudWorkspaceOperationController?.waitForPendingOperations()
-            #expect(targets == ["selected-machine"])
-            #expect(fixture.manager.tabs.count == originalCount + 1)
+            #expect(targets.isEmpty)
+            #expect(fixture.manager.tabs.count == originalCount + 2)
+            let secondLocalWorkspace = try #require(fixture.manager.selectedWorkspace)
+            #expect(secondLocalWorkspace.cloudVMID == nil)
+            #expect(secondLocalWorkspace.currentDirectory == fixture.root.path)
             #expect(machinePinStore.pinnedMachineIDs == ["different-pinned-machine"])
         }
     }
 
     @Test(arguments: [false, true])
-    func plusMenuCreatesLocalWithoutCloudServicesAndDoesNotAdvertiseCommandN(cloudSelected: Bool) throws {
+    func plusMenuCreatesLocalAndAdvertisesCommandN(cloudSelected: Bool) throws {
         let fixture = try Fixture()
         defer { fixture.tearDown() }
         let selected = try #require(fixture.manager.selectedWorkspace)
@@ -96,6 +102,81 @@ struct SidebarNewLocalWorkspaceTests {
         let created = try #require(fixture.manager.selectedWorkspace)
         #expect(created.cloudVMBinding == nil)
         #expect(created.currentDirectory == fixture.root.path)
+    }
+
+    @Test func commandNPreservesLocalDirectoryInheritanceAndGroupPlacement() throws {
+        let fixture = try Fixture()
+        defer { fixture.tearDown() }
+        let selected = try #require(fixture.manager.selectedWorkspace)
+        let nested = fixture.root.appendingPathComponent("nested", isDirectory: true)
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        selected.currentDirectory = nested.path
+        let groupID = try #require(fixture.manager.createWorkspaceGroup(
+            name: "Local Cmd-N",
+            childWorkspaceIds: [selected.id]
+        ))
+
+        #expect(fixture.app.performNewLocalWorkspaceAction(
+            tabManager: fixture.manager,
+            debugSource: "test.local.group"
+        ))
+        let created = try #require(fixture.manager.selectedWorkspace)
+        #expect(created.groupId == groupID)
+        #expect(created.currentDirectory == nested.path)
+    }
+
+    @Test func commandNWithoutExplicitContextDoesNotInheritCloudDirectory() throws {
+        let fixture = try Fixture()
+        defer { fixture.tearDown() }
+        let selected = try #require(fixture.manager.selectedWorkspace)
+        selected.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "cloud-machine", isBase: false)
+        selected.currentDirectory = "/cloud-only/project"
+        let originalCount = fixture.manager.tabs.count
+
+        #expect(fixture.app.performNewLocalWorkspaceAction())
+
+        #expect(fixture.manager.tabs.count == originalCount + 1)
+        let created = try #require(fixture.manager.selectedWorkspace)
+        #expect(created.cloudVMBinding == nil)
+        #expect(created.remoteConfiguration == nil)
+        #expect(created.currentDirectory == fixture.root.path)
+    }
+
+    @Test func repeatedCommandNKeepsCloudAnchoredGroupDirectoriesLocal() throws {
+        let fixture = try Fixture()
+        defer { fixture.tearDown() }
+        let anchor = try #require(fixture.manager.selectedWorkspace)
+        anchor.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "cloud-machine", isBase: false)
+        anchor.currentDirectory = "/cloud-only/project"
+        let groupID = try #require(fixture.manager.createWorkspaceGroup(
+            name: "Cloud Cmd-N",
+            childWorkspaceIds: [anchor.id]
+        ))
+        let originalCount = fixture.manager.tabs.count
+
+        for _ in 0..<2 {
+            #expect(fixture.app.performNewLocalWorkspaceAction(tabManager: fixture.manager))
+            let created = try #require(fixture.manager.selectedWorkspace)
+            #expect(created.groupId == groupID)
+            #expect(created.cloudVMBinding == nil)
+            #expect(created.remoteConfiguration == nil)
+            #expect(created.currentDirectory == fixture.root.path)
+        }
+        #expect(fixture.manager.tabs.count == originalCount + 2)
+    }
+
+    @Test func commandNWithoutAWindowKeepsTheInitialWorkspace() throws {
+        let app = AppDelegate()
+        #expect(app.mainWindowContexts.isEmpty)
+        #expect(app.performNewLocalWorkspaceAction(debugSource: "test.local.noWindow"))
+        let context = try #require(app.mainWindowContexts.first?.value)
+        defer {
+            context.tabManager.tabs.forEach { $0.teardownAllPanels() }
+            app.unregisterMainWindowContextForTesting(windowId: context.windowId)
+            app.forgetRecoverableMainWindowRoute(windowId: context.windowId)
+        }
+        #expect(context.tabManager.tabs.count == 1)
+        #expect(context.tabManager.selectedWorkspace?.cloudVMID == nil)
     }
 }
 
@@ -141,8 +222,8 @@ private extension SidebarNewLocalWorkspaceTests {
             })
             let item = menu.items[index]
             #expect(item.title == String(localized: "command.newWorkspace.title", defaultValue: "New Workspace"))
-            #expect(item.keyEquivalent.isEmpty)
-            #expect(item.keyEquivalentModifierMask.isEmpty)
+            #expect(item.keyEquivalent == "n")
+            #expect(item.keyEquivalentModifierMask == [.command])
             menu.performActionForItem(at: index)
         }
 

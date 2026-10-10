@@ -150,7 +150,9 @@ Trao cho một triệu developer những nguyên thủy có thể ghép, và h�
 
 | Phím tắt | Hành động |
 |----------|--------|
-| ⌘ N | Workspace mới |
+| ⌘ N | Workspace cục bộ mới |
+| ⌘ Y | Workspace Cloud mới trong ngữ cảnh Cloud dùng được gần nhất; mở New Cloud Machine khi không có |
+| ⌘ ⇧ Y | Máy Cloud mới |
 | ⌘ 1–8 | Nhảy đến workspace 1–8 |
 | ⌘ 9 | Nhảy đến workspace cuối |
 | ⌃ ⌘ ] | Workspace tiếp theo |
