@@ -217,3 +217,170 @@ fn cmux_next_terminal_resources_reports_shell_and_children() {
     assert!(surfaces.contains(&surface), "{all}");
     assert!(all["sampled_at_ns"].as_u64() >= data["sampled_at_ns"].as_u64(), "{all}");
 }
+
+/// A terminal host runs in its own session with the open-file limit the
+/// daemon started with, and inherits nothing from the daemon: every daemon
+/// descriptor above stdio is close-on-exec (hosts start with posix_spawn,
+/// which keeps each descriptor that is not), and no host descriptor names a
+/// daemon file (registry database, daemon state outside the host records).
+#[test]
+fn cmux_next_terminal_host_owns_its_session_limit_and_descriptors() {
+    let daemon = Daemon::start("spawn");
+    let created = request(
+        &daemon.socket,
+        serde_json::json!({
+            "cmd": "run",
+            "argv": ["/bin/sh", "-c", "sleep 60"],
+            "new_workspace": true,
+            "name": "spawn",
+        }),
+    )
+    .expect("run a terminal");
+    assert!(created["terminal_id"].is_string(), "{created}");
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    let host = loop {
+        if let [host] = daemon.host_pids()[..] {
+            break host;
+        }
+        assert!(Instant::now() < deadline, "no terminal host record");
+        std::thread::sleep(Duration::from_millis(25));
+    };
+    let daemon_pid = daemon.child.id();
+    // SAFETY: getsid takes a pid and no pointers.
+    let (host_session, daemon_session) =
+        unsafe { (libc::getsid(host as libc::pid_t), libc::getsid(daemon_pid as libc::pid_t)) };
+    assert_eq!(host_session, host as libc::pid_t, "the host leads its own session");
+    assert_ne!(host_session, daemon_session, "the host left the daemon's session");
+
+    #[cfg(target_os = "linux")]
+    {
+        let mut ours = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+        // SAFETY: `ours` is valid writable storage for one rlimit.
+        assert_eq!(unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &raw mut ours) }, 0);
+        let limits = fs::read_to_string(format!("/proc/{host}/limits")).unwrap();
+        let soft = limits
+            .lines()
+            .find(|line| line.starts_with("Max open files"))
+            .and_then(|line| line.split_whitespace().nth(3))
+            .and_then(|soft| soft.parse::<u64>().ok())
+            .unwrap_or_else(|| panic!("no open-file limit for host {host}: {limits}"));
+        assert_eq!(soft, ours.rlim_cur, "the host has the limit the daemon started with");
+
+        let fds = |pid: u32| {
+            fs::read_dir(format!("/proc/{pid}/fd"))
+                .unwrap()
+                .filter_map(Result::ok)
+                .filter_map(|entry| entry.file_name().to_str()?.parse::<u32>().ok())
+                .filter(|fd| *fd > 2)
+                .collect::<Vec<_>>()
+        };
+        // Descriptors this test process lets children inherit (a runner's
+        // pipe, a jobserver) reach the daemon by inheritance; the daemon
+        // did not open them. Every descriptor the daemon opens must be
+        // close-on-exec.
+        let inherited = fds(std::process::id())
+            .into_iter()
+            .filter(|fd| {
+                fs::read_to_string(format!("/proc/self/fdinfo/{fd}")).is_ok_and(|info| {
+                    info.lines()
+                        .find_map(|line| line.strip_prefix("flags:"))
+                        .and_then(|flags| u64::from_str_radix(flags.trim(), 8).ok())
+                        .is_some_and(|flags| flags & libc::O_CLOEXEC as u64 == 0)
+                })
+            })
+            .collect::<HashSet<_>>();
+        for fd in fds(daemon_pid).into_iter().filter(|fd| !inherited.contains(fd)) {
+            let Ok(info) = fs::read_to_string(format!("/proc/{daemon_pid}/fdinfo/{fd}")) else {
+                continue; // closed meanwhile
+            };
+            let flags = info
+                .lines()
+                .find_map(|line| line.strip_prefix("flags:"))
+                .and_then(|flags| u64::from_str_radix(flags.trim(), 8).ok())
+                .unwrap_or_else(|| panic!("no flags for daemon fd {fd}: {info}"));
+            let target = fs::read_link(format!("/proc/{daemon_pid}/fd/{fd}")).unwrap_or_default();
+            assert_ne!(
+                flags & libc::O_CLOEXEC as u64,
+                0,
+                "daemon fd {fd} ({}) is not close-on-exec; a spawned host would inherit it",
+                target.display()
+            );
+        }
+        let state = fs::canonicalize(&daemon.state).unwrap_or_else(|_| daemon.state.clone());
+        for fd in fds(host) {
+            let Ok(target) = fs::read_link(format!("/proc/{host}/fd/{fd}")) else { continue };
+            let text = target.to_string_lossy();
+            let database =
+                text.contains("sqlite") || text.ends_with("-wal") || text.ends_with("-shm");
+            let daemon_state = target.starts_with(&state) && !text.contains("terminal-hosts");
+            assert!(
+                !database && !daemon_state,
+                "host fd {fd} names a daemon file: {}",
+                target.display()
+            );
+        }
+    }
+}
+
+/// A standby terminal host (started ahead of a terminal, waiting on its
+/// bootstrap pipe) exits when its daemon dies: no other process holds the
+/// write end of that pipe.
+#[cfg(target_os = "linux")]
+#[test]
+fn cmux_next_standby_terminal_host_exits_with_its_daemon() {
+    let mut daemon = Daemon::start("standby");
+    request(
+        &daemon.socket,
+        serde_json::json!({
+            "cmd": "run",
+            "argv": ["/bin/sh", "-c", "sleep 60"],
+            "new_workspace": true,
+            "name": "standby",
+        }),
+    )
+    .expect("run a terminal");
+    // The first new tab makes the daemon keep a spare host (R81).
+    request(&daemon.socket, serde_json::json!({"cmd": "new-tab", "cols": 80, "rows": 24}))
+        .expect("open a new tab");
+    let daemon_pid = daemon.child.id();
+    let children = |parent: u32| {
+        fs::read_dir("/proc")
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter_map(|entry| entry.file_name().to_str()?.parse::<u32>().ok())
+            .filter(|pid| {
+                fs::read_to_string(format!("/proc/{pid}/stat")).is_ok_and(|stat| {
+                    stat.rsplit_once(") ")
+                        .and_then(|(_, rest)| rest.split_whitespace().nth(1))
+                        .is_some_and(|ppid| ppid == parent.to_string())
+                })
+            })
+            .filter(|pid| {
+                fs::read(format!("/proc/{pid}/cmdline")).is_ok_and(|cmdline| {
+                    cmdline.split(|b| *b == 0).any(|arg| arg == b"--bootstrap-stdio")
+                })
+            })
+            .collect::<Vec<_>>()
+    };
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    let standby = loop {
+        let hosts = daemon.host_pids();
+        let spare =
+            children(daemon_pid).into_iter().filter(|pid| !hosts.contains(pid)).collect::<Vec<_>>();
+        if !spare.is_empty() {
+            break spare;
+        }
+        assert!(Instant::now() < deadline, "the daemon started no standby host");
+        std::thread::sleep(Duration::from_millis(25));
+    };
+    daemon.child.kill().unwrap();
+    daemon.child.wait().unwrap();
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    while standby.iter().any(|pid| process_exists(*pid)) {
+        assert!(
+            Instant::now() < deadline,
+            "standby hosts {standby:?} outlived their daemon: another process holds their bootstrap pipe"
+        );
+        std::thread::sleep(Duration::from_millis(25));
+    }
+}
