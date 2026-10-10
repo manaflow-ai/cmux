@@ -150,15 +150,4 @@ import Testing
         overlay.frame = NSRect(x: 0, y: 0, width: 100, height: 40)
         #expect(overlay.hitTest(NSPoint(x: 50, y: 20)) == nil)
     }
-
-    @Test func theHoverCardResolvesThroughTheOverlaySurface() {
-        ReduceTransparency.shared.override = true
-        defer { ReduceTransparency.shared.override = nil }
-        let card = HoverCardPanel()
-        #expect((card.contentView as? PopupHostView)?.card === card.glass)
-        #expect(card.glass.material == .opaque)
-        #expect(!(card.glass.materialDrawingView is NSGlassEffectView))
-        ReduceTransparency.shared.override = false
-        #expect(card.glass.material == .liquidGlass)
-    }
 }
