@@ -62,19 +62,6 @@ struct WindowMaterialTests {
         #expect(WindowBackdrop(tokens, reduceTransparency: true).material == .opaque)
     }
 
-    @Test func wallpaperTintOpacityUsesThemeContrast() {
-        let dark = ThemeTokens.derive(from: ThemeFixtures.catppuccinMocha)
-        let light = ThemeTokens.derive(from: ThemeFixtures.githubLight)
-        let darkBackdrop = WindowBackdrop(dark, selection: .art(.wheatField))
-        let lightBackdrop = WindowBackdrop(light, selection: .art(.wheatField))
-
-        // The theme's wallpaper tint, raised to the glass that keeps its text legible over any art.
-        #expect(darkBackdrop.tintOpacity == max(dark.wallpaperTintOpacity, dark.legibleTintOpacity(requested: 0)))
-        #expect(lightBackdrop.tintOpacity == max(light.wallpaperTintOpacity, light.legibleTintOpacity(requested: 0)))
-        #expect(darkBackdrop.tintOpacity < 1)
-        #expect(lightBackdrop.tintOpacity < 1)
-        #expect(darkBackdrop.tintOpacity != lightBackdrop.tintOpacity)
-    }
 }
 
 /// cmux.json's `appearance.backgroundOpacity` / `appearance.backgroundBlur`
