@@ -32,6 +32,42 @@ struct CloudBrowserProxyIntegrationTests {
         #expect(try await !CloudBrowserRouting.desktopIsReachable(endpoint: server.endpoint, address: server.address, port: 6901))
     }
 
+    /// The probe must release both its deadline waiter and the socket receive
+    /// when an authenticated proxy never sends response headers.
+    @Test("Desktop readiness deadline cancels a proxy stalled before response headers")
+    func desktopReadinessDeadlineCancelsStalledProxy() async throws {
+        let server = try CloudBrowserProxyTestServer(
+            address: "10.16.0.11", marker: "desktop-stall", stallConnectResponse: true
+        )
+        try await server.start()
+        defer { server.stop() }
+
+        let clock = CloudBrowserProxyManualClock()
+        let probeResult = CloudLinkFirstValue<Bool>()
+        let probe = Task {
+            let result = (try? await CloudBrowserRouting.desktopIsReachable(
+                endpoint: server.endpoint,
+                address: server.address,
+                port: 8000,
+                timeout: .milliseconds(200),
+                clock: clock
+            )) ?? false
+            probeResult.resolve(result)
+        }
+        defer { probe.cancel() }
+
+        let target = await CloudBrowserProxyTestDeadline.value(server.authorizedTarget, timeout: .seconds(2))
+        #expect(target == "10.16.0.11:8000", "The stalled proxy must receive the authenticated CONNECT before the deadline")
+        guard target != nil else { return }
+        let deadlineParked = await CloudBrowserProxyTestDeadline.value(clock.didParkDeadline, timeout: .seconds(2))
+        #expect(deadlineParked == true, "The injected deadline must be waiting before virtual time advances")
+        guard deadlineParked == true else { return }
+        clock.advance(by: .milliseconds(200))
+
+        let completed = await CloudBrowserProxyTestDeadline.value(probeResult, timeout: .seconds(2))
+        #expect(completed == false, "The readiness deadline must release the stalled receive")
+    }
+
     @Test("the browser carrier does not inherit app credentials")
     func browserCarrierSanitizesInheritedCredentials() {
         let environment = CloudBrowserProxyProcess.sanitizedEnvironment([
@@ -430,6 +466,77 @@ struct CloudBrowserProxyIntegrationTests {
         #expect(panel.websiteDataStore.proxyConfigurations.first?.allowFailover == false)
         #expect(navigationURL == remoteURL)
         return navigationURL
+    }
+}
+
+/// A deterministic deadline clock for the cancellation regression. The test
+/// advances time only after the proxy has accepted CONNECT and the deadline
+/// sleeper is parked, so no scheduling latency enters the assertion.
+private final class CloudBrowserProxyManualClock: Clock, @unchecked Sendable {
+    struct Instant: InstantProtocol, Sendable {
+        var offset: Duration
+
+        func advanced(by duration: Duration) -> Instant { Instant(offset: offset + duration) }
+        func duration(to other: Instant) -> Duration { other.offset - offset }
+        static func < (lhs: Instant, rhs: Instant) -> Bool { lhs.offset < rhs.offset }
+    }
+
+    private struct Sleeper {
+        let deadline: Instant
+        let continuation: CheckedContinuation<Void, any Error>
+    }
+
+    private let lock = NSLock()
+    private var current = Instant(offset: .zero)
+    private var sleepers: [UUID: Sleeper] = [:]
+    private var cancelled: Set<UUID> = []
+    let didParkDeadline = CloudLinkFirstValue<Bool>()
+
+    var now: Instant {
+        lock.lock()
+        defer { lock.unlock() }
+        return current
+    }
+
+    var minimumResolution: Duration { .zero }
+
+    /// Parks a virtual deadline and resumes it when the test advances time.
+    func sleep(until deadline: Instant, tolerance: Duration?) async throws {
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                lock.lock()
+                if cancelled.remove(id) != nil {
+                    lock.unlock()
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                if deadline <= current {
+                    lock.unlock()
+                    continuation.resume()
+                    return
+                }
+                sleepers[id] = Sleeper(deadline: deadline, continuation: continuation)
+                lock.unlock()
+                didParkDeadline.resolve(true)
+            }
+        } onCancel: {
+            lock.lock()
+            let sleeper = sleepers.removeValue(forKey: id)
+            if sleeper == nil { cancelled.insert(id) }
+            lock.unlock()
+            sleeper?.continuation.resume(throwing: CancellationError())
+        }
+    }
+
+    /// Resumes every virtual sleeper whose deadline has passed.
+    func advance(by duration: Duration) {
+        lock.lock()
+        current = current.advanced(by: duration)
+        let due = sleepers.values.filter { $0.deadline <= current }
+        sleepers = sleepers.filter { $0.value.deadline > current }
+        lock.unlock()
+        for sleeper in due { sleeper.continuation.resume() }
     }
 }
 
