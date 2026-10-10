@@ -942,8 +942,8 @@
     },
     {
       "path": "Events.java",
-      "sha256": "25d5a62883df41e4e038a364378292bade1fe6590516b986b746b4780daf62e7",
-      "size": 14075
+      "sha256": "1718bbd929c686e3df40087b568ad860abc13a78226054c816736f7755746764",
+      "size": 14276
     },
     {
       "path": "ExportLayoutRequest.java",
@@ -1662,8 +1662,8 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "3a9b5e60c079f878fa7ea85f34e1c0bdc68abc79c59de10e3dc82b67f33bb841",
-      "size": 5901
+      "sha256": "10557874496e5c382e58133afbe00206a32a2a4843a995889a9fa71185db4616",
+      "size": 5978
     },
     {
       "path": "ProtocolEvent.java",
@@ -2209,6 +2209,16 @@
       "path": "SetWorkspaceMetadataRequest.java",
       "sha256": "4154573cdfc79d1e8acc0b99c40c38903118a195305a34c1a6468c78c03934c2",
       "size": 9057
+    },
+    {
+      "path": "SettingsChangedEvent.java",
+      "sha256": "26891a446049e220f6f3183449795af2f701945acecf9abcbdc58345359ed060",
+      "size": 3836
+    },
+    {
+      "path": "SettingsChangedEventOrigin.java",
+      "sha256": "ff783560a0ba268bb026c06d16431b20573249757781958e66ad5ed7796ce1a9",
+      "size": 1038
     },
     {
       "path": "ShutdownDaemonRequest.java",
@@ -2847,7 +2857,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "e2aa9bda6ce2b99b533ab691a7df02cfab75c8fff586a74f4e6166bafa13d388",
+  "ir_sha256": "65f5406012952277f2264432f457468ec4472fb730df44ff172e01f281baf704",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

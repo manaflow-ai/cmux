@@ -13,6 +13,18 @@
       "scope": "agent:read",
       "class": "read"
     },
+    "agent.message.list": {
+      "scope": "agent:read",
+      "class": "read"
+    },
+    "agent.message.mark": {
+      "scope": "agent:write",
+      "class": "mutation"
+    },
+    "agent.message.send": {
+      "scope": "agent:write",
+      "class": "mutation"
+    },
     "agent.report": {
       "scope": "agent:write",
       "class": "mutation"
@@ -1288,6 +1300,34 @@
     "session.window.title.set": {
       "scope": "session:write",
       "class": "mutation"
+    },
+    "settings.get": {
+      "scope": "settings:read",
+      "class": "read"
+    },
+    "settings.list": {
+      "scope": "settings:read",
+      "class": "read"
+    },
+    "settings.reset": {
+      "scope": "settings:write",
+      "class": "mutation"
+    },
+    "settings.reset_all": {
+      "scope": "settings:write",
+      "class": "mutation"
+    },
+    "settings.schema": {
+      "scope": "settings:read",
+      "class": "read"
+    },
+    "settings.set": {
+      "scope": "settings:write",
+      "class": "mutation"
+    },
+    "settings.snapshot": {
+      "scope": "settings:read",
+      "class": "read"
     },
     "sidebar_layout.get": {
       "scope": "sidebar_layout:read",

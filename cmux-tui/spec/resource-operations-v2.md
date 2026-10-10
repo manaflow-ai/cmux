@@ -12,8 +12,8 @@ broker protocol.
 
 | Class | Count | Semantics |
 | --- | ---: | --- |
-| `read` | 65 | Reads state and forbids an idempotency key |
-| `mutation` | 124 | Requires an idempotency key and returns a mutation result |
+| `read` | 72 | Reads state and forbids an idempotency key |
+| `mutation` | 138 | Requires an idempotency key and returns a mutation result |
 | `stream_open` | 6 | Opens a connection-owned typed stream |
 | `connection_control` | 13 | Changes only connection-local state |
 
@@ -49,6 +49,7 @@ correlation, and idempotency metadata.
 | `session` | 24 | `session.creation.resolve`, `session.events`, `session.get`, `session.journal.append`, `session.journal.checkpoint.create`, `session.journal.checkpoint.list`, `session.journal.hook.list`, `session.journal.hook.put`, `session.journal.producer.list`, `session.journal.producer.put`, `session.journal.restore.preview`, `session.journal.segment.list`, `session.journal.segment.seal`, `session.journal.subscribe`, `session.list`, `session.open`, `session.ping`, `session.reload_config`, `session.shutdown`, `session.snapshot`, `session.terminal_defaults.update`, `session.window.title.clear`, `session.window.title.set`, `workspace_status.list` |
 | `sidebar_layout` | 2 | `sidebar_layout.get`, `sidebar_layout.update` |
 | `project` | 6 | `project.add`, `project.list`, `project.observe`, `project.remove`, `project.sync`, `project.update` |
+| `setting` | 7 | `settings.get`, `settings.list`, `settings.reset`, `settings.reset_all`, `settings.schema`, `settings.set`, `settings.snapshot` |
 | `sidebar_view` | 6 | `sidebar_view.attach`, `sidebar_view.ensure`, `sidebar_view.get`, `sidebar_view.input`, `sidebar_view.reload`, `sidebar_view.resize` |
 | `stream` | 1 | `stream.cancel` |
 | `tab` | 11 | `tab.close`, `tab.create_browser`, `tab.create_terminal`, `tab.focus`, `tab.get`, `tab.list`, `tab.move`, `tab.pin`, `tab.rename`, `tab.unpin`, `tab.update` |

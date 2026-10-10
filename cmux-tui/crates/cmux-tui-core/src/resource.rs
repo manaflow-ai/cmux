@@ -348,6 +348,20 @@ pub enum ResourceOperation {
     ClosedDelete,
     #[serde(rename = "closed.reopen")]
     ClosedReopen,
+    #[serde(rename = "settings.schema")]
+    SettingsSchema,
+    #[serde(rename = "settings.list")]
+    SettingsList,
+    #[serde(rename = "settings.get")]
+    SettingsGet,
+    #[serde(rename = "settings.snapshot")]
+    SettingsSnapshot,
+    #[serde(rename = "settings.set")]
+    SettingsSet,
+    #[serde(rename = "settings.reset")]
+    SettingsReset,
+    #[serde(rename = "settings.reset_all")]
+    SettingsResetAll,
     #[serde(rename = "window_record.list")]
     WindowRecordList,
     #[serde(rename = "window_record.put")]
@@ -600,6 +614,10 @@ impl ResourceOperation {
                 | Self::SidebarViewGet
                 | Self::ClosedList
                 | Self::WindowRecordList
+                | Self::SettingsSchema
+                | Self::SettingsList
+                | Self::SettingsGet
+                | Self::SettingsSnapshot
                 | Self::SidebarLayoutGet
                 | Self::ProjectList
                 | Self::PaletteUsageGet
@@ -635,56 +653,13 @@ mod scope;
 mod wire_decimal;
 mod wire_name;
 
-pub use envelope::{RequestEnvelope, ResponseEnvelope};
+pub use envelope::{
+    RequestEnvelope, ResourceCursor, ResponseEnvelope, StreamEndEnvelope, StreamEndReason,
+    StreamItemEnvelope,
+};
 use hex::encode_hex;
 pub use journal::{ResourceDelta, ResourceDeltaBatch, ResourceJournal};
 pub use wire_decimal::WireDecimal;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ResourceCursor {
-    pub generation: String,
-    pub revision: WireDecimal,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct StreamItemEnvelope {
-    pub protocol: String,
-    #[serde(rename = "type")]
-    pub envelope_type: EnvelopeType,
-    pub stream_id: StreamPublicId,
-    pub sequence: WireDecimal,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cursor: Option<ResourceCursor>,
-    pub item: Value,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum StreamEndReason {
-    Completed,
-    Canceled,
-    Closed,
-    Gap,
-    Error,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct StreamEndEnvelope {
-    pub protocol: String,
-    #[serde(rename = "type")]
-    pub envelope_type: EnvelopeType,
-    pub stream_id: StreamPublicId,
-    pub reason: StreamEndReason,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cursor: Option<ResourceCursor>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<ResourceError>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub recovery: Option<String>,
-}
 
 macro_rules! public_id {
     ($name:ident, $prefix:literal) => {

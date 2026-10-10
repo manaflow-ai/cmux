@@ -103,6 +103,7 @@ on:
       - "schemas/remote-tab/scroll-writer.json"
       - "schemas/remote-tab/session.json"
       - "schemas/terminal-sizing/fixtures.json"
+      - "schemas/settings/settings-schema.json"
       - "scripts/cmux-next/cmux-tui.pin"
       - "skills/cmux-browser/SKILL.md"
       - "skills/cmux-browser/references/authentication.md"
