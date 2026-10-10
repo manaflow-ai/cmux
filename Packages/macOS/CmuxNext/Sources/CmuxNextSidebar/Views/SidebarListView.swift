@@ -273,7 +273,7 @@ final class SidebarListView: NSView {
         let gapFrame = layout.gapHeight > 0 ? layout.gapY.map { NSRect(x: inset, y: $0, width: max(0, bounds.width - inset * 2), height: layout.gapHeight) } : nil
         decorations.frame = bounds
         decorations.setGap(gapFrame, animated: animate)
-        let lines = groupLineViews.update(groupLines(layout), in: self, above: decorations, animated: animate)
+        let lines = groupLineViews.update(groupLines(layout), from: animate ? groupLines(layout, current: true) : [], in: self, above: decorations, animated: animate)
         RowMotion(targets: targets, appearing: appearing, leaving: leaving, lines: lines).run(in: self, from: old, to: layout, animated: animate)
     }
     func configure(_ view: SidebarRowView, row: SidebarRow, animated: Bool) {

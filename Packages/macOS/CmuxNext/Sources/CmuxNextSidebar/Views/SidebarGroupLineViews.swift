@@ -14,10 +14,12 @@ final class SidebarGroupLineViews {
 
     /// The changes that move the lines to `new`, to run inside the rows'
     /// animation block, and the views to remove when it ends. A kept line
-    /// moves to its new frame, a new one grows down from under its header,
-    /// and a line whose group closed or left shrinks back up into it.
-    func update(_ new: [SidebarGroupLine], in list: NSView, above decorations: NSView, animated: Bool) -> (changes: () -> Void, leaving: [NSView]) {
+    /// moves to its new frame, a new one starts at `start` (the line over
+    /// its rows' start frames) so both its ends move with the rows, and a
+    /// line whose group closed or left shrinks back up into its header.
+    func update(_ new: [SidebarGroupLine], from start: [SidebarGroupLine], in list: NSView, above decorations: NSView, animated: Bool) -> (changes: () -> Void, leaving: [NSView]) {
         var gone = views
+        let starts = Dictionary(start.map { ($0.group, $0.frame) }, uniquingKeysWith: { first, _ in first })
         var moves: [(GroupLineView, CGRect)] = []
         for line in new {
             gone[line.group] = nil
@@ -25,7 +27,7 @@ final class SidebarGroupLineViews {
                 let view = GroupLineView()
                 list.addSubview(view, positioned: .above, relativeTo: decorations)
                 views[line.group] = view
-                Motion.withoutAnimation { view.frame = animated ? Self.top(of: line.frame) : line.frame }
+                Motion.withoutAnimation { view.frame = animated ? starts[line.group] ?? Self.top(of: line.frame) : line.frame }
                 return view
             }()
             view.color = line.color
