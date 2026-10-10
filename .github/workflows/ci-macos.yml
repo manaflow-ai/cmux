@@ -942,8 +942,15 @@ jobs:
                   continue
                 }
                 for pid in $pids; do
+                  state="$(ps -o stat= -p "$pid" 2>/dev/null || true)"
+                  case "$state" in
+                    Z*) continue ;;
+                  esac
                   args="$(ps -o args= -p "$pid" 2>/dev/null || true)"
-                  [ -n "$args" ] || return 0
+                  # The process may have exited between pgrep and ps. It is
+                  # safe to ignore that stale PID; a live compiler with this
+                  # job's DerivedData path still returns above.
+                  [ -n "$args" ] || continue
                   case "$args" in
                     *"$CMUX_COMPILE_ADMISSION_DERIVED_DATA"*) return 0 ;;
                   esac

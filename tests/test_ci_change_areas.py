@@ -5748,7 +5748,8 @@ fi
 exit 65
 ''',
                 "scripts/ci/clear-dirs.sh": '#!/bin/bash\necho clear >> "$CALLS"\n',
-                "bin/pgrep": '#!/bin/bash\nif [ "$SCENARIO" = busy-worker ]; then echo 123; exit 0; fi\nif [ "$SCENARIO" = pgrep-error ]; then exit 2; fi\nexit 1\n',
+                "bin/pgrep": '#!/bin/bash\nif [ "$SCENARIO" = busy-worker ] && [ "$2" = xcodebuild ]; then echo 123; exit 0; fi\nif [ "$SCENARIO" = pgrep-error ]; then exit 2; fi\nexit 1\n',
+                "bin/ps": '#!/bin/bash\nif [ "$SCENARIO" = busy-worker ]; then echo "S     scripts/ci/compile-app-host-test-product.sh $CMUX_COMPILE_ADMISSION_DERIVED_DATA"; fi\n',
                 "bin/sleep": '#!/bin/bash\nexit 0\n',
             }
             for relative, content in fixtures.items():
