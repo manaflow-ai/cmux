@@ -3,7 +3,8 @@
 //! surface's reader takes that lock while it installs a reconnected host
 //! and before it reads the new stream; a request that waited under the lock
 //! for a reply only that reader delivers timed out (a renderer mint right
-//! after a default-colors update, during the resync reconnect).
+//! after a default-colors update, during the resync reconnect). Clear
+//! history and Kitty graphics limits use the same split.
 
 use super::*;
 
@@ -106,5 +107,109 @@ impl PendingControlResponse {
     /// Shut the request's connection down.
     pub(crate) fn disconnect(&self) {
         let _ = self.writer.lock().unwrap().shutdown(std::net::Shutdown::Both);
+    }
+}
+
+/// A sent ClearHistory whose acknowledgement has not been read yet.
+pub(crate) struct PendingClearHistory {
+    pending: PendingControlResponse,
+    smart_renderer: bool,
+}
+
+/// A sent SetKittyGraphicsLimits whose acknowledgement has not been read yet.
+pub(crate) struct PendingKittyGraphicsLimits {
+    pending: PendingControlResponse,
+    limits: KittyGraphicsLimits,
+}
+
+impl HostAttachment {
+    /// Send ClearHistory; `None` when the host does not support it.
+    pub(crate) fn begin_clear_history(
+        &self,
+        fallback_key: Option<&KeyInput>,
+    ) -> Result<Option<PendingClearHistory>, ClearHistoryFailure> {
+        if !self.record.supports_clear_history {
+            return Ok(None);
+        }
+        let payload = crate::server::encode_terminal_host_clear_history(fallback_key)
+            .map_err(ClearHistoryFailure::known_not_delivered)?;
+        let pending = self.begin_control_request(
+            MessageKind::ClearHistory,
+            MessageKind::ClearHistoryAck,
+            payload,
+            Instant::now() + CONTROL_RESPONSE_TIMEOUT,
+        )?;
+        Ok(Some(PendingClearHistory { pending, smart_renderer: self.smart_renderer }))
+    }
+
+    /// Send SetKittyGraphicsLimits; `None` when the host predates them.
+    pub(crate) fn begin_kitty_graphics_limits(
+        &self,
+        limits: KittyGraphicsLimits,
+        deadline: Instant,
+    ) -> anyhow::Result<Option<PendingKittyGraphicsLimits>> {
+        if self.protocol_version < 3 {
+            return Ok(None);
+        }
+        let limits = limits
+            .validate()
+            .map_err(|_| anyhow::anyhow!("Kitty graphics limits are out of range"))?;
+        let mut payload = Vec::with_capacity(KITTY_GRAPHICS_LIMITS_ENCODED_LEN);
+        encode_kitty_graphics_limits(&mut payload, limits)?;
+        let pending = self
+            .begin_control_request(
+                MessageKind::SetKittyGraphicsLimits,
+                MessageKind::KittyGraphicsLimitsAck,
+                payload,
+                deadline,
+            )
+            .map_err(ClearHistoryFailure::into_error)
+            .context("terminal host did not acknowledge Kitty graphics limits")?;
+        Ok(Some(PendingKittyGraphicsLimits { pending, limits }))
+    }
+}
+
+impl PendingClearHistory {
+    pub(crate) fn wait(&self) -> Result<(), ClearHistoryFailure> {
+        let response = self.pending.wait(true)?;
+        match response.as_slice() {
+            [CLEAR_HISTORY_ACK_OK] => Ok(()),
+            [CLEAR_HISTORY_ACK_OK, ..] if self.smart_renderer => Ok(()),
+            [status] => {
+                let Some(failure) = clear_history_ack_failure(*status) else {
+                    self.pending.disconnect();
+                    return Err(ClearHistoryFailure::ambiguous(anyhow::anyhow!(
+                        "terminal host returned an unknown clear-history status"
+                    )));
+                };
+                Err(failure)
+            }
+            _ => {
+                self.pending.disconnect();
+                Err(ClearHistoryFailure::ambiguous(anyhow::anyhow!(
+                    "terminal host returned a malformed clear-history response"
+                )))
+            }
+        }
+    }
+}
+
+impl PendingKittyGraphicsLimits {
+    pub(crate) fn wait(&self) -> anyhow::Result<()> {
+        let response = self
+            .pending
+            // Advisory control: a missed ack must degrade graphics for this
+            // surface, not tear down a healthy host connection.
+            .wait(false)
+            .map_err(ClearHistoryFailure::into_error)
+            .context("terminal host did not acknowledge Kitty graphics limits")?;
+        let mut decoder = PayloadDecoder::new(&response);
+        let acknowledged = decode_kitty_graphics_limits(&mut decoder)?;
+        decoder.finish()?;
+        if acknowledged != self.limits {
+            self.pending.disconnect();
+            anyhow::bail!("terminal host acknowledged different Kitty graphics limits");
+        }
+        Ok(())
     }
 }

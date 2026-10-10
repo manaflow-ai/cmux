@@ -134,15 +134,15 @@ final class SidebarUpdateCardView: NSView {
             label.frame = NSRect(x: pad, y: y, width: width, height: caption)
             y += caption
         }
+        checkbox.frame = NSRect(x: pad, y: y + Metrics.space2, width: width, height: SidebarUpdateCheckbox.height)
+        // Release Notes sits beside Restart to Update at its natural width;
+        // beside the checkbox both labels truncated in a 260 pt sidebar.
         let notesWidth = releaseNotesButton.isHidden ? 0
             : min(width / 2, ceil((releaseNotesButton.title as NSString).size(withAttributes: [.font: SidebarUpdateButton.font]).width)
-                + 2 * Metrics.space2)
-        let rowY = y + Metrics.space2
-        checkbox.frame = NSRect(x: pad, y: rowY, width: max(0, width - notesWidth - (notesWidth > 0 ? Metrics.space2 : 0)),
-                                height: SidebarUpdateCheckbox.height)
-        releaseNotesButton.frame = NSRect(x: pad + width - notesWidth, y: rowY + (SidebarUpdateCheckbox.height - SidebarUpdateButton.height) / 2,
-                                          width: notesWidth, height: SidebarUpdateButton.height)
-        button.frame = NSRect(x: pad, y: checkbox.frame.maxY + Metrics.space3, width: width, height: SidebarUpdateButton.height)
+                + 2 * Metrics.space3)
+        let buttonY = checkbox.frame.maxY + Metrics.space3, gap: CGFloat = notesWidth > 0 ? Metrics.space2 : 0
+        button.frame = NSRect(x: pad, y: buttonY, width: max(0, width - notesWidth - gap), height: SidebarUpdateButton.height)
+        releaseNotesButton.frame = NSRect(x: button.frame.maxX + gap, y: buttonY, width: notesWidth, height: SidebarUpdateButton.height)
     }
 
     override func updateLayer() {
