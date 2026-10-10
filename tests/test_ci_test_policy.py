@@ -77,6 +77,26 @@ class CITestPolicyTests(unittest.TestCase):
             {"web"},
         )
 
+    def test_backend_worker_source_selects_only_backend(self) -> None:
+        selected = policy.matching_suites(["workers/iroh-v2/src/account-control.ts"])
+        self.assertEqual(set(selected), {"backend"})
+
+    def test_backend_web_source_selects_backend_without_web(self) -> None:
+        selected = policy.matching_suites(["web/app/api/devices/route.ts"])
+        self.assertEqual(set(selected), {"backend"})
+
+    def test_backend_database_source_selects_backend_without_web(self) -> None:
+        selected = policy.matching_suites(["web/scripts/db-migrate.mjs"])
+        self.assertEqual(set(selected), {"backend"})
+
+    def test_web_frontend_source_stays_in_web(self) -> None:
+        selected = policy.matching_suites(["web/app/(dashboard)/page.tsx"])
+        self.assertEqual(set(selected), {"web"})
+
+    def test_backend_test_roots_have_an_explicit_owner(self) -> None:
+        selected = policy.matching_suites(["workers/iroh-v2/test/routing.test.ts"])
+        self.assertEqual(set(selected), {"backend"})
+
     def test_off_suites_do_not_route_in_normal_pr_mode(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             manifest = Path(temporary) / "policy.json"

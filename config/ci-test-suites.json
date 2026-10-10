@@ -86,7 +86,44 @@
       "pr_mode": "selective",
       "test_paths": ["web/tests/", "webviews/test/"],
       "source_paths": ["web/", "webviews/"],
+      "source_exclude_paths": [
+        "web/app/api/",
+        "web/app/v1/",
+        "web/db/",
+        "web/orpc/server/",
+        "web/services/",
+        "web/scripts/db-*",
+        "web/scripts/cloud-vm/"
+      ],
       "budget_seconds": 600
+    },
+    {
+      "id": "backend",
+      "platform": "backend",
+      "aggregate": "Backend",
+      "pr_mode": "selective",
+      "test_paths": [
+        "backend/tests/",
+        "workers/iroh-v2/test/",
+        "workers/iroh-v2/live/",
+        "workers/iroh-v2/e2e/",
+        "workers/presence/test/",
+        "workers/ci-artifacts/test/",
+        "workers/fleet-artifacts/test/"
+      ],
+      "source_paths": [
+        "backend/",
+        "workers/",
+        "services/",
+        "web/app/api/",
+        "web/app/v1/",
+        "web/db/",
+        "web/orpc/server/",
+        "web/services/",
+        "web/scripts/db-*",
+        "web/scripts/cloud-vm/"
+      ],
+      "budget_seconds": 900
     },
     {
       "id": "examples-off",

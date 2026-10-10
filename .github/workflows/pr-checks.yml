@@ -43,7 +43,7 @@ jobs:
           policy_change=false
           while IFS= read -r changed; do
             case "$changed" in
-              config/ci-test-suites.json|scripts/ci/ci_test_policy.py|.github/workflows/pr-checks.yml)
+              config/ci-test-suites.json|scripts/ci/ci_test_policy.py|.github/workflows/*)
                 policy_change=true
                 ;;
             esac
@@ -53,7 +53,7 @@ jobs:
             # copy, then widen this transition run to every aggregate so a
             # policy edit cannot reduce the checks it is changing.
             python3 scripts/ci/ci_test_policy.py --manifest config/ci-test-suites.json
-            printf '%s\n' '{"platforms":["ios","macos","shared","web"],"suites":["policy-change"]}' > "$route_json"
+            printf '%s\n' '{"platforms":["backend","ios","macos","shared","web"],"suites":["policy-change"]}' > "$route_json"
           else
             python3 scripts/ci/ci_test_policy.py \
               --files-from "$RUNNER_TEMP/changed-files.txt" --json > "$route_json"
@@ -142,9 +142,25 @@ jobs:
           case ",${PLATFORMS:-}," in *,web,*) selected=true ;; esac
           echo "Web aggregate noop; selected=$selected; suites=${SUITES:-none}"
 
+  backend:
+    name: Backend
+    needs: route
+    if: ${{ always() }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 1
+    steps:
+      - name: Record backend route
+        env:
+          PLATFORMS: ${{ needs.route.outputs.platforms }}
+          SUITES: ${{ needs.route.outputs.suites }}
+        run: |
+          selected=false
+          case ",${PLATFORMS:-}," in *,backend,*) selected=true ;; esac
+          echo "Backend aggregate noop; selected=$selected; suites=${SUITES:-none}"
+
   status:
     name: Status
-    needs: [route, shared, macos, ios, web]
+    needs: [route, shared, macos, ios, web, backend]
     if: ${{ always() }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 1

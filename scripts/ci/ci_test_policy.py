@@ -12,8 +12,14 @@ from typing import Iterable
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MANIFEST = ROOT / "config" / "ci-test-suites.json"
-PLATFORMS = frozenset({"shared", "macos", "ios", "web"})
-AGGREGATES = {"shared": "Shared", "macos": "macOS", "ios": "iOS", "web": "Web"}
+PLATFORMS = frozenset({"shared", "macos", "ios", "web", "backend"})
+AGGREGATES = {
+    "shared": "Shared",
+    "macos": "macOS",
+    "ios": "iOS",
+    "web": "Web",
+    "backend": "Backend",
+}
 MODES = frozenset({"off", "selective", "always"})
 REQUIRED_FIELDS = frozenset(
     {"id", "platform", "aggregate", "pr_mode", "test_paths", "source_paths", "budget_seconds"}
@@ -29,6 +35,13 @@ TEST_ROOTS = (
     "ios/cmuxPackage/Tests/",
     "web/tests/",
     "webviews/test/",
+    "backend/tests/",
+    "workers/iroh-v2/test/",
+    "workers/iroh-v2/live/",
+    "workers/iroh-v2/e2e/",
+    "workers/presence/test/",
+    "workers/ci-artifacts/test/",
+    "workers/fleet-artifacts/test/",
 )
 PRODUCT_ROOTS = (
     "Sources/",
@@ -40,6 +53,9 @@ PRODUCT_ROOTS = (
     "webviews/",
     "vendor/",
     "Examples/",
+    "backend/",
+    "workers/",
+    "services/",
 )
 
 

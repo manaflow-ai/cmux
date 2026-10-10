@@ -25,14 +25,32 @@ or the PR budget and need an owner. The policy guard then makes the decision
 visible in the review.
 
 The stable checks are the aggregate jobs in [`pr-checks.yml`](../../.github/workflows/pr-checks.yml):
-`Shared`, `macOS`, `iOS`, `Web`, and `Status`. The current platform jobs are
-noops. They record the route selected by the manifest so real leaf suites can be
-attached later without changing branch-protection contexts.
+`Shared`, `macOS`, `iOS`, `Web`, `Backend`, and `Status`. The current platform
+jobs are noops. They record the route selected by the manifest so real leaf
+suites can be attached later without changing branch-protection contexts.
+
+The aggregate ownership is deliberately broad:
+
+| Aggregate | Owns | Existing CI that will become a leaf suite |
+| --- | --- | --- |
+| `macOS` | macOS app, CLI, package, UI, daemon, and wrapper behavior | app-host compile and unit shards, CLI product tests, UI tests, Claude-wrapper regressions, and native daemon checks |
+| `iOS` | iOS app, simulator, signing, and iOS-specific packages | iOS package/UI tests, simulator E2E, streamed validation, and signing/build checks |
+| `Shared` | code consumed by more than one native client | shared Swift package and cross-client protocol tests |
+| `Web` | browser-facing web and webview behavior | web typecheck/build, web unit/Playwright, webview, instant-navigation, and diff-sidecar checks |
+| `Backend` | API, database, workers, services, and backend integration behavior | worker runtime tests, IROH/presence/relay checks, database behavior, and backend portions of E2E |
+
+The mapping is based on product surface rather than test type. A unit,
+regression, integration, or UI test belongs to the aggregate for the product it
+protects. The existing `backend migrations applied` check remains separate: it
+validates migration shape and, after an explicitly labeled apply, verifies that
+the migration tree is present in staging and production. It is a deployment
+safety gate, not the Backend behavior aggregate.
 
 Regression tests use the same ownership model as feature tests. A macOS
-regression belongs to a macOS suite, an iOS regression to an iOS suite, and a
-web regression to a web suite; the platform aggregate reports the selected
-result. There is no separate regression aggregate to run for every change.
+regression belongs to a macOS suite, an iOS regression to an iOS suite, a web
+regression to a web suite, and a backend regression to a Backend suite; the
+platform aggregate reports the selected result. There is no separate
+regression aggregate to run for every change.
 
 Individual suites and shards should remain non-required implementation details.
 The aggregate owns the result and reports a successful, explicit skip when its
