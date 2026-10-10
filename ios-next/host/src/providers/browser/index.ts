@@ -17,6 +17,9 @@ export const SCREENCAST_QUALITY = envNumber("CMUX_NEXT_SCREENCAST_QUALITY", 65);
 /** Highest pixel density the screencast is encoded at (the page still renders at the phone's scale). */
 export const SCREENCAST_MAX_SCALE = envNumber("CMUX_NEXT_SCREENCAST_MAX_SCALE", 3);
 
+/** `CMUX_NEXT_BROWSER_TRACE=1`: log input and frame timing (latency investigations). */
+const TRACE = process.env.CMUX_NEXT_BROWSER_TRACE === "1";
+
 function envNumber(name: string, fallback: number): number {
   const v = Number(process.env[name]);
   return Number.isFinite(v) && v > 0 ? v : fallback;
@@ -671,6 +674,7 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
     cast.lastFrame = image;
     t.lastShot = image;
     cast.session.sendFrame(FrameKind.browserFrame, cast.streamId, payload);
+    if (TRACE) this.log(`trace frame seq=${cast.seq} ${payload.byteLength}B unacked=${cast.unacked.length + 1} scrollY=${t.scroll?.y ?? -1}`);
     cast.unacked.push(cast.seq);
     // CDP sends the next frame only after an ack. Ack right away while the
     // phone has room, otherwise hold the ack until the phone catches up.
@@ -751,11 +755,14 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
   private input(tabId: string, _session: ClientSession | undefined, fn: (cdp: CdpConnection, t: TabState, sid: string) => Promise<void>): Promise<void> {
     const t = this.tabs.get(tabId);
     if (!t) return this.session(tabId).then(() => undefined); // throws not_found
+    const queued = TRACE ? performance.now() : 0;
     const run = (t.inputChain ?? Promise.resolve())
       .catch(() => {})
       .then(async () => {
+        const started = TRACE ? performance.now() : 0;
         const { cdp, sid } = await this.session(tabId);
         await fn(cdp, t, sid);
+        if (TRACE) this.log(`trace input queued+${(started - queued).toFixed(0)}ms dispatched+${(performance.now() - started).toFixed(0)}ms`);
       });
     t.inputChain = run.catch(() => {});
     return run;
