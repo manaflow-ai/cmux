@@ -36,7 +36,8 @@ public enum ConversationTapbackGeometry {
     /// keeps the plain 10 pt gap). `badgeTopsRow` is false when something sits
     /// above the badge in the row (a reply quote, a sender name).
     public static func rise(badge: CGRect, rowAbove: CGRect, badgeTopsRow: Bool) -> CGFloat {
-        badge.maxX <= rowAbove.minX || badge.minX >= rowAbove.maxX ? rowGrowth : 0
+        guard badgeTopsRow else { return 0 }
+        return badge.maxX <= rowAbove.minX || badge.minX >= rowAbove.maxX ? rowGrowth : 0
     }
 
     /// The platter's frame for a bubble body `body`. Sent bubbles (`leading`
