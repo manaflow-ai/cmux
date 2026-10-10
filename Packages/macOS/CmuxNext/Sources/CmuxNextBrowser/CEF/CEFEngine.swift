@@ -143,12 +143,6 @@ public final class CEFEngine: BrowserEngine {
     /// Extension install and permission prompts on screen (fork API 12).
     public var extensionPrompts: [ExtensionInstallPrompt] { CEFRuntime.shared.extensionPrompts.pending }
 
-    /// Answers a prompt as its sheet would; false when it is gone.
-    @discardableResult
-    public func answerExtensionPrompt(_ id: Int32, _ answer: ExtensionInstallPrompt.Answer) -> Bool {
-        CEFRuntime.shared.extensionPrompts.answer(id, answer)
-    }
-
     /// Synchronous tab creation for the debug window: the first call maps
     /// the framework on the main thread. App code uses `makeTab`.
     public func makeCEFTab(_ configuration: BrowserTabConfiguration) throws -> CEFTab {

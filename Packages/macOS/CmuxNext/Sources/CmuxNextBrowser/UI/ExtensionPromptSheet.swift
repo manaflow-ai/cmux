@@ -7,7 +7,6 @@ import CmuxNextDesign
 /// focus by itself.
 @MainActor final class ExtensionPromptSheet {
     let prompt: ExtensionInstallPrompt
-    private var dialogID: Int?
     private var completion: ((ExtensionInstallPrompt.Answer) -> Void)?
 
     init(prompt: ExtensionInstallPrompt) {
@@ -19,22 +18,15 @@ import CmuxNextDesign
         return CmuxDialogSpec(title: Self.title(for: prompt), lines: [Self.body(for: prompt)],
                               buttons: [CmuxDialogButton(id: "cancel", title: deny, role: .cancel),
                                         CmuxDialogButton(id: "accept", title: Self.acceptTitle(for: prompt.kind), role: .default)],
-                              icon: prompt.icon, identifier: "browser.extensionPrompt.\(prompt.id)")
+                              icon: prompt.icon, identifier: "browser.extensionPrompt.\(prompt.id)", confirmKind: .trust)
     }
 
     /// Shows the dialog in `scope`; `completion` runs once with the answer.
     func begin(in scope: CmuxDialogScope, completion: @escaping (ExtensionInstallPrompt.Answer) -> Void) {
         self.completion = completion
-        dialogID = CmuxDialogCenter.shared.present(spec, in: scope) { [weak self] answer in
+        CmuxDialogCenter.shared.present(spec, in: scope) { [weak self] answer in
             self?.finish(answer.button == "accept" ? .accept : .cancel)
         }
-    }
-
-    /// Ends the dialog as if the user chose `answer` (debug socket, quit).
-    func end(_ answer: ExtensionInstallPrompt.Answer) {
-        guard completion != nil else { return }
-        if let dialogID, CmuxDialogCenter.shared.press(dialogID, button: answer == .accept ? "accept" : "cancel") { return }
-        finish(answer)
     }
 
     private func finish(_ answer: ExtensionInstallPrompt.Answer) {

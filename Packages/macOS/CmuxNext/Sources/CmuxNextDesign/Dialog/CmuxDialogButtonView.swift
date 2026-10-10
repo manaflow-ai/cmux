@@ -6,6 +6,8 @@ public import AppKit
 @MainActor
 public final class CmuxDialogButtonView: NSButton {
     public private(set) var button: CmuxDialogButton
+    /// What a press grants (`AXCmuxConfirmKind`): the dialog's kind, `none` for its cancel button.
+    public internal(set) var confirmKind: CmuxDialogConfirmKind = .none
     private var isHovering = false { didSet { refresh() } }
     private var tracking: NSTrackingArea?
     private var hasFocus = false { didSet { refresh() } }
@@ -35,6 +37,16 @@ public final class CmuxDialogButtonView: NSButton {
         button.title = title
         setAccessibilityLabel(title)
         refresh()
+    }
+
+    @available(macOS, deprecated: 10.10, message: "custom accessibility attribute")
+    public override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
+        super.accessibilityAttributeNames() + [CmuxDialogConfirmKind.accessibilityAttribute]
+    }
+
+    @available(macOS, deprecated: 10.10, message: "custom accessibility attribute")
+    public override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        attribute == CmuxDialogConfirmKind.accessibilityAttribute ? confirmKind.rawValue : super.accessibilityAttributeValue(attribute)
     }
 
     public override var acceptsFirstResponder: Bool { true }
