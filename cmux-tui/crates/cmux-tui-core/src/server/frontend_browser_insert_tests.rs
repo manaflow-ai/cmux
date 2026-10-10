@@ -132,6 +132,20 @@ fn the_child_of_an_ungrouped_tab_stays_ungrouped() {
     assert_eq!(group_runs(&mux, pane), vec![vec![opener, middle]]);
 }
 
+/// A second link tab, opened after a group's child landed, keeps every
+/// client's view of the strip current (cx-d0d.61: the scoped projection
+/// once dropped a reordered tab here).
+#[test]
+fn a_second_child_after_a_grouped_child_keeps_the_strip_current() {
+    let (mux, pane, [opener, middle, last]) = pane_with_three_tabs("group-second");
+    mux.create_tab_group(&[opener, middle], None, Some("green".into()), Some("g1".into()), None)
+        .unwrap();
+    let first = open_after(&mux, pane, middle, true);
+    let second = open_after(&mux, pane, last, false);
+    assert_eq!(tabs(&mux, pane), vec![opener, middle, first, last, second]);
+    assert_eq!(group_runs(&mux, pane), vec![vec![opener, middle, first]]);
+}
+
 /// The keyed (idempotent) creation takes the slot too.
 #[test]
 fn a_keyed_creation_takes_the_slot() {
