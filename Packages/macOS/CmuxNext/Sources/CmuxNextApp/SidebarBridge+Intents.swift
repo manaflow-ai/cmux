@@ -13,7 +13,6 @@ extension SidebarBridge {
     func handle(_ intent: SidebarIntent) {
         guard let state else { return }
         if CloudCreationRows.handle(intent, bridge: self, state: state) { return }
-        if SSHConnectingRows.handle(intent, bridge: self) { return }
         // A section's collapse is window view state (sidebar snapshot), never a daemon command.
         if case .toggleCollapse(.section) = intent {
             model.apply(intent)

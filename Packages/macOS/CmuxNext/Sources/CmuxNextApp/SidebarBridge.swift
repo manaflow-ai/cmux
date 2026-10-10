@@ -182,7 +182,9 @@ final class SidebarBridge {
     /// Shows `live` with loading sections filled from the seed, and the
     /// band's `layout` in the same turn, then saves it.
     private func show(_ live: [SidebarRowSection], layout: SidebarLayoutDocument, launching: Bool, failed: Set<MachineID>) {
-        let sections = seed.merge(live, launching: launching, failed: failed)
+        var sections = seed.merge(live, launching: launching, failed: failed)
+        // After the merge, so a reconnecting machine's saved rows stand in first (cx-gaq9).
+        if !model.groupsByComputer { sections = SSHConnectingRows.adding(services.machines, to: sections) }
         model.ungroupedFirst = !usesMixedOrder
         if model.layout != layout { model.layout = layout }
         rows.show(sections)
@@ -227,7 +229,6 @@ final class SidebarBridge {
         var sections = Self.sections(machines, members: registry.members(of: window.id), profile: window.profileID, hidesHome: hidesHome,
                                      selection: window.selection, newTabPages: newTabPages, muted: muted, top: top, pageFace: pageFace)
         if let creations { sections = CloudCreationRows.adding(creations.shown(in: window.id), to: sections) }
-        sections = SSHConnectingRows.adding(machines, to: sections)
         if machines.local.store.isProvisional { sections = SidebarSeed.stale(sections) }
         let failed = Set(machines.cloud.filter { $0.daemon.startup.isUnavailable }.map { MachineID($0.daemon.machineID) })
         return (sections, isLaunching(machines.local, registry: registry), failed)

@@ -233,7 +233,8 @@ public struct SidebarMapping {
     /// otherwise, and this Mac's home says nothing about it (cx-gaq9).
     public static func abbreviateRemote(_ path: String) -> String {
         let parts = path.split(separator: "/", omittingEmptySubsequences: false)
-        guard parts.count >= 3, parts[0].isEmpty, parts[1] == "Users" || parts[1] == "home", !parts[2].isEmpty else { return path }
+        guard parts.count >= 3, parts[0].isEmpty, parts[1] == "Users" || parts[1] == "home", !parts[2].isEmpty,
+              parts[2] != "Shared" else { return path }
         return (["~"] + parts.dropFirst(3)).joined(separator: "/")
     }
 

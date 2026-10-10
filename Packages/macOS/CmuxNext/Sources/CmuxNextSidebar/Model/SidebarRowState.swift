@@ -12,5 +12,7 @@ public nonisolated enum SidebarRowState: Hashable, Sendable {
     case stale
     /// A row the sidebar knows nothing about yet (a machine still
     /// connecting with no saved rows): a static tonal bar, never interactive.
+    /// With a title (a connecting SSH machine's pending row, cx-gaq9) it draws
+    /// the title and second line instead of the bar, still never interactive.
     case placeholder
 }

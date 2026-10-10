@@ -144,7 +144,8 @@ final class WorkspaceRowView: SidebarRowView {
         grouped = row.group != nil
         groupColor = row.groupColor
         lastInGroup = row.isLastInGroup
-        isShowingPlaceholder = ws.rowState == .placeholder
+        // A placeholder with a title (a connecting SSH machine, cx-gaq9) draws its text, not the bar.
+        isShowingPlaceholder = ws.rowState == .placeholder && ws.title.isEmpty
         isClosable = ws.isClosable
         placeholderFraction = SidebarStyle.placeholderFractions[ws.id.rawValue.utf8.reduce(0) { $0 &+ Int($1) } % SidebarStyle.placeholderFractions.count]
         // SIDEBAR-ROWS-MINIMAL-AND-CUSTOMIZABLE: the row draws only what its
