@@ -23,7 +23,8 @@ impl Daemon {
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let dir = PathBuf::from("/tmp")
             .join(format!("cmux-projects-{name}-{}-{stamp}", std::process::id()));
-        fs::create_dir_all(dir.join("home")).unwrap();
+        // The Codex home exists at start, so the daemon watches it.
+        fs::create_dir_all(dir.join("home/.codex")).unwrap();
         let socket = dir.join("mux.sock");
         let child = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
             .args(["--headless", "--socket"])
@@ -367,4 +368,68 @@ fn projects_daemon_sync_imports_codex_app_t3code_and_conductor_projects() {
         "1791278440009"
     );
     assert!(find(&projects, "/srv/cx-m0p7-apps/cond")["sources"]["conductor"].is_object());
+}
+
+#[test]
+fn projects_daemon_watch_picks_up_a_new_codex_app_project_and_keeps_user_edits() {
+    let daemon = Daemon::start("watch");
+    let state = daemon.dir.join("home/.codex/.codex-global-state.json");
+    let write_projects = |roots: &[&str]| {
+        let projects: serde_json::Map<String, Value> = roots
+            .iter()
+            .enumerate()
+            .map(|(index, root)| {
+                (format!("local-{index}"), json!({"id": format!("local-{index}"), "name": "p",
+                    "rootPaths": [root], "createdAt": 1_784_592_037_656_i64, "updatedAt": 1_784_592_037_656_i64}))
+            })
+            .collect();
+        // The app writes a temporary file and renames it over the state file.
+        let temporary = daemon.dir.join("home/.codex/..codex-global-state.json.tmp-1");
+        fs::write(&temporary, json!({"local-projects": projects}).to_string()).unwrap();
+        fs::rename(&temporary, &state).unwrap();
+    };
+    let wait_for = |what: &str, done: &dyn Fn(&[Value]) -> bool| {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        loop {
+            let projects = daemon.list(json!({"include_hidden": true}));
+            if done(&projects) {
+                return projects;
+            }
+            assert!(Instant::now() < deadline, "{what}: {projects:?}");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    };
+
+    // The chat index already reported the folder (source codex).
+    let app = "/srv/cx-m0p7-watch/app";
+    daemon.mutate(
+        "project.observe",
+        json!({"source": "codex", "entries": [{"path": app, "last_used_ms": "5"}], "complete": true}),
+        "w-1",
+    );
+    // A project made in the app after the import: it appears, merged with the
+    // chat index's row (no duplicate).
+    write_projects(&[app, "/srv/cx-m0p7-watch/new"]);
+    let projects = wait_for("the new project appears", &|projects| {
+        projects.iter().any(|project| project["path"] == "/srv/cx-m0p7-watch/new")
+    });
+    assert_eq!(projects.iter().filter(|project| project["path"] == app).count(), 1, "{projects:?}");
+    let merged = find(&projects, app);
+    assert!(
+        merged["sources"]["codex"].is_object() && merged["sources"]["codex-app"].is_object(),
+        "{merged}"
+    );
+
+    // The user's rename and removal win over the next resync.
+    daemon.mutate("project.update", json!({"path": app, "rename": "Mine"}), "w-2");
+    daemon.mutate("project.remove", json!({"path": "/srv/cx-m0p7-watch/new"}), "w-3");
+    write_projects(&[app, "/srv/cx-m0p7-watch/new", "/srv/cx-m0p7-watch/third"]);
+    let projects = wait_for("the third project appears", &|projects| {
+        projects.iter().any(|project| project["path"] == "/srv/cx-m0p7-watch/third")
+    });
+    assert_eq!(find(&projects, app)["name"], "Mine");
+    assert_eq!(find(&projects, "/srv/cx-m0p7-watch/new")["overlay"]["hidden"], true);
+    assert!(
+        daemon.list(json!({})).iter().all(|project| project["path"] != "/srv/cx-m0p7-watch/new")
+    );
 }

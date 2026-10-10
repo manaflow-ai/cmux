@@ -51,7 +51,7 @@ The editor adapters (VS Code family, Zed, JetBrains, later t3code and Conductor)
 ## 4. Resync (event-driven, never a timer)
 
 - At daemon start: one full scan of every enabled source.
-- File watches: the editor adapters' source files (FSEvents/inotify through `notify`, debounced like `chats/watch.rs`: 300 ms quiet, 2 s max burst); acpmux pushes chat changes as they happen.
+- File watches (`state::project_watch`, landed): one `notify` watch, non-recursive, on each folder the editor and app sources read (VS Code family `globalStorage`, Zed `db/0-stable`, `$CODEX_HOME`, `~/.t3/userdata`, Conductor's folder). An event on a source file name (`state.vscdb*`, `storage.json`, `db.sqlite*`, `.codex-global-state.json`, `statev2.sqlite*`, `state.sqlite*`, `conductor.db*`; an atomic rename counts) drains the queued burst, rescans, and commits only the sources whose list changed since the last import. No quiet-period timer: the drain is the coalescing. A folder that does not exist at daemon start is read on the next `project.sync`. acpmux pushes chat changes as they happen.
 - On app activation: the app rescans only the sources whose files changed since the last scan (mtime + size check), so a project made in the ChatGPT app while cmux was in the background shows on the next switch to cmux, and sends `project.sync {existing, gone}`: the disk facts it checked with its own privacy rules (PrivacyFolder; a protected folder is never stat'ed unasked). The store reads no disk for observed paths: a read inside a privacy-protected folder raises a macOS prompt attributed to cmux, and a stale network mount would stall the store's locks.
 - No polling interval anywhere.
 

@@ -108,6 +108,38 @@ impl Layout {
     }
 }
 
+/// Whether this daemon reads the editor and app sources
+/// (`CMUX_PROJECT_SOURCES=off` turns them off).
+pub(crate) fn enabled() -> bool {
+    std::env::var_os("CMUX_PROJECT_SOURCES").is_none_or(|value| value != "off")
+}
+
+/// The folders whose files the sources read, for the file watch, and the
+/// file names (prefixes, so `-wal` and `-journal` count) that matter there.
+pub(crate) const WATCHED_NAMES: [&str; 7] = [
+    "state.vscdb",
+    "storage.json",
+    "db.sqlite",
+    ".codex-global-state.json",
+    "statev2.sqlite",
+    "state.sqlite",
+    "conductor.db",
+];
+
+impl Layout {
+    pub(crate) fn watch_dirs(&self) -> Vec<PathBuf> {
+        let mut dirs: Vec<PathBuf> = vscode::PRODUCTS
+            .iter()
+            .map(|(product, _)| self.vscode_user_dir(product).join("globalStorage"))
+            .collect();
+        dirs.extend(self.zed_db().parent().map(Path::to_path_buf));
+        dirs.push(self.codex_home.clone());
+        dirs.extend(self.t3code_dbs()[0].parent().map(Path::to_path_buf));
+        dirs.extend(self.conductor_db().parent().map(Path::to_path_buf));
+        dirs
+    }
+}
+
 /// Every editor source on this machine (daemon start, `project.sync`).
 pub(crate) fn scan_all(layout: &Layout) -> Vec<SourceScan> {
     let mut scans = scan_vscode_family(layout);
