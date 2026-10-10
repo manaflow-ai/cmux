@@ -275,6 +275,16 @@ pub fn open_bootstrap_pipes(base: &str) -> io::Result<(File, File)> {
     Ok((input, output))
 }
 
+/// The host process's bootstrap streams: the named pipes its last argument
+/// names ([`open_bootstrap_pipes`]).
+pub(crate) fn host_bootstrap_streams(
+    args: &[String],
+) -> io::Result<(Box<dyn io::Read>, Box<dyn io::Write>)> {
+    let base = args.last().map(String::as_str).unwrap_or_default();
+    let (input, output) = open_bootstrap_pipes(base)?;
+    Ok((Box::new(input), Box::new(output)))
+}
+
 const PIPE_PREFIX: &str = r"\\.\pipe\cmux-th-boot-";
 
 fn valid_base_name(base: &str) -> bool {
@@ -514,4 +524,85 @@ fn quote_arg(arg: &str) -> String {
     quoted.extend(std::iter::repeat_n('\\', backslashes * 2));
     quoted.push('"');
     quoted
+}
+
+/// Launch-time ownership of a host process (the `SpawnedHostProcess` seam,
+/// Windows side): until the launch is committed, dropping it ends the exact
+/// process it started and waits for it.
+pub(crate) struct SpawnedHostProcess {
+    process: Option<HostProcess>,
+    ends_with_daemon_job: bool,
+}
+
+impl SpawnedHostProcess {
+    /// The launch is committed: the host lives on its own.
+    pub(crate) fn commit(mut self) {
+        if let Some(process) = self.process.take() {
+            process.detach();
+        }
+    }
+
+    pub(crate) fn wait_timeout(&mut self, timeout: Duration) -> bool {
+        let Some(process) = self.process.as_ref() else { return true };
+        if process.wait_timeout(timeout) {
+            self.process = None;
+            return true;
+        }
+        false
+    }
+
+    /// The host runs inside the daemon's kill-on-close job
+    /// ([`HostProcess::ends_with_daemon_job`]).
+    pub(crate) fn ends_with_daemon_job(&self) -> bool {
+        self.ends_with_daemon_job
+    }
+}
+
+/// A terminal-host process started ahead of its terminal (the Windows side
+/// of `unix/standby.rs`): it has opened its bootstrap pipes and waits on
+/// them. Dropping it ends the exact process; a daemon exit closes its pipes,
+/// and the host exits.
+pub(crate) struct StandbyTerminalHost {
+    pub(crate) process: SpawnedHostProcess,
+    pub(crate) stdin: File,
+    pub(crate) stdout: File,
+    pub(crate) host_pid: u32,
+}
+
+/// A host process that did not start (spawn or bootstrap-pipe failure).
+/// The daemon then runs the terminal in its own process and marks it
+/// `TerminalHostFallback::HostStartFailed`.
+#[derive(Debug)]
+pub(crate) struct HostProcessStartFailed(pub(crate) String);
+
+impl std::fmt::Display for HostProcessStartFailed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "terminal-host process did not start: {}", self.0)
+    }
+}
+
+impl std::error::Error for HostProcessStartFailed {}
+
+impl StandbyTerminalHost {
+    /// Start this executable as `__terminal-host --bootstrap-stdio <pipes>`.
+    pub(crate) fn spawn() -> anyhow::Result<Self> {
+        let start = || -> Result<Self, String> {
+            let exe = std::env::current_exe().map_err(|error| error.to_string())?;
+            let mut host = spawn_host_process(&exe, &["__terminal-host", "--bootstrap-stdio"])
+                .map_err(|error| error.to_string())?;
+            let (Some(stdin), Some(stdout)) = (host.stdin.take(), host.stdout.take()) else {
+                return Err("no bootstrap pipes".into());
+            };
+            let host_pid = host.pid();
+            let ends_with_daemon_job = host.ends_with_daemon_job();
+            let process = SpawnedHostProcess { process: Some(host), ends_with_daemon_job };
+            Ok(Self { process, stdin, stdout, host_pid })
+        };
+        start().map_err(|error| HostProcessStartFailed(error).into())
+    }
+
+    /// False once the process has exited (killed, or crashed before use).
+    pub(crate) fn is_alive(&mut self) -> bool {
+        self.process.process.as_ref().is_some_and(HostProcess::is_alive)
+    }
 }

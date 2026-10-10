@@ -435,3 +435,53 @@ Windows VM check (gpuitest session only; log off only with
 ~/fun/cmux2-gpui: `scripts/windows/daemon-terminal-test.ps1 -Scenarios restart`
 (then `quit`, `resources`, `owner`). Leftovers on the VM: `C:\build-wb\wd-dist`,
 `wd-dist-nobin`, `wd-tui`.
+
+## The Windows host runtime (2026-10-10, branch `gpui-windows-terminal-hosts-2`)
+
+Wired on Windows (sys/windows): `StandbyTerminalHost` (this executable as
+`__terminal-host --bootstrap-stdio <pipe base>`, `standby::spawn_host_process`)
+and `SpawnedHostProcess` (a sys seam now: Unix keeps the std child, Windows
+the exact process handle; `commit` detaches), `HostListener`
+(`cmux::local_socket::listen`, `WSAEventSelect(FD_ACCEPT)` and
+`WaitForMultipleObjects` with the waker event; accepted sockets get their
+event selection cleared and block), publication and reset locks
+(`LockFileEx` on `.publication.lock`), `adopt_launch` (Launch only; ConPTY
+child through cmux-pty), `HostChild` (the child watcher closes the
+pseudoconsole when the child exits, so the reader drains and gets EOF; the
+reader blocks in `ReadFile`, so the readiness wait only ends a forced
+drain), `sys::host_bootstrap_streams` (the entry
+`serve_terminal_host_process`: stdio on Unix, the named pipes on Windows),
+`SUPPORTS_PTY_CUSTODY` false. The hosted path of surface and mux is built on
+Windows (`cfg(any(unix, windows))`); PTY custody and rehosting stay Unix
+(a dead Windows host is a host loss).
+
+Fallback marking: `HostAttachment::launch_ends_with_daemon_job` ->
+`terminal_host_fallback: "breakaway_denied"` (set when the surface is built);
+`HostProcessStartFailed` from the spawn -> the daemon runs the terminal in
+its own process and marks `"host_start_failed"` (the mux gives it an
+incarnation as for a terminal without hosts).
+
+Decision (kill-on-close of the host's terminal job, open in the handoff):
+no kill-on-close, as on Unix. A Unix host is a session leader of its own;
+its shell runs in another session on the PTY. `kill_process_group(host)`
+or a host crash ends only the host's group; the shell then gets a hangup
+when the PTY master closes, and a process that ignores the hangup or left
+the terminal (nohup, a daemonized job) survives. On Windows the host owns
+the pseudoconsole: when the host ends, every handle it had closes, the
+pseudoconsole host ends and the processes attached to that console get the
+console close (Windows' hangup); a process that detached from the console
+survives. A kill-on-close terminal job would end those too, which Unix does
+not do, and it would change the in-process daemon (the job code is shared).
+So `windows_jobs` keeps grouping only; an explicit terminate still ends the
+whole job (`signal_terminal_process_groups(Kill)` -> `TerminateJobObject`).
+
+Behavior proof (tests/windows_terminal_hosts.rs): restart survival; a
+daemon in a kill-on-close job without breakaway says `breakaway_denied`, and
+closing that job ends the shell; a daemon in a plain job without breakaway
+shows no notice, its terminal survives a fenced restart, and the shell
+survives the job closing; a hosted terminal reports no fallback.
+
+Not done on Windows yet: the session reset of a host root
+(`workspace_registry` `prepare_terminal_host_root_for_reset` still refuses
+on non-Unix), named terminal jobs for a restarted daemon's process reads
+(handoff item 8), and the GPUI banner (cmux2-gpui, after the pin moves).

@@ -158,6 +158,7 @@ pub(crate) fn logged_summaries(
 /// Append the replacement of a dead host by a new host on the same running
 /// shell (cx-6so.49 L1.2) and remove the dead host's breadcrumbs. A
 /// replacement is not a loss: the terminal keeps its incarnation and shell.
+#[cfg(unix)]
 pub(crate) fn record_host_replaced(
     record_path: &Path,
     terminal_id: &str,
@@ -256,6 +257,7 @@ pub(crate) fn record_terminal_respawned(
 /// `sender_pid` (cx-0tgl LA), with the sender's name and parent, so an
 /// external stop of the owner is named. `root` is the terminal-host record
 /// directory.
+#[cfg(unix)]
 pub(crate) fn record_daemon_signal(
     root: &Path,
     signal: i32,

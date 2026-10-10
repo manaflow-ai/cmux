@@ -211,9 +211,9 @@ pub struct PtyTerminalRuntime {
     pub(super) lifetime: PtyLifetime,
     pub(super) supports_clear_history_key_fallback: AtomicBool,
     pub(super) host_identity: Option<crate::terminal_host_runtime::TerminalHostIdentity>,
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(super) pending_host_binding: Mutex<Option<crate::mux::PendingTerminalHostBinding>>,
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(super) host_exit_record_path: Option<PathBuf>,
     pub(super) pid: Option<u32>,
     pub(super) command: Vec<String>,
@@ -302,9 +302,9 @@ pub(super) enum PtyRuntime {
         master: Option<Box<dyn MasterPty + Send>>,
         killer: Box<dyn ChildKiller + Send>,
     },
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     Hosted(Box<crate::terminal_host_runtime::HostAttachment>),
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     ExitedHosted,
 }
 

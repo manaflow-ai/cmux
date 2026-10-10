@@ -44,10 +44,10 @@
 
 use std::collections::VecDeque;
 use std::io::Read;
-use std::os::unix::net::UnixStream;
 use std::sync::{Arc, Condvar, Mutex};
 
 use crate::terminal_host_protocol::{Frame, MAX_FRAME_PAYLOAD, MessageKind, read_frame};
+use crate::terminal_host_runtime::HostStream as UnixStream;
 use crate::terminal_host_runtime::{CONTROL_RESPONSE_TIMEOUT, ControlResponses};
 
 /// Output bytes the reader thread may queue ahead of the surface's reader.

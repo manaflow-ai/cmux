@@ -161,9 +161,9 @@ impl Surface {
                     supports_clear_history_key_fallback,
                 ),
                 host_identity: None,
-                #[cfg(unix)]
+                #[cfg(any(unix, windows))]
                 pending_host_binding: Mutex::new(None),
-                #[cfg(unix)]
+                #[cfg(any(unix, windows))]
                 host_exit_record_path: None,
                 pid,
                 command: argv,

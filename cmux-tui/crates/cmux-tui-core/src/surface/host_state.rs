@@ -61,8 +61,6 @@ impl Surface {
     /// Record why this terminal could not get a host that outlives the
     /// daemon and its starter. Call it before the surface is published; a
     /// later call keeps the first reason.
-    // Called by the Windows host spawn (terminal_host_runtime/windows, cx-ko2e).
-    #[allow(dead_code)]
     pub(crate) fn mark_terminal_host_fallback(&self, reason: TerminalHostFallback) {
         if let Some(pty) = self.as_pty() {
             let _ = pty.host_fallback.set(reason);

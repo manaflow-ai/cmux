@@ -4,7 +4,7 @@
 use super::*;
 
 impl Surface {
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(crate) fn adopt_hosted(
         id: SurfaceId,
         opts: SurfaceOptions,
@@ -22,7 +22,7 @@ impl Surface {
         )
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(crate) fn adopt_hosted_with_resource_identity(
         id: SurfaceId,
         opts: SurfaceOptions,
@@ -62,7 +62,7 @@ impl Surface {
         )
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(crate) fn adopt_hosted_with_terminal_public_id(
         id: SurfaceId,
         opts: SurfaceOptions,

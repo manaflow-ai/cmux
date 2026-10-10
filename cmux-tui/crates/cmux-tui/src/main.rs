@@ -1829,11 +1829,7 @@ fn run_main() {
 
 fn run_terminal_host_process(args: &[String]) -> anyhow::Result<()> {
     cmux_tui_core::terminal_host_runtime::enter_terminal_host_process()?;
-    let stdin = io::stdin();
-    let stdout = io::stdout();
-    let mut reader = stdin.lock();
-    let mut writer = stdout.lock();
-    cmux_tui_core::terminal_host_runtime::serve_terminal_host_stdio(args, &mut reader, &mut writer)
+    cmux_tui_core::terminal_host_runtime::serve_terminal_host_process(args)
 }
 
 fn run_attach(args: Args, config: config::StartupConfigSnapshot) -> anyhow::Result<()> {

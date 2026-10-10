@@ -56,7 +56,7 @@ impl Surface {
         // without the runtime lock, which the reconnecting reader needs
         // before it can read the new stream.
         let _request = pty.kitty_limits_request.lock().unwrap();
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         let next = {
             let pending = match &*pty.runtime.lock().unwrap() {
                 PtyRuntime::Hosted(host) => {
@@ -81,7 +81,7 @@ impl Surface {
                 None => requested,
             }
         };
-        #[cfg(not(unix))]
+        #[cfg(not(any(unix, windows)))]
         let next = requested;
         let graphics_changed = {
             let mut term = pty.term.lock().unwrap();

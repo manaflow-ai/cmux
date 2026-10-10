@@ -598,13 +598,9 @@ mod unix {
     pub(crate) mod session_cleanup;
     mod standby;
     use super::shared::attachment::*;
-    pub(crate) use super::shared::clipboard_read::ClipboardReadSignal;
     use super::shared::clipboard_read::OwnerIntent;
     #[cfg(test)]
     use super::shared::clipboard_read::{ClipboardReads, SystemClock};
-    pub(crate) use super::shared::control_responses::{
-        ControlResponses, DeferredCellPixelResolution,
-    };
     #[cfg(test)]
     use super::shared::host_parser::{ParserSignals, run_guarded_host_parser, run_host_parser};
     use super::shared::host_start::start_host_runtime;
@@ -706,30 +702,37 @@ mod unix {
     mod tests;
 }
 
-#[cfg(unix)]
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub use shared::attachment::HostAttachment;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub(crate) use shared::attachment::launch::adopt_terminal_host_with_kitty_limits;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub use shared::attachment::launch::{
     adopt_terminal_host, launch_terminal_host, launch_terminal_host_with_identity,
 };
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub(crate) use shared::attachment::launch::{
     launch_terminal_host_from, launch_terminal_host_seeded,
 };
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
+pub(crate) use shared::clipboard_read::ClipboardReadSignal;
+#[cfg(any(unix, windows))]
 pub(crate) use shared::codec::{
     DecodedHostResize, decode_host_resize_payload_for_version, decode_resync_kitty_graphics_limits,
 };
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub use shared::codec::{decode_host_snapshot_payload, encode_host_snapshot_payload};
-#[cfg(unix)]
-pub use shared::host_serve::serve_terminal_host_stdio;
+#[cfg(any(unix, windows))]
+pub(crate) use shared::control_responses::{ControlResponses, DeferredCellPixelResolution};
+#[cfg(any(unix, windows))]
+pub use shared::host_serve::{serve_terminal_host_process, serve_terminal_host_stdio};
+#[cfg(any(unix, windows))]
+pub(crate) use shared::records::live_successor_record;
 #[cfg(unix)]
 pub(crate) use shared::records::load_terminal_host_records_for_reset;
 #[cfg(unix)]
+pub(crate) use shared::records::record_owner_token;
+#[cfg(any(unix, windows))]
 pub use shared::records::{
     acknowledge_terminal_host_exit_record, load_terminal_host_exit_records,
     load_terminal_host_records, remove_stale_terminal_host_record, terminal_host_exit_record,
@@ -737,13 +740,13 @@ pub use shared::records::{
     validate_terminal_host_record,
 };
 #[cfg(unix)]
-pub(crate) use shared::records::{
-    live_successor_record, record_owner_token, wait_for_terminal_host_record_removals,
-};
-#[cfg(unix)]
+pub(crate) use shared::records::wait_for_terminal_host_record_removals;
+#[cfg(any(unix, windows))]
 pub use shared::unadoptable::*;
-#[cfg(unix)]
-pub(crate) use sys::acquire_terminal_host_reset_lock;
+#[cfg(windows)]
+pub(crate) use sys::{HostProcessStartFailed, kill_process_group};
+#[cfg(any(unix, windows))]
+pub(crate) use sys::{HostStream, StandbyTerminalHost, acquire_terminal_host_reset_lock};
 #[cfg(all(unix, test))]
 pub(crate) use sys::{
     acquire_terminal_host_publication_lock, prepare_terminal_host_publication_lock,
@@ -751,10 +754,7 @@ pub(crate) use sys::{
 #[cfg(all(unix, test))]
 pub(crate) use unix::input_ack_surface_fixture;
 #[cfg(unix)]
-pub(crate) use unix::{
-    ClipboardReadSignal, ControlResponses, DeferredCellPixelResolution, StandbyTerminalHost,
-    sweep_released_pty_locks,
-};
+pub(crate) use unix::sweep_released_pty_locks;
 #[cfg(unix)]
 pub use unix::{
     PtyCustody, TerminalHostAdoption, enter_terminal_host_process,
@@ -767,33 +767,20 @@ pub fn terminal_host_root(state_root: &Path, session: &str) -> PathBuf {
     crate::platform::normalize_filesystem_path(state_root.join(format!("{session}.terminal-hosts")))
 }
 
+/// Windows hosts inherit no handle (`sys/windows/standby.rs`).
 #[cfg(not(unix))]
 pub fn isolate_terminal_host_process_fds() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Windows v1 takes no PTY ownership locks (no custody).
+#[cfg(not(unix))]
+pub(crate) fn sweep_released_pty_locks(_root: &Path) {}
+
+/// Windows hosts set nothing up before they serve (no inherited handle).
 #[cfg(not(unix))]
 pub fn enter_terminal_host_process() -> anyhow::Result<()> {
     Ok(())
-}
-
-#[cfg(not(unix))]
-pub(crate) struct TerminalHostResetLock;
-
-#[cfg(not(unix))]
-pub(crate) fn acquire_terminal_host_reset_lock(
-    _root: &Path,
-) -> anyhow::Result<Option<TerminalHostResetLock>> {
-    anyhow::bail!("terminal host liveness cannot be verified on this platform")
-}
-
-#[cfg(not(unix))]
-pub fn serve_terminal_host_stdio(
-    _args: &[String],
-    _reader: &mut impl std::io::Read,
-    _writer: &mut impl std::io::Write,
-) -> anyhow::Result<()> {
-    anyhow::bail!("per-terminal hosts are not implemented on this platform")
 }
 
 #[cfg(test)]

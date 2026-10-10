@@ -8,11 +8,11 @@ use std::io as std_io;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, sync_channel};
 use std::sync::{Arc, Mutex};
-use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
 
+pub(crate) use super::super::sys::SpawnedHostProcess;
 use super::super::sys::{HostStream, PtyCustody, connect_with_retry};
 use super::super::*;
 use super::clipboard_read::{OwnerIntent, owner_rights_for};
@@ -99,46 +99,6 @@ impl Drop for InputAckReceipt {
             // produce a late targeted ACK. Close this attachment now rather
             // than letting that late frame fail the production reader later.
             self.abort_connection();
-        }
-    }
-}
-
-pub(crate) struct SpawnedHostProcess {
-    pub(crate) child: Option<std::process::Child>,
-}
-
-impl SpawnedHostProcess {
-    pub(crate) fn child_mut(&mut self) -> &mut std::process::Child {
-        self.child.as_mut().expect("terminal-host child is present")
-    }
-
-    pub(crate) fn into_child(mut self) -> std::process::Child {
-        self.child.take().expect("terminal-host child is present")
-    }
-
-    pub(crate) fn wait_timeout(&mut self, timeout: Duration) -> bool {
-        let deadline = Instant::now() + timeout;
-        loop {
-            let Some(child) = self.child.as_mut() else { return true };
-            match child.try_wait() {
-                Ok(Some(_)) => {
-                    self.child.take();
-                    return true;
-                }
-                Ok(None) if Instant::now() < deadline => {
-                    thread::sleep(Duration::from_millis(10));
-                }
-                Ok(None) | Err(_) => return false,
-            }
-        }
-    }
-}
-
-impl Drop for SpawnedHostProcess {
-    fn drop(&mut self) {
-        if let Some(child) = self.child.as_mut() {
-            let _ = child.kill();
-            let _ = child.wait();
         }
     }
 }
@@ -596,14 +556,15 @@ impl HostAttachment {
     /// setup step succeeds. Until then, dropping this attachment exact-
     /// kills and waits the child process through SpawnedHostProcess.
     pub(crate) fn commit_launched_host(&mut self) {
-        let Some(process) = self.launch_process.take() else { return };
-        let mut child = process.into_child();
-        // Reaping is housekeeping after the ownership handoff. Failure to
-        // create this helper cannot turn a committed live Surface into an
-        // error; dropping Child leaves the independent host running.
-        let _ = thread::Builder::new().name("terminal-host-reaper".into()).spawn(move || {
-            let _ = child.wait();
-        });
+        if let Some(process) = self.launch_process.take() {
+            process.commit();
+        }
+    }
+
+    /// The uncommitted launched host runs inside the daemon's kill-on-close
+    /// job (Windows, breakaway denied): its terminal ends with that job.
+    pub(crate) fn launch_ends_with_daemon_job(&self) -> bool {
+        self.launch_process.as_ref().is_some_and(SpawnedHostProcess::ends_with_daemon_job)
     }
 
     /// Release a newly launched protocol-v4 host only after its public

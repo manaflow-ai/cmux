@@ -305,7 +305,7 @@ impl AcceptWaker {
         Ok(Self { event })
     }
 
-    fn raw(&self) -> HANDLE {
+    pub(crate) fn raw(&self) -> HANDLE {
         self.event.as_raw_handle() as HANDLE
     }
 

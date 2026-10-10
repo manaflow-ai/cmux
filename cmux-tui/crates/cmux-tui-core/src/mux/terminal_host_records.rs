@@ -4,7 +4,7 @@ use super::*;
 
 /// Terminate every host record under `root` for one terminal and
 /// acknowledge its exit sidecar.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub(super) fn terminate_discovered_terminal_host_in(
     root: &Path,
     terminal_id: &str,
@@ -26,7 +26,7 @@ pub(super) fn terminate_discovered_terminal_host_in(
     let _ = acknowledge_terminal_exit_sidecar(&record_path, terminal_id, incarnation);
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub(super) fn terminate_host_record(
     record: crate::terminal_host_runtime::TerminalHostRecord,
     record_path: std::path::PathBuf,
@@ -41,7 +41,7 @@ pub(super) fn terminate_host_record(
     acknowledge_exact_terminal_host_exit(&exit_path, &exit)
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub(super) fn acknowledge_exact_terminal_host_exit(
     exit_path: &Path,
     exit: &crate::terminal_host_runtime::TerminalHostExitRecord,
@@ -53,7 +53,7 @@ pub(super) fn acknowledge_exact_terminal_host_exit(
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub(super) fn acknowledge_terminal_exit_sidecar(
     record_path: &Path,
     terminal_id: &str,
@@ -77,7 +77,7 @@ pub(super) fn acknowledge_terminal_exit_sidecar(
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub(super) fn schedule_terminal_host_record_cleanup(
     record: crate::terminal_host_runtime::TerminalHostRecord,
     record_path: std::path::PathBuf,
@@ -97,7 +97,7 @@ pub(super) fn schedule_terminal_host_record_cleanup(
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub(super) fn retry_terminal_host_record_cleanup(
     record: crate::terminal_host_runtime::TerminalHostRecord,
     record_path: std::path::PathBuf,
@@ -112,7 +112,7 @@ pub(super) fn retry_terminal_host_record_cleanup(
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub(super) fn terminal_host_record_liveness(
     record_path: &Path,
     record: &crate::terminal_host_runtime::TerminalHostRecord,
@@ -125,7 +125,7 @@ pub(super) fn terminal_host_record_liveness(
 /// discovery artifacts only when the process-start nonce positively proves
 /// this exact incarnation is dead. `false` means the live/ambiguous record is
 /// deliberately retained for a later retry.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub(super) fn cleanup_terminal_host_record(
     record: &crate::terminal_host_runtime::TerminalHostRecord,
     record_path: &Path,

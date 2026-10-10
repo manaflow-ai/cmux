@@ -29,7 +29,7 @@ impl Mux {
         Ok(result)
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(crate) fn register_pending_terminal_host(
         self: &Arc<Self>,
         surface_id: SurfaceId,

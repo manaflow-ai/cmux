@@ -129,12 +129,12 @@ impl Surface {
             return;
         }
         let raw = pty.pwd.lock().unwrap().clone();
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         let hosted = matches!(
             &*pty.runtime.lock().unwrap(),
             PtyRuntime::Hosted(_) | PtyRuntime::ExitedHosted
         );
-        #[cfg(not(unix))]
+        #[cfg(not(any(unix, windows)))]
         let hosted = false;
         let directory = raw
             .as_deref()

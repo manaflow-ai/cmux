@@ -134,7 +134,7 @@ impl Surface {
     }
 
     /// Build the surface of a host from [`Surface::prelaunch_hosted`].
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(crate) fn spawn_prelaunched(
         host: PrelaunchedHost,
         mux: Weak<Mux>,
@@ -182,12 +182,16 @@ impl Surface {
             .as_ref()
             .map(crate::mux::KittyImageBudgetReservation::initial_limits)
             .unwrap_or_default();
-        #[cfg(unix)]
+        #[cfg(windows)]
+        let mut host_start_failed = false;
+        #[cfg(not(windows))]
+        let host_start_failed = false;
+        #[cfg(any(unix, windows))]
         if lifetime == PtyLifetime::SessionOwned
             && let Some(root) = opts.terminal_host_root.clone()
         {
             let default_colors = mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
-            let attachment = match terminal_id {
+            let launched = match terminal_id {
                 Some(terminal_id) => crate::terminal_host_runtime::launch_terminal_host_seeded(
                     &opts,
                     &root,
@@ -195,30 +199,46 @@ impl Surface {
                     terminal_id,
                     None,
                     seed,
-                )?,
+                ),
                 None => crate::terminal_host_runtime::launch_terminal_host(
                     &opts,
                     &root,
                     default_colors,
                     cell_pixels,
                     initial_kitty_limits,
-                )?,
+                ),
             };
-            let defer_launch_activation = terminal_public_id.is_some();
-            return Self::spawn_hosted(
-                id,
-                opts,
-                mux,
-                HostedSurfaceLaunch {
-                    attachment,
-                    kitty_reservation,
-                    terminate_on_error: true,
-                    defer_launch_activation,
-                    lifetime,
-                    terminal_public_id,
-                    resource_identity,
-                },
-            );
+            match launched {
+                Ok(attachment) => {
+                    let defer_launch_activation = terminal_public_id.is_some();
+                    return Self::spawn_hosted(
+                        id,
+                        opts,
+                        mux,
+                        HostedSurfaceLaunch {
+                            attachment,
+                            kitty_reservation,
+                            terminate_on_error: true,
+                            defer_launch_activation,
+                            lifetime,
+                            terminal_public_id,
+                            resource_identity,
+                        },
+                    );
+                }
+                // Windows: no host process started; the daemon runs the
+                // terminal itself and every tree says so (cx-ko2e).
+                #[cfg(windows)]
+                Err(error)
+                    if error
+                        .downcast_ref::<crate::terminal_host_runtime::HostProcessStartFailed>()
+                        .is_some() =>
+                {
+                    eprintln!("cmux-tui: {error:#}; running the terminal in the daemon");
+                    host_start_failed = true;
+                }
+                Err(error) => return Err(error),
+            }
         }
         let _ = (terminal_id, seed);
         let initial_geometry = PtyGeometry {
@@ -289,10 +309,14 @@ impl Surface {
             cell_pixels,
             initial_geometry,
         };
-        Self::spawn_local(spawn, launch)
+        let surface = Self::spawn_local(spawn, launch)?;
+        if host_start_failed {
+            surface.mark_terminal_host_fallback(TerminalHostFallback::HostStartFailed);
+        }
+        Ok(surface)
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(super) fn install_deferred_cell_pixel_handler(
         surface: &Arc<Surface>,
         responses: &Arc<crate::terminal_host_runtime::ControlResponses>,
@@ -337,7 +361,7 @@ impl Surface {
             }));
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(super) fn reconcile_deferred_cell_pixel_ack(
         &self,
         responses: &Arc<crate::terminal_host_runtime::ControlResponses>,
@@ -411,7 +435,7 @@ impl Surface {
         }
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(super) fn apply_hosted_clear_history_replay(
         surface: &Arc<Surface>,
         pty: &PtySurface,

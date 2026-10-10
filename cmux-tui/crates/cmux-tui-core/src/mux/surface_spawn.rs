@@ -72,9 +72,9 @@ impl Mux {
         }
         #[cfg(all(test, unix))]
         let use_host_runtime = !self.test_surface_runtime;
-        #[cfg(all(not(test), unix))]
+        #[cfg(all(not(test), any(unix, windows)))]
         let use_host_runtime = true;
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         if let (Some(_), Some(workspace_key), true) =
             (opts.terminal_host_root.as_ref(), workspace_key, use_host_runtime)
         {
@@ -170,9 +170,21 @@ impl Mux {
                 }
             };
             let _pending_host_release = PendingTerminalHostRelease(surface.clone());
-            let identity = surface
-                .terminal_host_identity()
-                .ok_or_else(|| anyhow::anyhow!("reserved terminal did not return host identity"))?;
+            // A Windows terminal whose host did not start runs in the daemon
+            // (`TerminalHostFallback::HostStartFailed`): it gets an
+            // incarnation here, as a terminal without hosts does.
+            let identity = match surface.terminal_host_identity() {
+                Some(identity) => identity,
+                None if surface.terminal_host_fallback()
+                    == Some(crate::surface::TerminalHostFallback::HostStartFailed) =>
+                {
+                    TerminalHostIdentity {
+                        terminal_id: terminal_hex.clone(),
+                        incarnation: TerminalId::random()?.to_hex(),
+                    }
+                }
+                None => anyhow::bail!("reserved terminal did not return host identity"),
+            };
             if identity.terminal_id != terminal_hex {
                 let _ = self.persist_terminal_exit(
                     &terminal_hex,

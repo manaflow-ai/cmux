@@ -10,7 +10,10 @@
 //! its items replace the `windows_stubs` in `sys.rs` one by one.
 
 pub mod endpoint;
+pub mod host_runtime;
 pub mod jobs;
+pub mod lease;
+pub mod listener;
 pub mod liveness;
 pub mod seams;
 pub mod standby;

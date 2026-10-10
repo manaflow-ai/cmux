@@ -6,7 +6,7 @@ use super::*;
 impl Surface {
     pub fn set_default_colors(&self, colors: DefaultColors) {
         if let Some(pty) = self.as_pty() {
-            #[cfg(unix)]
+            #[cfg(any(unix, windows))]
             if let PtyRuntime::Hosted(host) = &*pty.runtime.lock().unwrap() {
                 // The local mirror updates immediately below. A v2 durable
                 // host also receives the same complete defaults so later

@@ -196,9 +196,9 @@ impl Surface {
                 lifetime,
                 supports_clear_history_key_fallback: AtomicBool::new(false),
                 host_identity: None,
-                #[cfg(unix)]
+                #[cfg(any(unix, windows))]
                 pending_host_binding: Mutex::new(None),
-                #[cfg(unix)]
+                #[cfg(any(unix, windows))]
                 host_exit_record_path: None,
                 pid: Some(id as u32),
                 command: opts.command.unwrap_or_else(|| vec![platform::default_shell()]),

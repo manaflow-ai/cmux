@@ -3,22 +3,22 @@
 
 use super::*;
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub(super) const TERMINAL_HOST_RECONNECT_MAX_FAILURES: u8 = 16;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub(super) const TERMINAL_HOST_RECONNECT_MAX_DELAY: Duration = Duration::from_secs(1);
 /// A host connection that lasted this long was healthy: the next loss starts
 /// its reconnect spacing from zero again.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub(super) const TERMINAL_HOST_HEALTHY_CONNECTION: Duration = Duration::from_secs(10);
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[derive(Default)]
 pub(super) struct TerminalHostReconnectBackoff {
     failures: u8,
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 impl TerminalHostReconnectBackoff {
     pub(super) fn next_delay(&mut self) -> Option<Duration> {
         if self.failures >= TERMINAL_HOST_RECONNECT_MAX_FAILURES {
@@ -47,7 +47,7 @@ impl TerminalHostReconnectBackoff {
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub(super) fn wait_for_reconnect_after_geometry_failure(
     retry: &mut TerminalHostReconnectBackoff,
     pty: &PtySurface,

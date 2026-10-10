@@ -134,7 +134,7 @@ impl Mux {
         let (cwd, env) = crate::workspace_registry::relaunch_store::replay(tab);
         let mut spawn = TerminalSpawnOptions::new(cwd, env);
         let mut guard = SeedGuard { mux: self, terminal_id: None };
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         if let Some(seed) =
             tab["terminal_id"].as_str().and_then(|id| self.archived_terminal_seed(id))
             && let Ok(reserved) = TerminalId::random()
@@ -150,7 +150,7 @@ impl Mux {
     /// The seed of a reopened archived terminal: its screen, and one dim
     /// line that names the program its close stopped (none when nothing
     /// ran). `None` without an archive.
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     fn archived_terminal_seed(&self, closed_terminal: &str) -> Option<Vec<u8>> {
         let archive = {
             let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
