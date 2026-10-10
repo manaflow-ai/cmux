@@ -382,7 +382,7 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.waitFor(() => {
           const note = ctx.document.querySelector('[data-failure-kind="subscription-login"]');
-          return note && !/sign-in expired/i.test(note.textContent ?? "") ? note : null;
+          return note && !/Your sign-in expired\. Sign in again to continue/.test(note.textContent ?? "") ? note : null;
         });
       },
     },
@@ -403,7 +403,7 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.waitFor(() => {
           const note = ctx.document.querySelector('[data-failure-kind="proxy-auth"]');
-          return note && !/sign-in expired/i.test(note.textContent ?? "") ? note : null;
+          return note && !/Your sign-in expired\. Sign in again to continue/.test(note.textContent ?? "") ? note : null;
         });
       },
     },
@@ -420,7 +420,7 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.waitFor(() => {
           const note = ctx.document.querySelector('[data-failure-kind="invalid-key"]');
-          return note && !/sign-in expired/i.test(note.textContent ?? "") ? note : null;
+          return note && !/Your sign-in expired\. Sign in again to continue/.test(note.textContent ?? "") ? note : null;
         });
       },
     },
@@ -441,7 +441,7 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.waitFor(() => {
           const note = ctx.document.querySelector('[data-failure-kind="rate-limited"]');
-          return note && !/sign-in expired/i.test(note.textContent ?? "") ? note : null;
+          return note && !/Your sign-in expired\. Sign in again to continue/.test(note.textContent ?? "") ? note : null;
         });
       },
     },
@@ -461,7 +461,7 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.waitFor(() => {
           const note = ctx.document.querySelector('[data-failure-kind="unreachable"]');
-          return note && !/sign-in expired/i.test(note.textContent ?? "") ? note : null;
+          return note && !/Your sign-in expired\. Sign in again to continue/.test(note.textContent ?? "") ? note : null;
         });
       },
     },
@@ -481,7 +481,7 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.waitFor(() => {
           const note = ctx.document.querySelector('[data-failure-kind="other"]');
-          return note && !/sign-in expired/i.test(note.textContent ?? "") ? note : null;
+          return note && !/Your sign-in expired\. Sign in again to continue/.test(note.textContent ?? "") ? note : null;
         });
       },
     },
