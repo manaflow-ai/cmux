@@ -152,6 +152,9 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         let rows = daemon.supports(DaemonCapabilities.shared.rows)
         if layoutModel.acceptsRowOps != rows { layoutModel.acceptsRowOps = rows }
         layoutModel.apply(screens: result.screens)
+        #if DEBUG
+        DebugLayoutCounters.notePanes(layoutModel.screens.reduce(0) { $0 + $1.layout.panes.count }, of: self)
+        #endif
         // The view mounts the panes in this turn: a workspace shown now
         // draws its first frame with them, not one blank frame.
         layoutView.syncWithModel()
