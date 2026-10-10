@@ -339,7 +339,7 @@ final class CloudBrowserAccessState {
         if model?.route == .loopback,
            let observedURL,
            observedURL.scheme?.lowercased() == "http",
-           owns(observedURL),
+           ownsLoopbackListener(observedURL),
            let logicalURL = sessionURL(currentURL: observedURL) {
             return logicalURL
         }
@@ -349,6 +349,23 @@ final class CloudBrowserAccessState {
         guard !hasCommittedNavigation,
               observedURL == nil || observedURL?.scheme == "about" else { return nil }
         return remoteURL
+    }
+
+    /// A freshly forwarded navigation can commit before `nextRequest()` has
+    /// recorded its listener as `navigationURL`. The model's current local
+    /// address is authoritative during that small window, so treat that port
+    /// as owned for display rewriting as well.
+    private func ownsLoopbackListener(_ url: URL) -> Bool {
+        guard owns(url) else {
+            guard let localAddress = model?.localAddress,
+                  let localPort = Int(localAddress.split(separator: ":").last ?? ""),
+                  url.port == localPort,
+                  PrivateNetworkHostPolicy().isLoopback(host: url.host ?? "") else {
+                return false
+            }
+            return true
+        }
+        return true
     }
 
     func configure(model: CloudPortAccessModel, url: URL, resourceID: SurfaceResourceID? = nil,
