@@ -119,7 +119,10 @@ impl Daemon {
         std::fs::write(
             dir.join("config.json"),
             json!({
-                "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+                "harnesses": {
+                    "fake": {"argv": ["python3", FAKE]},
+                    "mirror": {"argv": ["python3", FAKE]},
+                },
                 "defaultHarness": "fake",
                 "permissionPolicy": "ask",
                 "webAskingModes": {"fake": ["normal", "strict"]},
@@ -356,4 +359,109 @@ async fn the_connection_that_presented_the_person_key_allows_and_grants() {
     }
     let info = app.ok("_acpmux/info", json!({"sessionId": id})).await;
     assert_eq!(info["policy"], "approve-all", "{info}");
+}
+
+/// A session on `harness` with `extra` fields (`policy`, ...).
+async fn session_on(c: &mut Rpc, d: &Daemon, harness: &str, extra: Value) -> String {
+    let mut p = json!({"cwd": d.dir.join("work"), "mcpServers": [],
+        "_meta": {"acpmux": {"harness": harness}}});
+    for (k, v) in extra.as_object().unwrap() {
+        p[k] = v.clone();
+    }
+    let s = c.ok("session/new", p).await;
+    s["sessionId"].as_str().unwrap().to_owned()
+}
+
+#[tokio::test]
+async fn an_agent_side_client_never_removes_a_narrower_rule_default_or_preset() {
+    let d = Daemon::start("narrow", Some(KEY));
+    let mut app = Rpc::person(&d.socket, KEY).await;
+    let mut agent = Rpc::connect(&d.socket).await;
+    let id = new_session(&mut app, &d).await;
+    // The person runs the session approve-all, but keeps commands asking.
+    app.ok("_acpmux/set_policy", json!({"sessionId": id, "policy": "approve-all"})).await;
+    app.ok("_acpmux/set_rules", json!({"sessionId": id, "rules": {"ask": ["execute"]}})).await;
+    // Under a policy that does not ask, every rules change from the agent
+    // side is refused: a clear, an empty set, a different narrow set.
+    for rules in [json!(null), json!({}), json!({"autoDeny": ["rm"]})] {
+        let r = agent.call("_acpmux/set_rules", json!({"sessionId": id, "rules": rules})).await;
+        assert_eq!(reason(&r), REASON, "set_rules {rules}: {r}");
+    }
+    // Commands still ask.
+    agent.ok("_acpmux/attach", json!({"sessionId": id})).await;
+    let rid = agent.send("session/prompt", prompt(&id, "ask: rm -rf /")).await;
+    let pending = agent.note("_acpmux/permission_pending", |_| true).await;
+    let pid = pending["permissionId"].as_str().unwrap().to_owned();
+    agent
+        .ok(
+            "_acpmux/permission_respond",
+            json!({"sessionId": id, "permissionId": pid, "optionId": "no"}),
+        )
+        .await;
+    assert!(agent.reply(rid).await.get("error").is_none());
+
+    // A family default and a preset the person narrowed stay narrowed.
+    app.ok("_acpmux/defaults", json!({"family": "fake", "set": {"policy": "ask"}})).await;
+    app.ok(
+        "_acpmux/presets",
+        json!({"name": "careful", "set": {"harness": "fake", "policy": "deny-all"}}),
+    )
+    .await;
+    for (m, p) in [
+        ("_acpmux/defaults", json!({"family": "fake", "clear": true})),
+        ("_acpmux/defaults", json!({"family": "fake", "set": {"policy": null}})),
+        ("_acpmux/presets", json!({"name": "careful", "clear": true})),
+        ("_acpmux/presets", json!({"name": "careful", "set": {"policy": null}})),
+    ] {
+        let r = agent.call(m, p.clone()).await;
+        assert_eq!(reason(&r), REASON, "{m} {p}: {r}");
+    }
+    let presets = app.ok("_acpmux/presets", json!({"name": "careful"})).await;
+    assert_eq!(presets["policy"], "deny-all", "{presets}");
+    // The person may.
+    app.ok("_acpmux/set_rules", json!({"sessionId": id, "rules": null})).await;
+    app.ok("_acpmux/presets", json!({"name": "careful", "clear": true})).await;
+}
+
+#[tokio::test]
+async fn an_agent_side_client_never_widens_a_session_through_a_handoff() {
+    let d = Daemon::start("handoff", Some(KEY));
+    let mut app = Rpc::person(&d.socket, KEY).await;
+    let mut agent = Rpc::connect(&d.socket).await;
+    // The person's never-prompted session on another harness, asking.
+    let person = session_on(&mut app, &d, "mirror", json!({})).await;
+    // The agent may not mark it as a handoff target.
+    let tag = json!({"sessionId": person, "set": {"handoffKey": "k-orphan"}});
+    let r = agent.call("_acpmux/tag", tag.clone()).await;
+    assert_eq!(reason(&r), REASON, "{r}");
+    let r = agent.call("_acpmux/tag", json!({"sessionId": person, "remove": ["handoffKey"]})).await;
+    assert_eq!(reason(&r), REASON, "{r}");
+    // Even when the tag is there (an earlier prepare left it), a handoff
+    // from an approve-all source never adopts the asking session wider.
+    app.ok("_acpmux/tag", tag).await;
+    let source = session_on(&mut agent, &d, "fake", json!({"policy": "approve-all"})).await;
+    let r = agent
+        .call(
+            "_acpmux/handoff_prepare",
+            json!({"sessionId": source, "harness": "mirror", "handoffKey": "k-orphan"}),
+        )
+        .await;
+    assert_eq!(reason(&r), "key_conflict", "{r}");
+    let info = app.ok("_acpmux/info", json!({"sessionId": person})).await;
+    assert_ne!(info["policy"], "approve-all", "{info}");
+}
+
+#[tokio::test]
+async fn an_agent_side_client_never_calls_a_harness_method_acpmux_does_not_handle() {
+    let d = Daemon::start("forward", Some(KEY));
+    let mut app = Rpc::person(&d.socket, KEY).await;
+    let mut agent = Rpc::connect(&d.socket).await;
+    let id = new_session(&mut app, &d).await;
+    let call = json!({"sessionId": id, "mode": "bypass"});
+    let r = agent.call("_fake/set_permission_mode", call.clone()).await;
+    assert_eq!(reason(&r), REASON, "{r}");
+    // The person's call reaches the harness (the fake does not know it).
+    let r = app.call("_fake/set_permission_mode", call).await;
+    assert_ne!(reason(&r), REASON, "{r}");
+    assert!(r["error"]["message"].as_str().unwrap_or_default().contains("no such method"), "{r}");
 }
