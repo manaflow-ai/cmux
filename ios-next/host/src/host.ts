@@ -64,6 +64,8 @@ export class HostCore {
   info(): HostInfo {
     const capabilities = ["term.v1", "agent.v1", "conv.v1", "fs.v1"];
     if (this.browser.capable) capabilities.push("browser.v1");
+    // Terminals belong to the Mac (cmux-next app): the phone must not resize them.
+    if (this.bridge.terminals) capabilities.push("term.mirror.v1");
     return {
       hostId: this.hostId,
       hostName: this.hostName,

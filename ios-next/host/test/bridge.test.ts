@@ -153,6 +153,7 @@ describe("daemon terminals bridge", () => {
     const terminals = new DaemonTerminals(() => d.path);
     const { core, client } = await connectedCore({ bridge: { terminals } });
     cleanups.push(() => core.shutdown());
+    expect((await client.hello()).capabilities).toContain("term.mirror.v1");
     const { terminals: list } = await client.request("term.list");
     expect(list).toEqual([expect.objectContaining({ id: "s2", title: "~", cols: 104, rows: 40, cwd: "/Users/me", running: true })]);
 
@@ -252,6 +253,8 @@ async function fakeAcpmux() {
         return ok({ stopReason: "end_turn" });
       }
       case "_acpmux/permission_respond":
+        if (p.optionId === "allow-unknown") return conn.send({ jsonrpc: "2.0", id: m.id, error: { code: -32000, message: "permission.person_required" } });
+        return ok({});
       case "_acpmux/kill":
       case "_acpmux/rename":
       case "session/set_model":
@@ -299,8 +302,15 @@ describe("acpmux agents bridge", () => {
     expect(byKind("permission")[0]).toMatchObject({ id: "perm-perm9", title: "Edit a.txt", options: [{ id: "allow" }, { id: "deny" }] });
     expect(byKind("assistant")[0]).toMatchObject({ text: "Done.", streaming: false });
 
+    await expect(client.request("agent.permission", { sessionId: "sess-mac", itemId: "perm-perm9", optionId: "allow" })).rejects.toMatchObject({
+      code: "unsupported",
+      message: "Approve this on the Mac",
+    });
+    expect(a.calls.some((c) => c.method === "_acpmux/permission_respond")).toBe(false);
     await client.request("agent.permission", { sessionId: "sess-mac", itemId: "perm-perm9", optionId: "deny" });
     expect(a.calls.find((c) => c.method === "_acpmux/permission_respond").params).toEqual({ sessionId: "sess-mac", permissionId: "perm9", optionId: "deny" });
+    // An allow the bridge could not classify still maps acpmux's refusal.
+    await expect(client.request("agent.permission", { sessionId: "sess-mac", itemId: "perm-perm9", optionId: "allow-unknown" })).rejects.toMatchObject({ code: "unsupported", message: "Approve this on the Mac" });
   });
 
   it("creates sessions with a safe cwd and reports Mac-side changes", async () => {

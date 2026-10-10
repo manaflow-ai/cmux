@@ -73,7 +73,9 @@ All params and results use camelCase JSON. Timestamps are ms since epoch.
 
 ### host
 - `host.hello {client:{name,version,platform}, protocol:1}` -> `{hostId, hostName, os, version, protocol:1, capabilities:[string]}`
-  Capabilities: `term.v1`, `agent.v1`, `browser.v1`, `conv.v1`, `fs.v1`.
+  Capabilities: `term.v1`, `agent.v1`, `browser.v1`, `conv.v1`, `fs.v1`, `term.mirror.v1`.
+  `term.mirror.v1`: the terminals belong to the Mac (the host bridges the
+  cmux-next app); see "terminals" for the sizing rules.
 - `host.ping {}` -> `{at}`
 
 ### conversations (Chief, iMessage-style)
@@ -108,7 +110,10 @@ TranscriptItem (upserted by `id`):
 - `agent.history {sessionId}` -> `{session, items:[TranscriptItem], commands:[{name,description}]}`
 - `agent.prompt {sessionId, text, attachments?:[{name,mimeType,dataBase64}]}` -> `{}`
 - `agent.cancel {sessionId}` / `agent.close {sessionId}` -> `{}`
-- `agent.permission {sessionId, itemId, optionId}` -> `{}`
+- `agent.permission {sessionId, itemId, optionId}` -> `{}`. On sessions owned by
+  the cmux-next app (host bridge) only the Mac can approve: choosing an
+  `allow_*` option fails with `unsupported` and the message "Approve this on the
+  Mac"; `reject_*` options work. The item resolves when the Mac answers.
 - `agent.setModel {sessionId, modelId}` / `agent.setMode {sessionId, modeId}` -> `{}`
 - `agent.rename {sessionId, title}` -> `{}`
 - events: `agent.session {session}`, `agent.item {sessionId, item}`, `agent.removed {sessionId}`
@@ -122,6 +127,16 @@ Terminal `{id, title, cwd, cols, rows, running, createdAt}`
 - `term.detach {streamId}` / `term.resize {terminalId, cols, rows}` / `term.close {terminalId}` -> `{}`
 - `term.rename {terminalId, title}` -> `{}`
 - events: `term.updated {terminal}`, `term.exited {terminalId, code}`
+
+With `term.mirror.v1` (terminals mirrored from the Mac):
+- The Mac owns the grid. `Terminal.cols/rows` and every `term.updated` carry the
+  Mac's current grid; the phone renders at that grid (scale or pan to fit) and
+  re-lays out when `term.updated` changes it. Output bytes are formatted for it.
+- `term.resize` and the `cols/rows` of `term.attach` / `term.create` never
+  resize the terminal; the host answers `term.resize` with a `term.updated`
+  carrying the Mac's grid.
+- `term.create` rejects `cwd` with `unsupported`; new terminals run the user's
+  default shell where the Mac decides.
 
 ### files
 Uploads stream on the bulk lane so a large file never blocks control replies.

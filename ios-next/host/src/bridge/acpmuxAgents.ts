@@ -62,6 +62,9 @@ export function toAgentSession(s: SessionSummary): AgentSession {
   };
 }
 
+/** agent.permission error for an allow on a bridged session (PROTOCOL.md). */
+export const APPROVE_ON_MAC = "Approve this on the Mac";
+
 const HARNESS_NAMES: Record<string, string> = { claude: "Claude Code", codex: "Codex", opencode: "OpenCode", gemini: "Gemini", pi: "pi" };
 
 export interface AcpmuxAgentsEvents {
@@ -216,7 +219,17 @@ export class AcpmuxAgents extends EventEmitter<AcpmuxAgentsEvents> {
 
   async permission(sessionId: string, itemId: string, optionId: string): Promise<void> {
     if (!itemId.startsWith("perm-")) throw new RpcError("bad_request", "not a permission item");
-    await checked(await this.conn(), "_acpmux/permission_respond", { sessionId, permissionId: itemId.slice(5), optionId });
+    // acpmux takes an "allow" only from the cmux-next app (its per-launch
+    // person key); the bridge can deny or cancel. Say so plainly.
+    const item = this.transcripts.get(sessionId)?.items.find((i) => i.id === itemId);
+    const option = item?.kind === "permission" ? item.options.find((o) => o.id === optionId) : undefined;
+    if (option && option.kind.startsWith("allow")) throw new RpcError("unsupported", APPROVE_ON_MAC);
+    try {
+      await checked(await this.conn(), "_acpmux/permission_respond", { sessionId, permissionId: itemId.slice(5), optionId });
+    } catch (err) {
+      if (/person/i.test(`${(err as Error).message} ${JSON.stringify((err as { data?: unknown }).data ?? "")}`)) throw new RpcError("unsupported", APPROVE_ON_MAC);
+      throw err;
+    }
   }
 
   async setModel(sessionId: string, modelId: string): Promise<void> {
