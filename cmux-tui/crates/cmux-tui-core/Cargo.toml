@@ -39,8 +39,6 @@ wait-timeout.workspace = true
 tungstenite.workspace = true
 cmux-local-auth.workspace = true
 cmux-link.workspace = true
-# Page visit history (H3: the daemon history module, src/history_ops.rs).
-cmux-history.workspace = true
 getrandom.workspace = true
 rusqlite.workspace = true
 parking_lot = { workspace = true, features = ["arc_lock"] }
