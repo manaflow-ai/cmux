@@ -57,20 +57,22 @@ extension SidebarListView {
                 return
             }
         case let .tab(workspace, tab):
-            self.press = nil
+            // Selected at once; the press stays so a drag can take the tab.
             model.send(.selectTab(workspace: workspace, tab: tab))
-            return
-        case .section, .emptySection:
+        case .section, .emptySection, .folder:
             break
         }
         self.press = press
     }
     override func mouseDragged(with event: NSEvent) {
         guard let press, !press.cancelled else { return }
+        if case let .tab(workspace, tab) = press.key {
+            return tabRowDrag.dragged(workspace, tab, press: press, event: event, in: self)
+        }
         if drag == nil {
             let point = convert(event.locationInWindow, from: nil)
             guard hypot(point.x - press.point.x, point.y - press.point.y) >= SidebarStyle.dragThreshold,
-                  !model.isFiltering else { return }
+                  !model.locksReorder else { return }
             beginDrag(press)
             guard drag != nil else { return }
         }
@@ -103,7 +105,7 @@ extension SidebarListView {
             }
         case let .section(section):
             model.send(.toggleCollapse(.section(section)))
-        case .emptySection:
+        case .emptySection, .folder:
             break
         }
         reload(animated: true)

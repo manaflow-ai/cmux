@@ -56,20 +56,27 @@ def main() -> int:
         bin_dir.mkdir()
         (bin_dir / "swift").write_text(FAKE_SWIFT)
         (bin_dir / "swift").chmod(0o755)
+        # pin_sdkroot asks xcrun for the SDK; a fake keeps the test independent of
+        # the installed Xcode versions.
+        sdk = scratch / "MacOSX.sdk"
+        sdk.mkdir()
+        (bin_dir / "xcrun").write_text(f"#!/bin/bash\necho {sdk}\n")
+        (bin_dir / "xcrun").chmod(0o755)
         log = scratch / "swift.log"
         env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "FAKE_SWIFT_LOG": str(log),
                "DEVELOPER_DIR": "/Applications/Xcode_26.6.app/Contents/Developer", "RUNNER_TEMP": str(scratch / "tmp")}
         (scratch / "tmp").mkdir()
-        for name in ("GITHUB_OUTPUT", "GITHUB_ACTIONS", "EVENT_NAME", "FULL_SUITE"):
+        for name in ("GITHUB_OUTPUT", "GITHUB_ACTIONS", "EVENT_NAME", "FULL_SUITE", "CMUX_SWIFT_TEST_DEBUG_INFO",
+                     "CMUX_SWIFT_SANITIZE", "CMUX_SWIFT_SUITE_CONFIGURATION"):
             env.pop(name, None)
 
         r = run(repo, env, "suite", "Packages/macOS/Pkg", "FooTests")
         calls = log.read_text() if log.exists() else ""
         if r.returncode != 0:
             failures.append(f"suite run failed ({r.returncode}): {r.stdout}{r.stderr}")
-        if "swift build --build-tests --package-path Packages/macOS/Pkg" not in calls:
+        if "swift build --build-tests -c debug -debug-info-format none --package-path Packages/macOS/Pkg" not in calls:
             failures.append(f"no build of the package: {calls!r}")
-        if "swift test --package-path Packages/macOS/Pkg --skip-build --filter FooTests" not in calls:
+        if "swift test -c debug -debug-info-format none --package-path Packages/macOS/Pkg --skip-build --filter FooTests" not in calls:
             failures.append(f"no filtered test run: {calls!r}")
         # swift build copies String Catalogs uncompiled; the lane compiles them into
         # <lang>.lproj tables before the tests, as cmux-next.yml does
@@ -121,6 +128,33 @@ def main() -> int:
                 failures.append(f"summary row for {name} lacks {want!r}: {r.stdout!r}")
         if "1 of 3 suites failed" not in r.stdout:
             failures.append(f"no failure count in the summary: {r.stdout!r}")
+
+        # CMUX_SWIFT_TEST_DEBUG_INFO=none (the default): the build and every suite run
+        # pass -debug-info-format none (no dsymutil of the test bundle); the same flags
+        # on both, or `swift test` would not find its build. dwarf is SwiftPM's default
+        # and adds no flag; a sanitizer run defaults to dwarf (its reports need lines).
+        for extra, want in (({"CMUX_SWIFT_TEST_DEBUG_INFO": "none"}, " -debug-info-format none "),
+                            ({}, " -debug-info-format none "),
+                            ({"CMUX_SWIFT_TEST_DEBUG_INFO": "dwarf"}, None),
+                            ({"CMUX_SWIFT_SANITIZE": "address"}, None),
+                            ({"CMUX_SWIFT_SANITIZE": "address", "CMUX_SWIFT_TEST_DEBUG_INFO": "none"}, " -debug-info-format none ")):
+            value = extra
+            log.write_text("")
+            r = run(repo, {**env, **extra}, "suite", "Packages/macOS/Pkg", "ATests,BTests")
+            calls = log.read_text().splitlines()
+            if r.returncode != 0:
+                failures.append(f"debug info {value}: run failed ({r.returncode}): {r.stdout}{r.stderr}")
+            if len(calls) != 3:
+                failures.append(f"debug info {value}: want one build and two suites: {calls!r}")
+            for call in calls:
+                if want is not None and want not in call + " ":
+                    failures.append(f"debug info {value}: {call!r} lacks {want.strip()!r}")
+                if want is None and "-debug-info-format" in call:
+                    failures.append(f"debug info {value}: {call!r} passes -debug-info-format")
+        log.write_text("")
+        r = run(repo, {**env, "CMUX_SWIFT_TEST_DEBUG_INFO": "line-tables"}, "suite", "Packages/macOS/Pkg", "ATests")
+        if r.returncode != 2 or log.read_text() or "CMUX_SWIFT_TEST_DEBUG_INFO must be" not in r.stderr:
+            failures.append(f"an unknown CMUX_SWIFT_TEST_DEBUG_INFO was not refused before swift (exit {r.returncode}): {r.stderr}")
 
         # Bad arguments are refused before any swift call.
         for args in (("suite", "Packages/macOS/Pkg"), ("suite", "../outside", "FooTests"),

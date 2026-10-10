@@ -19,13 +19,27 @@ fn invalid(field: &str, reason: impl Into<String>) -> anyhow::Error {
     anyhow::Error::new(ResourceError::validation_invalid(Some(field), reason))
 }
 
+/// An optional field: absent is `None`, a value of the wrong type (including
+/// `null`) is a reject rather than an absent field.
+fn typed<'a, T>(
+    fields: &'a Map<String, Value>,
+    name: &str,
+    read: impl Fn(&'a Value) -> Option<T>,
+    expected: &str,
+) -> anyhow::Result<Option<T>> {
+    fields
+        .get(name)
+        .map(|value| read(value).ok_or_else(|| invalid(name, format!("{name} must be {expected}"))))
+        .transpose()
+}
+
 impl ColumnUpdate {
     fn parse(fields: &Map<String, Value>) -> anyhow::Result<Self> {
         let column = SplitPublicId::parse(required_str(fields, "column")?.to_string())
             .map_err(anyhow::Error::new)?;
-        let edge = fields.get("edge").and_then(Value::as_str);
-        let mode = fields.get("mode").and_then(Value::as_str);
-        let dock = match fields.get("dock").and_then(Value::as_bool) {
+        let edge = typed(fields, "edge", Value::as_str, "a string")?;
+        let mode = typed(fields, "mode", Value::as_str, "a string")?;
+        let dock = match typed(fields, "dock", Value::as_bool, "a boolean")? {
             Some(dock) => Some(
                 parse_column_dock(dock, edge, mode, None)
                     .map_err(|error| invalid("dock", error.to_string()))?,
@@ -35,7 +49,7 @@ impl ColumnUpdate {
             }
             None => None,
         };
-        let width = fields.get("width").and_then(Value::as_f64).map(|width| width as f32);
+        let width = typed(fields, "width", Value::as_f64, "a number")?.map(|width| width as f32);
         if let Some(width) = width
             && !(width.is_finite()
                 && (MIN_VIEWPORT_PANE_WIDTH..=MAX_VIEWPORT_PANE_WIDTH).contains(&width))
@@ -159,5 +173,51 @@ impl Mux {
                 ))
             },
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const COLUMN: &str = "split_00000000000000000000000000000011";
+
+    fn parse(fields: Value) -> anyhow::Result<ColumnUpdate> {
+        ColumnUpdate::parse(fields.as_object().unwrap())
+    }
+
+    fn code(error: anyhow::Error) -> String {
+        error.downcast_ref::<ResourceError>().map(|error| error.code.clone()).unwrap_or_default()
+    }
+
+    /// The router's catalog check rejects wrong types first, but the parser
+    /// must not read a wrong type as an absent field either.
+    #[test]
+    fn column_update_parse_rejects_wrong_field_types() {
+        for fields in [
+            serde_json::json!({"column": COLUMN, "dock": "true", "width": 0.5}),
+            serde_json::json!({"column": COLUMN, "dock": 1, "width": 0.5}),
+            serde_json::json!({"column": COLUMN, "width": "0.5", "dock": true}),
+            serde_json::json!({"column": COLUMN, "dock": true, "edge": 1}),
+            serde_json::json!({"column": COLUMN, "dock": true, "mode": false}),
+            serde_json::json!({"column": COLUMN, "dock": null, "width": 0.5}),
+        ] {
+            let error = parse(fields.clone()).err().unwrap_or_else(|| panic!("{fields} parsed"));
+            assert_eq!(code(error), "validation.invalid", "{fields}");
+        }
+    }
+
+    #[test]
+    fn column_update_parse_accepts_well_typed_fields() {
+        let update = parse(serde_json::json!({
+            "column": COLUMN,
+            "dock": true,
+            "edge": "left",
+            "mode": "overlay",
+            "width": 0.5,
+        }))
+        .unwrap();
+        assert!(update.dock.flatten().is_some());
+        assert_eq!(update.width, Some(0.5));
     }
 }

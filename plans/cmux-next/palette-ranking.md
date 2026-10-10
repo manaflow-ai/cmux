@@ -52,7 +52,7 @@ One scorer, match class first (`matchTier` in ranker.ts; 1000 points per unit, s
 | 3 | typo: every token matches strictly or is one edit (insert, delete, substitute, adjacent swap) from a title word or its start; 3-letter tokens allow only a swap. Looked for only when the strict pass finds fewer than 3 rows at tier 4 or better |
 | 2 | fuzzy: every token matches in order from a title word start, or is a keyword, subtitle or accessory substring |
 
-Letters scattered without a word-start anchor no longer match. The action id is no longer a keyword (it matched ordinary words: `newTab` is the id of New Workspace, 80 ids start with `palette.`); it is a separate field that only the whole id or an id-shaped start matches. Setting rows (`PaletteItem.isDemoted`) drop 3 units, so a setting ties a command one match class weaker, and inside a tier a command always comes before a setting (ten settings are titled "Color"; "color" now starts with Set Workspace Color…). Trade-off: "theme" now starts with Use Theme Color for Pane Borders, the Theme setting comes after the theme commands.
+Letters scattered without a word-start anchor no longer match. The action id is no longer a keyword (it matched ordinary words: `newTab` is the id of New Workspace, 80 ids start with `palette.`); it is a separate field that only the whole id or an id-shaped start matches. Setting rows (`PaletteItem.isDemoted`) drop 3 units, so a setting ties a command one match class weaker, and inside a tier a command always comes before a setting (ten settings are titled "Color"; "color" now starts with Set Workspace Color…). One exception: a setting whose whole title is the query, when it is the only such row, is an exact name and keeps the whole-title tier ("theme" starts with the Theme setting; the ten "Color" settings stay below Set Workspace Color…). Guard cases in cases.json keep both in the top 3.
 
 Score = tier x 1000 + quality (the existing contiguity and word-start score, a phrase bonus, a whole-initials bonus, minus a length penalty; 0..880; whole-title rows get the maximum so the provider order breaks their ties) + `rankBias` + the frecency boost (at most 60) + the learned pick boost (5.2, next step). Order: enabled rows first, then the tier, then commands before demoted rows, then the score; equal scores prefer a row with a shortcut (Split Right over Split Up; no score boost), then the provider order.
 
@@ -60,16 +60,23 @@ Score = tier x 1000 + quality (the existing contiguity and word-start score, a p
 
 While typing, the root (`PalettePageSpec.mergesSectionsWhenTyping`) shows one untitled list, best first; rows keep their icon, subtitle and accessory, so the kind stays visible. Before, a section ordered by its best row put all its weak rows above the next section's best row (the 211 setting rows buried New Browser Tab for "browser"). The empty query keeps the category sections. Other pages keep their sections.
 
-### 5.2 Usage and learned picks
+### 5.2 Usage and learned picks (the Raycast bar)
 
-- Learned picks: when the user runs a row for a query, the store records (normalized query prefix, row) for each prefix of length 1 to 4 of the query. A later query whose prefix has picks boosts those rows, enough to beat one tier, never a whole-title match. This is Alfred's knowledge and the VS Code recently-used boost in one rule.
-- Empty query: Pinned (cmux.json, later), Recent (8, any row kind, not only actions), then Suggested (a fixed list of first-use commands, shown only while Recent has fewer than 8 rows), then the categories.
+Lawrence 2026-10-09: "think from first principles how raycast does sorting/ordering/recency/memory and we need to be just as good." Model: .cmux-scratch/nx-coordinator/palette-raycast-model.md.
+
+- Learned picks (the strongest signal): every run records (normalized query, row) for each start of 1 to 8 characters of the query (lowercased, white space collapsed), with a decayed count (half-life 7 days) and the latest row per start. For a typed query the ranker takes the longest start that has picks and lifts its strongest row to the top, over any match class, when that row still matches the query and has at least 2 decayed picks, or is the latest pick for that start with at least 0.5 left (about a week). Prefix stability follows: after one pick of X for "co", "col" still puts X first. A faded pick (one pick 30 days ago) no longer beats a better text match, and a pick that no longer matches the query ("split d") lifts nothing.
+- Frecency: +1 per run, half-life 3 days, a capped boost inside a match class.
+- Recent (empty query): the most used rows of any kind (an action, a workspace, a tab, a setting), up to 5, then the categories. A row that matches only behind a query prefix never shows in Recent.
+- Row controls (local, in the daemon's history): a row's Actions offer Hide from Palette (a hidden row is gone from Recent and every match except a query that is its whole title, whose Actions then offer Show in Palette) and Reset Ranking (forgets the row's uses and learned picks). Ops `palette_usage.hide {key, hidden}` and `palette_usage.forget {key}`.
+- Next: Suggested on the empty query, aliases and pins (cmux.json), and a 30-day frequency half-life beside the 3-day one.
+
+The eval has learning cases (cases.json `replay`: a sequence of runs, then a query) with a 100% floor; `replayHistory` in eval.ts models the daemon's record for the eval.
 
 ### 5.3 Ownership
 
 - The scorer is a product rule and lives once, in `webviews/src/palette/ranker.ts`, which the app (JavaScriptCore), the web palette and `palette.query` (app, CLI, agents, scripts) all call. The candidate rows are assembled by the Swift app from the catalog data file, the daemon mirror (workspaces, tabs), the settings schema and apps, so the ranker sits with that assembly. Moving it into the daemon would mean sending every candidate row to the daemon per keystroke; not worth it while the candidates are app-side.
 - Duplicate to remove: `CmuxNextActions/FuzzyMatcher` still scores the Help menu search in Swift (`ActionRegistry+Menus.swift`) and the unused `FuzzyCorpus` in `PaletteSearchIndex.swift`. They move to the shared ranker (follow-up).
-- Usage history and learned picks are durable per-user state. Owner target: the daemon store (one writer, synced later, the same for every build tag), with `palette.usage.record` / `palette.usage.get` ops; the app keeps a read mirror. That is a CORE-window change (protocol and store), landed separately with a token. Until then `FrecencyStore` stays the single writer in the app (one store, one persistence object, no view writes it), and the per-tag loss stays a known gap.
+- Usage history and learned picks are durable per-user state, owned by the daemon (`palette-usage-v1`: `palette_usage.get`, `.record {key, query}`, `.import {source, entries}`; cmux-tui-core state/palette_usage*.rs). One writer, stamped with the daemon's clock, bounded (500 rows, 512 starts x 8 picks, faded entries forgotten), local to the Mac: events carry only the revision, MCP and the CLI do not offer the ops, and `palette_usage:*` are restricted app scopes. The app keeps a read mirror (`DaemonPaletteUsageStore`) and sends runs; the ranking rules stay in ranker.ts. On first connect the app imports every former per-build UserDefaults history on this Mac once per source (the daemon remembers the sources). Each tagged build runs its own daemon session, so a new dogfood tag starts from that import; the release app has one history for every client. An older daemon without the capability keeps the former local history (no picks).
 - Pins, hidden rows and aliases are user settings (cmux.json, the config actor), FREEZE settings paths, landed with a token in a later step.
 
 ## 6. Landings
@@ -82,8 +89,9 @@ Eval: `bun scripts/palette-eval.ts` in webviews (fixture), and the same cases ag
 | 1 | eval set, fixture, live runner, `debug.palette.entries` (red commit with the step-2 floors: 60.0% / 69.1% / 0.651 on the reshaped fixture) | | | |
 | 2 | match tiers, id field, typo tier, setting demotion, shortcut bonus, one list while typing | 65.5% | 80.0% | 0.753 |
 | 2b | commands win same-tier ties with settings (demotion 3), a shortcut only breaks exact ties | 68.2% | 80.0% | 0.757 |
-| 3 | learned picks per query prefix, Recent of any row kind, Suggested (catalog field, FREEZE token) | | | |
-| 4 | usage store in the daemon (CORE token) | | | |
+| 2c | a unique exact setting name keeps the whole-title tier; guard cases theme and color (112 cases) | 69.6% | 81.3% | 0.768 |
+| 4 | usage store in the daemon (CORE token), learned picks and the lift, replay eval (8 learning cases, floor 100%) | 69.6% | 81.3% | 0.768 |
+| 3 | Recent of any row kind, Suggested (catalog field, FREEZE token), aliases, pin, hide, Reset Ranking | | | |
 | 5 | pins, hidden, aliases in cmux.json (settings token) | | | |
 
 Remaining misses after step 2 are mostly usage (Lawrence's "col", "screen": the catalog's color and width variants share the first word) and intent words ("browser" wants New Browser Tab, "notifications" wants Show Notifications); step 3 targets them. Swift palette benchmark (2000 rows, JavaScriptCore): 7.8 ms per query at fdac71e8.

@@ -14,16 +14,17 @@ export function newTabScreenActions(deps: {
   /// Runs a shell mode command in the chat the page becomes, in `cwd` (shell/shellRuns.ts).
   runShell(command: string, cwd?: string): void;
   inputReady?(token: string): void;
-  openFolder?(path: string): void;
 }): NewTabScreenActions {
   const { callNative, cwd } = deps;
   const ignore = (result: Promise<unknown>) => void result.catch(() => undefined);
   const remember = (agent: string) => ignore(callNative("newTab.remember", { agent }));
   return {
-    onAsk(harness, text) {
+    onAsk(harness, text, picked) {
       remember(harness);
       deps.leave();
-      const params: Record<string, unknown> = { harness, ...(cwd ? { cwd } : {}) };
+      // The project picked on the page, else the folder the tab inherited.
+      const folder = picked ?? cwd;
+      const params: Record<string, unknown> = { harness, ...(folder ? { cwd: folder } : {}) };
       ignore(callNative("chat.new", params).then(() => (text ? callNative("chat.send", { text }) : undefined)));
     },
     onOpen: (url) => {
@@ -42,11 +43,14 @@ export function newTabScreenActions(deps: {
       deps.leave();
       deps.selectSession(sessionId);
     },
+    onOpenChat(key) {
+      deps.leave();
+      ignore(callNative("chats.open", { key }));
+    },
     onShowAll: deps.showAllChats,
     onRunAction: (id) => ignore(callNative("action.run", { id })),
     onAddHarness: () => ignore(callNative("action.run", { id: "palette.addHarness" })),
     onTouched: () => ignore(callNative("newTab.touched")),
     onInputReady: (token) => ignore(callNative("newTab.inputReady", { token })),
-    onOpenFolder: (path) => ignore(callNative("tab.open", { kind: "terminal", text: "", cwd: path })),
   };
 }

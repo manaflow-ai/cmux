@@ -73,6 +73,18 @@ public final class MessagesLabHomeView: NSView {
         set { projection.isSendEnabled = newValue }
     }
 
+    /// The Chief works: the compose bar offers Stop (the button, Esc, Cmd-.).
+    public var isWorking: Bool {
+        get { controller.isWorking }
+        set { controller.isWorking = newValue }
+    }
+
+    /// The host's shared stop action.
+    public var onStop: (() -> Void)? {
+        get { controller.onStop }
+        set { controller.onStop = newValue }
+    }
+
     /// The window is key and visible (read cursor).
     public var isVisibleToUser: Bool {
         get { projection.isVisibleToUser }
@@ -107,6 +119,13 @@ public final class MessagesLabHomeView: NSView {
             // The placeholder, waveform and chips are drawn once with the palette.
             demo.compose.rescale()
         }
+    }
+
+    /// cmux: a click on a Chief subagent's link in agent text (`URL.isChiefSubagentLink`); the host
+    /// opens it in the app (`link.open`). Nil: the link opens nothing.
+    public var onAppLink: ((URL) -> Void)? {
+        get { controller.onAppLink }
+        set { controller.onAppLink = newValue }
     }
 
     /// A click (or Space/Return with the keyboard) on the header's name

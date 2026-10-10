@@ -3,6 +3,7 @@
 //! leaves its panic message, and a termination signal to the owner daemon
 //! is logged with its sender, so an external killer is visible at once.
 
+use super::host_replacement::wait_for_daemon_custody;
 use super::pty_custody::kill_shell_then_host;
 use super::*;
 
@@ -25,7 +26,11 @@ fn wait_for_log_line(
         if let Some(line) = found {
             return line;
         }
-        assert!(Instant::now() < deadline, "no {what} line in {log:?}");
+        assert!(
+            Instant::now() < deadline,
+            "no {what} line in {log:?}: {}",
+            fs::read_to_string(log).unwrap_or_default()
+        );
         std::thread::sleep(Duration::from_millis(20));
     }
 }
@@ -112,6 +117,11 @@ fn host_loss_names_the_sender_of_each_recorded_signal() {
 fn host_crash_is_named_with_its_panic_message() {
     let mut harness = RecoveryHarness::start_unstarted("loss-cause-crash");
     let once = harness.dir.join("host-abort-once");
+    // The first host crashes when this FIFO is opened for writing.
+    let trigger = harness.dir.join("host-abort-once.trigger");
+    let path = std::ffi::CString::new(trigger.as_os_str().as_encoded_bytes()).unwrap();
+    // SAFETY: `path` is a NUL-terminated string that outlives the call.
+    assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0, "mkfifo {trigger:?}");
     let mut command = harness.daemon_command();
     command.env("CMUX_TUI_TEST_HOST_ABORT_ONCE", &once);
     harness.child = Some(command.spawn().unwrap());
@@ -122,11 +132,16 @@ fn host_crash_is_named_with_its_panic_message() {
         serde_json::json!({"id":1,"cmd":"run","argv":["/bin/sh"],"new_workspace":true,"name":"crash"}),
     );
     let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+    // Only a host whose PTY master the daemon holds can be replaced.
+    wait_for_daemon_custody(&harness, true);
     // The first host aborts after a test-injected panic; the daemon keeps
     // the shell and replaces the host (L1.2), and the line names the crash.
+    // Read-write never blocks on a FIFO; the open releases the host.
+    let crash = fs::OpenOptions::new().read(true).write(true).open(&trigger).unwrap();
     let line = wait_for_log_line(&loss_log(&harness), "host_replaced", |line| {
         line["terminal_id"] == terminal_id.as_str() && line["event"] == "host_replaced"
     });
+    drop(crash);
     assert!(once.exists(), "the crash seam did not run");
     let cause = line["cause"].as_str().unwrap();
     assert!(cause.contains("the host had panicked"), "{line}");

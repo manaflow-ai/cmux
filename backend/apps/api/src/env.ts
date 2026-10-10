@@ -119,6 +119,8 @@ export interface Env {
    * lead). Enterprise SSO creates Stack users and sessions with it; use it only with that project.
    */
   readonly STACK_SECRET_SERVER_KEY?: string
+  /** Secret: the Svix endpoint secret (whsec_...) of the Stack team webhook (stack-webhook.ts); unset answers 503. */
+  readonly STACK_WEBHOOK_SECRET?: string
   /** Secrets per provider; a provider without its secrets reports `configured: false`. */
   readonly GITHUB_APP_SLUG?: string
   readonly GITHUB_APP_CLIENT_ID?: string

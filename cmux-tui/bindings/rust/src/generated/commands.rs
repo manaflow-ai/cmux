@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 18f749bf239097c7827ba838fadfb07daad302d1c8beda3e8d2360dc39838d2d.
+// cmux-tui mux protocol 12, IR e2aa9bda6ce2b99b533ab691a7df02cfab75c8fff586a74f4e6166bafa13d388.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1242,6 +1242,57 @@ pub struct ExportLayoutRequest {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FeedLocalHandoffAbortRequest {
+    pub item: String,
+}
+
+#[rustfmt::skip]
+pub type FeedLocalHandoffAbortResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FeedLocalHandoffBeginRequest {
+    pub item: String,
+}
+
+#[rustfmt::skip]
+pub type FeedLocalHandoffBeginResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FeedLocalHandoffDoneRequest {
+    pub home: String,
+    pub item: String,
+}
+
+#[rustfmt::skip]
+pub type FeedLocalHandoffDoneResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct FeedLocalListRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub state: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_id: Optional<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub unread: Option<bool>,
+}
+
+#[rustfmt::skip]
+pub type FeedLocalListResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FeedLocalReadRequest {
+    pub items: Vec<String>,
+}
+
+#[rustfmt::skip]
+pub type FeedLocalReadResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FocusDirectionRequest {
     pub dir: T::PaneDirection,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -1924,15 +1975,19 @@ pub struct NewPaneRequest {
     pub keep: Option<bool>,
     pub pane: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub pane_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub shell_args: Optional<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub tab_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_id: Optional<String>,
 }
 
 #[rustfmt::skip]
-pub type NewPaneResult = T::SurfaceResult;
+pub type NewPaneResult = T::PaneSurfaceResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1949,9 +2004,13 @@ pub struct NewPaneRightRequest {
     pub kind: Optional<T::PaneKind>,
     pub pane: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub pane_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub shell_args: Optional<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub tab_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -1961,7 +2020,7 @@ pub struct NewPaneRightRequest {
 }
 
 #[rustfmt::skip]
-pub type NewPaneRightResult = T::SurfaceResult;
+pub type NewPaneRightResult = T::PaneSurfaceResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2918,9 +2977,13 @@ pub struct SplitRequest {
     pub kind: Optional<T::PaneKind>,
     pub pane: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub pane_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub shell_args: Optional<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub tab_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -2928,7 +2991,7 @@ pub struct SplitRequest {
 }
 
 #[rustfmt::skip]
-pub type SplitResult = T::SurfaceResult;
+pub type SplitResult = T::PaneSurfaceResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -3738,6 +3801,26 @@ impl CmuxClient {
         self.execute(&EXPORT_LAYOUT_METADATA, &request)
     }
 
+    pub fn feed_local_handoff_abort(&mut self, request: FeedLocalHandoffAbortRequest) -> Result<FeedLocalHandoffAbortResult> {
+        self.execute(&FEED_LOCAL_HANDOFF_ABORT_METADATA, &request)
+    }
+
+    pub fn feed_local_handoff_begin(&mut self, request: FeedLocalHandoffBeginRequest) -> Result<FeedLocalHandoffBeginResult> {
+        self.execute(&FEED_LOCAL_HANDOFF_BEGIN_METADATA, &request)
+    }
+
+    pub fn feed_local_handoff_done(&mut self, request: FeedLocalHandoffDoneRequest) -> Result<FeedLocalHandoffDoneResult> {
+        self.execute(&FEED_LOCAL_HANDOFF_DONE_METADATA, &request)
+    }
+
+    pub fn feed_local_list(&mut self, request: FeedLocalListRequest) -> Result<FeedLocalListResult> {
+        self.execute(&FEED_LOCAL_LIST_METADATA, &request)
+    }
+
+    pub fn feed_local_read(&mut self, request: FeedLocalReadRequest) -> Result<FeedLocalReadResult> {
+        self.execute(&FEED_LOCAL_READ_METADATA, &request)
+    }
+
     pub fn focus_direction(&mut self, request: FocusDirectionRequest) -> Result<T::FocusDirectionResult> {
         self.execute(&FOCUS_DIRECTION_METADATA, &request)
     }
@@ -4003,9 +4086,17 @@ impl CmuxClient {
             self.require_protocol_field("new-pane", 12)?;
             self.require_capability_field("new-pane", "terminal-reap-v1")?;
         }
+        if !request.pane_id.is_missing() {
+            self.require_protocol_field("new-pane", 12)?;
+            self.require_capability_field("new-pane", "split-client-keys-v1")?;
+        }
         if !request.shell_args.is_missing() {
             self.require_protocol_field("new-pane", 12)?;
             self.require_capability_field("new-pane", "terminal-shell-args-v1")?;
+        }
+        if !request.tab_id.is_missing() {
+            self.require_protocol_field("new-pane", 12)?;
+            self.require_capability_field("new-pane", "split-client-keys-v1")?;
         }
         if !request.terminal_id.is_missing() {
             self.require_protocol_field("new-pane", 12)?;
@@ -4031,9 +4122,17 @@ impl CmuxClient {
             self.require_protocol_field("new-pane-right", 12)?;
             self.require_capability_field("new-pane-right", "pane-browser-kind-v1")?;
         }
+        if !request.pane_id.is_missing() {
+            self.require_protocol_field("new-pane-right", 12)?;
+            self.require_capability_field("new-pane-right", "split-client-keys-v1")?;
+        }
         if !request.shell_args.is_missing() {
             self.require_protocol_field("new-pane-right", 12)?;
             self.require_capability_field("new-pane-right", "terminal-shell-args-v1")?;
+        }
+        if !request.tab_id.is_missing() {
+            self.require_protocol_field("new-pane-right", 12)?;
+            self.require_capability_field("new-pane-right", "split-client-keys-v1")?;
         }
         if !request.terminal_id.is_missing() {
             self.require_protocol_field("new-pane-right", 12)?;
@@ -4486,9 +4585,17 @@ impl CmuxClient {
             self.require_protocol_field("split", 12)?;
             self.require_capability_field("split", "pane-browser-kind-v1")?;
         }
+        if !request.pane_id.is_missing() {
+            self.require_protocol_field("split", 12)?;
+            self.require_capability_field("split", "split-client-keys-v1")?;
+        }
         if !request.shell_args.is_missing() {
             self.require_protocol_field("split", 12)?;
             self.require_capability_field("split", "terminal-shell-args-v1")?;
+        }
+        if !request.tab_id.is_missing() {
+            self.require_protocol_field("split", 12)?;
+            self.require_capability_field("split", "split-client-keys-v1")?;
         }
         if !request.terminal_id.is_missing() {
             self.require_protocol_field("split", 12)?;
