@@ -16,7 +16,7 @@ import WebKit
 /// seeds a turn that edits three files instead, for the changes view), `fling` (`seconds`,
 /// default 3; `nominal_ms`; `wait` returns the stats when the fling ends),
 /// `fling_stats`, `perf_stats` (`raw` adds every frame), `typing_stats`,
-/// `reset_typing`, `open_menu` (`label`: opens that composer menu, such as
+/// `reset_typing`, `close_menus`, `open_menu` (`label`: opens that composer menu, such as
 /// `Model` or `Mode`, through the same path as a click, for automation and
 /// captures), `acp_log` (the page's acpmux wire log and its stats; `limit`
 /// keeps the newest entries), `acp_log_export` (that log as JSON Lines),
@@ -99,7 +99,30 @@ enum DebugAgentPane {
             return .object(["pane": .string(pane), "full_rate": .bool(view.rendersAtFullRate)])
         }
         if action == "readiness" {
-            return await readiness(pane: pane, view: view)
+            return await readiness(pane: pane, view: view, waitForAnimations: params["wait_animations"]?.boolValue == true)
+        }
+        if action == "close_menus" {
+            let script = """
+            const target = document.activeElement || document.body;
+            target.dispatchEvent(new KeyboardEvent('keydown', {
+              key: 'Escape', code: 'Escape', keyCode: 27, which: 27,
+              bubbles: true, cancelable: true
+            }));
+            return JSON.stringify({
+              menus: document.querySelectorAll('.acpmux-menu, .acpmux-slash-menu').length
+            });
+            """
+            do {
+                let result = try await view.webView.callAsyncJavaScript(script, arguments: [:], in: nil, contentWorld: .page)
+                guard let text = result as? String,
+                      let object = try? JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed]),
+                      let value = JSONValue(foundation: object) else {
+                    return .object(["pane": .string(pane), "error": .string("the page returned no close_menus JSON")])
+                }
+                return .object(["pane": .string(pane), "result": value])
+            } catch {
+                return .object(["pane": .string(pane), "error": .string(String(describing: error))])
+            }
         }
         if action == "click" {
             return await DebugAgentPaneClick.click(params, pane: pane, view: view, services: services)
@@ -108,7 +131,7 @@ enum DebugAgentPane {
             return await toggleInspector(view, open: params["open"]?.boolValue, pane: pane)
         }
         guard let function = functions[action] else {
-            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, answer_permission, open_changes, set_model, models, stream, readiness, click, pid, full_rate, gesture_state or inspector")])
+            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, close_menus, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, answer_permission, open_changes, set_model, models, stream, readiness, click, pid, full_rate, gesture_state or inspector")])
         }
         do {
             let result = try await view.webView.callAsyncJavaScript(
@@ -127,7 +150,7 @@ enum DebugAgentPane {
         }
     }
 
-    private static func readiness(pane: String, view: AgentPaneView) async -> JSONValue {
+    private static func readiness(pane: String, view: AgentPaneView, waitForAnimations: Bool = false) async -> JSONValue {
         let script = """
         const bodyText = (document.body?.innerText || '').trim();
         const composer = document.querySelector('.acpmux-composer');
@@ -135,12 +158,22 @@ enum DebugAgentPane {
         const debug = window.cmuxAcpmuxDebug;
         const state = debug && typeof debug.chatState === 'function' ? debug.chatState() : {};
         const transcriptRows = Number(state.rows || 0) || document.querySelectorAll('.cv-worked, .cv-message, .cv-tool, .cv-turn-actions').length;
+        const menus = [...document.querySelectorAll('.acpmux-menu, .acpmux-slash-menu')];
+        const menuAnimations = menus.flatMap((node) => typeof node.getAnimations === 'function' ? node.getAnimations() : []);
+        if (waitForAnimations && menuAnimations.length) {
+          await Promise.race([
+            Promise.all(menuAnimations.map((animation) => animation.finished.catch(() => undefined))),
+            new Promise((resolve) => setTimeout(resolve, 1000))
+          ]);
+        }
+        const animationsPending = menuAnimations.some((animation) => animation.playState === 'running');
         return JSON.stringify({
           body_text_length: bodyText.length,
           transcript_rows: transcriptRows,
           composer_visible: !!composer && !!composerRect && composerRect.width > 0 && composerRect.height > 0,
           composer_text_length: (composer?.innerText || '').trim().length,
-          document_ready: document.readyState === 'complete'
+          document_ready: document.readyState === 'complete',
+          animations_pending: animationsPending
         });
         """
         do {
