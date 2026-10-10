@@ -73,33 +73,53 @@ class ClaudeHookSpoolTests(unittest.TestCase):
                         CMUX_CLAUDE_HOOK_CMUX_BIN=str(self.shim),
                         CLAUDE_CONFIG_DIR='/tmp/claude config\nwith newline')
         self.owner = None
+        self.forwarder_lock = None
 
     def start_forwarder(self):
         # The forwarder watches its parent, as it watches Claude after the
         # wrapper's exec. Closing the owner's stdin ends the "session".
         owner = '''import os,subprocess,sys
 os.environ['CMUX_CLAUDE_PID']=str(os.getpid())
-subprocess.Popen([sys.argv[1], 'hooks', 'claude', 'spool-forwarder'],
-                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
-print(os.getpid(), flush=True)
+forwarder = subprocess.Popen([sys.argv[1], 'hooks', 'claude', 'spool-forwarder'],
+                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+print(os.getpid(), forwarder.pid, flush=True)
 sys.stdin.read()
 '''
         env = {k: v for k, v in self.env.items() if k != 'CMUX_CLAUDE_HOOK_CMUX_BIN'}
         self.owner = subprocess.Popen([sys.executable, '-c', owner, self.cli],
                                       stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                       env=env, text=True)
-        self.owner_pid = int(self.owner.stdout.readline())
         self.addCleanup(self.stop_owner)
+        line = self.owner.stdout.readline()
+        self.assertTrue(line.strip(), 'owner exited before reporting its pids')
+        _, _ = map(int, line.split())
         deadline = time.monotonic() + 15
         while not (self.spool / 'keys').exists():
             self.assertLess(time.monotonic(), deadline, 'forwarder never published its key list')
             time.sleep(0.02)
+        self.forwarder_lock = os.open(self.spool / 'forwarder.lock', os.O_RDWR)
 
     def stop_owner(self):
-        if self.owner and self.owner.poll() is None:
+        if not self.owner:
+            return
+        if self.owner.poll() is None:
             self.owner.stdin.close()
             self.owner.wait(timeout=10)
-            self.owner.stdout.close()
+        self.owner.stdout.close()
+        if self.forwarder_lock is None:
+            return
+
+        # The forwarder holds this lock for its whole life, so taking it proves it exited.
+        deadline = time.monotonic() + 10
+        while True:
+            try:
+                fcntl.lockf(self.forwarder_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                os.close(self.forwarder_lock)
+                self.forwarder_lock = None
+                return
+            except BlockingIOError:
+                self.assertLess(time.monotonic(), deadline, 'forwarder did not exit after owner exited')
+                time.sleep(0.02)
 
     def accept(self):
         while not self.stopping.is_set():
