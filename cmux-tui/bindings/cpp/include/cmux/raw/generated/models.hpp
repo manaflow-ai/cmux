@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "1a125d40a1072221e7191839cefa0b173f2c6a3048d5553f02597ce44ec32c57";
+inline constexpr std::string_view kProtocolIrSha256 = "b39f0c8f7124f43c7c7b90a8b5caf4df127b57bfe6298f64ad66037bacbeac6f";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -143,6 +143,7 @@ struct ServerStatsLockStall;
 struct ServerStatsRegistryLock;
 struct ServerStatsResourceProjection;
 struct ServerStatsResult;
+struct ServerStatsWritePath;
 enum class ServerStatsWriterPhase;
 struct SetCellPixelsResult;
 struct SetSizeCountsResult;
@@ -4005,6 +4006,15 @@ struct ServerStatsResourceProjection {
     friend bool operator==(const ServerStatsResourceProjection&, const ServerStatsResourceProjection&) = default;
 };
 
+struct ServerStatsWritePath {
+    std::uint64_t effect_intent_batches{};
+    std::uint64_t effect_intent_failures{};
+    std::uint64_t effect_intents{};
+    std::uint64_t request_effect_commits{};
+    std::uint64_t writer_registry_locks{};
+    friend bool operator==(const ServerStatsWritePath&, const ServerStatsWritePath&) = default;
+};
+
 struct ServerStatsResult {
     ServerStatsConnections connections{};
     std::optional<ServerStatsJournalWriter> journal_writer{};
@@ -4012,6 +4022,7 @@ struct ServerStatsResult {
     std::optional<ServerStatsResourceProjection> resource_projection{};
     std::uint32_t schema{};
     std::uint64_t uptime_ms{};
+    std::optional<ServerStatsWritePath> write_path{};
     friend bool operator==(const ServerStatsResult&, const ServerStatsResult&) = default;
 };
 
@@ -5703,6 +5714,12 @@ template <>
 struct Codec<ServerStatsResult> {
     static Result<Json> encode(const ServerStatsResult& value);
     static Result<ServerStatsResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsWritePath> {
+    static Result<Json> encode(const ServerStatsWritePath& value);
+    static Result<ServerStatsWritePath> decode(const Json& value);
 };
 
 template <>
