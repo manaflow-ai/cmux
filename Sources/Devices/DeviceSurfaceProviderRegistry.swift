@@ -40,6 +40,7 @@ final class DeviceSurfaceProviderRegistry {
     private var directoryObserver: NSObjectProtocol?
     private var authorizationObserver: NSObjectProtocol?
     private var defaultsObserver: NSObjectProtocol?
+    private var featureFlagsObserver: NSObjectProtocol?
     private var availabilityObserver: CloudFeatureAvailabilityObserver?
     private var accessObserver: NSObjectProtocol?
     private var policyObserver: NSObjectProtocol?
@@ -84,7 +85,7 @@ final class DeviceSurfaceProviderRegistry {
     }
 
     deinit {
-        for observer in [directoryObserver, authorizationObserver, defaultsObserver, accessObserver, policyObserver] {
+        for observer in [directoryObserver, authorizationObserver, defaultsObserver, featureFlagsObserver, accessObserver, policyObserver] {
             if let observer { notificationCenter.removeObserver(observer) }
         }
     }
@@ -111,6 +112,11 @@ final class DeviceSurfaceProviderRegistry {
         if let defaultsObserver { center.removeObserver(defaultsObserver) }
         defaultsObserver = center.addUserDefaultsObserver(object: UserDefaults.standard) { [weak self] in
             self?.evaluate()
+        }
+        if let featureFlagsObserver { center.removeObserver(featureFlagsObserver) }
+        featureFlagsObserver = center.addObserver(forName: .cmuxFeatureFlagsDidChange, object: nil, queue: .main) {
+            [weak self] _ in
+            Task { @MainActor [weak self] in self?.evaluate() }
         }
         availabilityObserver = CloudFeatureAvailabilityObserver(notificationCenter: notificationCenter, isEnabled: isFeatureEnabled) { [weak self] _ in
             self?.evaluate()
