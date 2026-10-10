@@ -40,14 +40,6 @@ final class CEFExtensionPrompts {
         sheets.values.map(\.prompt).sorted { $0.id < $1.id }
     }
 
-    /// Answers a waiting prompt as its sheet would. False when it is gone.
-    @discardableResult
-    func answer(_ id: Int32, _ answer: ExtensionInstallPrompt.Answer) -> Bool {
-        guard let sheet = sheets[id] else { return false }
-        sheet.end(answer)
-        return true
-    }
-
     /// The tab that asked (only that tab is blocked); else the pane window
     /// that showed a Chromium tab last; else any visible cmux window.
     private func scope(for browser: Int32) -> CmuxDialogScope? {

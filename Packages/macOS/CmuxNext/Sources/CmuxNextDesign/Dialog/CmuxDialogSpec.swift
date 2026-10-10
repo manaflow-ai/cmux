@@ -19,9 +19,13 @@ public nonisolated struct CmuxDialogSpec: Equatable, Sendable {
     public var icon: Data?
     /// The accessibility identifier of the dialog view (tests, automation).
     public var identifier: String?
+    /// What a confirm grants. Not `none`: only the person confirms it;
+    /// automation may read, cancel or dismiss it (`CmuxDialogCenter.automationRefusal`).
+    public var confirmKind: CmuxDialogConfirmKind
 
     public init(title: String, lines: [String] = [], origin: String? = nil, fields: [CmuxDialogField] = [],
-                buttons: [CmuxDialogButton], icon: Data? = nil, identifier: String? = nil) {
+                buttons: [CmuxDialogButton], icon: Data? = nil, identifier: String? = nil,
+                confirmKind: CmuxDialogConfirmKind = .none) {
         self.title = title
         self.lines = lines
         self.origin = origin
@@ -29,6 +33,7 @@ public nonisolated struct CmuxDialogSpec: Equatable, Sendable {
         self.buttons = buttons
         self.icon = icon
         self.identifier = identifier
+        self.confirmKind = confirmKind
     }
 
     /// The button Return presses: the first `.default`, else none.
