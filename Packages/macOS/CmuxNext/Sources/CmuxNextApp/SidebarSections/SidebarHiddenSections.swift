@@ -4,49 +4,34 @@ import CmuxNextSidebar
 import os
 
 /// Projects hides from its header's menu and comes back from the sidebar's
-/// menu or Settings (`sidebar.showProjects`; Leo 2026-10-06). Chats, the
-/// All chats, the section under the workspaces (on by default, cx-xub5), hides
-/// from its header by turning off `sidebar.showChats`; Show All Chats in
-/// Settings or Show Hidden Sections brings it back. Each is a setting, so the
-/// choice follows cmux.json.
+/// menu or Settings (`sidebar.showProjects`; Leo 2026-10-06). It is a
+/// setting, so the choice follows cmux.json. All chats is not a sidebar
+/// section any more (cx-n0i9: it is on the New Tab page), so Hide Section
+/// hides nothing and `sidebar.showChats` no longer changes the sidebar.
 enum SidebarHiddenSections {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.actions")
 
     /// The rows a section header's menu leaves out: Hide on an app section
-    /// only, Hide Section on Recents only (other sections are removed
-    /// instead). Recents shows Hide Section alone, not its app's Hide too.
+    /// only, and Hide Section everywhere (no sidebar section hides that way now).
     static func headerMenuRemovals(_ id: LayoutSectionID, isApp: Bool) -> Set<ActionID> {
-        let isRecents = id == SidebarLayoutDocument.recentsSectionID
-        var removed: Set<ActionID> = []
-        if !isApp || isRecents { removed.insert("sidebar.item.hideApp") }
-        if !isRecents { removed.insert("sidebar.section.hide") }
+        var removed: Set<ActionID> = ["sidebar.section.hide"]
+        if !isApp { removed.insert("sidebar.item.hideApp") }
         return removed
     }
 
-    /// Hide Section on `target` hides Recents: the Recents header, or the
-    /// palette with no target. Read by id, so it works while the daemon
-    /// has no sidebar layout (the sidebar draws the defaults then).
-    static func hidesRecents(_ target: ActionTargetRef?) -> Bool {
-        guard let target else { return true }
-        return target.id == SidebarLayoutDocument.recentsSectionID.rawValue
-    }
-
-    /// The setting Hide Section turns off.
-    static let hidePath = SidebarSectionsSetting.showChatsPath
-    /// The settings Show Hidden Sections turns back on: Projects and All chats.
-    static let showHiddenPaths = [SidebarSectionsSetting.showProjectsPath, SidebarSectionsSetting.showChatsPath]
+    /// The settings Show Hidden Sections turns back on: Projects.
+    static let showHiddenPaths = [SidebarSectionsSetting.showProjectsPath]
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let settings = { context.services.settings?.snapshot.sidebarSections ?? .defaults }
-        registry.bind("sidebar.section.hide", unavailable: { settings().showChats ? nil : SidebarSectionStrings.alreadyHidden }) { invocation in
-            guard hidesRecents(invocation.target) else { throw ActionFailure(message: SidebarSectionStrings.notHideable) }
-            try write([(hidePath, false)], invocation, context)
+        registry.bind("sidebar.section.hide", unavailable: { SidebarSectionStrings.notHideable }) { _ in
+            throw ActionFailure(message: SidebarSectionStrings.notHideable)
         }
         registry.bind("sidebar.projects.hide", unavailable: { settings().showProjects ? nil : SidebarSectionStrings.alreadyHidden }) { invocation in
             try write([(SidebarSectionsSetting.showProjectsPath, false)], invocation, context)
         }
         registry.bind("sidebar.sections.showHidden", unavailable: {
-            settings().showProjects && settings().showChats ? SidebarSectionStrings.noneHidden : nil
+            settings().showProjects ? SidebarSectionStrings.noneHidden : nil
         }) { invocation in
             try write(showHiddenPaths.map { ($0, true) }, invocation, context)
         }
