@@ -120,12 +120,23 @@ extension CEFTab {
             favicon = nil
             return
         }
-        let profile = profileID
         faviconTask = Task { [weak self] in
-            let image = await BrowserFaviconLoader.shared.favicon(at: url, profile: profile)
+            let image = await self?.fetchFavicon(url)
             guard !Task.isCancelled else { return }
             self?.favicon = image
         }
+    }
+
+    /// Through this tab's own request context first (its cookies and profile, Chromium's
+    /// cache; cx-d0d.8), kept in the shared loader's cache, else the app's cookieless fetch.
+    public func fetchFavicon(_ url: URL) async -> NSImage? {
+        let loader = BrowserFaviconLoader.shared
+        if let cached = loader.cachedFavicon(at: url, profile: profileID) { return cached }
+        if let browserID, let png = await runtime.favicon(browserID, url: url, maxPixels: BrowserFaviconLoader.maximumPixels),
+           let image = loader.store(png, at: url, profile: profileID) {
+            return image
+        }
+        return await loader.favicon(at: url, profile: profileID)
     }
 
     // MARK: Scripts

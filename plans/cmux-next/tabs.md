@@ -41,19 +41,31 @@ inactive, scrolls after that; the "+" follows the last tab).
 ## Favicons
 
 `BrowserTabIconState` is Chromium's `TabIcon` rule: throbber while the live
-page loads, else the favicon, else a globe. `TabFaviconStore` resolves the
-live page's favicon URL, or the daemon record's for a tab without a live
-page, through `BrowserFaviconLoader`: http(s) only, no cookies sent or
-stored, 1 MiB body cap, fetch and decode off the main thread, redrawn at
-most 64 px, cached per profile (64 per profile in the loader, 256
-`TabImage`s in the store). Nothing polls: a strip snapshot that reads a
-missing icon starts one fetch and re-renders when it lands.
+page loads, else the favicon, else a globe. The throbber has Chromium's two
+states: waiting (the request is out, nothing committed yet) turns
+counter-clockwise, loading (committed) clockwise.
 
-Not done: the Chromium engine still fetches through this loader instead of
-the tab's own Chromium request context (`CefBrowserHost::DownloadImage`),
-which needs a new CEF shim entry point; Chromium's two throbber states
-(waiting counter-clockwise, loading clockwise) are one spinner; agent
-program icons on terminal tabs.
+`TabFaviconStore` resolves the live page's favicon URL, or the daemon
+record's for a tab without a live page. A live page's icon is fetched as
+that page fetches it: a Chromium tab through its own request context
+(`cmux_shim_download_favicon`, CEF's `DownloadImage` as a favicon fetch:
+the tab's cookies and profile, Chromium's cache), kept in the shared
+`BrowserFaviconLoader` cache. Everything else goes through
+`BrowserFaviconLoader`: http(s) only, no cookies sent or stored, 1 MiB body
+cap, fetch and decode off the main thread, redrawn at most 64 px, cached
+per profile (64 per profile in the loader, 256 `TabImage`s in the store).
+Nothing polls: a strip snapshot that reads a missing icon starts one fetch
+and re-renders when it lands.
+
+The same icons show wherever a page is named: the tab strip, the sidebar's
+workspace rows and tab rows, Search Tabs, the bookmarks bar and its menus,
+and the New Tab location bar's open-tab and recent-page rows (sent to the
+page as inline PNGs; its CSP allows `img-src data:` only). A bookmark or a
+recent page shows its site's icon: an open tab's on the same origin, else
+the origin's `/favicon.ico`.
+
+Not done: agent program icons on terminal tabs; a New Tab row whose icon
+lands after the page opened keeps its glyph until the next New Tab.
 
 ## Title marquee
 
