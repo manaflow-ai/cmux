@@ -13,6 +13,17 @@ import Testing
 /// Pure-projection coverage for the irx-backed Settings Networking snapshot
 /// (`MobileHostIrxRuntime+SettingsControl`).
 struct MobileHostIrxSettingsMappingTests {
+    @Test func teamScopedDeviceClientRejectsSelectorChangeDuringRollback() {
+        let session = AuthenticatedSessionIdentity(generation: 7, accountID: "account")
+
+        #expect(!MobileHostIrxRuntime.isDeviceClientScopeCurrent(
+            currentSession: session, resolvedTeamID: "team-b", identity: session,
+            teamID: "team-a", accountDirectoryEnabled: false))
+        #expect(MobileHostIrxRuntime.isDeviceClientScopeCurrent(
+            currentSession: session, resolvedTeamID: "team-b", identity: session,
+            teamID: "team-a", accountDirectoryEnabled: true))
+    }
+
     @Test func hostScopeSurvivesSameAccountTeamSelection() {
         let session = AuthenticatedSessionIdentity(generation: 7, accountID: "account")
         let active = AuthenticatedTeamScope(session: session, teamID: "team-a", generation: 1)
