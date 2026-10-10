@@ -144,17 +144,16 @@ final class AgentTabStore {
     var linkedSessions: Set<String> = []
     /// A link's turn for a tab whose view is not made yet.
     var pendingTurns: [String: String] = [:]
-    /// The tabs' git reads on the local session host (AgentPaneGitReads.swift);
-    /// nil answers the page `native.not_connected`.
-    private let git: AgentPaneGitLink?
+    /// The git link of tab `key`: the session host of the tab's own machine (AgentPaneGitReads.swift),
+    /// so a Cloud or SSH chat reads its folder there; nil answers the page `native.not_connected`.
+    var gitLink: ((String) -> AgentPaneGitLink?)?
 
     /// `settings`, when given, is followed for the page settings (``AgentPanePageSettings``)
     /// (AppDelegate makes it before any agent tab).
     init(tag: String?, registry: ActionRegistry, environment: [String: String] = ProcessInfo.processInfo.environment,
-         showcase: Bool = false, linkScheme: String? = nil, git: AgentPaneGitLink? = nil, settings: SettingsController? = nil) {
+         showcase: Bool = false, linkScheme: String? = nil, settings: SettingsController? = nil) {
         actionRegistry = registry
         self.linkScheme = linkScheme
-        self.git = git
         let (resolvedSource, resolvedHost) = AgentTabPaneSource.resolvePane(tag: tag, environment: environment, showcase: showcase)
         host = resolvedHost
         // Start acpmux while the first pane is loading. The page still owns
@@ -341,8 +340,10 @@ final class AgentTabStore {
             newTabPages[resolve(provisional)]?.handler.action(id)
         }
         model.onCheckpointAvailability = { [weak self] _ in self?.publishCheckpointAvailability() }
-        // A local session's folder is read by the local session host; the page refuses cloud sessions.
-        if let git { model.onGit = { request in try await git.read(request) } }
+        model.onGit = { [weak self] request in
+            guard let link = self?.gitLink?(self?.resolve(provisional) ?? provisional) else { throw AgentPaneGitFailure.notConnected }
+            return try await link.read(request)
+        }
         wireAgentFolder(model, key: provisional)
     }
 
