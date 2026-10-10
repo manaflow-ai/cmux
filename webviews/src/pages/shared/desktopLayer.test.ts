@@ -32,4 +32,3 @@ test("every page under src/pages imports the desktop layer first", () => {
     });
   }
 });
-

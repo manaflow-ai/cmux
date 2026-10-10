@@ -125,6 +125,7 @@ MODEL_BY_PATH = {
     'types/ServerStatsRegistryLock': models.ServerStatsRegistryLock,
     'types/ServerStatsResourceProjection': models.ServerStatsResourceProjection,
     'types/ServerStatsResult': models.ServerStatsResult,
+    'types/ServerStatsWritePath': models.ServerStatsWritePath,
     'types/SetCellPixelsResult': models.SetCellPixelsResult,
     'types/SetSizeCountsResult': models.SetSizeCountsResult,
     'types/SetSizePolicyResult': models.SetSizePolicyResult,

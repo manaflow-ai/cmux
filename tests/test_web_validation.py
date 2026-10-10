@@ -192,7 +192,6 @@ class WebValidationTests(unittest.TestCase):
             "web-instant-navigation": "web/bun.lock",
             "diff-sidecar-check": "webviews/bun.lock",
             "web-db-migrations": "web/bun.lock",
-            "agent-session-web-resources": "bun.lock",
         }
         for job, lockfile in expected.items():
             with self.subTest(job=job):

@@ -19,11 +19,19 @@ import Foundation
 /// in this flow, and a declined confirmation sends nothing more.
 @MainActor
 struct CloudMachineCreateFlow {
+    /// What the person confirms: the exact machine the create asks for.
+    struct Machine: Equatable, Sendable {
+        var name: String?
+        var cpu: Int
+        var memoryMB: Int
+        var diskMB: Int
+    }
+
     enum Prompt: Equatable {
         /// A create that no person started asks first.
-        case agentRequest
+        case agentRequest(Machine)
         /// The backend holds the create for the person's approval.
-        case approval(request: String)
+        case approval(request: String, Machine)
     }
 
     enum Failure: Error, Equatable {
@@ -39,8 +47,9 @@ struct CloudMachineCreateFlow {
     var run: CloudAppOp
     /// The native confirmation sheet; true only for a person's click.
     var confirm: @MainActor (Prompt) async -> Bool
-    /// Answers approval `request` as the person's own session.
-    var approve: @MainActor (_ request: String) async throws -> Void
+    /// Answers approval `request` as the person's own session, only when
+    /// it holds `cloud.machine.create` with exactly `params`.
+    var approve: @MainActor (_ request: String, _ params: JSONValue) async throws -> Void
     /// Waits before the next same-key retry after the approval (cancellable).
     var pause: @MainActor (_ attempt: Int) async throws -> Void
     var newKey: () -> String = { UUID().uuidString }
@@ -49,19 +58,23 @@ struct CloudMachineCreateFlow {
 
     /// The default machine size (the stub plan's smallest; the backend
     /// checks the plan).
-    static let defaultSize: JSONValue = .object(["cpu": .number(2), "memory_mb": .number(4096), "disk_mb": .number(16384)])
+    static let defaultMachine = Machine(name: nil, cpu: 2, memoryMB: 4096, diskMB: 16384)
 
     /// Creates a machine; `startedByPerson` is true for the person's own
     /// gesture in this app (click, menu, palette, key). Returns the machine
     /// record (contract 1.2).
     func create(name: String?, startedByPerson: Bool) async throws -> JSONValue {
+        let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        var machine = Self.defaultMachine
+        machine.name = trimmed?.isEmpty == false ? trimmed : nil
         var confirmed = false
         if !startedByPerson {
-            guard await confirm(.agentRequest) else { throw Failure.declined }
+            guard await confirm(.agentRequest(machine)) else { throw Failure.declined }
             confirmed = true
         }
-        var args: [String: JSONValue] = ["size": Self.defaultSize]
-        if let name, !name.isEmpty { args["name"] = .string(name) }
+        var args: [String: JSONValue] = ["size": .object(["cpu": .number(Double(machine.cpu)), "memory_mb": .number(Double(machine.memoryMB)),
+                                                          "disk_mb": .number(Double(machine.diskMB))])]
+        if let name = machine.name { args["name"] = .string(name) }
         let key = newKey()
         var approved: String?
         var attempt = 0
@@ -81,10 +94,10 @@ struct CloudMachineCreateFlow {
                     continue
                 }
                 if !confirmed {
-                    guard await confirm(.approval(request: request)) else { throw Failure.declined }
+                    guard await confirm(.approval(request: request, machine)) else { throw Failure.declined }
                     confirmed = true
                 }
-                try await approve(request)
+                try await approve(request, .object(args))
                 approved = request
                 // The call right after the answer is the first same-key retry.
                 attempt = 1

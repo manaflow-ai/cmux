@@ -16,6 +16,12 @@ nonisolated struct CloudCredentialRelay: Sendable {
     static let family = "credential"
     static let relayOp = "credential.relay"
     static let sessionOp = "credential.session"
+    /// The only app server the relay serves, and the only op family it
+    /// sends: an install token with origin user counts as the person on the
+    /// Worker (feed answers), so no other app and no other family may ever
+    /// borrow it.
+    static let app = "cmux/cloud"
+    static let opPrefix = "cloud."
 
     /// POSTs `body` to `path` on the API Worker with `bearer`; returns the
     /// status and the body. Never logs the bearer.
@@ -41,6 +47,9 @@ nonisolated struct CloudCredentialRelay: Sendable {
 
     /// Answers one provider call of the `credential` family.
     func answer(_ call: AppsProviderCall) async -> Answer {
+        guard call.app == Self.app else {
+            return Self.failure("credential.app_refused", "only \(Self.app) may use the credential relay")
+        }
         switch call.op {
         case Self.sessionOp:
             let state = await session()
@@ -55,6 +64,9 @@ nonisolated struct CloudCredentialRelay: Sendable {
     private func relay(_ params: JSONValue) async -> Answer {
         guard let op = params["op"]?.stringValue, !op.isEmpty else {
             return Self.failure("validation.invalid", "credential.relay needs an op")
+        }
+        guard op.hasPrefix(Self.opPrefix) else {
+            return Self.failure("credential.op_refused", "the credential relay sends only \(Self.opPrefix)* ops")
         }
         guard await session().signedIn else { return Self.notSignedIn }
         let key = params["idempotency_key"]?.stringValue
