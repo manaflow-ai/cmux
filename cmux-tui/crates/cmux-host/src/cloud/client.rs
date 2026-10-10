@@ -188,10 +188,15 @@ pub fn bind_machine(
     BindResult::Bound(Box::new(bound))
 }
 
-/// Records this machine as an owner VM ([`VM_KIND_FILE`]) unless a team
-/// enroll already recorded it as a team VM.
+/// Records this machine as an owner VM ([`VM_KIND_FILE`]) unless it is a
+/// team VM: a team record, or a team enroll or binding on disk (so a failed
+/// read or an older team enroll never turns `team` into `owner`).
 pub fn record_owner_kind(store: &mut dyn Store) -> Result<(), String> {
-    if store.read(VM_KIND_FILE).is_some_and(|kind| kind.trim() == "team") {
+    use crate::team_ssh::enroll::{TEAM_BOUND_FILE, TEAM_ENROLL_FILE};
+    if store.read(VM_KIND_FILE).is_some_and(|kind| kind.trim() == "team")
+        || store.read(TEAM_ENROLL_FILE).is_some()
+        || store.read(TEAM_BOUND_FILE).is_some()
+    {
         return Ok(());
     }
     store.write(VM_KIND_FILE, "owner\n", 0o644)
