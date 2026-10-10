@@ -153,6 +153,16 @@ enum GlobalSearchDocuments {
         return String(text[..<endIndex])
     }
 
+    /// A session row leads with the workspace it runs in, so it reads as that
+    /// terminal ("Work 2 \u{00B7} 1+1"), then the session's own title; one name
+    /// when they're the same.
+    nonisolated static func agentSessionRowTitle(workspaceTitle: String, sessionTitle: String) -> String {
+        let workspace = workspaceTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !workspace.isEmpty,
+              workspace.caseInsensitiveCompare(sessionTitle) != .orderedSame else { return sessionTitle }
+        return "\(workspace) \u{00B7} \(sessionTitle)"
+    }
+
     nonisolated static func cappedTextKeepingEnd(_ text: String) -> String {
         guard text.count > GlobalSearchIndexingLimits.maxIndexedTextCharacters else { return text }
         let startIndex = text.index(text.endIndex, offsetBy: -GlobalSearchIndexingLimits.maxIndexedTextCharacters)

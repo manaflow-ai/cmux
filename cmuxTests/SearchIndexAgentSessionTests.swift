@@ -42,6 +42,18 @@ struct SearchIndexAgentSessionTests {
         #expect(hits.first?.snippet.contains("delphi token spend") == true)
     }
 
+    @Test(arguments: [
+        ("Work 2", "1+1", "Work 2 \u{00B7} 1+1"),
+        ("Fix the login redirect", "Fix the login redirect", "Fix the login redirect"),
+        ("  ", "Codex", "Codex"),
+    ] as [(String, String, String)])
+    func sessionRowsLeadWithTheirWorkspace(workspaceTitle: String, sessionTitle: String, expected: String) {
+        #expect(
+            GlobalSearchDocuments.agentSessionRowTitle(workspaceTitle: workspaceTitle, sessionTitle: sessionTitle)
+                == expected
+        )
+    }
+
     @Test
     func aPunctuatedQueryMatchesAsAPhraseNotAsLooseTokens() async throws {
         let (directory, index) = try makeIndex()

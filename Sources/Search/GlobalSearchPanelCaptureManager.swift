@@ -299,7 +299,10 @@ final class GlobalSearchPanelCaptureManager {
             return false
         }
         let transcriptText = transcript.document
-        let title = source.title(firstPrompt: transcript.firstPrompt)
+        let title = GlobalSearchDocuments.agentSessionRowTitle(
+            workspaceTitle: context.workspaceTitle,
+            sessionTitle: source.title(firstPrompt: transcript.firstPrompt)
+        )
         guard !Task.isCancelled else { return true }
         let windowID = context.windowID
         let workspaceID = context.workspaceID
