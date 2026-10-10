@@ -276,6 +276,7 @@ struct BrowserScreen: View {
         #if DEBUG
         .task(id: model.activeFrame != nil) { await debugPinchScript() }
         #endif
+        .onChange(of: size.width, initial: true) { _, w in zoomDriver.span = Double(w - overviewLayout.cardWidth) }
         .onAppear {
             zoomDriver.onSettle = { phase in
                 if phase == .page {

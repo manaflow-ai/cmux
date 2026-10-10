@@ -85,29 +85,24 @@ struct BrowserColors: Sendable {
 struct BrowserMotion: Sendable {
     /// Collapse on scroll down. Spec fit 0.36/0.91; framediff on collapse.mp4 (track of the label) fits 0.39/0.84, and 0.39/0.86 reproduces it here.
     let collapse = Animation.spring(response: 0.39, dampingFraction: 0.86)
-    /// Expand on scroll up: response 0.41, damping 0.87.
-    let expandScroll = Animation.spring(response: 0.41, dampingFraction: 0.87)
-    /// Expand on tapping the pill: response 0.37, damping 0.90.
-    let expandTap = Animation.spring(response: 0.37, dampingFraction: 0.9)
-    /// Side buttons: out over 0-140 ms (ink gone by ~80 ms in the spec table, faint glass until ~150 ms in the recording), in over 120-300 ms.
-    let sideOut = Animation.linear(duration: 0.14)
-    let sideIn = Animation.linear(duration: 0.18).delay(0.12)
+    /// Expand on scroll up (browser-springs-verify.md: 0.385 / 0.880).
+    let expandScroll = Animation.spring(response: 0.385, dampingFraction: 0.88)
+    /// Expand on tapping the pill (verified: 0.390 / 0.879).
+    let expandTap = Animation.spring(response: 0.39, dampingFraction: 0.88)
+    /// Side buttons (ink measured with real timestamps): gone by about
+    /// 105–117 ms on collapse; on expand they start about 90 ms in and ease
+    /// out (50 % at about 158 ms, full at about 330 ms).
+    let sideOut = Animation.linear(duration: 0.10)
+    let sideIn = Animation.easeOut(duration: 0.23).delay(0.09)
     /// Address field rides with the keyboard.
     let keyboard = Animation.spring(response: 0.35, dampingFraction: 1)
     /// Go: field back into the toolbar.
     let editEnd = Animation.spring(response: 0.30, dampingFraction: 1)
     /// Page menu glass morph.
     let menu = Animation.spring(response: 0.40, dampingFraction: 0.78)
-    /// Tab overview open (page to card) and close (card to page).
-    /// Fitted to the device recording (tab-zoom-device.mp4, card width per
-    /// frame): open 0.33 / 0.91 (settles in 16 frames), close 0.335 / 1.0
-    /// (23 frames, no overshoot).
-    let overviewOpen = Animation.spring(response: 0.33, dampingFraction: 0.91)
-    let overviewClose = Animation.spring(response: 0.335, dampingFraction: 1)
-    /// Card reflow after closing a tab.
-    let reflow = Animation.spring(response: 0.38, dampingFraction: 0.85)
-    /// New tab growing from the grid center.
-    let newTab = Animation.spring(response: 0.40, dampingFraction: 0.9)
+    /// Card reflow after closing a tab (verified: x and y 0.427 / 0.89, one spring).
+    /// The tab zoom's springs are `ZoomSpring` (TabZoom.swift), the one source.
+    let reflow = Animation.spring(response: 0.43, dampingFraction: 0.89)
     /// Toolbar swipe snap.
     let swipe = Animation.spring(response: 0.40, dampingFraction: 0.9)
 

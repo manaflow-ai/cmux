@@ -24,7 +24,9 @@ final class TabZoomDriver {
     #endif
     @ObservationIgnored private lazy var proxy = DisplayLinkProxy { [weak self] link in self?.tick(link) }
 
-    func go(toOverview: Bool) { mutate { $0.go(toOverview: toOverview) } }
+    /// Card-width travel (points) for the reversal jump; set by the screen.
+    @ObservationIgnored var span: Double = 244
+    func go(toOverview: Bool) { mutate { [span] in $0.go(toOverview: toOverview, span: span) } }
     func start(from progress: Double, toOverview: Bool) { mutate { $0.start(from: progress, toOverview: toOverview) } }
     func beginInteraction() { mutate { $0.beginInteraction() } }
     func updateInteraction(progress: Double, velocity: Double) { mutate { $0.updateInteraction(progress: progress, velocity: velocity) } }
@@ -84,7 +86,7 @@ final class TabZoomDriver {
             debugElapsed += dt
             if debugElapsed >= after {
                 debugReversed = true
-                state.go(toOverview: false)
+                state.go(toOverview: false, span: span)
             }
         }
         #endif

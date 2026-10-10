@@ -36,18 +36,35 @@ struct TabZoomStateTests {
         }
     }
 
-    @Test func reversingMidwayKeepsPositionAndAFifthOfTheVelocity() {
+    /// Safari (browser-springs-verify.md): a one-frame jump toward the new
+    /// target, then the destination's spring from rest.
+    @Test func reversalJumpsTowardTheNewTargetThenStartsFromRest() {
         var s = TabZoomState()
         s.go(toOverview: true)
         run(&s, seconds: 0.13)
-        let p = s.progress, v = s.velocity
-        #expect(p > 0.3 && p < 0.9 && v > 0)
-        s.go(toOverview: false)
-        #expect(s.progress == p)
-        #expect(abs(s.velocity - v * TabZoomState.velocityKeptOnReversal) < 1e-9)
-        #expect(s.target == 0 && s.spring == .reversal)
+        let p = s.progress
+        #expect(p > 0.3 && p < 0.9 && s.velocity > 0)
+        s.go(toOverview: false, span: 244)
+        #expect(abs(s.progress - (p - 20.0 / 244)) < 1e-9)
+        #expect(s.velocity == 0 && s.target == 0 && s.spring == .reversalToPage)
         run(&s, seconds: 1.2)
         #expect(s.phase == .page && s.pageInteractive)
+
+        s.go(toOverview: true)
+        run(&s, seconds: 0.05)
+        s.go(toOverview: false)
+        run(&s, seconds: 0.1)
+        let q = s.progress
+        s.go(toOverview: true, span: 244)
+        #expect(abs(s.progress - (q + 10.0 / 244)) < 1e-9 && s.spring == .reversalToOverview)
+    }
+
+    /// Closing starts with Safari's launch velocity toward the page.
+    @Test func closeStartsFast() {
+        var s = TabZoomState(overview: true)
+        s.go(toOverview: false)
+        #expect(s.velocity == -ZoomSpring.toPage.launch)
+        #expect(s.spring == .toPage)
     }
 
     @Test func repeatedTogglesDuringAnimationAlwaysSettle() {

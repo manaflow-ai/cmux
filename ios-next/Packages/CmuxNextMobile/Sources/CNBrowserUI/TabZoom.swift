@@ -5,16 +5,24 @@ import Foundation
 struct ZoomSpring: Equatable, Sendable {
     var response: Double
     var damping: Double
+    /// Velocity toward the target when the spring starts from rest
+    /// (progress/s; Safari's close starts fast).
+    var launch: Double = 0
 
-    /// Page to card (tabs button), fitted to tab-zoom-device.mp4.
-    static let toOverview = ZoomSpring(response: 0.33, damping: 0.91)
-    /// Card to page (Done, a card, a new tab), fitted to tab-zoom-device.mp4.
-    static let toPage = ZoomSpring(response: 0.335, damping: 1.0)
-    /// A transition reversed while running, fitted to tab-reverse-device.mp4:
-    /// the new spring starts from the current position and keeps only a fifth
-    /// of the old velocity (full velocity overshoots the recording by 7 pt).
-    static let reversal = ZoomSpring(response: 0.39, damping: 0.88)
-    /// After a pinch is released.
+    // Constants from browser-springs-verify.md (device recordings, real
+    // frame timestamps).
+    /// Page to card (tabs button): 0.369 / 0.873, four events agree.
+    static let toOverview = ZoomSpring(response: 0.37, damping: 0.875)
+    /// Card to page (Done, a card, a new tab): the middle and tail fit
+    /// 0.385–0.40 / 0.98–0.99, but Safari covers 1850–2700 pt/s in the
+    /// first 2–3 frames, so it starts with about 8.5 progress/s.
+    static let toPage = ZoomSpring(response: 0.39, damping: 0.99, launch: 8.5)
+    /// After a reversal Safari follows the destination's spring from about
+    /// rest (toward the page 0.308–0.331 / 1.03–1.04, toward the grid
+    /// 0.346–0.369 / 0.84–0.875).
+    static let reversalToPage = ZoomSpring(response: 0.32, damping: 1.03)
+    static let reversalToOverview = ZoomSpring(response: 0.36, damping: 0.86)
+    /// After a pinch is released (no reference recording).
     static let release = ZoomSpring(response: 0.36, damping: 0.9)
 }
 
@@ -36,7 +44,11 @@ struct TabZoomState: Equatable, Sendable {
         case interactive
     }
 
-    static let velocityKeptOnReversal = 0.2
+    /// At a reversal Safari's frame jumps toward the new target in one frame
+    /// (card edges: about +20 pt toward the page, −3 to −17 pt toward the
+    /// grid), then starts from rest. In points of card width.
+    static let reversalJumpToPage = 20.0
+    static let reversalJumpToOverview = 10.0
     /// Settled when within this distance of the target, moving slower than `restVelocity`.
     static let restDistance = 0.001
     static let restVelocity = 0.01
@@ -70,7 +82,9 @@ struct TabZoomState: Equatable, Sendable {
 
     /// Tabs button / Done: go to `overview`, reversing a running transition
     /// from where it is.
-    mutating func go(toOverview: Bool) {
+    /// `span` is the card-width travel in points (screen width − card width),
+    /// to turn the reversal jump into progress.
+    mutating func go(toOverview: Bool, span: Double = 244) {
         let newTarget: Double = toOverview ? 1 : 0
         switch phase {
         case .page where !toOverview, .overview where toOverview:
@@ -78,11 +92,17 @@ struct TabZoomState: Equatable, Sendable {
         case .animating where newTarget == target:
             return
         case .animating:
-            animate(to: newTarget, spring: .reversal, keepVelocity: Self.velocityKeptOnReversal)
+            // Reversal: one-frame jump toward the new target, then the
+            // destination's spring from rest.
+            let jump = (toOverview ? Self.reversalJumpToOverview : Self.reversalJumpToPage) / max(1, span)
+            progress += toOverview ? jump : -jump
+            animate(to: newTarget, spring: toOverview ? .reversalToOverview : .reversalToPage, keepVelocity: 0)
         case .interactive:
             animate(to: newTarget, spring: .release, keepVelocity: 1)
         case .page, .overview:
-            animate(to: newTarget, spring: toOverview ? .toOverview : .toPage, keepVelocity: 0)
+            let spring: ZoomSpring = toOverview ? .toOverview : .toPage
+            animate(to: newTarget, spring: spring, keepVelocity: 0)
+            velocity = toOverview ? spring.launch : -spring.launch
         }
     }
 
@@ -93,7 +113,9 @@ struct TabZoomState: Equatable, Sendable {
         velocity = 0
         offset = .zero
         offsetVelocity = .zero
-        animate(to: toOverview ? 1 : 0, spring: toOverview ? .toOverview : .toPage, keepVelocity: 0)
+        let spring: ZoomSpring = toOverview ? .toOverview : .toPage
+        animate(to: toOverview ? 1 : 0, spring: spring, keepVelocity: 0)
+        velocity = toOverview ? spring.launch : -spring.launch
     }
 
     mutating func animate(to target: Double, spring: ZoomSpring, keepVelocity: Double) {
