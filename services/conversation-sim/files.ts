@@ -1,11 +1,13 @@
 // Procedural documents that bots send: a one-page PDF, a ZIP archive and a
 // plain text file. Each is generated from its id, so it is stable across
 // requests without being stored.
-import { mulberry32 } from "./png";
+import { mulberry32, proceduralPNG } from "./png";
 import type { Rng } from "./corpus";
 
-export type FileKind = "pdf" | "zip" | "txt";
+export type FileKind = "pdf" | "zip" | "txt" | "png";
+/** What bots send now and then; /admin/file also accepts "png" (a photo sent as a file). */
 export const FILE_KINDS: FileKind[] = ["pdf", "zip", "txt"];
+export const ADMIN_FILE_KINDS: FileKind[] = [...FILE_KINDS, "png"];
 
 export interface FileMeta {
   name: string;
@@ -17,8 +19,9 @@ const NAMES: Record<FileKind, string[]> = {
   pdf: ["Quarterly Report", "Design Review", "Launch Checklist", "Invoice 2026-10", "Floor Plan"],
   zip: ["build-logs", "screenshots", "crash-reports", "assets", "release-notes"],
   txt: ["notes", "todo", "meeting-minutes", "packing-list", "ideas"],
+  png: ["IMG_0412", "Screenshot 2026-10-09", "whiteboard"],
 };
-const MIME: Record<FileKind, string> = { pdf: "application/pdf", zip: "application/zip", txt: "text/plain" };
+const MIME: Record<FileKind, string> = { pdf: "application/pdf", zip: "application/zip", txt: "text/plain", png: "image/png" };
 
 export function fileMeta(kind: FileKind, rng: Rng): FileMeta {
   const names = NAMES[kind];
@@ -140,6 +143,7 @@ export function zipBytes(entries: { name: string; data: Uint8Array }[]): Uint8Ar
 export function proceduralFile(id: string, name: string): Uint8Array {
   const ext = name.split(".").pop()?.toLowerCase();
   if (ext === "pdf") return pdfBytes(id, name.replace(/\.pdf$/i, ""));
+  if (ext === "png") return proceduralPNG(id, 1200, 900);
   if (ext === "zip") {
     const enc = new TextEncoder();
     return zipBytes([

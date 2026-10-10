@@ -7,7 +7,7 @@ import { editedText, imageSize, mentionText, messageText, pick, pollContent, ran
 import { AUDIO_EXPIRY_MS, audioWaveform, proceduralWAV, sniffWAVDurationMs, spokenDurationMs, spokenText } from "./audio";
 import { LINK_MESSAGES, type LinkPreview, previewImages, previewURL, unfurl } from "./links";
 import { INTL_PEOPLE, intlHistory, intlText } from "./intl";
-import { FILE_KINDS, type FileKind, fileMeta, proceduralFile } from "./files";
+import { ADMIN_FILE_KINDS, FILE_KINDS, type FileKind, fileMeta, proceduralFile } from "./files";
 import { CONTACTS, handleKey, lookupHandle, searchContacts, type Contact, type Service } from "./directory";
 
 // ---------------------------------------------------------------- types
@@ -2085,12 +2085,12 @@ async function handleHttp(req: Request, server: ReturnType<typeof Bun.serve>): P
     return json({ ok: true, conversation: conv, sender: bot.id, messageIds: created });
   }
   if (path === "/admin/file" && req.method === "POST") {
-    // A participant sends a document now: kind=pdf|zip|txt (default pdf).
+    // A participant sends a document now: kind=pdf|zip|txt|png (default pdf).
     const conv = url.searchParams.get("conversation") ?? "group";
     const store = stores.get(conv);
     if (!store) return json({ error: `unknown conversation ${conv}` }, 404);
     const kind = (url.searchParams.get("kind") ?? "pdf") as FileKind;
-    if (!FILE_KINDS.includes(kind)) return json({ error: `unknown kind ${kind}` }, 400);
+    if (!ADMIN_FILE_KINDS.includes(kind)) return json({ error: `unknown kind ${kind}` }, 400);
     const bot = store.bots().find((b) => b.id === url.searchParams.get("sender")) ?? pick(R, store.bots());
     const attachment = makeFileAttachment(`file_${conv}_admin_${crypto.randomUUID().slice(0, 8)}`, kind, R);
     const m = store.create(bot.id, url.searchParams.get("text") ?? "", { attachments: [attachment] });

@@ -401,11 +401,11 @@ async function main() {
   const withFile = await l.call("send", { clientMessageId: `file-${crypto.randomUUID()}`, text: "the plan", attachmentIds: [upf.attachment.id] });
   const sentFile = withFile.message.attachments[0];
   check(sentFile?.kind === "file" && sentFile.name === "Plan v2.pdf" && sentFile.size === doc.length, "send attaches the file with its details");
-  for (const kind of ["pdf", "zip", "txt"]) {
+  for (const kind of ["pdf", "zip", "txt", "png"]) {
     const made = await post(`/admin/file?conversation=group&kind=${kind}`);
     const fbytes = new Uint8Array(await (await fetch(made.attachment.url)).arrayBuffer());
     check(made.attachment.kind === "file" && made.attachment.name.endsWith(`.${kind}`) && made.attachment.size === fbytes.length, `bot ${kind} has a name and its real size (${fbytes.length}B)`);
-    const magic = kind === "pdf" ? [0x25, 0x50, 0x44, 0x46] : kind === "zip" ? [0x50, 0x4b, 0x03, 0x04] : null;
+    const magic = kind === "pdf" ? [0x25, 0x50, 0x44, 0x46] : kind === "zip" ? [0x50, 0x4b, 0x03, 0x04] : kind === "png" ? [...PNG_SIGNATURE] : null;
     if (magic) check(magic.every((b, i) => fbytes[i] === b), `bot ${kind} bytes start with the ${kind} signature`);
   }
   check((await l.raw("setBackground", { background: { kind: "photo", attachmentId: upf.attachment.id, luminance: 0.4 } })).error?.code === -32602, "a file is not a photo background");

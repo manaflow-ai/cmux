@@ -277,8 +277,9 @@ edit without `textRuns` clears the formatting.
   may include my own messages, which real traffic never does). Boot leaves the
   last `GROUP_UNREAD` (60) and `DIRECT_UNREAD` (3) messages unread, all from
   others.
-- `POST /admin/file?conversation=<id>&kind=pdf|zip|txt[&sender=<participantId>][&text=<caption>]`:
-  a participant sends one document now; returns `{messageId, attachment}`.
+- `POST /admin/file?conversation=<id>&kind=pdf|zip|txt|png[&sender=<participantId>][&text=<caption>]`:
+  a participant sends one document now (`png`: a photo sent as a file);
+  returns `{messageId, attachment}`.
 - `POST /admin/audio?conversation=<id>&count=<n>[&sender=<participantId>]`:
   one participant sends `n` audio messages back to back (auto-play testing).
 - `POST /admin/say?conversation=<id>&sender=<id>&text=<s>&effect=<Effect>`: a
