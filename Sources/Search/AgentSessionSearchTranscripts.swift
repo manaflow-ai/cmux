@@ -8,19 +8,6 @@ struct AgentSessionSearchSource: Sendable, Equatable {
     let agentKind: ChatAgentKind
     /// A transcript path the resolver vouched for (`boundedTranscriptPath`).
     let transcriptPath: String
-    /// The title the agent set on the pane, nil while the pane has none.
-    let paneTitle: String?
-    let conversationTitle: String?
-
-    /// The name the session's row shows, given its first prompt.
-    func title(firstPrompt: String?) -> String {
-        AgentChatTranscriptService.globalSearchTitle(
-            paneTitle: paneTitle,
-            conversationTitle: conversationTitle,
-            firstPrompt: firstPrompt,
-            agentName: agentKind.displayName
-        )
-    }
 }
 
 /// Owns one incremental transcript reader per indexed agent session.
@@ -74,9 +61,9 @@ actor AgentSessionSearchTranscripts {
     }
 
     /// The session's current document text, as of the last refresh.
-    func text(forSessionID sessionID: String) -> (document: String, firstPrompt: String?)? {
+    func text(forSessionID sessionID: String) -> String? {
         guard let text = readers[sessionID]?.text, !text.isEmpty else { return nil }
-        return (text.documentText, text.firstPrompt)
+        return text.documentText
     }
 
     /// Drops readers for sessions no longer indexed.

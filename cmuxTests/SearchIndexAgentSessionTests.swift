@@ -145,13 +145,11 @@ struct SearchIndexAgentSessionTests {
     }
 
     @Test
-    func agentSessionDocumentUsesTheSessionTitleAndOnlyTheConversationText() {
+    func agentSessionDocumentUsesTheRowTitleAndOnlyTheConversationText() {
         let source = AgentSessionSearchSource(
             sessionID: "s-1",
             agentKind: .claude,
-            transcriptPath: "/tmp/s-1.jsonl",
-            paneTitle: nil,
-            conversationTitle: "Env linter eval cost estimate"
+            transcriptPath: "/tmp/s-1.jsonl"
         )
         let panelID = UUID()
         let document = GlobalSearchDocuments.agentSessionDocument(
@@ -160,7 +158,11 @@ struct SearchIndexAgentSessionTests {
             panelID: panelID,
             location: "Window 1 > research pod",
             source: source,
-            title: source.title(firstPrompt: "what would the eval cost"),
+            title: GlobalSearchDocuments.agentSessionRowTitle(
+                workspaceTitle: "research pod",
+                paneTitle: "Env linter eval cost estimate",
+                agentName: source.agentKind.displayName
+            ),
             transcriptText: "what would the eval cost"
         )
         #expect(document.id == SearchIndexDocument.panelStableID(panelID: panelID, kind: .agentSession))
@@ -177,9 +179,7 @@ struct SearchIndexAgentSessionTests {
         let source = AgentSessionSearchSource(
             sessionID: "s-2",
             agentKind: .codex,
-            transcriptPath: "/tmp/s-2.jsonl",
-            paneTitle: nil,
-            conversationTitle: nil
+            transcriptPath: "/tmp/s-2.jsonl"
         )
         let document = GlobalSearchDocuments.agentSessionDocument(
             windowID: windowID,
@@ -191,39 +191,6 @@ struct SearchIndexAgentSessionTests {
             transcriptText: String(repeating: "x", count: GlobalSearchIndexingLimits.maxIndexedTextCharacters + 10)
         )
         #expect(document.text.count == GlobalSearchIndexingLimits.maxIndexedTextCharacters)
-    }
-
-    @Test(arguments: [
-        ("✳ Fix the login redirect", "first prompt", "Fix the login redirect"),
-        ("  ◐  ", "Why does the build fail", "Why does the build fail"),
-        ("✶", nil, "Claude"),
-    ] as [(String, String?, String)])
-    func sessionTitlePrefersThePaneTitleWithoutSpinnerGlyphs(
-        paneTitle: String,
-        conversationTitle: String?,
-        expected: String
-    ) {
-        let title = AgentChatTranscriptService.globalSearchTitle(
-            paneTitle: paneTitle,
-            conversationTitle: conversationTitle,
-            agentName: "Claude"
-        )
-        #expect(title == expected)
-    }
-
-    @Test(arguments: [
-        ("why does the build fail\non CI only", "why does the build fail"),
-        ("\n  1+1  ", "1+1"),
-        (String(repeating: "a", count: 81), String(repeating: "a", count: 80) + "\u{2026}"),
-    ] as [(String, String)])
-    func untitledSessionsAreNamedByTheirFirstPromptsOpeningLine(firstPrompt: String, expected: String) {
-        let title = AgentChatTranscriptService.globalSearchTitle(
-            paneTitle: nil,
-            conversationTitle: nil,
-            firstPrompt: firstPrompt,
-            agentName: "Codex"
-        )
-        #expect(title == expected)
     }
 
     @Test

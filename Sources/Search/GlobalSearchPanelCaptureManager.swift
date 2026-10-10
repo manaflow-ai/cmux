@@ -298,10 +298,9 @@ final class GlobalSearchPanelCaptureManager {
             location: context.location
         )
         guard next != previous else { return true }
-        guard let transcript = await agentSessionTranscripts.text(forSessionID: source.sessionID) else {
+        guard let transcriptText = await agentSessionTranscripts.text(forSessionID: source.sessionID) else {
             return false
         }
-        let transcriptText = transcript.document
         guard !Task.isCancelled else { return true }
         let windowID = context.windowID
         let workspaceID = context.workspaceID

@@ -12,10 +12,9 @@ extension AgentChatTranscriptService {
     ///
     /// - Parameters:
     ///   - surfaceID: The terminal panel's ID.
-    ///   - paneTitle: The title the agent set on the pane, nil when unset.
     /// - Returns: The session to index, or nil for panes without an open
     ///   session or a readable transcript.
-    func globalSearchSource(surfaceID: UUID, paneTitle: String?) -> AgentSessionSearchSource? {
+    func globalSearchSource(surfaceID: UUID) -> AgentSessionSearchSource? {
         guard let record = registry.liveSession(surfaceID: surfaceID.uuidString) else { return nil }
         switch record.agentKind {
         case .claude, .codex:
@@ -28,11 +27,7 @@ extension AgentChatTranscriptService {
         return AgentSessionSearchSource(
             sessionID: record.sessionID,
             agentKind: record.agentKind,
-            transcriptPath: path,
-            // Claude titles its pane after the task; Codex leaves the shell's
-            // title or sets "Terminal", which names nothing.
-            paneTitle: record.agentKind == .claude ? paneTitle : nil,
-            conversationTitle: record.title
+            transcriptPath: path
         )
     }
 
@@ -74,46 +69,4 @@ extension AgentChatTranscriptService {
         }
         return nil
     }
-
-    /// The name a session's search row shows: the pane title the agent set
-    /// (what the tab shows), else the conversation title, else the first
-    /// prompt's opening line (Codex sets no title), else the agent name.
-    /// Leading spinner glyphs the agents animate in their titles are dropped.
-    nonisolated static func globalSearchTitle(
-        paneTitle: String?,
-        conversationTitle: String?,
-        firstPrompt: String? = nil,
-        agentName: String
-    ) -> String {
-        for candidate in [paneTitle, conversationTitle] {
-            guard let candidate else { continue }
-            let cleaned = strippingLeadingSpinnerGlyphs(candidate)
-            if !cleaned.isEmpty { return cleaned }
-        }
-        if let line = firstPrompt?
-            .split(whereSeparator: \.isNewline)
-            .lazy
-            .map({ $0.trimmingCharacters(in: .whitespaces) })
-            .first(where: { !$0.isEmpty }) {
-            return line.count > promptTitleCharacterLimit
-                ? String(line.prefix(promptTitleCharacterLimit)) + "\u{2026}"
-                : line
-        }
-        return agentName
-    }
-
-    nonisolated static let promptTitleCharacterLimit = 80
-
-    nonisolated private static func strippingLeadingSpinnerGlyphs(_ title: String) -> String {
-        var remaining = Substring(title)
-        while let first = remaining.first, titleSpinnerGlyphs.contains(first) || first.isWhitespace {
-            remaining = remaining.dropFirst()
-        }
-        return remaining.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    /// Glyphs Claude and Codex cycle through at the start of their titles.
-    nonisolated private static let titleSpinnerGlyphs: Set<Character> = [
-        "✳", "✶", "✻", "✽", "✢", "✺", "✦", "✧", "∗", "⟢", "◐", "◑", "◒", "◓", "●",
-    ]
 }

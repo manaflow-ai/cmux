@@ -18,10 +18,7 @@ final class GlobalSearchCoordinator {
             self?.cancelPanelPurge(forPanelID: panelID)
         },
         agentSessionSource: { context in
-            TerminalController.shared.agentChatTranscriptService?.globalSearchSource(
-                surfaceID: context.panelID,
-                paneTitle: (context.panel as? TerminalPanel)?.title
-            )
+            TerminalController.shared.agentChatTranscriptService?.globalSearchSource(surfaceID: context.panelID)
         }
     )
     private lazy var popover = MenubarSearchPopover(coordinator: self)
