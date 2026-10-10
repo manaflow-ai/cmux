@@ -42,6 +42,10 @@ nonisolated private final class AppcastParserDelegate: NSObject, XMLParserDelega
         text += string
     }
 
+    func parser(_ parser: XMLParser, foundCDATA block: Data) {
+        text += String(decoding: block, as: UTF8.self)
+    }
+
     func parser(_ parser: XMLParser, didEndElement name: String, namespaceURI: String?, qualifiedName: String?) {
         let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
         text = ""
@@ -52,6 +56,14 @@ nonisolated private final class AppcastParserDelegate: NSObject, XMLParserDelega
             guard fields != nil, deltaDepth == 0, !value.isEmpty else { return }
             fields?[name] = value
         }
+    }
+
+    /// RSS dates ("Sat, 10 Oct 2026 03:05:21 +0000").
+    private static func rfc822(_ text: String) -> Date? {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss Z"
+        return formatter.date(from: text)
     }
 
     private func finishItem() {
@@ -66,7 +78,9 @@ nonisolated private final class AppcastParserDelegate: NSObject, XMLParserDelega
             minimumSystemVersion: fields["sparkle:minimumSystemVersion"].flatMap(SystemVersion.init),
             maximumSystemVersion: fields["sparkle:maximumSystemVersion"].flatMap(SystemVersion.init),
             releaseNotesURL: (fields["sparkle:fullReleaseNotesLink"] ?? fields["sparkle:releaseNotesLink"]).flatMap(URL.init(string:)),
-            downloadURL: enclosure["url"].flatMap(URL.init(string:))
+            downloadURL: enclosure["url"].flatMap(URL.init(string:)),
+            itemDescription: fields["description"],
+            date: fields["pubDate"].flatMap(Self.rfc822)
         ))
     }
 }
