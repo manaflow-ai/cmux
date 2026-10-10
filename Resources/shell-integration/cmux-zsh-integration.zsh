@@ -2176,6 +2176,13 @@ _cmux_terminal_history_precmd() {
     # command; it was never meant to be kept, so it is not recorded either.
     local line="$(builtin fc -ln -1 2>/dev/null)"
     [[ -o hist_ignore_space && "$line" == ' '* ]] && return 0
+    # A surface history that does not exist yet has to be created, and `>>`
+    # cannot do that while the user has NO_CLOBBER set: APPEND_CREATE is off by
+    # default, so the append fails with ENOENT and, the file still being
+    # missing, every later prompt repeats that error and the surface records
+    # nothing at all. `>|` is the truncate form that still creates a missing
+    # file under NO_CLOBBER, and it runs only when the file is absent.
+    [[ -e "$CMUX_HISTORY_FILE" ]] || : >| "$CMUX_HISTORY_FILE"
     print -r -- "$line" >> "$CMUX_HISTORY_FILE"
 }
 
