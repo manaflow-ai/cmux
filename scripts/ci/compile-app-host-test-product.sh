@@ -268,7 +268,8 @@ build() {
   local fleet_cas_root="${CMUX_FLEET_CAS_ROOT:-/Users/Shared/cmux-build-fleet/xcode}"
   local fleet_cas_settings="${CMUX_FLEET_CAS_SETTINGS:-$fleet_cas_root/bin/fleet-cas-settings.sh}"
   local fleet_cas_socket="${CMUX_FLEET_CAS_SOCKET:-$fleet_cas_root/fleet-cas.sock}"
-  if [ -x "$fleet_cas_settings" ] && [ -S "$fleet_cas_socket" ]; then
+  if [ "${CMUX_CI_DISABLE_FLEET_CAS:-}" != 1 ] \
+    && [ -x "$fleet_cas_settings" ] && [ -S "$fleet_cas_socket" ]; then
     local fleet_settings=''
     fleet_settings="$("$fleet_cas_settings" "$fleet_cas_socket" 2>/dev/null | head -n 8)" || fleet_settings=''
     local fleet_plugin_ok=0

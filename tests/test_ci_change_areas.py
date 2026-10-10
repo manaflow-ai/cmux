@@ -5791,7 +5791,8 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
     # The compile lives in one script so the nightly cache seeder runs the same
     # invocation; see tests/test_ci_test_compilation_cache_seed.sh.
     assert "scripts/ci/compile-app-host-test-product.sh canonical-build" in admission
-    assert 'grep -Eqi "unable to resolve module dependency|unable to open dependencies file|CAS error: No such file or directory|cannot open file .*No such file or directory|unable to write file .*No such file or directory"' in admission
+    assert 'grep -Eqi "unable to resolve module dependency|unable to open dependencies file|CAS error: No such file or directory|cannot open file .*No such file or directory|unable to write file .*No such file or directory|failed to update cache: cache poisoned|CAS error: makeBlob: missing object|CAS error: read-only cache client"' in admission
+    assert 'export CMUX_CI_DISABLE_FLEET_CAS=1' in admission
     assert 'scripts/ci/clear-dirs.sh "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$CMUX_COMPILE_ADMISSION_CAS"' in admission
     assert 'compile admission exited $status without a compiler diagnostic' in admission
     assert "find \"$CMUX_COMPILE_ADMISSION_DERIVED_DATA\" -type f -name '*-build.log'" in admission
@@ -5803,6 +5804,7 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
     assert 'for compiler in xcodebuild swift-frontend swiftc clang ld' in admission
     assert "scripts/ci/compile-app-host-test-product.sh canonical-resolve" in admission
     compile_script = (ROOT / "scripts/ci/compile-app-host-test-product.sh").read_text(encoding="utf-8")
+    assert '"${CMUX_CI_DISABLE_FLEET_CAS:-}" != 1' in compile_script
     assert "build-for-testing" in compile_script
     import product_input_identity as identity
 

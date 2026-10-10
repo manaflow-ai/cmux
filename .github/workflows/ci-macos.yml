@@ -922,13 +922,20 @@ jobs:
               tail -n 80 "$scheme_log" || true
             done < <(find "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" -type f -name '*-build.log' -print 2>/dev/null | sort)
           fi
-          if [ "$status" -ne 0 ] && grep -Eqi "unable to resolve module dependency|unable to open dependencies file|CAS error: No such file or directory|cannot open file .*No such file or directory|unable to write file .*No such file or directory" "$compile_log"; then
+          if [ "$status" -ne 0 ] && grep -Eqi "unable to resolve module dependency|unable to open dependencies file|CAS error: No such file or directory|cannot open file .*No such file or directory|unable to write file .*No such file or directory|failed to update cache: cache poisoned|CAS error: makeBlob: missing object|CAS error: read-only cache client" "$compile_log"; then
             # An adopted DerivedData tree can retain an incomplete Swift
             # dependency graph or compile CAS entry after a cancelled or
             # interrupted compile. Xcode then fails late with no source
             # diagnostic. Drop the job-local build state and retry once;
             # real compiler errors still fail.
             echo "::warning::stale DerivedData dependency output detected; retrying compile from a clean tree"
+            if grep -Eqi "failed to update cache: cache poisoned|CAS error: makeBlob: missing object|CAS error: read-only cache client" "$compile_log"; then
+              # A poisoned fleet CAS can keep failing after the job-local
+              # DerivedData and CAS are cleared. Keep this retry isolated to
+              # the job-local CAS so it can rebuild without the shared node.
+              echo "::warning::fleet CAS corruption detected; retrying with the job-local CAS"
+              export CMUX_CI_DISABLE_FLEET_CAS=1
+            fi
             compile_workers_running() {
               local compiler pid args pgrep_status
               # Compiler names are global on a persistent Mac. Inspect their
