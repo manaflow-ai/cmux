@@ -8,6 +8,11 @@ import Observation
 /// `action.run` requests through `ActionRegistry.perform` on the main actor.
 @MainActor
 public final class RegistryControlBridge: ControlActionExecutor {
+    /// The refusal of an action, or an action argument, only a person may run (cx-zk9t).
+    public nonisolated static var personOnlyReason: String {
+        ControlStrings.text("control.error.personOnly", "Only a person in cmux can run this action")
+    }
+
     public let registry: ActionRegistry
     private var router: ControlRouter?
     /// The current observation chain (state-audit R1): each attach starts a
@@ -94,9 +99,7 @@ public final class RegistryControlBridge: ControlActionExecutor {
         // Policy first: a turned-off feature's action does not exist for callers.
         if let feature = registry.disabledFeature(for: id) { return .featureDisabled(feature.rawValue) }
         // Every socket run lands here, and its `origin` is the caller's claim.
-        if registry.descriptor(for: id)?.isPersonOnly == true {
-            return .refused(ControlStrings.text("control.error.personOnly", "Only a person in cmux can run this action"))
-        }
+        if registry.descriptor(for: id)?.isPersonOnly == true { return .refused(Self.personOnlyReason) }
         // Reported before the context check, so a context-gated action that
         // cannot exist yet says why instead of "not available here".
         if let reason = registry.unavailableReason(for: id) { return .refused(reason) }
@@ -179,6 +182,7 @@ public final class RegistryControlBridge: ControlActionExecutor {
         info.unavailableReason = registry.unavailableReason(for: descriptor.id)
         info.disabledFeature = registry.disabledFeature(for: descriptor.id)?.rawValue
         info.isDestructive = descriptor.isDestructive
+        info.isPersonOnly = descriptor.isPersonOnly
         info.startsTerminal = descriptor.startsTerminal
         info.isCLI = descriptor.cli
         info.waitsForResult = descriptor.waitsForResult

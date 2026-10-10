@@ -100,6 +100,9 @@ public struct ControlActionInfo: Sendable, Hashable {
     /// Destructive: `action.run` requires `confirm: true`
     /// (`ActionDescriptor.isDestructive`).
     public var isDestructive = false
+    /// Person-only (`ActionDescriptor.isPersonOnly`, cx-zk9t): `action.run` refuses it
+    /// before any argument or context check.
+    public var isPersonOnly = false
     /// Starts a terminal (`ActionDescriptor.startsTerminal`): `action.run`
     /// with `wait` uses the terminal start deadline.
     public var startsTerminal = false

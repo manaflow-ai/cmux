@@ -24,8 +24,8 @@ extension AgentPaneView {
     /// page keeps the decision scoped to its selected session and refuses
     /// stale, collecting, or unavailable groups before sending anything.
     public func runPermissionAction(_ command: String) {
-        let allowed = ["permissionAllowOnce", "permissionAllowChat", "permissionDeny", "permissionExpand",
-                       "permissionRetry", "permissionRevoke", "permissionRefresh"]
+        // Allow goes only through a pinned request (`AgentPanePermissionPin.answer`, cx-zk9t).
+        let allowed = ["permissionDeny", "permissionExpand", "permissionRetry", "permissionRevoke", "permissionRefresh"]
         guard allowed.contains(command) else { return }
         // The user pressed the app's permission shortcut: that is the gesture its answer uses.
         model.transport.gestures.record()

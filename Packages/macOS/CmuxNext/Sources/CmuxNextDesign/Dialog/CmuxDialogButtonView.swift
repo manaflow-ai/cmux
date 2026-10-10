@@ -6,13 +6,17 @@ public import AppKit
 @MainActor
 public final class CmuxDialogButtonView: NSButton {
     public private(set) var button: CmuxDialogButton
+    /// What a press grants (`AXCmuxConfirmKind`): the dialog's kind, `none` for its cancel button.
+    public let confirmKind: CmuxDialogConfirmKind
     private var isHovering = false { didSet { refresh() } }
     private var tracking: NSTrackingArea?
     private var hasFocus = false { didSet { refresh() } }
 
-    public init(_ button: CmuxDialogButton, target: AnyObject?, action: Selector) {
+    public init(_ button: CmuxDialogButton, confirmKind: CmuxDialogConfirmKind = .none, target: AnyObject?, action: Selector) {
         self.button = button
+        self.confirmKind = confirmKind
         super.init(frame: .zero)
+        (cell as? CmuxConfirmKindButtonCell)?.confirmKind = confirmKind
         translatesAutoresizingMaskIntoConstraints = false
         isBordered = false
         bezelStyle = .regularSquare
@@ -35,6 +39,43 @@ public final class CmuxDialogButtonView: NSButton {
         button.title = title
         setAccessibilityLabel(title)
         refresh()
+    }
+
+    @available(macOS, deprecated: 10.10, message: "custom accessibility attribute")
+    nonisolated public override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
+        super.accessibilityAttributeNames() + [CmuxDialogConfirmKind.accessibilityAttribute]
+    }
+
+    @available(macOS, deprecated: 10.10, message: "custom accessibility attribute")
+    nonisolated public override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        attribute == CmuxDialogConfirmKind.accessibilityAttribute ? confirmKind.rawValue : super.accessibilityAttributeValue(attribute)
+    }
+
+    /// An accessibility press is not the person's pointer (cx-zk9t): a user-only button
+    /// refuses it unless VoiceOver or Switch Control runs (`CmuxPersonInput`); Cancel and
+    /// every `none` button accept it.
+    public override func accessibilityPerformPress() -> Bool {
+        guard confirmKind.isUserOnly else { return super.accessibilityPerformPress() }
+        guard CmuxPersonInput.shared.acceptsAccessibilityPress() else { return false }
+        acceptedAccessibilityPress = true
+        defer { acceptedAccessibilityPress = false }
+        return super.accessibilityPerformPress()
+    }
+
+    /// An accepted assistive accessibility press is running (one shot, read by the action).
+    private var acceptedAccessibilityPress = false
+
+    /// Whether the action now running comes from an accepted accessibility press (on the
+    /// button or its cell); clears it.
+    func takeAccessibilityPress() -> Bool {
+        defer { acceptedAccessibilityPress = false }
+        let byCell = (cell as? CmuxConfirmKindButtonCell)?.takeAccessibilityPress() ?? false
+        return acceptedAccessibilityPress || byCell
+    }
+
+    public override class var cellClass: AnyClass? {
+        get { CmuxConfirmKindButtonCell.self }
+        set { super.cellClass = newValue }
     }
 
     public override var acceptsFirstResponder: Bool { true }

@@ -70,6 +70,13 @@ final class QuitFailureAlert {
         return center.press(dialogID, button: id)
     }
 
+    /// `press` for automation (`debug.quit`), through `CmuxDialogCenter.automationPress`.
+    @discardableResult
+    func automationPress(_ id: String) throws(CmuxDialogAutomationRefusal) -> Bool {
+        guard let dialogID, buttons.contains(where: { $0.id == id }) else { return false }
+        return try center.automationPress(dialogID, button: id)
+    }
+
     /// SIGTERM while the dialog is open: quit with what is left.
     func answerQuitAnyway() { finish(.quitAnyway) }
 

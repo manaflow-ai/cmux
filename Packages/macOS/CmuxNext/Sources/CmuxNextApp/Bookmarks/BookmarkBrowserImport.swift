@@ -93,7 +93,10 @@ struct BookmarkBrowserImport {
         let fields = readable.map { CmuxDialogField.check(id: $0.id, title: Self.pickerTitle($0), on: true) }
         var buttons: [CmuxDialogButton] = [.cancel(), CmuxDialogButton(id: "file", title: BookmarkAppStrings.importChooseFile)]
         if !blocked.isEmpty { buttons.append(CmuxDialogButton(id: "privacy", title: BookmarkAppStrings.importOpenPrivacy)) }
-        if !readable.isEmpty { buttons.append(CmuxDialogButton(id: "import", title: BookmarkAppStrings.importConfirm, role: .default)) }
+        // Reading another browser's bookmarks is the person's consent (cx-zk9t); Choose File and Privacy are not.
+        if !readable.isEmpty {
+            buttons.append(CmuxDialogButton(id: "import", title: BookmarkAppStrings.importConfirm, role: .default, confirmKind: .consent))
+        }
         let spec = CmuxDialogSpec(title: BookmarkAppStrings.importTitle, lines: lines, fields: fields, buttons: buttons,
                                   identifier: "cmux.dialog.bookmarks.importBrowser")
         CmuxDialogCenter.shared.present(spec, in: .window(window)) { answer in

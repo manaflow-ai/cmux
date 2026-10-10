@@ -1,4 +1,6 @@
+import CmuxNextAccounts
 import CmuxNextActions
+import CmuxNextControl
 import CmuxNextCodeRouter
 import CmuxNextCompat
 import CmuxNextSettings
@@ -24,6 +26,15 @@ enum AccountsHandlers {
             let provider = try provider(invocation)
             let model = services.accounts.model
             guard provider.codeRouterLink != .unsupported else { throw ActionFailure(message: AccountsAppStrings.unsupported) }
+            // Connecting Codex hands its refresh token to CodeRouter: only the person agrees,
+            // on the Accounts consent (cx-zk9t). A script is refused; a palette run opens it.
+            let scripted = registry.isCapturingRefusal
+            if AccountsModel.needsConfirmation(provider) {
+                guard !scripted else { throw ActionFailure(message: RegistryControlBridge.personOnlyReason) }
+                try? services.settingsWindow.show(section: .accounts)
+                model.connect(provider)
+                return
+            }
             registry.track(Task { @MainActor in
                 // Fresh detection first: the CLI may run before the screen ever opened.
                 model.refresh()

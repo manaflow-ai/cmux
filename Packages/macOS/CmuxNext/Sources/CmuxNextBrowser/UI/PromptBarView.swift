@@ -140,12 +140,12 @@ final class PromptBarView: NSView {
             if kind == .automaticDownloads {
                 // Chrome's question: Block or Allow, remembered for the site.
                 addButton(PageInfoStrings.block, prominent: false, response: .deny)
-                addButton(PageInfoStrings.allow, prominent: true, response: .allow)
+                addButton(PageInfoStrings.allow, prominent: true, response: .allow, kind: .trust)
             } else {
                 // Permission prompt answers: never, this time, while visiting.
                 addButton(PageInfoStrings.promptNeverAllow, prominent: false, response: .deny)
-                addButton(PageInfoStrings.promptAllowThisTime, prominent: false, response: .allowOnce)
-                addButton(PageInfoStrings.promptAllowWhileVisiting, prominent: true, response: .allow)
+                addButton(PageInfoStrings.promptAllowThisTime, prominent: false, response: .allowOnce, kind: .trust)
+                addButton(PageInfoStrings.promptAllowWhileVisiting, prominent: true, response: .allow, kind: .trust)
             }
         case .alert(let message):
             messageLabel.stringValue = "\(Strings.dialogFrom(prompt.origin))\n\(message)"
@@ -187,13 +187,17 @@ final class PromptBarView: NSView {
         }
     }
 
-    private func addButton(_ title: String, prominent: Bool, response: BrowserPromptResponse?) {
-        let button = PromptResponseButton(title: title, prominent: prominent, action: #selector(respond(_:)), target: self)
+    /// `kind`: what the button grants (cx-zk9t). An Allow of a camera, microphone or
+    /// automatic-downloads permission is trust: only the person's own click grants it.
+    private func addButton(_ title: String, prominent: Bool, response: BrowserPromptResponse?, kind: CmuxDialogConfirmKind = .none) {
+        let button = PromptResponseButton(title: title, prominent: prominent, confirmKind: kind, action: #selector(respond(_:)), target: self)
         button.response = response
         buttons.addArrangedSubview(button)
     }
 
     @objc private func respond(_ sender: PromptResponseButton) {
+        if sender.confirmKind.isUserOnly, !sender.takeAccessibilityPress(),
+           !CmuxPersonInput.shared.isPersonAction(NSApp.currentEvent, in: window) { return }
         if let response = sender.response { prompt?.respond(response) } else { submit() }
     }
 }
@@ -215,4 +219,50 @@ extension PromptBarView: NSTextFieldDelegate {
 
 final class PromptResponseButton: ChromeTextButton {
     var response: BrowserPromptResponse?
+    /// What a press grants (`AXCmuxConfirmKind`, cx-zk9t).
+    let confirmKind: CmuxDialogConfirmKind
+
+    init(title: String, prominent: Bool, confirmKind: CmuxDialogConfirmKind, action: Selector?, target: AnyObject?) {
+        self.confirmKind = confirmKind
+        super.init(title: title, prominent: prominent, action: action, target: target)
+        (cell as? CmuxConfirmKindButtonCell)?.confirmKind = confirmKind
+    }
+
+    override class var cellClass: AnyClass? {
+        get { CmuxConfirmKindButtonCell.self }
+        set { super.cellClass = newValue }
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// An accessibility press is not the person's pointer: an Allow refuses it unless
+    /// VoiceOver or Switch Control runs (`CmuxPersonInput`).
+    override func accessibilityPerformPress() -> Bool {
+        guard confirmKind.isUserOnly else { return super.accessibilityPerformPress() }
+        guard CmuxPersonInput.shared.acceptsAccessibilityPress() else { return false }
+        acceptedAccessibilityPress = true
+        defer { acceptedAccessibilityPress = false }
+        return super.accessibilityPerformPress()
+    }
+
+    private var acceptedAccessibilityPress = false
+
+    /// Whether the action now running comes from an accepted accessibility press (on the
+    /// button or its cell); clears it.
+    func takeAccessibilityPress() -> Bool {
+        defer { acceptedAccessibilityPress = false }
+        let byCell = (cell as? CmuxConfirmKindButtonCell)?.takeAccessibilityPress() ?? false
+        return acceptedAccessibilityPress || byCell
+    }
+
+    @available(macOS, deprecated: 10.10, message: "custom accessibility attribute")
+    nonisolated override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
+        super.accessibilityAttributeNames() + [CmuxDialogConfirmKind.accessibilityAttribute]
+    }
+
+    @available(macOS, deprecated: 10.10, message: "custom accessibility attribute")
+    nonisolated override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        attribute == CmuxDialogConfirmKind.accessibilityAttribute ? confirmKind.rawValue : super.accessibilityAttributeValue(attribute)
+    }
 }

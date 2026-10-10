@@ -19,6 +19,11 @@ enum PageInfoHandlers {
             }
             registry.bind(actionID, unavailable: { reason(ActionInvocation()) }, run: { invocation in
                 let entry = try context.page(invocation)
+                // A confirmed change acts only on the site its dialog named (cx-zk9t).
+                if ActionEffectPin.missesPin(id, invocation)
+                    || invocation[ActionEffectPin.originArgument]?.stringValue.map({ PageInfoSite(state: entry.tab.state).origin != $0 }) == true {
+                    throw ActionFailure(message: RefusalStrings.changedWhileConfirming)
+                }
                 var arguments: [String: String] = [:]
                 for (name, value) in invocation.arguments {
                     if let text = value.stringValue { arguments[name] = text }
