@@ -254,7 +254,7 @@ struct ClaudeBackgroundSessionRestoreTests {
         #expect(restored.binding?.checkpointId == sessionID)
     }
 
-    @Test("A normally completed Claude session falls back to native resume")
+    @Test("A normally completed Claude session resumes through the cmux restore admission boundary")
     func normallyCompletedSessionUsesNativeResumeFallback() throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
@@ -266,9 +266,12 @@ struct ClaudeBackgroundSessionRestoreTests {
         }
 
         let input = try #require(restored.input)
-        #expect(input.contains("--resume"), Comment(rawValue: input))
-        #expect(input.contains(sessionID), Comment(rawValue: input))
-        #expect(!input.contains(" restore "), Comment(rawValue: input))
+        #expect(input == " cmux restore claude \(sessionID)\n", Comment(rawValue: input))
+        // The CLI must be able to take the launch claim immediately before exec.
+        let canClaimAtExecution = AgentResumeLaunchGuard.shared.claimResumeLaunch(
+            kind: "claude", sessionId: sessionID
+        )
+        #expect(canClaimAtExecution)
     }
 
     @Test("Duplicate normally completed restores claim one native resume", arguments: [false, true])
