@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import type { Event } from "@sentry/nextjs";
 import { getTableName } from "drizzle-orm";
 
 import {
@@ -639,6 +640,35 @@ mock.module("../services/asc/testflight", () => ({
 }));
 
 const reportError = mock((..._args: Parameters<typeof realReportError>) => {});
+
+type CapturedSentryEvent = {
+  readonly tags: Record<string, string>;
+  readonly contexts: Record<string, unknown>;
+};
+let capturedSentryEvents: CapturedSentryEvent[] = [];
+let sentryScope = { tags: {} as Record<string, string>, contexts: {} as Record<string, unknown> };
+let notifySentryCapture: (() => void) | null = null;
+mock.module("@sentry/nextjs", () => ({
+  withScope: (callback: (scope: unknown) => void) => {
+    sentryScope = { tags: {}, contexts: {} };
+    callback({
+      setLevel: () => {},
+      setContext: (name: string, value: unknown) => {
+        sentryScope.contexts[name] = value;
+      },
+      setTags: (tags: Record<string, string>) => {
+        Object.assign(sentryScope.tags, tags);
+      },
+      setFingerprint: () => {},
+    });
+  },
+  captureException: () => {
+    capturedSentryEvents.push({ tags: { ...sentryScope.tags }, contexts: { ...sentryScope.contexts } });
+    notifySentryCapture?.();
+    return "event-id";
+  },
+  flush: async () => true,
+}));
 
 mock.module("../services/observability/report", () => ({
   ...reportModule,
@@ -1558,6 +1588,103 @@ describe("account deletion route", () => {
     const serialized = JSON.stringify({ message: (error as Error).message, context });
     expect(serialized).not.toContain(ACCOUNT_USER_ID);
   });
+
+  test("the reported deletion stage survives reportError and Sentry scrubbing", async () => {
+    postHogDeleteStatus = 500;
+    await DELETE(accountDeletionRequest());
+    expect(reportError).toHaveBeenCalledTimes(1);
+
+    const { scrubSentryEvent } = await import("../services/sentry");
+    const originalDsn = process.env.SENTRY_DSN;
+    capturedSentryEvents = [];
+    try {
+      process.env.SENTRY_DSN = "https://public@o0.ingest.sentry.io/0";
+      const captured = new Promise<void>((resolve) => {
+        notifySentryCapture = resolve;
+      });
+      realReportError(...reportError.mock.calls[0]!);
+      await captured;
+    } finally {
+      notifySentryCapture = null;
+      restoreEnv("SENTRY_DSN", originalDsn);
+    }
+
+    expect(capturedSentryEvents).toHaveLength(1);
+    const captured = capturedSentryEvents[0]!;
+    const event = scrubSentryEvent({
+      tags: captured.tags,
+      contexts: captured.contexts as NonNullable<Event["contexts"]>,
+    });
+    expect(event.tags).toMatchObject({ deletion_stage: "posthog" });
+    expect(event.contexts?.cmux).toMatchObject({
+      operation: "account_deletion",
+      stage: "posthog",
+      tombstone_status: "failed",
+    });
+  });
+
+  for (const [label, deletionErrors] of [
+    ["an unknown step", [{ person_uuid: "p1", step: "delete_person" }]],
+    ["a missing step", [{ person_uuid: "p1" }]],
+    ["a non-object entry", ["log_activity"]],
+  ] as const) {
+    test(`blocks deletion when matching counts carry a deletion error with ${label}`, async () => {
+      postHogDeleteResponse = {
+        persons_found: 1,
+        persons_deleted: 1,
+        persons_queued_for_deletion: 0,
+        events_queued_for_deletion: true,
+        recordings_queued_for_deletion: true,
+        deletion_errors: deletionErrors,
+      };
+
+      const response = await DELETE(accountDeletionRequest());
+
+      expect(response.status).toBe(500);
+      expect(deleteStackUser).not.toHaveBeenCalled();
+    });
+  }
+
+  for (const [label, queued] of [
+    ["a string", "1"],
+    ["negative", -1],
+    ["null", null],
+  ] as const) {
+    test(`blocks deletion when persons_queued_for_deletion is ${label}`, async () => {
+      postHogDeleteResponse = {
+        persons_found: 1,
+        persons_deleted: 0,
+        persons_queued_for_deletion: queued,
+        events_queued_for_deletion: true,
+        recordings_queued_for_deletion: true,
+        deletion_errors: [],
+      };
+
+      const response = await DELETE(accountDeletionRequest());
+
+      expect(response.status).toBe(500);
+      expect(deleteStackUser).not.toHaveBeenCalled();
+    });
+  }
+
+  for (const flag of ["events_queued_for_deletion", "recordings_queued_for_deletion"] as const) {
+    test(`blocks a queued deletion whose ${flag} is false, since that data is retained`, async () => {
+      postHogDeleteResponse = {
+        persons_found: 1,
+        persons_deleted: 0,
+        persons_queued_for_deletion: 1,
+        events_queued_for_deletion: true,
+        recordings_queued_for_deletion: true,
+        deletion_errors: [],
+        [flag]: false,
+      };
+
+      const response = await DELETE(accountDeletionRequest());
+
+      expect(response.status).toBe(500);
+      expect(deleteStackUser).not.toHaveBeenCalled();
+    });
+  }
 
   test("reports a hosted-step failure to Sentry at the hosted stage", async () => {
     hostedTenantDeleteError = new TypeError("fetch failed");

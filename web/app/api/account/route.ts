@@ -889,7 +889,9 @@ function reportAccountDeletionFailure(
     },
     {
       fingerprint: ["account-deletion-failed", progress.stage],
-      tags: { account_deletion_stage: progress.stage },
+      // reportError drops tag keys containing "account", so the tag is
+      // deletion_stage.
+      tags: { deletion_stage: progress.stage },
     },
   );
 }
@@ -1486,6 +1488,10 @@ function isCompletePostHogPersonDeletion(summary: unknown): boolean {
 
   // No matching person is already the requested deletion state. PostHog has
   // nothing to enqueue in that case, so both queue flags are legitimately false.
+  // With a matched person, PostHog sets each flag to (requested && found > 0)
+  // on both the queued and the synchronous path, and nothing else deletes
+  // those events or recordings. We always request both, so a false flag for a
+  // matched person means its event or recording data is retained: fail.
   return personsFound === 0 ||
     (result.events_queued_for_deletion === true && result.recordings_queued_for_deletion === true);
 }
