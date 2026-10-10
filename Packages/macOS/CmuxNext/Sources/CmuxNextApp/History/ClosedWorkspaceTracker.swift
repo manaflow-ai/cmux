@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 import Observation
@@ -25,7 +26,7 @@ final class ClosedWorkspaceTracker {
         agentHomes = AgentHomeHistory()
         let machines = services.machines
         observation = Task { [weak self, weak services] in
-            for await snapshot in Observations({
+            for await snapshot in ObservationStream({
                 Self.snapshot(of: machines.daemons) { services?.windows.isIncognito(workspace: $0) ?? false }
             }) {
                 self?.apply(snapshot)

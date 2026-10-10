@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 import os
 
 // The marks of the space switcher (cx-5k3r): each space's icon, emoji or
@@ -89,8 +90,8 @@ extension ProfileBarView {
 
     // theme-scoped: called only from drawMarks() inside performWithTheme
     func drawPlus(in rect: NSRect) {
-        let config = NSImage.SymbolConfiguration(pointSize: Metrics.smallIconSize - Metrics.space3, weight: .regular)
-        guard let image = NSImage(systemSymbolName: "plus", accessibilityDescription: Strings.newProfile)?.withSymbolConfiguration(config) else { return }
+        let image = NSImage.icon(.actionAdd, size: .iconRowSize(forLabelPointSize: Metrics.smallIconSize - Metrics.space3))
+        image.accessibilityDescription = Strings.newProfile
         // Tint opaque, then draw at the dot's alpha: a translucent tint over
         // the black template would stay nearly black.
         let color = Palette.textPrimary.withAlphaComponent(hovered == Self.plusIndex ? 0.6 : 0.35)

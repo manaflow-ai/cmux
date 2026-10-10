@@ -61,7 +61,6 @@ enum AccountsStrings {
     }
     static var confirmConnect: String { text("accounts.confirm.connect", "Connect") }
     /// The onboarding list's one-word Connect (to CodeRouter).
-    static var connectShort: String { confirmConnect }
     static var connected: String { text("accounts.outcome.connected", "Connected to CodeRouter") }
     static var removed: String { text("accounts.outcome.removed", "Removed from CodeRouter") }
 

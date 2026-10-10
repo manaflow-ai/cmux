@@ -30,7 +30,7 @@ final class ChiefConversationOwner {
     /// Runs once on the first connection, before the connection is
     /// published (the move of the old per-tag Chiefs). It never holds the
     /// owner back: Home's availability does not wait for the move.
-    @ObservationIgnored var prepare: ((DaemonConnection) async -> Void)?
+    @ObservationIgnored var prepare: (@concurrent @Sendable (DaemonConnection) async -> Void)?
     /// Conversation events (`conversation-changed`, `conversation-typing`).
     @ObservationIgnored var onEvent: ((DaemonEvent) -> Void)?
     @ObservationIgnored private var runTask: Task<Void, Never>?

@@ -373,9 +373,9 @@ for run in runs:
 
 # ensure_tree_publisher <key> <sha> [fallback]: with CMUX_TUI_TREE_DISPATCH=1, starts at
 # most one cmux-tui artifacts run for <sha> when tree <key> is not published and
-# no active run will publish it. cmux-tui-artifacts.yml coalesces branch pushes
-# (only the tip's tree is published), so a build of an older commit with a
-# changed cmux-tui tree has no publisher otherwise. It points
+# no active run will publish it. cmux-tui-artifacts.yml publishes every
+# feat-cmux-next push (cx-73f2), but a commit of another branch, or one whose
+# run failed for good, has no publisher otherwise. It points
 # refs/heads/cmux-tui-pin-<sha12> at <sha> (a publishing ref) and dispatches the
 # workflow there; a workflow_dispatch run has concurrency group sha-<sha>,
 # which the per-branch push group never cancels. Never fails the caller: a
@@ -838,6 +838,14 @@ probe_checkout_tree() {
   [[ "$legacy" == "$key" ]] && legacy=""
   [[ "$recheck" =~ ^[0-9]+$ ]] || { echo "error: CMUX_TUI_TREE_RECHECK_SECONDS must be whole seconds" >&2; exit 2; }
   refuse_dirty_source
+  # The exact commands that publish this checkout's tree: push its commit (for
+  # a pull request, the merge commit GitHub checked out, fetchable by SHA) to a
+  # cmux-tui-pin-* branch, whose cmux-tui artifacts run publishes it.
+  pin_push_hint() {
+    local sha
+    sha="$(git -C "$repo_root" rev-parse HEAD)"
+    printf 'Publish it with: git fetch origin %s && git push origin %s:refs/heads/cmux-tui-pin-%s (pin-cmux-tui.sh --help); the publish then starts the tree jobs' "$sha" "$sha" "${sha:0:12}"
+  }
   probe_state() {
     if tree_published "$key" "$legacy"; then echo ready; return; fi
     case "$source" in
@@ -880,14 +888,14 @@ probe_checkout_tree() {
         state=superseded
         reason="$(git -C "$repo_root" rev-parse HEAD) was superseded by $superseded on ${GITHUB_REF#refs/heads/}: its tree $key was not published, and the newer head is tested"
       else
-        reason="the cmux-tui artifacts runs for ${source#*:} ended without publishing tree $key (${state#ended }). Re-run that run, or for an unmerged commit push it to cmux-tui-pin-<short sha> (pin-cmux-tui.sh --help); the publish then starts the tree jobs"
+        reason="the cmux-tui artifacts runs for ${source#*:} ended without publishing tree $key (${state#ended }). Re-run that run, or for an unmerged commit: $(pin_push_hint)"
         state=failed
       fi ;;
     none)
       if [[ -z "$source" ]]; then
-        reason="${reason:-no cmux-tui artifacts run can publish tree $key}. Push the commit to cmux-tui-pin-<short sha> (pin-cmux-tui.sh --help); the publish then starts the tree jobs"
+        reason="${reason:-no cmux-tui artifacts run can publish tree $key}. $(pin_push_hint)"
       else
-        reason="no cmux-tui artifacts run exists for ${source#*:}, so nothing publishes tree $key. Push the commit to cmux-tui-pin-<short sha> (pin-cmux-tui.sh --help); the publish then starts the tree jobs"
+        reason="no cmux-tui artifacts run exists for ${source#*:}, so nothing publishes tree $key. $(pin_push_hint)"
       fi
       state=failed ;;
     *) state=failed
@@ -952,9 +960,9 @@ resolve_tree_commit() {
 # The nightly's resolver: the newest commit within the last
 # CMUX_TUI_TREE_SEARCH_COMMITS (default 50) commits of HEAD whose v2 tree is
 # published and whose publishing commit's attested manifest carries the same
-# cmux-tui sha256. It never waits: cmux-tui-artifacts.yml lets a running build
-# finish and a newer push replaces only the pending run, so under steady
-# pushes the tip's own tree may never publish (nightly-next run 37464320457).
+# cmux-tui sha256. It never waits: the tip's own tree may still be building
+# (each feat-cmux-next push has its own cmux-tui-artifacts run since cx-73f2;
+# before that a newer push replaced the pending run, nightly-next run 37464320457).
 # Prints commit=, key=, source_commit= (the branch commit whose tree was
 # used), tip_key=, behind= (commits) and behind_hours= lines, and appends them
 # to GITHUB_STEP_SUMMARY. The nightly builds the app at source_commit, so app and

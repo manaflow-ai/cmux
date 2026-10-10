@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "576c4c36f247b3931e6a046633d76e81916a0fd9eec877e509f3bcc8abdafcf1",
+  "catalog_sha256": "a6433ffd0e0bbc273df24727340ad0763224c7f7c16431069159fe08f0e29109",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -126,6 +126,15 @@
     },
     "conversation.typing": {
       "class": "mutation"
+    },
+    "credential.mint": {
+      "class": "read"
+    },
+    "credential.rotate": {
+      "class": "mutation"
+    },
+    "credential.verify": {
+      "class": "read"
     },
     "frontend_projection.get": {
       "class": "read"
@@ -420,6 +429,27 @@
     },
     "session.window.title.set": {
       "class": "mutation"
+    },
+    "settings.get": {
+      "class": "read"
+    },
+    "settings.list": {
+      "class": "read"
+    },
+    "settings.reset": {
+      "class": "mutation"
+    },
+    "settings.reset_all": {
+      "class": "mutation"
+    },
+    "settings.schema": {
+      "class": "read"
+    },
+    "settings.set": {
+      "class": "mutation"
+    },
+    "settings.snapshot": {
+      "class": "read"
     },
     "sidebar_layout.get": {
       "class": "read"

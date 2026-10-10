@@ -41,7 +41,8 @@ public struct CloudConfiguration: Sendable, Equatable {
         /// The Cloud app server (contract 2.1, 2.3): the machine list,
         /// create and the `cloud.machine.connect` carrier socket, all on the
         /// cmux-next API Worker through the host credential relay (cx-t2rz).
-        /// Debug builds with `CMUX_CLOUD_LINK=app`.
+        /// Debug builds with `CMUX_NEXT_CLOUD_LINK=app` (launch env) or
+        /// `CMUX_CLOUD_LINK=app` (baked).
         case appServer
     }
 
@@ -110,7 +111,10 @@ public struct CloudConfiguration: Sendable, Equatable {
             stackProjectID: value("CMUX_STACK_PROJECT_ID") ?? developmentProjectID,
             stackPublishableClientKey: value("CMUX_STACK_PUBLISHABLE_CLIENT_KEY") ?? developmentClientKey,
             isProductionAuth: false, callbackScheme: scheme, bundleID: bundleID, isDebugBuild: isDebugBuild,
-            linkSource: value("CMUX_CLOUD_LINK")?.lowercased() == "app" ? .appServer : .legacy)
+            // CMUX_NEXT_CLOUD_LINK survives the launch: the app unsets every inherited
+            // CMUX_* variable but CMUX_NEXT_* (LaunchIdentity.stripInheritedEnvironment);
+            // CMUX_CLOUD_LINK works only when baked into the bundle's LSEnvironment.
+            linkSource: (value("CMUX_NEXT_CLOUD_LINK") ?? value("CMUX_CLOUD_LINK"))?.lowercased() == "app" ? .appServer : .legacy)
     }
 
     /// This process's configuration.

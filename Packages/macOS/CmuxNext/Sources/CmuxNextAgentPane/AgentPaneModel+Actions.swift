@@ -6,7 +6,7 @@ extension AgentPaneModel {
     /// What runs when a connect is refused: signed out, cmux Cloud… starts sign-in.
     static let connectFallbacks: [String: String] = ["newCloudMachine": "palette.auth.signIn"]
 
-    /// `action.run` from the page. The page runs Import and Sync; any agent tab may open the New Tab
+    /// `action.run` from the page. Any agent tab may open the New Tab
     /// page (a blank chat's New), the command palette's chats page ("Show all", decision K1), and the
     /// location row's SSH and cmux Cloud connect flows (Lawrence 2026-10-06: "I cannot click on cmux
     /// Cloud SSH"). The New Tab page also runs Add Harness… ("Integrate a harness").
@@ -15,7 +15,7 @@ extension AgentPaneModel {
     /// inside that same gesture.
     func runAction(_ id: String) -> [String: Any] {
         guard id == "newTab.page" || id == "agentPane.searchChats" || Self.connectActions.contains(id) || id == Self.addAgentAction
-                || ((id == "palette.welcomeChecklist" || id == "palette.addHarness") && newTab != nil)
+                || (id == "palette.addHarness" && newTab != nil)
                 || newTab?.tools.contains(where: { $0.id == id || $0.menu.contains(id) }) == true,
               let onRunAction else {
             return Self.unsupported("action.run")

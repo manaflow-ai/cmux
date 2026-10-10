@@ -96,7 +96,7 @@ def clean(argv):
         res.append(a); i += 1
     res = [re.sub(r"-apple-macos(x?)[0-9.]+", lambda m: f"-apple-macos{m.group(1)}{floor}.0", a) if "-apple-macos" in a else a for a in res]
     return res + ["-typecheck", "-continue-building-after-errors", "-Xfrontend", "-solver-expression-time-threshold=600", "-Xfrontend", "-solver-scope-threshold=100000000"]
-first_party = {m: a for m, a in cmds.items() if m.lower().startswith("cmux")}
+first_party = {m: a for m, a in cmds.items() if m.lower().startswith(("cmux", "messageslab"))}
 print(f"modules: {len(cmds)} total, {len(first_party)} first-party")
 def run(item):
     mod, argv = item

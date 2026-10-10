@@ -22,7 +22,7 @@ extension SidebarListView {
     /// have a card now: none during a drag or rename, or off the visible rows.
     func hoverCardWorkspace(at point: CGPoint) -> WorkspaceID? {
         guard drag == nil, !inlineRename.isActive, visibleRect.contains(point), !isHiddenOrHasHiddenAncestor,
-              case .workspace(let id)? = displayed.row(at: point.y)?.key, workspaces[id] != nil else { return nil }
+              case .workspace(let id)? = displayed.row(at: point.y)?.key, workspaces[id] != nil, !model.isPlaceholder(id) else { return nil }
         return id
     }
     /// The row's frame on screen, nil when it is not laid out.

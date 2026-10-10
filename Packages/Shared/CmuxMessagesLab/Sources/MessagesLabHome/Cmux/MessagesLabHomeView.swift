@@ -269,6 +269,18 @@ public final class MessagesLabHomeView: NSView {
         return out
     }
 
+    /// Automation (DEBUG socket): the text of the newest `limit` messages
+    /// this view holds (its own store), oldest first.
+    public func debugMessageTexts(limit: Int = 10) -> [String] {
+        guard let store = controller.store else { return [] }
+        return store.state.conversation.messages.suffix(limit).map { message in
+            message.parts.compactMap { part in
+                if case let .text(text, _) = part { return text }
+                return nil
+            }.joined(separator: "\n")
+        }
+    }
+
     /// Automation (DEBUG socket): plays or pauses the newest video bubble
     /// through the click's path (`ChatIntents.toggleVideo`).
     public func debugToggleNewestVideo() -> Bool {

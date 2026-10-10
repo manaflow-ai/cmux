@@ -185,8 +185,9 @@ Not verified live: omnibar bookmark rows (typing into the omnibar of a
 non-key window did not reach the field; ranking is unit tested), drag
 reorder on the bar and in the manager, the bubble's Remove and folder change.
 
-Not built: favicons on the bar and in menus (a globe and folder symbol
-stand in; the cache key is stored), Chromium's `chrome.bookmarks` bridge
+Favicons on the bar and in its menus: the site's icon (an open tab's on the
+bookmark's origin, else the origin's `/favicon.ico`); a bar drawn while one
+loads redraws when it lands. Not built: Chromium's `chrome.bookmarks` bridge
 (section 4), bookmark rows in incognito omnibars, Bookmark All Tabs across
 every pane of a window (it takes the focused pane), a dedicated sync with
 other Macs.

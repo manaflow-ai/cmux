@@ -342,6 +342,9 @@ pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Pend
         cleanup(&path);
         return Err(error.into());
     }
+    // The settings owner (settings-v1) reads the settings file and starts its
+    // watcher once this daemon owns the socket, before any client connects.
+    mux.start_default_settings_owner();
     let active_connections = mux.connection_stats().clone();
     let render_service = Arc::new(RenderService::new());
     let shutdown = Arc::new(AtomicBool::new(false));

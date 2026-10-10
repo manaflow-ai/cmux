@@ -312,8 +312,8 @@ describe("editors", () => {
   test("a section's own buttons run their actions; Advanced resets all after a confirm", async () => {
     page = await renderPage({ path: "/settings/general" });
     await settle();
-    await click(page.container.querySelector('[data-action="palette.welcomeChecklist"]')!);
-    expect(ops(page.provider, "cmux.app.action.run")).toEqual([{ action: "palette.welcomeChecklist" }]);
+    await click(page.container.querySelector('[data-action="palette.makeDefaultTerminal"]')!);
+    expect(ops(page.provider, "cmux.app.action.run")).toEqual([{ action: "palette.makeDefaultTerminal" }]);
     page.unmount();
     page = await renderPage({ path: "/settings/advanced" });
     await click(page.container.querySelector("[data-reset-all]")!);

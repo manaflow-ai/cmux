@@ -16,6 +16,8 @@ export interface ThreadPanelProps {
   onClose(): void;
   onSend(text: string): Promise<boolean>;
   onReact(message: HomeMessage, value: string): void;
+  onEdit?(message: HomeMessage, text: string): Promise<boolean>;
+  onRetract?(message: HomeMessage): void;
 }
 
 export function ThreadPanel({
@@ -28,6 +30,8 @@ export function ThreadPanel({
   onClose,
   onSend,
   onReact,
+  onEdit,
+  onRetract,
 }: ThreadPanelProps) {
   const { t } = strings;
   const rows = useMemo<TimelineRow[]>(() => {
@@ -63,6 +67,8 @@ export function ThreadPanel({
         loadingOlder={false}
         onLoadOlder={() => undefined}
         onReact={onReact}
+        onEdit={onEdit}
+        onRetract={onRetract}
         className="in-thread"
       />
       <Composer placeholder={t("composer.thread")} label={t("composer.thread")} disabled={!canSend} onSend={onSend} />

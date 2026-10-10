@@ -56,6 +56,13 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
     /// The context of the window whose key-down runs this (the key
     /// dispatcher), checked instead of the registry's process-wide context.
     public var keyContext: ActionContext?
+    /// An agent opened this beside its chat (`caller.agent_session` with no
+    /// target): the target is the column right of the chat, whose new tab is
+    /// selected there while keyboard focus stays in the chat.
+    public var besideCaller = false
+    /// No column is right of the chat: the target is the chat, and the new
+    /// tab moves into a new column right of it.
+    public var newColumnBeside = false
 
     public init(target: ActionTargetRef? = nil, arguments: [String: ActionValue] = [:], origin: ActionOrigin = .user,
                 focusRequested: Bool = false) {

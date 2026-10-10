@@ -89,9 +89,10 @@ pub fn local_person() -> Principal {
 
 /// The local caller, as a client states it in its hello. Locally the trust
 /// boundary is the user (same uid, a 0700 store directory and socket), like
-/// the control socket: an agent process states its principal through
-/// `CMUX_AGENT_PRINCIPAL` (set by acpmux), everyone else acts as the local
-/// person. Remote owners take the actor from the authenticated connection.
+/// the control socket: an agent process may state its principal
+/// through `CMUX_AGENT_PRINCIPAL` (no launcher sets it yet; acpmux marks
+/// its agents with `ACPMUX_SESSION_ID` only), everyone else acts as the
+/// local person. Remote owners take the actor from the authenticated connection.
 pub fn local_actor() -> Principal {
     let person = local_person();
     match env_var("CMUX_AGENT_PRINCIPAL") {

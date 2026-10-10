@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextDesign
 
 /// A floating panel that shows one popup page (`window.open` with window
@@ -46,7 +47,7 @@ final class BrowserPopupPanel: NSPanel {
     private func observeTitle() {
         let page = page
         observation = Task { [weak self] in
-            for await state in Observations({ page.state }) {
+            for await state in ObservationStream({ page.state }) {
                 self?.show(title: state.title, url: state.url)
             }
         }

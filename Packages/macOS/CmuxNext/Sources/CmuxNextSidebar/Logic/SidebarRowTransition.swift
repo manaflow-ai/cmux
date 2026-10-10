@@ -4,16 +4,27 @@ import CoreGraphics
 /// rows under the header that hides them (Dia): the header stays put, a
 /// collapsing group's, section's or workspace's rows slide up beneath it,
 /// and an expand brings them back out from under it. Any other row that
-/// appears or leaves (a new or closed workspace) keeps the small drop-in.
+/// appears or leaves (a new or closed workspace, tab or group) opens or
+/// closes its own slot in place, like a browser's vertical tabs (cx-bqm6).
 nonisolated enum SidebarRowTransition {
-    /// The y `row` (a row of `new` that `old` lacks) starts at.
-    static func appearY(_ row: SidebarRow, from old: SidebarLayout, to new: SidebarLayout, dropIn: CGFloat) -> CGFloat {
-        foldingHeader(of: row, open: new, closed: old, placedIn: new)?.y ?? row.y - dropIn
+    /// Where an inserted row (a row of `new` that `old` lacks) starts: under
+    /// the header that unfolds it at full height, or else its own slot at
+    /// zero height, so it grows in place while its siblings make room.
+    static func insertFrame(_ row: SidebarRow, target: CGRect, from old: SidebarLayout, to new: SidebarLayout) -> CGRect {
+        if let header = foldingHeader(of: row, open: new, closed: old, placedIn: new) {
+            return CGRect(x: target.minX, y: header.y, width: target.width, height: target.height)
+        }
+        return CGRect(x: target.minX, y: target.minY, width: target.width, height: 0)
     }
 
-    /// The y `row` (a row of `old` that `new` lacks) ends at.
-    static func leaveY(_ row: SidebarRow, from old: SidebarLayout, to new: SidebarLayout, dropIn: CGFloat) -> CGFloat {
-        foldedY(row, from: old, to: new) ?? row.y - dropIn
+    /// Where a removed row (a row of `old` that `new` lacks) ends: under the
+    /// header that folds it, or else its own slot shrunk to zero height, so
+    /// the rows below close the gap on the same spring.
+    static func removeFrame(_ row: SidebarRow, current: CGRect, from old: SidebarLayout, to new: SidebarLayout) -> CGRect {
+        if let y = foldedY(row, from: old, to: new) {
+            return CGRect(x: current.minX, y: y, width: current.width, height: current.height)
+        }
+        return CGRect(x: current.minX, y: current.minY, width: current.width, height: 0)
     }
 
     /// The y of the header `row` (a row of `old` that `new` lacks) folds

@@ -131,7 +131,7 @@ export class MockSettingsProvider {
       // The registry buttons SettingsSchema.actions(in:) lists for these sections.
       "cmux.settings.section.actions": (params) =>
         ({
-          general: [{ id: "palette.welcomeChecklist", title: "Welcome Checklist", enabled: true }],
+          general: [{ id: "palette.makeDefaultTerminal", title: "Make cmux the Default Terminal", enabled: true }],
           advanced: [{ id: "reloadConfiguration", title: "Reload Configuration", enabled: true }],
         })[String((params as { section: string }).section)] ?? [],
       "cmux.settings.folders.add": (params) => {
@@ -165,7 +165,7 @@ export class MockSettingsProvider {
         // The page bridge allows this page only its declared actions.
         if (
           !(settingsPageActions as readonly string[]).includes(params.action as string) &&
-          params.action !== "palette.welcomeChecklist"
+          params.action !== "palette.makeDefaultTerminal"
         ) {
           throw new ProtocolError("cmux.page.action_refused", `action ${String(params.action)} is not allowed here`);
         }

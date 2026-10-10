@@ -32,7 +32,7 @@ pub use db::{Appended, NewMessage, StateWrite};
 pub use fault::{fault, FAULT_ENV};
 pub use model::{
     capacity_wait, error_class, CompactModel, ErrorClass, Followup, ModelError, Reply,
-    CAPACITY_WAIT,
+    CAPACITY_WAIT, SETUP_ERROR,
 };
 pub use report::{Report, Reporter};
 

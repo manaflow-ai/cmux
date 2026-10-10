@@ -297,6 +297,18 @@ on:
         description: "Same-tree mode: the cmux-next run that probed the tree"
         required: false
         default: ""
+      dev_daily:
+        description: "Build the Release cmux NEXT DEV artifact for the scheduled dev channel"
+        required: false
+        default: false
+        type: boolean
+      dev_daily_sha:
+        description: "Expected feat-cmux-next SHA for the scheduled dev channel"
+        required: false
+        default: ""
+
+run-name: >-
+  ${{ inputs.dev_daily == true && format('cmux NEXT DEV daily · {0}', inputs.dev_daily_sha || github.sha) || format('cmux-next · {0}', github.sha) }}
 
 permissions:
   contents: read
@@ -445,6 +457,7 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          DEV_DAILY: ${{ inputs.dev_daily || false }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -460,8 +473,39 @@ jobs:
             : > "$changed"
           fi
           echo "changed files: $(wc -l < "$changed"); labels: ${labels:-none}"
-          python3 scripts/ci/cmux_next_route.py --event "$EVENT_NAME" --changed-files "$changed" \
-            --labels "$labels" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+          if [[ "$EVENT_NAME" == workflow_dispatch && "$GITHUB_REF" == refs/heads/feat-cmux-next && "$DEV_DAILY" == true && "${{ inputs.dev_daily_sha }}" == "$GITHUB_SHA" ]]; then
+            {
+              echo 'native=false'
+              echo 'swift_canary=false'
+              echo 'swift_canary_targets='
+              echo 'macos=true'
+              echo 'scheme=true'
+              echo 'generated=false'
+              echo 'swift=false'
+              echo 'daemon=false'
+              echo 'full=false'
+              echo 'swift_filter='
+              echo 'swift_targets='
+            } >> "$GITHUB_OUTPUT"
+            {
+              echo '### cmux-next tiers'
+              echo
+              echo '| tier | runs |'
+              echo '| --- | --- |'
+              echo '| generated | false |'
+              echo '| native | false |'
+              echo '| swift_canary | false |'
+              echo '| scheme | true |'
+              echo '| swift | false |'
+              echo '| daemon | false |'
+              echo '| full | false |'
+              echo
+              echo '- scheduled dev-daily dispatch: the exact feat-cmux-next SHA builds the Release cmux NEXT DEV artifact in the scheme job.'
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            python3 scripts/ci/cmux_next_route.py --event "$EVENT_NAME" --changed-files "$changed" \
+              --labels "$labels" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+          fi
           # Whether this pull request changes the cmux-tui it would test against.
           # One that does not is never failed for an unpublished merge tree
           # (the probe steps below, CMUX_TUI_TREE_BASE_FALLBACK).
@@ -2190,7 +2234,7 @@ jobs:
       # replace the existing PR artifact.
       - name: Compile the cmux NEXT DEV Release app
         id: compile-cmux-next-dev-release
-        if: github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.push-head-preflight.outputs.current == 'true'
+        if: (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.push-head-preflight.outputs.current == 'true') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat-cmux-next' && inputs.dev_daily == true && inputs.dev_daily_sha == github.sha && needs.push-head-preflight.outputs.current == 'true')
         env:
           CMUX_NEXT_CONFIGURATION: Release
           CMUX_NEXT_PRODUCT_NAME: cmux NEXT DEV

@@ -7,6 +7,9 @@
 //! A Web connection cannot answer the question itself. The unix socket (the
 //! CLI, the TUI) is not gated.
 
+// Unix only until the Windows port runs the daemon (cmux::local_socket).
+#![cfg(unix)]
+
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;

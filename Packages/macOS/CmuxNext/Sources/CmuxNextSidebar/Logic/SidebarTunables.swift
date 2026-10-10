@@ -27,8 +27,8 @@ public nonisolated enum SidebarTunables {
 
     public static let agentMark = Tunable<SidebarAgentMarkVariant>.choice(
         "sidebar.agentMark", .sidebar, "Agent mark",
-        help: "Where a workspace row draws the brand mark of an agent working or waiting in it (R79 prototype).",
-        default: .off, code: "SidebarTunables.agentMark")
+        help: "Where a workspace row draws the brand mark of an agent running in it (R79 prototype).",
+        default: .besideTitle, code: "SidebarTunables.agentMark")
 
     public static var all: [TunableDescriptor] {
         [groupEdgeFraction, groupExitFraction, sectionTopFraction, workspaceOntoStart, workspaceOntoEnd].map(\.descriptor) + [agentMark.descriptor, NotificationBadgeLook.tunable.descriptor, NotificationIconLook.tunable.descriptor, updateCardButton.descriptor, SidebarChatsDesign.tunable.descriptor] + SidebarSectionTunables.all

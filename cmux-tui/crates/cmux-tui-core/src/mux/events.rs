@@ -92,6 +92,9 @@ pub enum MuxEvent {
         personal_revision: u64,
     },
     BookmarksChanged(personal::BookmarksChange),
+    /// The settings file or a managed layer changed (`settings-v1`;
+    /// mux/settings.rs).
+    SettingsChanged(cmux_config::Change),
     Conversation(Arc<crate::conversation_store::ConversationEvent>),
     /// An event of the cloud conversations proxy (`cloud-conversations-v1`).
     CloudConversation(Arc<crate::cloud_conversations::CloudEvent>),

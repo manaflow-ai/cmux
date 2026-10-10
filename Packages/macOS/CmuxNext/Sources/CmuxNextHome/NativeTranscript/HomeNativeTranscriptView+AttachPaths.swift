@@ -78,6 +78,8 @@ extension HomeNativeTranscriptView {
     public func debugMenuTitles(mine: Bool) -> [String]? { transcript.debugMenuTitles(mine: mine) }
     /// The field's height and the gap under the newest receipt, in points.
     public func debugGeometry() -> [String: Double] { transcript.debugGeometry() }
+    /// The text of the newest `limit` messages this view shows, oldest first.
+    public func debugMessageTexts(limit: Int = 10) -> [String] { transcript.debugMessageTexts(limit: limit) }
     /// Scrolls the transcript by `dy` points through AppKit's scroll view.
     public func debugScroll(by dy: CGFloat) { transcript.debugScroll(by: dy) }
 }

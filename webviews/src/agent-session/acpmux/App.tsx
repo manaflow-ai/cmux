@@ -101,7 +101,7 @@ import {
 import { RenderCard, canRender } from "./conversation/RenderCard";
 import { renderCall } from "./conversation/renderCall";
 import { DateLine } from "./conversation/DateLine";
-import { SHORTCUT_ACTIONS, ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
+import { ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
 import { FALLBACK_LINK_SCHEME, revealTurnWhenShown, setLinkScheme } from "./links";
 import { copyText, copyTextResult } from "./conversation/clipboard";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
@@ -110,9 +110,10 @@ import { ImageViewer } from "./conversation/ImageViewer";
 import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { sessionLink } from "./links";
 import { ChatHeaderStatus } from "./header/ChatHeaderStatus";
-import { ChatHeaderTools, HEADER_ACTIONS, type ChatMenuItem } from "./header/ChatHeaderTools";
+import { ChatHeaderTools, HEADER_ACTIONS, menuGroups, type ChatMenuItem } from "./header/ChatHeaderTools";
 import { configureQuickActions, type QuickActionMode } from "./header/quickActions";
 import { archiveRow } from "./header/archiveRow";
+import { copyRow } from "./header/copyRow";
 import { sideChatRow } from "./header/sideChatRow";
 import { Thinking } from "./conversation/Thinking";
 import { WorkingFor } from "./conversation/WorkingFor";
@@ -1591,7 +1592,11 @@ function AcpmuxPane() {
         forkSeq,
       }),
       ...(connected && {
-        retry: (prompt: string) => void callNative("chat.send", { text: prompt }).catch(() => undefined),
+        retry: (rowId: string, prompt: string) =>
+          void callNative("chat.send", {
+            text: prompt,
+            attachments: directClient.current?.retryAttachmentsFor(rowId) ?? [],
+          }).catch(() => undefined),
       }),
       ...(connected &&
         loginCommand &&
@@ -1605,8 +1610,23 @@ function AcpmuxPane() {
             }).catch(() => undefined),
         }),
       review: hunkReview,
+      route: {
+        harness: snapshot.summary?.harness,
+        name: catalog.find((entry) => entry.id === (snapshot.summary?.harness ?? ""))?.name,
+      },
+      switchModel: () => void openPicker(translate(PICKER_LABELS.model)),
     }),
-    [forkable, forkSeq, connected, hunkReview, loginCommand, snapshot.summary?.hostKind, snapshot.summary?.cwd],
+    [
+      forkable,
+      forkSeq,
+      connected,
+      hunkReview,
+      loginCommand,
+      snapshot.summary?.hostKind,
+      snapshot.summary?.cwd,
+      snapshot.summary?.harness,
+      catalog,
+    ],
   );
   // Streaming text changes rows on every chunk; only the turn's tool calls change its files.
   const diffActivity = useRef<{ key: string; files: ReturnType<typeof turnFiles> }>(undefined);
@@ -1911,6 +1931,7 @@ function AcpmuxPane() {
       },
       receive(next) {
         if (next.protocolVersion !== 1) return;
+        harnessSwitch.reconcile(next);
         const change = diffRows(rowsRef.current, next.rows);
         rowsRef.current = new Map(next.rows.map((row) => [row.id, row]));
         snapshotRef.current = next;
@@ -2105,6 +2126,7 @@ function AcpmuxPane() {
         const client = await AcpmuxDirectClient.connect(
           mock ? mockConfig : (host as AcpmuxHostConfig),
           (next) => {
+            harnessSwitch.reconcile(next);
             rowsRef.current = new Map(next.rows.map((row) => [row.id, row]));
             snapshotRef.current = next;
             // What each harness reports feeds the next switch's first frame (harnessProfiles.ts).
@@ -2241,7 +2263,20 @@ function AcpmuxPane() {
             if (!harnessSwitch.pickMode(String(modeId))) await client.setMode(String(modeId));
           },
           "chat.effort": async ({ configId, value }) => {
-            if (!harnessSwitch.pickConfig(String(configId), String(value)))
+            const summary = snapshotRef.current?.summary;
+            const current = summary?.configOptions?.find((option) => option.id === String(configId))?.currentValue;
+            if (
+              !harnessSwitch.pickConfig(
+                String(configId),
+                String(value),
+                summary?.sessionId
+                  ? {
+                      sessionId: summary.sessionId,
+                      current,
+                    }
+                  : undefined,
+              )
+            )
               await client.setConfig(String(configId), String(value));
           },
           "chat.select": async ({ sessionId }) => {
@@ -2507,28 +2542,11 @@ function AcpmuxPane() {
     (throughSeq) => ignoreFailure(callNative("chat.side", { throughSeq })),
     t,
   );
-  const copyLinkRow = (link: string): ChatMenuItem => ({
-    key: "copyLink",
-    label: t("chatMenu.copyLink"),
-    icon: "link",
-    shortcutAction: SHORTCUT_ACTIONS.copyTabLink,
-    onSelect: () => ignoreFailure(copyText(link)),
-  });
   const chatMenu = (): ChatMenuItem[] => {
     const link = snapshot.sessionId ? sessionLink(snapshot.sessionId) : undefined;
-    const chat: ChatMenuItem[] = [
-      {
-        key: "inspector",
-        label: t("inspector.title"),
-        icon: "code",
-        onSelect: () => {
-          inspectorOpener.current = Array.from(
-            document.querySelectorAll<HTMLElement>(".acpmux-header-tools button"),
-          ).find((button) => button.getAttribute("aria-label") === t("chatMenu.open"));
-          toggleInspector(true);
-        },
-      },
-      ...(forkable && lastForkSeq !== undefined
+    const copy = copyRow({ link, rows: snapshot.rows }, (text) => ignoreFailure(copyText(text)), t);
+    const fork: ChatMenuItem[] =
+      forkable && lastForkSeq !== undefined
         ? [
             {
               key: "fork",
@@ -2537,9 +2555,9 @@ function AcpmuxPane() {
               onSelect: () => turnActions.fork?.(lastForkSeq),
             },
           ]
-        : []),
-      ...(sideChat ? [sideChat] : []),
-      ...(snapshot.canHandoff && handoffTargets.length > 0
+        : [];
+    const continueIn: ChatMenuItem[] =
+      snapshot.canHandoff && handoffTargets.length > 0
         ? [
             {
               key: "continue",
@@ -2553,7 +2571,19 @@ function AcpmuxPane() {
               })),
             },
           ]
-        : []),
+        : [];
+    const tools: ChatMenuItem[] = [
+      {
+        key: "inspector",
+        label: t("inspector.title"),
+        icon: "code",
+        onSelect: () => {
+          inspectorOpener.current = Array.from(
+            document.querySelectorAll<HTMLElement>(".acpmux-header-tools button"),
+          ).find((button) => button.getAttribute("aria-label") === t("chatMenu.open"));
+          toggleInspector(true);
+        },
+      },
       ...(checkpoints.supported
         ? [
             {
@@ -2566,57 +2596,62 @@ function AcpmuxPane() {
         : []),
     ];
     // Quick Chat's panel is not a tab: only the chat's own actions.
-    if (quick)
-      return chat.length ? [...chat, ...(link ? (["separator", copyLinkRow(link)] as ChatMenuItem[]) : [])] : [];
-    return [
-      {
-        key: "rename",
-        label: t("chatMenu.rename"),
-        icon: "action.edit",
-        shortcutAction: HEADER_ACTIONS.rename,
-        onSelect: () => runHeaderAction(HEADER_ACTIONS.rename),
-      },
-      {
-        key: "pin",
-        label: tabPinned.current ? t("chatMenu.unpin") : t("chatMenu.pin"),
-        icon: "action.pin",
-        shortcutAction: HEADER_ACTIONS.pin,
-        onSelect: () => runHeaderAction(HEADER_ACTIONS.pin),
-      },
-      ...(archive ? [archive] : []),
-      ...(chat.length ? (["separator", ...chat] as ChatMenuItem[]) : []),
-      ...(link ? (["separator", copyLinkRow(link)] as ChatMenuItem[]) : []),
-      "separator",
-      {
-        key: "moveRight",
-        label: t("chatMenu.moveRight"),
-        icon: "pane.split.right",
-        shortcutAction: HEADER_ACTIONS.moveRight,
-        onSelect: () => runHeaderAction(HEADER_ACTIONS.moveRight),
-      },
-      {
-        key: "newWorkspace",
-        label: t("chatMenu.newWorkspace"),
-        icon: "workspace.new",
-        shortcutAction: HEADER_ACTIONS.newWorkspace,
-        onSelect: () => runHeaderAction(HEADER_ACTIONS.newWorkspace),
-      },
-      {
-        key: "newWindow",
-        label: t("chatMenu.newWindow"),
-        icon: "app.open.external",
-        shortcutAction: HEADER_ACTIONS.newWindow,
-        onSelect: () => runHeaderAction(HEADER_ACTIONS.newWindow),
-      },
-      "separator",
-      {
-        key: "close",
-        label: t("chatMenu.close"),
-        icon: "tab.close",
-        shortcutAction: HEADER_ACTIONS.close,
-        onSelect: () => runHeaderAction(HEADER_ACTIONS.close),
-      },
-    ];
+    if (quick) return menuGroups([...fork, ...continueIn], copy ? [copy] : [], tools);
+    // ChatGPT's order: the chat's name and pin, new chats from it, Copy, where it shows, then Archive.
+    return menuGroups(
+      [
+        {
+          key: "rename",
+          label: t("chatMenu.rename"),
+          icon: "action.edit",
+          shortcutAction: HEADER_ACTIONS.rename,
+          onSelect: () => runHeaderAction(HEADER_ACTIONS.rename),
+        },
+        {
+          key: "pin",
+          label: tabPinned.current ? t("chatMenu.unpin") : t("chatMenu.pin"),
+          icon: "action.pin",
+          shortcutAction: HEADER_ACTIONS.pin,
+          onSelect: () => runHeaderAction(HEADER_ACTIONS.pin),
+        },
+      ],
+      [...(sideChat ? [sideChat] : []), ...fork, ...continueIn],
+      copy ? [copy] : [],
+      [
+        {
+          key: "moveRight",
+          label: t("chatMenu.moveRight"),
+          icon: "pane.split.right",
+          shortcutAction: HEADER_ACTIONS.moveRight,
+          onSelect: () => runHeaderAction(HEADER_ACTIONS.moveRight),
+        },
+        {
+          key: "newWorkspace",
+          label: t("chatMenu.newWorkspace"),
+          icon: "workspace.new",
+          shortcutAction: HEADER_ACTIONS.newWorkspace,
+          onSelect: () => runHeaderAction(HEADER_ACTIONS.newWorkspace),
+        },
+        {
+          key: "newWindow",
+          label: t("chatMenu.newWindow"),
+          icon: "app.open.external",
+          shortcutAction: HEADER_ACTIONS.newWindow,
+          onSelect: () => runHeaderAction(HEADER_ACTIONS.newWindow),
+        },
+      ],
+      tools,
+      [
+        ...(archive ? [archive] : []),
+        {
+          key: "close",
+          label: t("chatMenu.close"),
+          icon: "tab.close",
+          shortcutAction: HEADER_ACTIONS.close,
+          onSelect: () => runHeaderAction(HEADER_ACTIONS.close),
+        },
+      ],
+    );
   };
   const showNewTab = newTab !== undefined && !snapshot.sessionId && snapshot.rows.length === 0;
   const inspectorHiddenSurface = quick || showNewTab;
@@ -2684,7 +2719,7 @@ function AcpmuxPane() {
     return [...byPath.values()];
   }, [composerSnapshot.sessions, newTab?.cwd, newTab?.projects, directProjects]);
   const transcript = (
-    <ImageViewerContext.Provider value={quick ? undefined : openImage}>
+    <ImageViewerContext.Provider value={openImage}>
       <ShellActionsContext.Provider value={shellActions}>
         <TurnActionsContext.Provider value={turnActions}>
           <TurnCountsContext.Provider value={turnCountsFor}>
@@ -2835,7 +2870,7 @@ function AcpmuxPane() {
         />
       )}
       {/* An attached image opens in the chat's image viewer, as a transcript image does. */}
-      <ImageViewerContext.Provider value={quick ? undefined : openImage}>
+      <ImageViewerContext.Provider value={openImage}>
         <Composer
           snapshot={composerSnapshot}
           sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
@@ -3003,6 +3038,14 @@ function AcpmuxPane() {
             }
             composer={composer}
           />
+          {imageView && (
+            <ImageViewer
+              images={imageView.images}
+              index={imageView.index}
+              onIndex={(index) => setImageView((current) => current && { ...current, index })}
+              onClose={() => setImageView(undefined)}
+            />
+          )}
         </section>
       </ShortcutsContext.Provider>
     );
@@ -3078,7 +3121,11 @@ function AcpmuxPane() {
                 selectSession(sessionId);
               }}
               onShowAll={showAllChats}
-              onBrowseProject={() => void callNative("action.run", { id: "palette.welcomeChecklist" })}
+              onBrowseProject={() =>
+                callNative<{ cwd?: string }>("project.browse")
+                  .then((result) => result?.cwd)
+                  .catch(() => undefined)
+              }
               onAddHarness={() => void callNative("action.run", { id: "palette.addHarness" }).catch(() => undefined)}
               onEditShortcut={(kind) => void callNative("shortcut.edit", { kind })}
               inputToken={newTab.inputToken}

@@ -1,6 +1,8 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBridge
+import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import Observation
@@ -79,7 +81,7 @@ final class CloseUndoToasts {
         seenDaemonItems = Set(Self.daemonItemIDs(machines.daemons))
         // task-owner: the service (cancelled in deinit); event-driven (Observation)
         observation = Task { [weak self] in
-            for await ids in Observations({ Self.daemonItemIDs(machines.daemons) }) {
+            for await ids in ObservationStream({ Self.daemonItemIDs(machines.daemons) }) {
                 self?.daemonItemsChanged(ids)
             }
         }
@@ -126,8 +128,15 @@ final class CloseUndoToasts {
         announced += 1
         guard !entries.isEmpty else { announcedEmpty += 1; return }
         expected.append(Expected(tabs: entries.sorted { $0.index < $1.index }, paneResourceID: pane.resourceID,
-                                 title: tabs.count == 1 ? tabs[0].displayTitle : "", window: window))
+                                 title: tabs.count == 1 ? Self.title(of: tabs[0]) : "", window: window))
         if expected.count > 16 { expected.removeFirst(expected.count - 16) }
+    }
+
+    /// A tab's name in its toast, as its strip shows it: a browser tab on
+    /// the New Tab or blank page is "New Tab", never the page's address
+    /// (the toast said `Closed "chrome://newtab/"`).
+    static func title(of tab: TabModel) -> String {
+        tab.kind == .browser && BrowserNewTabPage.isNewTabPage(tab.displayTitle) ? Strings.untitledBrowser : tab.displayTitle
     }
 
     /// The app's tracker recorded a closed tab.

@@ -71,6 +71,8 @@ final class AppControl {
             .mainActor("debug.motion") { call in .value(DebugMotion.handle(call.params)) },
             // Launch, palette-open and terminal-creation spans (bench-stalls.py).
             .mainActor("debug.timings") { call in .value(DebugTimings.handle(call.params)) },
+            // Work per layout change: pane snapshots, applies, topology sends (bench_pane_scale.py).
+            .mainActor("debug.layout_counters") { call in .value(DebugLayoutCounters.handle(call.params)) },
             .mainActor("debug.page_host_pool") { [weak services] call in
                 .value(DebugPageHostPool.handle(call.params, services: services))
             },
@@ -118,8 +120,10 @@ final class AppControl {
                 return .value(DebugNotifications.handle(call.params, services: services))
             },
             // App overlays vs content child windows (Chromium pages).
-            .mainActor("debug.layers") { [weak services] _ in
+            // `reset_layout_passes: true` clears the layout pass counts first.
+            .mainActor("debug.layers") { [weak services] call in
                 guard let services else { return .value(.null) }
+                if call.params["reset_layout_passes"]?.boolValue == true { LayoutPassGuard.shared.reset() }
                 return .value(DebugLayers.report(services: services))
             },
             // The one hover card: machine phase, card window, timer, monitor.
@@ -293,6 +297,16 @@ final class AppControl {
             .mainActor("debug.sidebar_rename") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugKey.beginSidebarRename(call.params, services: services))
+            },
+            // `debug.view_key {view, key, modifiers?, window?}`: a real key-down/up into a
+            // named view made first responder; `debug.focus_ring`: the sidebar's ring (cx-tupd).
+            .mainActor("debug.view_key") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugViewKey.send(call.params, services: services))
+            },
+            .mainActor("debug.focus_ring") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugViewKey.focusRingReport(call.params, services: services))
             },
             .async("debug.cef.devtools") { [weak services] call in
                 await DebugExtensions.devTools(call.params, services)

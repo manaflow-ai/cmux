@@ -47,7 +47,10 @@ extension WebKitDriver {
         return .null
     }
 
-    func inputKey(_ params: DriverParams) async throws(DriverError) -> DriverJSON {
+    /// `nativeCommand: false` (a clipboard shortcut, WebKitDriver+Clipboard):
+    /// the page gets the key, but its editing command (`paste:`, which reads
+    /// the system pasteboard) does not run.
+    func inputKey(_ params: DriverParams, nativeCommand: Bool = true) async throws(DriverError) -> DriverJSON {
         let (tab, _) = try target(params)
         let webView = tab.webView
         let type = try params.string("type")
@@ -65,7 +68,10 @@ extension WebKitDriver {
             with: eventType, location: .zero,
             modifierFlags: type == "up" && stroke.isModifier ? KeyStroke.flags(named: try params.strings("modifiers")) : stroke.modifierFlags,
             timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window?.windowNumber ?? 0, context: nil,
-            characters: stroke.characters, charactersIgnoringModifiers: stroke.charactersIgnoringModifiers,
+            // An Option chord types no text, as with a CDP key event (macOS
+            // would type its Option character, such as  for Option+Shift+K).
+            characters: stroke.modifierFlags.contains(.option) && !stroke.isModifier ? "" : stroke.characters,
+            charactersIgnoringModifiers: stroke.charactersIgnoringModifiers,
             isARepeat: try params.bool("autoRepeat"), keyCode: stroke.keyCode
         ) else {
             throw DriverError(.invalid, "input.key: could not create a key event for \(key)")
@@ -74,7 +80,7 @@ extension WebKitDriver {
         case .flagsChanged: webView.flagsChanged(with: event)
         case .keyDown:
             webView.keyDown(with: event)
-            if let command = stroke.editingCommand, webView.responds(to: NSSelectorFromString(command)) {
+            if nativeCommand, let command = stroke.editingCommand, webView.responds(to: NSSelectorFromString(command)) {
                 // Command keys are menu equivalents in AppKit; the editing
                 // command goes to the web view only, never up the responder
                 // chain to the user's window (its undo manager).
@@ -82,6 +88,10 @@ extension WebKitDriver {
             }
         default: webView.keyUp(with: event)
         }
+        // A script round trip after the key: the web process handles its
+        // messages in order, so the key is handled before this returns, and
+        // text the next call inserts (an emoji, IME text) cannot pass it.
+        if let tab = try? target(params).0 { _ = try? await run("return 0;", [:], nil, AgentWorld.hostWorld, tab) }
         return .null
     }
 
@@ -172,6 +182,14 @@ extension WebKitDriver {
         // WebKit hit-tests the wheel at the wrong element.
         cg.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(window.windowNumber))
         cg.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(window.windowNumber))
+        guard let event = NSEvent(cgEvent: cg) else { return nil }
+        if event.window === window { return event }
+        // AppKit often leaves a synthesized scroll's window nil (the app's
+        // debug.mouse scroll meets the same). Its locationInWindow is then
+        // the Quartz point read as a Cocoa screen point, which WebKit takes
+        // as the window point: place the event so that it reads `location`.
+        let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
+        cg.location = CGPoint(x: location.x, y: primaryHeight - location.y)
         return NSEvent(cgEvent: cg)
     }
 }

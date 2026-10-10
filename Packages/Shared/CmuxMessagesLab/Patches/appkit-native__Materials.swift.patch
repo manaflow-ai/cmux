@@ -1,6 +1,51 @@
 --- a/Sources/MessagesLabHome/Vendor/appkit-native/Materials.swift
 +++ b/Sources/MessagesLabHome/Vendor/appkit-native/Materials.swift
-@@ -125,7 +125,7 @@
+@@ -17,13 +17,14 @@
+ /// them. The field follows the shared field geometry; a height change is
+ /// animated by `FieldAnimation`.
+ final class FieldChrome: NSView {
+-    let container = NSGlassEffectContainerView()
++    // cmux: LabGlass surfaces (system glass on macOS 26+, a visual-effect stand-in on 14/15).
++    let container = LabGlass.container()
+     private let group = FlippedView()
+-    let fieldContainer = NSGlassEffectContainerView()
++    let fieldContainer = LabGlass.container()
+     private let fieldGroup = FlippedView()
+-    let field = NSGlassEffectView()
+-    let plusGlass = NSGlassEffectView()
+-    let emojiGlass = NSGlassEffectView()
++    let field = LabGlass.surface()
++    let plusGlass = LabGlass.surface()
++    let emojiGlass = LabGlass.surface()
+     let plus = NSButton()
+     let emoji = NSButton()
+     var onPlus: () -> Void = {}
+@@ -41,22 +42,20 @@
+         fieldContainer.contentView = fieldGroup
+         addSubview(fieldContainer)
+         field.cornerRadius = 15
+-        field.style = .regular
+         // Real Messages' field glass reacts to a press (field-keyboard reference: the rim
+         // and a light under the pointer brighten 14 ms after the click and fade in 0.1 s).
+         // `effectIsInteractive` is declared only in the macOS 27 SDK; Swift 6.4 ships with
+         // it (Xcode 27), Swift 6.3.3 with the 26.5 SDK (Xcode 26.6), where #available
+         // cannot hide an undeclared symbol.
+         #if compiler(>=6.4)
+-        if #available(macOS 27.0, *) { field.effectIsInteractive = true }
++        if #available(macOS 27.0, *) { (field as? NSGlassEffectView)?.effectIsInteractive = true } // cmux: LabGlass
+         #endif
+         fieldGroup.addSubview(field)
+         for (g, b, sym, label, sel) in [(plusGlass, plus, "plus", NativeStrings.attach, #selector(plusClicked)),
+                                          (emojiGlass, emoji, "face.smiling", NativeStrings.emoji, #selector(emojiClicked))] {
+             g.cornerRadius = 15
+-            g.style = .regular
+             #if compiler(>=6.4)
+-            if #available(macOS 27.0, *) { g.effectIsInteractive = true }
++            if #available(macOS 27.0, *) { (g as? NSGlassEffectView)?.effectIsInteractive = true } // cmux: LabGlass
+             #endif
+             b.isBordered = false
+             b.bezelStyle = .regularSquare
+@@ -125,7 +124,7 @@
      private let pressLightLayer: CALayer = {
          let l = CALayer()
          let w = 256, s = Double(w) / 8
@@ -9,7 +54,7 @@
          let data = px.flatMap { [UInt8(255), UInt8(255), UInt8(255), $0] }
          if let p = CGDataProvider(data: Data(data) as CFData) {
              l.contents = CGImage(width: w, height: 1, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: w * 4, space: CGColorSpaceCreateDeviceRGB(),
-@@ -301,7 +301,7 @@
+@@ -301,7 +300,7 @@
  
      static let mode: FieldAnimation = {
          let a = ProcessInfo.processInfo.arguments
@@ -18,3 +63,54 @@
      }()
  
      func run(_ chrome: FieldChrome, from start: CGRect, to target: CGRect, _ el: SpringElement, begin: CFTimeInterval) {
+@@ -331,6 +330,8 @@
+         case .swiftui:
+             chrome.setFrameNow(start)
+             chrome.markAnimating(to: target)
++            // cmux: SwiftUI-spring NSAnimationContext needs macOS 15; 14 takes the size at once.
++            guard #available(macOS 15, *) else { chrome.setFrameNow(target); return }
+             NSAnimationContext.animate(.spring(duration: c.spring.duration, bounce: c.spring.bounce)) {
+                 NSAnimationContext.current.allowsImplicitAnimation = true
+                 field.animator().frame = target
+@@ -385,8 +386,9 @@
+ 
+ /// Double-click picker: six tapbacks in a glass capsule above the bubble.
+ /// Real buttons (keyboard and VoiceOver reach each one).
+-final class TapbackPickerView: NSGlassEffectView {
++final class TapbackPickerView: NSView { // cmux: hosts a LabGlass surface (macOS 14)
+     let ref: PartRef
++    private let glass = LabGlass.surface()
+     private let stack = NSStackView()
+     private let selected: Reaction.Kind?
+     private let pick: (Reaction.Kind) -> Void
+@@ -405,8 +407,10 @@
+         self.selected = selected
+         self.pick = pick
+         super.init(frame: .zero)
+-        cornerRadius = Self.size.height / 2
+-        style = .regular
++        glass.frame = bounds
++        glass.autoresizingMask = [.width, .height]
++        addSubview(glass)
++        glass.cornerRadius = Self.size.height / 2
+         stack.orientation = .horizontal
+         stack.spacing = 0
+         stack.alignment = .centerY
+@@ -432,7 +436,7 @@
+         clip.layer?.masksToBounds = true
+         clip.addSubview(stack)
+         stack.frame = NSRect(x: 0, y: 0, width: Self.firstCenter - Self.pitch / 2 + Self.pitch * CGFloat(kinds.count), height: Self.size.height)
+-        contentView = clip
++        glass.contentView = clip
+         setAccessibilityLabel(Strings.menuTapback)
+     }
+     required init?(coder: NSCoder) { fatalError() }
+@@ -524,7 +528,7 @@
+         textView.typingAttributes = ComposeView.typing
+         textView.insertionPointColor = Fixture.caret
+         textView.isContinuousSpellCheckingEnabled = true
+-        textView.writingToolsBehavior = ComposeView.writingTools
++        if #available(macOS 15, *) { textView.writingToolsBehavior = ComposeView.writingTools } // cmux: macOS 14
+         textView.setAccessibilityLabel(Strings.menuEdit)
+         textView.onSend = { [weak textView] in commit(textView?.string ?? text) }
+         textView.onEscape = cancel

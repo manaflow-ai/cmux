@@ -2185,17 +2185,15 @@ def _evaluate_concurrency_group(template: str, context: dict[str, object]) -> st
     return re.sub(r"\$\{\{(.*?)\}\}", evaluate, template)
 
 
-def test_cmux_tui_artifacts_coalesces_queued_feat_cmux_next_pushes() -> None:
-    # 2026-10-07 05:30: one group per feat-cmux-next push left 67 runs queued,
-    # each waiting about 2 h for a macOS builder, so the tip's tree (and the
-    # nightly-next build that needs it) waited behind every older push. Pushes
-    # to a branch now share one group with cancel-in-progress false: the running
-    # publish always finishes (no half-uploaded tree), and a newer push replaces
-    # only the pending run. PRs into feat-cmux-next are retired (direct pushes
-    # since 2026-10-03), so no PR same-tree wait depends on an intermediate tree.
-    # c6110dbd62f2: a new push to a PR cancels that PR's previous
-    # pull_request_target run (its tree is obsolete); push and dispatch runs
-    # are never cancelled once started.
+def test_cmux_tui_artifacts_never_drops_a_feat_cmux_next_push() -> None:
+    # 2026-10-10 (cx-73f2): one group for every feat-cmux-next push let GitHub
+    # replace each pending run with the next push, so merge train tips such as
+    # 3db7b6626864 (nxdog88-v1) never published their tree and the app could
+    # not install cmux-tui on an SSH host. Each feat-cmux-next push now has its
+    # own group; a run whose tree is published stops at tree-preflight.
+    # Other branches (cmux-tui-pin-*) keep one group per ref, main keeps one
+    # group, a new push to a PR cancels that PR's previous pull_request_target
+    # run, and push and dispatch runs are never cancelled once started.
     document = yaml.load(workflow("cmux-tui-artifacts.yml"), Loader=yaml.BaseLoader)
     concurrency = document["concurrency"]
     group = concurrency["group"]
@@ -2215,7 +2213,8 @@ def test_cmux_tui_artifacts_coalesces_queued_feat_cmux_next_pushes() -> None:
     assert render(cancel, "pull_request_target", "refs/heads/feat-cmux-next", "a" * 40, pr=7).lower() == "true"
 
     feat = "refs/heads/feat-cmux-next"
-    assert evaluate("push", feat, "a" * 40) == evaluate("push", feat, "b" * 40)
+    assert evaluate("push", feat, "a" * 40) != evaluate("push", feat, "b" * 40)
+    assert "a" * 40 in evaluate("push", feat, "a" * 40)
     pin_a = evaluate("push", "refs/heads/cmux-tui-pin-aaaa", "a" * 40)
     assert pin_a == evaluate("push", "refs/heads/cmux-tui-pin-aaaa", "b" * 40)
     assert pin_a != evaluate("push", "refs/heads/cmux-tui-pin-bbbb", "b" * 40)

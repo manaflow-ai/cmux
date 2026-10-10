@@ -47,7 +47,7 @@ nonisolated struct FeedHandoffPolicy: Sendable {
         default:
             text = mirror.agents ? (item.title, item.body) : nil
         }
-        return text.map { (FeedSecretScrubber.scrub($0.0), FeedSecretScrubber.scrub($0.1)) }
+        return text.map { (FeedSecretScrubber.scrubPrefix($0.0), FeedSecretScrubber.scrubPrefix($0.1)) }
     }
 
     private func arrivedInQuietHours(_ item: FeedLocalItem) -> Bool {

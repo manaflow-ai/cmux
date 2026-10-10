@@ -110,7 +110,7 @@ extension SidebarBridge {
     /// Sends one personal-state command to the home daemon; a failure
     /// re-syncs the sidebar; a pending `edit` settles (SidebarRows.send).
     private func personal(_ label: String, edit: SidebarPendingEdits.Token? = nil,
-                          _ body: @escaping @Sendable (DaemonConnection) async throws -> Void) {
+                          _ body: @escaping DaemonCommandBody) {
         rows.send(label, edit: edit, on: services.machines.local, resync: { [weak self] in self?.resync() }, body)
     }
 }

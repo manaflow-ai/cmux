@@ -786,7 +786,7 @@ impl WorkspaceRegistry {
             outcome,
             deltas,
         )?;
-        let receipt = self.commit_effect_intent_locally(&intent)?;
+        let receipt = self.commit_effect_intent_locally(intent)?;
         Ok(self.finish_effect_commit(finish, receipt)?.revision())
     }
 
@@ -820,7 +820,7 @@ impl WorkspaceRegistry {
             deltas,
             restates_all,
         )?;
-        let receipt = self.commit_effect_intent_locally(&intent)?;
+        let receipt = self.commit_effect_intent_locally(intent)?;
         self.finish_effect_commit(finish, receipt)?.into_patch_commit()
     }
 

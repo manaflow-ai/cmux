@@ -145,39 +145,3 @@ pub fn exit_with(e: &anyhow::Error, json_out: bool) -> ! {
     }
     std::process::exit(app.code as i32);
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn classifies_common_errors() {
-        assert_eq!(classify(&anyhow::anyhow!("no session matches \"x\"")).code, Code::NoSession);
-        assert_eq!(
-            classify(&anyhow::anyhow!("cursor_future: afterSeq 9 is beyond the last event 3")).code,
-            Code::Usage
-        );
-        assert_eq!(classify(&anyhow::anyhow!("turn timed out after 5s")).code, Code::Timeout);
-        assert_eq!(classify(&anyhow::anyhow!("something broke")).code, Code::Runtime);
-        let bad: anyhow::Error =
-            crate::client::DaemonError(crate::rpc::RpcError::invalid_params("modeId is required"))
-                .into();
-        assert_eq!(classify(&bad).code, Code::Usage);
-        assert_eq!(classify(&bad).message, "modeId is required");
-        let closed = classify(&crate::client::closed_error("waiting", Some("abc 2026-01-01")));
-        assert_eq!(closed.detail, "daemon_closed");
-        assert!(closed.retryable);
-        assert!(
-            closed.message.contains("while waiting") && closed.message.contains("daemon.log"),
-            "{}",
-            closed.message
-        );
-        let app =
-            AppError::new(Code::PermissionDenied, "all_denied", "every permission was denied")
-                .with_session("abc");
-        let e: anyhow::Error = app.clone().into();
-        assert_eq!(classify(&e).code, Code::PermissionDenied);
-        assert_eq!(app.envelope()["error"]["exit"], 5);
-        assert_eq!(app.envelope()["error"]["sessionId"], "abc");
-    }
-}

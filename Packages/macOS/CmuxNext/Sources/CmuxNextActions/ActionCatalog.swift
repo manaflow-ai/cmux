@@ -14,6 +14,11 @@ public nonisolated enum ActionCatalog {
     /// and lookup so older call sites keep working.
     public static let legacyAliases: [ActionID: ActionID] = [
         "app.quit": "quit",
+        // Cmd-T's id named a setting value; it opens the tabs.newTabKind kind (cmuxterm-hq#1829).
+        "newTab.sameKind": "newTab.default",
+        // New Workspace Like This keeps the directory and the group (cmuxterm-hq#1829).
+        "workspace.newInGroup": "workspace.newLikeThis",
+        "workspace.newInSameDirectory": "workspace.newLikeThis",
         "tab.new": "newSurface",
         "tab.close": "closeTab",
         "tab.next": "nextSurface",

@@ -12,7 +12,7 @@ extension DaemonService {
     /// store applied every event up to the sequence read after the reply,
     /// or when `body` throws. Returns the body's value, or nil on failure.
     func intend<T: Sendable>(_ label: String, _ intent: Intent, transaction: ClientTransactionID,
-                             _ body: @Sendable (DaemonConnection) async throws -> T) async -> T? {
+                             _ body: @Sendable (isolated DaemonConnection) async throws -> T) async -> T? {
         let ticket = openTicket()
         guard let connection else {
             logger.error("\(label, privacy: .public): not connected")
@@ -42,7 +42,7 @@ extension DaemonService {
 
     /// `intend` with a fresh transaction, for commands that do not carry
     /// one. Returns whether the command succeeded.
-    func intend(_ label: String, _ intent: Intent, _ body: @Sendable (DaemonConnection) async throws -> Void) async -> Bool {
+    func intend(_ label: String, _ intent: Intent, _ body: DaemonCommandBody) async -> Bool {
         await intend(label, intent, transaction: .generate(), body) != nil
     }
 
@@ -66,7 +66,7 @@ extension DaemonService {
     /// Runs a command that changes nothing locally before the daemon
     /// reports it (no intent to show). Returns the body's value, or nil
     /// when it failed (logged).
-    func request<T: Sendable>(_ label: String, _ body: @Sendable (DaemonConnection) async throws -> T) async -> T? {
+    func request<T: Sendable>(_ label: String, _ body: @Sendable (isolated DaemonConnection) async throws -> T) async -> T? {
         let ticket = openTicket()
         guard let connection else {
             logger.error("\(label, privacy: .public): not connected")
@@ -86,7 +86,7 @@ extension DaemonService {
 
     /// `request` for callers that handle the failure themselves: it still
     /// goes to the action scope (ticket, barrier, failure), and is rethrown.
-    func perform<T: Sendable>(_ label: String, _ body: @Sendable (DaemonConnection) async throws -> T) async throws -> T {
+    func perform<T: Sendable>(_ label: String, _ body: @Sendable (isolated DaemonConnection) async throws -> T) async throws -> T {
         let ticket = openTicket()
         guard let connection else {
             await closeTicket(ticket, label: label, error: DaemonError.notConnected)

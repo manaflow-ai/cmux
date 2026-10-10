@@ -63,9 +63,9 @@ nxmot (MacBook Pro, 120 Hz).
 
 | Token | Response / damping | Visible end | Rest | Used by |
 | --- | --- | --- | --- | --- |
-| `move` | 0.20 / 0.90 | 192 ms | 250 ms | tab reflow and reorder, sidebar row moves, pane and divider frames (ratio, equalize, zoom), sidebar drag gap |
-| `appear` | 0.18 / 0.90 | 175 ms | 225 ms | palette scale-in (from `Motion.panelOpenScale` 0.97 about the panel center), tab grow-in, tab group expand, sidebar row insert, sidebar show (timed equivalent), browser toolbar show, ghost card/inline morph |
-| `disappear` | 0.15 / 0.90 | 142 ms | 200 ms | tab close (width to 0), group collapse, sidebar row removal, sidebar hide (timed equivalent), browser toolbar hide |
+| `move` | 0.20 / 0.90 | 192 ms | 250 ms | tab reflow and reorder, sidebar row moves, inserts (a row grows in its own slot) and removals (it shrinks in place), all on this one spring (cx-bqm6), pane and divider frames (ratio, equalize, zoom), sidebar drag gap |
+| `appear` | 0.18 / 0.90 | 175 ms | 225 ms | palette scale-in (from `Motion.panelOpenScale` 0.97 about the panel center), tab grow-in, tab group expand, sidebar show (timed equivalent), browser toolbar show, ghost card/inline morph |
+| `disappear` | 0.15 / 0.90 | 142 ms | 200 ms | tab close (width to 0), group collapse, sidebar hide (timed equivalent), browser toolbar hide |
 | `settle` | 0.22 / 0.85 | 175 ms | 342 ms | release after drag: tab drop, drag ghost landing, sidebar row drop (carries pointer velocity; 0.8 pt overshoot on 200 pt) |
 | `scroll` | 0.22 / 0.90 | 208 ms | 267 ms | tab strip reveal, strip column reveal, wheel notch, trackpad fling snap |
 | `screen` | 0.22 / 0.90 | 208 ms | 267 ms | screen switch slide |
@@ -154,7 +154,7 @@ rest).
 | Tab group chip hover | CA action 0.14 s | `hover` | 140 ms | 80 ms | - |
 | Tab group editor panel | window fade 0.12 s | `fadeIn` | 120 ms | 120 ms | - |
 | Sidebar show / hide | width constraint animator with a SwiftUI spring(duration 0.30, bounce 0), which constraint animators ignore: it ran AppKit's 0.25 s default (measured 263-272 ms at every speed) | `appear` / `disappear` as timed equivalents (constraint animators take only timed curves) | 250-270 ms measured | 175 / 142 ms | 174 ms show, 150 ms hide |
-| Sidebar row reorder, insert, remove; workspace group collapse | SwiftUI spring(0.32, bounce 0.12) for all rows | moves `move`, inserts `appear`, removals `disappear` | 275 / 458 ms | 192 / 175 / 142 ms visible | move 341 ms, insert 114 ms (AppKit completion) |
+| Sidebar row reorder, insert, remove; workspace group collapse | SwiftUI spring(0.32, bounce 0.12) for all rows | moves, inserts and removals all `move` (cx-bqm6: one spring, inserts open their slot, removals close it) | 275 / 458 ms | 192 / 175 / 142 ms visible | move 341 ms, insert 114 ms (AppKit completion) |
 | Sidebar selection | none: the selected row or item paints selectionFill in place, at once (SIDEBAR-SELECTION-NO-TRAVEL-ANIMATION) | - | - | 0 ms | - |
 | Sidebar drag gap | CASpring(0.32, bounce 0.12) | `move` | 275 / 458 ms | 192 / 250 ms | - |
 | Sidebar drag lift / drop | shadow group 0.22 s ease-out; drop spring(0.28, bounce 0.18); refused dim spring 0.26 | `lift`, `settle`, `hover` | 220 / 308 / 258 ms | 120 / 175 / 80 ms | - |

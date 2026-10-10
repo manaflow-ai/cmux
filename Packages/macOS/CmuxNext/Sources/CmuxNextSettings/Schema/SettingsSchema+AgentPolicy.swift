@@ -54,6 +54,7 @@ extension SettingsSchema {
         "tabs.newTabTemplate",
         "newTerminal.opensWorkspace",
         "tabs.cmdWClosesPinnedTabs",
+        "tabs.swapCmdTAndCmdN",
         "palette.scopes.tabs.prefix",
         "palette.scopes.workspaces.prefix",
         "palette.scopes.commands.prefix",
@@ -189,6 +190,7 @@ extension SettingsSchema {
         "announcements.fetch": .network,
         // On, cmux starts a helper that sees and controls other apps; only the person turns it on.
         "computerUse.enabled": .userOnly,
+        "computerUse.driver": .userOnly,
         "updates.installOnQuit": .destructive,
         "updates.keepPreviousVersions": .destructive,
     ]

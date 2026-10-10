@@ -42,17 +42,32 @@ extension GroupColor {
         return tokens.sidebarBackground.withAlpha(1).mixed(toward: rgb, tokens.isDark ? 0.34 : 0.26).nsColor
     }
 
-    /// The group header bar's fill and the members' bar (the Chrome tab
-    /// group look): the theme's palette color lightened to a pastel so dark
-    /// text reads on it; none is Chrome's light gray.
-    public var headerFill: NSColor {
+    /// The group header bar's fill and the members' line (cx-q5jw, Leo
+    /// 2026-10-10: theme colors, not pastels): the theme's palette color
+    /// itself, kept readable over the sidebar. None is the sidebar's own
+    /// tonal step, so an uncolored group still reads as a header.
+    public var headerFill: NSColor { headerRGB(ThemeContext.active ?? ThemeScope.app.tokens).nsColor }
+
+    /// Text and glyphs on `headerFill`: black or white, whichever reads
+    /// better on the color in this theme.
+    public var headerInk: NSColor {
         let tokens = ThemeContext.active ?? ThemeScope.app.tokens
-        guard let rgb = themeRGB(tokens) else {
-            return (tokens.isDark ? ThemeRGB(hex: 0xDCDDE1) : ThemeRGB(hex: 0xDADCE0)).nsColor
-        }
-        return rgb.withAlpha(1).mixed(toward: ThemeRGB(hex: 0xFFFFFF), 0.35).nsColor
+        guard themeRGB(tokens) != nil else { return Palette.textPrimary }
+        return Self.ink(on: headerRGB(tokens)).nsColor
     }
 
-    /// Text and glyphs on `headerFill`: near black, as on Chrome's group headers.
-    public static var headerInk: NSColor { ThemeRGB(hex: 0x1F1F1F).nsColor }
+    /// The order the app gives new groups their colors (cx-25az, Leo
+    /// 2026-10-10: the terminal palette in a stable order): the ANSI
+    /// accents by index, then the two mixed ones. Blue is left to people
+    /// (the no-blue rule covers what the app picks by itself).
+    nonisolated public static let automaticOrder: [GroupColor] = [.red, .green, .yellow, .purple, .cyan, .orange, .pink]
+
+    nonisolated func headerRGB(_ tokens: ThemeTokens) -> ThemeRGB {
+        themeRGB(tokens) ?? tokens.sidebarBackground.withAlpha(1).mixed(toward: tokens.isDark ? .white : .black, 0.12)
+    }
+
+    nonisolated static func ink(on fill: ThemeRGB) -> ThemeRGB {
+        let dark = ThemeRGB(hex: 0x1F1F1F)
+        return fill.contrast(with: dark) >= fill.contrast(with: .white) ? dark : .white
+    }
 }

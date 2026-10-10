@@ -81,6 +81,11 @@ public final class TabModel: Identifiable {
         kind == .conversation ? snapshot.conversation?.agentSession : nil
     }
 
+    /// The app an app tab shows (a frontend tab of an app workspace, `app-screens-v1`).
+    public var appTab: AppTabRef? {
+        kind == .browser ? snapshot.app : nil
+    }
+
     /// The page id of a page tab (a conversation tab with a page source, `page-tabs-v1`: the
     /// App Store, Settings); nil for every other tab.
     public var page: String? {

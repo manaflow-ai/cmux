@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 
@@ -172,7 +173,7 @@ extension AgentTabStore {
             guard tabStores[key] != nil else { return }
             // task-owner: one wait for the tree to list a tab the store just created
             Task { [weak self] in
-                for await listed in Observations({ [weak self] in self?.lookup(key) != nil }) where listed {
+                for await listed in ObservationStream({ [weak self] in self?.lookup(key) != nil }) where listed {
                     self?.sendSession(session, for: key)
                     return
                 }
@@ -284,7 +285,7 @@ extension AgentTabStore {
         guard watches[id] == nil else { return }
         // task-owner: stored in watches; cancelled once no tab belongs to the store
         watches[id] = Task { [weak self] in
-            for await live in Observations({ Self.liveTabs(store) }) where live != nil {
+            for await live in ObservationStream({ Self.liveTabs(store) }) where live != nil {
                 guard let self else { return }
                 self.releaseGoneTabs(in: store)
             }

@@ -35,6 +35,9 @@ html[data-cmux-page="changelog"] body {
 
 .cl-version:hover { background: #f2f2f4; }
 .cl-version.is-selected { background: #e9e9ec; }
+/* The releases of the update that opened the page (route from/to). */
+.cl-version.in-span { box-shadow: inset 3px 0 0 #1d1d1f; }
+.cl-updated { margin: 0 0 12px; font-size: var(--text-heading); font-weight: 600; }
 .cl-version-name { font-weight: 600; font-size: 13px; }
 .cl-version-date { grid-column: 1; color: #6e6e73; font-size: 12px; }
 .cl-dot { grid-row: 1; grid-column: 2; width: 6px; height: 6px; border-radius: 3px; background: #1d1d1f; align-self: center; }

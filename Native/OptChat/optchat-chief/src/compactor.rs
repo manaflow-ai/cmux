@@ -1035,11 +1035,25 @@ impl AcpmuxCompactor {
 
     fn admit(&self, node: NodeId) -> Result<crate::harness_gate::Admitted, ModelError> {
         let harness = self.harness();
-        crate::harness_gate::admit_live(&*self.port, &harness).map_err(|reason| {
+        let refused = |reason: String, setup: bool| {
             self.say(&format!("compactor node {}: {reason}", node.name()));
             crate::harness_gate::trace_refusal(&self.trace, "compactor", &harness, &reason);
-            ModelError::new(crate::harness_gate::refusal(&reason))
-        })
+            if setup {
+                // The bare reason: the turn goes on, nothing is sent again.
+                ModelError::setup(reason)
+            } else {
+                ModelError::new(crate::harness_gate::refusal(&reason))
+            }
+        };
+        // No catalog (acpmux is away for now): an ordinary error, retried.
+        let answer = self.port.harness_catalog().map_err(|e| {
+            refused(
+                format!("acpmux did not say what its harnesses are ({e})"),
+                false,
+            )
+        })?;
+        // The harness cannot run here: a setup error, no turn waits for it.
+        crate::harness_gate::admit(&answer, &harness).map_err(|reason| refused(reason, true))
     }
 
     /// Starts a session named `name` in `slot` (held by the caller), with
@@ -1057,6 +1071,21 @@ impl AcpmuxCompactor {
             ModelError::new(format!("creating the compactor's working directory: {e}"))
         })?;
         let preset = slot_preset(&self.spec.preset, slot);
+        // A slot preset acpmux did not install: no session ever starts, so
+        // this is a setup error at once (no turn waits on its retries).
+        // One refresh first: the install at connect may have failed for now.
+        if self.port.preset_installed(&preset) == Some(false) {
+            let lines = self.port.refresh_preset(&preset);
+            if self.port.preset_installed(&preset) == Some(false) {
+                let why = lines
+                    .iter()
+                    .find(|l| l.contains(preset.as_str()))
+                    .map_or_else(String::new, |l| format!(" ({l})"));
+                return Err(ModelError::setup(format!(
+                    "starting a compactor session: the acpmux preset {preset} is not installed{why}, and this session never starts without it"
+                )));
+            }
+        }
         // The slot is this caller's alone, so is its preset: no other node
         // changes the prompt before this session starts with it.
         if let Some(text) = system {

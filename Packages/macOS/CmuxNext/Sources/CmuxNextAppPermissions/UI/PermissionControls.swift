@@ -1,4 +1,5 @@
 import CmuxNextDesign
+import CmuxNextIcons
 import SwiftUI
 
 /// A small switch in theme grays (the system switch tints with the accent).
@@ -73,7 +74,7 @@ struct ApprovalMenu: View {
         } label: {
             HStack(spacing: 3) {
                 Text(AppPermissionsStrings.approval(row.approval)).font(colors.caption)
-                Image(systemName: "chevron.up.chevron.down").font(.system(size: 7, weight: .semibold))
+                Icon(.controlPopup, size: 12)
             }
             .foregroundStyle(colors.secondary)
         }

@@ -262,9 +262,8 @@ class SidebarItemRowView: NSView {
             symbolName = look.symbol
         }
         if let name = glyphIcon { return NSImage.icon(name, size: side) }
-        let symbol = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: side * 0.8, weight: .regular))
-        return symbol ?? NSImage.icon(.appGeneric, size: side)
+        guard NSImage(systemSymbolName: symbolName, accessibilityDescription: nil) != nil else { return NSImage.icon(.appGeneric, size: side) }
+        return NSImage.icon(symbol: symbolName, size: side)
     }
 
     /// Reads the Notifications glyph look and lays the row out again once

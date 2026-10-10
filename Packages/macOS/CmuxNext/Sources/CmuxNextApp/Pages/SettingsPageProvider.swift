@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
@@ -211,7 +212,7 @@ final class SettingsPageProvider: PageProvider {
             var last = initialRoot
             var lastFileRoots = initialFileRoots
             var lastManagedRoots = initialManagedRoots
-            for await (count, root, fileRoots, managedRoots) in Observations({
+            for await (count, root, fileRoots, managedRoots) in ObservationStream({
                 (settings.loadCount, settings.snapshot.root, settings.fileRoot.value(at: ChatSettings.rootsPath), settings.managedChatRoots)
             }) {
                 let keys = SettingsSchema.all.filter {
@@ -233,7 +234,7 @@ final class SettingsPageProvider: PageProvider {
                               onEvent: @escaping @MainActor (JSONValue) -> Void) -> PageSubscription {
         let task = Task { @MainActor in
             var last = read()
-            for await value in Observations({ read() }) where value != last {
+            for await value in ObservationStream({ read() }) where value != last {
                 last = value
                 onEvent(value)
             }

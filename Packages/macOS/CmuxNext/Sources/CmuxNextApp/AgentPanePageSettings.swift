@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextSettings
 import Observation
 
@@ -22,7 +23,7 @@ final class AgentPanePageSettings {
         self.settings = settings
         // task-owner: lives as long as the tabs; event-driven (Observation)
         previewObservation = Task { [weak self] in
-            for await on in Observations({ settings.snapshot.previewFeatures }) {
+            for await on in ObservationStream({ settings.snapshot.previewFeatures }) {
                 guard let self else { return }
                 previewFeatures = on
                 push()
@@ -30,7 +31,7 @@ final class AgentPanePageSettings {
         }
         // task-owner: lives as long as the tabs; event-driven (Observation)
         editedFilesObservation = Task { [weak self] in
-            for await value in Observations({ settings.snapshot.agentPaneEditedFiles }) {
+            for await value in ObservationStream({ settings.snapshot.agentPaneEditedFiles }) {
                 guard let self else { return }
                 editedFiles = value
                 push()
@@ -38,14 +39,14 @@ final class AgentPanePageSettings {
         }
         // task-owner: lives as long as the tabs; event-driven (Observation)
         zoomObservation = Task { [weak self] in
-            for await value in Observations({ settings.snapshot.agentPaneZoom }) {
+            for await value in ObservationStream({ settings.snapshot.agentPaneZoom }) {
                 guard let self else { return }
                 zoom = value
                 push()
             }
         }
         composerObservation = Task { [weak self] in
-            for await value in Observations({ settings.snapshot.agentPaneComposer }) {
+            for await value in ObservationStream({ settings.snapshot.agentPaneComposer }) {
                 guard let self else { return }
                 composer = value
                 push()

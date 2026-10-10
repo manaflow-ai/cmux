@@ -22,8 +22,9 @@ final class SidebarGroupEditor {
     private var member: WorkspaceID?
     /// The groups the last update showed (`follow`).
     private var known: Set<GroupID> = []
-    /// The group whose editor closed last, and the event time it closed at.
-    private var lastClosed: (group: GroupID, time: TimeInterval)?
+    /// The group whose editor closed last, the event time it closed at, and
+    /// the click it closed during (a mouse-up has its mouse-down's number).
+    private var lastClosed: (group: GroupID, time: TimeInterval, click: Int?)?
 
     var isVisible: Bool { shownGroup != nil }
     /// False in tests: the bubble is laid out but never put on screen.
@@ -49,7 +50,8 @@ final class SidebarGroupEditor {
             guard let self, let id = self.shownGroup else { return }
             self.shownGroup = nil
             self.member = nil
-            self.lastClosed = (id, NSApp.currentEvent?.timestamp ?? ProcessInfo.processInfo.systemUptime)
+            let event = NSApp.currentEvent
+            self.lastClosed = (id, event?.timestamp ?? ProcessInfo.processInfo.systemUptime, Self.clickNumber(event))
             self.onClose?(id)
         }
         shownGroup = group.id
@@ -84,9 +86,20 @@ final class SidebarGroupEditor {
     /// Whether the editor of `group` closed during the click that is
     /// happening now (the click made the sidebar's window key, which closes
     /// the bubble first): that click toggles it closed, it does not reopen it.
-    func closedByThisClick(_ group: GroupID, at timestamp: TimeInterval?) -> Bool {
-        guard let closed = lastClosed, closed.group == group, let timestamp else { return false }
-        return timestamp - closed.time <= NSEvent.doubleClickInterval
+    /// Clicks are matched by their event number, so fast repeated clicks
+    /// toggle open, closed, open (cx-q5jw); a close outside a click falls
+    /// back to the double-click time.
+    func closedByThisClick(_ group: GroupID, event: NSEvent?) -> Bool {
+        guard let closed = lastClosed, closed.group == group, let event else { return false }
+        if let click = Self.clickNumber(event), let closedClick = closed.click { return click == closedClick }
+        return event.timestamp - closed.time <= NSEvent.doubleClickInterval
+    }
+
+    private static func clickNumber(_ event: NSEvent?) -> Int? {
+        switch event?.type {
+        case .leftMouseDown?, .leftMouseUp?: event?.eventNumber
+        default: nil
+        }
     }
 
     func hide() {

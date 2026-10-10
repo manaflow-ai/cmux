@@ -337,6 +337,7 @@ fn operation_classes_keep_stream_and_connection_control_out_of_durable_idempoten
             params: json!({}),
             idempotency_key: None,
             origin: None,
+            credential: None,
         };
         request.validate().unwrap();
         let mut keyed = request;

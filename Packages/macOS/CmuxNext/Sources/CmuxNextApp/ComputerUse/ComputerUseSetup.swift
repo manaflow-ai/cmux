@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAgentActivity
+import CmuxNextCompat
 import CmuxNextOnboarding
 import CmuxNextSettings
 import CmuxNextWakeups
@@ -119,7 +120,7 @@ final class ComputerUseSetup {
         guard observation == nil else { return }
         let inputs = inputs
         observation = Task { [weak self] in
-            for await value in Observations({ inputs() }) {
+            for await value in ObservationStream({ inputs() }) {
                 guard let self else { return }
                 apply(value)
             }

@@ -91,15 +91,11 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         .as_object()
         .unwrap()
         .keys()
+        .filter(|name| !cases::MULTI_REQUEST_OPERATIONS.contains(&name.as_str()))
         .filter(|name| {
-            // `agent message` and `agent inbox` send several requests
-            // per command (agent_message.rs).
             !matches!(
                 name.as_str(),
-                "agent.message.list"
-                        | "agent.message.mark"
-                        | "agent.message.send"
-                        | "browser.viewer.release"
+                "browser.viewer.release"
                         | "browser.viewer.resize"
                         | "request.cancel"
                         | "stream.cancel"
@@ -154,6 +150,11 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "chief.engine.get"
                         | "chief.engine.set"
                         | "chief.stop"
+                        // Launch credentials: acpmux and owners call these
+                        // on the socket; an agent never mints or rotates.
+                        | "credential.verify"
+                        | "credential.mint"
+                        | "credential.rotate"
             )
         })
         .map(String::as_str)

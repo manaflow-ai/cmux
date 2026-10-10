@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 import Observation
@@ -86,7 +87,7 @@ extension DaemonStore {
     func mirrored(profile id: ProfileID) async {
         guard profile(id) == nil else { return }
         let state = connectionState
-        for await done in Observations({ self.profile(id) != nil || self.connectionState != state }) where done {
+        for await done in ObservationStream({ self.profile(id) != nil || self.connectionState != state }) where done {
             return
         }
     }

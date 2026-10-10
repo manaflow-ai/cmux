@@ -1,15 +1,16 @@
 import AppKit
+import CmuxNextIcons
 import SwiftUI
 
 struct AgentActivityCount: View {
     @Environment(\.agentActivityColors) private var colors
-    let symbol: String
+    let icon: IconName
     let value: Int
     var tint: Color? = nil
 
     var body: some View {
         HStack(spacing: 2) {
-            Image(systemName: symbol)
+            Icon(icon, size: 12)
             Text("\(value)").monospacedDigit()
         }
         .font(.system(size: 10))
@@ -20,14 +21,14 @@ struct AgentActivityCount: View {
 struct AgentActivityToolbarButton: View {
     @Environment(\.agentActivityColors) private var colors
     let title: String
-    let symbol: String
+    let icon: IconName
     var tint: Color? = nil
     var on: Bool = false
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            Label(title, systemImage: symbol)
+            Label { Text(title) } icon: { Icon(icon, size: 13) }
                 .font(.system(size: 11, weight: .medium))
                 .padding(.horizontal, 8).padding(.vertical, 4)
                 .background(RoundedRectangle(cornerRadius: 6).fill(on ? colors.selection : colors.hover))

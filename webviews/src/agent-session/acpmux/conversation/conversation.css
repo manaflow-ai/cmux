@@ -1489,7 +1489,7 @@ pre.cv-math-source {
   background: var(--acpmux-base, var(--agent-page-bg));
   box-shadow: 0 4px 14px var(--agent-shadow, rgb(0 0 0 / 18%));
   font-family: var(--cv-font);
-  font-size: 13px;
+  font-size: var(--text-body);
 }
 .acpmux-find__field {
   width: 180px;
@@ -1514,7 +1514,7 @@ pre.cv-math-source {
   min-width: 0;
   padding-right: 4px;
   color: var(--agent-muted);
-  font-size: 12px;
+  font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }

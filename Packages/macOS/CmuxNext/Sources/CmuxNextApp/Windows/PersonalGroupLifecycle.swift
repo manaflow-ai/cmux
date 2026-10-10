@@ -112,7 +112,7 @@ struct PersonalGroupLife {
     func commit<Value: Sendable>(_ label: String, ending: [WorkspaceGroupID], recheck: @escaping @MainActor () -> [WorkspaceGroupID] = { [] },
                                  failed: @escaping @MainActor () -> Void, applied: (@MainActor () -> Void)? = nil,
                                  landed: @escaping @MainActor (Value) -> Void = { _ in },
-                                 _ body: @escaping @Sendable (DaemonConnection) async throws -> Value) {
+                                 _ body: @escaping @Sendable (isolated DaemonConnection) async throws -> Value) {
         let home = machines.local, personal = personal, v2 = home.store.servesStateResources
         let transaction = ClientTransactionID.generate()
         personal.endingGroups.formUnion(ending)

@@ -1,5 +1,8 @@
 {
   "en": {
+    "action.delete": "Delete",
+    "action.deleteConfirm": "Delete?",
+    "action.edit": "Edit",
     "action.react": "Add Reaction",
     "action.reply": "Reply in Thread",
     "chief.badge": "Chief",
@@ -35,6 +38,9 @@
     "work.waiting": "Waiting"
   },
   "ar": {
+    "action.delete": "حذف",
+    "action.deleteConfirm": "حذف؟",
+    "action.edit": "تعديل",
     "action.react": "إضافة تفاعل",
     "action.reply": "الرد في السلسلة",
     "chief.badge": "Chief",
@@ -70,6 +76,9 @@
     "work.waiting": "في الانتظار"
   },
   "bs": {
+    "action.delete": "Izbriši",
+    "action.deleteConfirm": "Izbrisati?",
+    "action.edit": "Uredi",
     "action.react": "Dodaj reakciju",
     "action.reply": "Odgovori u niti",
     "chief.badge": "Chief",
@@ -105,6 +114,9 @@
     "work.waiting": "Čeka"
   },
   "da": {
+    "action.delete": "Slet",
+    "action.deleteConfirm": "Slet?",
+    "action.edit": "Rediger",
     "action.react": "Tilføj reaktion",
     "action.reply": "Svar i tråd",
     "chief.badge": "Chief",
@@ -140,6 +152,9 @@
     "work.waiting": "Venter"
   },
   "de": {
+    "action.delete": "Löschen",
+    "action.deleteConfirm": "Löschen?",
+    "action.edit": "Bearbeiten",
     "action.react": "Reaktion hinzufügen",
     "action.reply": "Im Thread antworten",
     "chief.badge": "Chief",
@@ -175,6 +190,9 @@
     "work.waiting": "Wartet"
   },
   "es": {
+    "action.delete": "Eliminar",
+    "action.deleteConfirm": "¿Eliminar?",
+    "action.edit": "Editar",
     "action.react": "Añadir reacción",
     "action.reply": "Responder en el hilo",
     "chief.badge": "Chief",
@@ -210,6 +228,9 @@
     "work.waiting": "En espera"
   },
   "fr": {
+    "action.delete": "Supprimer",
+    "action.deleteConfirm": "Supprimer ?",
+    "action.edit": "Modifier",
     "action.react": "Ajouter une réaction",
     "action.reply": "Répondre dans le fil",
     "chief.badge": "Chief",
@@ -245,6 +266,9 @@
     "work.waiting": "En attente"
   },
   "it": {
+    "action.delete": "Elimina",
+    "action.deleteConfirm": "Eliminare?",
+    "action.edit": "Modifica",
     "action.react": "Aggiungi reazione",
     "action.reply": "Rispondi nel thread",
     "chief.badge": "Chief",
@@ -280,6 +304,9 @@
     "work.waiting": "In attesa"
   },
   "ja": {
+    "action.delete": "削除",
+    "action.deleteConfirm": "削除しますか？",
+    "action.edit": "編集",
     "action.react": "リアクションを追加",
     "action.reply": "スレッドで返信",
     "chief.badge": "Chief",
@@ -315,6 +342,9 @@
     "work.waiting": "待機中"
   },
   "km": {
+    "action.delete": "លុប",
+    "action.deleteConfirm": "លុប?",
+    "action.edit": "កែ",
     "action.react": "បន្ថែមប្រតិកម្ម",
     "action.reply": "ឆ្លើយតបក្នុងខ្សែសារ",
     "chief.badge": "Chief",
@@ -350,6 +380,9 @@
     "work.waiting": "កំពុងរង់ចាំ"
   },
   "ko": {
+    "action.delete": "삭제",
+    "action.deleteConfirm": "삭제할까요?",
+    "action.edit": "편집",
     "action.react": "반응 추가",
     "action.reply": "스레드에서 답글",
     "chief.badge": "Chief",
@@ -385,6 +418,9 @@
     "work.waiting": "대기 중"
   },
   "nb": {
+    "action.delete": "Slett",
+    "action.deleteConfirm": "Slette?",
+    "action.edit": "Rediger",
     "action.react": "Legg til reaksjon",
     "action.reply": "Svar i tråd",
     "chief.badge": "Chief",
@@ -420,6 +456,9 @@
     "work.waiting": "Venter"
   },
   "pl": {
+    "action.delete": "Usuń",
+    "action.deleteConfirm": "Usunąć?",
+    "action.edit": "Edytuj",
     "action.react": "Dodaj reakcję",
     "action.reply": "Odpowiedz w wątku",
     "chief.badge": "Chief",
@@ -455,6 +494,9 @@
     "work.waiting": "Oczekuje"
   },
   "pt-BR": {
+    "action.delete": "Apagar",
+    "action.deleteConfirm": "Apagar?",
+    "action.edit": "Editar",
     "action.react": "Adicionar reação",
     "action.reply": "Responder no thread",
     "chief.badge": "Chief",
@@ -490,6 +532,9 @@
     "work.waiting": "Aguardando"
   },
   "ru": {
+    "action.delete": "Удалить",
+    "action.deleteConfirm": "Удалить?",
+    "action.edit": "Изменить",
     "action.react": "Добавить реакцию",
     "action.reply": "Ответить в ветке",
     "chief.badge": "Chief",
@@ -525,6 +570,9 @@
     "work.waiting": "Ожидает"
   },
   "th": {
+    "action.delete": "ลบ",
+    "action.deleteConfirm": "ลบหรือไม่",
+    "action.edit": "แก้ไข",
     "action.react": "เพิ่มรีแอคชัน",
     "action.reply": "ตอบกลับในเธรด",
     "chief.badge": "Chief",
@@ -560,6 +608,9 @@
     "work.waiting": "กำลังรอ"
   },
   "tr": {
+    "action.delete": "Sil",
+    "action.deleteConfirm": "Silinsin mi?",
+    "action.edit": "Düzenle",
     "action.react": "Tepki Ekle",
     "action.reply": "Konuda Yanıtla",
     "chief.badge": "Chief",
@@ -595,6 +646,9 @@
     "work.waiting": "Bekliyor"
   },
   "uk": {
+    "action.delete": "Видалити",
+    "action.deleteConfirm": "Видалити?",
+    "action.edit": "Редагувати",
     "action.react": "Додати реакцію",
     "action.reply": "Відповісти в гілці",
     "chief.badge": "Chief",
@@ -630,6 +684,9 @@
     "work.waiting": "Очікує"
   },
   "vi": {
+    "action.delete": "Xóa",
+    "action.deleteConfirm": "Xóa?",
+    "action.edit": "Sửa",
     "action.react": "Thêm cảm xúc",
     "action.reply": "Trả lời trong chuỗi",
     "chief.badge": "Chief",
@@ -665,6 +722,9 @@
     "work.waiting": "Đang chờ"
   },
   "zh-Hans": {
+    "action.delete": "删除",
+    "action.deleteConfirm": "删除？",
+    "action.edit": "编辑",
     "action.react": "添加回应",
     "action.reply": "在话题中回复",
     "chief.badge": "Chief",
@@ -700,6 +760,9 @@
     "work.waiting": "等待中"
   },
   "zh-Hant": {
+    "action.delete": "刪除",
+    "action.deleteConfirm": "刪除？",
+    "action.edit": "編輯",
     "action.react": "新增回應",
     "action.reply": "在討論串中回覆",
     "chief.badge": "Chief",

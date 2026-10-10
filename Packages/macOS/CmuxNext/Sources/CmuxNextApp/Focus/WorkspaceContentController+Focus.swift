@@ -8,6 +8,9 @@ extension WorkspaceContentController {
     /// Tells the coordinator the current panes, tabs and selections.
     func sendTopology() {
         guard !isParked else { return }
+        #if DEBUG
+        DebugLayoutCounters.topologySends &+= 1
+        #endif
         focus.send(.topology(focusTopology()))
     }
 
@@ -70,8 +73,9 @@ extension WorkspaceContentController {
 extension FocusTopology.Kind {
     static func of(_ tab: TabModel) -> FocusTopology.Kind {
         // An agent chat tab is a conversation tab on an acpmux session; its content is the agent page.
-        // A page tab is a conversation tab with a page source; its content is the internal page.
-        tab.agentSession != nil ? .agent : tab.page != nil ? .page : of(tab.kind, isFrontendOwned: tab.isFrontendOwned)
+        // A page tab is a conversation tab with a page source, an app tab (`app-screens-v1`) a frontend
+        // tab with an app; the content of both is an internal page.
+        tab.agentSession != nil ? .agent : (tab.page != nil || tab.appTab != nil) ? .page : of(tab.kind, isFrontendOwned: tab.isFrontendOwned)
     }
 
     static func of(_ kind: TabKind, isFrontendOwned: Bool) -> FocusTopology.Kind {
