@@ -81,6 +81,10 @@ extension SidebarListView {
         if SidebarListPinDrop.finish(self, drag) { return }
         guard let target = drag.target else { return cancelDrag() }
         self.drag = nil
+        // A drop moves rows, never the list: with no active row to hold, the
+        // reload anchors on the first visible row, so a group header the drop
+        // adds above the active row cannot scroll the list's top away (cx-fnfj).
+        revealedActive = nil
         switch (drag.payload, target) {
         case let (.workspaces(ids), .position(position)):
             model.send(.reorder(ids, to: position))
