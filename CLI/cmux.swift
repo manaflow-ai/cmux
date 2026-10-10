@@ -5144,6 +5144,11 @@ struct CMUXCLI {
             return
         }
 
+        try validateBrowserProfileMutationCommandBeforeSocket(
+            command: command,
+            commandArgs: commandArgs
+        )
+
         let envSocketPath = explicitSocketPath == nil
             ? try CLISocketEnvironment.socketPath(in: processEnv)
             : CLISocketEnvironment.socketPathForTelemetry(in: processEnv)
@@ -5450,10 +5455,6 @@ struct CMUXCLI {
         }
 
         try validateSurfaceResumeCommandValueOptionsBeforeSocket(
-            command: command,
-            commandArgs: commandArgs
-        )
-        try validateBrowserProfileMutationCommandBeforeSocket(
             command: command,
             commandArgs: commandArgs
         )
@@ -16787,104 +16788,83 @@ struct CMUXCLI {
         return (result.status, result.stdout, result.stderr)
     }
 
-    func browserProfileArguments(
+    /// Parses options-free browser arguments through the shared, privacy-safe parser.
+    func browserCommandArguments(
         _ values: [String],
         allowedFlags: Set<String> = [],
         commandName: String
     ) throws -> (positionals: [String], flags: Set<String>) {
-        var positionals: [String] = []
-        var flags: Set<String> = []
-        var pastTerminator = false
-
-        for value in values {
-            if pastTerminator {
-                positionals.append(value)
-                continue
-            }
-            if value == "--" {
-                pastTerminator = true
-                continue
-            }
-            if allowedFlags.contains(value) {
-                flags.insert(value)
-                continue
-            }
-            if value.hasPrefix("-") {
-                throw CLIError(message: String(
-                    format: String(
-                        localized: "cli.readSelection.error.unexpectedArguments",
-                        defaultValue: "%@: unexpected arguments: %@"
-                    ),
-                    commandName,
-                    value
-                ))
-            }
-            positionals.append(value)
+        do {
+            let result = try BrowserCommandArgumentParser(
+                allowedFlags: allowedFlags
+            ).parse(values)
+            return (result.positionals, result.flags)
+        } catch let error as BrowserCommandArgumentParser.ParseError {
+            throw browserCommandArgumentError(error, commandName: commandName)
         }
-        return (positionals, flags)
     }
 
-    func rejectBrowserProfileExtras(_ values: ArraySlice<String>, commandName: String) throws {
-        guard !values.isEmpty else { return }
-        throw CLIError(message: String(
-            format: String(
-                localized: "cli.readSelection.error.unexpectedArguments",
-                defaultValue: "%@: unexpected arguments: %@"
-            ),
-            commandName,
-            values.joined(separator: " ")
-        ))
+    /// Rejects leftover browser positionals without echoing their contents.
+    func rejectBrowserCommandExtras(_ values: ArraySlice<String>, commandName: String) throws {
+        do {
+            try BrowserCommandArgumentParser.requireNoExtraPositionals(values.count)
+        } catch let error as BrowserCommandArgumentParser.ParseError {
+            throw browserCommandArgumentError(error, commandName: commandName)
+        }
     }
 
-    func validateBrowserProfileMutationArguments(
+    /// Validates raw browser arguments through the shared, privacy-safe parser.
+    func validateBrowserCommandArguments(
         _ values: [String],
         valueOptions: Set<String> = [],
         allowedFlags: Set<String> = [],
+        optionsAllowingEmptyValues: Set<String> = [],
         commandName: String
     ) throws {
-        var index = 0
-        var pastTerminator = false
-        while index < values.count {
-            let value = values[index]
-            if pastTerminator {
-                index += 1
-                continue
-            }
-            if value == "--" {
-                pastTerminator = true
-                index += 1
-                continue
-            }
-            if allowedFlags.contains(value) {
-                index += 1
-                continue
-            }
-            if let equal = value.firstIndex(of: "="), value.hasPrefix("--") {
-                let option = String(value[..<equal])
-                let optionValue = String(value[value.index(after: equal)...])
-                if valueOptions.contains(option), !optionValue.isEmpty {
-                    index += 1
-                    continue
-                }
-            }
-            if valueOptions.contains(value) {
-                guard index + 1 < values.count, !values[index + 1].hasPrefix("-") else {
-                    throw CLIError(message: "\(value) requires a value")
-                }
-                index += 2
-                continue
-            }
-            if value.hasPrefix("-") {
-                throw CLIError(message: String(
-                    format: String(
-                        localized: "cli.readSelection.error.unexpectedArguments",
-                        defaultValue: "%@: unexpected arguments: %@"
-                    ),
-                    commandName,
-                    value
-                ))
-            }
-            index += 1
+        do {
+            _ = try BrowserCommandArgumentParser(
+                valueOptions: valueOptions,
+                allowedFlags: allowedFlags,
+                optionsAllowingEmptyValues: optionsAllowingEmptyValues
+            ).parse(values)
+        } catch let error as BrowserCommandArgumentParser.ParseError {
+            throw browserCommandArgumentError(error, commandName: commandName)
+        }
+    }
+
+    /// Maps parser failures to localized CLI errors without including option values or positionals.
+    private func browserCommandArgumentError(
+        _ error: BrowserCommandArgumentParser.ParseError,
+        commandName: String
+    ) -> CLIError {
+        switch error {
+        case .missingValue(let option):
+            return CLIError(message: String(
+                format: String(
+                    localized: "cli.arguments.error.missingValue",
+                    defaultValue: "%1$@: %2$@ requires a value"
+                ),
+                commandName,
+                option
+            ))
+        case .unknownOption(let name):
+            return CLIError(message: String(
+                format: String(
+                    localized: "cli.readSelection.error.unexpectedArguments",
+                    defaultValue: "%@: unexpected arguments: %@"
+                ),
+                commandName,
+                name
+            ))
+        case .unexpectedPositionals:
+            return CLIError(message: String(
+                format: String(
+                    localized: "cli.readSelection.error.unexpectedArguments",
+                    defaultValue: "%@: unexpected arguments: %@"
+                ),
+                commandName,
+                "..."
+            ))
         }
     }
 
@@ -16978,17 +16958,32 @@ struct CMUXCLI {
         }
 
         switch normalizedVerb {
+        case "list":
+            let commandName = "browser profiles \(profileVerb)"
+            try validateBrowserCommandArguments(
+                profileArgs,
+                commandName: commandName
+            )
+            let parsed = try browserCommandArguments(
+                profileArgs,
+                commandName: commandName
+            )
+            try rejectBrowserCommandExtras(
+                parsed.positionals[...],
+                commandName: commandName
+            )
+
         case "create":
             let commandName = "browser profiles \(profileVerb)"
-            try validateBrowserProfileMutationArguments(
+            try validateBrowserCommandArguments(
                 profileArgs,
                 valueOptions: ["--name"],
                 commandName: commandName
             )
             let (nameOpt, remaining) = parseOption(profileArgs, name: "--name")
-            let parsed = try browserProfileArguments(remaining, commandName: commandName)
+            let parsed = try browserCommandArguments(remaining, commandName: commandName)
             if nameOpt != nil {
-                try rejectBrowserProfileExtras(parsed.positionals[...], commandName: commandName)
+                try rejectBrowserCommandExtras(parsed.positionals[...], commandName: commandName)
             }
             let name = nameOpt ?? parsed.positionals.joined(separator: " ")
             guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -16997,19 +16992,19 @@ struct CMUXCLI {
 
         case "rename":
             let commandName = "browser profiles \(profileVerb)"
-            try validateBrowserProfileMutationArguments(
+            try validateBrowserCommandArguments(
                 profileArgs,
                 valueOptions: ["--profile", "--name"],
                 commandName: commandName
             )
             let (profileOpt, rem1) = parseOption(profileArgs, name: "--profile")
             let (nameOpt, rem2) = parseOption(rem1, name: "--name")
-            let parsed = try browserProfileArguments(rem2, commandName: commandName)
+            let parsed = try browserCommandArguments(rem2, commandName: commandName)
             let positional = parsed.positionals
             if profileOpt != nil, nameOpt != nil {
-                try rejectBrowserProfileExtras(positional[...], commandName: commandName)
+                try rejectBrowserCommandExtras(positional[...], commandName: commandName)
             } else if nameOpt != nil {
-                try rejectBrowserProfileExtras(positional.dropFirst(), commandName: commandName)
+                try rejectBrowserCommandExtras(positional.dropFirst(), commandName: commandName)
             }
             let profile = profileOpt ?? positional.first
             let newName = nameOpt ?? (positional.count > 1 ? positional.dropFirst().joined(separator: " ") : nil)
@@ -17022,43 +17017,43 @@ struct CMUXCLI {
 
         case "clear":
             let commandName = "browser profiles \(profileVerb)"
-            try validateBrowserProfileMutationArguments(
+            try validateBrowserCommandArguments(
                 profileArgs,
                 valueOptions: ["--profile"],
                 allowedFlags: ["--all", "--force"],
                 commandName: commandName
             )
             let (profileOpt, rem1) = parseOption(profileArgs, name: "--profile")
-            let parsed = try browserProfileArguments(
+            let parsed = try browserCommandArguments(
                 rem1,
                 allowedFlags: ["--all", "--force"],
                 commandName: commandName
             )
             let positional = parsed.positionals
             if parsed.flags.contains("--all") {
-                try rejectBrowserProfileExtras(positional[...], commandName: commandName)
+                try rejectBrowserCommandExtras(positional[...], commandName: commandName)
             } else if profileOpt != nil {
-                try rejectBrowserProfileExtras(positional[...], commandName: commandName)
+                try rejectBrowserCommandExtras(positional[...], commandName: commandName)
             } else if positional.first != nil {
-                try rejectBrowserProfileExtras(positional.dropFirst(), commandName: commandName)
+                try rejectBrowserCommandExtras(positional.dropFirst(), commandName: commandName)
             } else {
                 throw CLIError(message: "browser profiles \(profileVerb) requires a profile or --all")
             }
 
         case "delete":
             let commandName = "browser profiles \(profileVerb)"
-            try validateBrowserProfileMutationArguments(
+            try validateBrowserCommandArguments(
                 profileArgs,
                 valueOptions: ["--profile"],
                 commandName: commandName
             )
             let (profileOpt, rem1) = parseOption(profileArgs, name: "--profile")
-            let parsed = try browserProfileArguments(rem1, commandName: commandName)
+            let parsed = try browserCommandArguments(rem1, commandName: commandName)
             let positional = parsed.positionals
             if profileOpt != nil {
-                try rejectBrowserProfileExtras(positional[...], commandName: commandName)
+                try rejectBrowserCommandExtras(positional[...], commandName: commandName)
             } else {
-                try rejectBrowserProfileExtras(positional.dropFirst(), commandName: commandName)
+                try rejectBrowserCommandExtras(positional.dropFirst(), commandName: commandName)
             }
             let profile = profileOpt ?? positional.first
             guard let profile, !profile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -17311,6 +17306,19 @@ struct CMUXCLI {
 
             switch normalizedVerb {
             case "list":
+                let commandName = "browser profiles \(profileVerb)"
+                try validateBrowserCommandArguments(
+                    profileArgs,
+                    commandName: commandName
+                )
+                let parsed = try browserCommandArguments(
+                    profileArgs,
+                    commandName: commandName
+                )
+                try rejectBrowserCommandExtras(
+                    parsed.positionals[...],
+                    commandName: commandName
+                )
                 let payload = try client.sendV2(method: "browser.profiles.list")
                 if effectiveJSONOutput {
                     print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
@@ -17319,15 +17327,15 @@ struct CMUXCLI {
                 }
             case "create":
                 let commandName = "browser profiles \(profileVerb)"
-                try validateBrowserProfileMutationArguments(
+                try validateBrowserCommandArguments(
                     profileArgs,
                     valueOptions: ["--name"],
                     commandName: commandName
                 )
                 let (nameOpt, remaining) = parseOption(profileArgs, name: "--name")
-                let parsed = try browserProfileArguments(remaining, commandName: commandName)
+                let parsed = try browserCommandArguments(remaining, commandName: commandName)
                 if nameOpt != nil {
-                    try rejectBrowserProfileExtras(parsed.positionals[...], commandName: commandName)
+                    try rejectBrowserCommandExtras(parsed.positionals[...], commandName: commandName)
                 }
                 let name = nameOpt ?? parsed.positionals.joined(separator: " ")
                 guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -17344,19 +17352,19 @@ struct CMUXCLI {
                 }
             case "rename":
                 let commandName = "browser profiles \(profileVerb)"
-                try validateBrowserProfileMutationArguments(
+                try validateBrowserCommandArguments(
                     profileArgs,
                     valueOptions: ["--profile", "--name"],
                     commandName: commandName
                 )
                 let (profileOpt, rem1) = parseOption(profileArgs, name: "--profile")
                 let (nameOpt, rem2) = parseOption(rem1, name: "--name")
-                let parsed = try browserProfileArguments(rem2, commandName: commandName)
+                let parsed = try browserCommandArguments(rem2, commandName: commandName)
                 let positional = parsed.positionals
                 if profileOpt != nil, nameOpt != nil {
-                    try rejectBrowserProfileExtras(positional[...], commandName: commandName)
+                    try rejectBrowserCommandExtras(positional[...], commandName: commandName)
                 } else if nameOpt != nil {
-                    try rejectBrowserProfileExtras(positional.dropFirst(), commandName: commandName)
+                    try rejectBrowserCommandExtras(positional.dropFirst(), commandName: commandName)
                 }
                 let profile = profileOpt ?? positional.first
                 let newName = nameOpt ?? (positional.count > 1 ? positional.dropFirst().joined(separator: " ") : nil)
@@ -17379,14 +17387,14 @@ struct CMUXCLI {
                 }
             case "clear":
                 let commandName = "browser profiles \(profileVerb)"
-                try validateBrowserProfileMutationArguments(
+                try validateBrowserCommandArguments(
                     profileArgs,
                     valueOptions: ["--profile"],
                     allowedFlags: ["--all", "--force"],
                     commandName: commandName
                 )
                 let (profileOpt, rem1) = parseOption(profileArgs, name: "--profile")
-                let parsed = try browserProfileArguments(
+                let parsed = try browserCommandArguments(
                     rem1,
                     allowedFlags: ["--all", "--force"],
                     commandName: commandName
@@ -17394,13 +17402,13 @@ struct CMUXCLI {
                 let positional = parsed.positionals
                 var params: [String: Any] = [:]
                 if parsed.flags.contains("--all") {
-                    try rejectBrowserProfileExtras(positional[...], commandName: commandName)
+                    try rejectBrowserCommandExtras(positional[...], commandName: commandName)
                     params["all"] = true
                 } else if let profileOpt {
-                    try rejectBrowserProfileExtras(positional[...], commandName: commandName)
+                    try rejectBrowserCommandExtras(positional[...], commandName: commandName)
                     params["profile"] = profileOpt
                 } else if let profile = positional.first {
-                    try rejectBrowserProfileExtras(positional.dropFirst(), commandName: commandName)
+                    try rejectBrowserCommandExtras(positional.dropFirst(), commandName: commandName)
                     params["profile"] = profile
                 } else {
                     throw CLIError(message: "browser profiles \(profileVerb) requires a profile or --all")
@@ -17417,18 +17425,18 @@ struct CMUXCLI {
                 }
             case "delete":
                 let commandName = "browser profiles \(profileVerb)"
-                try validateBrowserProfileMutationArguments(
+                try validateBrowserCommandArguments(
                     profileArgs,
                     valueOptions: ["--profile"],
                     commandName: commandName
                 )
                 let (profileOpt, rem1) = parseOption(profileArgs, name: "--profile")
-                let parsed = try browserProfileArguments(rem1, commandName: commandName)
+                let parsed = try browserCommandArguments(rem1, commandName: commandName)
                 let positional = parsed.positionals
                 if profileOpt != nil {
-                    try rejectBrowserProfileExtras(positional[...], commandName: commandName)
+                    try rejectBrowserCommandExtras(positional[...], commandName: commandName)
                 } else {
-                    try rejectBrowserProfileExtras(positional.dropFirst(), commandName: commandName)
+                    try rejectBrowserCommandExtras(positional.dropFirst(), commandName: commandName)
                 }
                 let profile = profileOpt ?? positional.first
                 guard let profile, !profile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -17476,6 +17484,12 @@ struct CMUXCLI {
                 "--create-profile",
                 "--create-destination-profile",
             ]
+            try validateBrowserCommandArguments(
+                importArgs,
+                valueOptions: importValueOptions,
+                allowedFlags: importFlags,
+                commandName: "browser import"
+            )
             func importPositionals(_ values: [String]) -> [String] {
                 var result: [String] = []
                 var index = 0
@@ -17827,11 +17841,23 @@ struct CMUXCLI {
             return
         }
         if subcommand == "history" {
-            let verb = browserActionVerbArgs().first?.lowercased() ?? "clear"
+            let commandName = "browser history"
+            try validateBrowserCommandArguments(
+                subArgs,
+                allowedFlags: ["--force", "--yes"],
+                commandName: commandName
+            )
+            let parsed = try browserCommandArguments(
+                subArgs,
+                allowedFlags: ["--force", "--yes"],
+                commandName: commandName
+            )
+            let verb = parsed.positionals.first?.lowercased() ?? "clear"
             guard verb == "clear" else {
                 throw CLIError(message: "Unsupported browser history subcommand: \(verb) (expected: clear)")
             }
-            guard hasFlag(subArgs, name: "--force") || hasFlag(subArgs, name: "--yes") else {
+            try rejectBrowserCommandExtras(parsed.positionals.dropFirst(), commandName: commandName)
+            guard parsed.flags.contains("--force") || parsed.flags.contains("--yes") else {
                 throw CLIError(message: "browser history clear permanently deletes the default browser profile's history (same as the View menu's Clear Browser History); pass --force to confirm")
             }
             let payload = try client.sendV2(method: "browser.history.clear", params: ["force": true])
@@ -17924,6 +17950,15 @@ struct CMUXCLI {
             let sid = try requireSurface()
             var params: [String: Any] = ["surface_id": sid]
 
+            let waitValueOptions: Set<String> = [
+                "--selector", "--text", "--url-contains", "--url", "--load-state",
+                "--function", "--timeout-ms", "--timeout",
+            ]
+            try validateBrowserCommandArguments(
+                subArgs,
+                valueOptions: waitValueOptions,
+                commandName: "browser wait"
+            )
             let (selectorOpt, rem1) = parseOption(subArgs, name: "--selector")
             let (textOpt, rem2) = parseOption(rem1, name: "--text")
             let (urlContainsOptA, rem3) = parseOption(rem2, name: "--url-contains")
@@ -17932,8 +17967,14 @@ struct CMUXCLI {
             let (functionOpt, rem6) = parseOption(rem5, name: "--function")
             let (timeoutOptMs, rem7) = parseOption(rem6, name: "--timeout-ms")
             let (timeoutOptSec, rem8) = parseOption(rem7, name: "--timeout")
+            let parsed = try browserCommandArguments(rem8, commandName: "browser wait")
+            let positionalCount = selectorOpt == nil && !parsed.positionals.isEmpty ? 1 : 0
+            try rejectBrowserCommandExtras(
+                parsed.positionals.dropFirst(positionalCount),
+                commandName: "browser wait"
+            )
 
-            if let selector = selectorOpt ?? rem8.first {
+            if let selector = selectorOpt ?? parsed.positionals.first {
                 params["selector"] = selector
             }
             if let textOpt {
@@ -17970,12 +18011,28 @@ struct CMUXCLI {
         }
 
         if ["click", "dblclick", "hover", "focus", "check", "uncheck", "scrollintoview", "scrollinto", "scroll-into-view"].contains(subcommand) {
+            let commandName = "browser \(subcommand)"
+            try validateBrowserCommandArguments(
+                subArgs,
+                valueOptions: ["--selector"],
+                allowedFlags: ["--snapshot-after"],
+                commandName: commandName
+            )
             let sid = try requireSurface()
             let (selectorOpt, rem1) = parseOption(subArgs, name: "--selector")
-            let selector = selectorOpt ?? rem1.first
+            let parsed = try browserCommandArguments(
+                rem1,
+                allowedFlags: ["--snapshot-after"],
+                commandName: commandName
+            )
+            let selector = selectorOpt ?? parsed.positionals.first
             guard let selector else {
                 throw CLIError(message: "browser \(subcommand) requires a selector")
             }
+            try rejectBrowserCommandExtras(
+                parsed.positionals.dropFirst(selectorOpt == nil ? 1 : 0),
+                commandName: commandName
+            )
             let methodMap: [String: String] = [
                 "click": "browser.click",
                 "dblclick": "browser.dblclick",
@@ -17988,7 +18045,7 @@ struct CMUXCLI {
                 "scroll-into-view": "browser.scroll_into_view",
             ]
             var params: [String: Any] = ["surface_id": sid, "selector": selector]
-            if hasFlag(subArgs, name: "--snapshot-after") {
+            if parsed.flags.contains("--snapshot-after") {
                 params["snapshot_after"] = true
             }
             let payload = try sendBrowserAutomationRequest(method: methodMap[subcommand]!, params: params)
@@ -18079,12 +18136,28 @@ struct CMUXCLI {
         }
 
         if ["press", "key", "keydown", "keyup"].contains(subcommand) {
+            let commandName = "browser \(subcommand)"
+            try validateBrowserCommandArguments(
+                subArgs,
+                valueOptions: ["--key"],
+                allowedFlags: ["--snapshot-after"],
+                commandName: commandName
+            )
             let sid = try requireSurface()
             let (keyOpt, rem1) = parseOption(subArgs, name: "--key")
-            let key = keyOpt ?? rem1.first
+            let parsed = try browserCommandArguments(
+                rem1,
+                allowedFlags: ["--snapshot-after"],
+                commandName: commandName
+            )
+            let key = keyOpt ?? parsed.positionals.first
             guard let key else {
                 throw CLIError(message: "browser \(subcommand) requires a key")
             }
+            try rejectBrowserCommandExtras(
+                parsed.positionals.dropFirst(keyOpt == nil ? 1 : 0),
+                commandName: commandName
+            )
             let methodMap: [String: String] = [
                 "press": "browser.press",
                 "key": "browser.press",
@@ -18092,7 +18165,7 @@ struct CMUXCLI {
                 "keyup": "browser.keyup",
             ]
             var params: [String: Any] = ["surface_id": sid, "key": key]
-            if hasFlag(subArgs, name: "--snapshot-after") {
+            if parsed.flags.contains("--snapshot-after") {
                 params["snapshot_after"] = true
             }
             let payload = try sendBrowserAutomationRequest(method: methodMap[subcommand]!, params: params)
@@ -18101,19 +18174,38 @@ struct CMUXCLI {
         }
 
         if subcommand == "select" {
+            let commandName = "browser select"
+            try validateBrowserCommandArguments(
+                subArgs,
+                valueOptions: ["--selector", "--value"],
+                allowedFlags: ["--snapshot-after"],
+                optionsAllowingEmptyValues: ["--value"],
+                commandName: commandName
+            )
             let sid = try requireSurface()
             let (selectorOpt, rem1) = parseOption(subArgs, name: "--selector")
             let (valueOpt, rem2) = parseOption(rem1, name: "--value")
-            let selector = selectorOpt ?? rem2.first
+            let parsed = try browserCommandArguments(
+                rem2,
+                allowedFlags: ["--snapshot-after"],
+                commandName: commandName
+            )
+            let selector = selectorOpt ?? parsed.positionals.first
             guard let selector else {
                 throw CLIError(message: "browser select requires a selector")
             }
-            let value = valueOpt ?? (selectorOpt != nil ? rem2.first : rem2.dropFirst().first)
+            let usedForSelector = selectorOpt == nil ? 1 : 0
+            let value = valueOpt ?? parsed.positionals.dropFirst(usedForSelector).first
             guard let value else {
                 throw CLIError(message: "browser select requires a value")
             }
+            let usedPositionals = usedForSelector + (valueOpt == nil ? 1 : 0)
+            try rejectBrowserCommandExtras(
+                parsed.positionals.dropFirst(usedPositionals),
+                commandName: commandName
+            )
             var params: [String: Any] = ["surface_id": sid, "selector": selector, "value": value]
-            if hasFlag(subArgs, name: "--snapshot-after") {
+            if parsed.flags.contains("--snapshot-after") {
                 params["snapshot_after"] = true
             }
             let payload = try sendBrowserAutomationRequest(method: "browser.select", params: params)
@@ -18378,12 +18470,23 @@ struct CMUXCLI {
                 throw CLIError(message: "browser is requires a subcommand")
             }
             let isArgs = Array(subArgs.dropFirst())
+            let commandName = "browser is \(isVerb)"
+            try validateBrowserCommandArguments(
+                isArgs,
+                valueOptions: ["--selector"],
+                commandName: commandName
+            )
             let (selectorOpt, rem1) = parseOption(isArgs, name: "--selector")
-            let selector = selectorOpt ?? rem1.first
+            let parsed = try browserCommandArguments(rem1, commandName: commandName)
+            let selector = selectorOpt ?? parsed.positionals.first
             guard let selector else {
                 throw CLIError(message: "browser is \(isVerb) requires a selector")
             }
 
+            try rejectBrowserCommandExtras(
+                parsed.positionals.dropFirst(selectorOpt == nil ? 1 : 0),
+                commandName: commandName
+            )
             let methodMap: [String: String] = [
                 "visible": "browser.is.visible",
                 "enabled": "browser.is.enabled",
@@ -18409,6 +18512,32 @@ struct CMUXCLI {
                 throw CLIError(message: "browser find requires a locator (role|text|label|placeholder|alt|title|testid|first|last|nth)")
             }
             let locatorArgs = Array(subArgs.dropFirst())
+            let commandName = "browser find \(locator)"
+            let valueOptions: Set<String>
+            let allowedFlags: Set<String>
+            switch locator {
+            case "role":
+                valueOptions = ["--name"]
+                allowedFlags = ["--exact"]
+            case "text", "label", "placeholder", "alt", "title", "testid":
+                valueOptions = []
+                allowedFlags = ["--exact"]
+            case "first", "last":
+                valueOptions = ["--selector"]
+                allowedFlags = []
+            case "nth":
+                valueOptions = ["--index", "--selector"]
+                allowedFlags = []
+            default:
+                valueOptions = []
+                allowedFlags = []
+            }
+            try validateBrowserCommandArguments(
+                locatorArgs,
+                valueOptions: valueOptions,
+                allowedFlags: allowedFlags,
+                commandName: commandName
+            )
 
             var params: [String: Any] = ["surface_id": sid]
             let method: String
@@ -18416,15 +18545,21 @@ struct CMUXCLI {
             switch locator {
             case "role":
                 let (nameOpt, rem1) = parseOption(locatorArgs, name: "--name")
-                let candidates = nonFlagArgs(rem1)
+                let parsed = try browserCommandArguments(
+                    rem1,
+                    allowedFlags: ["--exact"],
+                    commandName: commandName
+                )
+                let candidates = parsed.positionals
                 guard let role = candidates.first else {
                     throw CLIError(message: "browser find role requires <role>")
                 }
                 params["role"] = role
+                try rejectBrowserCommandExtras(candidates.dropFirst(), commandName: commandName)
                 if let nameOpt {
                     params["name"] = nameOpt
                 }
-                if hasFlag(locatorArgs, name: "--exact") {
+                if parsed.flags.contains("--exact") {
                     params["exact"] = true
                 }
                 method = "browser.find.role"
@@ -18437,27 +18572,37 @@ struct CMUXCLI {
                     "title": "title",
                     "testid": "testid",
                 ]
-                let candidates = nonFlagArgs(locatorArgs)
+                let parsed = try browserCommandArguments(
+                    locatorArgs,
+                    allowedFlags: ["--exact"],
+                    commandName: commandName
+                )
+                let candidates = parsed.positionals
                 guard let value = candidates.first else {
                     throw CLIError(message: "browser find \(locator) requires a value")
                 }
                 params[keyMap[locator]!] = value
-                if hasFlag(locatorArgs, name: "--exact") {
+                try rejectBrowserCommandExtras(candidates.dropFirst(), commandName: commandName)
+                if parsed.flags.contains("--exact") {
                     params["exact"] = true
                 }
                 method = "browser.find.\(locator)"
             case "first", "last":
                 let (selectorOpt, rem1) = parseOption(locatorArgs, name: "--selector")
-                let candidates = nonFlagArgs(rem1)
+                let candidates = try browserCommandArguments(rem1, commandName: commandName).positionals
                 guard let selector = selectorOpt ?? candidates.first else {
                     throw CLIError(message: "browser find \(locator) requires a selector")
                 }
                 params["selector"] = selector
+                try rejectBrowserCommandExtras(
+                    candidates.dropFirst(selectorOpt == nil ? 1 : 0),
+                    commandName: commandName
+                )
                 method = "browser.find.\(locator)"
             case "nth":
                 let (indexOpt, rem1) = parseOption(locatorArgs, name: "--index")
                 let (selectorOpt, rem2) = parseOption(rem1, name: "--selector")
-                let candidates = nonFlagArgs(rem2)
+                let candidates = try browserCommandArguments(rem2, commandName: commandName).positionals
                 let indexRaw = indexOpt ?? candidates.first
                 guard let indexRaw,
                       let index = Int(indexRaw) else {
@@ -18469,6 +18614,11 @@ struct CMUXCLI {
                 }
                 params["index"] = index
                 params["selector"] = selector
+                let usedPositionals = (indexOpt == nil ? 1 : 0) + (selectorOpt == nil ? 1 : 0)
+                try rejectBrowserCommandExtras(
+                    candidates.dropFirst(usedPositionals),
+                    commandName: commandName
+                )
                 method = "browser.find.nth"
             default:
                 throw CLIError(message: "Unsupported browser find locator: \(locator)")
@@ -18480,20 +18630,32 @@ struct CMUXCLI {
         }
 
         if subcommand == "frame" {
+            let commandName = "browser frame"
+            try validateBrowserCommandArguments(
+                subArgs,
+                valueOptions: ["--selector"],
+                commandName: commandName
+            )
             let sid = try requireSurface()
             guard let frameVerb = subArgs.first?.lowercased() else {
                 throw CLIError(message: "browser frame requires <selector|main>")
             }
             if frameVerb == "main" {
+                try rejectBrowserCommandExtras(subArgs.dropFirst(), commandName: commandName)
                 let payload = try client.sendV2(method: "browser.frame.main", params: ["surface_id": sid])
                 output(payload, fallback: "OK")
                 return
             }
             let (selectorOpt, rem1) = parseOption(subArgs, name: "--selector")
-            let selector = selectorOpt ?? nonFlagArgs(rem1).first
+            let parsed = try browserCommandArguments(rem1, commandName: commandName)
+            let selector = selectorOpt ?? parsed.positionals.first
             guard let selector else {
                 throw CLIError(message: "browser frame requires a selector or 'main'")
             }
+            try rejectBrowserCommandExtras(
+                parsed.positionals.dropFirst(selectorOpt == nil ? 1 : 0),
+                commandName: commandName
+            )
             let payload = try sendBrowserAutomationRequest(method: "browser.frame.select", params: ["surface_id": sid, "selector": selector])
             output(payload, fallback: "OK")
             return
@@ -18538,13 +18700,30 @@ struct CMUXCLI {
             let sid = try requireSurface()
             let cookieVerb = subArgs.first?.lowercased() ?? "get"
             let cookieArgs = subArgs.first != nil ? Array(subArgs.dropFirst()) : []
+            let commandName = "browser cookies \(cookieVerb)"
+            let cookieValueOptions: Set<String> = [
+                "--name", "--value", "--url", "--domain", "--path", "--expires",
+            ]
+            let cookieFlags: Set<String> = ["--secure", "--all", "--http-only"]
+            try validateBrowserCommandArguments(
+                cookieArgs,
+                valueOptions: cookieValueOptions,
+                allowedFlags: cookieFlags,
+                optionsAllowingEmptyValues: cookieVerb == "set" ? ["--value"] : [],
+                commandName: commandName
+            )
 
             let (nameOpt, rem1) = parseOption(cookieArgs, name: "--name")
             let (valueOpt, rem2) = parseOption(rem1, name: "--value")
             let (urlOpt, rem3) = parseOption(rem2, name: "--url")
             let (domainOpt, rem4) = parseOption(rem3, name: "--domain")
             let (pathOpt, rem5) = parseOption(rem4, name: "--path")
-            let (expiresOpt, _) = parseOption(rem5, name: "--expires")
+            let (expiresOpt, rem6) = parseOption(rem5, name: "--expires")
+            let parsed = try browserCommandArguments(
+                rem6,
+                allowedFlags: cookieFlags,
+                commandName: commandName
+            )
 
             var params: [String: Any] = ["surface_id": sid]
             if let nameOpt { params["name"] = nameOpt }
@@ -18552,10 +18731,10 @@ struct CMUXCLI {
             if let urlOpt { params["url"] = urlOpt }
             if let domainOpt { params["domain"] = domainOpt }
             if let pathOpt { params["path"] = pathOpt }
-            if hasFlag(cookieArgs, name: "--secure") {
+            if parsed.flags.contains("--secure") {
                 params["secure"] = true
             }
-            if hasFlag(cookieArgs, name: "--all") {
+            if parsed.flags.contains("--all") {
                 params["all"] = true
             }
             if let expiresOpt {
@@ -18567,26 +18746,35 @@ struct CMUXCLI {
 
             switch cookieVerb {
             case "get":
+                try rejectBrowserCommandExtras(parsed.positionals[...], commandName: commandName)
                 let payload = try client.sendV2(method: "browser.cookies.get", params: params)
                 output(payload, fallback: "OK")
             case "set":
                 var setParams = params
-                if hasFlag(cookieArgs, name: "--http-only") {
+                if parsed.flags.contains("--http-only") {
                     setParams["httpOnly"] = true
                 }
-                let positional = nonFlagArgs(cookieArgs)
-                if setParams["name"] == nil, positional.count >= 1 {
-                    setParams["name"] = positional[0]
+                let positional = parsed.positionals
+                var positionalIndex = 0
+                if setParams["name"] == nil, positional.indices.contains(positionalIndex) {
+                    setParams["name"] = positional[positionalIndex]
+                    positionalIndex += 1
                 }
-                if setParams["value"] == nil, positional.count >= 2 {
-                    setParams["value"] = positional[1]
+                if setParams["value"] == nil, positional.indices.contains(positionalIndex) {
+                    setParams["value"] = positional[positionalIndex]
+                    positionalIndex += 1
                 }
+                try rejectBrowserCommandExtras(
+                    positional.dropFirst(positionalIndex),
+                    commandName: commandName
+                )
                 guard setParams["name"] != nil, setParams["value"] != nil else {
                     throw CLIError(message: "browser cookies set requires <name> <value> (or --name/--value)")
                 }
                 let payload = try client.sendV2(method: "browser.cookies.set", params: setParams)
                 output(payload, fallback: "OK")
             case "clear":
+                try rejectBrowserCommandExtras(parsed.positionals[...], commandName: commandName)
                 let payload = try client.sendV2(method: "browser.cookies.clear", params: params)
                 output(payload, fallback: "OK")
             default:
@@ -18604,17 +18792,21 @@ struct CMUXCLI {
             }
             let op = storageArgs.count >= 2 ? storageArgs[1].lowercased() : "get"
             let rest = storageArgs.count > 2 ? Array(storageArgs.dropFirst(2)) : []
-            let positional = nonFlagArgs(rest)
+            let commandName = "browser storage \(storageType) \(op)"
+            try validateBrowserCommandArguments(rest, commandName: commandName)
+            let positional = try browserCommandArguments(rest, commandName: commandName).positionals
 
             var params: [String: Any] = ["surface_id": sid, "type": storageType]
             switch op {
             case "get":
+                try rejectBrowserCommandExtras(positional.dropFirst(), commandName: commandName)
                 if let key = positional.first {
                     params["key"] = key
                 }
                 let payload = try sendBrowserAutomationRequest(method: "browser.storage.get", params: params)
                 output(payload, fallback: "OK")
             case "set":
+                try rejectBrowserCommandExtras(positional.dropFirst(2), commandName: commandName)
                 guard positional.count >= 2 else {
                     throw CLIError(message: "browser storage \(storageType) set requires <key> <value>")
                 }
@@ -18623,6 +18815,7 @@ struct CMUXCLI {
                 let payload = try sendBrowserAutomationRequest(method: "browser.storage.set", params: params)
                 output(payload, fallback: "OK")
             case "clear":
+                try rejectBrowserCommandExtras(positional[...], commandName: commandName)
                 let payload = try sendBrowserAutomationRequest(method: "browser.storage.clear", params: params)
                 output(payload, fallback: "OK")
             default:
@@ -18647,13 +18840,18 @@ struct CMUXCLI {
                 tabArgs = subArgs
             }
 
+            let commandName = "browser tab \(tabVerb)"
+            try validateBrowserCommandArguments(tabArgs, commandName: commandName)
+            let parsed = try browserCommandArguments(tabArgs, commandName: commandName)
+
             switch tabVerb {
             case "list":
+                try rejectBrowserCommandExtras(parsed.positionals[...], commandName: commandName)
                 let payload = try client.sendV2(method: "browser.tab.list", params: ["surface_id": sid])
                 output(payload, fallback: "OK")
             case "new":
                 var params: [String: Any] = ["surface_id": sid]
-                let url = tabArgs.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+                let url = parsed.positionals.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
                 if !url.isEmpty {
                     params["url"] = url
                 }
@@ -18662,7 +18860,8 @@ struct CMUXCLI {
             case "switch", "close":
                 let method = (tabVerb == "switch") ? "browser.tab.switch" : "browser.tab.close"
                 var params: [String: Any] = ["surface_id": sid]
-                let target = tabArgs.first
+                try rejectBrowserCommandExtras(parsed.positionals.dropFirst(), commandName: commandName)
+                let target = parsed.positionals.first
                 if let target {
                     if let index = Int(target) {
                         params["index"] = index
