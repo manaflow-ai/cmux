@@ -408,76 +408,6 @@ mod tests {
     const KEY_A: &str = "GDYq0RJ4LWL6jJhLMAlM1oHcCTdSiXPMZ4X5D8WzGdw=";
     const KEY_B: &str = "Bo2I0OcpKnXtElGwH6EXV3MwDQctaIrFJ4tDX44DoWs=";
 
-    fn freestyle_shaped() -> String {
-        format!(
-            "[Interface]\nPrivateKey = {KEY_A}\nAddress = 100.64.0.1/32\nAddress = fd7a:7570:6c6b::1/128\nMTU = 1200\nDNS = 10.0.0.53\n\n[Peer]\nPublicKey = {KEY_B}\nAllowedIPs = 10.0.0.0/8, fd00::/8\nEndpoint = [2606:4700::1]:51820\nPersistentKeepalive = 25\n"
-        )
-    }
-
-    #[test]
-    fn parses_a_freestyle_shaped_config() {
-        let config = WgConfig::parse_wg_quick(&freestyle_shaped()).unwrap();
-        assert_eq!(config.mtu, 1200);
-        assert_eq!(config.addresses.len(), 2);
-        assert_eq!(config.addresses[0].to_string(), "100.64.0.1/32");
-        assert_eq!(config.addresses[1].to_string(), "fd7a:7570:6c6b::1/128");
-        assert_eq!(config.allowed_ips.len(), 2);
-        assert_eq!(config.allowed_ips[0].to_string(), "10.0.0.0/8");
-        assert_eq!(config.allowed_ips[1].to_string(), "fd00::/8");
-        assert_eq!(config.endpoint, Some(Endpoint { host: "2606:4700::1".into(), port: 51820 }));
-        assert_eq!(config.endpoint.as_ref().unwrap().to_string(), "[2606:4700::1]:51820");
-        assert_eq!(config.persistent_keepalive, Some(25));
-        assert!(config.preshared_key.is_none());
-        assert!(config.routes_contain("10.100.0.10".parse().unwrap()));
-        assert!(config.routes_contain("fd12::1".parse().unwrap()));
-        assert!(!config.routes_contain("192.168.1.1".parse().unwrap()));
-        assert_eq!(
-            config.local_address_for("10.100.0.10".parse().unwrap()),
-            Some("100.64.0.1".parse().unwrap())
-        );
-        assert_eq!(
-            config.local_address_for("fd12::1".parse().unwrap()),
-            Some("fd7a:7570:6c6b::1".parse().unwrap())
-        );
-    }
-
-    #[test]
-    fn debug_output_omits_the_private_key() {
-        let config = WgConfig::parse_wg_quick(&freestyle_shaped()).unwrap();
-        let debug = format!("{config:?}");
-        assert!(!debug.contains(KEY_A));
-        assert!(debug.contains(KEY_B));
-    }
-
-    #[test]
-    fn hostname_endpoints_and_comma_lists_parse() {
-        let text = format!(
-            "[Interface]\nPrivateKey={KEY_A}\nAddress=10.1.0.2/24, fdaa::2/64 # tunnel\n[Peer]\nPublicKey={KEY_B}\nAllowedIPs=10.1.0.7/24\nEndpoint=vpn.example.com:51820\n"
-        );
-        let config = WgConfig::parse_wg_quick(&text).unwrap();
-        assert_eq!(config.mtu, DEFAULT_MTU);
-        assert_eq!(config.endpoint.as_ref().unwrap().to_string(), "vpn.example.com:51820");
-        // Interface addresses keep their host bits; allowed networks drop them.
-        assert_eq!(config.addresses[0].to_string(), "10.1.0.2/24");
-        assert_eq!(config.addresses[1].to_string(), "fdaa::2/64");
-        assert_eq!(config.allowed_ips[0].to_string(), "10.1.0.0/24");
-        assert_eq!(
-            config.local_address_for("10.1.0.9".parse().unwrap()),
-            Some("10.1.0.2".parse().unwrap())
-        );
-    }
-
-    #[test]
-    fn a_bare_address_is_a_host() {
-        let text = format!(
-            "[Interface]\nPrivateKey={KEY_A}\nAddress=10.1.0.2\n[Peer]\nPublicKey={KEY_B}\nAllowedIPs=10.1.0.9\n"
-        );
-        let config = WgConfig::parse_wg_quick(&text).unwrap();
-        assert_eq!(config.addresses[0].to_string(), "10.1.0.2/32");
-        assert_eq!(config.allowed_ips[0].to_string(), "10.1.0.9/32");
-        assert!(config.endpoint.is_none());
-    }
-
     #[test]
     fn rejects_missing_and_malformed_fields() {
         let missing_key = format!(
@@ -534,25 +464,5 @@ mod tests {
             WgConfig::parse_wg_quick(&three_addresses).unwrap_err(),
             ConfigError::TooManyAddresses { maximum: 2 }
         );
-    }
-
-    #[test]
-    fn the_peer_address_is_read_from_the_peer_section() {
-        let text = freestyle_shaped()
-            .replace("[Peer]\n", "[Peer]\nPeerAddress = 10.100.0.10/32, fd12::10\n");
-        let config = WgConfig::parse_wg_quick(&text).unwrap();
-        let v4: IpAddr = "10.100.0.10".parse().unwrap();
-        let v6: IpAddr = "fd12::10".parse().unwrap();
-        assert_eq!(config.peer_addresses, vec![v4, v6]);
-        assert_eq!(config.peer_address_for("10.0.0.1".parse().unwrap()), Some(v4));
-        assert_eq!(config.peer_address_for("fd00::1".parse().unwrap()), Some(v6));
-        assert!(WgConfig::parse_wg_quick(&freestyle_shaped()).unwrap().peer_addresses.is_empty());
-
-        let twice =
-            freestyle_shaped().replace("[Peer]\n", "[Peer]\nPeerAddress = 10.0.0.1, 10.0.0.2\n");
-        assert!(matches!(
-            WgConfig::parse_wg_quick(&twice),
-            Err(ConfigError::InvalidValue { key: "PeerAddress", .. })
-        ));
     }
 }

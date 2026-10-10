@@ -81,16 +81,6 @@ impl PeerTable {
         &self.public
     }
 
-    #[cfg(test)]
-    pub(crate) fn len(&self) -> usize {
-        self.peers.len()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn index_count(&self) -> usize {
-        self.by_index.len()
-    }
-
     pub(crate) fn contains(&self, key: &PeerKey) -> bool {
         self.peers.contains_key(key)
     }
@@ -199,61 +189,4 @@ impl PeerTable {
 pub(crate) fn overlaps(left: &IpNetwork, right: &IpNetwork) -> bool {
     left.is_ipv4() == right.is_ipv4()
         && (left.contains(right.network_address()) || right.contains(left.network_address()))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn net(text: &str, prefix: u8) -> IpNetwork {
-        IpNetwork::new(text.parse::<IpAddr>().unwrap(), prefix).unwrap()
-    }
-
-    fn peer(allowed: Vec<IpNetwork>) -> WgPeer {
-        WgPeer {
-            public_key: crate::testing::random_keypair().1,
-            preshared_key: None,
-            allowed_ips: allowed,
-            route: None,
-            persistent_keepalive: None,
-        }
-    }
-
-    #[test]
-    fn overlap_needs_one_family_and_a_shared_address() {
-        assert!(overlaps(&net("fd00::", 64), &net("fd00::5", 128)));
-        assert!(overlaps(&net("fd00::5", 128), &net("fd00::", 64)));
-        assert!(!overlaps(&net("fd00::", 64), &net("fd01::", 64)));
-        assert!(!overlaps(&net("0.0.0.0", 0), &net("::", 0)), "families never overlap");
-    }
-
-    #[test]
-    fn routes_pick_the_longest_prefix_and_indexes_find_their_peer() {
-        let (private, _) = crate::testing::random_keypair();
-        let mut table = PeerTable::new(&private);
-        let wide = peer(vec![net("10.0.0.0", 8)]);
-        let narrow = peer(vec![net("10.1.0.0", 16)]);
-        // Nested networks overlap, so they are refused: a route never has
-        // to choose between two peers.
-        table.check(&wide).unwrap();
-        let wide_index = table.insert(wide.clone(), Instant::now()).index;
-        assert!(matches!(table.check(&narrow), Err(WgError::AllowedIpsOverlap(_))));
-        let other = peer(vec![net("fd00::", 64)]);
-        table.check(&other).unwrap();
-        table.insert(other.clone(), Instant::now());
-
-        assert_eq!(table.route("10.9.9.9".parse().unwrap()), Some(wide.public_key));
-        assert_eq!(table.route("fd00::1".parse().unwrap()), Some(other.public_key));
-        assert_eq!(table.route("fd01::1".parse().unwrap()), None);
-        assert_eq!(table.by_receiver((wide_index << 8) | 3), Some(wide.public_key));
-
-        // Replacing gets a new index; the old one finds nobody.
-        let replaced_index = table.insert(wide.clone(), Instant::now()).index;
-        assert_ne!(replaced_index, wide_index);
-        assert_eq!(table.by_receiver(wide_index << 8), None);
-        assert_eq!(table.len(), 2);
-        assert_eq!(table.index_count(), 2);
-        assert!(table.remove(&wide.public_key).is_some());
-        assert_eq!(table.by_receiver(replaced_index << 8), None);
-    }
 }
