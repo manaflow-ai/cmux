@@ -56,9 +56,13 @@ struct MacAuthComposition {
             isDebugBuild: Self.isDebugBuild
         )
         let buildIdentity = Self.sentryBuildIdentity(bundleIdentifier: bundleIdentifier)
+        let keychainAccessGroup = KeychainStackTokenStore.signedAccessGroup(
+            bundleIdentifier: bundleIdentifier
+        )
         let tokenStore = FallbackTokenStore(
             primary: KeychainStackTokenStore(
                 service: KeychainStackTokenStore.serviceName(bundleIdentifier: bundleIdentifier),
+                accessGroup: keychainAccessGroup,
                 onFailure: { failure in
                     guard SentrySDK.isEnabled else { return }
                     SentrySDK.logger.error(

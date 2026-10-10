@@ -119,6 +119,51 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         return "\(bundleIdentifier).auth"
     }
 
+    /// Returns the exact Keychain access group granted to this signed process
+    /// for `bundleIdentifier`.
+    ///
+    /// macOS release artifacts are signed after Xcode builds the app, so the
+    /// access-group value cannot safely be inferred from an Xcode build
+    /// setting. Reading the signed entitlement also keeps Nightly/RC/stable
+    /// bundle identities isolated from one another. Unsigned Debug builds do
+    /// not have this entitlement and intentionally return `nil`, allowing the
+    /// file fallback to handle them.
+    public static func signedAccessGroup(bundleIdentifier: String?) -> String? {
+#if canImport(Security)
+        guard let bundleIdentifier,
+              !bundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let task = SecTaskCreateFromSelf(nil),
+              let rawGroups = SecTaskCopyValueForEntitlement(
+                  task,
+                  "keychain-access-groups" as CFString,
+                  nil
+              ) as? [String] else {
+            return nil
+        }
+        return accessGroup(from: rawGroups, bundleIdentifier: bundleIdentifier)
+#else
+        return nil
+#endif
+    }
+
+    /// Selects the signed group whose bundle suffix exactly matches the app.
+    /// Kept pure so build-channel isolation can be tested without changing the
+    /// process signature in a unit test.
+    public static func accessGroup(
+        from groups: [String],
+        bundleIdentifier: String?
+    ) -> String? {
+        guard let bundleIdentifier = bundleIdentifier?.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        ), !bundleIdentifier.isEmpty else {
+            return nil
+        }
+        let suffix = ".\(bundleIdentifier)"
+        return groups.first { group in
+            group.hasSuffix(suffix)
+        }
+    }
+
     /// Reports whether the app can currently query both auth-keychain items.
     ///
     /// Security collapses several query failures into `nil` in the token read

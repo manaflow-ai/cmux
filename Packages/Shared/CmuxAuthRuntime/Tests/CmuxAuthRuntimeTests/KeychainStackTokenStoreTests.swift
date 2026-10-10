@@ -7,6 +7,33 @@ import Testing
 
 @Suite(.serialized)
 struct KeychainStackTokenStoreTests {
+    @Test func accessGroupSelectionMatchesExactBundleIdentity() {
+        let groups = [
+            "7WLXT3NR37.com.cmuxterm.app",
+            "7WLXT3NR37.com.cmuxterm.app.nightly",
+            "7WLXT3NR37.com.cmuxterm.app.nightly.preview",
+        ]
+
+        #expect(
+            KeychainStackTokenStore.accessGroup(
+                from: groups,
+                bundleIdentifier: "com.cmuxterm.app.nightly"
+            ) == "7WLXT3NR37.com.cmuxterm.app.nightly"
+        )
+        #expect(
+            KeychainStackTokenStore.accessGroup(
+                from: groups,
+                bundleIdentifier: "com.cmuxterm.app"
+            ) == "7WLXT3NR37.com.cmuxterm.app"
+        )
+        #expect(
+            KeychainStackTokenStore.accessGroup(
+                from: groups,
+                bundleIdentifier: "com.cmuxterm.app.rc"
+            ) == nil
+        )
+    }
+
     #if canImport(Security)
     private final class FailureRecorder: @unchecked Sendable {
         private let lock = NSLock()
