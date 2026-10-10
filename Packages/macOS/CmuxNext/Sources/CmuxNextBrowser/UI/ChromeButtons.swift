@@ -1,12 +1,13 @@
 import AppKit
 import CmuxNextWakeups
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// Borderless icon button with gray hover and press fills (no accent color).
 final class ChromeIconButton: NSButton {
     private let density = DensityBinding()
-    private var symbolName = ""
-    private var symbolLabel = ""
+    private var iconName = IconName.placeholder
+    private var iconLabel = ""
     private var isHovering = false { didSet { updateFill() } }
     private var tracking: NSTrackingArea?
 
@@ -18,15 +19,15 @@ final class ChromeIconButton: NSButton {
     private let holdTimer = DemandTimer(owner: "ChromeIconButton.hold")
     private var showedHoldMenu = false
 
-    init(symbol: String, label: String, action: Selector?, target: AnyObject?, toolbar: Bool = false) {
+    init(icon: IconName, label: String, action: Selector?, target: AnyObject?, toolbar: Bool = false) {
         isToolbar = toolbar
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         isBordered = false
         bezelStyle = .regularSquare
         imagePosition = .imageOnly
-        symbolName = symbol
-        symbolLabel = label
+        iconName = icon
+        iconLabel = label
         self.action = action
         self.target = target
         toolTip = label
@@ -39,7 +40,7 @@ final class ChromeIconButton: NSButton {
         density.update { [weak self] in
             guard let self else { return }
             layer?.cornerRadius = isToolbar ? OmnibarStyle.buttonCornerRadius : BrowserMetrics.controlCornerRadius
-            applySymbol()
+            applyIcon()
         }
         density.start()
     }
@@ -47,23 +48,21 @@ final class ChromeIconButton: NSButton {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    /// Unchanged symbol and label keep the current image: a new NSImage
+    /// Unchanged icon and label keep the current image: a new NSImage
     /// makes AppKit lay out and redraw the button.
-    func setSymbol(_ symbol: String, label: String) {
-        guard symbol != symbolName || label != symbolLabel || image == nil else { return }
-        symbolName = symbol
-        symbolLabel = label
-        applySymbol()
+    func setIcon(_ icon: IconName, label: String) {
+        guard icon != iconName || label != iconLabel || image == nil else { return }
+        iconName = icon
+        iconLabel = label
+        applyIcon()
     }
 
-    private func applySymbol() {
-        let symbol = symbolName
-        let label = symbolLabel
-        let configuration = isToolbar
-            ? NSImage.SymbolConfiguration(pointSize: OmnibarStyle.buttonSymbolSize, weight: .regular)
-            : NSImage.SymbolConfiguration(pointSize: BrowserMetrics.symbolPointSize, weight: .medium)
-        image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)?
-            .withSymbolConfiguration(configuration)
+    private func applyIcon() {
+        let label = iconLabel
+        let side = CGFloat.iconRowSize(forLabelPointSize: isToolbar ? OmnibarStyle.buttonSymbolSize : BrowserMetrics.symbolPointSize)
+        let icon = NSImage.icon(iconName, size: side)
+        icon.accessibilityDescription = label
+        image = icon
         toolTip = label
         setAccessibilityLabel(label)
     }
