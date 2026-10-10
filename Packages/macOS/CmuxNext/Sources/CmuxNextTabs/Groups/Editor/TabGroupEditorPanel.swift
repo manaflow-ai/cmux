@@ -50,6 +50,9 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     private var dismissing = false
     /// The chip the editor opened from (screen coordinates), where it closes to.
     private var anchor: CGRect = .zero
+    /// Bumped by every open and close, so a finished close that a reopen and
+    /// a second close overtook leaves the panel to the newer close.
+    private var generation = 0
 
     init() {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
@@ -172,6 +175,7 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         dismissing = false
         ignoresMouseEvents = false
         self.anchor = anchor
+        generation += 1
         if self.parent !== parent {
             self.parent?.removeChildWindow(self)
             parent.addChildWindow(self, ordered: .above)
@@ -206,10 +210,15 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         dismissing = true
         commitName()
         ignoresMouseEvents = true
+        // The keys go back to the window under it now, not when the fade ends.
+        makeFirstResponder(nil)
+        if isKeyWindow, let parent, parent.isVisible { parent.makeKey() }
         onClose?()
+        generation += 1
+        let closing = generation
         PopupMotion.close(self, pivot: PopupMotion.pivot(toward: anchor, in: self)) { [weak self] in
             // A reopen during the close keeps the panel.
-            guard let self, self.dismissing else { return }
+            guard let self, self.dismissing, self.generation == closing else { return }
             self.parent?.removeChildWindow(self)
             self.orderOut(nil)
             PopupMotion.reset(self)
