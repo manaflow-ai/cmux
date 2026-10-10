@@ -2,8 +2,8 @@ public import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
 
-/// The trailing toolbar buttons (`BrowserToolbarButton`): design mode,
-/// profile, theme, DevTools and More. Engine-neutral: the states come from
+/// The trailing toolbar buttons (`BrowserToolbarButton`): zoom level,
+/// Favorites, design mode, profile, theme, DevTools and More. Engine-neutral: the states come from
 /// `BrowserToolbarPolicy` over the bound tab, and a press only reports the
 /// button (`onPress`); the App runs the button's catalog action. Holds no
 /// key handling: shortcuts go through the action registry.
@@ -17,8 +17,8 @@ public final class BrowserToolbarButtonsView: NSStackView {
     /// Design mode and color scheme of the bound tab.
     public let modes = BrowserPageModes()
     /// 0 shows every button; 1 hides design mode and DevTools; 2 also
-    /// profile and theme (`BrowserToolbarButton.collapseLevel`). More lists
-    /// the hidden ones.
+    /// zoom, Favorites, profile and theme (`BrowserToolbarButton.collapseLevel`).
+    /// More lists the hidden ones.
     public private(set) var collapse = 0
 
     /// The buttons hidden now (the More menu offers their actions).
@@ -29,6 +29,8 @@ public final class BrowserToolbarButtonsView: NSStackView {
     private weak var tab: (any BrowserTab)?
     private var observation: ObservationLoop?
     private var pageURL: URL?
+    /// The bound page's zoom: the zoom button shows only away from 100 %.
+    private var zoom: Double = 1
 
     public init() {
         super.init(frame: .zero)
@@ -43,6 +45,7 @@ public final class BrowserToolbarButtonsView: NSStackView {
             addArrangedSubview(view)
         }
         render()
+        applyVisibility()
     }
 
     @available(*, unavailable)
@@ -109,12 +112,16 @@ public final class BrowserToolbarButtonsView: NSStackView {
     func setCollapse(_ level: Int) {
         guard level != collapse else { return }
         collapse = level
-        for (button, view) in buttons { view.isHidden = button.isCollapsed(at: level) }
+        applyVisibility()
+    }
+
+    private func applyVisibility() {
+        for (button, view) in buttons { view.isHidden = !button.isShown(at: collapse, zoom: zoom) }
     }
 
     /// Width of the buttons shown at collapse `level`.
     func width(collapse level: Int) -> CGFloat {
-        let count = BrowserToolbarButton.allCases.filter { !$0.isCollapsed(at: level) }.count
+        let count = BrowserToolbarButton.allCases.filter { $0.isShown(at: level, zoom: zoom) }.count
         return CGFloat(count) * OmnibarStyle.buttonSize + CGFloat(max(0, count - 1)) * BrowserMetrics.buttonSpacing
     }
 
@@ -126,6 +133,11 @@ public final class BrowserToolbarButtonsView: NSStackView {
 
     private func render() {
         let facts = currentFacts()
+        if facts.zoom != zoom {
+            let wasShown = BrowserToolbarButton.zoom.isShown(at: collapse, zoom: zoom)
+            zoom = facts.zoom
+            if BrowserToolbarButton.zoom.isShown(at: collapse, zoom: zoom) != wasShown { relayoutChrome() }
+        }
         for button in BrowserToolbarButton.allCases {
             let state = BrowserToolbarPolicy.state(button, facts, shortcut: shortcutHint?(button))
             // Most tab state events (title, progress, address) change no
@@ -137,6 +149,15 @@ public final class BrowserToolbarButtonsView: NSStackView {
             view.isEnabled = state.isEnabled
             view.isOn = state.isActive
         }
+    }
+
+    /// The zoom button appeared or went: the chrome collapses the toolbar
+    /// again for the new width (`BrowserChromeView.applyToolbarLayout`).
+    private func relayoutChrome() {
+        applyVisibility()
+        var view = superview
+        while let current = view, !(current is BrowserChromeView) { view = current.superview }
+        view?.needsLayout = true
     }
 
     private func currentFacts() -> BrowserToolbarFacts {
@@ -151,7 +172,7 @@ public final class BrowserToolbarButtonsView: NSStackView {
         return BrowserToolbarFacts(
             engine: tab.engineKind, hostsDevTools: hosting != nil || webKit != nil,
             devToolsOpen: hosting?.devTools.isOpen ?? webKit?.isInspectorVisible ?? false,
-            designMode: modes.designMode, colorScheme: modes.colorScheme, profileName: profileName
+            designMode: modes.designMode, colorScheme: modes.colorScheme, profileName: profileName, zoom: tab.state.zoom
         )
     }
 }
