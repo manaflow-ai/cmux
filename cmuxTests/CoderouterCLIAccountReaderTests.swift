@@ -559,44 +559,42 @@ struct CoderouterAccountStateTests {
     func postRemovalReadDoesNotReinsertAccount() {
         var state = loaded(Self.teamA, ["a1", "a2"])
         let inFlightRead = state.beginRefresh(for: Self.teamA)
-        #expect(state.removeOptimistically(accountID: "a2", for: Self.teamA) == 1)
-        #expect(
-            !state.apply(
-                accounts: [account("a1"), account("a2")],
-                organizationID: "org-team-a",
-                teamScope: .teamOption,
-                for: Self.teamA,
-                startedAt: inFlightRead
-            )
+        let removedIndex = state.removeOptimistically(accountID: "a2", for: Self.teamA)
+        #expect(removedIndex == 1)
+        let rejectedRead = state.apply(
+            accounts: [account("a1"), account("a2")],
+            organizationID: "org-team-a",
+            teamScope: .teamOption,
+            for: Self.teamA,
+            startedAt: inFlightRead
         )
+        #expect(!rejectedRead)
 
         // The CLI write succeeded, but the first read can still observe its
         // old account list. Keep the row pending until a later read omits it.
         state.finishRemoval(accountID: "a2", for: Self.teamA)
         #expect(state.pendingRemovalIDs == ["a2"])
         let staleRead = state.beginRefresh(for: Self.teamA)
-        #expect(
-            state.apply(
-                accounts: [account("a1"), account("a2")],
-                organizationID: "org-team-a",
-                teamScope: .teamOption,
-                for: Self.teamA,
-                startedAt: staleRead
-            )
+        let staleReadApplied = state.apply(
+            accounts: [account("a1"), account("a2")],
+            organizationID: "org-team-a",
+            teamScope: .teamOption,
+            for: Self.teamA,
+            startedAt: staleRead
         )
+        #expect(staleReadApplied)
         #expect(state.accounts.map(\.id) == ["a1"])
         #expect(state.pendingRemovalIDs == ["a2"])
 
         let confirmedRead = state.beginRefresh(for: Self.teamA)
-        #expect(
-            state.apply(
-                accounts: [account("a1")],
-                organizationID: "org-team-a",
-                teamScope: .teamOption,
-                for: Self.teamA,
-                startedAt: confirmedRead
-            )
+        let confirmedReadApplied = state.apply(
+            accounts: [account("a1")],
+            organizationID: "org-team-a",
+            teamScope: .teamOption,
+            for: Self.teamA,
+            startedAt: confirmedRead
         )
+        #expect(confirmedReadApplied)
         #expect(state.accounts.map(\.id) == ["a1"])
         #expect(state.pendingRemovalIDs.isEmpty)
     }
@@ -604,7 +602,8 @@ struct CoderouterAccountStateTests {
     @Test("A team switch keeps an unconfirmed removal scoped to that team")
     func teamRoundTripKeepsRemovalHidden() {
         var state = loaded(Self.teamA, ["a2"])
-        #expect(state.removeOptimistically(accountID: "a2", for: Self.teamA) == 0)
+        let removedIndex = state.removeOptimistically(accountID: "a2", for: Self.teamA)
+        #expect(removedIndex == 0)
         state.finishRemoval(accountID: "a2", for: Self.teamA)
 
         state.select(Self.teamB)
@@ -613,15 +612,14 @@ struct CoderouterAccountStateTests {
         #expect(state.pendingRemovalIDs == ["a2"])
 
         let read = state.beginRefresh(for: Self.teamA)
-        #expect(
-            state.apply(
-                accounts: [account("a2")],
-                organizationID: "org-team-a",
-                teamScope: .teamOption,
-                for: Self.teamA,
-                startedAt: read
-            )
+        let readApplied = state.apply(
+            accounts: [account("a2")],
+            organizationID: "org-team-a",
+            teamScope: .teamOption,
+            for: Self.teamA,
+            startedAt: read
         )
+        #expect(readApplied)
         #expect(state.accounts.isEmpty)
         #expect(state.pendingRemovalIDs == ["a2"])
     }
