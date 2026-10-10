@@ -18,6 +18,11 @@ struct AgentChatTabActions {
         _ = registry()?.perform(ActionID(rawValue: id), invocation: invocation)
     }
 
+    /// Closes tab `id` (a quick action's split, AgentChatSplitToggles) as its own Close Tab does.
+    func close(tab id: String) {
+        _ = registry()?.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: id), origin: .user))
+    }
+
     /// Search the Web on selected chat text: a browser tab beside the chat, with the omnibar's
     /// search engine.
     func searchWeb(_ text: String) {

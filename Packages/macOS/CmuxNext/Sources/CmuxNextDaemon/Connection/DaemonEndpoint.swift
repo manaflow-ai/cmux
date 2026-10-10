@@ -48,6 +48,11 @@ public struct DaemonCapabilities: Sendable {
     /// moved tab's name in the same commit (else the app renames after).
     public let tabWorkspaceName = "tab-workspace-name-v1"
     public let notificationAck = "notification-ack-v1"
+    /// The daemon's local feed owner (plans/cmux-next/feed.md 9.1): every
+    /// notification is also a local feed item, selection never clears unread,
+    /// `ack-tab-notifications` reports `refused` items, and the
+    /// `feed-local-*` commands let the app hand items to the cloud owner.
+    public let feedLocalOwner = "feed-local-owner-v1"
     public let tabGroups = "tab-groups-v1"
     public let savedTabGroups = "saved-tab-groups-v1"
     /// The sidebar workspace pin: `pinned` on `set-workspace-metadata` and workspaces.
@@ -264,7 +269,7 @@ public struct DaemonCapabilities: Sendable {
                                             workspaceKind, workspaceAgentFolder, conversationTabs, agentSessionTabs, agentSessionAttach, pageTabs, conversationSearch, cloudConversations, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
                                             terminalClipboardRead, personalMixedOrder, sidebarLayout, paletteUsage, projectList, splitClientKeys,
-                                            workspaceGroupIcon, workspaceGroupPin, chiefInspect] }
+                                            workspaceGroupIcon, workspaceGroupPin, chiefInspect, feedLocalOwner] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
     /// feature shows disabled with its reason (or refuses with it) while the
