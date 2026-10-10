@@ -1,4 +1,4 @@
-import Synchronization
+import CmuxNextCompat
 
 /// Fans catalog event streams (`workspace.changed`, `agent.changed`, ...)
 /// out to app subscriptions (ABI `subscribe`). The App posts when its

@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 import JavaScriptCore
-import Synchronization
+import CmuxNextCompat
 
 /// The 250 ms evaluation limit per app VM (spec 5.2), the idea of the old
 /// custom sidebar lane's JSWatchdog: `JSContextGroupSetExecutionTimeLimit`
