@@ -878,8 +878,6 @@ export class AcpmuxDirectClient {
     const entry = this.sessions.find((session) => session.sessionId === sessionId);
     const cwd = path ?? text(summary?.cwd) ?? text(entry?.cwd);
     if (!cwd) return Promise.reject(new Error(translate("error.noFolderSearch")));
-    if (hostKind(summary?.hostKind) === "cloud" || entry?.hostKind === "cloud")
-      return Promise.reject(new Error(translate("error.remoteSearch")));
     return postNative("file.search", { cwd, query, limit });
   }
 
@@ -909,9 +907,8 @@ export class AcpmuxDirectClient {
     const entry = this.sessions.find((session) => session.sessionId === sessionId);
     const cwd = text(summary?.cwd) ?? text(entry?.cwd);
     if (!sessionId || !cwd) return Promise.reject(new Error(translate("error.noFolderChanges")));
-    // The native host reads folders on this Mac; a cloud session's folder is on its machine.
-    if (hostKind(summary?.hostKind) === "cloud" || entry?.hostKind === "cloud")
-      return Promise.reject(new Error(translate("error.remoteChanges")));
+    // The native host runs the read on the machine whose acpmux runs the session (a Cloud or
+    // SSH machine's chat reads through that machine's daemon), so no page-side machine check.
     return this.gitRoute === "daemon"
       ? this.request(method, { sessionId, cwd, ...params })
       : postNative(method, { cwd, ...params });
