@@ -181,7 +181,11 @@ describe("Cloud VM publication persistence", () => {
     expect(targets[0]!.hostnameClaimed).toBe(true);
     expect(typeof targets[0]!.hostnameClaimed).toBe("boolean");
     expect(targets[0]!.providerVmId).toBe("provider-vm-claimed-flag");
-    await requiredSql()`update cloud_vm_publications set hostname_claimed_at = null where id = ${active.publication.id}`;
+    await requiredSql()`
+      update cloud_vm_publications
+      set hostname_claimed_at = null, state = 'provisioning', provider_tls_rule_id = null
+      where id = ${active.publication.id}
+    `;
     const unclaimed = await runRepository(requiredRepository().listPublicationsForAccountDeletion(active.publication.ownerUserId));
     expect(unclaimed[0]!.hostnameClaimed).toBe(false);
   });

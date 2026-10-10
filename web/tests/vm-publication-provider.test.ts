@@ -340,7 +340,7 @@ describe("VM publication Freestyle provider", () => {
     expect(updates).toEqual([{ id: "tls-rule-1", options: desired }]);
   });
 
-  test("reconciliation recovers the oldest effective rule and removes retry duplicates", async () => {
+  test("reconciliation recovers this VM's oldest rule, removes its retry duplicates, and ignores another VM's", async () => {
     const desired: CreateTlsRuleOptions = {
       action: "allow",
       domain: "app.example.com",
@@ -351,8 +351,13 @@ describe("VM publication Freestyle provider", () => {
     };
     const oldest = tlsRuleData(
       "tls-rule-oldest",
-      { ...desired, destination: { vmId: "vm-wrong", port: 9_000 } },
+      { ...desired, destination: { vmId: "vm-1", port: 9_000 } },
       { createdAt: "2026-09-02T11:00:00.000Z" },
+    );
+    const foreign = tlsRuleData(
+      "tls-rule-foreign",
+      { ...desired, destination: { vmId: "vm-other", port: 3_000 } },
+      { createdAt: "2026-09-02T10:00:00.000Z" },
     );
     const retryDuplicate = tlsRuleData(
       "tls-rule-retry",
@@ -363,7 +368,7 @@ describe("VM publication Freestyle provider", () => {
     const deleted: string[] = [];
     const client = fakeClient({
       // Freestyle lists newest first, while equal ingress matches oldest first.
-      tlsList: async () => ({ rules: [retryDuplicate, oldest], totalCount: 2 }),
+      tlsList: async () => ({ rules: [retryDuplicate, oldest, foreign], totalCount: 3 }),
       tlsUpdate: async (id, options) => {
         updated.push(id);
         return tlsRuleData(id, options, { createdAt: oldest.createdAt });
