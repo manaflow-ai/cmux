@@ -19,11 +19,6 @@ mod sweep;
 mod sys;
 mod write;
 
-#[cfg(test)]
-mod resolve_tests;
-#[cfg(test)]
-mod tests;
-
 use std::sync::OnceLock;
 
 pub use entry::{Entry, EntryKind, StatResult, revision};

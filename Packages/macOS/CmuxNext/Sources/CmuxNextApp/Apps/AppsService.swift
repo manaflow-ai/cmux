@@ -65,7 +65,7 @@ final class AppsService {
     func start() {
         client.start()
         // task-owner: one off-main load of the bundled package directories and the scope table at launch
-        Task { await AppPlatformResources.preload() }
+        Task { [client] in client.useBundledDirectories(await AppPlatformResources.bundledDirectories()) }
     }
 
     /// Serves the Mac-side app op families (`coderouter`, `action`) on the

@@ -34,7 +34,13 @@ export const capUsd = (env: Env, line: BudgetLine): number => {
 
 export type PlanResult =
   | { readonly ok: true; readonly provider: ProviderId; readonly reservedMicros: number }
-  | { readonly ok: false; readonly code: "budget.exhausted" | "provider.unavailable"; readonly line?: BudgetLine }
+  | { readonly ok: false; readonly code: "budget.exhausted" | "provider.unavailable" | "concurrency.limit"; readonly line?: BudgetLine }
+
+/** Open requests one owner (a team, or a free device) may have at once; bounds one owner's share of a line and its overshoot of the team cap. */
+export const maxOpen = (env: Env, free: boolean) => {
+  const n = Number(free ? env.INFERENCE_FREE_MAX_CONCURRENT : env.INFERENCE_MAX_CONCURRENT)
+  return Number.isInteger(n) && n > 0 ? n : free ? 1 : 4
+}
 
 export interface LineStatus {
   readonly line: BudgetLine
@@ -59,6 +65,8 @@ export class SpendGuardDO extends DurableObject<Env> {
     sql.exec(`CREATE TABLE IF NOT EXISTS spend (day TEXT NOT NULL, line TEXT NOT NULL, micros INTEGER NOT NULL, PRIMARY KEY (day, line))`)
     sql.exec(`CREATE TABLE IF NOT EXISTS reservation (id TEXT NOT NULL, line TEXT NOT NULL, day TEXT NOT NULL, micros INTEGER NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (id, line))`)
     sql.exec(`CREATE TABLE IF NOT EXISTS alert (day TEXT NOT NULL, line TEXT NOT NULL, pct INTEGER NOT NULL, PRIMARY KEY (day, line, pct))`)
+    // Objects from before the owner limit (staging, 2026-10-10) get the column; old rows have no owner.
+    if (!sql.exec<{ name: string }>(`PRAGMA table_info(reservation)`).toArray().some((c) => c.name === "owner")) sql.exec(`ALTER TABLE reservation ADD COLUMN owner TEXT`)
     sql.exec(`CREATE TABLE IF NOT EXISTS health (provider TEXT PRIMARY KEY, ttfb REAL, failures INTEGER NOT NULL, cooldown_until INTEGER NOT NULL, ok INTEGER NOT NULL, errors INTEGER NOT NULL)`)
   }
 
@@ -79,9 +87,11 @@ export class SpendGuardDO extends DurableObject<Env> {
    * today, healthy providers first, and reserves it under `id`. One transaction: two concurrent
    * requests cannot both take the last budget.
    */
-  async plan(id: string, candidates: ReadonlyArray<ProviderId>, maxMicros: number, free: boolean, now = Date.now()): Promise<PlanResult> {
+  async plan(id: string, owner: string, candidates: ReadonlyArray<ProviderId>, maxMicros: number, free: boolean, now = Date.now()): Promise<PlanResult> {
     if (candidates.length === 0) return { ok: false, code: "provider.unavailable" }
     const day = utcDay(now)
+    const open = Number(this.ctx.storage.sql.exec<{ n: number }>(`SELECT COUNT(DISTINCT id) AS n FROM reservation WHERE owner = ? AND id != ?`, owner, id).toArray()[0]?.n ?? 0)
+    if (open >= maxOpen(this.env, free)) return { ok: false, code: "concurrency.limit" }
     const fits = (line: BudgetLine) => this.used(day, line) + maxMicros <= Math.round(capUsd(this.env, line) * MICROS)
     if (free && !fits("free")) return { ok: false, code: "budget.exhausted", line: "free" }
     const ordered = [...candidates.filter((p) => !this.cooled(p, now)), ...candidates.filter((p) => this.cooled(p, now))]
@@ -93,7 +103,7 @@ export class SpendGuardDO extends DurableObject<Env> {
       }
       this.ctx.storage.transactionSync(() => {
         for (const line of free ? [provider, "free"] : [provider]) {
-          this.ctx.storage.sql.exec(`INSERT OR REPLACE INTO reservation (id, line, day, micros, at) VALUES (?, ?, ?, ?, ?)`, id, line, day, maxMicros, now)
+          this.ctx.storage.sql.exec(`INSERT OR REPLACE INTO reservation (id, line, day, micros, at, owner) VALUES (?, ?, ?, ?, ?, ?)`, id, line, day, maxMicros, now, owner)
         }
       })
       await this.armAlarm(now)
