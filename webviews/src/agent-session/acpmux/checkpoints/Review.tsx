@@ -36,7 +36,7 @@ export function CheckpointReview({
   onRetry?: () => void;
 }) {
   const [selection, setSelection] = useState<{ list: CheckpointList; paths: ReadonlySet<string> }>();
-  const [copied, setCopied] = useState(false);
+  const [copiedFor, setCopiedFor] = useState<string>();
   const candidates = list?.candidates ?? [];
   const selected =
     selection && selection.list === list
@@ -134,13 +134,14 @@ export function CheckpointReview({
               type="button"
               disabled={!!busy}
               onClick={() => {
-                setCopied(false);
+                const checkpointId = record.checkpoint_id;
+                setCopiedFor(undefined);
                 void onCopy(record)
-                  .then(() => setCopied(true))
+                  .then(() => setCopiedFor(checkpointId))
                   .catch(() => undefined);
               }}
             >
-              {copied ? s.copied : s.copyReference}
+              {copiedFor === record.checkpoint_id ? s.copied : s.copyReference}
             </button>
             <button type="button" disabled={!!busy || !!pending || pins.length > 0} onClick={() => onKeep(record)}>
               {s.keep}
