@@ -46,6 +46,20 @@ public struct AgentLifecycleReducer: Sendable {
         }
         let agentKey = event.agentKey
         let sessionKey = AgentLifecycleReducerState.sessionKey(for: event.draft)
+        if let boundary = state.sessionBoundary(surfaceId: surfaceId, agentKey: agentKey),
+           boundary.sessionKey != sessionKey {
+            if event.draft.kind != .sessionStarted || event.sequence <= boundary.sequence {
+                return false
+            }
+        }
+        if let retiredAt = state.retiredAt(surfaceId: surfaceId, agentKey: agentKey, sessionKey: sessionKey),
+           event.sequence <= retiredAt {
+            return false
+        }
+        if event.draft.kind != .sessionStarted,
+           state.isRetired(surfaceId: surfaceId, agentKey: agentKey, sessionKey: sessionKey) {
+            return false
+        }
         let previous = state.session(
             surfaceId: surfaceId,
             agentKey: agentKey,
@@ -73,6 +87,37 @@ public struct AgentLifecycleReducer: Sendable {
             // phase by journal order, so clock skew between the producer and
             // the app cannot strand a session behind a skewed timestamp.
             return false
+        }
+        if event.draft.kind == .sessionStarted {
+            // A new authoritative session owns the pane. Retire every older
+            // session there so a StopFailure cannot outlive a restart.
+            for existingSessionKey in state.sessionKeys(surfaceId: surfaceId, agentKey: agentKey)
+                where existingSessionKey != sessionKey {
+                state.retire(
+                    surfaceId: surfaceId,
+                    agentKey: agentKey,
+                    sessionKey: existingSessionKey,
+                    at: event.sequence
+                )
+            }
+            state.unretire(surfaceId: surfaceId, agentKey: agentKey, sessionKey: sessionKey)
+            state.recordSessionBoundary(
+                surfaceId: surfaceId,
+                agentKey: agentKey,
+                sessionKey: sessionKey,
+                sequence: event.sequence
+            )
+        }
+        // A session may be rebound to another pane. Retire its old projection
+        // as soon as the new pane reports activity.
+        for location in state.sessionLocations(agentKey: agentKey, sessionKey: sessionKey)
+            where location.surfaceId != surfaceId && !location.state.ended {
+            state.retire(
+                surfaceId: location.surfaceId,
+                agentKey: agentKey,
+                sessionKey: sessionKey,
+                at: event.sequence
+            )
         }
         let next = AgentSessionLifecycleState(
             phase: transition.phase,

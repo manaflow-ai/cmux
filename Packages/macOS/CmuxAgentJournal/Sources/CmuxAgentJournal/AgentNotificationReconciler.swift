@@ -11,6 +11,8 @@ public struct AgentNotificationReconciler: Sendable {
     private struct Session: Sendable {
         var occurredAtMs: Int64 = -1
         var sequence: Int64 = 0
+        var surfaceID: String?
+        var superseded = false
         var turn: String = "initial"
         var nativeTurn: String?
         var seenTurns: Set<String> = []
@@ -60,7 +62,27 @@ public struct AgentNotificationReconciler: Sendable {
         }
         guard !draft.isSubagent else { return .init(.subagent) }
         let sessionKey = Self.key([draft.source, sessionID])
+        var boundaryInvalidations: [String] = []
+        if draft.kind == .sessionStarted {
+            // A new session boundary supersedes every older session that was
+            // attached to this pane. Release their delivered notifications
+            // through the same correlation-key path as attention resolution.
+            for (key, var candidate) in sessions where key != sessionKey && candidate.surfaceID == draft.surfaceId {
+                boundaryInvalidations.append(contentsOf: candidate.delivered.values)
+                candidate.delivered.removeAll()
+                candidate.attentionIdentities.removeAll()
+                candidate.attentionRequestIDs.removeAll()
+                candidate.pendingCompletion = nil
+                candidate.ended = true
+                candidate.superseded = true
+                sessions[key] = candidate
+            }
+        }
         var session = sessions[sessionKey] ?? Session()
+        if session.superseded && draft.kind != .sessionStarted {
+            return .init(.stale, invalidatedCorrelationKeys: boundaryInvalidations)
+        }
+        session.surfaceID = draft.surfaceId
         let context = draft.attention
         if draft.kind == .stateChanged, draft.declaredPhase == nil { return .init(.observation) }
         let incomingTurn = context?.turnIdentity
@@ -70,7 +92,7 @@ public struct AgentNotificationReconciler: Sendable {
         }
         let isResolution = draft.kind == .attentionResolved
             || draft.kind == .childCompleted || draft.kind == .childFailed
-        var requestInvalidations: [String] = []
+        var requestInvalidations: [String] = boundaryInvalidations
         if isResolution {
             // A work observation is not a resolution. Only this explicit semantic
             // event can retire an immutable request/child ID behind a newer watermark.
@@ -232,9 +254,9 @@ public struct AgentNotificationReconciler: Sendable {
             if let boundTurn = session.completionTurns[key], boundTurn != session.turn { return .init(.stale) }
             session.completionTurns[key] = session.turn
         }
-        var invalidated: [String] = []
+        var invalidated: [String] = boundaryInvalidations
         if draft.kind == .turnStarted || draft.kind == .sessionEnded {
-            invalidated = Array(session.delivered.values).sorted()
+            invalidated.append(contentsOf: session.delivered.values)
             session.delivered.removeAll()
             session.attentionIdentities.removeAll()
             session.resolvedRequests.formUnion(session.attentionRequestIDs.values)
@@ -245,10 +267,11 @@ public struct AgentNotificationReconciler: Sendable {
         let previousPhase = session.phase
         switch draft.kind {
         case .messagePublished, .attentionResolved, .idleObserved:
-            return .init(.observation)
+            return .init(.observation, invalidatedCorrelationKeys: invalidated)
         case .sessionStarted:
             if session.ended { session.phase = .unknown; session.nativeTurn = nil }
             session.ended = false
+            session.superseded = false
         case .turnStarted:
             session.rootStopped = false
             if let key = context?.eventIdentity { session.starts.insert(key) }
@@ -332,7 +355,7 @@ public struct AgentNotificationReconciler: Sendable {
         case .errorReported:
             boundary = Self.key(["error", context?.eventIdentity ?? session.turn])
         default:
-            return .init(.observation)
+            return .init(.observation, invalidatedCorrelationKeys: invalidated)
         }
         let identity = Self.key([sessionKey, boundary])
         session.delivered[identity] = context?.notification?.correlationKey ?? identity
