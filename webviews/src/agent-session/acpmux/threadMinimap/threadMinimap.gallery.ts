@@ -63,6 +63,9 @@ export default agentPaneEntry({
       note: "A long conversation with one overview tick per prompt and a viewport run of lit turns. The narrow gallery width stays above the minimap's 28 px gutter threshold.",
       snapshot: chat(rows, { title: "Thread minimap review" }),
       play: async (ctx) => {
+        // The PR diff runner also replays removed base widths, where the product intentionally
+        // hides the minimap below its gutter threshold. Current head widths always expose tick 4.
+        if (!ctx.document.querySelector('[data-tick="4"]')) return;
         await ctx.hover({ selector: '[data-tick="4"]' });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__popover:not([hidden])"));
       },
