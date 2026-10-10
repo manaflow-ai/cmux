@@ -6,6 +6,7 @@
 use super::node_json;
 use crate::model::State;
 
+use super::Command;
 use super::LayoutRequest;
 use super::frontend_shell;
 use super::layout_request_to_spec;
@@ -13,7 +14,6 @@ use super::optional_surface_size;
 use super::parse_direction;
 use super::parse_split_dir;
 use super::parse_zoom_mode;
-use super::placed_terminal_result;
 use super::placement_spawn_options;
 use super::rows;
 use super::split_kind;
@@ -26,7 +26,6 @@ use crate::SplitId;
 use crate::WorkspaceId;
 use serde_json::Value;
 use serde_json::json;
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 pub(super) fn export_layout(mux: &Arc<Mux>, screen: Option<ScreenId>) -> anyhow::Result<Value> {
@@ -53,30 +52,39 @@ pub(super) fn apply_layout(
     }))
 }
 
-#[allow(clippy::too_many_arguments)]
+/// `new-pane` (`command` is a [`Command::NewPane`]).
 pub(super) fn new_pane(
     mux: &Arc<Mux>,
     client: u64,
     actor: Actor,
-    pane: PaneId,
-    cols: Option<u16>,
-    rows: Option<u16>,
-    cwd: Option<String>,
-    env: Option<BTreeMap<String, String>>,
-    keep: bool,
-    terminal_id: Option<String>,
-    shell_args: Option<Vec<String>>,
+    command: Command,
 ) -> anyhow::Result<Value> {
-    let spawn = placement_spawn_options(
+    let Command::NewPane {
+        pane,
+        cols,
+        rows,
+        cwd,
+        env,
+        keep,
+        terminal_id,
+        shell_args,
+        pane_id,
+        tab_id,
+    } = command
+    else {
+        anyhow::bail!("new-pane handler got another command");
+    };
+    let mut spawn = placement_spawn_options(
         cwd,
         env.as_ref(),
         terminal_id,
         shell_args,
         frontend_shell(mux, client),
     )?;
-    let surface =
+    split_kind::PaneClientIds { pane_id, tab_id }.apply(&mut spawn)?;
+    let created =
         mux.new_pane_with_options_as(&actor, pane, spawn, optional_surface_size(cols, rows))?;
-    placed_terminal_result(mux, &surface, keep)
+    split_kind::placed_pane_result(mux, &created, keep)
 }
 
 pub(super) fn new_pane_right(

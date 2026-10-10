@@ -172,8 +172,8 @@ public:
     [[nodiscard]] Result<SurfaceResult> new_browser_tab(const NewBrowserTabRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<NewConversationTabResult> new_conversation_tab(const NewConversationTabRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> new_frontend_browser_tab(const NewFrontendBrowserTabRequest& request, RequestOptions options = {});
-    [[nodiscard]] Result<SurfaceResult> new_pane(const NewPaneRequest& request, RequestOptions options = {});
-    [[nodiscard]] Result<SurfaceResult> new_pane_right(const NewPaneRightRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<PaneSurfaceResult> new_pane(const NewPaneRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<PaneSurfaceResult> new_pane_right(const NewPaneRightRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<NewRowResult> new_row(const NewRowRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<SurfaceResult> new_screen(const NewScreenRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<SurfaceResult> new_tab(const NewTabRequest& request = {}, RequestOptions options = {});
@@ -245,7 +245,7 @@ public:
     [[nodiscard]] Result<ShutdownDaemonResult> shutdown_daemon(const ShutdownDaemonRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<SidebarPluginResult> sidebar_plugin(const SidebarPluginRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<SnapshotRequestResult> snapshot_request(const SnapshotRequestRequest& request, RequestOptions options = {});
-    [[nodiscard]] Result<SurfaceResult> split(const SplitRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<PaneSurfaceResult> split(const SplitRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EventStream> subscribe(const SubscribeRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EventStream> subscribe_activity(const SubscribeActivityRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> swap_pane(const SwapPaneRequest& request, RequestOptions options = {});

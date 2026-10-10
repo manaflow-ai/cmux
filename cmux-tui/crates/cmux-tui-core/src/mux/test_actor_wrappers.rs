@@ -76,6 +76,7 @@ impl Mux {
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
         self.new_pane_right_with_options_as(&Actor::Daemon, target, width, spawn, size)
+            .map(|created| created.surface)
     }
 
     pub(crate) fn new_pane_with_options(
@@ -85,6 +86,7 @@ impl Mux {
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
         self.new_pane_with_options_as(&Actor::Daemon, target, spawn, size)
+            .map(|created| created.surface)
     }
 
     pub(crate) fn new_screen_named(
@@ -150,6 +152,7 @@ impl Mux {
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
         self.split_with_options_as(&Actor::Daemon, target, dir, spawn, size)
+            .map(|created| created.surface)
     }
 
     pub(crate) fn swap_panes(self: &Arc<Self>, pane: PaneId, target: PaneId) -> bool {

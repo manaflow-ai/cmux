@@ -60,6 +60,11 @@ import Testing
         #expect(rows.allSatisfy { ($0.accessibilityParent() as AnyObject?) === list })
         #expect(rows.filter { $0.isAccessibilitySelected() }.count == 1)
 
+        bar.suggestionPanel.highlight(1)
+        let selected = try #require(list.accessibilitySelectedChildren())
+        #expect(selected.count == 1)
+        #expect((selected.first as AnyObject?) === rows[1])
+
         // What debug.omnibar reports for the live proof agrees.
         let reported = try #require(bar.debugCard)
         #expect(reported.paneLayer && reported.isFlushUnderBar)
