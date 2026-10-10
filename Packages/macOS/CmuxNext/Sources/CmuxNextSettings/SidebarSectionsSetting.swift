@@ -13,8 +13,8 @@ public nonisolated enum SidebarSectionsSetting {
     public static let showWorkspaceTabsPath = ["sidebar", "showWorkspaceTabs"]
     public static let minimalModePath = ["sidebar", "minimalMode"]
     public static let showProjectsPath = ["sidebar", "showProjects"]
+    public static let groupByPath = ["sidebar", "groupBy"]
     public static let showChatsPath = ["sidebar", "showChats"]
-    public static let allChatsRowsPath = ["sidebar", "allChatsRows"]
     public static let tipsPath = ["sidebar", "cards", "tips"]
 
     static func tipsDescriptor(group: SettingText) -> SettingDescriptor {
@@ -58,6 +58,14 @@ public nonisolated enum SidebarSectionsSetting {
                               title: SettingsText.keyed("settings.sidebar.showProjects", "Show Projects"),
                               kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showProjects),
                               keywords: ["sidebar", "projects", "workspaces", "section", "hide", "show"]),
+            SettingDescriptor(groupByPath, section: .appearance, group: group,
+                              title: SettingsText.keyed("settings.sidebar.groupBy", "Group Projects By"),
+                              kind: .choice([
+                                  SettingChoice(SidebarGroupBy.none.rawValue, SettingsText.keyed("settings.choice.groupByNone", "None")),
+                                  SettingChoice(SidebarGroupBy.folder.rawValue, SettingsText.keyed("settings.choice.groupByFolder", "Folder")),
+                              ]),
+                              default: .string(SidebarSectionsPreferences.defaults.groupBy.rawValue),
+                              keywords: ["sidebar", "projects", "group", "folder", "directory", "cwd"]),
         ]
     }
 
@@ -68,18 +76,6 @@ public nonisolated enum SidebarSectionsSetting {
                                                    "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar."),
                           kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showChats),
                           keywords: ["sidebar", "chats", "all chats", "agents", "conversations", "history"])
-    }
-
-    /// All chats rows (`sidebar.allChatsRows`): how many show before the section scrolls.
-    static func allChatsRowsDescriptor(group: SettingText) -> SettingDescriptor {
-        let range = SidebarSectionsPreferences.allChatsRowsRange
-        return SettingDescriptor(allChatsRowsPath, section: .appearance, group: group,
-                                 title: SettingsText.keyed("settings.sidebar.allChatsRows", "All Chats Rows"),
-                                 help: SettingsText.keyed("settings.sidebar.allChatsRows.help",
-                                                          "How many chats the All chats section shows before it scrolls."),
-                                 kind: .number(SettingNumber(Double(range.lowerBound)...Double(range.upperBound), step: 1, unit: .count)),
-                                 default: .number(Double(SidebarSectionsPreferences.defaults.allChatsRows)),
-                                 keywords: ["sidebar", "chats", "all chats", "rows", "count"])
     }
 
     /// The looks the setting accepts (CmuxNextSidebar.SectionsLookVariant).
@@ -139,21 +135,19 @@ public nonisolated enum SidebarSectionsSetting {
         SidebarNavigationSetting.parse(root, into: &result.navigation, diagnostics: &diagnostics)
         result.workspaceRow = WorkspaceRowSetting().parse(root, diagnostics: &diagnostics)
         result.showProjects = flag(root, showProjectsPath, fallback: result.showProjects, &diagnostics)
+        if let value = root.value(at: groupByPath) {
+            if let text = value.stringValue, let groupBy = SidebarGroupBy(rawValue: text) {
+                result.groupBy = groupBy
+            } else {
+                let choices = SidebarGroupBy.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.groupBy", message: "expected one of " + choices))
+            }
+        }
         if let value = root.value(at: showChatsPath) {
             if let flag = value.boolValue {
                 result.showChats = flag
             } else {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.showChats", message: "expected true or false"))
-            }
-        }
-        if let value = root.value(at: allChatsRowsPath) {
-            let range = SidebarSectionsPreferences.allChatsRowsRange
-            // Any number in range, as the schema accepts it; a fraction rounds to the nearest row.
-            if let number = value.doubleValue, number.isFinite, Double(range.lowerBound)...Double(range.upperBound) ~= number {
-                result.allChatsRows = Int(number.rounded())
-            } else {
-                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.allChatsRows",
-                                                      message: "expected a number of rows from \(range.lowerBound) to \(range.upperBound)"))
             }
         }
         return result

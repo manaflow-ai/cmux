@@ -35,6 +35,7 @@ use shutdown::ShutdownPlan;
 #[cfg(test)]
 mod remote_sandbox_adopt_tests;
 mod spawn;
+mod steer_end;
 mod stream;
 mod tap;
 #[cfg(test)]
@@ -237,6 +238,9 @@ pub struct Hub {
     pub(super) clock: StdMutex<Arc<dyn crate::clock::Clock>>,
     /// A session harness unused for this long exits (`idle.rs`); None: never.
     pub(super) idle_child: StdMutex<Option<std::time::Duration>>,
+    /// The harnesses the model probes may start (`ACPMUX_PROBE_HARNESSES`);
+    /// None: every harness.
+    pub(super) probe_only: StdMutex<Option<std::collections::BTreeSet<String>>>,
     pub(super) idle_wake: Arc<Notify>,
     pub(super) idle_reaper: AtomicBool,
     /// Set when `shutdown_all` starts: the idle reaper stops for good.
@@ -294,6 +298,7 @@ impl Hub {
             probe_errors: StdMutex::new(HashMap::new()),
             clock: StdMutex::new(crate::clock::TokioClock::new()),
             idle_child: StdMutex::new(Some(IDLE_CHILD)),
+            probe_only: StdMutex::new(None),
             idle_wake: Arc::new(Notify::new()),
             idle_reaper: AtomicBool::new(false),
             stopping: AtomicBool::new(false),
@@ -332,6 +337,42 @@ impl Hub {
     pub fn set_idle_child(&self, idle: Option<std::time::Duration>) {
         *self.idle_child.lock().unwrap() = idle;
         self.idle_wake.notify_one();
+    }
+
+    /// Limits the model probes to `names` (None: every harness), so a
+    /// client that uses a few harnesses (the Chief) never starts the others'
+    /// agents at daemon start. Set before `begin_startup`.
+    pub fn set_probe_only(&self, names: Option<std::collections::BTreeSet<String>>) {
+        *self.probe_only.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = names;
+    }
+
+    /// A client now uses `names` too (the Chief's engine set): they join the
+    /// probe list and are probed now, in the background, so their model
+    /// lists arrive without a daemon restart.
+    pub async fn allow_probes(self: &Arc<Self>, names: std::collections::BTreeSet<String>) {
+        if let Some(list) =
+            self.probe_only.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_mut()
+        {
+            list.extend(names.iter().cloned());
+        }
+        let hub = self.clone();
+        tokio::spawn(async move { hub.probe_models_with(false, false, Some(names)).await });
+    }
+
+    /// Whether the model probes may start harness `name`.
+    pub(super) fn probes(&self, name: &str) -> bool {
+        self.probe_only
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+            .is_none_or(|names| names.contains(name))
+    }
+
+    /// `ACPMUX_PROBE_HARNESSES`: comma-separated harness names; unset, every harness.
+    pub fn probe_only_from_env(value: Option<&str>) -> Option<std::collections::BTreeSet<String>> {
+        value.map(|v| {
+            v.split(',').map(str::trim).filter(|n| !n.is_empty()).map(str::to_owned).collect()
+        })
     }
 
     /// Turns on the folder-trust gate for the app's agent pane, reading the
@@ -492,6 +533,7 @@ impl Hub {
             inbound_tx,
             inbound_rx: Mutex::new(Some(inbound_rx)),
             steering: AtomicBool::new(false),
+            steer_end: tokio::sync::watch::channel(None).0,
             fork_from: StdMutex::new(None),
             purged: AtomicBool::new(false),
             state_seq: AtomicU64::new(0),

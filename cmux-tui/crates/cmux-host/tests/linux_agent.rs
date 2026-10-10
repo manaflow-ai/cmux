@@ -68,7 +68,9 @@ impl Harness {
         let daemon_log = dir.path().join("daemon.log");
         fs::write(
             &bin,
-            "#!/bin/sh\nd=$(dirname \"$0\")/..\necho \"$$ $*\" >> \"$d/daemon.log\"\nenv > \"$d/daemon.env\"\ntrap 'kill $! 2>/dev/null; exit 0' TERM\nsleep 600 &\nwait\n",
+            // `daemon.env` is complete (written, then renamed) before the
+            // argv line: tests wait for the line, then read the env.
+            "#!/bin/sh\nd=$(dirname \"$0\")/..\nenv > \"$d/daemon.env.tmp\"\nmv \"$d/daemon.env.tmp\" \"$d/daemon.env\"\necho \"$$ $*\" >> \"$d/daemon.log\"\ntrap 'kill $! 2>/dev/null; exit 0' TERM\nsleep 600 &\nwait\n",
         )
         .unwrap();
         fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
@@ -214,20 +216,28 @@ fn kill_group(pid: u32) {
 struct FakeTerminalHost(Child);
 
 impl FakeTerminalHost {
+    /// Returns once `sh` runs the script: `spawn` can return while the
+    /// child is still inside execve, before the kernel publishes the new
+    /// argv, and a park scan in that window does not see a terminal host.
+    /// The script's first line is the signal that exec finished.
     fn start(dir: &Path) -> Self {
+        use std::io::BufRead;
         use std::os::unix::process::CommandExt;
         fs::create_dir_all(dir).unwrap();
-        fs::write(dir.join("__terminal-host"), "sleep 600\n").unwrap();
-        let child = Command::new("/bin/sh")
+        fs::write(dir.join("__terminal-host"), "echo exec\nsleep 600 >/dev/null\n").unwrap();
+        let mut child = Command::new("/bin/sh")
             .arg0(dir.join("cmux-tui"))
             .arg("__terminal-host")
             .current_dir(dir)
             .process_group(0)
             .stdin(Stdio::null())
-            .stdout(Stdio::null())
+            .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
             .unwrap();
+        let mut line = String::new();
+        std::io::BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).unwrap();
+        assert_eq!(line, "exec\n", "the terminal host script did not start");
         Self(child)
     }
 
@@ -256,8 +266,13 @@ fn agent_binds_parks_adopts_and_restarts() {
     let log = h.root.parent().unwrap().join("actions.log");
     let mut agent = AgentProc(h.start(&log));
 
-    // First bind, in the contract order.
-    wait_until("first spawn", || lines(&log).iter().any(|l| l == "spawn-daemon"));
+    // First bind, in the contract order. The agent logs each action just
+    // before it runs it and publishes the status file (atomically) only
+    // after the whole dispatch: wait for the status, then read the log.
+    wait_until("first bind", || {
+        h.status()
+            .is_some_and(|s| s.instance_id.as_deref() == Some("vm-a") && s.daemon_pid.is_some())
+    });
     let l = lines(&log);
     let reseed = index(&l, 0, "reseed id=vm-a");
     let mark = index(&l, reseed, "mark-clone-started");
@@ -302,7 +317,11 @@ fn agent_binds_parks_adopts_and_restarts() {
 
     // A clone: new id via the driver file. The old host is stopped first.
     h.clone_to("vm-b");
-    wait_until("second bind", || lines(&log).iter().any(|l| l == "write-bound id=vm-b"));
+    wait_until("second bind", || {
+        h.status().is_some_and(|s| {
+            s.instance_id.as_deref() == Some("vm-b") && s.daemon_pid.is_some_and(|p| p != first_pid)
+        })
+    });
     let l = lines(&log);
     let term = index(&l, write, "terminate-daemon");
     let reseed_b = index(&l, term, "reseed id=vm-b");

@@ -110,6 +110,13 @@ const PROVIDER = ["cloud.provider.unavailable", "mutation.indeterminate"]
 /** Create and delete are limited per team (CLOUD_MUTATION_LIMIT); retryable, retry after a minute. */
 const LIMITED = ["cloud.rate_limited"]
 const KEY = " After mutation.indeterminate, retry with the same idempotency key."
+/**
+ * The G8 approval path (cx-wb5.65, domains/cloud.ts CLOUD_APPROVAL_OPS): a non-agent install
+ * never runs these ops itself; the person approves each request in the feed with their own session.
+ */
+const APPROVAL = ["approval.pending", "approval.denied", "approval.expired", "approval.too_many_pending"]
+const APPROVAL_DOC =
+  " From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team."
 const PERSON = " Agent principals are refused; the client asks a person first."
 
 const cloudRead = <P extends Schema.Top, R extends Schema.Top>(name: string, params: P, result: R, errors: Array<string>, docs: string, cli: string) =>
@@ -154,8 +161,8 @@ export const CloudMachineCreate = cloudMutation(
   "money",
   Schema.Struct({ name: Schema.optionalKey(MachineName), size: CloudMachineSize, image: Schema.optionalKey(ImageId), from_snapshot: Schema.optionalKey(SnapshotId) }),
   MachineResult,
-  ["cloud.no_snapshot_configured", "cloud.plan.required", "cloud.quota.exceeded", "cloud.size.locked", "cloud.snapshot.not_found", ...PROVIDER, ...LIMITED],
-  "Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used}, cloud.size.locked. A same-key retry never makes a second machine." + KEY,
+  ["cloud.no_snapshot_configured", "cloud.plan.required", "cloud.quota.exceeded", "cloud.size.locked", "cloud.snapshot.not_found", ...PROVIDER, ...LIMITED, ...APPROVAL],
+  "Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used}, cloud.size.locked. A same-key retry never makes a second machine." + KEY + APPROVAL_DOC,
   "cloud machine create",
   true
 )
@@ -167,8 +174,8 @@ export const CloudMachineResize = cloudMutation(
   "money",
   Schema.Struct({ machine: MachineId, size: CloudMachineSize }),
   MachineResult,
-  ["cloud.machine.not_found", "cloud.machine.not_running", "cloud.machine.busy", "cloud.size.grow_only", "cloud.size.locked", "cloud.plan.required", ...LIMITED, ...PROVIDER],
-  "Grow a machine: vCPU, memory and disk only go up (cloud.size.grow_only {size}); vCPU and memory grow on a running or paused machine (on resume), the disk only on a running one (cloud.machine.not_running {machine, state}); within the plan (cloud.size.locked {plan, ...}). One change at a time (cloud.machine.busy). The answer carries the target size; a final provider failure restores the old size with the error. A money op: a signed-in person only; limited per team." + KEY,
+  ["cloud.machine.not_found", "cloud.machine.not_running", "cloud.machine.busy", "cloud.size.grow_only", "cloud.size.locked", "cloud.plan.required", ...LIMITED, ...PROVIDER, ...APPROVAL],
+  "Grow a machine: vCPU, memory and disk only go up (cloud.size.grow_only {size}); vCPU and memory grow on a running or paused machine (on resume), the disk only on a running one (cloud.machine.not_running {machine, state}); within the plan (cloud.size.locked {plan, ...}). One change at a time (cloud.machine.busy). The answer carries the target size; a final provider failure restores the old size with the error. A money op: a signed-in person only; limited per team." + KEY + APPROVAL_DOC,
   "cloud machine resize",
   true
 )
@@ -177,8 +184,8 @@ export const CloudMachineDelete = cloudMutation(
   "destructive",
   MachineParams,
   Deleted,
-  ["cloud.machine.not_found", ...PROVIDER, ...LIMITED],
-  "Delete a machine and its disk. A provider 404 is success, and the tombstone answers {deleted: true} for 30 days, also to a new key." + KEY,
+  ["cloud.machine.not_found", ...PROVIDER, ...LIMITED, ...APPROVAL],
+  "Delete a machine and its disk. A provider 404 is success, and the tombstone answers {deleted: true} for 30 days, also to a new key." + KEY + APPROVAL_DOC,
   "cloud machine delete",
   true
 )
@@ -251,8 +258,8 @@ export const CloudSnapshotCreate = cloudMutation(
   "money",
   Schema.Struct({ machine: MachineId, name: Schema.optionalKey(MachineName) }),
   Schema.Struct({ snapshot: CloudSnapshot }),
-  ["cloud.machine.not_found", "cloud.machine.not_running", "cloud.quota.exceeded", "cloud.plan.required", ...LIMITED, ...PROVIDER],
-  "Take a snapshot of a running or paused, bound machine (else cloud.machine.not_running {machine, state}): answers status creating; cloud.snapshot.upsert brings ready (or failed). It counts against the plan's saved limit (max_saved): cloud.quota.exceeded {limit, used, resource: saved}. A money op: a signed-in person only; limited per team." + KEY,
+  ["cloud.machine.not_found", "cloud.machine.not_running", "cloud.quota.exceeded", "cloud.plan.required", ...LIMITED, ...PROVIDER, ...APPROVAL],
+  "Take a snapshot of a running or paused, bound machine (else cloud.machine.not_running {machine, state}): answers status creating; cloud.snapshot.upsert brings ready (or failed). It counts against the plan's saved limit (max_saved): cloud.quota.exceeded {limit, used, resource: saved}. A money op: a signed-in person only; limited per team." + KEY + APPROVAL_DOC,
   "cloud snapshot create",
   true
 )
@@ -261,8 +268,8 @@ export const CloudSnapshotRestore = cloudMutation(
   "money",
   Schema.Struct({ snapshot: SnapshotId, name: Schema.optionalKey(MachineName) }),
   MachineResult,
-  ["cloud.no_snapshot_configured", "cloud.plan.required", "cloud.quota.exceeded", "cloud.size.locked", "cloud.snapshot.not_found", ...LIMITED, ...PROVIDER],
-  "Create a new machine booted from a ready snapshot (plan checks as create; a fresh bind like any create). A money op: a signed-in person only; limited per team." + KEY,
+  ["cloud.no_snapshot_configured", "cloud.plan.required", "cloud.quota.exceeded", "cloud.size.locked", "cloud.snapshot.not_found", ...LIMITED, ...PROVIDER, ...APPROVAL],
+  "Create a new machine booted from a ready snapshot (plan checks as create; a fresh bind like any create). A money op: a signed-in person only; limited per team." + KEY + APPROVAL_DOC,
   "cloud snapshot restore",
   true
 )
@@ -271,8 +278,8 @@ export const CloudSnapshotDelete = cloudMutation(
   "destructive",
   Schema.Struct({ snapshot: SnapshotId }),
   Deleted,
-  ["cloud.snapshot.not_found", "cloud.machine.busy", ...LIMITED, ...PROVIDER],
-  "Delete a snapshot (its provider snapshot under the recorded name only); cloud.snapshot.removed follows. A snapshot still being taken answers cloud.machine.busy. A signed-in person only; limited per team." + KEY,
+  ["cloud.snapshot.not_found", "cloud.machine.busy", ...LIMITED, ...PROVIDER, ...APPROVAL],
+  "Delete a snapshot (its provider snapshot under the recorded name only); cloud.snapshot.removed follows. A snapshot still being taken answers cloud.machine.busy. A signed-in person only; limited per team." + KEY + APPROVAL_DOC,
   "cloud snapshot delete",
   true
 )

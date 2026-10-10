@@ -324,6 +324,7 @@ impl Hub {
             let fresh_id =
                 if resume.is_none() { Some(uuid::Uuid::now_v7().to_string()) } else { None };
             let effort = current_option(&meta, "effort").unwrap_or_else(|| "default".into());
+            let fast = current_option(&meta, "fast-mode").as_deref() == Some("on");
             let mode = meta
                 .modes
                 .as_ref()
@@ -350,6 +351,7 @@ impl Hub {
                     mode: mode.clone(),
                     model: model.clone(),
                     effort: effort.clone(),
+                    fast,
                     claude_session_id: known.clone(),
                 };
                 self.spawn_hosted_child(
@@ -368,6 +370,7 @@ impl Hub {
                     &model,
                     &effort,
                 );
+                *tr.fast.lock().await = fast;
                 if let Some(sid) = known {
                     *tr.session_id.lock().await = Some(sid);
                 }
@@ -679,24 +682,35 @@ impl Hub {
     /// the background at daemon start so the picker is full before the first
     /// session exists.
     pub async fn probe_models(self: &Arc<Self>) {
-        self.probe_models_with(false, false).await;
+        self.probe_models_with(false, false, None).await;
     }
 
     /// `daemon models --refresh`: forget every reported catalog, probe every
     /// ACP harness again, and wait for the answers (bounded).
     pub async fn refresh_models(self: &Arc<Self>) {
         self.known_models.lock().unwrap().clear();
-        self.probe_models_with(true, true).await;
+        self.probe_models_with(true, true, None).await;
     }
 
-    pub(super) async fn probe_models_with(self: &Arc<Self>, force: bool, wait: bool) {
+    /// `only`: probe these harnesses alone (`allow_probes`); None: every
+    /// harness the probe list allows.
+    pub(super) async fn probe_models_with(
+        self: &Arc<Self>,
+        force: bool,
+        wait: bool,
+        only: Option<std::collections::BTreeSet<String>>,
+    ) {
+        let picked = |n: &str| only.as_ref().is_none_or(|o| o.contains(n));
         let agents: Vec<(String, HarnessProfile)> = {
             let cfg = self.config.read().await;
             let known = self.known_models.lock().unwrap();
             cfg.harnesses
                 .iter()
                 .filter(|(n, p)| {
-                    p.kind == crate::config::HarnessKind::Acp && (force || !known.contains_key(*n))
+                    p.kind == crate::config::HarnessKind::Acp
+                        && (force || !known.contains_key(*n))
+                        && self.probes(n)
+                        && picked(n)
                 })
                 .map(|(n, p)| (n.clone(), p.clone()))
                 .collect()
@@ -704,7 +718,8 @@ impl Hub {
         // Claude Code's and Codex's own lists, beside the ACP probes.
         let live = {
             let hub = self.clone();
-            tokio::spawn(async move { hub.probe_live_models(wait).await })
+            let only = only.clone();
+            tokio::spawn(async move { hub.probe_live_models(wait, only).await })
         };
         let mut handles = vec![live];
         for (name, profile) in agents {
@@ -753,7 +768,10 @@ impl Hub {
     ) -> anyhow::Result<usize> {
         let (tx, mut rx) = tokio::sync::mpsc::channel(64);
         let tap: crate::agent::Tap = Arc::new(|_, _, _| true);
-        let cwd = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/"));
+        // Never the home folder: the agent scans its folder at start (LAUNCH-NO-TCC-PROMPTS).
+        let cwd = tokio::task::spawn_blocking(crate::protected_folders::unattended_cwd)
+            .await
+            .unwrap_or_else(|_| std::env::temp_dir());
         let mut resolved = profile.clone();
         resolved.argv = self.resolved_launcher_argv(resolved.argv);
         let child = crate::agent::ChildAgent::spawn(name, &resolved, &cwd, tx, tap).await?;

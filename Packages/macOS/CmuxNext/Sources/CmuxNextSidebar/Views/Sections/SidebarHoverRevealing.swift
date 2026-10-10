@@ -6,4 +6,7 @@ import AppKit
 @MainActor
 protocol SidebarHoverRevealing: AnyObject {
     func setHoverRevealed(_ revealed: Bool)
+    /// A share of the sidebar's height the section takes (expanded All chats: a third, the list
+    /// scrolling inside), nil for its own preferred height.
+    var sidebarShare: CGFloat? { get }
 }

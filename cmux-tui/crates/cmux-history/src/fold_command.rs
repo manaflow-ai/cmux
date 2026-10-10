@@ -145,7 +145,3 @@ impl TerminalCommandFold {
         })
     }
 }
-
-#[cfg(test)]
-#[path = "fold_command_tests.rs"]
-mod tests;

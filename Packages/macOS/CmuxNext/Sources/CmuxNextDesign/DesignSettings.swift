@@ -40,7 +40,7 @@ public final class DesignSettings {
     /// `layout.centerFocusedColumn`.
     public var centerFocusedColumn: CenterFocusedColumn = .never
     /// `layout.stripScrollbar`: the column strip's scrollbar.
-    public var stripScrollbar: StripScrollbarMode = .auto
+    public var stripScrollbar: StripScrollbarMode = .system
     /// `sidebar.*`: section look and pinned band caps.
     public var sidebarSections = SidebarSectionsPreferences.defaults
     /// `layout.closeFocus`: who gets focus when the focused pane closes.

@@ -21,7 +21,7 @@ import {
 import { Effect, Layer, Redacted } from "effect"
 import { HttpRouter, HttpServer, HttpServerRequest } from "effect/unstable/http"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
-import { authenticate, mintAccessToken, publicJwks, withGrantClasses } from "./auth.ts"
+import { authenticate, mintAccessToken, publicJwks } from "./auth.ts"
 import type { Env } from "./env.ts"
 import type { DomainReply } from "./team-domain-external.ts"
 import type { ExternalReply } from "./connection-do.ts"
@@ -39,12 +39,11 @@ import { gateUnreachable, signInRules, ssoGate, versionRefusal, withAnySsoSessio
 import { forwardIntegrationPolicy, type PolicyFields } from "./integration-policy-forward.ts"
 import { answerPrincipal, approvalRoute } from "./integrations/approval-route.ts"
 import { isMachineInstallKind, machineRefused } from "./machine-installs.ts"
-import { personalPrincipal, selectTeam, TEAM_HEADER } from "./team-select.ts"
+import { listUserTeams, personalPrincipal, principalForOwner, selectTeam, TEAM_HEADER } from "./team-select.ts"
 
 /** DO RPC stubs erase union result types; the DO methods define them. */
 const rpc = <T>(p: unknown) => p as Promise<T>
 type ChallengeResult = { ok: true; nonce: string; expires_at: number } | { ok: false; message: string }
-
 const env = workerEnv as unknown as Env
 
 /** Machine installs (machine-installs.ts): a VM token reaches only its own machine's ops. */
@@ -113,8 +112,8 @@ const unreachable = (e: unknown) => new OwnerUnreachable({ code: "owner.unreacha
 const principalFor = (owner: string, p: Principal) =>
   owner === "cloud:UserDO"
     ? Effect.succeed(p)
-    : Effect.tryPromise({ try: () => withGrantClasses(env, p), catch: unreachable }).pipe(
-        Effect.flatMap((q) => (q ? Effect.succeed(q) : Effect.fail(new Forbidden({ code: "auth.forbidden", message: "install revoked or grant invalid" }))))
+    : Effect.tryPromise({ try: () => principalForOwner(env, owner, p), catch: unreachable }).pipe(
+        Effect.flatMap((q) => (q && !("refused" in q) ? Effect.succeed(q) : Effect.fail(new Forbidden({ code: "auth.forbidden", message: q?.refused ?? "install revoked or grant invalid" }))))
       )
 
 const submitTo = (owner: string, principalIn: Principal, frame: { op: string; params: unknown; idempotency_key: string; origin?: string; expected_revision?: string }) =>
@@ -246,11 +245,11 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           const p = yield* principalFor("cloud:TeamDO", principal)
           return yield* Effect.tryPromise({ try: () => rpc<DomainReply>(env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!)).ssoOp(p.team!, p, frame)), catch: unreachable })
         }
-        // TeamDO, outside its reducer: the SSH CA (team-ssh-ca.ts; keys never enter params) and a tainted team VM's owner actions (cx-q4f3).
-        if (["team_vm.ssh_cert", "team_vm.ssh_cert.challenge", "team_vm.ssh_cert.revoke", "team_vm.ssh_ca.rotate", "team_vm.taint.accept", "team_vm.rebuild", "team_vm.retired.delete", "team_vm.retired.export"].includes(payload.op)) {
+        // TeamDO, outside its reducer: the SSH CA (team-ssh-ca.ts; keys never enter params), a tainted team VM's owner actions (cx-q4f3), member removal via Stack (cx-3bi.4).
+        if (["team_vm.ssh_cert", "team_vm.ssh_cert.challenge", "team_vm.ssh_cert.revoke", "team_vm.ssh_ca.rotate", "team_vm.taint.accept", "team_vm.rebuild", "team_vm.retired.delete", "team_vm.retired.export", "team.members.remove"].includes(payload.op)) {
           const p = yield* principalFor("cloud:TeamDO", principal)
           const stub = env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!))
-          return yield* Effect.tryPromise({ try: () => rpc<DomainReply>(payload.op.startsWith("team_vm.ssh_") ? stub.sshOp(p.team!, p, frame) : stub.vmAdminOp(p.team!, p, frame)), catch: unreachable })
+          return yield* Effect.tryPromise({ try: () => rpc<DomainReply>(payload.op.startsWith("team_vm.ssh_") ? stub.sshOp(p.team!, p, frame) : payload.op === "team.members.remove" ? stub.memberAdminOp(p.team!, p, frame) : stub.vmAdminOp(p.team!, p, frame)), catch: unreachable })
         }
         // install.register and server pairing bind the new install to the SSO team whose sign-in created this session (P17-4). The
         // Stack session id only finds that team; owners never receive it (their ledgers record the principal).
@@ -374,7 +373,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
     )
     .handle("read", ({ payload }) =>
       Effect.gen(function* () {
-        const principal = toPrincipal(yield* CurrentPrincipal)
+        const shape = yield* CurrentPrincipal, principal = toPrincipal(shape)
         if (vmRefused(principal, payload.op)) return yield* new Forbidden({ code: "auth.forbidden", message: "a machine install may call only its own machine's ops" })
         const def = cloudOpByName.get(payload.op)
         if (!def || def.class !== "read") return yield* new BadRequest({ code: "validation.invalid", message: `unknown read ${payload.op}` })
@@ -419,6 +418,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           try: (): Promise<ReadResult> => {
             if (def.owner === "cloud:ConversationDO") return conversationRead(env, reader, payload.op, payload.params) as Promise<ReadResult>
             if (payload.op.startsWith("inbox.")) return rpc<ReadResult>(userStub(reader.user!).readInbox(reader.user!, reader, payload.op, (payload.params ?? {}) as Record<string, unknown>))
+            if (payload.op === "user.teams.list") return listUserTeams(env, shape.stack_session ? { ...reader, stack_session: shape.stack_session } : reader) // user-teams.ts; the session id answers each team's SSO rule
             const route = ownerRoute(owner, reader)
             return rpc<ReadResult>(route.stub.readOp(route.entity, reader, payload.op, payload.params))
           },
@@ -462,7 +462,7 @@ const AuthorizationLive = Layer.succeed(Authorization)(
         if (!token || !token.user || !token.team) return yield* new Unauthenticated({ code: "auth.unauthenticated", message: "missing or invalid bearer token" })
         const named = { ...token, user: token.user, team: token.team }, header = (yield* HttpServerRequest.HttpServerRequest).headers[TEAM_HEADER]
         const selected = yield* Effect.promise(() => selectTeam(env, named, header))
-        if (!selected.ok) return yield* selected.code === "auth.forbidden" ? new Forbidden({ code: selected.code, message: selected.message }) : new OwnerUnreachable({ code: selected.code, message: selected.message, retryable: true })
+        if (!selected.ok) return yield* selected.code !== "owner.unreachable" ? new Forbidden({ code: selected.code, message: selected.message }) : new OwnerUnreachable({ code: selected.code, message: selected.message, retryable: true })
         const authed = selected.principal
         // Team policy (P17-4): the principal's team and the team that owns the user's email domain refuse
         // sessions and installs not from their SSO.

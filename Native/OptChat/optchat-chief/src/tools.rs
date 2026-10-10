@@ -387,6 +387,8 @@ fn connection(conn: UnixStream, served: &Served) {
                                 harness: field("harness"),
                                 model: field("model"),
                                 effort: field("effort"),
+                                speed: field("speed"),
+                                compactor_speed: field("compactor_speed"),
                             }))
                         }
                         _ => None,

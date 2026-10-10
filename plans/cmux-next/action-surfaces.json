@@ -16375,6 +16375,38 @@
     },
     {
       "cli" : "guiOnly",
+      "cli_name" : "action agent-pane-switch-model",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "m",
+        "modifiers" : [
+          "ctrl",
+          "cmd"
+        ]
+      },
+      "id" : "agentPane.switchModel",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "title" : "Switch Model…",
+      "title_key" : "action.agentPane.switchModel",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
       "cli_name" : "action agent-pane-create-checkpoint",
       "context_menu" : "guiOnly",
       "context_menus" : [
@@ -16993,6 +17025,32 @@
       },
       "title" : "Toggle Chief Settings",
       "title_key" : "action.home.toggleChiefSettings",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action home-stop-chief",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.stopChief",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "title" : "Stop the Chief",
+      "title_key" : "action.home.stopChief",
       "title_table" : "ActionCatalog"
     },
     {
@@ -18722,6 +18780,32 @@
       },
       "title" : "Install cmux-tui on Machine…",
       "title_key" : "action.remote.install",
+      "title_table" : "RemoteActions"
+    },
+    {
+      "cli" : "clipboard",
+      "cli_name" : "action remote-copy-error",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sshMachine"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "remote.copyError",
+      "mcp" : "clipboard",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.remote",
+        "order" : 111,
+        "title" : "Remote Machines",
+        "title_key" : "category.remote",
+        "title_table" : "RemoteActions"
+      },
+      "title" : "Copy SSH Error",
+      "title_key" : "action.remote.copyError",
       "title_table" : "RemoteActions"
     },
     {
@@ -23340,6 +23424,58 @@
       },
       "title" : "Show Hidden Sections",
       "title_key" : "action.sidebar.sections.showHidden",
+      "title_table" : "SidebarSectionActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action sidebar-group-by-none",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarBackground"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "sidebar.groupBy.none",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "title" : "Group by None",
+      "title_key" : "action.sidebar.groupBy.none",
+      "title_table" : "SidebarSectionActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action sidebar-group-by-folder",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarBackground"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "sidebar.groupBy.folder",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "title" : "Group by Folder",
+      "title_key" : "action.sidebar.groupBy.folder",
       "title_table" : "SidebarSectionActions"
     },
     {
@@ -28713,6 +28849,32 @@
 
                 ]
               }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "sidebar.groupBy.none",
+              "kind" : "action",
+              "order" : 2,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "sidebar.groupBy.folder",
+              "kind" : "action",
+              "order" : 3,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
             }
           ],
           "folder" : "group",
@@ -29297,9 +29459,26 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "remote.forget",
+          "id" : "remote.copyError",
           "kind" : "action",
           "order" : 6,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : "remoteHosts",
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 7
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "remote.forget",
+          "kind" : "action",
+          "order" : 8,
           "visible_when" : {
             "debug_only" : false,
             "feature" : "remoteHosts",

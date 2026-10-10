@@ -1,9 +1,16 @@
 //! `SignaledMutex`: a mutex whose unlock wakes deadline waiters and whose
-//! acquisitions feed hold and wait telemetry (`server-stats`).
+//! acquisitions feed hold and wait telemetry (`server-stats`), and
+//! [`Mux::lock_state_pinned`], the state lock taken under the registry.
 
 use std::ops::{Deref, DerefMut};
-use std::sync::{Condvar, LockResult, Mutex, MutexGuard, PoisonError, TryLockError, TryLockResult};
+use std::sync::{Condvar, LockResult, Mutex, MutexGuard, PoisonError};
+#[cfg(test)]
+use std::sync::{TryLockError, TryLockResult};
 use std::time::Instant;
+
+use super::{Mux, State, WorkspaceRegistry};
+use crate::lock_rank::{HeldRank, LockRank};
+use crate::workspace_registry::registry_connection::RegistryConnectionPin;
 
 pub(crate) struct SignaledMutex<T> {
     value: Mutex<T>,
@@ -36,11 +43,19 @@ impl<T> SignaledMutex<T> {
         blocker: Option<crate::diagnostics::LockSite>,
     ) -> SignaledMutexGuard<'a, T> {
         self.stats.acquired(site, waited_from.elapsed(), blocker);
-        SignaledMutexGuard { value: Some(value), owner: self, site, acquired_at: Instant::now() }
+        SignaledMutexGuard {
+            value: Some(value),
+            owner: self,
+            site,
+            acquired_at: Instant::now(),
+            _rank: HeldRank::record(LockRank::WorkspaceRegistry, REGISTRY_LOCK_NAME),
+        }
     }
 
     #[track_caller]
     pub(crate) fn lock(&self) -> LockResult<SignaledMutexGuard<'_, T>> {
+        debug_assert_not_journal_writer_commit();
+        HeldRank::check(LockRank::WorkspaceRegistry, REGISTRY_LOCK_NAME);
         let site = std::panic::Location::caller();
         let waited_from = Instant::now();
         let blocker = self.stats.wait_started();
@@ -58,6 +73,7 @@ impl<T> SignaledMutex<T> {
         self.try_lock_at(std::panic::Location::caller(), Instant::now(), None)
     }
 
+    #[cfg(test)]
     fn try_lock_at(
         &self,
         site: crate::diagnostics::LockSite,
@@ -73,11 +89,16 @@ impl<T> SignaledMutex<T> {
         }
     }
 
+    /// Deadline wait. The session journal writer used it on the registry
+    /// before it moved to the registry connection lock; only tests use it now.
+    #[cfg(test)]
     #[track_caller]
     pub(super) fn lock_until(
         &self,
         deadline: Instant,
     ) -> anyhow::Result<SignaledMutexGuard<'_, T>> {
+        debug_assert_not_journal_writer_commit();
+        HeldRank::check(LockRank::WorkspaceRegistry, REGISTRY_LOCK_NAME);
         let site = std::panic::Location::caller();
         let waited_from = Instant::now();
         let blocker = self.stats.wait_started();
@@ -120,12 +141,32 @@ impl<T> SignaledMutex<T> {
     }
 }
 
+/// The workspace registry is the only production `SignaledMutex`. Lock
+/// order: workspace registry -> registry connection -> state; the journal
+/// writer takes only the connection lock, never this one. Release builds
+/// count a violation (`server-stats` `write_path.writer_registry_locks`).
+#[track_caller]
+fn debug_assert_not_journal_writer_commit() {
+    if crate::workspace_registry::registry_connection::in_journal_writer_commit() {
+        crate::diagnostics::writer_took_registry_lock();
+    }
+    debug_assert!(
+        !crate::workspace_registry::registry_connection::in_journal_writer_commit(),
+        "the session journal writer must not take the workspace registry lock"
+    );
+}
+
 pub(crate) struct SignaledMutexGuard<'a, T> {
     value: Option<MutexGuard<'a, T>>,
     owner: &'a SignaledMutex<T>,
     site: crate::diagnostics::LockSite,
     acquired_at: Instant,
+    /// Lock rank `WorkspaceRegistry` (crate::lock_rank), released after the
+    /// lock.
+    _rank: HeldRank,
 }
+
+const REGISTRY_LOCK_NAME: &str = "workspace.registry";
 
 impl<T> Deref for SignaledMutexGuard<'_, T> {
     type Target = T;
@@ -151,5 +192,120 @@ impl<T> Drop for SignaledMutexGuard<'_, T> {
         let mut epoch = self.owner.release_epoch.lock().unwrap();
         *epoch = epoch.wrapping_add(1);
         self.owner.released.notify_all();
+    }
+}
+
+// The state lock taken under the workspace registry.
+//
+// Lock order: workspace registry -> registry connection -> state. The
+// journal writer takes only the connection lock (never registry, never
+// state). A request thread that commits and then projects takes the
+// connection lock before state, so state is never held across a writer
+// fsync: [`Mux::lock_state_pinned`] is that step.
+
+/// The mux state mutex. It counts holds per thread (`note_state_lock`) so
+/// the registry connection lock can assert it is never first taken while
+/// this thread holds state (lock order: registry -> connection -> state).
+pub(crate) struct StateMutex(Mutex<State>);
+
+/// A held mux state lock.
+pub(crate) struct StateGuard<'a> {
+    guard: MutexGuard<'a, State>,
+    /// Lock rank `MuxState` (crate::lock_rank), released after the lock.
+    _rank: HeldRank,
+}
+
+impl StateGuard<'_> {
+    fn new(guard: MutexGuard<'_, State>) -> StateGuard<'_> {
+        crate::workspace_registry::registry_connection::note_state_lock(true);
+        StateGuard { guard, _rank: HeldRank::record(LockRank::MuxState, STATE_LOCK_NAME) }
+    }
+}
+
+const STATE_LOCK_NAME: &str = "mux.state";
+
+impl Drop for StateGuard<'_> {
+    fn drop(&mut self) {
+        crate::workspace_registry::registry_connection::note_state_lock(false);
+    }
+}
+
+impl Deref for StateGuard<'_> {
+    type Target = State;
+
+    fn deref(&self) -> &State {
+        &self.guard
+    }
+}
+
+impl DerefMut for StateGuard<'_> {
+    fn deref_mut(&mut self) -> &mut State {
+        &mut self.guard
+    }
+}
+
+impl StateMutex {
+    pub(crate) fn new(state: State) -> Self {
+        Self(Mutex::new(state))
+    }
+
+    #[track_caller]
+    pub(crate) fn lock(&self) -> LockResult<StateGuard<'_>> {
+        HeldRank::check(LockRank::MuxState, STATE_LOCK_NAME);
+        match self.0.lock() {
+            Ok(guard) => Ok(StateGuard::new(guard)),
+            Err(poison) => Err(PoisonError::new(StateGuard::new(poison.into_inner()))),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn try_lock(&self) -> TryLockResult<StateGuard<'_>> {
+        match self.0.try_lock() {
+            Ok(guard) => Ok(StateGuard::new(guard)),
+            Err(TryLockError::WouldBlock) => Err(TryLockError::WouldBlock),
+            Err(TryLockError::Poisoned(poison)) => {
+                Err(TryLockError::Poisoned(PoisonError::new(StateGuard::new(poison.into_inner()))))
+            }
+        }
+    }
+}
+
+/// The state lock plus a hold of the registry connection taken before it.
+/// Fields drop in order: state first, then the connection.
+pub(crate) struct PinnedState<'a> {
+    state: StateGuard<'a>,
+    _connection: RegistryConnectionPin,
+}
+
+impl Deref for PinnedState<'_> {
+    type Target = State;
+
+    fn deref(&self) -> &State {
+        &self.state
+    }
+}
+
+impl DerefMut for PinnedState<'_> {
+    fn deref_mut(&mut self) -> &mut State {
+        &mut self.state
+    }
+}
+
+impl Mux {
+    /// Lock state for a flow that holds `registry` and touches its database
+    /// while state is held. The connection lock is taken first (see the
+    /// module docs); registry methods called meanwhile re-enter it.
+    pub(crate) fn lock_state_pinned(
+        &self,
+        registry: &WorkspaceRegistry,
+    ) -> LockResult<PinnedState<'_>> {
+        let connection = registry.connection.pin();
+        match self.state.lock() {
+            Ok(state) => Ok(PinnedState { state, _connection: connection }),
+            Err(poison) => Err(PoisonError::new(PinnedState {
+                state: poison.into_inner(),
+                _connection: connection,
+            })),
+        }
     }
 }

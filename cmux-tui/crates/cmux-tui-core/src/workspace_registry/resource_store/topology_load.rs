@@ -4,6 +4,12 @@
 use super::*;
 
 impl WorkspaceRegistry {
+    /// Full topology reads on this thread (test hook).
+    #[cfg(test)]
+    pub(crate) fn full_topology_reads_for_test() -> u64 {
+        FULL_TOPOLOGY_READS.with(Cell::get)
+    }
+
     /// The stored subtrees of `workspaces` only; see
     /// [`load_resource_topology_scoped`].
     pub(crate) fn resource_topology_scoped(
@@ -11,7 +17,7 @@ impl WorkspaceRegistry {
         workspaces: &[WorkspacePublicId],
     ) -> anyhow::Result<ResourceTopologySnapshot> {
         load_resource_topology_scoped(
-            &self.connection,
+            &self.connection.get(),
             self.session_id.clone(),
             self.generation.clone(),
             workspaces,
@@ -35,7 +41,8 @@ impl WorkspaceRegistry {
         &self,
         panes: &[PanePublicId],
     ) -> anyhow::Result<HashMap<TerminalPublicId, String>> {
-        let mut statement = self.connection.prepare(
+        let db = self.connection.get();
+        let mut statement = db.prepare(
             "SELECT rt.public_id, rt.terminal_id
              FROM resource_tabs t
              JOIN resource_terminals rt ON rt.public_id = t.content_id
@@ -55,12 +62,21 @@ impl WorkspaceRegistry {
         Ok(hosts)
     }
 
+    /// One live browser row, or `None` when it is gone.
+    pub(crate) fn live_browser(
+        &self,
+        browser_id: &BrowserPublicId,
+    ) -> anyhow::Result<Option<RegistryBrowser>> {
+        Ok(load_browsers(&self.connection.get(), " AND public_id = ?1", &[&browser_id.as_str()])?
+            .pop())
+    }
+
     /// The live tab rows that show `content_id`, in no particular order.
     pub(crate) fn resource_tabs_of_content(
         &self,
         content_id: &str,
     ) -> anyhow::Result<Vec<RegistryTab>> {
-        load_tabs(&self.connection, " AND t.content_id = ?1", &[&content_id])
+        load_tabs(&self.connection.get(), " AND t.content_id = ?1", &[&content_id])
     }
 
     /// Whether a live `resource` row ("screen", "pane" or "tab") has this
@@ -74,6 +90,7 @@ impl WorkspaceRegistry {
         };
         Ok(self
             .connection
+            .get()
             .prepare(&format!(
                 "SELECT 1 FROM {table} WHERE public_id = ?1 AND deleted_revision IS NULL"
             ))?
@@ -81,6 +98,11 @@ impl WorkspaceRegistry {
             .optional()?
             .is_some())
     }
+}
+
+#[cfg(test)]
+thread_local! {
+    static FULL_TOPOLOGY_READS: Cell<u64> = const { Cell::new(0) };
 }
 
 /// Load the live resource topology from `connection`. The registry's
@@ -91,6 +113,8 @@ pub(crate) fn load_resource_topology(
     session_id: SessionPublicId,
     generation: String,
 ) -> anyhow::Result<ResourceTopologySnapshot> {
+    #[cfg(test)]
+    FULL_TOPOLOGY_READS.with(|reads| reads.set(reads.get() + 1));
     let mut topology = load_topology_frame(connection, session_id, generation)?;
     topology.screens =
         screen_rows::with_side_tables(connection, load_screens(connection, "", &[])?)?;

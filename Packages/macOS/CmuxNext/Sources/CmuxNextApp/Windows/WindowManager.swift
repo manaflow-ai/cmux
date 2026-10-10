@@ -177,9 +177,8 @@ final class WindowManager {
         }
         // Incognito workspaces a crashed run left on a daemon without state
         // resources: the app's ledger owns them, so they close, never shown.
-        // A daemon with state resources owns its ephemeral workspaces (it
-        // closes them at its next start); until then they show in an
-        // incognito window, never a normal one, so wait for its flags.
+        // A daemon with state resources owns its ephemeral workspaces (it closes them at its
+        // next start); until then they show in an incognito window only, so wait for its flags.
         let leftover = await incognitoLedger.load()
         if !leftover.isEmpty {
             registry.apply { $0.markDiscarding(leftover); return WindowRegistry.Changes() }
@@ -216,6 +215,7 @@ final class WindowManager {
         observeMembership()
         sessionRegistrar.start()
         registry.isLaunching = false
+        services.onboarding.landOnFirstWorkspace() // the workspace made above, on its New Tab page, not Home
     }
 
     /// The launch window takes the frontmost saved window's identity and

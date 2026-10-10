@@ -263,10 +263,7 @@ impl Mux {
         }
         // The tabs stay; only the dead runtime leaves them, so they read as
         // respawning, not dead, until the new runtime takes its place.
-        let old_runtime = state.terminal_catalog.remove(&public_id);
-        if let Some(runtime_id) = old_runtime.as_ref().and_then(|old| old.terminal_runtime_id()) {
-            state.terminal_catalog_by_runtime.remove(&runtime_id);
-        }
+        let old_runtime = state.remove_catalog_terminal(&public_id);
         for placement in &placements {
             state.surfaces.remove(placement);
         }
@@ -424,7 +421,7 @@ impl Mux {
             .context("respawned terminal has no host identity")?
             .incarnation;
         let mut registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut state = self.lock_state_pinned(&registry).unwrap_or_else(PoisonError::into_inner);
         let Some(mut durable) = registry.terminal_record(&plan.terminal_id)? else {
             return Ok(false);
         };

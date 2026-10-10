@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextControl
+import CmuxNextCrashReporting
 import CmuxNextDesign
 import CmuxNextDaemon
 import CmuxNextPalette
@@ -21,6 +22,8 @@ final class AppServices {
     let launchReveal: LaunchReveal
     /// Run marker, restart notice, crash reports (`debug.crashes`).
     let crashRecovery: CrashRecoveryService
+    /// Crash and exception reports to Sentry (cx-urd.58); started only for the app process.
+    let crashReporting: AppCrashReporting
     /// The local daemon. Cloud machines are in `machines`; code acting on a
     /// workspace, pane, or tab resolves its daemon through `machines`.
     let daemon = DaemonService()
@@ -56,7 +59,8 @@ final class AppServices {
     private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, cef: CEFEngine(lifecycleTrace: .shared, contextMenus: self.contextMenus))  // first read in init (no IUO)
     private(set) lazy var windows: WindowManager = WindowManager(services: self)  // first read in init (no IUO)
     private(set) lazy var dragSession: TabDragSession = TabDragSession(services: self)  // first read in init (no IUO)
-    private(set) lazy var palette: PaletteController = PaletteController(registry: registry, sources: PaletteSourcesBridge.make(services: self))  // first read in init (no IUO)
+    private(set) lazy var palette: PaletteController = PaletteController(registry: registry, sources: PaletteSourcesBridge.make(services: self),
+                                                                          usage: DaemonPaletteUsageStore(services: self))  // first read in init (no IUO)
     private(set) lazy var previews: TabPreviewSource = TabPreviewSource(cache: cache)  // first read in init (no IUO)
     /// CPU and memory for the hover cards and `resources` (sampled on demand).
     private(set) lazy var resources: AppResourceSource = AppResourceSource(services: self)  // first read in init (no IUO)
@@ -161,6 +165,8 @@ final class AppServices {
     private(set) lazy var agentTabs = AgentTabStore.wired(to: self)
     /// The device-wide Chats index (nil without acpmux), watched once for every window.
     private(set) lazy var chatsFeed: ChatsFeed? = ChatsFeed.started(for: self)
+    /// Relays the Chats index and editor sources into the daemon's project list.
+    private(set) lazy var projectsImport = ProjectsImport(services: self)
     /// Shared Open Chat path for sidebar clicks and palette Return.
     private(set) lazy var chatsOpener = ChatsOpenCoordinator(services: self)
     /// `agentTabs` once made: a tab close releases its view without starting acpmux.
@@ -192,6 +198,8 @@ final class AppServices {
         popups = BrowserPopupPanels(contextMenus: contextMenus)
         self.environment = environment
         crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun)
+        // After the run marker's handlers: Sentry calls them after its report.
+        crashReporting = AppCrashReporting(environment: environment)
         machines = MachineRegistry(local: daemon)
         machines.isFeatureDisabled = { [registry] in registry.disabledFeatures.contains($0) }
         _ = cloud  // built here, as before
@@ -218,8 +226,9 @@ final class AppServices {
         }
         cache.defersRestoredPages = crashRecovery.recovery.skipsBrowserPages
         crashRecovery.observe(cache.cef.crashLog)
-        cache.cef.onReady = { [crashRecovery] in
+        cache.cef.onReady = { [crashRecovery, crashReporting] in
             crashRecovery.marker?.installHandlers()
+            crashReporting.reporter.reassertSignalHandlers()
             // Chromium resets signal actions at start and catches SIGINT and
             // SIGHUP itself; they stay requested quits.
             QuitSignal.reclaim()
@@ -237,10 +246,7 @@ final class AppServices {
             guard let self, let workspace = workspaceID(ofTab: key) else { return false }
             return windows.isIncognito(workspace: workspace)
         }
-        cache.browserTabs.isIncognitoPane = { [weak self] pane in
-            guard let self, let workspace = daemon.store.workspace(containing: pane)?.id else { return false }
-            return windows.isIncognito(workspace: workspace)
-        }
+        wireBrowserTabMachines()
         cache.browserProfile = { [weak self] key in self?.browserProfiles.engineProfile(forTab: key) }
         cache.profileBadge = { [weak self] key in self?.browserProfiles.omnibarBadge(forTab: key) }
         cache.profileBadgeMenu = { [weak self] key in
@@ -250,7 +256,7 @@ final class AppServices {
         }
         cache.browserTabs.resolveProfile = { [weak self] pane, explicit in
             guard let self else { return explicit }
-            return browserProfiles.profileForNewTab(in: pane, on: daemon, explicit: explicit)
+            return browserProfiles.profileForNewTab(in: pane.handle, on: machines.daemon(forPane: pane), explicit: explicit)
         }
         _ = emptyWorkspaces  // built here, as before
         cache.sessionDelegate = terminalDelegate
@@ -266,13 +272,14 @@ final class AppServices {
             CertificateWarningHandlers.installRouter(on: entry, registry: registry)
             BrowserToolbarHandlers.install(on: entry, services: self)
             bookmarks.attach(entry)
-            onboarding.cookiePrompt.attach(entry)
+            onboarding.browserImportOffer.attach(entry)
         }
         cache.onSuggestionEngineCreated = { [weak self] in
             guard let self else { return }
             BookmarkSuggestionFeed.follow(bookmarks, profile: bookmarks.profile(of: $1), into: $0)
         }
         cache.onRevealTab = { [weak self] key in _ = self?.revealTab(key) }
+        NewTabOmnibar.services = self
         cache.makeExtensionMenuHandler = { [weak self] key in self.map { ExtensionMenuRouter(services: $0, tabKey: key) } }
         cache.onDevToolsChange = { [weak self] key, state, focused in self?.devToolsDidChange(key, state: state, focused: focused) }
         registry.menuKeyEquivalentGate = { [weak self] id in self?.keyRouter.allowsMenuKeyEquivalent(id) ?? true }

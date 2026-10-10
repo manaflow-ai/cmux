@@ -105,7 +105,7 @@ describe("Stack team webhooks into TeamDO (cx-3bi.43)", { timeout: 60_000 }, () 
     expect(await memberRow(t.team, t.user)).toBeNull()
     const r = await call(t.token, "/v1/read", { op: "team_vm.status", params: {} }, t.team)
     expect(r.status).toBe(403)
-    expect(r.body?.code ?? r.body?.error?.code).toBe("auth.forbidden")
+    expect(r.body?.code ?? r.body?.error?.code).toBe("team.not_member")
   })
 
   it("answers 503 not configured (never 500) while STACK_WEBHOOK_SECRET is unset; other events are a 200 no-op", async () => {
@@ -116,12 +116,13 @@ describe("Stack team webhooks into TeamDO (cx-3bi.43)", { timeout: 60_000 }, () 
     const other = await deliver("user.updated", { id: crypto.randomUUID() })
     expect(other.status).toBe(200)
     expect(other.body).toMatchObject({ ok: true, ignored: "user.updated" })
-    expect((await deliver("team_membership.created", { team_id: "not-a-uuid", user_id: "x" })).status).toBe(400)
+    // A signed body we cannot use is a logged 200 no-op (a 4xx makes Svix disable the endpoint).
+    expect((await deliver("team_membership.created", { team_id: "a/b", user_id: "x" })).body).toMatchObject({ ok: true, ignored: "shape" })
   })
 })
 
 describe("session team selection (cx-3bi.43)", { timeout: 60_000 }, () => {
-  it("a member session runs team_vm.status in the shared team; a non-member naming it gets auth.forbidden; no header keeps the personal team", async () => {
+  it("a member session runs team_vm.status in the shared team; a non-member naming it gets team.not_member; no header keeps the personal team", async () => {
     const t = await mirroredTeam()
     const member = await call(t.token, "/v1/read", { op: "team_vm.status", params: {} }, t.team)
     expect(member.status, JSON.stringify(member.body)).toBe(200)
@@ -136,7 +137,7 @@ describe("session team selection (cx-3bi.43)", { timeout: 60_000 }, () => {
     ] as const) {
       const r = await call(outsider, path, body, t.team)
       expect(r.status, JSON.stringify(r.body)).toBe(403)
-      expect(r.body?.code ?? r.body?.error?.code).toBe("auth.forbidden")
+      expect(r.body?.code ?? r.body?.error?.code).toBe("team.not_member")
     }
     // A team id that names no team at all answers the same.
     const nowhere = await call(outsider, "/v1/read", { op: "team_vm.status", params: {} }, teamIdOf(crypto.randomUUID()))

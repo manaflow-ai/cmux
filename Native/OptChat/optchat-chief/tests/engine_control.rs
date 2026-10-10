@@ -50,6 +50,8 @@ fn set(harness: Option<&str>, model: Option<&str>, effort: Option<&str>) -> Engi
         harness: harness.map(str::to_owned),
         model: model.map(str::to_owned),
         effort: effort.map(str::to_owned),
+        speed: None,
+        compactor_speed: None,
     }
 }
 
@@ -84,6 +86,20 @@ fn engine_set_writes_engine_json_and_the_next_turn_runs_on_it() {
     h.say("user_local", "hi");
     h.settle();
     assert_eq!(h.agents.inner.lock().unwrap().specs[0].harness, "codex");
+}
+
+/// A Claude-only Chief's acpmux probes only the Claude harnesses at start
+/// (ACPMUX_PROBE_HARNESSES): an engine set to codex asks acpmux to probe it,
+/// so its model list arrives without a daemon restart.
+#[test]
+fn engine_set_to_another_harness_asks_acpmux_to_probe_it() {
+    let (mut h, _) = harness(default_script());
+    let v = engine(&mut h, set(Some("codex"), None, None));
+    assert_eq!(v["engine"]["harness"], "codex", "{v}");
+    assert_eq!(h.agents.inner.lock().unwrap().probed, vec!["codex"]);
+    // Only a harness change asks.
+    engine(&mut h, set(None, None, Some("high")));
+    assert_eq!(h.agents.inner.lock().unwrap().probed, vec!["codex"]);
 }
 
 #[test]

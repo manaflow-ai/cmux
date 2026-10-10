@@ -35,8 +35,9 @@ import Foundation
             workspace.setName(name)
             return .workspaceName(key: key, name: previous)
         case .moveWorkspace(let key, let index):
-            guard let from = store.workspaces.firstIndex(where: { $0.key == key }) else { return nil }
-            return place(at: from, index: min(max(index, 0), store.workspaces.count - 1), group: store.workspaces[from].group, in: store)
+            guard let from = store.workspaces.firstIndex(where: { $0.key == key }),
+                  let current = store.workspaces[checked: from] else { return nil }
+            return place(at: from, index: min(max(index, 0), store.workspaces.count - 1), group: current.group, in: store)
         case .setWorkspaceGroup(let key, let group):
             guard let from = store.workspaces.firstIndex(where: { $0.key == key }), group.map({ store.group($0) != nil }) ?? true else { return nil }
             return place(at: from, index: from, group: group, in: store)
@@ -59,6 +60,9 @@ import Foundation
             pane.insertTab(tab, at: pane.tabs.count)
             store.tabsBySurface[provisional.surface] = tab
             return .createdTab(surface: provisional.surface, pane: paneHandle)
+        case .splitPane(let target, let direction, let ratio, let provisional):
+            return ProvisionalSplit.apply(target: target, direction: direction, ratio: ratio,
+                                          provisional: provisional, to: store)
         case .bindAgentSession(let surface, let session):
             guard let tab = store.tabsBySurface[surface], var record = tab.agentSession, record.session != session else { return nil }
             let previous = tab.snapshot
@@ -96,6 +100,10 @@ import Foundation
     /// reported replaces its provisional one (``ProvisionalTab/created(_:surface:in:)``).
     static func restore(_ pending: PendingIntent, to store: DaemonStore) -> IntentUndo? {
         if let created = pending.createdSurface, store.tabsBySurface[created] != nil { return nil }
+        // The daemon's pane under the split's public pane id replaces the provisional one.
+        if case .splitPane(_, _, _, let provisional) = pending.kind, ProvisionalSplit.daemonHas(provisional, in: store) {
+            return nil
+        }
         return apply(pending.kind, to: store)
     }
 
@@ -128,6 +136,8 @@ import Foundation
             }
         case .tabSnapshot(let surface, let previous):
             store.tabsBySurface[surface]?.update(previous)
+        case .splitPane(let screen, let layout, let columns, let pane):
+            ProvisionalSplit.undo(screen: screen, layout: layout, columns: columns, pane: pane, in: store)
         case .createdTab(let surface, let pane):
             store.tabsBySurface[surface] = nil
             guard store.panesByHandle[pane]?.removeTab(surface: surface) != nil else {
@@ -139,8 +149,8 @@ import Foundation
     /// Moves the workspace at `from` to daemon-order `index` in `group`;
     /// returns the inverse, or nil when it was there already.
     private static func place(at from: Int, index: Int, group: WorkspaceGroupID?, in store: DaemonStore) -> IntentUndo? {
-        let model = store.workspaces[from]
-        guard index != from || model.group != group, let key = model.key else { return nil }
+        guard let model = store.workspaces[checked: from],
+              index != from || model.group != group, let key = model.key else { return nil }
         let undo = IntentUndo.workspacePlace(key: key, index: from, group: model.group)
         model.setGroup(group)
         if index != from {
@@ -159,11 +169,12 @@ import Foundation
     /// rule turns into a daemon-order index on the current mirror.
     private static func sectionPlacement(from old: Int, group: WorkspaceGroupID?, index: Int, in store: DaemonStore) -> Int {
         let remaining = store.workspaces.indices.filter { $0 != old }
-        let members = remaining.filter { store.workspaces[$0].group == group }
+        let members = store.workspaces.enumerated().filter { $0.offset != old && $0.element.group == group }.map(\.offset)
         let position = { (target: Int) in remaining.firstIndex(of: target) ?? old }
         var new = old
         if let last = members.last {
-            new = index < members.count ? position(members[index]) : position(last) + 1
+            // A negative section index means the front, as a negative move index does.
+            new = members[checked: max(index, 0)].map(position) ?? position(last) + 1
         }
         return min(new, store.workspaces.count - 1)
     }
