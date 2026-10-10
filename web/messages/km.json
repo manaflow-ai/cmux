@@ -2220,6 +2220,13 @@
           "indentGuides": "សម្គាល់កម្រិតចូលបន្ទាត់នីមួយៗដោយខ្សែបញ្ឈរស្ដើងមួយ នៅក្នុងកម្មវិធីកែសម្រួលឯកសារដែលភ្ជាប់មកជាមួយ។",
           "currentLineHighlight": "ដាក់ពណ៌លើជួរដែលមានទស្សន៍ទ្រនិច ពេលមិនមានអ្វីត្រូវបានជ្រើសរើស។",
           "tabWidth": "ចំនួនជួរឈរដែល tab stop មួយគ្របដណ្ដប់។ indent guide ប្រើគម្លាតដូចគ្នា។"
+        },
+        "remoteTmux": {
+          "beta": {
+            "newWorkspaceOnHost": {
+              "enabled": "នៅពេលជ្រើសកន្លែងធ្វើការ tmux ពីចម្ងាយ “កន្លែងធ្វើការថ្មី” នឹងចាប់ផ្តើមសម័យ tmux លើម៉ាស៊ីនមេរបស់កន្លែងធ្វើការនោះ។"
+            }
+          }
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

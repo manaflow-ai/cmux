@@ -2221,6 +2221,13 @@
           "indentGuides": "แสดงเส้นแนวตั้งบาง ๆ ที่แต่ละระดับการเยื้องในตัวแก้ไขไฟล์ในตัว",
           "currentLineHighlight": "แต้มสีบรรทัดที่เคอร์เซอร์อยู่ขณะที่ไม่ได้เลือกข้อความใด",
           "tabWidth": "จำนวนคอลัมน์ที่ tab stop หนึ่งตำแหน่งครอบคลุม เส้นนำการเยื้องใช้ระยะเดียวกัน"
+        },
+        "remoteTmux": {
+          "beta": {
+            "newWorkspaceOnHost": {
+              "enabled": "เมื่อเลือกเวิร์กสเปซ tmux ระยะไกล “เวิร์กสเปซใหม่” จะเริ่มเซสชัน tmux บนโฮสต์ของเวิร์กสเปซนั้น"
+            }
+          }
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

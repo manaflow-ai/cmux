@@ -2220,6 +2220,13 @@
           "indentGuides": "在内置文件编辑器中，用一条细竖线标出每一级缩进。",
           "currentLineHighlight": "在没有选中内容时，为光标所在的行着色。",
           "tabWidth": "一个制表位占用的列数。缩进参考线使用相同的间距。"
+        },
+        "remoteTmux": {
+          "beta": {
+            "newWorkspaceOnHost": {
+              "enabled": "选择远程 tmux 工作区后，“新建工作区”会在该工作区的主机上启动 tmux 会话。"
+            }
+          }
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

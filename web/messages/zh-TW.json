@@ -2220,6 +2220,13 @@
           "indentGuides": "在內建檔案編輯器中，以一條細直線標示每一層縮排。",
           "currentLineHighlight": "在沒有選取任何內容時，為游標所在的那一列上色。",
           "tabWidth": "一個定位點所佔的欄數。縮排參考線使用相同的間距。"
+        },
+        "remoteTmux": {
+          "beta": {
+            "newWorkspaceOnHost": {
+              "enabled": "選取遠端 tmux 工作區後，「新增工作區」會在該工作區的主機上啟動 tmux 工作階段。"
+            }
+          }
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

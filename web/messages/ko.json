@@ -2220,6 +2220,13 @@
           "indentGuides": "내장 파일 편집기에서 들여쓰기 수준마다 얇은 세로선을 표시합니다.",
           "currentLineHighlight": "아무것도 선택하지 않았을 때 캐럿이 있는 줄에 색을 입힙니다.",
           "tabWidth": "탭 정지 하나가 차지하는 열 수입니다. 들여쓰기 가이드도 같은 간격을 사용합니다."
+        },
+        "remoteTmux": {
+          "beta": {
+            "newWorkspaceOnHost": {
+              "enabled": "원격 tmux 작업 공간을 선택하면 새 작업 공간이 해당 작업 공간의 호스트에서 tmux 세션을 시작합니다."
+            }
+          }
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

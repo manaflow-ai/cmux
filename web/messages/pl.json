@@ -2221,6 +2221,13 @@
           "indentGuides": "Oznacza każdy poziom wcięcia cienką pionową linią we wbudowanym edytorze plików.",
           "currentLineHighlight": "Podświetla kolorem wiersz z kursorem tekstowym, gdy nic nie jest zaznaczone.",
           "tabWidth": "Liczba kolumn, jaką obejmuje jeden tabulator. Linie wcięć używają tego samego odstępu."
+        },
+        "remoteTmux": {
+          "beta": {
+            "newWorkspaceOnHost": {
+              "enabled": "Gdy wybrano zdalny obszar roboczy tmux, „Nowy obszar roboczy” uruchamia sesję tmux na hoście tego obszaru."
+            }
+          }
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

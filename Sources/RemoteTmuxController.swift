@@ -57,6 +57,10 @@ final class RemoteTmuxController {
     var attachQuietLimits = RemoteTmuxAttachProgress.QuietLimits.standard
 
     var newSessionEnvironment: RemoteTmuxNewSessionEnvironment
+    /// In-flight routed New Workspace requests, keyed by their requesting manager.
+    /// Keeping the task here makes the lifetime explicit and lets a second request for
+    /// the same window cancel the stale request before it can attach an unexpected tab.
+    private var newSessionTasks: [ObjectIdentifier: Task<Void, Never>] = [:]
 
     init(newSessionEnvironment: RemoteTmuxNewSessionEnvironment = .live) {
         self.newSessionEnvironment = newSessionEnvironment
@@ -557,7 +561,7 @@ final class RemoteTmuxController {
     func newSessionRequest(in manager: TabManager) -> NewSessionRequest? {
         guard newSessionEnvironment.routesToMirrorHost(),
               let activeTabId = manager.selectedTab?.id,
-              let host = newSessionHost(activeTabId: activeTabId) else { return nil }
+              let host = mirrorMembership.host(for: activeTabId) else { return nil }
         return NewSessionRequest(host: host, activeTabId: activeTabId)
     }
 
@@ -570,7 +574,11 @@ final class RemoteTmuxController {
         onCreated: (@MainActor () -> Void)? = nil
     ) -> Bool {
         guard let request = newSessionRequest(in: manager) else { return false }
-        Task {
+        let managerID = ObjectIdentifier(manager)
+        newSessionTasks[managerID]?.cancel()
+        newSessionTasks[managerID] = Task { @MainActor [weak self, weak manager] in
+            guard let self, let manager else { return }
+            defer { self.newSessionTasks.removeValue(forKey: managerID) }
             await self.createAndMirrorSession(request, in: manager, onCreated: onCreated)
         }
         return true
@@ -1194,11 +1202,13 @@ final class RemoteTmuxController {
 final class RemoteTmuxMirrorMembership {
     private(set) var workspaceIDs: Set<UUID> = []
     private var workspaceIDsByMirror: [ObjectIdentifier: UUID] = [:]
+    private var hostsByWorkspaceID: [UUID: RemoteTmuxHost] = [:]
 
     func insert(_ mirror: RemoteTmuxSessionMirror) {
         if let id = mirror.mirroredWorkspaceId {
             workspaceIDsByMirror[ObjectIdentifier(mirror)] = id
             workspaceIDs.insert(id)
+            hostsByWorkspaceID[id] = mirror.host
         }
     }
 
@@ -1206,11 +1216,16 @@ final class RemoteTmuxMirrorMembership {
         if let id = workspaceIDsByMirror.removeValue(forKey: ObjectIdentifier(mirror))
             ?? mirror.mirroredWorkspaceId {
             workspaceIDs.remove(id)
+            hostsByWorkspaceID.removeValue(forKey: id)
         }
     }
 
     func replace(old: RemoteTmuxSessionMirror?, with new: RemoteTmuxSessionMirror) {
         if let old { remove(old) }
         insert(new)
+    }
+
+    func host(for workspaceID: UUID) -> RemoteTmuxHost? {
+        hostsByWorkspaceID[workspaceID]
     }
 }

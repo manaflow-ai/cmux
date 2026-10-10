@@ -8945,7 +8945,8 @@ struct ContentView: View {
         registry.register(commandId: "palette.newWorkspace") {
             AppDelegate.shared?.performNewWorkspaceAction(
                 tabManager: tabManager,
-                debugSource: "palette.newWorkspace"
+                debugSource: "palette.newWorkspace",
+                skipConfiguredAction: true
             )
         }
         registry.register(commandId: "palette.newBrowserWorkspace") {

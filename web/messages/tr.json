@@ -2220,6 +2220,13 @@
           "indentGuides": "Yerleşik dosya düzenleyicide her girinti düzeyini ince bir dikey çizgiyle işaretler.",
           "currentLineHighlight": "Hiçbir şey seçili değilken metin imlecinin bulunduğu satırı renklendirir.",
           "tabWidth": "Bir sekme durağının kaç sütun kapladığı. Girinti kılavuzları da aynı aralığı kullanır."
+        },
+        "remoteTmux": {
+          "beta": {
+            "newWorkspaceOnHost": {
+              "enabled": "Uzak bir tmux çalışma alanı seçildiğinde “Yeni çalışma alanı”, o çalışma alanının ana bilgisayarında bir tmux oturumu başlatır."
+            }
+          }
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

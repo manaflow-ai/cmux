@@ -125,7 +125,7 @@ extension RemoteTmuxController {
 
     /// Fixed, localized alert text for a failed routed New Workspace. Remote stderr and
     /// error descriptions stay in debug logs only; they may contain untrusted host output.
-    static func newSessionFailureAlertText(
+    nonisolated static func newSessionFailureAlertText(
         host: RemoteTmuxHost,
         failure: NewSessionFailure
     ) -> (title: String, message: String) {
