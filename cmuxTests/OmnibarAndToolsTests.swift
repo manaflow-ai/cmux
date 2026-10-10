@@ -648,6 +648,29 @@ final class OmnibarStateMachineTests: XCTestCase {
         XCTAssertEqual(state.selectedSuggestionIndex, 0, "Expected reopened popup to focus first row")
     }
 
+    func testBufferChangeInvalidatesSuggestionsAndSelection() throws {
+        var state = OmnibarState()
+        _ = omnibarReduce(state: &state, event: .focusGained(currentURLString: "https://example.com/"))
+        _ = omnibarReduce(state: &state, event: .bufferChanged("go"))
+
+        let rows: [OmnibarSuggestion] = [
+            .search(engineName: "Google", query: "go"),
+            .remoteSearchSuggestion("go tutorial"),
+        ]
+        _ = omnibarReduce(state: &state, event: .suggestionsUpdated(rows))
+        _ = omnibarReduce(state: &state, event: .moveSelection(delta: 1))
+        XCTAssertEqual(state.selectedSuggestionIndex, 1)
+        XCTAssertTrue(state.selectionIsExplicit)
+
+        let effects = omnibarReduce(state: &state, event: .bufferChanged("g"))
+
+        XCTAssertTrue(effects.shouldRefreshSuggestions)
+        XCTAssertTrue(state.suggestions.isEmpty)
+        XCTAssertEqual(state.selectedSuggestionIndex, 0)
+        XCTAssertNil(state.selectedSuggestionID)
+        XCTAssertFalse(state.selectionIsExplicit)
+    }
+
     func testSuggestionsUpdatePrefersAutocompleteMatchWhenSelectionNotTracked() throws {
         var state = OmnibarState()
         _ = omnibarReduce(state: &state, event: .focusGained(currentURLString: "https://example.com/"))
