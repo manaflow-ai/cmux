@@ -239,8 +239,10 @@ enum TabLifecycle {
         // An agent's tab beside its chat: selected there, focus stays in the chat; with no column
         // there it opens unselected in the chat's pane and moves into a new one (AgentBesidePlacement).
         let beside = invocation.besideCaller ? ctx.services.paneController(for: pane) : nil
-        if let beside { agentTab = AgentBesidePlacement.placed(invocation, in: beside, then: agentTab) }
-        let background = beside != nil && invocation.newColumnBeside
+        if invocation.besideCaller {
+            agentTab = AgentBesidePlacement.placed(invocation, pane: pane, controller: beside, services: ctx.services, then: agentTab)
+        }
+        let background = invocation.besideCaller && invocation.newColumnBeside
         switch profileRequest {
         case .cascade: break
         case .explicit(let id):
