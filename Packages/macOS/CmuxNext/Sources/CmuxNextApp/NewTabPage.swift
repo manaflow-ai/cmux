@@ -359,9 +359,10 @@ extension NewTabPage {
         openingPanes.remove(ObjectIdentifier(pane))
         // The page closes one frame after the new tab shows, so the frame that builds the
         // terminal surface does not also pay for the page (R81: 17.8 ms frames at 120 Hz).
-        let closePage: @MainActor (SurfaceID) -> Void = { [weak pane] _ in
+        let close: @MainActor (SurfaceID) -> Void = { [weak pane] _ in
             closeFrame.scheduleFrame { BenchSpans.measure("newTab.closePage") { pane?.close([StripTabID(key)]) } }
         }
+        let closePage = NewTabSlot.placing(replacing: key, services: services, then: close) ?? close // the page's slot
         switch request.kind {
         case .terminal where !request.run:
             // `!` on the screen: type, never run; keys typed while the

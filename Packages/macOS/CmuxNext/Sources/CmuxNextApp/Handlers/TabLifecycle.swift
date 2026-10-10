@@ -10,7 +10,7 @@ import Foundation
 /// workspace no window shows. Every daemon command is tracked
 /// (`ActionRegistry.track`) for callers that await the effect.
 enum TabLifecycle {
-    static func newTerminal(_ ctx: AppActionContext, _ invocation: ActionInvocation, after anchor: SurfaceID? = nil) {
+    static func newTerminal(_ ctx: AppActionContext, _ invocation: ActionInvocation, after anchor: TabModel? = nil) {
         guard let focused = ctx.daemonPane(invocation) else { return }
         let cwd = invocation["cwd"]?.stringValue
         // `--keep`: the terminal outlives its tab (a background terminal made on purpose).
@@ -148,7 +148,8 @@ enum TabLifecycle {
                strip !== controller {
                 return strip.newTabPage()
             }
-            let placed = NewTabSlot.placing(after: after, services: ctx.services, then: nil as (@MainActor (String) -> Void)?)
+            let docks = kind == .agent && controller.map { NewChatPlacement.resolve(from: $0) != .here } ?? false // bound for the chat dock: not moved
+            let placed = NewTabSlot.placing(after: docks ? nil : after, services: ctx.services, then: nil as (@MainActor (String) -> Void)?)
             if kind == .page {
                 controller?.newTabPage(then: placed)
             } else {
@@ -194,7 +195,7 @@ enum TabLifecycle {
     /// `openBrowser` (`engine` optional: `browser.defaultEngine` when
     /// absent, see `BrowserEngineResolver`). An explicit Chromium request
     /// never silently becomes WebKit.
-    static func newBrowser(_ ctx: AppActionContext, _ invocation: ActionInvocation, after anchor: SurfaceID? = nil) {
+    static func newBrowser(_ ctx: AppActionContext, _ invocation: ActionInvocation, after anchor: TabModel? = nil) {
         let plan: BrowserOpenPlan
         switch BrowserOpenPlan.make(url: invocation["url"]?.stringValue, engine: invocation["engine"]?.stringValue,
                                     origin: invocation.origin) {
