@@ -115,12 +115,15 @@ def private_sources(body: str, root: Path) -> list[Path]:
     return found
 
 
-def public_sources(body: str) -> list[str]:
+def public_sources(body: str, live_url: str) -> list[str]:
+    gallery_hostname = urllib.parse.urlparse(live_url).hostname
     seen: set[str] = set()
     out: list[str] = []
     for url in PUBLIC_RE.findall(body):
         url = url.rstrip(".,")
         if "cmux-app-screenshots" in url:
+            continue
+        if gallery_hostname and urllib.parse.urlparse(url).hostname == gallery_hostname:
             continue
         if url not in seen:
             seen.add(url)
@@ -201,7 +204,7 @@ def scrub_gallery_host(text: str, live_url: str, body_path: str) -> str:
     if not hostname:
         return text
     host = re.escape(hostname)
-    absolute = re.compile(rf"https?://{host}(?::\d+)?(?:[^\s)]*)?", re.IGNORECASE)
+    absolute = re.compile(rf"https?://{host}(?::\d+)?[^\s)]*", re.IGNORECASE)
     text = absolute.sub(body_path, text)
     return re.sub(rf"(?<![\w.-]){host}(?::\d+)?(?![\w.-])", body_path, text, flags=re.IGNORECASE)
 
@@ -280,7 +283,7 @@ def main() -> int:
         raise SystemExit("--pr must be positive")
     body = pr_body(args.pr)
     args.media = [*args.media_pos, *args.media]
-    public = public_sources(body) if args.from_body else []
+    public = public_sources(body, args.live_url) if args.from_body else []
     files: list[Path] = []
     for entry in args.media:
         files.extend(collect_local(entry))
