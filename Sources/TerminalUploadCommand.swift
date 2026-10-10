@@ -92,6 +92,11 @@ struct TerminalUploadCommand: Sendable, Equatable {
     /// Environment handed to the custom command for one file. The full context is
     /// on the environment (not stdin) so a plain shell one-liner can use it; the
     /// standard process environment is inherited by the caller.
+    ///
+    /// `remotePath` comes from ``RemotePasteFileTransferPolicy`` and names a file in
+    /// a per-session directory under `~/.cache/cmux/paste`. Only the built-in
+    /// transport creates and cleans that directory, so a command that writes to the
+    /// path creates the directory itself.
     static func environment(
         localPath: String,
         remotePath: String,
