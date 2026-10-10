@@ -101,7 +101,7 @@ public final class BackdropImageStore {
         if let running = loads[key] {
             load = running
         } else {
-            let source = selection.imageURL, snapshot = snapshotURL(selection, texture: texture)
+            let source = selection.resolvedImageURL(), snapshot = snapshotURL(selection, texture: texture)
             let size = maxPixelSize
             load = Task.detached(priority: .userInitiated) {
                 Self.load(source, snapshot: snapshot, maxPixelSize: size, texture: texture)
@@ -121,7 +121,7 @@ public final class BackdropImageStore {
     /// The snapshot file of `selection` at this store's size and `texture`. Its name carries the
     /// source file's size and modification date, so a replaced file never matches an old one.
     private func snapshotURL(_ selection: BackdropSelection, texture: BackdropTexture) -> URL? {
-        guard let snapshots, let source = selection.imageURL,
+        guard let snapshots, let source = selection.resolvedImageURL(),
               let attributes = try? FileManager.default.attributesOfItem(atPath: source.path) else { return nil }
         let modified = (attributes[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
         let bytes = (attributes[.size] as? NSNumber)?.intValue ?? 0

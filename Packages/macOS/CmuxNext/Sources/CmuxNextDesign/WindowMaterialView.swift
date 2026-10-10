@@ -3,7 +3,7 @@ public import AppKit
 /// The one material behind a window's content (``WindowMaterial``) and the
 /// one theme tint, as the window root's bottom subview.
 ///
-/// It hosts at most one material view: an `NSGlassEffectView` for
+/// It hosts at most one material view: a Liquid Glass `GlassPanelView` for
 /// ``WindowMaterial/glass(_:)``, and none for ``WindowMaterial/frosted``
 /// or ``WindowMaterial/translucent`` (only the tint; the window's CGS
 /// blur radius frosts what shows through) or ``WindowMaterial/opaque``,
@@ -89,7 +89,7 @@ public final class WindowMaterialView: NSView {
     /// tint for glass, otherwise the color laid over the desktop; nil while
     /// opaque.
     public var tintColor: CGColor? {
-        if let glass = materialView as? NSGlassEffectView { return glass.tintColor?.cgColor }
+        if let glass = materialView as? GlassPanelView { return glass.tintColor?.cgColor }
         return tintView.isHidden ? nil : tintView.layer?.backgroundColor
     }
 
@@ -128,7 +128,7 @@ public final class WindowMaterialView: NSView {
     }
 
     private func updateInactiveTint() {
-        let glass = materialView as? NSGlassEffectView
+        let glass = materialView as? GlassPanelView
         let alpha = glass?.tintColor.map { Self.inactiveTintAlpha(isGlass: true, isKeyWindow: !resignedKey, tint: $0) } ?? 0
         inactiveTintView.layer?.backgroundColor = alpha > 0 ? glass?.tintColor?.cgColor : nil
         inactiveTintView.alphaValue = alpha
@@ -181,9 +181,10 @@ public final class WindowMaterialView: NSView {
                 addSubview(materialView, positioned: .below, relativeTo: tintView)
             }
         }
-        let alpha = backdrop.tintOpacity * (1 - backdrop.tuning.glassTransparency)
+        // Over art the tuner thins the glass only down to the legible tint.
+        let alpha = max(backdrop.tintOpacity * (1 - backdrop.tuning.glassTransparency), backdrop.legibleTintOpacity)
         let color = tunedTint(tint, tuning: backdrop.tuning).withAlphaComponent(alpha)
-        let glass = materialView as? NSGlassEffectView
+        let glass = materialView as? GlassPanelView
         glass?.tintColor = color
         // Glass tints itself; a tint view over it would dim the desktop twice.
         let shows = material != .opaque && glass == nil
@@ -246,13 +247,11 @@ public final class WindowMaterialView: NSView {
         case .opaque, .translucent, .frosted:
             return nil
         case .glass(let style):
-            let glass = NSGlassEffectView()
-            glass.cornerRadius = 0
+            // WindowBackdrop frosts the window instead where Liquid Glass is missing.
             switch style {
-            case .regular: glass.style = .regular
-            case .clear: glass.style = .clear
+            case .regular: return GlassPanelView(style: .regular)
+            case .clear: return GlassPanelView(style: .clear)
             }
-            return glass
         }
     }
 }

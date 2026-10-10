@@ -262,7 +262,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
     private(set) var demo: MessagesWindowView?
     /// cmux: where the user's changes go (the HomeStore adapter).
     weak var intents: ChatIntents?
-    /// cmux: a click on an app link (`HomeAppLinks`): the host runs it; nil opens nothing.
+    /// cmux: a click on an app link (`URL.isChiefSubagentLink`): the host runs it; nil opens nothing.
     var onAppLink: ((URL) -> Void)?
     /// cmux: one-shot wake-ups on the host's timer (CmuxNext: DemandTimer).
     let wake: ChatWakeScheduler

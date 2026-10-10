@@ -195,3 +195,110 @@ fn projects_daemon_observe_edit_remove_and_sync_over_the_socket() {
     assert!(left.iter().all(|project| project["path"] != picked), "{left:?}");
     assert_eq!(find(&left, app)["sources"], json!({}), "{left:?}");
 }
+
+/// Where the editors keep their state under `home` on this OS.
+fn editor_dirs(home: &Path) -> (PathBuf, PathBuf) {
+    if cfg!(target_os = "macos") {
+        let support = home.join("Library/Application Support");
+        (support.clone(), support.join("Zed"))
+    } else {
+        (home.join(".config"), home.join(".local/share/zed"))
+    }
+}
+
+#[test]
+fn projects_daemon_sync_imports_vscode_family_and_zed_recents() {
+    let daemon = Daemon::start("editors");
+    let (config, zed) = editor_dirs(&daemon.dir.join("home"));
+
+    // Cursor's Open Recent list (newest first): a remote, a file and a
+    // .code-workspace are not projects.
+    let cursor = config.join("Cursor/User/globalStorage");
+    fs::create_dir_all(&cursor).unwrap();
+    let db = rusqlite::Connection::open(cursor.join("state.vscdb")).unwrap();
+    db.execute_batch("CREATE TABLE ItemTable (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB);")
+        .unwrap();
+    db.execute(
+        "INSERT INTO ItemTable(key, value) VALUES('history.recentlyOpenedPathsList', ?1)",
+        [r#"{"entries":[
+            {"folderUri":"file:///srv/cx-m0p7-editors/app"},
+            {"folderUri":"vscode-remote://ssh-remote%2Bbox/home/me/x"},
+            {"fileUri":"file:///srv/cx-m0p7-editors/notes.md"},
+            {"folderUri":"file:///srv/cx-m0p7-editors/My%20Web"},
+            {"workspace":{"id":"1","configPath":"file:///srv/cx-m0p7-editors/w.code-workspace"}}
+        ]}"#],
+    )
+    .unwrap();
+    drop(db);
+    // VS Code without state.vscdb: its profile's workspace folders.
+    let code = config.join("Code/User/globalStorage");
+    fs::create_dir_all(&code).unwrap();
+    fs::write(
+        code.join("storage.json"),
+        r#"{"profileAssociations":{"workspaces":{"file:///srv/cx-m0p7-editors/api":"__default__profile__"}}}"#,
+    )
+    .unwrap();
+    // Windsurf with an unreadable database reports nothing (never its smaller list).
+    let windsurf = config.join("Windsurf/User/globalStorage");
+    fs::create_dir_all(&windsurf).unwrap();
+    fs::write(windsurf.join("state.vscdb"), "not a database").unwrap();
+    fs::write(
+        windsurf.join("storage.json"),
+        r#"{"profileAssociations":{"workspaces":{"file:///srv/cx-m0p7-editors/wind":"x"}}}"#,
+    )
+    .unwrap();
+    // Zed: local rows only, one root per line, a file root left out.
+    let zed_db = zed.join("db/0-stable");
+    fs::create_dir_all(&zed_db).unwrap();
+    let db = rusqlite::Connection::open(zed_db.join("db.sqlite")).unwrap();
+    db.execute_batch(
+        "CREATE TABLE workspaces (workspace_id INTEGER PRIMARY KEY, paths TEXT, paths_order TEXT,
+           remote_connection_id INTEGER, timestamp TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL);
+         INSERT INTO workspaces VALUES (1, '/srv/cx-m0p7-editors/app', '0', NULL, '2026-10-02 00:31:29');
+         INSERT INTO workspaces VALUES (2, '/srv/cx-m0p7-editors/one' || char(10) || '/srv/cx-m0p7-editors/two/main.rs', '0,1', NULL, '2026-09-28 05:53:28');
+         INSERT INTO workspaces VALUES (3, '/home/me/remote', '0', 7, '2026-10-03 00:00:00');
+         INSERT INTO workspaces VALUES (4, '/srv/cx-m0p7-editors/three.js', '0', NULL, '2026-09-01 00:00:00');",
+    )
+    .unwrap();
+    drop(db);
+
+    daemon.mutate("project.sync", json!({"existing": [], "gone": []}), "s-1");
+    let projects = daemon.list(json!({}));
+    let mut paths: Vec<&str> =
+        projects.iter().filter_map(|project| project["path"].as_str()).collect();
+    paths.sort_unstable();
+    assert_eq!(
+        paths,
+        vec![
+            "/srv/cx-m0p7-editors/My Web",
+            "/srv/cx-m0p7-editors/api",
+            "/srv/cx-m0p7-editors/app",
+            "/srv/cx-m0p7-editors/one",
+            "/srv/cx-m0p7-editors/three.js",
+        ],
+        "{projects:?}"
+    );
+    let app = find(&projects, "/srv/cx-m0p7-editors/app");
+    assert!(app["sources"]["cursor"].is_object() && app["sources"]["zed"].is_object(), "{app}");
+    assert_eq!(app["sources"]["zed"]["last_used_ms"], "1790901089000", "Zed's UTC time");
+    let web = find(&projects, "/srv/cx-m0p7-editors/My Web");
+    assert_eq!(
+        web["sources"]["cursor"]["last_used_ms"], "1",
+        "a later recent entry gets only its rank"
+    );
+    assert!(find(&projects, "/srv/cx-m0p7-editors/api")["sources"]["vscode"].is_object());
+
+    // Cursor forgets one: the next sync drops Cursor from it.
+    let db = rusqlite::Connection::open(cursor.join("state.vscdb")).unwrap();
+    db.execute(
+        "INSERT INTO ItemTable(key, value) VALUES('history.recentlyOpenedPathsList', ?1)",
+        [r#"{"entries":[{"folderUri":"file:///srv/cx-m0p7-editors/app"}]}"#],
+    )
+    .unwrap();
+    drop(db);
+    daemon.mutate("project.sync", json!({"existing": [], "gone": []}), "s-2");
+    let projects = daemon.list(json!({"include_hidden": true}));
+    let web = projects.iter().find(|project| project["path"] == "/srv/cx-m0p7-editors/My Web");
+    assert!(web.is_none_or(|web| web["sources"]["cursor"].is_null()), "{projects:?}");
+    assert!(find(&projects, "/srv/cx-m0p7-editors/app")["sources"]["cursor"].is_object());
+}

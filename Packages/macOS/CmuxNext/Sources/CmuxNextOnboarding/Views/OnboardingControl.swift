@@ -7,7 +7,7 @@ enum OnboardingControl {
         if prominent { return OnboardingAccentButton(title: title, target: target, action: action) }
         let button = NSButton(title: title, target: target, action: action)
         button.translatesAutoresizingMaskIntoConstraints = false
-        button.bezelStyle = prominent ? .glass : .push
+        if prominent { button.useGlassBezel() } else { button.bezelStyle = .push }
         button.controlSize = .large
         button.bezelColor = prominent ? Palette.selectionFill : nil
         return button

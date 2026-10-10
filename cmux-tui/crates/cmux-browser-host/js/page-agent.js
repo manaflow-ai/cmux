@@ -1966,9 +1966,67 @@
         return tagOf(el) === "input" && (el.type || "").toLowerCase() === "file";
       case "multiple":
         return !!el.multiple;
+      case "composerText":
+        return composerText(el, arg);
       default:
         throw agentError("invalid", `Unknown read ${what}`);
     }
+  }
+
+  // All the text a composer will send: a field's value, else every text
+  // node in it, hidden ones too (they are sent), with a space at each block
+  // boundary and line break, read in this world (a page script cannot
+  // change what it returns). Elements matching `exclude` (the site's own
+  // signature or quoted text) are left out. Sites compare it whole with the
+  // confirmed draft before a public send.
+  const BLOCK_TAGS = new Set(["address", "article", "aside", "blockquote", "br", "dd", "div", "dl", "dt", "figcaption", "figure",
+    "footer", "h1", "h2", "h3", "h4", "h5", "h6", "header", "hr", "li", "main", "nav", "ol", "p", "pre", "section", "table", "td",
+    "th", "tr", "ul"]);
+  // The text is read within the page-read budget and never cut: a cut text
+  // could not be compared whole, so past the budget the read fails in the
+  // page and nothing crosses to the host.
+  function composerText(el, exclude) {
+    const b = readBudget();
+    const tooLarge = () => {
+      if (b.truncated === "nodes") return agentError("invalid", "The composer holds too many nodes to compare");
+      if (b.truncated === "time") return agentError("invalid", "The composer took too long to read to compare");
+      return agentError("invalid", `The composer holds more than ${String(MAX_SIZE).replace(/\B(?=(\d{3})+(?!\d))/g, ",")} characters, more than cmux compares with a draft`);
+    };
+    const add = (s) => {
+      if (!chargeSize(b, s.length)) throw tooLarge();
+      out += s;
+    };
+    const tag = tagOf(el);
+    if (tag === "textarea" || tag === "input") {
+      const value = el.value;
+      if (!chargeSize(b, value.length)) throw tooLarge();
+      return value;
+    }
+    let out = "";
+    // Iterative (a composer can nest deeper than the stack). An image's alt
+    // text is its text (Gmail draws an emoji as <img alt="😀">).
+    walkTree(el, (n) => {
+      if (n === el) return true;
+      if (!spend(b, 1)) throw tooLarge();
+      if (n.nodeType === 3) {
+        add(n.nodeValue);
+        return false;
+      }
+      if (n.nodeType !== 1) return false;
+      if (exclude && n.matches(exclude)) {
+        add(" ");
+        return false;
+      }
+      if (tagOf(n) === "img") {
+        add(n.getAttribute("alt") || "");
+        return false;
+      }
+      if (BLOCK_TAGS.has(tagOf(n))) add(" ");
+      return true;
+    }, (n) => {
+      if (n !== el && n.nodeType === 1 && BLOCK_TAGS.has(tagOf(n)) && !(exclude && n.matches(exclude))) add(" ");
+    });
+    return out;
   }
 
   // A locator's string read within one page-read budget: { value, cut }
@@ -2016,25 +2074,66 @@
     return { values, cut: b.truncated ? { truncated: b.truncated, maxNodes: b.nodes, maxSize: b.size } : null };
   }
   // The document's HTML (doctype and outerHTML of its root) within one
-  // page-read budget, for page.content().
-  function documentHTML() {
-    const b = readBudget();
+  // page-read budget, for page.content() (`maxSize` lowers its characters:
+  // tabs.content splits its budget over URLs).
+  function documentHTML(opts) {
+    const b = readBudget({ maxSize: opts && opts.maxSize });
     const doctype = document.doctype ? fit(b, new global.XMLSerializer().serializeToString(document.doctype)) : "";
     const value = doctype + (document.documentElement ? boundedHTML(document.documentElement, b, true) : "");
     return { value, cut: b.truncated ? { truncated: b.truncated, maxNodes: b.nodes, maxSize: b.size } : null };
   }
 
-  function iframeHandles() {
-    const out = [];
-    const walk = (root) => {
-      for (const el of root.querySelectorAll("*")) {
-        const tag = tagOf(el);
-        if (tag === "iframe" || tag === "frame") out.push(handleFor(el));
-        if (el.shadowRoot) walk(el.shadowRoot);
+  // This frame's place in its parent's window.frames, or -1 (the main
+  // frame, or a frame the parent does not list: WebKit leaves out frames in
+  // shadow trees). Only the engine's window objects are read.
+  function framePosition() {
+    const p = window.parent;
+    if (!p || p === window) return -1;
+    const length = p.length;
+    for (let i = 0; i < length; i++) if (p[i] === window) return i;
+    return -1;
+  }
+
+  // Candidates for the <iframe> (or <frame>) that shows the child frame at
+  // `position` in window.frames (framePosition() in the child), as handles,
+  // which the caller confirms with the driver: the light-DOM element whose
+  // window is that one; else (a frame in a shadow tree) the frames in
+  // shadow trees, found by a walk of the elements. Both count against one
+  // budget of at most MAX_NODES (the snapshot's), as the page sets their
+  // number: each light-DOM <iframe> and <frame> checked (read one at a time
+  // from the document's live collections, never listed whole), then each
+  // element walked. `truncated` says the lookup stopped at the budget.
+  function iframeHandles(position, maxNodes) {
+    const target = Number.isInteger(position) && position >= 0 && position < window.length ? window[position] : null;
+    let left = Math.min(MAX_NODES, maxNodes > 0 ? Math.floor(maxNodes) : MAX_NODES);
+    if (target) {
+      for (const tag of ["iframe", "frame"]) {
+        const owners = document.getElementsByTagName(tag);
+        for (let i = 0, el = owners[0]; el; el = owners[++i]) {
+          if (--left < 0) return { handles: [], truncated: true };
+          if (el.contentWindow === target) return { handles: [handleFor(el)], truncated: false };
+        }
       }
-    };
-    walk(document);
-    return out;
+    }
+    let truncated = false;
+    const out = [];
+    const roots = [document];
+    while (roots.length && !truncated) {
+      const root = roots.pop();
+      const walker = document.createTreeWalker(root, 1);
+      for (let el = walker.nextNode(); el; el = walker.nextNode()) {
+        if (--left < 0) {
+          truncated = true;
+          break;
+        }
+        if (root !== document) {
+          const tag = tagOf(el);
+          if ((tag === "iframe" || tag === "frame") && (!target || el.contentWindow === target)) out.push(handleFor(el));
+        }
+        if (el.shadowRoot) roots.push(el.shadowRoot);
+      }
+    }
+    return { handles: out, truncated };
   }
 
   // Content box of an <iframe> in this frame's viewport coordinates.
@@ -2120,7 +2219,9 @@
     read,
     readBounded,
     readAllBounded,
+    slotAssigned,
     documentHTML,
+    framePosition,
     iframeHandles,
     contentBox,
     annotate,
