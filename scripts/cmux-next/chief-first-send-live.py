@@ -136,6 +136,17 @@ def end_round(app, cache):
     tag_env = {k: v for k, v in os.environ.items() if not k.startswith("ACPMUX_")}
     tag_env["ACPMUX_HOME"] = TAG_ACPMUX_HOME
     subprocess.run([ACPMUX, "daemon", "shutdown"], env=tag_env, capture_output=True, timeout=30)
+    # Each acpmux daemon starts a detached local router (its own session); it stops on its admin socket.
+    for home in (TAG_ACPMUX_HOME, ACPMUX_HOME):
+        try:
+            conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            conn.settimeout(5)
+            conn.connect(os.path.join(home, "router", "router.sock"))
+            conn.sendall(b'{"op":"shutdown"}\n')
+            conn.recv(4096)
+            conn.close()
+        except OSError:
+            pass
     subprocess.run([CLI, "server", "stop", "--session", f"cmux-app-{TAG}", "--end-terminals"],
                    env={k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}, capture_output=True, timeout=30)
     if cache:
