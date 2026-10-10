@@ -272,7 +272,7 @@ extension TerminalController {
             return v2CloudCall(id: id, method: method, params: params) {
                 let scope = await CmuxTuiSurfaceProviderRegistry.shared.creationScope
                 let vm = try await VMClient.shared.create(image: image, kind: kind, provider: provider, persistentHome: persistentHome, perMachineHome: perMachineHome, memoryMb: memoryMb, displayName: Self.socketWorkerString(params["display_name"]), networkPolicy: networkPolicy, agentUpdates: agentUpdates, idempotencyKey: idempotencyKey)
-                await CmuxTuiSurfaceProviderRegistry.shared.recordCreatedMachine(vm, scope: scope)
+                _ = await CmuxTuiSurfaceProviderRegistry.shared.recordCreatedMachine(vm, attach: vm.createAttach, scope: scope)
                 return Self.socketWorkerVMSummaryPayload(vm)
             }
         case "vm.base_open":
@@ -606,8 +606,17 @@ extension TerminalController {
                 }
                 var payload: [String: Any]
                 var isCreatedReceipt = false
+                let createdReceiptSession = await registry.createdTrustedCarrierSession(machineID: vmId) ?? "cmux"
                 if deviceFingerprint == nil,
-                   let createdRoute = await registry.takeCreatedTrustedCarrierRoute(machineID: vmId) {
+                   let endpoint = await registry.takeCreatedTrustedCarrierEndpoint(machineID: vmId) {
+                    isCreatedReceipt = true
+                    // New Machine: preserve the create receipt's complete
+                    // endpoint. In particular, the daemon session is a
+                    // backend contract (`cloud`), not the legacy local
+                    // default used by the route-only fallback below.
+                    payload = Self.socketWorkerCloudAttachPayload(endpoint)
+                } else if deviceFingerprint == nil,
+                          let createdRoute = await registry.takeCreatedTrustedCarrierRoute(machineID: vmId) {
                     isCreatedReceipt = true
                     // New Machine: the create receipt already proved the
                     // snapshot-v2 trusted listener and named the private
@@ -618,7 +627,7 @@ extension TerminalController {
                         "route": createdRoute,
                         "token": "",
                         "expires_at_unix": 0,
-                        "session": "cmux",
+                        "session": createdReceiptSession,
                         "trusted_carrier": true,
                     ]
                 } else if let deviceFingerprint {
@@ -634,7 +643,7 @@ extension TerminalController {
                         "route": knownRoute,
                         "token": "",
                         "expires_at_unix": 0,
-                        "session": "cmux",
+                        "session": createdReceiptSession,
                         "trusted_carrier": deviceFingerprint == CloudTuiClientPaths.carrierDeviceMarker,
                     ]
                 } else {
@@ -755,6 +764,31 @@ extension TerminalController {
             return v2Error(id: id, code: "method_not_found", message: "Unknown method")
         }
     }
+
+    private nonisolated static func socketWorkerCloudAttachPayload(_ endpoint: VMCmuxRemoteEndpoint) -> [String: Any] {
+        var payload: [String: Any] = [
+            "transport": "cmux-remote",
+            "route": endpoint.route,
+            "token": endpoint.token,
+            "expires_at_unix": endpoint.expiresAtUnix,
+            "session": endpoint.session,
+            "trusted_carrier": endpoint.trustedCarrier,
+        ]
+        if let build = endpoint.daemonBuild {
+            var raw: [String: Any] = [:]
+            if let commit = build.commit { raw["commit"] = commit }
+            if let remoteProtocol = build.remoteProtocol { raw["remote_protocol"] = remoteProtocol }
+            if let version = build.version { raw["version"] = version }
+            payload["daemon_build"] = raw
+        }
+        if let addresses = endpoint.networkAddresses {
+            payload["network_addresses"] = [
+                "ipv4": addresses.ipv4.map { $0 as Any } ?? NSNull(),
+                "ipv6": addresses.ipv6.map { $0 as Any } ?? NSNull(),
+            ]
+        }
+        return payload
+    }
     /// Handles the `remotes.*` socket methods backing `cmux remotes`. Each maps
     /// to a single ``RemotesClient`` operation (the shared registry mutation
     /// path); the CLI does presentation only.
@@ -863,6 +897,12 @@ extension TerminalController {
         }
         if let agentUpdates = vm.agentUpdates {
             payload["agentUpdates"] = agentUpdates.rawValue
+        }
+        if let cmuxTuiContract = vm.cmuxTuiContract, !cmuxTuiContract.isEmpty {
+            payload["cmuxTuiContract"] = cmuxTuiContract
+        }
+        if let attach = vm.createAttach {
+            payload["attach"] = socketWorkerCloudAttachPayload(attach)
         }
         if let claim = vm.resourcePoolClaim ?? vm.resourceReservation {
             payload["resources"] = [

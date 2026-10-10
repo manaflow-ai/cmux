@@ -21,6 +21,7 @@ final class CloudWorkspaceCreationCoordinator {
         provider: any SurfaceProvider, name: String?, focus: Bool, host: CloudWorkspaceCreationHost?, reuseFailedCreation: Bool,
         existingWorkspace: SurfaceRemoteWorkspace?, existingTerminal: SurfaceResource?,
         existingRemoteView: SurfaceRemoteView? = nil,
+        resolveExistingWorkspace: CloudWorkspaceCreationOperation.ResolveExistingWorkspace? = nil,
         existingReservation: CloudTerminalPaneReservation? = nil,
         validateOperation: @escaping @MainActor () throws -> Void = { try Task.checkCancellation() }
     ) async throws -> (workspace: SurfaceRemoteWorkspace, terminal: SurfaceResource, opened: (workspaceID: UUID, projections: [SurfaceProjection])?) {
@@ -38,7 +39,8 @@ final class CloudWorkspaceCreationCoordinator {
             validateOperation: validateOperation
         )
         operation.validateOperation = validateOperation
-        operation.existingRemoteView = existingRemoteView
+        if retained == nil || existingRemoteView != nil { operation.existingRemoteView = existingRemoteView }
+        operation.resolveExistingWorkspace = resolveExistingWorkspace
         if let existingReservation {
             guard existingReservation.machine == provider.machine,
                   host?.isLive(existingReservation) == true else { throw CancellationError() }
@@ -479,6 +481,20 @@ final class CloudWorkspaceCreationCoordinator {
             )
             catalog.notifyChange()
             try check(operation, catalog: catalog)
+        }
+        // Discover a new machine's seeded workspace only after the manual pane
+        // can accept input. Keep the resolver for a failed discovery's retry so
+        // an unavailable graph can never become an implicit workspace create.
+        if operation.receipt == nil, existingWorkspace == nil,
+           let resolve = operation.resolveExistingWorkspace {
+            let existing = try await resolve()
+            try check(operation, catalog: catalog)
+            if let existing {
+                operation.receipt = SurfaceWorkspaceCreationReceipt(
+                    workspace: existing.workspace, terminal: existing.terminal, cursor: nil
+                )
+                operation.existingRemoteView = existing.remoteView
+            }
         }
         let receipt: SurfaceWorkspaceCreationReceipt
         if let retained = operation.receipt {

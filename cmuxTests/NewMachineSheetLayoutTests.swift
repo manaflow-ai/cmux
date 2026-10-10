@@ -19,6 +19,11 @@ import Testing
 @Suite("New machine sheet layout")
 struct NewMachineSheetLayoutTests {
     private static let longName = String(repeating: "very-long-machine-name-", count: 6) + "end"
+    private static let menuAccessibilityLabels: Set<String> = [
+        String(localized: "machines.new.row.baseImage", defaultValue: "Base"),
+        String(localized: "machines.new.size.accessibilityLabel", defaultValue: "RAM size"),
+        String(localized: "cloud.network.mode.label", defaultValue: "Outbound access"),
+    ]
 
     @Test("long base machine names keep every control inside the sheet", arguments: NewMachineSheetLayout.allCases)
     func longBaseMachineNamesStayInsideSheet(layout: NewMachineSheetLayout) {
@@ -145,27 +150,26 @@ struct NewMachineSheetLayoutTests {
             submit: { _ in true }
         )
         model.applyNetworkCatalog(CloudNetworkPresetCatalog(presets: [], requiredDomains: []))
-        let (host, window) = Self.render(NewMachineSheet(model: model, layout: .grid))
+        let (host, window) = Self.render(
+            NewMachineSheet(model: model, layout: .grid)
+                .environment(\.accessibilityEnabled, true)
+        )
         defer {
             window.contentView = nil
             window.close()
         }
 
-        let popUps = Self.descendants(of: host).compactMap { $0 as? NSPopUpButton }.filter { !$0.isHiddenOrHasHiddenAncestor }
-        // `nightlyMachines` renames one machine per tick, so match the family, not a title.
-        let base = try #require(popUps.first { $0.itemTitles.contains { $0.hasPrefix("cmux-devbox-") } }, "no Base pop-up")
-        let size = try #require(popUps.first { $0.itemTitles.contains { $0.contains("GB RAM") } }, "no Size pop-up")
+        let menus = Self.visibleMenus(in: host)
+        let base = try #require(menus.first, "no Base pop-up was rendered")
+        let size = try #require(menus.dropFirst().first, "no Size pop-up was rendered")
         let rows = [("Base", base), ("Size", size)]
         let leading = rows.map { $0.1.convert($0.1.bounds, to: host).minX }
         #expect(abs(leading[0] - leading[1]) <= 1, "Base starts at \(leading[0]), Size at \(leading[1])")
         for (name, popUp) in rows {
-            let width = popUp.convert(popUp.bounds, to: host).width
-            // AppKit's intrinsicContentSize excludes a few points of the
-            // menu control's border/accessory; fittingSize is its measured
-            // natural width after those decorations are included.
+            let frame = popUp.convert(popUp.bounds, to: host)
             #expect(
-                width <= popUp.fittingSize.width + 1,
-                "\(name) pop-up is \(width)pt wide; its fitting width is \(popUp.fittingSize.width)pt"
+                frame.width <= popUp.fittingSize.width + 1,
+                "\(name) pop-up is \(frame.width)pt wide; its fitting width is \(popUp.fittingSize.width)pt"
             )
         }
     }
@@ -208,7 +212,10 @@ struct NewMachineSheetLayoutTests {
 
     private func assertControlsInsideSheet(model: NewMachineModel, layout: NewMachineSheetLayout, label: String) {
         _ = NSApplication.shared
-        let host = NSHostingView(rootView: NewMachineSheet(model: model, layout: layout))
+        let host = NSHostingView(
+            rootView: NewMachineSheet(model: model, layout: layout)
+                .environment(\.accessibilityEnabled, true)
+        )
         let size = host.fittingSize
 
         let window = NSWindow(
@@ -230,11 +237,11 @@ struct NewMachineSheetLayoutTests {
             _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
         }
 
-        let popUps = Self.descendants(of: host).compactMap { $0 as? NSPopUpButton }
-        let basePopUp = popUps.first { popUp in
-            popUp.itemTitles.contains { $0.hasPrefix(Self.longName) }
-        }
-        #expect(basePopUp != nil, "\(label): the Base pop-up was not rendered")
+        let basePopUp = Self.visibleMenus(in: host).first
+        #expect(
+            basePopUp != nil,
+            "\(label): the Base pop-up was not rendered"
+        )
 
         let bounds = host.bounds.insetBy(dx: -0.5, dy: -0.5)
         for control in Self.descendants(of: host).compactMap({ $0 as? NSControl }) where !control.isHiddenOrHasHiddenAncestor {
@@ -248,5 +255,29 @@ struct NewMachineSheetLayoutTests {
 
     private static func descendants(of view: NSView) -> [NSView] {
         view.subviews.flatMap { [$0] + descendants(of: $0) }
+    }
+
+    /// SwiftUI may bridge a Menu as an NSPopUpButton or as another native
+    /// NSControl depending on the hosted test runner's OS version. AppKit's
+    /// accessibility role identifies both menu bridges without matching labels
+    /// or other buttons in the sheet.
+    private static func visibleMenus(in root: NSView) -> [NSControl] {
+        descendants(of: root)
+            .compactMap { $0 as? NSControl }
+            .filter {
+                guard !$0.isHiddenOrHasHiddenAncestor else { return false }
+                let role = $0.accessibilityRole()
+                return role == .popUpButton
+                    || role == .menuButton
+                    || Self.menuAccessibilityLabels.contains($0.accessibilityLabel() ?? "")
+            }
+            .sorted { lhs, rhs in
+                let lhsFrame = lhs.convert(lhs.bounds, to: root)
+                let rhsFrame = rhs.convert(rhs.bounds, to: root)
+                if abs(lhsFrame.minY - rhsFrame.minY) > 0.5 {
+                    return lhsFrame.minY > rhsFrame.minY
+                }
+                return lhsFrame.minX < rhsFrame.minX
+            }
     }
 }

@@ -9123,7 +9123,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     memoryUpgradePlansByMb: page?.limits?.memoryUpgradePlansByMb,
                     submit: { [weak self] request in
                         guard let self else { return false }
-                        return MachineCreateCoordinator.shared.start(request, cancellableLaunch: { [weak self] arguments, progress, completion in
+                        return MachineCreateCoordinator.shared.start(request, cancellableLaunch: { [weak self] _, arguments, progress, completion in
                             guard let self else { return nil }
                             var cancellation: CloudVMActionLauncher.CancellationHandle?
                             let didStart = self.launchCloudVMBaseOpen(

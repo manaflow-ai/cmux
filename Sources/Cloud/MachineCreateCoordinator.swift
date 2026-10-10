@@ -15,6 +15,7 @@ final class MachineCreateCoordinator {
         @escaping @MainActor (CloudVMActionLauncher.Completion) -> Void
     ) -> Bool
     typealias CancellableLaunch = @MainActor (
+        UUID,
         [String],
         @escaping @MainActor (String) -> Void,
         @escaping @MainActor (CloudVMActionLauncher.Completion) -> Void
@@ -93,7 +94,7 @@ final class MachineCreateCoordinator {
     /// Registers the pending projection before invoking a legacy noncancellable launcher.
     @discardableResult
     func start(_ request: MachineCreateRequest, launch: @escaping Launch) -> Bool {
-        start(request, cancellableLaunch: { arguments, progress, completion in
+        start(request, cancellableLaunch: { _, arguments, progress, completion in
             guard launch(arguments, progress, completion) else { return nil }
             return CloudVMActionLauncher.CancellationHandle { }
         })
@@ -206,7 +207,7 @@ final class MachineCreateCoordinator {
         if isRetry, !request.isBaseSetup, let machineID {
             arguments = ["vm", "open", machineID] + (request.presentationWorkspaceID.map { ["--workspace", $0.uuidString] } ?? []) + ["--focus", "false"]
         }
-        let handle = launch(arguments, { [weak self] chunk in
+        let handle = launch(attempt.operationID, arguments, { [weak self] chunk in
             guard let self else { return }
             self.apply(self.lifecycle.receive(chunk, from: attempt))
         }, { [weak self] result in

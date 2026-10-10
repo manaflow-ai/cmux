@@ -62,6 +62,9 @@ public actor CloudMachineLinkManager {
     /// reconnects with this local fact and does not call the attach endpoint.
     private var privateRoutes: [String: String] = [:]
     private var privateAddressCandidates: [String: [String]] = [:]
+    /// Create receipts can name a non-default daemon session. Keep that
+    /// contract for native links after the trusted-carrier marker is saved.
+    private var createdTrustedCarrierEndpoints: [String: VMCmuxRemoteEndpoint] = [:]
     /// The team that owns each machine, captured when its provider was
     /// registered. Control-plane calls a link makes name this team, so a link
     /// to another team's machine keeps working after the selected team changes.
@@ -163,6 +166,16 @@ public actor CloudMachineLinkManager {
     public func markTrustedCarrier(machineID: String) {
         guard paths.deviceFingerprint(for: machineID) == nil else { return }
         paths.saveDeviceFingerprint(CloudTuiClientPaths.carrierDeviceMarker, for: machineID)
+    }
+
+    /// Records the create receipt used by the first native link. The endpoint
+    /// remains available for reconnects until the account is torn down.
+    public func setCreatedTrustedCarrierEndpoint(_ endpoint: VMCmuxRemoteEndpoint, for machineID: String) {
+        createdTrustedCarrierEndpoints[machineID] = endpoint
+    }
+
+    public func createdTrustedCarrierSession(for machineID: String) -> String? {
+        createdTrustedCarrierEndpoints[machineID]?.session
     }
 
     public func setPrivateAddresses(_ addresses: [String], for machineID: String) {
@@ -276,7 +289,7 @@ public actor CloudMachineLinkManager {
             self.store(link: link, for: machineID)
             let capabilities = self.resolvedClientCapabilities(clientURL: clientURL)
             let knownFingerprint = paths.deviceFingerprint(for: machineID)
-            var session = "cmux"
+            var session = self.createdTrustedCarrierSession(for: machineID) ?? "cmux"
             // The machine's daemon serves a trusted listener inside the private
             // network, so a link needs no enrollment: the first use asks the
             // control plane once (it also brings an older daemon to the trusted
@@ -586,6 +599,7 @@ public actor CloudMachineLinkManager {
         for task in connecting.values { task.cancel() }
         connecting.removeAll()
         lastFailure.removeAll()
+        createdTrustedCarrierEndpoints.removeAll()
     }
 
     /// Drops stale routing facts immediately. The registry owns and awaits
@@ -596,6 +610,7 @@ public actor CloudMachineLinkManager {
         machineStatuses = machineStatuses.filter { machineIDs.contains($0.key) }
         localStatusChanges = localStatusChanges.filter { machineIDs.contains($0.key) }
         ownerTeams = ownerTeams.filter { machineIDs.contains($0.key) }
+        createdTrustedCarrierEndpoints = createdTrustedCarrierEndpoints.filter { machineIDs.contains($0.key) }
     }
 
     /// Re-sends this Mac's theme to every connected machine (a Ghostty config reload

@@ -311,6 +311,7 @@ public struct VMSummary: Sendable {
         cmuxTuiContract: String? = nil,
         createdBy: VMCreator? = nil,
         agentUpdates: CloudAgentUpdates? = nil,
+        createAttach: VMCmuxRemoteEndpoint? = nil,
         resourceReservation: CloudVMResourceReservation? = nil,
         resourcePoolClaim: CloudVMResourceReservation? = nil
     ) {
@@ -330,6 +331,7 @@ public struct VMSummary: Sendable {
         self.cmuxTuiContract = cmuxTuiContract
         self.createdBy = createdBy
         self.agentUpdates = agentUpdates
+        self.createAttach = createAttach
         self.resourceReservation = resourceReservation
         self.resourcePoolClaim = resourcePoolClaim
     }
@@ -352,6 +354,7 @@ public struct VMSummary: Sendable {
             cmuxTuiContract: cmuxTuiContract,
             createdBy: createdBy,
             agentUpdates: agentUpdates,
+            createAttach: createAttach,
             resourceReservation: resourceReservation,
             resourcePoolClaim: resourcePoolClaim
         )
@@ -389,6 +392,8 @@ public struct VMSummary: Sendable {
     public var cmuxTuiContract: String?
     /// Whether the machine keeps its image's coding agents or updates them on attach.
     public var agentUpdates: CloudAgentUpdates?
+    /// A create-only dial receipt from snapshot-v2. List and status responses leave this nil.
+    public var createAttach: VMCmuxRemoteEndpoint?
     /// The machine's server-recorded compute reservation for shared-pool math.
     /// This remains separate from live guest stats, which can be stale or absent.
     public var resourceReservation: CloudVMResourceReservation?
@@ -997,6 +1002,24 @@ public struct VMCmuxRemoteEndpoint: Sendable {
     }
 
     public let daemonBuild: DaemonBuild?
+
+    public init(
+        route: String,
+        token: String,
+        expiresAtUnix: Int64,
+        session: String,
+        trustedCarrier: Bool,
+        networkAddresses: NetworkAddresses? = nil,
+        daemonBuild: DaemonBuild? = nil
+    ) {
+        self.route = route
+        self.token = token
+        self.expiresAtUnix = expiresAtUnix
+        self.session = session
+        self.trustedCarrier = trustedCarrier
+        self.networkAddresses = networkAddresses
+        self.daemonBuild = daemonBuild
+    }
 }
 
 public enum VMAttachEndpoint: Sendable {
@@ -1516,6 +1539,52 @@ public actor VMClient {
         return VMMachineKind(rawValue: raw.lowercased())
     }
 
+    /// Decodes the optional snapshot-v2 dial receipt carried by `POST /api/vm`.
+    /// Older control planes omit it and continue through the existing attach path.
+    static func decodeCreateAttach(_ raw: Any?) -> VMCmuxRemoteEndpoint? {
+        guard let object = raw as? [String: Any],
+              object["transport"] as? String == "cmux-remote",
+              let route = object["route"] as? String,
+              !route.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              IPNetworkPrefix.routeHost(route) != nil,
+              let session = object["session"] as? String,
+              !session.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return nil }
+        let buildObject = object["daemonBuild"] as? [String: Any]
+            ?? object["daemon_build"] as? [String: Any]
+        let build = buildObject.map {
+            VMCmuxRemoteEndpoint.DaemonBuild(
+                commit: $0["commit"] as? String,
+                remoteProtocol: ($0["remoteProtocol"] as? Int)
+                    ?? ($0["remote_protocol"] as? Int)
+                    ?? ($0["remoteProtocol"] as? Double).map(Int.init)
+                    ?? ($0["remote_protocol"] as? Double).map(Int.init),
+                version: $0["version"] as? String
+            )
+        }
+        let addresses = (object["networkAddresses"] ?? object["network_addresses"]) as? [String: Any]
+        let networkAddresses: VMCmuxRemoteEndpoint.NetworkAddresses?
+        if let addresses, addresses["ipv4"] is String || addresses["ipv6"] is String {
+            networkAddresses = .init(ipv4: addresses["ipv4"] as? String, ipv6: addresses["ipv6"] as? String)
+        } else {
+            networkAddresses = nil
+        }
+        let expiresAtUnix = Self.decodeInt64(object["expiresAtUnix"])
+            ?? Self.decodeInt64(object["expires_at_unix"])
+            ?? 0
+        return VMCmuxRemoteEndpoint(
+            route: route,
+            token: object["token"] as? String ?? "",
+            expiresAtUnix: expiresAtUnix,
+            session: session,
+            trustedCarrier: (object["trustedCarrier"] as? Bool)
+                ?? (object["trusted_carrier"] as? Bool)
+                ?? false,
+            networkAddresses: networkAddresses,
+            daemonBuild: build
+        )
+    }
+
     /// `limits.imageKinds: [{kind, image}]`; malformed entries are skipped.
     static func decodeImageKinds(_ raw: Any?) -> [VMImageKindOption] {
         guard let items = raw as? [[String: Any]] else { return [] }
@@ -1551,6 +1620,14 @@ public actor VMClient {
     /// older control planes remain readable and the server remains authoritative.
     static func decodePositiveInt(_ raw: Any?) -> Int? {
         decodeIntArray([raw as Any]).first
+    }
+
+    private static func decodeInt64(_ raw: Any?) -> Int64? {
+        if let value = raw as? Int64 { return value }
+        if let value = raw as? Int { return Int64(value) }
+        if let value = raw as? NSNumber { return value.int64Value }
+        if let value = raw as? Double, value.isFinite { return Int64(value) }
+        return nil
     }
 
     /// `vms[].resources` carries the server's pool claim. Malformed values are
@@ -1651,6 +1728,16 @@ public actor VMClient {
             }
             summary.cmuxTuiContract = (obj["cmuxTuiContract"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             summary.agentUpdates = CloudAgentUpdates(wireValue: obj["agentUpdates"])
+            summary.createAttach = Self.decodeCreateAttach(obj["attach"])
+            // The create route returns both names. Keep the explicit
+            // reservation as the resize shape and the pool claim for aggregate
+            // limits, while accepting the older single-field response.
+            summary.resourceReservation = Self.decodeResourceReservation(
+                obj["resourceReservation"] ?? obj["resource_reservation"] ?? obj["resources"]
+            )
+            summary.resourcePoolClaim = Self.decodeResourceReservation(
+                obj["resources"] ?? obj["resourcePoolClaim"] ?? obj["resource_pool_claim"]
+            )
             machineCache.record(hasAnyMachine: true)
             return summary
         }
