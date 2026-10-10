@@ -92,7 +92,7 @@ class Bench:
         self.bundle = bundle
         self.has = {}
         methods = control.call("system.identify").get("result", {}).get("methods", [])
-        for name in ("debug.hangs", "debug.frames", "debug.wakeups", "debug.layout_counters"):
+        for name in ("debug.hangs", "debug.frames", "debug.wakeups", "debug.layout_counters", "debug.layers"):
             self.has[name] = name in methods
         self.terminals_created = 0
         self.browsers_created = 0
@@ -244,6 +244,8 @@ class Bench:
         self.debug("debug.hangs", {"clear": True})
         self.debug("debug.frames", {"action": "start"})
         layout_before = self.debug("debug.layout_counters")
+        # LayoutPassGuard (P0 layout-loop lane): view layout passes by class.
+        self.debug("debug.layers", {"reset_layout_passes": True})
 
         def body():
             latencies = []
@@ -268,6 +270,7 @@ class Bench:
         frames = self.debug("debug.frames", {"action": "stop"})
         hangs = self.debug("debug.hangs", {"limit": 3})
         layout_after = self.debug("debug.layout_counters")
+        passes = (self.debug("debug.layers") or {}).get("layout_passes")
         measured.update({
             "ops": len(ops),
             "latency_ms": {"p50": pct(latencies, 0.5), "p99": pct(latencies, 0.99),
@@ -281,6 +284,12 @@ class Bench:
             measured["frames"] = {k: frames.get(k) for k in ("frames", "p50_ms", "p99_ms", "max_ms", "missed")}
         if layout_before is not None and layout_after is not None:
             measured["layout"] = diff_counters(layout_before, layout_after, len(ops))
+        if isinstance(passes, dict):
+            by_class = passes.get("passesByClass") or passes.get("passes_by_class") or []
+            total = sum(p[1] if isinstance(p, list) else p.get("passes", 0) for p in by_class)
+            measured["layout_passes"] = {"total": total, "per_op": round(total / len(ops), 2) if ops else None,
+                                         "max_in_one_turn": passes.get("maxPassesInOneTurn") or passes.get("max_passes_in_one_turn"),
+                                         "top": sorted(by_class, key=lambda p: -(p[1] if isinstance(p, list) else p.get("passes", 0)))[:5]}
         return measured
 
     def phases(self, panes):
