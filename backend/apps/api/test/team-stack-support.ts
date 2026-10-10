@@ -17,6 +17,10 @@ export const teamStub = (team: string) => testEnv.TEAM_DO.get(testEnv.TEAM_DO.id
 export const stackWorld = () => {
   const teams = new Map<string, string>()
   const members = new Map<string, string>()
+  /** `${team}:${user}` -> the member's team permission ids (recursive, as Stack lists them); absent = none. */
+  const perms = new Map<string, Array<string>>()
+  /** Memberships the cmux side removed in Stack (`${team}:${user}`). */
+  const removedInStack: Array<string> = []
   let calls = 0
   const fake = {
     findUserByEmail: async () => undefined,
@@ -30,13 +34,26 @@ export const stackWorld = () => {
       calls++
       return teams.has(t) ? { display_name: teams.get(t)! } : null
     },
+    listTeamMembers: async (t: string) => {
+      calls++
+      if (!teams.has(t)) return "team_gone" as const
+      return [...members.entries()].filter(([k]) => k.startsWith(`${t}:`)).map(([k, name]) => ({ user_id: k.slice(t.length + 1), display_name: name, permissions: perms.get(k) ?? [] }))
+    },
     getTeamMember: async (t: string, u: string) => {
       calls++
       if (!teams.has(t)) return "team_gone" as const
-      return members.has(`${t}:${u}`) ? { display_name: members.get(`${t}:${u}`)! } : null
+      return members.has(`${t}:${u}`) ? { display_name: members.get(`${t}:${u}`)!, permissions: perms.get(`${t}:${u}`) ?? [] } : null
+    },
+    removeTeamMember: async (t: string, u: string) => {
+      calls++
+      if (!teams.has(t)) return "team_gone" as const
+      const had = members.delete(`${t}:${u}`)
+      perms.delete(`${t}:${u}`)
+      if (had) removedInStack.push(`${t}:${u}`)
+      return had ? ("removed" as const) : ("absent" as const)
     }
   }
-  return { teams, members, fake, calls: () => calls }
+  return { teams, members, perms, removedInStack, fake, calls: () => calls }
 }
 export type World = ReturnType<typeof stackWorld>
 
@@ -50,9 +67,11 @@ export interface Delivery {
   ts?: number
   secret?: string
   signatures?: (good: string) => string
+  /** The exact body to sign and send instead of {type, data}. */
+  rawBody?: string
 }
 export const deliver = async (type: string, data: unknown, o: Delivery = {}) => {
-  const body = JSON.stringify({ type, data })
+  const body = o.rawBody ?? JSON.stringify({ type, data })
   const id = o.id ?? `msg_${crypto.randomUUID().replace(/-/g, "")}`
   const ts = String(o.ts ?? Math.floor(Date.now() / 1000))
   const good = `v1,${await signSvixContent(o.secret ?? SECRET, `${id}.${ts}.${body}`)}`

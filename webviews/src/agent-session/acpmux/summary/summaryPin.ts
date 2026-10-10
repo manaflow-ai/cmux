@@ -1,10 +1,11 @@
-// The pinned summary's state, one per user (PINNED-SUMMARY P1): pinned or not, and which
-// sections the user hid. A wide pane (at least 960 px, the pane's own window) shows the pinned
-// card at the top right; a narrow one falls back to the header popover. The button, the card
-// and the menu read the same stores, so a change in one shows in all at once.
+// The chat summary panel's state, one per user (PINNED-SUMMARY P1', Lawrence 2026-10-09: "i click, and it
+// should always stay open until i close it"): open or closed, and which sections the user hid. Open is a
+// choice that lasts (stored, restored on reload) until the user closes it; nothing else closes it. A wide
+// pane (at least 960 px, the pane's own window) docks the panel as a right column; a narrow one docks it
+// as a strip above the transcript. The button, the panel and the menu read the same stores.
 import { useMemo, useSyncExternalStore } from "react";
 
-export const PIN_KEY = "cmux.agent-pane.summary.pinned";
+export const OPEN_KEY = "cmux.agent-pane.summary.open";
 export const HIDDEN_KEY = "cmux.agent-pane.summary.hidden";
 export const WIDE_QUERY = "(min-width: 960px)";
 
@@ -31,7 +32,7 @@ function subscribe(listener: () => void): () => void {
   listeners.add(listener);
   // Another pane of the app changed it.
   const storage = (event: StorageEvent) => {
-    if (event.key === PIN_KEY || event.key === HIDDEN_KEY) listener();
+    if (event.key === OPEN_KEY || event.key === HIDDEN_KEY) listener();
   };
   const host = typeof window === "undefined" ? undefined : window;
   host?.addEventListener("storage", storage);
@@ -57,15 +58,21 @@ export function useWidePane(): boolean {
   );
 }
 
-/// Pinned by default, as the Codex app's card is; shown only in a wide pane.
-export function useSummaryPinned(): { pinned: boolean; wide: boolean; shown: boolean; setPinned(next: boolean): void } {
-  const pinned = useSyncExternalStore(
+/// Closed until the user opens it; then open until the user closes it (the header button, the panel's
+/// close button, or Escape inside the panel).
+/// Opens or closes the summary panel (one stable function, so callers can register it once).
+export function setSummaryOpen(next: boolean): void {
+  write(OPEN_KEY, next ? "1" : "0");
+}
+
+export function useSummaryOpen(): { open: boolean; wide: boolean; setOpen(next: boolean): void } {
+  const open = useSyncExternalStore(
     subscribe,
-    () => read(PIN_KEY) !== "0",
-    () => true,
+    () => read(OPEN_KEY) === "1",
+    () => false,
   );
   const wide = useWidePane();
-  return { pinned, wide, shown: pinned && wide, setPinned: (next) => write(PIN_KEY, next ? "1" : "0") };
+  return { open, wide, setOpen: setSummaryOpen };
 }
 
 /// The section ids the user hid from the summary's menu.

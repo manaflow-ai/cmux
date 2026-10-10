@@ -17,10 +17,26 @@ import { useT } from "../i18n";
 import { failureCopy, isAuthenticationFailure } from "../failureCopy";
 
 /// The "Worked for 15s" line; it opens the turn's commentary and tool calls.
-export function WorkedFor({ row, expanded, onToggle }: { row: AcpmuxRow; expanded: boolean; onToggle: () => void }) {
+export function WorkedFor({
+  row,
+  expanded,
+  controls,
+  onToggle,
+}: {
+  row: AcpmuxRow;
+  expanded: boolean;
+  controls?: string;
+  onToggle: () => void;
+}) {
   const t = useT();
   return (
-    <button type="button" className="cv-worked has-divider is-toggle" aria-expanded={expanded} onClick={onToggle}>
+    <button
+      type="button"
+      className="cv-worked has-divider is-toggle"
+      aria-expanded={expanded}
+      aria-controls={expanded ? controls : undefined}
+      onClick={onToggle}
+    >
       <span className="cv-worked__label">{workedLabel(t, row)}</span>
       <ChevronRight
         size={14}

@@ -76,7 +76,7 @@ describe("Stack team webhook re-review fixes (cx-3bi.43)", { timeout: 60_000 }, 
       const fake = instance.stack
       instance.stack = { ...fake, getTeam: async (id: string) => (await gate, fake.getTeam(id)) }
       const slow = instance.stackSync.deliver({ svix_id: `msg_slow_${crypto.randomUUID()}`, type: "team.updated", stack_team: t.stackTeam }, 10_000)
-      const late = instance.stackSync.deliver({ svix_id: `msg_late_${crypto.randomUUID()}`, type: "team.updated", stack_team: t.stackTeam }, 1)
+      const late = instance.stackSync.deliver({ svix_id: `msg_late_${crypto.randomUUID()}`, type: "team.updated", stack_team: t.stackTeam }, 0)
       const lateReply = await late
       release!()
       await slow
@@ -86,8 +86,8 @@ describe("Stack team webhook re-review fixes (cx-3bi.43)", { timeout: 60_000 }, 
       return lateReply
     })
     expect(r).toMatchObject({ ok: false })
-    // The slow one and the one after asked Stack; the late one never did.
-    expect(t.w.calls() - base).toBe(2)
+    // The slow one and the one after asked Stack (team and member list each); the late one never did.
+    expect(t.w.calls() - base).toBe(4)
   })
 
   it("no session of a removed member reconnects to the shared team's cloud socket", async () => {

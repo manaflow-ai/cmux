@@ -77,8 +77,9 @@ export function SubagentGroupHeader({
   ]
     .filter(Boolean)
     .join(" · ");
+  const controls = expanded ? agents.map((agent) => `${row.id}:${agent.id}`).join(" ") : undefined;
   return (
-    <button type="button" className="cv-subagents" aria-expanded={expanded} onClick={onToggle}>
+    <button type="button" className="cv-subagents" aria-expanded={expanded} aria-controls={controls} onClick={onToggle}>
       <span className="cv-subagents__stack" aria-hidden="true">
         {agents.slice(0, STACK).map((agent) => (
           <Avatar key={agent.id} agent={agent} />
@@ -107,7 +108,7 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
   const label = STATE_LABEL[agent.state as keyof typeof STATE_LABEL] ?? STATE_LABEL.completed;
   const state = running(agent) ? (agent.action ?? t(label)) : t(label);
   return (
-    <div className="cv-subagent" data-edge={row.status}>
+    <div id={row.id} className="cv-subagent" data-edge={row.status}>
       <Avatar agent={agent} dot />
       <span className="cv-subagent__text">
         <span className="cv-subagent__name">{agent.name}</span>

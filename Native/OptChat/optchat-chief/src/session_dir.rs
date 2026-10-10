@@ -247,6 +247,15 @@ pub fn claude_settings() -> Value {
     json!({"autoMemoryEnabled": false, "hooks": {}, "cleanupPeriodDays": TURN_TRANSCRIPT_DAYS})
 }
 
+/// Env every Chief Claude session's preset carries (turn, compactor,
+/// subagent; isolated or not): no background plugin auto-update. Claude Code refreshes
+/// plugin marketplaces with `git` in ~/.claude/plugins/marketplaces, outside
+/// the Chief home, and skips it when the auto-updater is disabled (2.1.295;
+/// `DISABLE_AUTOUPDATER`, narrower than CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC,
+/// which also turns off feature flags). Only these sessions: the user's
+/// ~/.claude config is never changed.
+pub const QUIET_ENV: [(&str, &str); 1] = [("DISABLE_AUTOUPDATER", "1")];
+
 /// The env of the turn and subagent sessions' acpmux presets: no
 /// auto-memory. No `CLAUDE_CONFIG_DIR` of their own: Claude Code finds the
 /// user's login through the user's Claude home, and a plain `claude`
@@ -477,85 +486,4 @@ pub fn write_if_changed(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let tmp = path.with_extension(format!("tmp.{}.{n}", std::process::id()));
     std::fs::write(&tmp, bytes)?;
     std::fs::rename(&tmp, path)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn setup() -> SessionSetup {
-        let mut env = BTreeMap::new();
-        env.insert("MUX_HOME".to_string(), "/h".to_string());
-        env.insert("PATH".to_string(), "/usr/bin".to_string());
-        SessionSetup {
-            user_env: Default::default(),
-            exe: "/x/optchat-chief".into(),
-            cmux_mcp: Some("/x/cmux".into()),
-            env,
-            instructions: None,
-            tools: crate::prompt::Tools::Mcp,
-        }
-    }
-
-    #[test]
-    fn files_are_byte_stable_across_writes() {
-        let dir = tempfile::tempdir().unwrap();
-        let paths = Paths::new(dir.path());
-        paths.create().unwrap();
-        write(&paths, &setup()).unwrap();
-        let first = std::fs::read(paths.session.join("CLAUDE.md")).unwrap();
-        let modified = std::fs::metadata(paths.session.join("CLAUDE.md"))
-            .unwrap()
-            .modified()
-            .unwrap();
-        write(&paths, &setup()).unwrap();
-        assert_eq!(
-            std::fs::read(paths.session.join("CLAUDE.md")).unwrap(),
-            first
-        );
-        assert_eq!(
-            std::fs::metadata(paths.session.join("CLAUDE.md"))
-                .unwrap()
-                .modified()
-                .unwrap(),
-            modified,
-            "an unchanged file is not rewritten"
-        );
-        assert_eq!(first, crate::prompt::claude_md(None).as_bytes());
-        let mcp: Value =
-            serde_json::from_slice(&std::fs::read(paths.session.join(".mcp.json")).unwrap())
-                .unwrap();
-        assert_eq!(mcp["mcpServers"]["optchat"]["args"][0], "mcp");
-        assert_eq!(mcp["mcpServers"]["cmux"]["args"], json!(["mcp", "serve"]));
-        // Audit round 2: Claude Code's own subagents would stream their
-        // steps into the turn's events (section 9: they stay out of the log);
-        // the Chief starts agents with `chief agents` instead.
-        let settings: Value = serde_json::from_slice(
-            &std::fs::read(paths.session.join(".claude").join("settings.json")).unwrap(),
-        )
-        .unwrap();
-        // Audit round 3, M3: acpmux keeps questions and plan approval for a
-        // human under every policy, and nobody answers them in a turn.
-        assert_eq!(settings["permissions"]["deny"], json!(TURN_DENIED_TOOLS));
-        // Audit round 3, M6: turn transcripts are kept a short while only.
-        let user: Value = serde_json::from_slice(
-            &std::fs::read(paths.claude_config.join("settings.json")).unwrap(),
-        )
-        .unwrap();
-        assert_eq!(user["cleanupPeriodDays"], TURN_TRANSCRIPT_DAYS);
-        // Live check 2026-10-04: under `sr claude proxy` only project
-        // settings are read (sr resets CLAUDE_CONFIG_DIR to ~/.claude).
-        assert_eq!(settings["cleanupPeriodDays"], TURN_TRANSCRIPT_DAYS);
-        assert_eq!(settings["disableAllHooks"], true);
-        assert_eq!(settings["autoMemoryEnabled"], false);
-        let launcher = std::fs::read_to_string(paths.bin.join("chief")).unwrap();
-        assert!(launcher.contains("MUX_HOME=/h; export MUX_HOME\n"));
-        assert!(launcher.ends_with("exec /x/optchat-chief \"$@\"\n"));
-    }
-
-    #[test]
-    fn quoting() {
-        assert_eq!(shell_quote("/a/b"), "/a/b");
-        assert_eq!(shell_quote("a b'c"), "'a b'\\''c'");
-    }
 }

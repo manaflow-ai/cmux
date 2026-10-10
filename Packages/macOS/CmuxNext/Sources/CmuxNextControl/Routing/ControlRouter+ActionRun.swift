@@ -1,6 +1,7 @@
 import CmuxNextActions
 public import CmuxNextSettings
 import Foundation
+import os
 
 /// `action.run` (plans/cmux-next/state-ownership.md 4).
 ///
@@ -90,6 +91,7 @@ extension ControlRouter {
         let run = try await workQueue.run(connection: call.connection, method: call.method, deadline: call.deadline) {
             // The request may have answered `not_run` already: then never run.
             guard progress.begin() else { throw expired }
+            if action.id == "tab.focus" { tabSwitchMark("run") }
             return ControlCommandScope.$current.withValue(scope) { executor.performActionTracked(request) }
         }
         do {
@@ -174,7 +176,7 @@ extension ControlRouter {
         var barrier = ControlSequenceBarrier(home: barriers[ControlCommandScope.localMachine] ?? 0)
         for (machine, sequence) in barriers where machine != ControlCommandScope.localMachine {
             guard let session = topology.sessions.first(where: { $0.machineID == machine && !$0.isHome }) else { continue }
-            barrier.sessions[session.id] = sequence
+            barrier.sessions.updateValue(sequence, forKey: session.id)
         }
         return barrier
     }
@@ -215,8 +217,16 @@ extension ControlRouter {
         var resolved = request
         if let target = request.target { resolved.target = try await resolver(target, deadline) }
         for (name, value) in request.arguments {
-            if case .target(let ref) = value { resolved.arguments[name] = .target(try await resolver(ref, deadline)) }
+            if case .target(let ref) = value { resolved.arguments.updateValue(.target(try await resolver(ref, deadline)), forKey: name) }
         }
         return resolved
     }
+}
+
+/// Tab switch timeline marks (cx-asb1): wall-clock ms, so a bench can line
+/// them up with the page's own clock. Debug level: nothing is written unless
+/// a `log stream --level debug` reads category "tab-switch".
+private let tabSwitchLog = Logger(subsystem: "com.cmuxterm.app.next", category: "tab-switch")
+private func tabSwitchMark(_ name: String) {
+    tabSwitchLog.debug("tab-switch \(name, privacy: .public) \(Date().timeIntervalSince1970 * 1_000, format: .fixed(precision: 3), privacy: .public)")
 }

@@ -19,6 +19,36 @@ pub fn codex_cache_key(home: &Path, role: &str) -> String {
     format!("optchat-{}-{role}", home_id(home))
 }
 
+/// codex-acp's env for the codex binary it runs (else `codex` on PATH).
+pub const CODEX_PATH_ENV: &str = "CODEX_PATH";
+
+/// The Chief's own codex (the cmux codex fork, which reads
+/// `CODEX_PROMPT_CACHE_KEY`): `OPTCHAT_CODEX_PATH` when it names a file,
+/// else `paths.codex_bin` when installed, else the copy DEV and NIGHTLY
+/// app builds bundle next to this binary (`Resources/bin/chief-codex/codex`).
+/// None: codex-acp runs the PATH codex, which may be upstream codex (it
+/// ignores the key, so the view is never read back from the cache).
+pub fn chief_codex(paths: &Paths) -> Option<PathBuf> {
+    if let Some(path) = crate::cli::env("OPTCHAT_CODEX_PATH")
+        .map(PathBuf::from)
+        .filter(|p| p.is_file())
+    {
+        return Some(path);
+    }
+    let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
+    chief_codex_in(paths, &exe_dir)
+}
+
+/// `chief_codex` without the env: the Chief home's copy, else the one
+/// bundled beside the binary in `exe_dir`.
+pub fn chief_codex_in(paths: &Paths, exe_dir: &Path) -> Option<PathBuf> {
+    if paths.codex_bin.is_file() {
+        return Some(paths.codex_bin.clone());
+    }
+    let bundled = exe_dir.join("chief-codex").join("codex");
+    bundled.is_file().then_some(bundled)
+}
+
 /// The private, empty HOME every codex compactor slot runs with (under
 /// `base`): codex finds user skills under `$HOME/.agents/skills` whatever
 /// CODEX_HOME and the slot config say (codex ext/skills host_roots.rs), and
@@ -205,7 +235,7 @@ pub fn prepare_codex_homes_at(paths: &Paths, user_home: &Path, fast: bool) -> Re
         .map_err(|e| format!("preparing {}: {e}", private_home.display()))?;
     let id = chief_installation_id(&paths.compactor_codex)
         .map_err(|e| format!("the compactor's codex installation id: {e}"))?;
-    for k in 0..crate::compactor::COMPACTOR_SESSIONS {
+    for k in 0..crate::compactor::compactor_slot_count() {
         let dir = codex_slot_home(&paths.compactor_codex, k);
         let made = private_dir(&dir)
             .and_then(|()| wipe_codex_home(&dir))
@@ -319,24 +349,4 @@ pub fn wipe_codex_home(dir: &Path) -> io::Result<()> {
         }
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod turn_tests {
-    use super::*;
-
-    #[test]
-    fn a_codex_turn_home_keeps_routing_and_project_docs_and_turns_native_subagents_off() {
-        let user = "model = \"gpt-6\"\nmodel_provider = \"sr\"\n[mcp_servers.x]\ncommand = \"y\"\n";
-        let text = codex_turn_config(Some(user)).unwrap();
-        let table: toml::Table = text.parse().unwrap();
-        assert_eq!(table["model"].as_str(), Some("gpt-6"));
-        assert_eq!(table["model_provider"].as_str(), Some("sr"));
-        assert!(table.get("mcp_servers").is_none(), "no user MCP servers");
-        assert_eq!(table["features"]["multi_agent"].as_bool(), Some(false));
-        assert!(
-            table.get("project_doc_max_bytes").is_none(),
-            "the turn reads the session directory's AGENTS.md: {text}"
-        );
-    }
 }

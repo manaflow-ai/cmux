@@ -21,6 +21,17 @@ final class BrowserPageRequests: BrowserTabDelegate {
         didSet {
             // A popup panel's page gets the same rows, acting for its opener's tab.
             services?.popups.hitItems = { [weak self] target, openerKey in self?.hitItems(for: target, tab: openerKey) ?? [] }
+            // A tab an agent-driven page opens is agent-driven from birth,
+            // marked before its page exists (no rebuild on the agent's first
+            // touch, no saved password filled), as its adopted pages are.
+            openers.inheritsFromOpener = { [weak self] child, opener in
+                guard let services = self?.services, let tab = services.locateTab(surface: opener),
+                      services.cache.agentDrivenTabs.contains(tab.id) else { return }
+                services.cache.markAgentDriven(surface: child)
+                if let key = services.locateTab(surface: child)?.id, services.cache.existingBrowser(key) != nil {
+                    services.cache.markAgentDriven(key)
+                }
+            }
         }
     }
     /// Every download of both engines, with a notice when one ends.
@@ -200,7 +211,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
         }
         let browserTabs = services.cache.browserTabs
         let daemon = services.machines.daemon(forTab: tab)
-        guard browserTabs.isAvailable(), daemon === services.activeDaemon, !browserTabs.isIncognitoTab(key) else {
+        guard browserTabs.isAvailable(on: daemon), daemon === services.activeDaemon, !browserTabs.isIncognitoTab(key) else {
             if let child { return browserTab(page, didRequest: .adoptTab(child, .foregroundTab)) }
             if let url { browserTab(page, didRequest: .openURL(url, .foregroundTab)) }
             return
@@ -211,7 +222,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
         let address = child == nil ? (url?.absoluteString ?? "about:blank") : BrowserNewTabPage.blankURL
         WorkspaceHandlers.createAndShow(services: services, newWindow: newWindow, window: window, room: room) { [weak self] connection, terminal in
             guard let pane = terminal.pane else { return }
-            let surface = try await browserTabs.open(choice, in: pane, url: address, profile: profile)
+            let surface = try await browserTabs.open(choice, in: pane, on: daemon, url: address, profile: profile)
             if let child { await self?.adopt(child, surface: surface) }
             if let terminal = terminal.surface { try await connection.closeTab(terminal) }
         }
@@ -239,13 +250,13 @@ final class BrowserPageRequests: BrowserTabDelegate {
         }
         // The opener's pane is not on screen (its page is kept alive).
         let browserTabs = services.cache.browserTabs
-        guard browserTabs.isAvailable() else { child?.close(); return }
+        guard browserTabs.isAvailable(in: pane) else { child?.close(); return }
         let choice = Self.choice(adopting: child, inherited: engine, browserTabs: browserTabs)
-        let handle = pane.handle, address = url?.absoluteString ?? "about:blank", openers = openers
+        let address = url?.absoluteString ?? "about:blank", openers = openers
         services.registry.track(Task { [weak self] in
             do {
                 let surface = try await openers.open(opener, foreground: !background, in: pane, browserTabs: browserTabs) { after in
-                    try await browserTabs.open(choice, in: handle, url: address, profile: profile, after: after)
+                    try await browserTabs.open(choice, in: pane, url: address, profile: profile, after: after)
                 }
                 if let child { self?.adopt(child, surface: surface) }
                 return nil

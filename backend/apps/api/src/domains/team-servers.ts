@@ -4,7 +4,7 @@ import { decodeParams, reject } from "./common.ts"
 import { appendAudit } from "./team-audit.ts"
 import type { TeamState } from "./team.ts"
 import type { RowReader, RowWrite } from "@cmux/ownership"
-import { hostByInstall, hostDelete, hostOf, hostUpsert, memberOf, roleOf } from "./team-members.ts"
+import { can, hostByInstall, hostDelete, hostOf, hostUpsert, memberOf } from "./team-members.ts"
 
 /**
  * Servers in the team directory (plans/cmux-next/server.md 6). A server is a
@@ -26,10 +26,7 @@ const audited = (state: TeamState, ctx: ReduceContext, op: string, value: unknow
 }
 
 /** Who may add a server to this team: its owners and admins (team policy `servers.memberEnroll` comes later). */
-export const mayEnrollServer = (state: TeamState, user: string | undefined, rows?: RowReader): boolean => {
-  const role = roleOf(state, rows, user)
-  return role === "owner" || role === "admin"
-}
+export const mayEnrollServer = (state: TeamState, user: string | undefined, rows?: RowReader): boolean => can(state, rows, user, "team.manage")
 
 /** An ok result plus row writes (members and hosts are rows, team-members.ts). */
 const withWrites = (out: Out, writes: ReadonlyArray<RowWrite>): Out => (out.ok ? { ...out, writes: [...(out.writes ?? []), ...writes] } : out)
@@ -132,8 +129,7 @@ export const reduceServerRevoke = (state: TeamState, params: unknown, ctx: Reduc
   if (!d.ok) return d
   const host = hostOf(state, ctx.rows, d.value.host)
   if (!host || host.kind !== "server") return reject("selector.not_found", "server not found")
-  const role = roleOf(state, ctx.rows, p.user)
-  if (host.owner_user !== p.user && role !== "owner" && role !== "admin") return reject("auth.forbidden", "only the server owner or a team admin may revoke it")
+  if (host.owner_user !== p.user && !can(state, ctx.rows, p.user, "team.manage")) return reject("auth.forbidden", "only the server owner or a team admin may revoke it")
   const legacy = state.hosts?.[host.id] ? (({ [host.id]: _gone, ...rest }) => ({ hosts: rest }))(state.hosts) : {}
   // The install revocation commits here as a pending item; TeamDO pushes it to the owner's UserDO and retries until confirmed.
   const pending: ServerRevocation = { install: host.enrolled_by, owner_user: host.owner_user, by: p.user!, at: ctx.now }

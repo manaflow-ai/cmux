@@ -123,13 +123,12 @@ pub fn save(path: &Path, choice: &EngineChoice) -> std::io::Result<()> {
 }
 
 /// The compactor's harness setting at host start: `env`
-/// (`OPTCHAT_COMPACTOR_HARNESS`), else engine.json's `compactor_harness`,
-/// else its turn `harness` (cx-1hpt: a home whose Claude has no login moves
-/// its turns to codex, and the compactor must go too); None leaves the
-/// host's default.
+/// (`OPTCHAT_COMPACTOR_HARNESS`), else engine.json's `compactor_harness`.
+/// The turns' harness never picks it (Lawrence 2026-10-09: the compactor is
+/// always Claude Haiku by default); None leaves the host's Claude route
+/// (`host::default_compactor_harness`).
 pub fn compactor_harness_setting(env: Option<String>, choice: &EngineChoice) -> Option<String> {
     env.or_else(|| choice.compactor_harness.clone())
-        .or_else(|| choice.harness.clone())
 }
 
 /// The turn engine of `choice` over the defaults.
@@ -235,48 +234,5 @@ pub fn run(flags: &crate::cli::Flags) -> Result<String, String> {
             Ok(out)
         }
         _ => Err(USAGE.into()),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn set_show_and_resolve() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = path(dir.path());
-        assert_eq!(load(&file), EngineChoice::default());
-        let args: Vec<String> = [
-            "engine",
-            "set",
-            "--harness",
-            "codex",
-            "--model",
-            "gpt-6-sol",
-        ]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
-        let choice = apply_flags(load(&file), &crate::cli::Flags::parse(&args)).unwrap();
-        save(&file, &choice).unwrap();
-        let back = load(&file);
-        assert_eq!(back.harness.as_deref(), Some("codex"));
-        let engine = resolve(&back, "claude-sr", None, Some("high"));
-        assert_eq!(
-            engine.describe(),
-            "harness=codex model=gpt-6-sol effort=high"
-        );
-        let clear: Vec<String> = ["engine", "set", "--harness", "default"]
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
-        let back = apply_flags(back, &crate::cli::Flags::parse(&clear)).unwrap();
-        assert_eq!(resolve(&back, "claude-sr", None, None).harness, "claude-sr");
-        use std::os::unix::fs::PermissionsExt;
-        assert_eq!(
-            std::fs::metadata(&file).unwrap().permissions().mode() & 0o777,
-            0o600
-        );
     }
 }

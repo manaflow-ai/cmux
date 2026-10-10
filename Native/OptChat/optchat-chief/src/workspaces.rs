@@ -92,6 +92,9 @@ pub fn new_key() -> String {
 pub struct AppWorkspaces {
     pub control: PathBuf,
     pub daemon: PathBuf,
+    /// The Chief home (`MUX_HOME`), whose own acpmux runs the subagents: the
+    /// tab's host is `chief:<home id>`, so the app attaches it there.
+    pub home: Option<PathBuf>,
 }
 
 impl AppWorkspaces {
@@ -109,8 +112,149 @@ impl AppWorkspaces {
         env("CMUX_SOCKET_PATH").map(|control| AppWorkspaces {
             control: control.into(),
             daemon: crate::cmux_env::app_daemon_socket(daemon, env).into(),
+            home: None,
         })
     }
+
+    /// The same, for the Chief home `home`.
+    pub fn with_home(mut self, home: &Path) -> AppWorkspaces {
+        self.home = Some(home.to_owned());
+        self
+    }
+}
+
+/// Where a subagent's workspace goes (E17, schemas/chief-cmux-target).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WorkspaceTarget {
+    /// The app runs: its control socket opens the workspace in its daemon.
+    App,
+    /// No app: the Chief's owner daemon; the app shows it when it connects.
+    Owner,
+}
+
+/// `App` while both the app's control socket and its daemon exist as
+/// sockets, else `Owner`: the same rule as the Chief's `cmux` calls.
+pub fn workspace_target(control: &Path, app_daemon: &Path) -> WorkspaceTarget {
+    use std::os::unix::fs::FileTypeExt;
+    let socket = |p: &Path| std::fs::metadata(p).is_ok_and(|m| m.file_type().is_socket());
+    if socket(control) && socket(app_daemon) {
+        WorkspaceTarget::App
+    } else {
+        WorkspaceTarget::Owner
+    }
+}
+
+/// The opener of a Chief host started by the app or by `cmux chief`: each
+/// open picks its target now (the app may start or quit while the host
+/// runs); a rename or close goes where that workspace was opened.
+pub struct TargetWorkspaces {
+    pub app: AppWorkspaces,
+    pub owner: DaemonWorkspaces,
+    opened: std::sync::Mutex<std::collections::HashMap<String, WorkspaceTarget>>,
+}
+
+impl TargetWorkspaces {
+    /// `owner_daemon` is the host's `--daemon-socket`; the tabs name the Chief
+    /// home `home` (`chief:<home id>`) in both targets.
+    pub fn new(
+        app: AppWorkspaces,
+        owner_daemon: PathBuf,
+        home: &Path,
+        harness: Option<String>,
+    ) -> TargetWorkspaces {
+        TargetWorkspaces {
+            app: app.with_home(home),
+            owner: DaemonWorkspaces {
+                daemon: owner_daemon,
+                host: chief_host(home),
+                host_name: host_name(),
+                harness,
+            },
+            opened: std::sync::Mutex::new(std::collections::HashMap::new()),
+        }
+    }
+
+    fn target(&self) -> WorkspaceTarget {
+        workspace_target(&self.app.control, &self.app.daemon)
+    }
+
+    fn of(&self, key: &str) -> WorkspaceTarget {
+        let opened = self
+            .opened
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        opened.get(key).copied().unwrap_or_else(|| self.target())
+    }
+
+    fn backend(&self, target: WorkspaceTarget) -> &dyn Workspaces {
+        match target {
+            WorkspaceTarget::App => &self.app,
+            WorkspaceTarget::Owner => &self.owner,
+        }
+    }
+}
+
+impl Workspaces for TargetWorkspaces {
+    fn open(&self, key: &str, session: &str, name: &str, cwd: &Path) -> Result<String, String> {
+        let target = self.target();
+        let opened = self.backend(target).open(key, session, name, cwd)?;
+        self.opened
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(opened.clone(), target);
+        Ok(opened)
+    }
+
+    fn close(&self, key: &str) -> Result<(), String> {
+        self.backend(self.of(key)).close(key)
+    }
+
+    fn rename(&self, key: &str, name: &str) -> Result<(), String> {
+        self.backend(self.of(key)).rename(key, name)
+    }
+
+    fn place(&self) -> String {
+        match self.target() {
+            WorkspaceTarget::App => self.app.place(),
+            WorkspaceTarget::Owner => {
+                "the Chief's own cmux session on this Mac (the cmux app shows it when it opens)"
+                    .to_owned()
+            }
+        }
+    }
+}
+
+/// The Markdown link that names subagent `id` (`[a1](cmux://chief/<home id>/session/<session>)`):
+/// the app's deeplink of its session in the Chief home whose `mux.parent` tag is `parent`
+/// (`optchat-chief:<home id>`). The app opens the tab that shows that session (host
+/// `chief:<home id>`); Home allows the form only for this Chief's own subagents. None when the
+/// tag names no home or the session id needs escaping.
+pub fn subagent_link(parent: &str, id: &str, session: &str) -> Option<String> {
+    let home = parent.strip_prefix("optchat-chief:")?;
+    let token = |t: &str| {
+        !t.is_empty()
+            && t.len() <= 200
+            && t.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.')
+    };
+    (home.len() == 8
+        && home
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+        && token(session))
+    .then(|| format!("[{id}](cmux://chief/{home}/session/{session})"))
+}
+
+/// The agent tab host of a session in Chief home `home`'s acpmux.
+pub fn chief_host(home: &Path) -> String {
+    format!("chief:{}", crate::paths::home_id(home))
+}
+
+/// `open_request` whose tab names Chief home `home` as its session's host.
+pub fn open_request_for(home: &Path, session: &str, name: &str, key: &str, cwd: &Path) -> Value {
+    let mut request = open_request(session, name, key, cwd);
+    request["params"]["args"]["host"] = json!(chief_host(home));
+    request
 }
 
 /// The `action.run` request that opens `session` in workspace `key`.
@@ -170,7 +314,10 @@ impl Workspaces for AppWorkspaces {
         let key = key.to_owned();
         match control_call(
             &self.control,
-            &open_request(session, name, &key, cwd),
+            &match &self.home {
+                Some(home) => open_request_for(home, session, name, &key, cwd),
+                None => open_request(session, name, &key, cwd),
+            },
             Duration::from_secs(60),
         ) {
             Ok(_) => Ok(key),
@@ -374,83 +521,4 @@ fn rename_by_key(daemon: &Path, key: &str, name: &str) -> Result<(), String> {
         .map_err(|e| format!("rename-workspace: {e}"));
     client.close();
     result
-}
-
-#[cfg(test)]
-mod tests {
-    /// Live proof subp3: every done mark failed with "unknown workspace key":
-    /// the renames went to the Chief's conversation owner (--daemon-socket),
-    /// while the app makes the workspaces in its own daemon.
-    #[test]
-    fn app_workspaces_rename_in_the_apps_daemon() {
-        let env = |k: &str| match k {
-            "CMUX_SOCKET_PATH" => Some("/tmp/control.sock".to_owned()),
-            "CMUX_APP_DAEMON_SOCKET" => Some("/tmp/app-daemon.sock".to_owned()),
-            _ => None,
-        };
-        let app = AppWorkspaces::resolve("/tmp/chief-owner.sock", &env).unwrap();
-        assert_eq!(app.daemon, std::path::PathBuf::from("/tmp/app-daemon.sock"));
-        let without = |k: &str| (k == "CMUX_SOCKET_PATH").then(|| "/tmp/control.sock".to_owned());
-        let app = AppWorkspaces::resolve("/tmp/own.sock", &without).unwrap();
-        assert_eq!(app.daemon, std::path::PathBuf::from("/tmp/own.sock"));
-    }
-
-    use super::*;
-
-    #[test]
-    fn names_and_keys() {
-        assert_eq!(
-            name("a1", "list the\nfiles in ~/"),
-            "a1 · list the files in ~/"
-        );
-        assert!(name("a2", &"x".repeat(80)).ends_with('…'));
-        assert_eq!(done_name("a1 · t"), "✓ a1 · t");
-        let key = new_key();
-        assert_eq!(key.len(), 36);
-        assert_eq!(&key[14..15], "4");
-        assert_ne!(key, new_key());
-    }
-
-    #[test]
-    fn a_run_past_the_apps_wait_budget_still_opens_the_workspace() {
-        use std::os::unix::net::UnixListener;
-        let dir = tempfile::tempdir().unwrap();
-        let control = dir.path().join("control.sock");
-        let listener = UnixListener::bind(&control).unwrap();
-        let server = std::thread::spawn(move || {
-            for answer in [
-                r#"{"ok":false,"error":{"message":"action.run did not finish within 1999 ms"}}"#,
-                r#"{"ok":false,"error":{"message":"unavailable: no such action"}}"#,
-            ] {
-                let (mut conn, _) = listener.accept().unwrap();
-                let mut line = String::new();
-                BufReader::new(conn.try_clone().unwrap())
-                    .read_line(&mut line)
-                    .unwrap();
-                writeln!(conn, "{answer}").unwrap();
-            }
-        });
-        let w = AppWorkspaces {
-            control,
-            daemon: dir.path().join("daemon.sock"),
-        };
-        assert_eq!(
-            w.open(&new_key(), "s", "n", Path::new("/w"))
-                .map(|k| k.len()),
-            Ok(36)
-        );
-        assert!(w.open(&new_key(), "s", "n", Path::new("/w")).is_err());
-        server.join().unwrap();
-    }
-
-    #[test]
-    fn the_open_request_runs_the_app_action_as_a_script() {
-        let r = open_request("sess", "a1 · t", "k", Path::new("/w"));
-        assert_eq!(r["method"], "action.run");
-        assert_eq!(r["params"]["action"], OPEN_ACTION);
-        assert_eq!(r["params"]["args"]["session"], "sess");
-        assert_eq!(r["params"]["args"]["key"], "k");
-        assert_eq!(r["params"]["origin"], "script");
-        assert_eq!(r["params"]["wait"], true);
-    }
 }

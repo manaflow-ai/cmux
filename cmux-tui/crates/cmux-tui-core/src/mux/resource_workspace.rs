@@ -97,6 +97,8 @@ impl Mux {
         Self::insert_optional_string(fields, "cwd", spawn.cwd);
         Self::insert_terminal_env(fields, spawn.env);
         Self::insert_optional_string(fields, RESERVED_TERMINAL_ID_FIELD, spawn.terminal_id);
+        Self::insert_optional_string(fields, CLIENT_PANE_ID_FIELD, spawn.pane_id);
+        Self::insert_optional_string(fields, CLIENT_TAB_ID_FIELD, spawn.tab_id);
         if let Some(argv) = spawn.argv {
             fields
                 .insert("argv".into(), Value::Array(argv.into_iter().map(Value::String).collect()));
@@ -153,7 +155,7 @@ impl Mux {
             return Ok(replay);
         }
 
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.lock_state_pinned(&registry).unwrap();
         // Prepare and stage run before the durable commit, so subscribers
         // see a tab's new session path only once that commit succeeds.
         let (prepared, session_paths) = crate::event_bus::defer_session_paths(|| {

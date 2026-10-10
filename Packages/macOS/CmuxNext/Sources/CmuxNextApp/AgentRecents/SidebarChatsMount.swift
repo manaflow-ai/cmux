@@ -5,7 +5,7 @@ import CmuxNextSidebar
 
 /// One window's All chats section (`sidebar.showChats`, on by default since
 /// cx-xub5). While it is off no section exists, so the sidebar never connects
-/// to the chat feed for it. A click opens the chat in a new pane to the right.
+/// to the chat feed for it. It starts minimized; one click on a chat opens it in a new workspace.
 @MainActor
 final class SidebarChatsMount {
     private weak var sections: SidebarAppSections?
@@ -13,11 +13,18 @@ final class SidebarChatsMount {
 
     /// The window's app sections, with Chats when the setting is on.
     func makeSections(services: AppServices) -> SidebarAppSections {
+        // The sections this replaces end their app mounts on the supervisor.
+        releaseSections()
         visible = DesignSettings.shared.sidebarSections.showChats
-        let made = SidebarAppSections(registry: services.apps.registry, host: services.apps.host,
+        let made = SidebarAppSections(apps: services.apps,
                                       recents: visible ? section(services) : nil, showsChats: visible)
         sections = made
         return made
+    }
+
+    /// Ends the window's app section mounts (teardown, or new sections).
+    func releaseSections() {
+        sections?.releaseAll()
     }
 
     /// Shows or hides Chats after a settings change.
@@ -29,8 +36,9 @@ final class SidebarChatsMount {
 
     private func section(_ services: AppServices) -> AgentRecentsSection? {
         services.chatsFeed.map { feed in
-            let section = AgentRecentsSection(feed: feed) { [weak services] id in services?.chatsOpener.open(id, placement: .splitRight) }
+            let section = AgentRecentsSection(feed: feed) { [weak services] id in services?.chatsOpener.open(id) }
             section.headerMenu = { [weak services] in services.flatMap(Self.headerMenu) }
+            section.openInTerminal = { [weak services] id in services?.chatsOpener.openInTerminal(id) }
             return section
         }
     }

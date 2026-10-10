@@ -6,7 +6,11 @@ import type { Env } from "./env.ts"
  * stays the identity source); the team webhook reads the current team and
  * membership (cx-3bi.43). The key is the Worker
  * secret STACK_SECRET_SERVER_KEY for STACK_PROJECT_ID. Endpoint shapes follow
- * Stack's server REST API (users, auth/sessions); tests use a fake.
+ * Stack's server REST API (users, auth/sessions); the team permission list and the
+ * membership removal follow the Stack SDK's server interface (@hexclave/shared 1.0.121
+ * listServerTeamPermissions: GET /team-permissions?team_id&user_id&recursive, items
+ * {id, user_id, team_id}; removeServerUserFromTeam: DELETE /team-memberships/{team}/{user}).
+ * Tests use a fake.
  */
 export interface StackServer {
   findUserByEmail(email: string): Promise<{ id: string; email_verified: boolean } | undefined>
@@ -15,10 +19,26 @@ export interface StackServer {
   /** The Stack team now, or null when Stack answers TEAM_NOT_FOUND (team webhooks, cx-3bi.43). */
   getTeam(teamId: string): Promise<{ display_name: string } | null>
   /**
-   * The membership now: the member's profile, null when not a member (TEAM_MEMBERSHIP_NOT_FOUND, or
-   * USER_NOT_FOUND for a deleted user; both checked live 2026-10-08), "team_gone" for TEAM_NOT_FOUND.
+   * Every member Stack lists for the team now ("team_gone" for TEAM_NOT_FOUND), with each member's
+   * team permission ids (GET /team-permissions?team_id&recursive=true, so contained permissions
+   * count; cx-3bi.4). A member without an entry there is read alone (user_id) once; zero permissions is
+   * an empty list (cx-6wc8). Stack does not page these lists today.
    */
-  getTeamMember(teamId: string, userId: string): Promise<{ display_name: string | null } | null | "team_gone">
+  listTeamMembers(teamId: string): Promise<ReadonlyArray<StackMember & { user_id: string }> | "team_gone">
+  /**
+   * The membership now: the member's profile and permissions, null when not a member
+   * (TEAM_MEMBERSHIP_NOT_FOUND, or USER_NOT_FOUND for a deleted user; both checked live
+   * 2026-10-08), "team_gone" for TEAM_NOT_FOUND. A member who holds no permission has an empty list.
+   */
+  getTeamMember(teamId: string, userId: string): Promise<StackMember | null | "team_gone">
+  /** Removes the membership in Stack (DELETE /team-memberships/{team}/{user}); "absent" when it was not there. */
+  removeTeamMember(teamId: string, userId: string): Promise<"removed" | "absent" | "team_gone">
+}
+
+export interface StackMember {
+  readonly display_name: string | null
+  /** Team permission ids, `$` system ones included (team-roles.ts stackRole maps them to a role). */
+  readonly permissions: ReadonlyArray<string>
 }
 
 const API = "https://api.stack-auth.com/api/v1"
@@ -47,16 +67,90 @@ export const stackServer = (env: Env, http: (r: Request) => Promise<Response> = 
     return (await res.json()) as T
   }
   const isGone = (r: unknown): r is { gone: string } => typeof r === "object" && r !== null && "gone" in r
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  const normal = (id: string) => (UUID.test(id) ? id.toLowerCase() : id)
+  /** user id -> permission ids; one user or the whole team. Cursors are followed if Stack ever pages. */
+  const permissions = async (teamId: string, userId?: string): Promise<Map<string, Array<string>> | "team_gone"> => {
+    const out = new Map<string, Array<string>>()
+    let cursor: string | undefined
+    for (let page = 0; page < 1000; page++) {
+      const q = `team_id=${encodeURIComponent(teamId)}${userId ? `&user_id=${encodeURIComponent(userId)}` : ""}&recursive=true${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`
+      const r = await lookup<{ items?: Array<{ id?: unknown; user_id?: unknown }>; pagination?: { next_cursor?: unknown } | null }>(`/team-permissions?${q}`, "team permissions", ["TEAM_NOT_FOUND"])
+      if (isGone(r)) return "team_gone"
+      // A role is decided from this list, so an answer we cannot read fails (the delivery retries) instead of
+      // giving member (review P3-3): no items array, an item without its ids, or an item for another user.
+      if (!Array.isArray(r.items)) throw new Error("stack GET team permissions: no items")
+      for (const p of r.items) {
+        if (typeof p.id !== "string" || typeof p.user_id !== "string") throw new Error("stack GET team permissions: malformed item")
+        if (userId && normal(p.user_id) !== normal(userId)) throw new Error("stack GET team permissions: item for another user")
+        out.set(normal(p.user_id), [...(out.get(normal(p.user_id)) ?? []), p.id])
+      }
+      const next = r.pagination?.next_cursor
+      if (typeof next !== "string" || !next) return out
+      cursor = next
+    }
+    throw new Error("stack GET team permissions: too many pages")
+  }
   return {
     getTeam: async (teamId) => {
       const r = await lookup<{ display_name?: unknown }>(`/teams/${encodeURIComponent(teamId)}`, "team", ["TEAM_NOT_FOUND"])
       return isGone(r) ? null : { display_name: typeof r.display_name === "string" ? r.display_name : "" }
     },
+    listTeamMembers: async (teamId) => {
+      const out: Array<{ user_id: string; display_name: string | null; permissions: ReadonlyArray<string> }> = []
+      let cursor: string | undefined
+      // Stack answers {is_paginated: false, items}; a cursor is followed if it ever pages (checked live 2026-10-09).
+      for (let page = 0; page < 1000; page++) {
+        const r = await lookup<{ items?: Array<{ user_id?: unknown; display_name?: unknown; user?: { display_name?: unknown } }>; pagination?: { next_cursor?: unknown } | null }>(`/team-member-profiles?team_id=${encodeURIComponent(teamId)}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`, "team members", ["TEAM_NOT_FOUND"])
+        if (isGone(r)) return "team_gone"
+        // A team event removes every member this list leaves out, so an answer we cannot read fails the
+        // delivery (Svix retries) and changes nothing: no items array, or an item without its user_id.
+        if (!Array.isArray(r.items)) throw new Error("stack GET team members: no items")
+        for (const m of r.items) {
+          if (typeof m !== "object" || m === null || typeof m.user_id !== "string" || !m.user_id) throw new Error("stack GET team members: malformed item")
+          const name = typeof m.display_name === "string" && m.display_name ? m.display_name : typeof m.user?.display_name === "string" ? m.user.display_name : null
+          out.push({ user_id: m.user_id, display_name: name, permissions: [] })
+        }
+        const next = r.pagination?.next_cursor
+        if (typeof next !== "string" || !next) {
+          const perms = await permissions(teamId)
+          if (perms === "team_gone") return "team_gone"
+          // A listed member without an entry is either a truncated team-wide answer or a member who holds no
+          // permission (a project whose default member permission set is empty; cx-6wc8). The team-wide list cannot
+          // tell them apart, so that member's own permissions are read once: an owner a truncated list left out keeps
+          // their permissions, zero permissions gives role member, and a failed read throws (the delivery retries).
+          // Eight reads at a time, so a large team of permissionless members still answers within Svix's wait.
+          const missing = out.filter((m) => !perms.get(normal(m.user_id))?.length)
+          for (let i = 0; i < missing.length; i += 8) {
+            const batch = missing.slice(i, i + 8)
+            const direct = await Promise.all(batch.map((m) => permissions(teamId, m.user_id)))
+            for (const [j, d] of direct.entries()) {
+              if (d === "team_gone") return "team_gone"
+              perms.set(normal(batch[j]!.user_id), d.get(normal(batch[j]!.user_id)) ?? [])
+            }
+          }
+          return out.map((m) => ({ ...m, permissions: perms.get(normal(m.user_id)) ?? [] }))
+        }
+        cursor = next
+      }
+      throw new Error("stack GET team members: too many pages")
+    },
     getTeamMember: async (teamId, userId) => {
       const r = await lookup<{ display_name?: unknown; user?: { display_name?: unknown } }>(`/team-member-profiles/${encodeURIComponent(teamId)}/${encodeURIComponent(userId)}`, "team member", ["TEAM_NOT_FOUND", "TEAM_MEMBERSHIP_NOT_FOUND", "USER_NOT_FOUND"])
       if (isGone(r)) return r.gone === "TEAM_NOT_FOUND" ? "team_gone" : null
       const name = typeof r.display_name === "string" && r.display_name ? r.display_name : typeof r.user?.display_name === "string" ? r.user.display_name : null
-      return { display_name: name }
+      const perms = await permissions(teamId, userId)
+      if (perms === "team_gone") return "team_gone"
+      // This read names the member, so an answer without entries means they hold no permission: role member (cx-6wc8).
+      return { display_name: name, permissions: perms.get(normal(userId)) ?? [] }
+    },
+    removeTeamMember: async (teamId, userId) => {
+      const res = await http(new Request(`${API}/team-memberships/${encodeURIComponent(teamId)}/${encodeURIComponent(userId)}`, { method: "DELETE", headers, body: "{}", signal: AbortSignal.timeout(10_000) }))
+      const known = res.headers.get("x-stack-known-error") ?? ""
+      if (res.status === 404 && known === "TEAM_NOT_FOUND") return "team_gone"
+      if (res.status === 404 && (known === "TEAM_MEMBERSHIP_NOT_FOUND" || known === "USER_NOT_FOUND")) return "absent"
+      if (!res.ok) throw new Error(`stack DELETE team membership returned ${res.status}`)
+      return "removed"
     },
     findUserByEmail: async (email) => {
       const r = await call<{ items?: Array<{ id: string; primary_email?: string | null; primary_email_verified?: boolean }> }>("GET", `/users?query=${encodeURIComponent(email)}&limit=100`)

@@ -1,4 +1,6 @@
 import CmuxNextActions
+import CmuxNextApps
+import CmuxNextDaemon
 import CmuxNextPalette
 
 /// App Store actions (plans/cmux-next/app-platform.md section 3). Opening
@@ -16,19 +18,24 @@ enum AppStoreHandlers {
         registry.bind("appStore.showInstalled", run: { invocation in
             services.apps.showStore(installed: true, focus: invocation.allowsViewChange)
         })
-        // Hide and unhide (V9): view preference only; the app keeps running and answering granted calls.
+        // Hide and unhide (V9): apps-set hidden on the supervisor with the
+        // invocation's origin; the supervisor decides which origins may hide.
+        // The app keeps running and answering granted calls.
         func bindHidden(_ id: ActionID, _ hidden: Bool) {
             registry.bind(id, run: { invocation in
                 let appID = invocation["app"]?.stringValue?.trimmingCharacters(in: .whitespaces) ?? ""
-                guard services.apps.registry.app(appID)?.isInstalled == true else {
+                let apps = services.apps
+                if let reason = apps.client.unavailableReason { throw Self.unavailable(reason) }
+                guard apps.client.app(appID)?.installed == true else {
                     throw ActionFailure(message: RefusalStrings.text("refusal.app.unknown", "No installed app with that id."))
                 }
+                let origin = AppOrigin(rawValue: invocation.origin.rawValue) ?? .script
                 registry.track(Task { @MainActor in
-                    do {
-                        try await services.apps.registry.setHidden(appID, hidden)
+                    do throws(AppsClientError) {
+                        try await apps.client.set(appID, .hide(hidden), origin: origin)
                         return nil
                     } catch {
-                        return ActionWorkFailure(String(describing: error))
+                        return ActionWorkFailure(error.description)
                     }
                 })
             })
@@ -41,11 +48,13 @@ enum AppStoreHandlers {
                 return services.palette.show(page: AppCommandPalette.page(services), relativeTo: context.activeWindow?.window)
             }
             let command = invocation["command"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
-            do {
-                try services.apps.openApp(appID, command: command, focus: invocation.allowsViewChange)
+            let work: ActionWork?
+            do throws(AppsServiceError) {
+                work = try services.apps.openApp(appID, command: command, focus: invocation.allowsViewChange, origin: invocation.origin)
             } catch {
-                throw ActionFailure(message: RefusalStrings.text("refusal.app.unknown", "No installed app with that id."))
+                throw Self.failure(error)
             }
+            if let work { registry.track(work) }
         })
         // The root palette lists "Open <App>" and the commands of visible apps.
         services.palette.sources.extraProviders.append(AsyncPaletteProvider(id: "apps", showsItemsForEmptyQuery: false) { [weak services] in
@@ -59,12 +68,29 @@ enum AppStoreHandlers {
             guard !appID.isEmpty || !commandID.isEmpty else {
                 return services.palette.show(page: AppCommandPalette.page(services), relativeTo: context.activeWindow?.window)
             }
-            guard let entry = AppCommandPalette.entries(services.apps.registry).first(where: { $0.app.id == appID && $0.command.id == commandID }) else {
+            if let reason = services.apps.client.unavailableReason { throw Self.unavailable(reason) }
+            let entries = AppCommandPalette.entries(services.apps, origin: invocation.origin)
+            guard let entry = entries.first(where: { $0.app.id == appID && $0.matches(commandID) }) else {
                 throw ActionFailure(message: RefusalStrings.text("refusal.app.unknown", "No installed app with that id."))
             }
-            AppCommandPalette.run(entry, services: services)
+            registry.track(AppCommandPalette.run(entry, services: services, origin: invocation.origin))
         })
         bindHidden("app.hide", true)
         bindHidden("app.unhide", false)
+    }
+
+    /// Why an app action cannot run while the supervisor is unreachable.
+    static func unavailable(_ reason: AppsUnavailableReason) -> ActionFailure {
+        switch reason {
+        case .needsNewerDaemon: ActionFailure.needsDaemonCapability(DaemonAppsTransport.capability)
+        case .notConnected: ActionFailure(message: DaemonError.notConnected.description)
+        case .turnedOff(let text): ActionFailure(message: text)
+        }
+    }
+
+    /// `app.open`'s refusal: the unavailable reason first, then the app's own.
+    static func failure(_ error: AppsServiceError) -> ActionFailure {
+        if case .unavailable(let reason) = error { return unavailable(reason) }
+        return ActionFailure(message: RefusalStrings.text("refusal.app.unknown", "No installed app with that id."))
     }
 }

@@ -95,6 +95,8 @@ export type NewTabHost = {
   lastAgent?: string;
   /// The home folder, so `~/path` reads as a folder.
   home?: string;
+  /// false: leave the field unfocused (Cmd-L opened the page for the omnibar, cx-e2aa).
+  focusesField?: boolean;
 };
 
 /// Reads `newTab` from the handshake: `true`, or `{hotkeys, kind, cwd, host}`. Nil for a plain chat.
@@ -152,6 +154,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     ...(typeof object.lastAgent === "string" && object.lastAgent ? { lastAgent: object.lastAgent } : {}),
     ...(typeof object.home === "string" && object.home.startsWith("/") ? { home: object.home } : {}),
     ...(typeof object.inputToken === "string" && object.inputToken ? { inputToken: object.inputToken } : {}),
+    ...(object.focusesField === false ? { focusesField: false } : {}),
   };
 }
 
@@ -179,7 +182,9 @@ export function cycleKind(kind: TabKind, step = 1): TabKind {
 
 /// The newest sessions first, the ones waiting on the user ahead of them.
 export function recentSessions(sessions: AcpmuxSnapshot["sessions"], count = RECENT_COUNT): AcpmuxSessionEntry[] {
-  const entries = sessions.map((session) => sessionEntry(session as AcpmuxSessionEntry & Record<string, unknown>));
+  const entries = sessions
+    .map((session) => sessionEntry(session as AcpmuxSessionEntry & Record<string, unknown>))
+    .filter((entry) => !entry.archived);
   const urgency = (entry: AcpmuxSessionEntry) => (sessionMark(entry, false) === "input" ? 0 : 1);
   return entries.sort((a, b) => urgency(a) - urgency(b) || (b.updatedAt ?? 0) - (a.updatedAt ?? 0)).slice(0, count);
 }
@@ -672,7 +677,8 @@ export function KindIcon({ kind }: { kind: TabKind }) {
   }
 }
 
-const FolderIcon = () => (
+/// A folder glyph (the project picker on both New Tab designs).
+export const FolderIcon = () => (
   <Icon>
     <path d="M1.9 4.6c0-.8.6-1.4 1.4-1.4h2.6l1.5 1.6h5.3c.8 0 1.4.6 1.4 1.4v5.6c0 .8-.6 1.4-1.4 1.4H3.3c-.8 0-1.4-.6-1.4-1.4Z" />
   </Icon>

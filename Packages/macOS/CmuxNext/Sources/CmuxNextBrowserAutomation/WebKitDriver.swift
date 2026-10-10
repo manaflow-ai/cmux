@@ -18,11 +18,20 @@ public final class WebKitDriver: DriverCallHandler {
     weak var provider: (any AutomationTabProvider)?
     /// The page agent install source from the host (`hello.ack agent_bundle`).
     public var agentBundle: String?
+    /// Where `cookies.clear` keeps what it deletes (undo); nil: no clear runs.
+    public var cookieBackups: CookieBackups?
     var sessions: [BrowserTabID: TabSession] = [:]
     lazy var dialogs = DialogBroker { [weak self] name, payload in self?.emit(name, payload) }
 
-    public init(provider: any AutomationTabProvider, agentBundle: String? = nil) {
+    /// The clock of the driver's bounded waits.
+    let clock: any Clock<Duration>
+    /// WebKit private calls, on this driver's clock.
+    let privateCalls: WebKitPrivateCalls
+
+    public init(provider: any AutomationTabProvider, agentBundle: String? = nil, clock: any Clock<Duration> = ContinuousClock()) {
         self.provider = provider
+        self.clock = clock
+        privateCalls = WebKitPrivateCalls(clock: clock)
         self.agentBundle = agentBundle
         (events, emitter) = AsyncStream.makeStream(of: DriverEvent.self, bufferingPolicy: .bufferingOldest(8192))
     }
@@ -37,13 +46,15 @@ public final class WebKitDriver: DriverCallHandler {
         switch method {
         case "tabs.list": return try tabsList(params)
         case "tabs.open": return try await tabsOpen(params)
-        case "tabs.close": return try tabsClose(params)
+        case "tabs.close": return try await tabsClose(params)
         case "tabs.activate", "tab.bringToFront": return try tabsActivate(params)
         case "tab.info": return try tabInfo(params)
         case "tab.navigate": return try await tabNavigate(params)
         case "tab.history": return try await tabHistory(params)
         case "tab.reload": return try await tabReload(params)
         case "frames.list": return try await framesList(params)
+        case "frame.contentFrame": return try await frameContentFrame(params)
+        case "frame.ownerBox": return try await frameOwnerBox(params)
         case "frame.evaluate":
             let timeout = try params.optionalNumber("timeoutMs").flatMap { $0 > 0 ? Duration.milliseconds(Int64($0)) : nil }
             return try await CallDeadline.run(timeout, what: "frame.evaluate") { () throws(DriverError) in try await self.frameEvaluate(params) }
@@ -54,7 +65,9 @@ public final class WebKitDriver: DriverCallHandler {
         case "tab.pdf": return try await tabPDF(params)
         case "dialog.respond": return try dialogs.respond(params)
         case "cookies.get": return try await cookiesGet(params)
+        case "cookies.set": return try await cookiesSet(params)
         case "cookies.clear": return try await cookiesClear(params)
+        case "cookies.restore": return try await cookiesRestore(params)
         default: throw DriverError(.unsupported, "Unsupported driver method \(method)")
         }
     }
@@ -67,23 +80,7 @@ public final class WebKitDriver: DriverCallHandler {
               let provider, let tab = provider.automationTabs(all: true).first(where: { $0.tab.id.rawValue == raw })?.tab,
               tab.webView.window == nil else { return }
         guard await provider.keepRendering(tab) else { return }
-        await Self.afterActivityStateUpdate(tab.webView)
-    }
-
-    /// Resumes once WebKit has sent the view's activity state (visible,
-    /// focused, in a window) to the web process.
-    static func afterActivityStateUpdate(_ webView: WKWebView) async {
-        // crash-allow: WebKit private selector, used only after responds(to:) confirms it exists (no unknown-selector exception).
-        let selector = NSSelectorFromString("_doAfterActivityStateUpdate:")
-        guard webView.responds(to: selector) else { return }
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            typealias Action = @convention(block) () -> Void
-            typealias Function = @convention(c) (AnyObject, Selector, Action) -> Void
-            let function = unsafeBitCast(webView.method(for: selector), to: Function.self)
-            // WebKit keeps the block until the update: it must be an escaping one.
-            let action: Action = { continuation.resume() }
-            function(webView, selector, action)
-        }
+        await privateCalls.afterActivityStateUpdate(tab.webView)
     }
 
     func emit(_ name: String, _ payload: [String: DriverJSON]) {
@@ -187,6 +184,11 @@ final class LoadStateMessages: NSObject, WKScriptMessageHandler {
     }
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        if message.name == PageConsole.handler {
+            guard let (name, payload) = PageConsole.event(message.body) else { return }
+            driver?.emit(name, payload.merging(["targetId": .string(tabID.rawValue)]) { $1 })
+            return
+        }
         guard let body = message.body as? [String: Any], let name = body["state"] as? String,
               let state = LoadState(name: name), let document = body["doc"] as? String else { return }
         driver?.received(state, document: document, url: body["url"] as? String ?? "", title: body["title"] as? String,

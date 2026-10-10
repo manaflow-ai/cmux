@@ -36,6 +36,12 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.showContextUsage":
+            if let show = params?["show"] as? Bool {
+                self = .showContextUsage(show)
+            } else {
+                self = .unsupported(method)
+            }
         case "pane.painted":
             self = .painted
         case "pane.renderRate":
@@ -118,6 +124,7 @@ extension AgentPaneRequest {
             }
         case "project.browse": self = .browseProject
         case "workspace.chooseFolder": self = .chooseFolder
+        case "chat.folder.choose": self = .chooseChatFolder
         case "project.list":
             let query = (params?["query"] as? String).map { String($0.prefix(512)) }
             self = .listProjects(query)
@@ -136,6 +143,8 @@ extension AgentPaneRequest {
                 self = .unsupported(method)
             }
         case "pane.tabState": self = .tabState
+        case "chat.archive":
+            if let archived = params?["archived"] as? Bool { self = .archive(archived) } else { self = .unsupported(method) }
         case "shortcut.edit":
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneTabKind.init(rawValue:)) {
                 self = .editShortcut(kind)

@@ -47,13 +47,14 @@ export const entitlementsDenyAllLayer = Layer.succeed(Entitlements, {
 });
 
 /**
- * Until the billing source exists: dev/test tenants (per TenantPolicy) may
- * create, everyone else is refused with 402. Fails closed in production.
+ * Until the billing source exists: dev/test tenants and teams under the
+ * manaflow-team flag (per TenantPolicy, cx-b4h.16) may create, everyone else is
+ * refused with 402. Fails closed in production.
  */
 export const entitlementsFromPolicyLayer = Layer.effect(
   Entitlements,
   Effect.map(TenantPolicy, (policy) => ({
-    mayCreate: (tenantId: TenantId) => Effect.succeed(policy.isDevTest(tenantId)),
+    mayCreate: (tenantId: TenantId) => Effect.succeed(policy.isDevTest(tenantId) || policy.isManaflowTeam(tenantId)),
   })),
 );
 

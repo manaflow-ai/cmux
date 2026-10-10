@@ -3,6 +3,12 @@ import { settingsPageEntry, type PageFixtureStep, type SettingsPageVariant } fro
 import type { AccountsRow, AccountsState, HostLists } from "./ops";
 import { categories, homes } from "./categories";
 import { schema } from "./schema";
+import DEGAS_HALEVY from "../../gallery/fixtures/art/nga-degas-halevy-standing-66489.jpg?inline";
+import DEGAS_DANCER from "../../gallery/fixtures/art/nga-degas-dancer-from-behind-32137.jpg?inline";
+import CARPACCIO from "../../gallery/fixtures/art/nga-carpaccio-groups-of-male-figures-73858.jpg?inline";
+import PERINO from "../../gallery/fixtures/art/nga-perino-del-vaga-figure-studies-57613.jpg?inline";
+import RUBENS from "../../gallery/fixtures/art/nga-rubens-battle-of-nude-men-63034.jpg?inline";
+import TENIERS from "../../gallery/fixtures/art/nga-teniers-market-figures-62615.jpg?inline";
 
 const button = (id: string, title: string, disabled = false) => ({
   id,
@@ -147,6 +153,70 @@ Object.assign(variants, {
       { selector: '[data-card="backdrop"] button[aria-pressed="true"]', action: "focus" },
     ],
     note: "The real wallpaper picker with a public-safe sample thumbnail.",
+  }),
+  // The bundled figure drawings (cx-t2x.1): the real grayscale files as thumbnails, with the
+  // credit lines the app sends, and one drawing picked (the background is off until the user picks).
+  "figure-drawings": variant("appearance", {
+    options: {
+      values: { "appearance.experimentalControls": true, "appearance.background": "nga-degas-halevy-standing-66489" },
+    },
+    host: {
+      ...host,
+      backdrops: [
+        {
+          id: "nga-degas-halevy-standing-66489",
+          title: "Three Studies of Ludovic Halévy Standing",
+          attribution:
+            "Three Studies of Ludovic Halévy Standing · Edgar Degas · c. 1880 · National Gallery of Art · CC0",
+        },
+        {
+          id: "nga-degas-dancer-from-behind-32137",
+          title: "Dancer Seen from Behind",
+          attribution:
+            "Dancer Seen from Behind and Three Studies of Feet · Edgar Degas · c. 1878 · National Gallery of Art · CC0",
+        },
+        {
+          id: "nga-carpaccio-groups-of-male-figures-73858",
+          title: "Groups of Male Figures",
+          attribution: "Groups of Male Figures · Vittore Carpaccio · c. 1514 · National Gallery of Art · CC0",
+        },
+        {
+          id: "nga-perino-del-vaga-figure-studies-57613",
+          title: "Figure Studies",
+          attribution: "Figure Studies · Perino del Vaga · c. 1530/1540 · National Gallery of Art · CC0",
+        },
+        {
+          id: "nga-rubens-battle-of-nude-men-63034",
+          title: "Battle of Nude Men",
+          attribution: "Battle of Nude Men · Sir Peter Paul Rubens · National Gallery of Art · CC0",
+        },
+        {
+          id: "nga-teniers-market-figures-62615",
+          title: "Studies of Market Figures",
+          attribution: "Studies of Market Figures · David Teniers the Younger · National Gallery of Art · CC0",
+        },
+      ],
+    },
+    backdropImages: {
+      "nga-degas-halevy-standing-66489": DEGAS_HALEVY,
+      "nga-degas-dancer-from-behind-32137": DEGAS_DANCER,
+      "nga-carpaccio-groups-of-male-figures-73858": CARPACCIO,
+      "nga-perino-del-vaga-figure-studies-57613": PERINO,
+      "nga-rubens-battle-of-nude-men-63034": RUBENS,
+      "nga-teniers-market-figures-62615": TENIERS,
+    },
+    steps: [
+      wait('[data-card="backdrop"]'),
+      { selector: '[data-card="backdrop"] button[aria-pressed="true"]', action: "focus" },
+    ],
+    note: "The background picker with the bundled CC0 figure drawings, credited, one picked.",
+  }),
+  "theme-level-selected": variant("appearance", { steps: [click('input[name="theme-level"][value="workspace"]')] }),
+  "theme-custom-spec": variant("appearance", {
+    steps: [
+      input('[data-card="theme"] input.field', "light:GitHub Light,dark:Dracula"),
+      wait("[data-theme-list] .theme-choice:nth-child(2)"),
+    ],
   }),
   "terminal-shell-unknown": variant("terminal", {
     host: { ...host, terminal: { ghostty_config: "~/.config/ghostty/config", shell_integration: null } },
@@ -473,8 +543,10 @@ export default settingsPageEntry({
   covers: [
     "page:cmux.settings",
     "pages/settings/components/AccountsSection.tsx",
+    "pages/settings/components/AgentHarnesses.tsx",
     "pages/settings/components/ComputerUseCard.tsx",
     "pages/settings/components/HarnessesCard.tsx",
+    "pages/settings/components/AgentHarnesses.tsx#AgentHarnesses",
     "pages/settings/components/ActionRow.tsx",
     "pages/settings/components/GhosttyDiagnostics.tsx",
     "pages/settings/components/GroupList.tsx",

@@ -5,6 +5,7 @@ import CmuxNextControl
 import CmuxNextDaemon
 import Foundation
 import Observation
+import WebKit
 
 /// The app's browser tabs for the browser host: the tab list (`hello`,
 /// `tab.announced`/`navigated`/`gone`), each Chromium tab's extension access
@@ -167,13 +168,12 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
     /// pane's active tab stays: every client reads it; no selection or focus
     /// changes), in ``sessionTabPane(_:)``. Answers once the store shows it.
     private func openSessionTab(_ engine: BrowserEngineTag, url: String?) async throws -> TabModel {
-        guard let services, case let browserTabs = services.cache.browserTabs, browserTabs.isAvailable() else {
-            throw AutomationTabError.unavailable
-        }
+        guard let services, case let browserTabs = services.cache.browserTabs else { throw AutomationTabError.unavailable }
         if engine == .cef, let reason = browserTabs.cefUnavailable() {
             throw AutomationTabError.chromiumUnavailable(BrowserTabService.message(reason))
         }
         let pane = try sessionTabPane(browserTabs)
+        guard browserTabs.isAvailable(in: pane) else { throw AutomationTabError.unavailable }
         let surface = try await browserTabs.open(BrowserEngineChoice(engine: engine), in: pane,
                                                  url: url ?? "about:blank", activate: false)
         // The create reply can come before the store shows the tab.
@@ -193,18 +193,18 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
     /// of the workspace under the page, the fallback `cmux browser open`
     /// uses (9d300f272470). The window keeps showing the page. Never an
     /// incognito pane, never another machine's workspace.
-    private func sessionTabPane(_ browserTabs: BrowserTabService) throws(AutomationTabError) -> PaneID {
+    private func sessionTabPane(_ browserTabs: BrowserTabService) throws(AutomationTabError) -> PaneModel {
         guard let services, let window = services.windows.active else { throw .noPane }
-        let pane: PaneID
+        let pane: PaneModel
         if let focused = window.focusedPane {
-            pane = focused.pane.handle
+            pane = focused.pane
         } else {
             let state = window.state
             guard state.machineID == MachineRegistry.localID, let id = state.workspaceID,
                   let workspace = services.daemon.store.workspaces.first(where: { $0.id == id }) else { throw .noPane }
             let screen = workspace.screens.first { $0.id == state.activeScreenID } ?? workspace.screens.first
             guard let model = screen.flatMap({ $0.defaultPane.flatMap($0.pane) ?? $0.panes.first }) else { throw .noPane }
-            pane = model.handle
+            pane = model
         }
         guard !browserTabs.isIncognitoPane(pane) else { throw .noPane }
         return pane
@@ -218,6 +218,22 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
         return renderWindows.keepRendering(tabID: tab.id.rawValue, chrome: entry.chrome, webView: tab.webView)
     }
 
+    /// A persistent WebKit profile's cookie store (`cookies.restore`): the
+    /// built-in profile, one the profile book still holds, or the store of
+    /// an open tab of the profile; never a private one.
+    func cookieStore(profile: BrowserProfileID) -> WKHTTPCookieStore? {
+        guard let services else { return nil }
+        let profileStore = services.cache.webKit.profileStore
+        guard !profileStore.isOffTheRecord(profile) else { return nil }
+        let book = services.browserProfiles.book
+        if profile == .default || book.profiles.contains(where: { book.engineProfile(for: $0.id) == profile }) {
+            return profileStore.dataStore(for: profile).httpCookieStore
+        }
+        return automationTabs(all: true).map(\.tab).first {
+            $0.profileID == profile && $0.webView.configuration.websiteDataStore.isPersistent
+        }?.webView.configuration.websiteDataStore.httpCookieStore
+    }
+
     /// Tabs belong to the person's layout: the provider never closes one.
     func closeAutomationTab(_ id: BrowserTabID) {}
 
@@ -226,18 +242,22 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
     /// (`close-tabs`), marked `session_end` so Reopen Closed leaves it out; an older daemon
     /// without `close-reason-v1` keeps the tab (never an unmarked close). The host decides which
     /// tabs a session created and that no person holds (gap: the store does not check it).
-    func endSessionTab(_ id: String) -> Bool {
+    func endSessionTab(_ id: String) async -> Bool {
         guard let services, let tab = localBrowserTabs.first(where: { $0.model.id == id })?.model else { return false }
         let daemon = services.daemon
         guard daemon.supports(DaemonCapabilities.shared.closeReason) else { return false }
         let surface = tab.surface
         let cache: TabContentCache = services.cache
-        // task-owner: one store close; the page goes with it, as after a person's close
-        Task {
-            let closed = await daemon.run(CloseTabsRequest.command) { connection in
-                _ = try await connection.closeTabs([surface], endTerminals: false, reason: .sessionEnd)
-            }
-            if closed { cache.release(id) }
+        // One store close; the page goes with it, as after a person's close.
+        let closed = await daemon.run(CloseTabsRequest.command) { connection in
+            _ = try await connection.closeTabs([surface], endTerminals: false, reason: .sessionEnd)
+        }
+        guard closed else { return false }
+        cache.release(id)
+        // The store's update can come after the close reply.
+        _ = try? await ControlDeadline.shared.run(method: "tabs.close", deadline: .now + .seconds(5)) { @MainActor [weak self] in
+            for await gone in Observations({ self?.isDrivable(id) != true }) where gone { return true }
+            return false
         }
         return true
     }

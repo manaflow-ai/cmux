@@ -6,7 +6,13 @@
  * queries with expected rows, and reports top-1, top-3 and MRR. Ranking
  * changes are measured against this report, not guessed.
  */
-import { rankPalette, type PaletteFrecency, type PaletteRankEntry, type PaletteRankRequest } from "./ranker";
+import {
+  rankPalette,
+  type PaletteFrecency,
+  type PaletteLearnedPick,
+  type PaletteRankEntry,
+  type PaletteRankRequest,
+} from "./ranker";
 
 export interface EvalFixtureEntry {
   id: string;
@@ -43,6 +49,16 @@ export interface EvalCase {
   note?: string;
   /** A guard case: its row must stay in the top 3 (palette-eval.test.ts fails otherwise). */
   guard?: boolean;
+  /** Learning: these runs happen first (oldest first), each `daysAgo` before the query. */
+  replay?: Array<
+    { query: string; pick: string; daysAgo?: number } | { hide: string } | { unhide: string } | { forget: string }
+  >;
+  /** Learning: this row must NOT be first (an old pick that should have faded). */
+  notFirst?: string;
+  /** Learning: this row must not be among the results at all (a hidden row). */
+  absent?: string;
+  /** The first expected row must be at exactly this 1-based position (empty-query order). */
+  at?: number;
 }
 
 export interface EvalCases {
@@ -73,6 +89,60 @@ export interface EvalReport {
 export type Ranker = (request: Omit<PaletteRankRequest, "operation">) => ReturnType<typeof rankPalette>;
 
 export const evalNow = 800_000_000;
+
+const day = 24 * 60 * 60;
+const halfLife = 3 * day;
+const pickHalfLife = 7 * day;
+
+/**
+ * The history the daemon would hold after `replay` (test-only model of
+ * cmux-tui-core state/palette_usage.rs `record`: +1 per use with a 3-day
+ * half-life, +1 per pick under each 1-8 character start of the normalized
+ * query with a 7-day half-life, and the latest pick per start). The daemon
+ * is the real writer; this lets the eval measure learning without one.
+ */
+export function replayHistory(replay: NonNullable<EvalCase["replay"]>, base: PaletteFrecency = {}): PaletteFrecency {
+  const entries = { ...base.entries };
+  let picks: PaletteLearnedPick[] = [...(base.picks ?? [])];
+  const hidden = new Set(base.hidden ?? []);
+  const decay = (score: number, from: number, to: number, life: number) =>
+    score * 2 ** (-Math.max(0, to - from) / life);
+  for (const event of replay) {
+    // Row controls (the daemon's palette_usage.hide and palette_usage.forget).
+    if ("hide" in event) {
+      hidden.add(event.hide);
+      continue;
+    }
+    if ("unhide" in event) {
+      hidden.delete(event.unhide);
+      continue;
+    }
+    if ("forget" in event) {
+      delete entries[event.forget];
+      picks = picks.filter((pick) => pick.key !== event.forget);
+      continue;
+    }
+    const at = evalNow - (event.daysAgo ?? 0) * day;
+    const entry = entries[event.pick];
+    entries[event.pick] = { score: (entry ? decay(entry.score, entry.lastUsed, at, halfLife) : 0) + 1, lastUsed: at };
+    const chars = Array.from(event.query.trim().split(/\s+/u).filter(Boolean).join(" ").toLowerCase());
+    const prefixes = new Set<string>();
+    for (let length = 1; length <= Math.min(chars.length, 8); length++) {
+      const prefix = chars.slice(0, length).join("").trimEnd();
+      if (prefix) prefixes.add(prefix);
+    }
+    for (const prefix of prefixes) {
+      for (const pick of picks) if (pick.prefix === prefix) pick.last = false;
+      const existing = picks.find((pick) => pick.prefix === prefix && pick.key === event.pick);
+      if (existing) {
+        existing.score = decay(existing.score, existing.lastUsed, at, pickHalfLife) + 1;
+        existing.lastUsed = at;
+        existing.last = true;
+      } else picks.push({ prefix, key: event.pick, score: 1, lastUsed: at, last: true });
+    }
+  }
+  return { entries, picks, halfLife, pickHalfLife, hidden: [...hidden] };
+}
 
 /** The fixture's entries plus the overlay rows, with section indexes resolved. */
 export function mergeOverlay(fixture: EvalFixture, overlay: readonly EvalOverlayEntry[]): EvalFixture {
@@ -131,8 +201,21 @@ export function scoreCases(
 ): EvalReport {
   const results = cases.cases.map((evalCase): EvalCaseResult => {
     const profile = evalCase.profile ? cases.profiles?.[evalCase.profile] : undefined;
-    const ids = ranked(evalCase.query, frecencyFor(profile), evalCase).slice(0, 50);
-    const position = ids.findIndex((id) => evalCase.expect.includes(id));
+    const frecency = evalCase.replay ? replayHistory(evalCase.replay, frecencyFor(profile)) : frecencyFor(profile);
+    const ids = ranked(evalCase.query, frecency, evalCase).slice(0, 50);
+    const position = evalCase.absent
+      ? ids.includes(evalCase.absent)
+        ? -1
+        : 0
+      : evalCase.at
+        ? ids[evalCase.at - 1] === evalCase.expect[0]
+          ? 0
+          : -1
+        : evalCase.notFirst
+          ? ids[0] !== evalCase.notFirst
+            ? 0
+            : -1
+          : ids.findIndex((id) => evalCase.expect.includes(id));
     return {
       query: evalCase.query,
       group: evalCase.group,

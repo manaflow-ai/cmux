@@ -181,9 +181,21 @@
       "scope": "chief:write",
       "class": "mutation"
     },
+    "chief.engine.get": {
+      "scope": "chief:read",
+      "class": "read"
+    },
+    "chief.engine.set": {
+      "scope": "chief:write",
+      "class": "mutation"
+    },
     "chief.list": {
       "scope": "chief:read",
       "class": "read"
+    },
+    "chief.stop": {
+      "scope": "chief:write",
+      "class": "mutation"
     },
     "chief.update": {
       "scope": "chief:write",
@@ -191,6 +203,10 @@
     },
     "clipboard.write": {
       "scope": "clipboard:write",
+      "class": "mutation"
+    },
+    "closed.delete": {
+      "scope": "closed:write",
       "class": "mutation"
     },
     "closed.list": {
@@ -893,6 +909,26 @@
       "scope": "notification:read",
       "class": "read"
     },
+    "palette_usage.forget": {
+      "scope": "palette_usage:write",
+      "class": "mutation"
+    },
+    "palette_usage.get": {
+      "scope": "palette_usage:read",
+      "class": "read"
+    },
+    "palette_usage.hide": {
+      "scope": "palette_usage:write",
+      "class": "mutation"
+    },
+    "palette_usage.import": {
+      "scope": "palette_usage:write",
+      "class": "mutation"
+    },
+    "palette_usage.record": {
+      "scope": "palette_usage:write",
+      "class": "mutation"
+    },
     "pane.create": {
       "scope": "workspace:write",
       "class": "mutation"
@@ -947,6 +983,30 @@
     },
     "participants.add": {
       "scope": "participants:write",
+      "class": "mutation"
+    },
+    "project.add": {
+      "scope": "project:write",
+      "class": "mutation"
+    },
+    "project.list": {
+      "scope": "project:read",
+      "class": "read"
+    },
+    "project.observe": {
+      "scope": "project:write",
+      "class": "mutation"
+    },
+    "project.remove": {
+      "scope": "project:write",
+      "class": "mutation"
+    },
+    "project.sync": {
+      "scope": "project:write",
+      "class": "mutation"
+    },
+    "project.update": {
+      "scope": "project:write",
       "class": "mutation"
     },
     "push.target.register": {
@@ -1052,6 +1112,14 @@
     "room.update": {
       "scope": "room:write",
       "class": "mutation"
+    },
+    "run.get": {
+      "scope": "run:read",
+      "class": "read"
+    },
+    "run.list": {
+      "scope": "run:read",
+      "class": "read"
     },
     "saved_tab_group.delete": {
       "scope": "saved_tab_group:write",
@@ -1679,6 +1747,9 @@
     }
   },
   "never": [
+    "agent.message.list",
+    "agent.message.mark",
+    "agent.message.send",
     "automation.delete",
     "browser.attach",
     "browser.close",
@@ -1733,7 +1804,9 @@
     "stream.cancel",
     "tab.close",
     "tab_group.close",
+    "team.audit.list",
     "team.enrollment_token.revoke",
+    "team.members.remove",
     "team_vm.rebuild",
     "team_vm.retired.delete",
     "team_vm.retired.export",
@@ -1747,6 +1820,7 @@
     "usage.cap.set",
     "user.ensure",
     "user.presence_key.revoke",
+    "user.teams.list",
     "user.text_confirm.get",
     "user.text_confirm.level.set",
     "user.text_confirm.lower",

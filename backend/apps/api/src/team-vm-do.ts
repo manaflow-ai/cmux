@@ -88,6 +88,13 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
     }
   }
 
+  /** team_vm.status also says when the team has no owner (TeamDO holds the roles; review P2-3). An unreachable TeamDO leaves the field out. */
+  override async readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<ReadResult> {
+    const r = await super.readOp(entity, principal, op, params)
+    const noOwner = r.ok && op === "team_vm.status" ? await (this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(entity)) as unknown as { noOwner(e: string): Promise<boolean> }).noOwner(entity).catch(() => undefined) : undefined
+    return noOwner === undefined || !r.ok ? r : { ...r, value: { ...(r.value as object), no_owner: noOwner } }
+  }
+
   protected override nextWakeAt(state: TeamVmState, now: number): number | null {
     const own = teamVmWakeAt(state)
     // Undelivered registry events retry with the alarm (only while some are left; no idle work).

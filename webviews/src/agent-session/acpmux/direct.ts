@@ -32,8 +32,8 @@ export type AcpmuxHostConfig = {
   sessionId?: string;
   /** A pane opened as a new chat: do not fall back to the most recent session; the first prompt creates one. */
   newSession?: boolean;
-  /** A tab a `cmux://session/<id>` link opened: `sessionId` must exist. When the daemon has no such
-   * session the pane says so rather than falling back to the most recent one, and marks nothing seen. */
+  /** A tab's recorded session (`sessionId`) must exist. When the daemon has no such session, or it
+   * goes away, the pane says so rather than showing another chat, and marks nothing seen. */
   sessionMustExist?: boolean;
   /** A new chat's working directory, inherited from the tab it was opened from. */
   cwd?: string;
@@ -451,6 +451,9 @@ export class AcpmuxDirectClient {
   private firstSeq?: number;
   private lastSeq = 0;
   private turnOpen = false;
+  /// This computer's clock minus the session's (an SSH or Cloud peer stamps events with its own
+  /// clock): the smallest arrival lag of a live event, since delays only make it larger.
+  private clockOffset?: number;
   /// acpmux lists `acp.session.fork` among the operations it serves.
   private canFork = false;
   private handoffSupported = false;
@@ -661,6 +664,7 @@ export class AcpmuxDirectClient {
     this.failedPrompts.clear();
     this.firstSeq = undefined;
     this.lastSeq = 0;
+    this.clockOffset = undefined;
     this.summary = undefined;
     this.usage = undefined;
     this.queue = [];
@@ -726,8 +730,11 @@ export class AcpmuxDirectClient {
       return;
     }
     const notification = message as Notification;
-    if (notification.method === "_acpmux/event") this.apply(notification.params as EventRecord);
-    else if (notification.method === "session/update")
+    if (notification.method === "_acpmux/event") {
+      this.observeClock(notification.params?.sessionId, notification.params?.at);
+      this.apply(notification.params as EventRecord);
+    } else if (notification.method === "session/update") {
+      this.observeClock(notification.params?.sessionId, notification.params?._meta?.acpmux?.at);
       this.apply({
         sessionId: notification.params?.sessionId,
         seq: Number(notification.params?._meta?.acpmux?.seq ?? 0),
@@ -736,7 +743,7 @@ export class AcpmuxDirectClient {
         kind: String(notification.params?.update?.sessionUpdate ?? ""),
         msg: { method: "session/update", params: { update: notification.params?.update } },
       });
-    else if (notification.method === "_acpmux/session_changed") this.sessionChanged(notification.params);
+    } else if (notification.method === "_acpmux/session_changed") this.sessionChanged(notification.params);
     else if (notification.method === "_acpmux/permission_pending") this.applyPermission(notification.params);
     else if (notification.method === "_acpmux/lagged") this.resyncAfterLag(notification.params);
     else if (notification.method === "_acpmux/harnesses_changed") this.onHarnessesChanged?.();
@@ -799,9 +806,11 @@ export class AcpmuxDirectClient {
     else this.emit("session changed");
   }
 
-  /// The selected session is gone: show the most recent remaining one, or none.
+  /// The selected session is gone: a tab bound to its session (`sessionMustExist`) says so;
+  /// any other pane shows the most recent remaining one, or none.
   private selectFallbackSession(reason: string): void {
-    this.selectedSessionId = this.sessions[0]?.sessionId;
+    if (this.host.sessionMustExist) this.missingSession = this.selectedSessionId;
+    this.selectedSessionId = this.host.sessionMustExist ? undefined : this.sessions[0]?.sessionId;
     if (this.selectedSessionId) this.markSeen(this.selectedSessionId);
     const generation = ++this.selectionGeneration;
     this.resetSessionState();
@@ -1053,6 +1062,13 @@ export class AcpmuxDirectClient {
     }
     this.pendingPermission = permission;
     this.emit("permission");
+  }
+
+  /// A live event's stamp, to tell the session's clock from this computer's.
+  private observeClock(sessionId: unknown, at: unknown): void {
+    if (sessionId !== this.selectedSessionId || typeof at !== "number" || !(at > 0)) return;
+    const offset = Date.now() - at;
+    this.clockOffset = this.clockOffset === undefined ? offset : Math.min(this.clockOffset, offset);
   }
 
   private apply(event: EventRecord): void {
@@ -1391,6 +1407,8 @@ export class AcpmuxDirectClient {
       origin: this.origin,
       sessionId: this.selectedSessionId,
       isWorking: this.turnOpen || summary?.status === "running",
+      // Only a peer runs on another clock; this computer's own sessions need no correction.
+      ...(summary?.peer && this.clockOffset !== undefined ? { clockOffsetMs: this.clockOffset } : {}),
       canFork: this.canFork,
       canHandoff: this.handoffSupported,
       handoff: this.handoff.state,
@@ -1718,6 +1736,12 @@ export class AcpmuxDirectClient {
       this.routeTrustRefusal(error);
     });
   }
+  /// Resumes `adopt` in this pane now (a chat whose folder was missing, after Choose Folder): the
+  /// same path as an adopt on connect, so a trust refusal asks the question (the trust route).
+  async resume(adopt: AcpmuxAdopt): Promise<string | undefined> {
+    await this.adoptChat(adopt);
+    return this.adopted;
+  }
   /** The session an adopt on connect resumed, for the host to keep as the tab's session. */
   adopted?: string;
   /// Resumes the outside chat the host named, once. A session that didn't adopt it (an acpmux
@@ -1922,7 +1946,9 @@ const gestureMeta = (ticket?: string) => (ticket ? { _meta: { cmuxGesture: ticke
 /// Why acpmux says a harness will not start: its launcher check, else its failed model probe.
 /// A prompt acpmux refused because the session's folder has no Trust answer (`trust_gate.rs`).
 export function isTrustRefusal(error: unknown): boolean {
-  return trustRefusal(error) !== undefined;
+  // The reasons acpmux's trust gate writes (trust_gate.rs; checked against trust_gate.json).
+  const reason = (error as { reason?: unknown } | null)?.reason;
+  return reason === "trust.pending" || reason === "trust.untrusted";
 }
 
 /// What a trust refusal names: its reason and the folder acpmux asks about.
@@ -1931,10 +1957,9 @@ export type TrustRefusal = { reason: "trust.pending" | "trust.untrusted"; cwd?: 
 export type TrustRoute = (refusal: TrustRefusal, again?: () => void) => void;
 
 export function trustRefusal(error: unknown): TrustRefusal | undefined {
-  const fields = error as { reason?: unknown; cwd?: unknown } | null;
-  const reason = fields?.reason;
-  if (reason !== "trust.pending" && reason !== "trust.untrusted") return undefined;
-  return { reason, ...(typeof fields?.cwd === "string" && fields.cwd ? { cwd: fields.cwd } : {}) };
+  if (!isTrustRefusal(error)) return undefined;
+  const fields = error as { reason: TrustRefusal["reason"]; cwd?: unknown };
+  return { reason: fields.reason, ...(typeof fields.cwd === "string" && fields.cwd ? { cwd: fields.cwd } : {}) };
 }
 
 export function harnessRefusal(entry: { unavailable?: unknown; probeError?: unknown } | undefined): string | undefined {

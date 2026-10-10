@@ -43,13 +43,13 @@ extension WebKitDriver {
         return .object(["targetId": .string(tab.id.rawValue)])
     }
 
-    func tabsClose(_ params: DriverParams) throws(DriverError) -> DriverJSON {
+    func tabsClose(_ params: DriverParams) async throws(DriverError) -> DriverJSON {
         if try params.optionalString("reason") == "session_end" {
             // The host closes the session's own tabs at its end, for either engine.
             let id = try params.string("targetId")
             let page = provider?.automationTabs(all: true).first { $0.tab.id.rawValue == id }?.tab
             // A tab the app keeps stays driven; only a tab that closes leaves the session.
-            guard provider?.endSessionTab(id) == true else { return .null }
+            guard await provider?.endSessionTab(id) == true else { return .null }
             if let page {
                 AgentWorld.uninstall(from: page.webView.configuration.userContentController)
                 tabClosed(page.id)
@@ -77,9 +77,12 @@ extension WebKitDriver {
 
     /// Selecting a tab changes the user's view, so the host passes it only
     /// for origin `user` or `focus: true`.
+    /// The App owns selection for both engines: a Chromium tab it lets
+    /// agents drive is accepted too (the WebKit driver never holds it).
     func tabsActivate(_ params: DriverParams) throws(DriverError) -> DriverJSON {
-        let (tab, _) = try target(params)
-        provider?.activateAutomationTab(tab.id)
+        let raw = try params.string("targetId")
+        guard let provider, provider.isDrivable(raw) else { throw DriverError(.notFound, "\(params.method): no tab \(raw)") }
+        provider.activateAutomationTab(BrowserTabID(rawValue: raw))
         return .null
     }
 
@@ -108,7 +111,7 @@ extension WebKitDriver {
         let until = LoadState(name: try params.optionalString("waitUntil") ?? "load") ?? .load
         let ticket = session.waits.beginNavigation(requestedURL: url) { tab.startLoad(url) }
         try await session.waits.reach(until, for: ticket, timeout: try params.timeout(), what: "page.goto")
-        return .object(["url": .string(tab.webView.url?.absoluteString ?? raw)])
+        return .object(["url": .string(tab.webView.url?.absoluteString ?? raw)].merging(Self.status(tab)) { $1 })
     }
 
     func tabHistory(_ params: DriverParams) async throws(DriverError) -> DriverJSON {
@@ -121,7 +124,7 @@ extension WebKitDriver {
         let until = LoadState(name: try params.optionalString("waitUntil") ?? "load") ?? .load
         let ticket = session.waits.beginNavigation { delta < 0 ? tab.startGoBack() : tab.startGoForward() }
         try await session.waits.reach(until, for: ticket, timeout: try params.timeout(), what: delta < 0 ? "page.goBack" : "page.goForward")
-        return .object(["url": .string(tab.webView.url?.absoluteString ?? "")])
+        return .object(["url": .string(tab.webView.url?.absoluteString ?? "")].merging(Self.status(tab)) { $1 })
     }
 
     func tabReload(_ params: DriverParams) async throws(DriverError) -> DriverJSON {
@@ -129,47 +132,13 @@ extension WebKitDriver {
         let until = LoadState(name: try params.optionalString("waitUntil") ?? "load") ?? .load
         let ticket = session.waits.beginNavigation { tab.startReload() }
         try await session.waits.reach(until, for: ticket, timeout: try params.timeout(), what: "page.reload")
-        return .object([:])
+        return .object(Self.status(tab))
     }
 
-    func cookiesGet(_ params: DriverParams) async throws(DriverError) -> DriverJSON {
-        let store = try anyTab(params).webView.configuration.websiteDataStore.httpCookieStore
-        let urls = try params.strings("urls").compactMap(URL.init(string:))
-        let cookies = await store.allCookies()
-        return .array(cookies.filter { cookie in urls.isEmpty || urls.contains { Self.cookie(cookie, matches: $0) } }.map(Self.json))
-    }
-
-    func cookiesClear(_ params: DriverParams) async throws(DriverError) -> DriverJSON {
-        let store = try anyTab(params).webView.configuration.websiteDataStore.httpCookieStore
-        for cookie in await store.allCookies() { await store.deleteCookie(cookie) }
-        return .null
-    }
-
-    /// Cookie calls have no target; the session's first tab names the profile.
-    private func anyTab(_ params: DriverParams) throws(DriverError) -> WebKitTab {
-        if params.has("targetId") { return try target(params).0 }
-        guard let tab = provider?.automationTabs(all: false).first?.tab else {
-            throw DriverError(.notFound, "\(params.method): no tab to read cookies from")
-        }
-        return tab
-    }
-
-    private static func cookie(_ cookie: HTTPCookie, matches url: URL) -> Bool {
-        guard let host = url.host?.lowercased() else { return false }
-        let domain = cookie.domain.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
-        guard host == domain || host.hasSuffix("." + domain) else { return false }
-        if cookie.isSecure, url.scheme != "https" { return false }
-        let path = url.path.isEmpty ? "/" : url.path
-        return path == cookie.path || (path.hasPrefix(cookie.path) && (cookie.path.hasSuffix("/") || path.dropFirst(cookie.path.count).hasPrefix("/")))
-    }
-
-    private static func json(_ cookie: HTTPCookie) -> DriverJSON {
-        var row: [String: DriverJSON] = [
-            "name": .string(cookie.name), "value": .string(cookie.value), "domain": .string(cookie.domain),
-            "path": .string(cookie.path), "httpOnly": .bool(cookie.isHTTPOnly), "secure": .bool(cookie.isSecure),
-            "expires": .number(cookie.expiresDate.map { $0.timeIntervalSince1970 } ?? -1),
-        ]
-        if let sameSite = cookie.sameSitePolicy?.rawValue { row["sameSite"] = .string(sameSite.capitalized) }
-        return .object(row)
+    /// `status`: the HTTP status of the page the tab shows, when it came over
+    /// HTTP (`page.goto()` returns a `Response` only then).
+    static func status(_ tab: WebKitTab) -> [String: DriverJSON] {
+        guard let url = tab.webView.url, let status = tab.mainFrameStatuses.status(for: url) else { return [:] }
+        return ["status": .number(Double(status))]
     }
 }

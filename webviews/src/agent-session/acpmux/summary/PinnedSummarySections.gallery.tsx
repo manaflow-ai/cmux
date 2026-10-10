@@ -1,11 +1,11 @@
 // l10n-allow-file: gallery fixtures (section titles, rows and paths), not shipped UI.
-// The pinned summary's custom sections (PINNED-SUMMARY S1) through the same card: a section from the
+// The summary panel's custom sections (PINNED-SUMMARY S1), opened by its play step: a section from the
 // user's config, one from the chat's agent (its links ask before they open), and a failed provider.
 // Drawn by SummaryStage until the host sends sections in the snapshot.
 import { componentEntry } from "../../../gallery/format";
 import { CWD } from "../../../gallery/fixtures/acpmux";
 import type { SummaryCardProps } from "./PinnedSummaryCard";
-import { work } from "./PinnedSummaryCard.gallery";
+import { openPanel, work } from "./PinnedSummaryCard.gallery";
 
 const sectionsBase: SummaryCardProps = { rows: work, project: "atlas-web", folder: CWD };
 
@@ -21,6 +21,7 @@ export default componentEntry<SummaryCardProps>({
   variants: {
     "user-section": {
       note: "A section from the user's config: CI runs as links, a deploy with a badge, a log file in the chat folder.",
+      play: openPanel,
       props: {
         ...sectionsBase,
         sections: [
@@ -57,12 +58,14 @@ export default componentEntry<SummaryCardProps>({
         ],
       },
       play: async (ctx) => {
+        await openPanel(ctx);
         await ctx.click({ selector: '[data-summary-url="https://bench.example.test/run/9"]' });
         await ctx.waitFor(() => ctx.document.querySelector("[data-summary-confirm]"));
       },
     },
     "failed-provider": {
       note: "A provider that failed shows one row with its reason; the rest of the card is unaffected.",
+      play: openPanel,
       props: {
         ...sectionsBase,
         sections: [{ id: "deploys", title: "Deploys", source: "user", error: "command exited 2: not logged in" }],

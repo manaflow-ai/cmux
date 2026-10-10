@@ -1,17 +1,29 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { AgentMark, FOCUS_LOCATION_EVENT, type NewTabHost } from "../NewTabPage";
+import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { FOCUS_LOCATION_EVENT, FolderIcon, type NewTabHost } from "../NewTabPage";
 import type { AcpmuxSnapshot } from "../model";
 import { EMPTY_OMNIBAR, type OmnibarContext } from "../omnibar";
+import { type Project, ProjectChooser } from "../ProjectChooser";
+import { isAgentHome, projectLabel } from "../sessionList";
 import { ChatCards } from "./ChatCards";
+import { defaultModel } from "../harnessSwitch";
 import { useDeviceChats } from "./deviceChats";
-import { recentChatCards, screenRows, shellEntry, type ScreenRow } from "./screenModel";
-import { type NewTabTranslate, useNt } from "./strings";
+import {
+  defaultHarness,
+  initialSelection,
+  recentChatCards,
+  screenRows,
+  shellEntry,
+  stepSelection,
+  type ScreenRow,
+} from "./screenModel";
+import { useNt } from "./strings";
 import { screenSections, type ScreenTemplate } from "./templates";
 import { type Translate, useT } from "../i18n";
 
-/// What the screen asks the host to do. Agent rows stay in the page (the tab becomes the chat).
+/// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 export type NewTabScreenActions = {
-  onAsk(harness: string, text: string): void;
+  /// Enter on a prompt: a chat with `harness` in `cwd` (the project picked on the page).
+  onAsk(harness: string, text: string, cwd?: string): void;
   onOpen(url: string): void;
   onSearch(text: string): void;
   /// Enter in shell mode (`!` first): the page becomes a chat in its folder that runs `command`.
@@ -23,12 +35,15 @@ export type NewTabScreenActions = {
   onShowAll(): void;
   onRunAction?(id: string): void;
   onInputReady?(token: string): void;
-  onOpenFolder?(path: string): void;
   /// The first user input reached the page (the host recycles only an untouched page, R81).
   onTouched?(): void;
   /// Opens the host's Integrate a harness flow (`palette.addHarness`).
   onAddHarness?(): void;
 };
+
+/// The agent's model, effort and speed chip (App's composer chips), for the agent and project a
+/// prompt would start in.
+export type NewTabChips = React.ComponentType<{ snapshot: AcpmuxSnapshot; cwd?: string }>;
 
 type Props = NewTabScreenActions & {
   snapshot: AcpmuxSnapshot;
@@ -40,42 +55,44 @@ type Props = NewTabScreenActions & {
   tools?: NewTabHost["tools"];
   inputToken?: string;
   now?: number;
+  /// The folder the tab inherited: the project picker starts there.
+  cwd?: string;
+  /// The projects the picker offers (App's newTabProjects).
+  projects?: Project[];
+  /// The host's folder panel; resolves with the folder picked, if any.
+  onBrowseProject?(): Promise<string | undefined>;
+  chips?: NewTabChips;
+  /// false: the field does not take the keyboard when the screen appears (Cmd-L gave it to the
+  /// omnibar); Cmd-L on the page still focuses it when the page shows no omnibar.
+  focusField?: boolean;
   /// Which screen template draws the page (newtab/templates.ts); "default" when unset.
   template?: ScreenTemplate;
 };
 
-/// The new tab screen, variant B (plans/cmux-next/new-tab.md): one field that reads what is
-/// typed (`!` a shell command, an address, or a prompt with the installed agents and a web search
-/// row under it; no Search/Ask mode, R86), and the recent chats as cards.
+/// The new tab screen, variant B (plans/cmux-next/new-tab.md): the project and model pickers on
+/// top, then one field that reads what is typed (`!` a shell command, an address, or a prompt for
+/// the picked agent, R86), the rows for addresses and open tabs only when they make sense
+/// (cx-e2aa), and the recent chats as cards. A key typed anywhere on the page goes to the field.
 export function NewTabScreen(props: Props) {
   const nt = useNt();
   const { snapshot, omnibar = EMPTY_OMNIBAR, location, lastAgent, home, now, tools = [], inputToken } = props;
   const template = props.template ?? "default";
   const sections = screenSections(template);
-  const enrichedOmnibar = useMemo(
-    () => ({
-      ...omnibar,
-      sessions: snapshot.sessions.map((session) => ({
-        sessionId: session.sessionId,
-        title: session.displayTitle ?? session.sessionId,
-        harness: session.harness,
-        detail: session.cwd,
-      })),
-    }),
-    [omnibar, snapshot.sessions],
-  );
   const [text, setText] = useState(location ?? "");
   // The location stays a suggestion until edited: no rows for it.
   const [touched, setTouched] = useState(false);
-  const [selected, setSelected] = useState(0);
+  // The highlighted row; -1 is none (Enter is the prompt's).
+  const [selected, setSelected] = useState(-1);
   /// Shell mode: the field holds a command (its `!` shown as the glyph), Enter runs it in a chat.
   const [shell, setShell] = useState(false);
+  const [project, setProject] = useState(props.cwd && !isAgentHome(props.cwd) ? props.cwd : undefined);
   const field = useRef<HTMLInputElement>(null);
   const wholeSelection = useRef(false);
   const composing = useRef(false);
   const inputReported = useRef(false);
   const inputReadyReported = useRef<string | undefined>(undefined);
   const { onInputReady } = props;
+  const focusOnShow = props.focusField !== false;
   const touch = () => {
     if (inputReported.current) return;
     inputReported.current = true;
@@ -85,10 +102,31 @@ export function NewTabScreen(props: Props) {
     () => snapshot.catalog.map((entry) => ({ id: entry.id, name: entry.name })),
     [snapshot.catalog],
   );
-  const rows = useMemo(
-    () => (touched && !shell ? screenRows(text, { agents, omnibar: enrichedOmnibar, lastAgent, home }) : []),
-    [touched, shell, text, agents, enrichedOmnibar, lastAgent, home],
+  // The agent Enter asks: the one picked on the chip (a pick draws it into the summary), else the
+  // remembered one, else the first installed.
+  const harness = snapshot.summary?.harness ?? defaultHarness(agents, lastAgent);
+  const chipSnapshot = useMemo<AcpmuxSnapshot>(
+    () =>
+      snapshot.summary?.harness || !harness
+        ? snapshot
+        : {
+            ...snapshot,
+            summary: {
+              ...snapshot.summary,
+              sessionId: snapshot.summary?.sessionId ?? "",
+              harness,
+              // The agent's default model, named on the chip (its own "default" when none is known yet).
+              model: defaultModel(harness, snapshot.catalog) ?? "default",
+            },
+          },
+    [snapshot, harness],
   );
+  const rows = useMemo(
+    () => (touched && !shell ? screenRows(text, { omnibar, home }) : []),
+    [touched, shell, text, omnibar, home],
+  );
+  // New tabs or pages from the host can shorten the rows under a highlight.
+  const current = selected < rows.length ? selected : -1;
   const t = useT();
   const device = useDeviceChats();
   const cards = useMemo(() => recentChatCards(snapshot.sessions, now, t, device), [snapshot.sessions, now, t, device]);
@@ -97,19 +135,18 @@ export function NewTabScreen(props: Props) {
     if (key && props.onOpenChat) return props.onOpenChat(key);
     props.onOpenSession(id);
   };
-  useEffect(() => setSelected(0), [rows]);
   const list = useRef<HTMLDivElement>(null);
   // The box scrolls past its cap; the selected row stays in view. Only the box scrolls (not the
-  // screen around it, as scrollIntoView would).
-  useEffect(() => {
+  // screen around it, as scrollIntoView would). A callback ref: it runs when a row becomes the
+  // selected one.
+  const keepInView = useCallback((row: HTMLElement | null) => {
     const box = list.current;
-    const row = box?.querySelector<HTMLElement>(`#nt-row-${selected}`);
     if (!box || !row) return;
     const inner = box.getBoundingClientRect();
     const at = row.getBoundingClientRect();
     if (at.top < inner.top) box.scrollTop -= inner.top - at.top;
     else if (at.bottom > inner.bottom) box.scrollTop += at.bottom - inner.bottom;
-  }, [selected, rows]);
+  }, []);
 
   // The field takes the keyboard when the screen appears (in the commit, so an adopted spare's
   // field has focus before the next key) and on Cmd-L (FOCUS_LOCATION_EVENT).
@@ -118,7 +155,7 @@ export function NewTabScreen(props: Props) {
       field.current?.focus();
       field.current?.select();
     };
-    focus();
+    if (focusOnShow) focus();
     if (inputToken && inputReadyReported.current !== inputToken) {
       inputReadyReported.current = inputToken;
       onInputReady?.(inputToken);
@@ -126,12 +163,10 @@ export function NewTabScreen(props: Props) {
     const view = field.current?.ownerDocument.defaultView;
     view?.addEventListener(FOCUS_LOCATION_EVENT, focus);
     return () => view?.removeEventListener(FOCUS_LOCATION_EVENT, focus);
-  }, [inputToken, onInputReady]);
+  }, [inputToken, onInputReady, focusOnShow]);
 
   const activate = (row: ScreenRow) => {
     switch (row.type) {
-      case "agent":
-        return props.onAsk(row.harness, row.text);
       case "search":
         return props.onSearch(row.text);
       case "open":
@@ -139,18 +174,7 @@ export function NewTabScreen(props: Props) {
       case "history":
         return props.onOpen(row.url);
       case "tab":
-      case "workspace":
-        return props.onJump(row.type, row.id);
-      case "session":
-        return props.onOpenSession(row.id);
-      case "folder":
-        return props.onOpenFolder?.(row.path);
-      case "command":
-        return props.onShell(row.command);
-      case "run":
-        return props.onShell(row.text);
-      case "ask":
-        return props.onAsk(lastAgent ?? agents[0]?.id ?? "agent", row.text);
+        return props.onJump("tab", row.id);
     }
   };
   const edit = (next: string) => {
@@ -164,7 +188,43 @@ export function NewTabScreen(props: Props) {
       return;
     }
     setText(next);
+    setSelected(initialSelection(next, home));
   };
+  const submit = () => {
+    const row = rows[current];
+    if (row) return activate(row);
+    const prompt = text.trim();
+    if (!prompt || initialSelection(prompt, home) === 0 || !harness) return;
+    props.onAsk(harness, prompt, project);
+  };
+  // A key typed anywhere on the page goes into the field, the first key kept (Lawrence
+  // 2026-10-09: "if i just start typing it needs to automatically start typing"). Another field
+  // (a picker's search), a menu with its own keys, a chord and IME keep theirs.
+  const typeAnywhere = useRef<(event: KeyboardEvent) => void>(() => undefined);
+  typeAnywhere.current = (event) => {
+    const input = field.current;
+    if (!input || event.defaultPrevented || event.isComposing) return;
+    if (event.metaKey || event.ctrlKey || event.altKey || event.key.length !== 1) return;
+    const target = event.target as Element | null;
+    const element = target && typeof target.closest === "function" ? target : undefined;
+    if (target === input || (element && ownsKeys(element))) return;
+    // Space on a focused button presses it.
+    if (event.key === " " && element?.closest('button, a, summary, [role="button"]')) return;
+    event.preventDefault();
+    input.focus();
+    // A location the page put in the field, still selected, is replaced as a typed key would.
+    const whole = input.value !== "" && input.selectionStart === 0 && input.selectionEnd === input.value.length;
+    wholeSelection.current = whole;
+    edit(whole ? event.key : input.value + event.key);
+  };
+  const screen = useCallback((node: HTMLDivElement | null) => {
+    const document = node?.ownerDocument;
+    if (!document) return;
+    const listener = (event: KeyboardEvent) => typeAnywhere.current(event);
+    // ui-allow: the page's type-to-field rule needs every key that no control on the page takes.
+    document.addEventListener("keydown", listener);
+    return () => document.removeEventListener("keydown", listener);
+  }, []);
   const keyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     touch();
     if (composing.current || event.nativeEvent.isComposing) return;
@@ -183,23 +243,51 @@ export function NewTabScreen(props: Props) {
     }
     wholeSelection.current =
       input.value !== "" && input.selectionStart === 0 && input.selectionEnd === input.value.length;
-    if ((event.key === "ArrowDown" || event.key === "ArrowUp") && rows.length) {
+    const step = listStep(event);
+    if (step && rows.length) {
       event.preventDefault();
-      const step = event.key === "ArrowDown" ? 1 : -1;
-      setSelected((current) => (current + step + rows.length) % rows.length);
+      setSelected(stepSelection(current, step, rows.length));
     } else if (event.key === "Enter") {
       event.preventDefault();
-      const row = rows[selected];
-      if (row) activate(row);
+      submit();
     } else if (event.key === "Escape" && text) {
       event.preventDefault();
       setText("");
+      setSelected(-1);
       setTouched(true);
     }
   };
+  const pickProject = (cwd: string) => {
+    touch();
+    setProject(cwd);
+    field.current?.focus();
+  };
+  const browseProject = props.onBrowseProject
+    ? () => {
+        void props.onBrowseProject?.().then((cwd) => {
+          if (cwd) pickProject(cwd);
+        });
+      }
+    : undefined;
+  const Chips = props.chips;
+  const chatFolder = project ?? props.cwd;
 
   return (
-    <div className="nt-screen" data-shell={shell || undefined} data-template={template}>
+    <div ref={screen} className="nt-screen" data-shell={shell || undefined} data-template={template}>
+      <div className="nt-pickers" onPointerDownCapture={touch}>
+        <ProjectChooser
+          projects={props.projects ?? []}
+          current={project}
+          {...(project ? { currentLabel: projectLabel(project) } : {})}
+          icon={<FolderIcon />}
+          onPick={pickProject}
+          {...(browseProject ? { onBrowse: browseProject } : {})}
+          side="bottom"
+        />
+        {/* The folder Enter asks in (screenActions: the picked project, else the tab's), so a pick's
+            switch is the one Enter reuses. */}
+        {Chips && <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />}
+      </div>
       <div className="nt-box">
         {shell ? (
           <span className="nt-shell-glyph" aria-hidden="true">
@@ -219,7 +307,7 @@ export function NewTabScreen(props: Props) {
           placeholder={shell ? t("composer.shellPlaceholder") : nt("placeholder")}
           value={text}
           aria-controls="nt-rows"
-          aria-activedescendant={rows.length ? `nt-row-${selected}` : undefined}
+          aria-activedescendant={rows[current] ? `nt-row-${current}` : undefined}
           spellCheck={!shell}
           autoCapitalize="off"
           autoCorrect="off"
@@ -240,30 +328,27 @@ export function NewTabScreen(props: Props) {
             <div
               key={rowKey(row)}
               id={`nt-row-${index}`}
+              ref={index === current ? keepInView : undefined}
               // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
               role="option"
               tabIndex={-1}
-              aria-selected={index === selected}
+              aria-selected={index === current}
               data-type={row.type}
-              className={index === selected ? "nt-row is-selected" : "nt-row"}
-              onMouseMove={() => index !== selected && setSelected(index)}
+              className={index === current ? "nt-row is-selected" : "nt-row"}
+              onMouseMove={() => index !== current && setSelected(index)}
               onMouseDown={(event) => {
                 event.preventDefault();
                 activate(row);
               }}
             >
-              {row.type === "agent" ? (
-                <AgentMark harness={row.harness} />
-              ) : (
-                <span className="nt-row-glyph" data-kind={row.type}>
-                  {rowIcon(row)}
-                </span>
-              )}
-              <span className="nt-row-title">{rowTitle(nt, row)}</span>
+              <span className="nt-row-glyph" data-kind={row.type}>
+                {rowIcon(row)}
+              </span>
+              <span className="nt-row-title">{rowTitle(row)}</span>
               {rowDetail(row) && <span className="nt-row-detail">{rowDetail(row)}</span>}
               <span className="nt-row-action">
                 {rowAction(t, row)}
-                {index === selected && <kbd>↵</kbd>}
+                {index === current && <kbd>↵</kbd>}
               </span>
             </div>
           ))}
@@ -280,6 +365,23 @@ export function NewTabScreen(props: Props) {
       {sections.tools && <ToolsSection tools={tools} onRunAction={props.onRunAction} />}
     </div>
   );
+}
+
+/// Down or Ctrl-N is 1, Up or Ctrl-P is -1 (R85: the native list.next keys, here for a field
+/// that is not a list until rows show); anything else undefined.
+function listStep(event: React.KeyboardEvent): 1 | -1 | undefined {
+  if (event.key === "ArrowDown") return 1;
+  if (event.key === "ArrowUp") return -1;
+  if (!event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return undefined;
+  if (event.key === "n") return 1;
+  if (event.key === "p") return -1;
+  return undefined;
+}
+
+/// A control that takes typed keys itself: a text field, or a menu or list with type-ahead.
+function ownsKeys(element: Element): boolean {
+  if ((element as HTMLElement).isContentEditable || element.closest("input, textarea, select")) return true;
+  return element.closest('[role="menu"], [role="listbox"], [role="dialog"], [role="combobox"]') !== null;
 }
 
 function ToolsSection({
@@ -350,22 +452,10 @@ function toolTitle(t: ReturnType<typeof useT>, tool: NonNullable<NewTabHost["too
 
 function rowKey(row: ScreenRow): string {
   switch (row.type) {
-    case "agent":
-      return `agent:${row.harness}`;
     case "tab":
-    case "workspace":
-      return `${row.type}:${row.id}`;
+      return `tab:${row.id}`;
     case "history":
       return `history:${row.url}`;
-    case "session":
-      return `session:${row.id}`;
-    case "folder":
-      return `folder:${row.path}`;
-    case "command":
-      return `command:${row.command}`;
-    case "run":
-    case "ask":
-      return `${row.type}:${row.text}`;
     default:
       return row.type;
   }
@@ -375,68 +465,35 @@ function rowIcon(row: ScreenRow): string {
   switch (row.type) {
     case "tab":
       return "▣";
-    case "workspace":
-      return "▦";
-    case "session":
-      return "◌";
-    case "folder":
-      return "▱";
-    case "command":
-    case "run":
-      return "›_";
     case "history":
       return "◷";
     case "open":
       return "↗";
     case "search":
       return "⌕";
-    case "ask":
-      return "✦";
-    default:
-      return "•";
   }
 }
 
-function rowTitle(nt: NewTabTranslate, row: ScreenRow): string {
+function rowTitle(row: ScreenRow): string {
   switch (row.type) {
-    case "agent":
-      return nt("row.ask", { agent: row.name });
     case "search":
     case "open":
       return row.text;
     case "history":
       return row.title ?? row.url;
-    case "session":
-    case "workspace":
     case "tab":
       return row.title;
-    case "folder":
-      return row.path;
-    case "command":
-      return row.command;
-    case "run":
-    case "ask":
-      return row.text;
-    default:
-      return "";
   }
 }
 
 function rowDetail(row: ScreenRow): string | undefined {
   switch (row.type) {
-    case "agent":
-      return row.text;
     case "open":
       return row.url === row.text ? undefined : row.url;
     case "history":
       return row.title ? row.url.replace(/^https?:\/\/(www\.)?/, "") : undefined;
     case "tab":
-    case "workspace":
-    case "session":
       return row.detail;
-    case "folder":
-    case "command":
-      return undefined;
     default:
       return undefined;
   }
@@ -444,27 +501,12 @@ function rowDetail(row: ScreenRow): string | undefined {
 
 function rowAction(t: Translate, row: ScreenRow): string {
   switch (row.type) {
-    case "agent":
-      return "";
     case "search":
-      return t("newTabPage.row.open");
     case "open":
       return t("newTabPage.row.open");
     case "tab":
       return t("newTabPage.row.tab");
-    case "workspace":
-      return t("newTabPage.row.workspace");
     case "history":
       return t("newTabPage.row.history");
-    case "session":
-      return t("newTabPage.row.session");
-    case "folder":
-      return t("newTabPage.row.folder");
-    case "command":
-      return t("newTabPage.row.command");
-    case "run":
-      return t("newTabPage.row.run");
-    case "ask":
-      return t("newTabPage.ask", { agent: "agent" });
   }
 }

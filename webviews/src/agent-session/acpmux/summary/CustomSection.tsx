@@ -21,7 +21,7 @@ function RowText({ row }: { row: SummaryRow }) {
       {row.state && <span aria-hidden="true" className={`size-1.5 flex-none rounded-full ${STATE_DOT[row.state]}`} />}
       <span className="acpmux-summary-text">
         {row.title}
-        {row.subtitle && <span className="ml-1.5 text-[12px] text-muted">{row.subtitle}</span>}
+        {row.subtitle && <span className="ml-1.5 text-detail text-muted">{row.subtitle}</span>}
       </span>
       {row.badge && <span className="acpmux-summary-meta">{row.badge}</span>}
     </>
@@ -112,19 +112,19 @@ export function CustomSection({
               {asking === row.key && (
                 <div
                   data-summary-confirm
-                  className="mx-2 mb-1 flex items-center gap-2 rounded-lg border border-edge px-2 py-1.5 text-[12px] text-muted"
+                  className="mx-2 mb-1 flex items-center gap-2 rounded-lg border border-edge px-2 py-1.5 text-detail text-muted"
                 >
                   <span className="min-w-0 flex-1 truncate">{t("summary.openHost", { host: link.host })}</span>
                   <button
                     type="button"
-                    className="h-6 cursor-default rounded-md border-0 bg-transparent px-2 font-[inherit] text-[12px] text-muted hover:bg-hover hover:text-fg"
+                    className="h-6 cursor-default rounded-md border-0 bg-transparent px-2 font-[inherit] text-detail text-muted hover:bg-hover hover:text-fg"
                     onClick={() => setAsking(undefined)}
                   >
                     {t("summary.cancel")}
                   </button>
                   <a
                     href={link.url}
-                    className="flex h-6 items-center rounded-md bg-hover px-2 text-[12px] text-fg no-underline"
+                    className="flex h-6 items-center rounded-md bg-hover px-2 text-detail text-fg no-underline"
                     onClick={() => {
                       setAsking(undefined);
                       onFollow?.();

@@ -20,7 +20,7 @@ enum WireCoding {
         let line = try encoder().encode(RequestEnvelope(id: id, request: request))
         guard let verbatim = request as? any VerbatimFieldsRequest,
               case .object(var fields) = try JSONDecoder().decode(JSONValue.self, from: line) else { return line }
-        for (name, value) in verbatim.verbatimFields { fields[name] = value }
+        for (name, value) in verbatim.verbatimFields { fields.updateValue(value, forKey: name) }
         let plain = JSONEncoder()
         plain.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         return try plain.encode(JSONValue.object(fields))

@@ -38,6 +38,9 @@ pub enum ColumnDockError {
     /// `permanent-dock-v1`: the change would undock, move or replace a
     /// permanent column.
     PermanentColumn,
+    /// The change would make a column that holds more than one pane the
+    /// agent chat dock, which holds one.
+    AgentChatColumn,
     /// The durable commit failed; details are reported as a status event.
     CommitFailed,
 }
@@ -47,6 +50,7 @@ impl ColumnDockError {
     pub const LAST_SCROLLING_CODE: &'static str = "dock-column-last-scrolling";
     pub const INVALID_ARGUMENT_CODE: &'static str = "invalid-argument";
     pub const PERMANENT_CODE: &'static str = PERMANENT_COLUMN_CODE;
+    pub const AGENT_CHAT_CODE: &'static str = AGENT_CHAT_COLUMN_CODE;
 
     pub fn code(&self) -> Option<&'static str> {
         match self {
@@ -56,6 +60,7 @@ impl ColumnDockError {
             Self::LastScrollingColumn => Some(Self::LAST_SCROLLING_CODE),
             Self::InvalidArgument { .. } => Some(Self::INVALID_ARGUMENT_CODE),
             Self::PermanentColumn => Some(Self::PERMANENT_CODE),
+            Self::AgentChatColumn => Some(Self::AGENT_CHAT_CODE),
             Self::CommitFailed => None,
         }
     }
@@ -83,6 +88,9 @@ impl fmt::Display for ColumnDockError {
             Self::NoSuchColumn { index } => write!(formatter, "no viewport column {index}"),
             Self::PermanentColumn => formatter.write_str(
                 "the column is permanent: it stays docked on its edge and cannot be replaced or removed",
+            ),
+            Self::AgentChatColumn => formatter.write_str(
+                "the agent chat dock holds one pane: a column with more panes cannot become it",
             ),
             Self::CommitFailed => formatter.write_str("could not persist the dock column"),
         }
@@ -188,12 +196,23 @@ pub(crate) fn reduce_column_dock(
 
 /// Sets the flag of `columns[index]` through [`reduce_column_dock`] and
 /// writes the resulting flags back. On a reject the columns are unchanged.
-/// Shared by `set-column-dock` and the resource op `column.update`.
+/// Shared by `set-column-dock` and the resource op `column.update`. A column
+/// that holds more than one pane cannot become the agent chat dock; one that
+/// already is (a record written before that rule) keeps its role.
 pub(crate) fn apply_column_dock(
     columns: &mut [LayoutColumn],
     index: usize,
     dock: Option<ColumnDock>,
 ) -> Result<(), ColumnDockError> {
+    let chat =
+        |flag: Option<ColumnDock>| flag.is_some_and(|flag| flag.role == Some(DockRole::AgentChat));
+    if let Some(column) = columns.get(index)
+        && chat(dock)
+        && !chat(column.dock)
+        && column.root.pane_ids_vec().len() > 1
+    {
+        return Err(ColumnDockError::AgentChatColumn);
+    }
     let flags = reduce_column_dock(&column_flags(columns), index, dock)?;
     write_column_flags(columns, flags);
     Ok(())

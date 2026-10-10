@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useMemo, useRef } from "react";
+import React, { useMemo } from "react";
 import { Menu, MenuButton, MenuCheckboxItem, MenuPopup } from "../../../ui/Menu";
 import { Counts } from "../changes/Counts";
 import { useT } from "../i18n";
@@ -26,68 +26,49 @@ export type SummaryPanelProps = {
   folder?: string;
   sections?: readonly SummarySectionInput[];
   galleryCount?: number;
+  /// The last turn that edited files, with its counts (App's lastChanges); without it the row sums the outputs.
+  changes?: { additions: number; deletions: number };
   onOpenOutput?: (path: string) => void;
   onOpenChanges?: () => void;
   onAddSource?: () => void;
   onOpenGallery?: () => void;
   onFollow?: () => void;
-  /// The pin control: pins the card (popover) or unpins it (card). Unset in a narrow pane.
-  pin?: { pinned: boolean; onToggle(): void };
-  /// The popover focuses its first enabled row on open; the pinned card never takes focus.
-  focusFirstRow?: boolean;
+  /// Closes the docked panel (its close button).
+  onClose?: () => void;
 };
 
-/// The chat summary's content, the same in the header popover and the pinned card (PINNED-SUMMARY
-/// P2-P6): the project with the pin control and the sections menu, the Changes row, the plan,
-/// the built-in sections and the custom ones (S1). The menu hides and shows each section.
+/// The chat summary's content in the docked panel (PINNED-SUMMARY P1'-P6): the project with the sections menu
+/// and the close button, the Changes row, the plan, the built-in sections and the custom ones (S1). The menu
+/// hides and shows each section.
 export function SummaryPanel({
   summary,
   project,
   folder,
   sections = [],
   galleryCount,
+  changes,
   onOpenOutput,
   onOpenChanges,
   onAddSource,
   onOpenGallery,
   onFollow,
-  pin,
-  focusFirstRow = false,
+  onClose,
 }: SummaryPanelProps) {
   const t = useT();
-  const top = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    if (!focusFirstRow) return;
-    const scope = top.current?.parentElement;
-    scope?.querySelector<HTMLElement>(".acpmux-summary-link:not(:disabled), a[href]")?.focus();
-  }, [focusFirstRow]);
   const [hidden, setHidden] = useHiddenSections();
   const custom = useMemo(() => sections.map((section) => sanitizeSection(section, folder)), [sections, folder]);
-  const additions = summary.outputs.reduce((sum, file) => sum + (file.additions ?? 0), 0);
-  const deletions = summary.outputs.reduce((sum, file) => sum + (file.deletions ?? 0), 0);
+  const additions = changes?.additions ?? summary.outputs.reduce((sum, file) => sum + (file.additions ?? 0), 0);
+  const deletions = changes?.deletions ?? summary.outputs.reduce((sum, file) => sum + (file.deletions ?? 0), 0);
   const menuItems = [
     ...BUILTIN_SECTIONS.map((id) => ({ id, title: t(`summary.${id}`) })),
     ...custom.map((section) => ({ id: section.id, title: section.title })),
   ];
   return (
     <>
-      <div ref={top} className="flex h-8 items-center gap-1 pr-0.5 pl-2">
-        <span className="min-w-0 flex-1 truncate text-[13px] text-muted" title={folder}>
+      <div className="flex h-8 items-center gap-1 pr-0.5 pl-2">
+        <span className="min-w-0 flex-1 truncate text-body text-muted" title={folder}>
           {project}
         </span>
-        {pin && (
-          <button
-            type="button"
-            data-summary-pin
-            className="grid size-6 cursor-default place-items-center rounded-md border-0 bg-transparent p-0 text-muted hover:bg-hover hover:text-fg"
-            aria-pressed={pin.pinned}
-            aria-label={pin.pinned ? t("summary.unpin") : t("summary.pin")}
-            title={pin.pinned ? t("summary.unpin") : t("summary.pin")}
-            onClick={pin.onToggle}
-          >
-            <Icon name={pin.pinned ? "state.pinned" : "action.pin"} size={ROW_ICON} />
-          </button>
-        )}
         <Menu>
           <MenuButton
             className="grid size-6 cursor-default place-items-center rounded-md border-0 bg-transparent p-0 text-muted hover:bg-hover hover:text-fg"
@@ -107,6 +88,18 @@ export function SummaryPanel({
             ))}
           </MenuPopup>
         </Menu>
+        {onClose && (
+          <button
+            type="button"
+            data-summary-close
+            className="grid size-6 cursor-default place-items-center rounded-md border-0 bg-transparent p-0 text-muted hover:bg-hover hover:text-fg"
+            aria-label={t("summary.close")}
+            title={t("summary.close")}
+            onClick={onClose}
+          >
+            <Icon name="action.close" size={ROW_ICON} />
+          </button>
+        )}
       </div>
       <ul className="acpmux-summary-list">
         <li>
@@ -119,7 +112,7 @@ export function SummaryPanel({
           >
             <Icon name="diff.file" size={ROW_ICON} row />
             <span className="acpmux-summary-text">{t("summary.changes")}</span>
-            {summary.outputs.length > 0 && (
+            {(summary.outputs.length > 0 || changes) && (
               <>
                 <span className="acpmux-summary-meta">{summary.outputs.length}</span>
                 <Counts additions={additions} deletions={deletions} />

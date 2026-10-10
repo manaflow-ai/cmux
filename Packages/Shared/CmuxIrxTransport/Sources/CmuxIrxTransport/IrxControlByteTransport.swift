@@ -108,13 +108,14 @@ public actor IrxControlByteTransport: CmxByteTransport {
         closeCode: IrxCloseCode,
         establish: @escaping Establish,
         onClose: OnClose? = nil,
-        permitsIO: @escaping @Sendable () async -> Bool = { true },
+        permitsIO: (@Sendable () async -> Bool)? = nil,
         controlRepairDeadline: Duration = IrxProtocol().controlRepairDeadline
     ) {
         self.closeCode = closeCode
         self.establish = establish
         self.onClose = onClose
-        self.permitsIO = permitsIO
+        // Not a closure-literal default: see IrxPeerEngine.init (cx-bsue).
+        self.permitsIO = permitsIO ?? { true }
         self.controlRepairDeadline = controlRepairDeadline
     }
 
