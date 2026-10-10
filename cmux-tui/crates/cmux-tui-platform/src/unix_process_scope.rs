@@ -451,6 +451,22 @@ impl UnixProcessScope {
         Ok(())
     }
 
+    /// Pauses the final scan once (journal_hooks' behavior test of a
+    /// descendant in a new session uses it).
+    #[cfg(all(feature = "test-support", target_os = "linux"))]
+    pub fn final_scan_gate_for_test(&mut self) -> (mpsc::Receiver<()>, mpsc::SyncSender<()>) {
+        let (reached, reached_receiver) = mpsc::sync_channel(1);
+        let (resume, resume_receiver) = mpsc::sync_channel(1);
+        self.track_before_finalization = false;
+        self.kernel_group_fence = false;
+        self.final_scan_gate = Some(FinalScanTestGate {
+            reached,
+            resume: Arc::new(Mutex::new(resume_receiver)),
+            used: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        });
+        (reached_receiver, resume)
+    }
+
     fn resume_root(&self) -> io::Result<()> {
         let root = self.root.ok_or_else(|| {
             io::Error::new(io::ErrorKind::InvalidInput, "process scope is unbound")
