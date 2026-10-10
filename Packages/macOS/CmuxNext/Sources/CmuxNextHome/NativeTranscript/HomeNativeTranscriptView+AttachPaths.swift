@@ -78,6 +78,8 @@ extension HomeNativeTranscriptView {
     public func debugMenuTitles(mine: Bool) -> [String]? { transcript.debugMenuTitles(mine: mine) }
     /// The field's height and the gap under the newest receipt, in points.
     public func debugGeometry() -> [String: Double] { transcript.debugGeometry() }
+    /// Clicks the first shown link whose URL starts with `prefix` (the click's path); its URL.
+    public func debugClickLink(prefix: String) -> String? { transcript.debugClickLink(prefix: prefix) }
     /// Scrolls the transcript by `dy` points through AppKit's scroll view.
     public func debugScroll(by dy: CGFloat) { transcript.debugScroll(by: dy) }
 }

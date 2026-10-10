@@ -48,7 +48,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     }
 
     /// `debug.home.drive` {action: focus | type | send | tapback | video | scroll
-    /// | menu | geometry, text, dy, mine}: drives the shown Home through its own entry points (the
+    /// | menu | geometry | link, text, dy, mine, prefix}: drives the shown Home through its own entry points (the
     /// field's text system, Return's send, the tapback picker's react, the
     /// scroll view) for screenshots and recordings on a window that is
     /// never key.
@@ -61,6 +61,10 @@ final class DebugHomeNativeFixture: InternalPageProvider {
         case "menu":
             let titles = view.debugMenuTitles(mine: params["mine"]?.boolValue ?? false) ?? []
             return .object(["ok": .bool(!titles.isEmpty), "items": .array(titles.map { .string($0) })])
+        case "link":
+            // A click on the first shown link with this prefix (a Chief subagent's `cmux://chief/`).
+            let url = view.debugClickLink(prefix: params["prefix"]?.stringValue ?? "https://")
+            return .object(["ok": .bool(url != nil), "url": url.map { .string($0) } ?? .null])
         case "geometry":
             return .object(["ok": .bool(true), "geometry": .object(view.debugGeometry().mapValues { .number($0) })])
         case "focus": ok = view.window?.makeFirstResponder(view.primaryInput) ?? false
@@ -72,7 +76,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
         case "tapback": ok = view.debugTapbackNewestIncoming()
         case "video": ok = view.debugToggleNewestVideo()
         case "scroll": view.debugScroll(by: CGFloat(params["dy"]?.doubleValue ?? -400)); ok = true
-        default: return .object(["error": .string("action must be focus, type, send, tapback, video, scroll, menu or geometry")])
+        default: return .object(["error": .string("action must be focus, type, send, tapback, video, scroll, menu, geometry or link")])
         }
         return .object(["ok": .bool(ok)])
     }
