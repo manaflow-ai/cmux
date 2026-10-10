@@ -1,6 +1,6 @@
 public import CmuxUpdater
 import os
-import Synchronization
+import CmuxNextCompat
 
 /// The updater's diagnostic trace: unified logging (subsystem
 /// `com.cmuxterm.app.next`, category `updater`) plus the last lines in

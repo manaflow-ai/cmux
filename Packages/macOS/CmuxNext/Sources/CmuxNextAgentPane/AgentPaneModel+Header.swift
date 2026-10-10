@@ -8,13 +8,17 @@ public struct AgentPaneHeaderHooks {
     public var run: @MainActor (String, String?) -> Void
     public var toggle: @MainActor (String, String?) -> Void
     public var tabState: @MainActor () -> [String: Any]
+    /// Opens acpmux session `id` in a new split beside the chat's tab (New side chat).
+    public var openSide: @MainActor (String) -> Void
 
     public init(run: @escaping @MainActor (String, String?) -> Void,
                 toggle: (@MainActor (String, String?) -> Void)? = nil,
-                tabState: @escaping @MainActor () -> [String: Any]) {
+                tabState: @escaping @MainActor () -> [String: Any],
+                openSide: @escaping @MainActor (String) -> Void = { _ in }) {
         self.run = run
         self.toggle = toggle ?? run
         self.tabState = tabState
+        self.openSide = openSide
     }
 }
 
@@ -45,6 +49,8 @@ extension AgentPaneModel {
             return AgentPaneReply.success(header.tabState())
         case .archive(let archived):
             return await archive(archived)
+        case .sideChat(let fork):
+            return await openSideChat(fork)
         default:
             return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request")
         }
@@ -66,6 +72,24 @@ extension AgentPaneModel {
         return AgentPaneReply.success()
     }
 
+    /// New side chat: `fork` must be a session this pane made (its fork's reply put it in the
+    /// pane's scope), never the chat itself. It is tagged `side` with the chat's session, which
+    /// keeps it off the lists, then opened in a split beside the chat.
+    private func openSideChat(_ fork: String) async -> [String: Any] {
+        guard let sessionId, newTab == nil, fork != sessionId, transport.sessions.contains(fork), let header else {
+            return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.sideChat")
+        }
+        do {
+            try await transport.tagSession(fork, [Self.sideTag: sessionId], [])
+        } catch {
+            return AgentPaneReply.failure(code: "failed", message: "\(error)")
+        }
+        header.openSide(fork)
+        return AgentPaneReply.success()
+    }
+
     /// The tag the pane's lists read (sessionList.ts `ARCHIVED_TAG`).
     static let archivedTag = "archived"
+    /// The tag that marks a side chat, valued with its chat's session (sessionList.ts `SIDE_TAG`).
+    static let sideTag = "side"
 }
