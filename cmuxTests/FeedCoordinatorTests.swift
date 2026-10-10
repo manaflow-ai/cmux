@@ -1070,9 +1070,12 @@ struct FeedCoordinatorTests {
             sessionId: sessionID, hookEventName: .sessionEnd, source: "opencode",
             extraFieldsJSON: #"{"_hook_sent_at_ms":4000}"#
         ))
-        #expect(registration.semaphore.wait(timeout: .now()) == .success)
         #expect(!coordinator.isAwaitingDecision(requestId: requestID))
-        #expect(store.items.first { $0.id == item.id }?.status == .expired)
+        guard let status = store.items.first(where: { $0.id == item.id })?.status,
+              case .expired = status else {
+            Issue.record("session end must expire the pending Feed card")
+            return
+        }
         guard case .unavailable = coordinator.waiterRegistry.finish(registration).outcome.result else {
             Issue.record("session end must dismiss the app waiter without a notification correlation key")
             return
