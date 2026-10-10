@@ -138,7 +138,47 @@ struct CloudWorkspaceTargetingTests {
         #expect(fixture.manager.rememberedCloudWorkspaceSelection?.machineID == "a")
     }
 
-    @Test("Shift-Command-Y dispatches the configured action to the last selected Cloud machine")
+    @Test("Clicking a Cloud row immediately replaces the previous shortcut context")
+    func clickedCloudRowWinsBeforeProjection() throws {
+        let fixture = CloudWorkspaceTargetingFixture()
+        defer { fixture.close() }
+        let local = try #require(fixture.manager.selectedWorkspace)
+        fixture.manager.recordCloudWorkspaceSelection(machineID: .cloud("first"))
+        fixture.manager.selectWorkspace(local)
+        fixture.manager.recordCloudWorkspaceSelection(machineID: .cloud("second"))
+        fixture.manager.selectWorkspace(local)
+        #expect(fixture.manager.rememberedCloudWorkspaceSelection?.machineID == "second")
+        #expect(fixture.manager.rememberedCloudWorkspaceSelection?.workspaceID == nil)
+    }
+
+    @Test("A later materialized Cloud selection replaces an older provisional click")
+    func materializedCloudSelectionReplacesProvisionalClick() throws {
+        let fixture = CloudWorkspaceTargetingFixture()
+        defer { fixture.close() }
+        let local = try #require(fixture.manager.selectedWorkspace)
+        fixture.manager.recordCloudWorkspaceSelection(machineID: .cloud("pending"))
+        let materialized = try fixture.workspace(machineID: "materialized")
+        fixture.manager.selectWorkspace(materialized)
+        fixture.manager.selectWorkspace(local)
+        #expect(fixture.manager.rememberedCloudWorkspaceSelection?.machineID == "materialized")
+        #expect(fixture.manager.rememberedCloudWorkspaceSelection?.workspaceID == materialized.id)
+    }
+
+    @Test("Cmd-Y preserves a clicked Cloud machine while its row is still opening")
+    func shortcutUsesClickedMachineBeforeProjection() async throws {
+        let fixture = CloudWorkspaceTargetingFixture()
+        defer { fixture.close() }
+        let local = try #require(fixture.manager.selectedWorkspace)
+        let first = try fixture.workspace(machineID: "a")
+        fixture.manager.selectWorkspace(first)
+        fixture.manager.selectWorkspace(local)
+        fixture.manager.recordCloudWorkspaceSelection(machineID: .cloud("b"))
+        #expect(fixture.app.performNewCloudWorkspaceOnResolvedMachineAction(tabManager: fixture.manager))
+        await fixture.app.cloudWorkspaceOperationController?.waitForPendingOperations()
+        #expect(fixture.requests.map(\.machineID) == ["b"])
+    }
+
+    @Test("Command-Y dispatches the configured action to the last selected Cloud machine")
     func actualShortcut() async throws {
 #if DEBUG
         let previousStore = KeyboardShortcutSettings.installIsolatedTestFileStore(prefix: "cloud-workspace-target")
@@ -158,7 +198,7 @@ struct CloudWorkspaceTargetingTests {
         KeyboardShortcutSettings.resetShortcut(for: .newCloudWorkspace)
         fixture.app.debugResetShortcutRoutingStateForTesting()
         let event = try #require(NSEvent.keyEvent(
-            with: .keyDown, location: .zero, modifierFlags: [.command, .shift], timestamp: 0,
+            with: .keyDown, location: .zero, modifierFlags: [.command], timestamp: 0,
             windowNumber: window.windowNumber, context: nil, characters: "Y",
             charactersIgnoringModifiers: "y", isARepeat: false, keyCode: 16
         ))

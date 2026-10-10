@@ -10,6 +10,10 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .rightSidebarTool
     let mode: RightSidebarMode
+    /// The panel keeps this store for its full lifetime. A panel can move to a
+    /// different window while a removal is running; swapping to that window's
+    /// store would lose the tombstone before the authoritative read confirms it.
+    let coderouterStore: CoderouterAccountStore
 
     @Published private(set) var focusFlashToken: Int = 0
 
@@ -26,6 +30,8 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     init(workspace: Workspace, mode: RightSidebarMode) {
         self.id = UUID()
         self.mode = mode
+        self.coderouterStore = workspace.owningTabManager?.coderouterAccountStore
+            ?? CoderouterAccountStore()
         reattach(to: workspace)
     }
 
@@ -273,7 +279,8 @@ struct RightSidebarToolPanelView: View {
                     machinePinStore: AppDelegate.shared?.cloudMachinePinStore,
                     tabManager: tabManager,
                     activationCoordinator: AppDelegate.shared?.cloudActivationCoordinator
-                        ?? CloudActivationCoordinator.unconfigured()
+                        ?? CloudActivationCoordinator.unconfigured(),
+                    coderouterStore: panel.coderouterStore
                 )
             }
         case .feed, .dock, .customSidebar:

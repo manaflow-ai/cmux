@@ -412,9 +412,13 @@ final class CloudTreeNSOutlineView: NSOutlineView {
         disclosureScope.perform(item: item, recursive: expandChildren) {
             NSAnimationContext.beginGrouping()
             NSAnimationContext.current.duration = 0
+            NSAnimationContext.current.allowsImplicitAnimation = false
             super.expandItem(item, expandChildren: expandChildren)
             expandOpenTabRows(under: item)
             NSAnimationContext.endGrouping()
+            // The outline's row map is updated synchronously. Let the host
+            // resize its scroll document on the next layout pass instead of
+            // doing a full container layout inside the pointer event.
             onDocumentContentChanged?()
         }
     }
@@ -432,6 +436,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
         disclosureScope.perform(item: item, recursive: collapseChildren) {
             NSAnimationContext.beginGrouping()
             NSAnimationContext.current.duration = 0
+            NSAnimationContext.current.allowsImplicitAnimation = false
             super.collapseItem(item, collapseChildren: collapseChildren)
             NSAnimationContext.endGrouping()
             onDocumentContentChanged?()

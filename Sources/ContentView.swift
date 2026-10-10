@@ -1678,7 +1678,7 @@ struct ContentView: View {
             onSendFeedback: presentFeedbackComposer,
             onToggleSidebar: { sidebarState.toggle() },
             onNewTab: {
-                AppDelegate.shared?.performNewWorkspaceAction(
+                AppDelegate.shared?.performNewLocalWorkspaceAction(
                     tabManager: tabManager,
                     debugSource: "titlebar.hiddenNewWorkspace"
                 )
@@ -2030,7 +2030,7 @@ struct ContentView: View {
                 )
             },
             onNewTab: {
-                AppDelegate.shared?.performNewWorkspaceAction(
+                AppDelegate.shared?.performNewLocalWorkspaceAction(
                     tabManager: tabManager,
                     debugSource: "titlebar.fullscreenNewWorkspace"
                 )
@@ -5828,7 +5828,8 @@ struct ContentView: View {
             onDidMutate: {},
             onFailure: { _ in NSSound.beep() },
             refresh: {},
-            workspaceCreationHost: { CloudWorkspaceCreationHost(manager: self.tabManager) }
+            workspaceCreationHost: { CloudWorkspaceCreationHost(manager: self.tabManager) },
+            recordCloudWorkspaceSelection: { self.tabManager.recordCloudWorkspaceSelection(machineID: $0) }
         )
         actions.openWorkspace(target.machine, target.workspace, target.group)
     }
@@ -8904,7 +8905,7 @@ struct ContentView: View {
         }
 
         registry.register(commandId: "palette.newWorkspace") {
-            AppDelegate.shared?.performNewWorkspaceAction(
+            AppDelegate.shared?.performNewLocalWorkspaceAction(
                 tabManager: tabManager,
                 debugSource: "palette.newWorkspace"
             )
@@ -16300,7 +16301,7 @@ struct TabItemView: View, Equatable {
                         .padding(.trailing, SidebarCompactStatusGlyph.titleSpacing - titleRowSpacing)
                 }
 
-                SidebarCloudWorkspaceBadgeView(label: detailVisibility.showsBranchDirectory ? workspaceSnapshot.remoteWorkspaceBadgeLabel : nil, pointSize: scaledFontSize(10), tint: activeSecondaryColor(0.7), symbol: workspaceSnapshot.remoteWorkspaceBadgeSymbol)
+                SidebarCloudWorkspaceBadgeView(label: settings.showsCloudDeviceIcons && !settings.hidesAllDetails ? workspaceSnapshot.remoteWorkspaceBadgeLabel : nil, pointSize: scaledFontSize(10), tint: activeSecondaryColor(0.7), symbol: workspaceSnapshot.remoteWorkspaceBadgeSymbol)
 
                 if isEditing {
                     SidebarInlineRenameField(

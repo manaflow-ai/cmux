@@ -11,7 +11,7 @@ import Testing
 @testable import cmux
 #endif
 
-/// New Cloud Workspace (Cmd+Shift+Y): the shortcut catalog entry, the plus-menu
+/// New Cloud Workspace (Cmd+Y): the shortcut catalog entry, the plus-menu
 /// rows with their live shortcut hints, and the shared action every
 /// entrypoint routes through.
 @MainActor
@@ -60,6 +60,7 @@ final class NewCloudWorkspaceShortcutTests {
     private func restoreState() {
         for suite in preferenceSuites { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
         KeyboardShortcutSettings.resetShortcut(for: .newCloudWorkspace)
+        KeyboardShortcutSettings.resetShortcut(for: .newCloudMachine)
         if let originalFileStore {
             KeyboardShortcutSettings.settingsFileStore = originalFileStore
         }
@@ -88,7 +89,7 @@ final class NewCloudWorkspaceShortcutTests {
 
     // MARK: Shortcut catalog
 
-    @Test func testDefaultShortcutIsShiftCommandYAndDoesNotCollide() {
+    @Test func testDefaultShortcutIsCommandYAndDoesNotCollide() {
         defer { restoreState() }
         let action = KeyboardShortcutSettings.Action.newCloudWorkspace
         #expect(action.label == "New Cloud Workspace")
@@ -99,10 +100,10 @@ final class NewCloudWorkspaceShortcutTests {
         let shortcut = action.defaultShortcut
         #expect(shortcut.key == "y")
         #expect(shortcut.command)
-        #expect(shortcut.shift)
+        #expect(!shortcut.shift)
         #expect(!shortcut.option)
         #expect(!shortcut.control)
-        #expect(shortcut.displayString == "⇧⌘Y")
+        #expect(shortcut.displayString == "⌘Y")
 
         for other in KeyboardShortcutSettings.Action.allCases where other != action {
             let otherDefault = other.defaultShortcut
@@ -111,10 +112,10 @@ final class NewCloudWorkspaceShortcutTests {
         }
     }
 
-    @Test func testNewCloudMachineUsesCommandY() {
+    @Test func testNewCloudMachineUsesShiftCommandY() {
         defer { restoreState() }
         let action = KeyboardShortcutSettings.Action.newCloudMachine
-        #expect(action.defaultShortcut == StoredShortcut(key: "y", command: true, shift: false, option: false, control: false))
+        #expect(action.defaultShortcut == StoredShortcut(key: "y", command: true, shift: true, option: false, control: false))
         #expect(action.label == "New Cloud Machine")
     }
 
@@ -123,7 +124,7 @@ final class NewCloudWorkspaceShortcutTests {
         let settingsAction = try #require(
             ShortcutAction(rawValue: KeyboardShortcutSettings.Action.newCloudWorkspace.rawValue)
         )
-        #expect(settingsAction.defaultStroke == ShortcutStroke(key: "y", command: true, shift: true))
+        #expect(settingsAction.defaultStroke == ShortcutStroke(key: "y", command: true))
         #expect(settingsAction.displayName == KeyboardShortcutSettings.Action.newCloudWorkspace.label)
         #expect(settingsAction.group == .workspace)
         #expect(ShortcutAction.settingsVisibleActions.contains(settingsAction))
@@ -215,12 +216,12 @@ final class NewCloudWorkspaceShortcutTests {
             #expect(leading == [.newWorkspace, .newCloudWorkspace, .newCloudMachine, .newTerminal, .newBrowser])
 
             let hints = Dictionary(uniqueKeysWithValues: rows.map { ($0.action, $0.item) })
-            #expect(hints[.newWorkspace]?.keyEquivalent == "")
-            #expect(hints[.newWorkspace]?.keyEquivalentModifierMask == [])
+            #expect(hints[.newWorkspace]?.keyEquivalent == "n")
+            #expect(hints[.newWorkspace]?.keyEquivalentModifierMask == [.command])
             #expect(hints[.newCloudWorkspace]?.keyEquivalent == "y")
-            #expect(hints[.newCloudWorkspace]?.keyEquivalentModifierMask == [.command, .shift])
+            #expect(hints[.newCloudWorkspace]?.keyEquivalentModifierMask == [.command])
             #expect(hints[.newCloudMachine]?.keyEquivalent == "y")
-            #expect(hints[.newCloudMachine]?.keyEquivalentModifierMask == [.command])
+            #expect(hints[.newCloudMachine]?.keyEquivalentModifierMask == [.command, .shift])
             #expect(hints[.newTerminal]?.keyEquivalent == "t")
             #expect(hints[.newTerminal]?.keyEquivalentModifierMask == [.command])
             #expect(hints[.newBrowser]?.keyEquivalent == "l")
@@ -358,12 +359,47 @@ final class NewCloudWorkspaceShortcutTests {
     }
 
 #if DEBUG
-    @Test func testCommandYRoutesThroughSharedMachineAction() async throws {
+    @Test func testCommandNRoutesToLocalWorkspaceWhenCloudWorkspaceIsSelected() throws {
+        defer { restoreState() }
+        let windowFixture = NewCloudWorkspaceShortcutWindowFixture(); defer { windowFixture.cleanup() }
+        let appDelegate = windowFixture.appDelegate
+        let manager = windowFixture.tabManager
+        let selected = try #require(manager.selectedWorkspace)
+        selected.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "selected-machine", isBase: false)
+        let originalCount = manager.tabs.count
+        appDelegate.debugResetShortcutRoutingStateForTesting(clearFocusedWindowOverride: false)
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: windowFixture.window.windowNumber,
+            context: nil,
+            characters: "n",
+            charactersIgnoringModifiers: "n",
+            isARepeat: false,
+            keyCode: 45 // kVK_ANSI_N
+        ))
+
+        #expect(appDelegate.debugHandleCustomShortcut(event: event))
+        #expect(manager.tabs.count == originalCount + 1)
+        #expect(manager.selectedWorkspace?.cloudVMID == nil)
+    }
+
+    @Test func testCommandYRoutesThroughResolvedCloudWorkspaceAction() async throws {
         defer { restoreState() }
         let windowFixture = NewCloudWorkspaceShortcutWindowFixture(); defer { windowFixture.cleanup() }
         let appDelegate = windowFixture.appDelegate; setCloudMachinesEnabled(true)
         let presenter = RecordingSheetPresenter()
-        installDependencies(on: appDelegate, presenter: presenter)
+        var requestCount = 0
+        appDelegate.cloudWorkspaceCoordinator = CloudWorkspaceCoordinator(
+            machinePinStore: pinStore(),
+            allowsOperation: { true },
+            loadMachines: { ["machine-a"] },
+            createWorkspace: { _ in requestCount += 1; return UUID() }
+        )
+        appDelegate.newMachineSheetPresenter = presenter
+        appDelegate.cloudWorkspaceOperationController = CloudWorkspaceOperationController(isAvailable: { true })
         // Shortcut routing bypasses an event bound to a window this delegate
         // cannot resolve (the app host's key window), so route the keystroke
         // through a registered main window like the rebind test does.
@@ -387,6 +423,32 @@ final class NewCloudWorkspaceShortcutTests {
             charactersIgnoringModifiers: "y",
             isARepeat: false,
             keyCode: 16 // kVK_ANSI_Y
+        ))
+        #expect(appDelegate.debugHandleCustomShortcut(event: event))
+        await appDelegate.cloudWorkspaceOperationController?.waitForPendingOperations()
+        #expect(requestCount == 1)
+        #expect(presenter.presentCount == 0)
+    }
+
+    @Test func testCommandShiftYRoutesThroughNewMachineAction() async throws {
+        defer { restoreState() }
+        let windowFixture = NewCloudWorkspaceShortcutWindowFixture(); defer { windowFixture.cleanup() }
+        let appDelegate = windowFixture.appDelegate; setCloudMachinesEnabled(true)
+        let presenter = RecordingSheetPresenter()
+        installDependencies(on: appDelegate, presenter: presenter)
+        KeyboardShortcutSettings.resetShortcut(for: .newCloudMachine)
+        appDelegate.debugResetShortcutRoutingStateForTesting(clearFocusedWindowOverride: false)
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command, .shift],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: windowFixture.window.windowNumber,
+            context: nil,
+            characters: "Y",
+            charactersIgnoringModifiers: "y",
+            isARepeat: false,
+            keyCode: 16
         ))
         #expect(appDelegate.debugHandleCustomShortcut(event: event))
         await appDelegate.cloudWorkspaceOperationController?.waitForPendingOperations()
@@ -421,7 +483,7 @@ final class NewCloudWorkspaceShortcutTests {
         defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowID) }
 
         #expect(appDelegate.performNewCloudWorkspaceOnResolvedMachineAction(tabManager: manager, debugSource: "test.first"))
-        #expect(!appDelegate.performNewCloudWorkspaceOnResolvedMachineAction(tabManager: manager, debugSource: "test.duplicate"), "a second Cmd+Shift+Y must not create another remote workspace while the first is attaching")
+        #expect(!appDelegate.performNewCloudWorkspaceOnResolvedMachineAction(tabManager: manager, debugSource: "test.duplicate"), "a second Cmd+Y must not create another remote workspace while the first is attaching")
         for _ in 0..<20 where releaseCreate == nil {
             await Task.yield()
         }
@@ -471,8 +533,8 @@ final class NewCloudWorkspaceShortcutTests {
             ))
         }
 
-        #expect(!appDelegate.debugHandleCustomShortcut(event: try keyEvent("y", [.command, .shift], 16)))
-        #expect(presenter.presentCount == 0, "the old ⇧⌘Y binding must not fire after a rebind")
+        #expect(!appDelegate.debugHandleCustomShortcut(event: try keyEvent("y", [.command], 16)))
+        #expect(presenter.presentCount == 0, "the old ⌘Y binding must not fire after a rebind")
 
         #expect(appDelegate.debugHandleCustomShortcut(event: try keyEvent("K", [.command, .shift], 40)))
         await appDelegate.cloudWorkspaceOperationController?.waitForPendingOperations()
@@ -483,9 +545,87 @@ final class NewCloudWorkspaceShortcutTests {
     @Test func testCommandPaletteNewMachineAdvertisesShortcut() {
         defer { restoreState() }
         #expect(ContentView.commandPaletteShortcutAction(forCommandID: ContentView.commandPaletteCloudNewMachineCommandId) == .newCloudMachine)
+        #expect(ContentView.commandPaletteShortcutAction(forCommandID: ContentView.commandPaletteCloudNewWorkspaceCommandId) == .newCloudWorkspace)
     }
 
-    @Test func testNewWorkspaceCapturesSelectedMachineAndDoesNotFallBackToLocalOnRepeat() async throws {
+    @Test func testCommandYDoesNotFallbackForProviderFailure() async throws {
+        defer { restoreState() }
+        setCloudMachinesEnabled(true)
+        let appDelegate = AppDelegate()
+        let presenter = RecordingSheetPresenter()
+        let manager = TabManager()
+        let windowID = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowID) }
+        appDelegate.newMachineSheetPresenter = presenter
+        enum ProviderFailure: Error { case unavailable }
+        appDelegate.cloudWorkspaceCoordinator = CloudWorkspaceCoordinator(
+            machinePinStore: pinStore(),
+            allowsOperation: { true },
+            loadMachines: { ["machine-a"] },
+            createWorkspace: { _ in throw ProviderFailure.unavailable }
+        )
+        appDelegate.cloudWorkspaceOperationController = CloudWorkspaceOperationController(isAvailable: { true })
+
+        #expect(appDelegate.performNewCloudWorkspaceOnResolvedMachineAction(
+            tabManager: manager,
+            debugSource: "test.providerFailure"
+        ))
+        await appDelegate.cloudWorkspaceOperationController?.waitForPendingOperations()
+        #expect(presenter.presentCount == 0)
+    }
+
+    @Test func testCommandYDoesNotFallbackAfterSuccessfulCreateWhenAccessChanges() async throws {
+        defer { restoreState() }
+        setCloudMachinesEnabled(true)
+        let appDelegate = AppDelegate()
+        let presenter = RecordingSheetPresenter()
+        let manager = TabManager()
+        let windowID = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowID) }
+        appDelegate.newMachineSheetPresenter = presenter
+        var available = true
+        appDelegate.cloudWorkspaceCoordinator = CloudWorkspaceCoordinator(
+            machinePinStore: pinStore(),
+            allowsOperation: { available },
+            loadMachines: { ["machine-a"] },
+            createWorkspace: { _ in
+                available = false
+                return UUID()
+            }
+        )
+        appDelegate.cloudWorkspaceOperationController = CloudWorkspaceOperationController(isAvailable: { true })
+
+        #expect(appDelegate.performNewCloudWorkspaceOnResolvedMachineAction(
+            tabManager: manager,
+            debugSource: "test.accessAfterCreate"
+        ))
+        await appDelegate.cloudWorkspaceOperationController?.waitForPendingOperations()
+        #expect(presenter.presentCount == 0)
+    }
+
+    @Test func testCommandYFallsBackToNewMachineWhenCloudContextIsMissing() async throws {
+        defer { restoreState() }
+        setCloudMachinesEnabled(true)
+        let appDelegate = AppDelegate()
+        let presenter = RecordingSheetPresenter()
+        appDelegate.newMachineSheetPresenter = presenter
+        appDelegate.cloudWorkspaceCoordinator = CloudWorkspaceCoordinator(
+            machinePinStore: pinStore(),
+            allowsOperation: { true },
+            loadMachines: { [] },
+            createWorkspace: { _ in
+                Issue.record("No Cloud machine should be targeted when the fleet is empty")
+                return UUID()
+            }
+        )
+        appDelegate.cloudWorkspaceOperationController = CloudWorkspaceOperationController(isAvailable: { true })
+
+        #expect(appDelegate.performNewCloudWorkspaceOnResolvedMachineAction(debugSource: "test.noCloudContext"))
+        await appDelegate.cloudWorkspaceOperationController?.waitForPendingOperations()
+        #expect(presenter.presentCount == 1)
+    }
+
+    @Test func testNewLocalWorkspaceDoesNotTargetSelectedCloudMachine() async throws {
         defer { restoreState() }
         let app = AppDelegate()
         let manager = TabManager()
@@ -505,14 +645,14 @@ final class NewCloudWorkspaceShortcutTests {
         app.cloudWorkspaceOperationController = CloudWorkspaceOperationController(isAvailable: { true })
         let windowID = app.registerMainWindowContextForTesting(tabManager: manager)
         defer { app.unregisterMainWindowContextForTesting(windowId: windowID) }
-        #expect(app.performNewWorkspaceAction(tabManager: manager))
-        #expect(!app.performNewWorkspaceAction(tabManager: manager))
+        #expect(app.performNewLocalWorkspaceAction(tabManager: manager, debugSource: "test.cmdN"))
+        #expect(app.performNewLocalWorkspaceAction(tabManager: manager, debugSource: "test.cmdN.repeat"))
         await app.cloudWorkspaceOperationController?.waitForPendingOperations()
-        #expect(targets == ["selected-machine"])
-        #expect(manager.tabs.map(\.id) == originalIDs)
+        #expect(targets.isEmpty)
+        #expect(manager.tabs.map(\.id).count == originalIDs.count + 2)
     }
 
-    @Test func testUnavailableCloudDoesNotCreateLocalWorkspace() throws {
+    @Test func testCmdNStillCreatesLocalWorkspaceWhenCloudIsUnavailable() throws {
         defer { restoreState() }
         let windowFixture = NewCloudWorkspaceShortcutWindowFixture(); defer { windowFixture.cleanup() }
         let app = windowFixture.appDelegate; let manager = windowFixture.tabManager
@@ -521,7 +661,8 @@ final class NewCloudWorkspaceShortcutTests {
         let originalIDs = manager.tabs.map(\.id)
         let windowID = app.registerMainWindowContextForTesting(tabManager: manager)
         defer { app.unregisterMainWindowContextForTesting(windowId: windowID) }
-        #expect(!app.performNewWorkspaceAction(tabManager: manager))
-        #expect(manager.tabs.map(\.id) == originalIDs)
+        #expect(app.performNewLocalWorkspaceAction(tabManager: manager, debugSource: "test.cmdN.unavailableCloud"))
+        #expect(manager.tabs.map(\.id).count == originalIDs.count + 1)
+        #expect(manager.selectedWorkspace?.cloudVMID == nil)
     }
 }

@@ -225,6 +225,9 @@ class TabManager: ObservableObject {
     }
     let workspaceSwitchCoordinator = WorkspaceSwitchCoordinator()
     let cloudWorkspaceSelection: CloudWorkspaceSelectionState
+    /// Shared by the inline Cloud sidebar and any Cloud tool pane in this
+    /// window so CodeRouter reads and removals never overlap.
+    let coderouterAccountStore = CoderouterAccountStore()
 
     var tabs: [Workspace] {
         get { workspaces.tabs }
@@ -2291,7 +2294,8 @@ class TabManager: ObservableObject {
         initialBrowserURL: URL? = nil,
         initialBrowserOmnibarVisible: Bool = true,
         initialBrowserTransparentBackground: Bool = false,
-        applyCreationTitleAsCustomTitle: Bool = true
+        applyCreationTitleAsCustomTitle: Bool = true,
+        inheritWorkingDirectory: Bool? = nil
     ) -> Workspace? {
         workspaceGrouping.createWorkspaceInGroup(
             groupId: groupId,
@@ -2303,7 +2307,8 @@ class TabManager: ObservableObject {
             initialBrowserURL: initialBrowserURL,
             initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
             initialBrowserTransparentBackground: initialBrowserTransparentBackground,
-            applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
+            applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle,
+            inheritWorkingDirectory: inheritWorkingDirectory
         )
     }
 
@@ -4561,6 +4566,23 @@ class TabManager: ObservableObject {
     /// Select the previous surface in the currently focused pane of the selected workspace
     func selectPreviousSurface() {
         selectedWorkspace?.selectPreviousSurface()
+    }
+
+    /// Previous/Next (Cmd-Shift-[ / Cmd-Shift-], Ctrl-Tab / Ctrl-Shift-Tab, the View menu): steps
+    /// the focused pane's tabs when it holds two or more, wrapping inside the pane; otherwise moves
+    /// to the previous or next sidebar workspace, wrapping at the ends (Leo 2026-10-09, rapid
+    /// switching). `dock` is the focused Dock, whose pane follows the same rule. Next/Previous Tab
+    /// in Pane and Next/Previous Workspace stay explicit.
+    func stepTabOrWorkspace(forward: Bool, dock: DockSplitStore? = nil) {
+        if let dock {
+            if dock.focusedPaneHasTabsToStep {
+                _ = dock.performShortcutCommand(forward ? .selectNextSurface : .selectPreviousSurface)
+                return
+            }
+        } else if selectedWorkspace?.stepFocusedPaneTab(forward: forward) == true {
+            return
+        }
+        if forward { selectNextTab() } else { selectPreviousTab() }
     }
 
     /// Select a surface by index in the currently focused pane of the selected workspace
