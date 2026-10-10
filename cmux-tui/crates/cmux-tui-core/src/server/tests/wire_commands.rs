@@ -613,24 +613,14 @@ fn placement_commands_accept_a_caller_terminal_id_env_and_cwd() {
         assert!(created["surface"].as_u64().is_some(), "{command}: {created}");
         let resolved = mux.resolve_terminal(&terminal_id).unwrap().unwrap();
         assert_eq!(resolved.surface, created["surface"].as_u64(), "{command}");
+        // `split-client-keys-v1`: a pane creation keyed by its terminal id replays an identical
+        // retry (covered over the socket in terminal_host_recovery/split_client_keys.rs).
         if command == "new-tab" {
             assert!(
                 run_json_command(&mux, request).is_err(),
                 "{command} reused an existing terminal id"
             );
-            continue;
         }
-        // `split-client-keys-v1`: a pane creation is keyed by its terminal id,
-        // so the same request replays the first result and another request
-        // with that id is refused.
-        let retry = run_json_command(&mux, request.clone()).unwrap();
-        assert_eq!(retry["surface"], created["surface"], "{command}: {retry}");
-        assert_eq!(retry["replayed"], json!(true), "{command}: {retry}");
-        request["cwd"] = json!("/");
-        assert!(
-            run_json_command(&mux, request).is_err(),
-            "{command} reused an existing terminal id for another request"
-        );
     }
     for bad in ["not-hex", "00000000000000008000000000000001"] {
         let error = run_json_command(&mux, json!({"cmd":"new-tab","pane":pane,"terminal_id":bad}))

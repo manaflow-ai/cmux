@@ -23,10 +23,36 @@ enum HomeMarkdownPolicy {
         done.withLock { was in
             guard !was else { return }
             was = true
-            // Only http, https and mailto become links: Home allows no extra scheme.
+            // Only http, https and mailto become links, and one app form: a Chief
+            // subagent's link (HomeAppLinks), which a click hands to the app.
             MarkdownLinkPolicy.extraSchemes = []
+            MarkdownLinkPolicy.extraRule = HomeAppLinks.isSubagentLink
             MarkdownImages.provider = images
         }
+    }
+}
+
+/// cmux: the app links Home renders. One form only: a Chief subagent's chat,
+/// `cmux://chief/<home id>/session/<session id>` (optchat-chief `workspaces::subagent_link`;
+/// home id 8 lowercase hex digits, session id 1 to 200 of `A-Za-z0-9-_.`; no user, port,
+/// query or fragment). A click never goes to the system: the host's `onAppLink` runs it
+/// (the app's `link.open`, for its own Chief's subagents only).
+public struct HomeAppLinks {
+    public init() {}
+    public static let scheme = "cmux"
+
+    /// Whether `url` is a Chief subagent link (Home makes it a link and a click opens it in the app).
+    public static func isSubagentLink(_ url: URL) -> Bool {
+        guard url.scheme == scheme, let c = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              c.user == nil, c.password == nil, c.port == nil, c.query == nil, c.fragment == nil,
+              c.host == "chief" else { return false }
+        let parts = c.percentEncodedPath.split(separator: "/", omittingEmptySubsequences: false)
+        guard parts.count == 4, parts[0].isEmpty, parts[2] == "session" else { return false }
+        let home = parts[1].utf8, session = parts[3].utf8
+        return home.count == 8 && home.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
+            && (1...200).contains(session.count) && session.allSatisfy { b in
+                (48...57).contains(b) || (65...90).contains(b) || (97...122).contains(b) || b == 45 || b == 95 || b == 46
+            }
     }
 }
 

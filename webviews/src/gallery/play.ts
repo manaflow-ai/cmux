@@ -57,6 +57,8 @@ export type PlayChecks = {
   anchorMovePx?: { value: number; reason: string };
   longFrameFailMs?: { value: number; reason: string };
   layoutShiftMax?: { value: number; reason: string };
+  /** Maximum action-to-settled wall time for each measured play step. */
+  settleMaxMs?: { value: number; reason: string };
   /**
    * Popup layer problems (judgePopups) warn by default while the matrix baseline is unknown;
    * `true` makes them fail (a UI-tournament round's screening sets it), `false` turns them off.
@@ -156,6 +158,7 @@ export function judgeStep(
   const movePx = checks.anchorMovePx?.value ?? DEFAULT_CHECKS.anchorMovePx;
   const failMs = checks.longFrameFailMs?.value ?? DEFAULT_CHECKS.longFrameFailMs;
   const shiftMax = checks.layoutShiftMax?.value ?? DEFAULT_CHECKS.layoutShiftMax;
+  const settleMax = checks.settleMaxMs?.value;
   for (const move of measured.anchorMoves)
     if (move.delta > movePx) problems.push(`anchor ${move.anchor} moved ${move.delta.toFixed(1)} px (limit ${movePx})`);
   const failing = measured.longFrames.filter((ms) => ms > failMs);
@@ -164,6 +167,8 @@ export function judgeStep(
     problems.push(`${failing.length} frame(s) over ${failMs} ms (longest ${Math.max(...failing).toFixed(1)} ms)`);
   if (measured.layoutShift > shiftMax)
     problems.push(`layout shift ${measured.layoutShift.toFixed(4)} (limit ${shiftMax})`);
+  if (settleMax !== undefined && measured.settleMs > settleMax)
+    problems.push(`settle latency ${measured.settleMs.toFixed(1)} ms (limit ${settleMax} ms)`);
   const popupProblems = checks.popupLayer?.value === false ? [] : (measured.popupProblems ?? []);
   if (checks.popupLayer?.value === true) problems.push(...popupProblems);
   const warn = measured.longFrames.some((ms) => ms > DEFAULT_CHECKS.longFrameReportMs) || popupProblems.length > 0;

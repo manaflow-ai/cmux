@@ -10,11 +10,13 @@ import { inDO } from "./team-ssh-support.ts"
  * change nothing: a 200 without an items array, or with a malformed item, never empties the team.
  */
 describe("Stack member list answers are read strictly", { timeout: 60_000 }, () => {
-  const realStack = (stackTeam: string, members: unknown) =>
+  const realStack = (stackTeam: string, members: unknown, permissions: unknown = { is_paginated: false, items: [] }) =>
     stackServer({ STACK_SECRET_SERVER_KEY: "k", STACK_PROJECT_ID: PROJECT } as unknown as Env, async (req) => {
       const path = new URL(req.url).pathname
       if (path.endsWith(`/teams/${stackTeam}`)) return Response.json({ id: stackTeam, display_name: "Acme" })
       if (path.endsWith("/team-member-profiles")) return Response.json(members)
+      // The member list is read with each member's team permissions (cx-3bi.4).
+      if (path.endsWith("/team-permissions")) return Response.json(permissions)
       return new Response("{}", { status: 404 })
     })!
 
@@ -39,7 +41,7 @@ describe("Stack member list answers are read strictly", { timeout: 60_000 }, () 
   it("a well-formed list still mirrors (control)", async () => {
     const t = await mirroredTeam()
     await inDO(teamStub(t.team), async (instance) => {
-      instance.stack = realStack(t.stackTeam, { is_paginated: false, items: [{ team_id: t.stackTeam, user_id: t.stackUser, display_name: "Aziz" }] })
+      instance.stack = realStack(t.stackTeam, { is_paginated: false, items: [{ team_id: t.stackTeam, user_id: t.stackUser, display_name: "Aziz" }] }, { is_paginated: false, items: [{ id: "team_member", user_id: t.stackUser, team_id: t.stackTeam }] })
     })
     expect((await deliver("team.updated", { id: t.stackTeam, display_name: "Acme", profile_image_url: null, created_at_millis: 0 })).status).toBe(200)
     expect(await memberRow(t.team, t.user)).toMatchObject({ user: t.user })

@@ -109,7 +109,7 @@ export function SessionSidebar({
   return (
     <OpenSessions.Provider value={openIds}>
       <nav className="acpmux-sidebar" id="acpmux-sidebar" data-list-keyboard aria-label={t("sidebar.label")}>
-        <div className="acpmux-rail">
+        <div className="acpmux-rail" data-list-keyboard>
           <RailButton label={t("picker.newChat")} title={t("picker.newChat")} onClick={onNewChat} icon="home" />
 
           <RailButton
@@ -195,8 +195,10 @@ function RailButton({
   onClick?: () => void;
 }) {
   const t = useT();
+  const keyboard = listRowKeyboardProps(".acpmux-rail-button:not(:disabled)", (row) => row.click());
   return (
     <button
+      {...keyboard}
       type="button"
       className="acpmux-rail-button"
       aria-label={dot ? t("sidebar.needsInput", { label }) : label}

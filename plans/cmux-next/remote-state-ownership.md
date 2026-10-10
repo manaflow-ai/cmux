@@ -36,6 +36,11 @@ These override the text below where they differ.
   only what split and new-tab need.
 - A8 Each slice reports its numbers against the budgets B1 to B6.
 - A9 (coordinator, 2026-10-09): the federation daemon half is not superseded by this design; it is slice S9, after S1.
+- A10 (chief, Q1 answered 2026-10-09): option (a). The SSH remote-sidecar stamps the verified
+  device id it authenticated on each mux connection it opens, and the client-id namespace is
+  derived from that verified identity, so the namespace also holds for remote clients. Not in S1
+  (S1 lands global uniqueness + request fingerprint); slice S1b does it (LINK + CORE: cmux-remote
+  sidecar stamp, daemon connection identity, namespace check in `client_ids.rs`).
 - Process: CORE slices land one at a time; the coordinator requests each token from a gated SHA.
   Before S6 the coordinator sends this doc to Leo. This doc lands with the first slice.
 

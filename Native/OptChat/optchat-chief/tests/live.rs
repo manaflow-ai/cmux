@@ -211,6 +211,7 @@ fn the_acpmux_compactor_builds_a_node_through_claude_sr() {
     }
     context.push_str("</chat>");
     let request = CompactRequest {
+        imported: false,
         node: NodeId::new(0, 100_000),
         system: system.clone(),
         context: context.clone(),
@@ -522,6 +523,7 @@ fn two_turns_and_two_nodes_through_local_acp() {
     context.push_str("</chat>");
     for k in 0..2u64 {
         let request = CompactRequest {
+            imported: false,
             node: NodeId::new(0, 200_000 + k),
             system: config.prompt.text(&config.agent),
             context: context.clone(),

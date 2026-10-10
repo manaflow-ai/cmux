@@ -85,7 +85,7 @@ extension WindowManager {
             let prior = WindowProfiles.visible(previous[window.id] ?? window.workspaceIDs, profile: state.profileID, machines: machines)
             let pick = WindowRegistry.repairedSelection(current: state.workspaceID, previous: prior,
                                                         members: visible, preferred: wanted)
-            if state.workspaceID != pick { select(pick, in: state) }
+            if state.workspaceID != pick { select(pick, in: state, keepsCreation: true) }
         }
     }
 
@@ -104,11 +104,11 @@ extension WindowManager {
         noteInvariantViolations(problems)
     }
 
-    /// Sets the window's shown workspace (its own state).
-    func select(_ workspaceID: String?, in state: WindowState) {
+    /// Sets the window's shown workspace (its own state); see `WindowState.showWorkspace(_:keepsCreation:)`.
+    func select(_ workspaceID: String?, in state: WindowState, keepsCreation: Bool = false) {
         if let workspaceID { enterProfile(of: workspaceID, in: state) }
         if let workspaceID, let machine = services.machines.daemon(forWorkspace: workspaceID)?.machineID { state.machineID = machine }
-        state.showWorkspace(workspaceID)
+        state.showWorkspace(workspaceID, keepsCreation: keepsCreation || services.cloud.creations.opens(workspaceID, shownIn: state))
         recordSaver.stateDidChange(state)
     }
 

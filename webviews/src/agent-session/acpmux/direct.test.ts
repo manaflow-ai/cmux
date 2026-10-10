@@ -490,6 +490,65 @@ describe("direct client session state", () => {
     client.close();
   });
 
+  test("a tab's recorded session that a recreated daemon lacks never shows another chat of that name", async () => {
+    // P1 2026-10-09: a recreated Chief home's acpmux reused the subagent's session name for a
+    // compactor session; the old tab showed it. The tab names its session by id only.
+    ScriptedSocket.respond = ({ method, params }) => {
+      if (method === "_acpmux/watch")
+        return {
+          sessions: [{ sessionId: "compactor-new", name: "optchat-sub-h1-a1", title: "Compaction: merge lines" }],
+        };
+      if (method === "_acpmux/attach") return attachReply(params.sessionId);
+      return {};
+    };
+    const client = await AcpmuxDirectClient.connect(
+      { ...host, sessionId: "old-a1", sessionMustExist: true },
+      (snapshot) => snapshots.push(snapshot),
+    );
+    await settle();
+    expect(latest().sessionId).toBeUndefined();
+    expect(latest().missingSession).toBe("old-a1");
+    expect(ScriptedSocket.current.sent.map((request) => request.method)).not.toContain("_acpmux/attach");
+    client.close();
+  });
+
+  test("a strict tab whose session is purged says so, never shows the next chat", async () => {
+    const client = await AcpmuxDirectClient.connect({ ...host, sessionMustExist: true }, (snapshot) =>
+      snapshots.push(snapshot),
+    );
+    await settle();
+    expect(latest().sessionId).toBe("a");
+    ScriptedSocket.current.notify("_acpmux/session_changed", { kind: "purged", session: { sessionId: "a" } });
+    await settle();
+    expect(latest().sessionId).toBeUndefined();
+    expect(latest().missingSession).toBe("a");
+    expect(latest().rows).toEqual([]);
+    expect(
+      ScriptedSocket.current.sent
+        .filter((request) => request.method === "_acpmux/attach")
+        .map((r) => r.params.sessionId),
+    ).toEqual(["a"]);
+    client.close();
+  });
+
+  test("a strict tab whose session vanishes from a reread says so, never shows the next chat", async () => {
+    const client = await AcpmuxDirectClient.connect({ ...host, sessionMustExist: true }, (snapshot) =>
+      snapshots.push(snapshot),
+    );
+    await settle();
+    ScriptedSocket.respond = ({ method, params }) => {
+      if (method === "_acpmux/watch") return { sessions: [{ sessionId: "b" }] };
+      if (method === "_acpmux/attach") return attachReply(params.sessionId);
+      return {};
+    };
+    ScriptedSocket.current.notify("_acpmux/lagged", { sessionIds: [], watch: true, dropped: 1 });
+    await settle();
+    await settle();
+    expect(latest().sessionId).toBeUndefined();
+    expect(latest().missingSession).toBe("a");
+    client.close();
+  });
+
   test("without the link's strictness a missing session still falls back to the latest chat", async () => {
     const client = await AcpmuxDirectClient.connect({ ...host, sessionId: "bogus" }, (snapshot) =>
       snapshots.push(snapshot),

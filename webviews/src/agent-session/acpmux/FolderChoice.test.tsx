@@ -35,3 +35,11 @@ test("the line hides without the offer, after the first turn, in the Quick Compo
   expect(showsFolderChoice({ ...base, quick: true })).toBe(false);
   expect(showsFolderChoice({ ...base, projectDraft: "/Users/me/project" })).toBe(false);
 });
+
+// nxdog84: a chat that opened without its folder shows its own missing-folder line (Choose
+// Folder there); the private-folder line under it repeated the same offer.
+test("the missing-folder line replaces the private-folder line", () => {
+  const offered = { offered: true, freshChat: true, quick: false, projectDraft: undefined };
+  expect(showsFolderChoice({ ...offered, missingFolder: true })).toBe(false);
+  expect(showsFolderChoice({ ...offered, missingFolder: false })).toBe(true);
+});

@@ -42,6 +42,51 @@ import Testing
         #expect(queue.stats.executed == 0)
     }
 
+    /// cx-asb1 tab switch timeline: a control request waited for the next
+    /// display frame even on an idle queue (request to run about 6.5 ms of a
+    /// 13 ms tab switch). The first request after idle runs on the next main
+    /// run loop turn (`scheduleSoon`); work left after a drain still waits
+    /// for frames, so a flood stays frame-budgeted.
+    @MainActor @Test func aRequestOnAnIdleQueueRunsWithoutWaitingForAFrame() {
+        let frames = SoonFrameSource()
+        let queue = MainActorWorkQueue(frameSource: frames)
+        let reply = Shared<Int?>(nil)
+        Task.detached {
+            let value = try await queue.run(method: "tab.focus", deadline: .now + .seconds(5)) { 7 }
+            reply.withLock { $0 = value }
+        }
+        // Main run loop turns only; no frame fires.
+        let end = ContinuousClock.now + .seconds(3)
+        while reply.withLock({ $0 }) == nil, ContinuousClock.now < end {
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+        }
+        #expect(reply.withLock { $0 } == 7, "ran on a main run loop turn without a frame")
+        #expect(frames.frameRequests == 0)
+    }
+
+    @MainActor @Test func workLeftAfterADrainWaitsForAFrame() {
+        let frames = SoonFrameSource()
+        // A zero budget runs exactly one item per drain.
+        let queue = MainActorWorkQueue(limits: .init(frameBudget: .zero), frameSource: frames)
+        let deadline = ContinuousClock.now + .seconds(10)
+        for index in 0..<3 {
+            Task.detached { _ = try await queue.run(connection: ControlConnectionID(rawValue: 1), method: "w\(index)", deadline: deadline) { index } }
+        }
+        let end = ContinuousClock.now + .seconds(3)
+        // All three are queued before the main run loop turns.
+        while queue.stats.pending < 3, ContinuousClock.now < end { usleep(1_000) }
+        while queue.stats.executed < 1, ContinuousClock.now < end {
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+        }
+        #expect(queue.stats.executed == 1, "the first item ran without a frame")
+        #expect(queue.stats.pending == 2, "the rest waits for frames")
+        while queue.stats.pending > 0, ContinuousClock.now < end {
+            frames.fire()
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+        }
+        #expect(queue.stats.executed == 3)
+    }
+
     @Test func connectionsAreServedRoundRobin() async throws {
         let frames = ManualFrameSource()
         // A zero budget runs exactly one item per frame.

@@ -10,6 +10,7 @@ fn resource_public_id_known(registry: &WorkspaceRegistry, public_id: &str) -> an
     use rusqlite::OptionalExtension;
     Ok(registry
         .connection
+        .get()
         .query_row(
             "SELECT 1 FROM resource_identities WHERE public_id = ?1",
             [public_id],

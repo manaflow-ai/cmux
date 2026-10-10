@@ -158,21 +158,22 @@ impl Mux {
     where
         F: FnOnce() -> anyhow::Result<()>,
     {
+        // Lock order: workspace registry -> registry connection -> state.
+        // The writer takes only the connection lock, so a request thread
+        // that holds the registry or state never waits behind this commit's
+        // fsync unless it needs the connection itself.
+        let writer_commit =
+            crate::workspace_registry::registry_connection::JournalWriterCommitScope::enter();
         let stats = self.journal_ingress.stats();
         stats.set_phase(crate::diagnostics::WriterPhase::WaitingLock);
         let lock_wait_from = Instant::now();
-        let lock_result = self
-            .workspace_registry
-            .lock_until(deadline)
-            .context("waiting for the workspace registry journal writer");
+        let connection = self.registry_connection.get_until(deadline);
         let lock_wait = lock_wait_from.elapsed();
-        let mut registry = match lock_result {
-            Ok(registry) => registry,
-            Err(error) => {
-                stats.commit_finished(lock_wait, Duration::ZERO);
-                stats.set_phase(crate::diagnostics::WriterPhase::Idle);
-                return Err(error);
-            }
+        let Some(connection) = connection else {
+            stats.commit_finished(lock_wait, Duration::ZERO);
+            stats.set_phase(crate::diagnostics::WriterPhase::Idle);
+            return Err(anyhow::Error::from(crate::JournalContention::MUTEX_DEADLINE)
+                .context("waiting for the workspace registry connection (journal writer)"));
         };
         stats.set_phase(crate::diagnostics::WriterPhase::Committing);
         let commit_from = Instant::now();
@@ -180,14 +181,16 @@ impl Mux {
         let commits = if remaining.is_zero() {
             Err(crate::JournalContention::COMMIT_DEADLINE.into())
         } else {
-            registry.append_journal_ingress_events_with_deadline(
+            self.registry_connection.append_journal_ingress_events_with_deadline(
+                &connection,
                 events,
                 deadline,
                 remaining.min(sqlite_wait_cap),
                 admit_commit,
             )
         };
-        drop(registry);
+        drop(connection);
+        drop(writer_commit);
         stats.commit_finished(lock_wait, commit_from.elapsed());
         stats.set_phase(crate::diagnostics::WriterPhase::Idle);
         let commits = commits?;
@@ -231,16 +234,26 @@ impl Mux {
         release.recv().unwrap();
     }
 
+    /// Holds the registry connection lock (the journal writer's only lock)
+    /// until `release` fires.
+    #[cfg(test)]
+    pub(crate) fn hold_registry_connection_for_test(
+        &self,
+        entered: SyncSender<()>,
+        release: Receiver<()>,
+    ) {
+        let _connection = self.registry_connection.get();
+        entered.send(()).unwrap();
+        release.recv().unwrap();
+    }
+
     #[cfg(test)]
     pub(crate) fn install_journal_before_commit_for_test(
         &self,
         entered: SyncSender<()>,
         release: Receiver<()>,
     ) {
-        self.workspace_registry
-            .lock()
-            .unwrap()
-            .set_journal_before_commit_for_test(entered, release);
+        self.registry_connection.set_journal_before_commit_for_test(entered, release);
     }
 
     #[cfg(test)]
@@ -249,10 +262,7 @@ impl Mux {
         entered: SyncSender<()>,
         release: Receiver<()>,
     ) {
-        self.workspace_registry
-            .lock()
-            .unwrap()
-            .set_journal_after_commit_admission_for_test(entered, release);
+        self.registry_connection.set_journal_after_commit_admission_for_test(entered, release);
     }
 
     pub(crate) fn journal_event_epoch(&self) -> u64 {
