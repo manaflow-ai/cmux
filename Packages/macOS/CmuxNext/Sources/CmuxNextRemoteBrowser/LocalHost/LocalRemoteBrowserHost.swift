@@ -120,6 +120,10 @@ public final class LocalRemoteBrowserHost {
             } catch {
                 return
             }
+            // A sleep can end at the moment `start` cancels it (the host
+            // listened). Both run on the main actor, so a cancelled task here
+            // means the host listened or exited: never stop it then.
+            guard !Task.isCancelled else { return }
             deadline.fired = true
             try? input.fileHandleForWriting.close()
             process.terminate()

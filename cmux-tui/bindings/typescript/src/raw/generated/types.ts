@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR ab581181a269c997ffcd3d36e2c3f9ccd2a8ba800bcbcda0524e517549f257fb. */
+/* cmux-tui mux protocol 12, IR 88c4f627c2eddde95ff74ed6122e6656406faa5152b49ca3490378ead7469997. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -629,6 +629,15 @@ export type PaneNeighborResult = {
 
 /** Opaque JSON: A pane named by its numeric id or its public pane_ id. */
 export type PaneRef = JsonValue;
+
+export type PaneSurfaceResult = {
+  "pane_id"?: (string) | null;
+  "replayed"?: (boolean) | null;
+  "surface": Id;
+  "tab_id"?: (string) | null;
+  "terminal_id"?: (string) | null;
+  "terminal_incarnation"?: (string) | null;
+};
 
 export type PingResult = {
   "build_commit"?: (string) | null;

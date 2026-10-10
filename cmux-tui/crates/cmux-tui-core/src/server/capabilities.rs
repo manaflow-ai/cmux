@@ -28,6 +28,7 @@ pub(super) fn advertised_capabilities(
     let mut capabilities = vec![
         ATTACH_INITIAL_SIZE_CAPABILITY,
         "attach-identity-v1",
+        split_kind::SPLIT_CLIENT_KEYS_CAPABILITY,
         WORKSPACE_REGISTRY_CAPABILITY,
         DAEMON_HANDOFF_FORCE_CAPABILITY,
         GUARDED_BROWSER_POINTER_CAPABILITY,
@@ -115,6 +116,7 @@ pub(super) fn advertised_capabilities(
         crate::state::personal::WORKSPACE_GROUP_ICON_CAPABILITY,
         crate::state::personal::WORKSPACE_GROUP_PIN_CAPABILITY,
         crate::state::sidebar_layout_store::CAPABILITY,
+        crate::state::projects_store::CAPABILITY,
         crate::state::palette_usage_store::CAPABILITY,
         crate::state::conversation_tabs_store::CONVERSATION_TABS_CAPABILITY,
         crate::state::conversation_tabs_store::AGENT_SESSION_TABS_CAPABILITY,

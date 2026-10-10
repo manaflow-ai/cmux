@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "ab581181a269c997ffcd3d36e2c3f9ccd2a8ba800bcbcda0524e517549f257fb";
+inline constexpr std::string_view kProtocolIrSha256 = "88c4f627c2eddde95ff74ed6122e6656406faa5152b49ca3490378ead7469997";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -108,6 +108,7 @@ enum class PaneDirection;
 enum class PaneKind;
 struct PaneNeighborResult;
 struct PaneRef;
+struct PaneSurfaceResult;
 struct PingResult;
 struct ProcessInfoResult;
 struct ProviderWorkspaceMutationResult;
@@ -3118,8 +3119,10 @@ struct NewPaneRequest {
     Field<std::map<std::string, std::string, std::less<>>> env{};
     std::optional<bool> keep{};
     Id pane{};
+    Field<std::string> pane_id{};
     Field<std::uint16_t> rows{};
     Field<std::vector<std::string>> shell_args{};
+    Field<std::string> tab_id{};
     Field<std::string> terminal_id{};
     friend bool operator==(const NewPaneRequest&, const NewPaneRequest&) = default;
 };
@@ -3136,8 +3139,10 @@ struct NewPaneRightRequest {
     std::optional<bool> keep{};
     Field<PaneKind> kind{};
     Id pane{};
+    Field<std::string> pane_id{};
     Field<std::uint16_t> rows{};
     Field<std::vector<std::string>> shell_args{};
+    Field<std::string> tab_id{};
     Field<std::string> terminal_id{};
     Field<std::string> url{};
     Field<float> width{};
@@ -3318,6 +3323,16 @@ struct PaneNeighborRequest {
 struct PaneNeighborResult {
     std::optional<Id> pane{};
     friend bool operator==(const PaneNeighborResult&, const PaneNeighborResult&) = default;
+};
+
+struct PaneSurfaceResult {
+    Field<std::string> pane_id{};
+    Field<bool> replayed{};
+    Id surface{};
+    Field<std::string> tab_id{};
+    Field<std::string> terminal_id{};
+    Field<std::string> terminal_incarnation{};
+    friend bool operator==(const PaneSurfaceResult&, const PaneSurfaceResult&) = default;
 };
 
 struct PasteImageRequest {
@@ -4288,8 +4303,10 @@ struct SplitRequest {
     std::optional<bool> keep{};
     Field<PaneKind> kind{};
     Id pane{};
+    Field<std::string> pane_id{};
     Field<std::uint16_t> rows{};
     Field<std::vector<std::string>> shell_args{};
+    Field<std::string> tab_id{};
     Field<std::string> terminal_id{};
     Field<std::string> url{};
     friend bool operator==(const SplitRequest&, const SplitRequest&) = default;
@@ -5476,6 +5493,12 @@ template <>
 struct Codec<PaneRef> {
     static Result<Json> encode(const PaneRef& value);
     static Result<PaneRef> decode(const Json& value);
+};
+
+template <>
+struct Codec<PaneSurfaceResult> {
+    static Result<Json> encode(const PaneSurfaceResult& value);
+    static Result<PaneSurfaceResult> decode(const Json& value);
 };
 
 template <>

@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'ab581181a269c997ffcd3d36e2c3f9ccd2a8ba800bcbcda0524e517549f257fb'
+IR_SHA256 = '88c4f627c2eddde95ff74ed6122e6656406faa5152b49ca3490378ead7469997'
 
 
 @dataclass(frozen=True)
@@ -1784,8 +1784,10 @@ COMMANDS = {
             'env': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
             'keep': CommandFieldMetadata(12, 'terminal-reap-v1'),
             'pane': CommandFieldMetadata(None, None),
+            'pane_id': CommandFieldMetadata(12, 'split-client-keys-v1'),
             'rows': CommandFieldMetadata(None, None),
             'shell_args': CommandFieldMetadata(12, 'terminal-shell-args-v1'),
+            'tab_id': CommandFieldMetadata(12, 'split-client-keys-v1'),
             'terminal_id': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
         },
     ),
@@ -1803,8 +1805,10 @@ COMMANDS = {
             'keep': CommandFieldMetadata(12, 'terminal-reap-v1'),
             'kind': CommandFieldMetadata(12, 'pane-browser-kind-v1'),
             'pane': CommandFieldMetadata(None, None),
+            'pane_id': CommandFieldMetadata(12, 'split-client-keys-v1'),
             'rows': CommandFieldMetadata(None, None),
             'shell_args': CommandFieldMetadata(12, 'terminal-shell-args-v1'),
+            'tab_id': CommandFieldMetadata(12, 'split-client-keys-v1'),
             'terminal_id': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
             'url': CommandFieldMetadata(12, 'pane-browser-kind-v1'),
             'width': CommandFieldMetadata(None, None),
@@ -2796,8 +2800,10 @@ COMMANDS = {
             'keep': CommandFieldMetadata(12, 'terminal-reap-v1'),
             'kind': CommandFieldMetadata(12, 'pane-browser-kind-v1'),
             'pane': CommandFieldMetadata(None, None),
+            'pane_id': CommandFieldMetadata(12, 'split-client-keys-v1'),
             'rows': CommandFieldMetadata(None, None),
             'shell_args': CommandFieldMetadata(12, 'terminal-shell-args-v1'),
+            'tab_id': CommandFieldMetadata(12, 'split-client-keys-v1'),
             'terminal_id': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
             'url': CommandFieldMetadata(12, 'pane-browser-kind-v1'),
         },

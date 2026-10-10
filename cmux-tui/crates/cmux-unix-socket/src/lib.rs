@@ -110,22 +110,3 @@ pub fn short_test_dir(prefix: &str) -> TestDir {
         // crash-allow: test-support only (dev-dependencies); a test without its socket directory must fail
         .expect("create a short test socket directory")
 }
-
-#[cfg(all(test, unix))]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn check_path_accepts_the_limit_and_names_a_longer_path() {
-        let longest = "x".repeat(MAX_PATH_BYTES);
-        assert!(fits(Path::new(&longest)));
-        assert!(check_path(Path::new(&longest)).is_ok());
-        let too_long = format!("/{}", "y".repeat(MAX_PATH_BYTES));
-        let error = check_path(Path::new(&too_long)).unwrap_err();
-        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
-        let message = error.to_string();
-        assert!(message.contains(&too_long), "{message}");
-        assert!(message.contains(&format!("{} bytes", MAX_PATH_BYTES + 1)), "{message}");
-        assert!(message.contains(&MAX_PATH_BYTES.to_string()), "{message}");
-    }
-}

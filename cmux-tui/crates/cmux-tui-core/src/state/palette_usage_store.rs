@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 
 use super::palette_usage::{self, Document, decayed, decayed_pick};
 
-/// `palette_usage.get|record|import`.
+/// `palette_usage.get|record|import|hide|forget`.
 pub const CAPABILITY: &str = "palette-usage-v1";
 /// The resource kind of the history on `session.events`.
 pub(crate) const RESOURCE: &str = "palette_usage";
@@ -97,6 +97,7 @@ pub(crate) fn snapshot_value(document: &Document, now_ms: u64) -> Value {
         "entries": entries.into_iter().map(|(key, entry)| row(key, entry)).collect::<Vec<_>>(),
         "picks": picks,
         "imported": document.imported,
+        "hidden": document.hidden,
     })
 }
 

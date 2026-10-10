@@ -206,6 +206,13 @@ public final class UpdaterService {
             return nil
         case nil:
             guard let controller else { return nil }
+            syncFlowPhase()
+            if case .ready = flow.phase {
+                // Sparkle ignores a check while an update waits; the staged
+                // update card answers instead (``readyCard``).
+                log.append("check while an update waits: showing the staged update")
+                return nil
+            }
             controller.model.setOverrideState(nil)
             controller.checkForUpdates()
             return nil

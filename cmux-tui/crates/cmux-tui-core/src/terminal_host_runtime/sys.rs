@@ -98,20 +98,30 @@ mod windows_stubs {
         Err(unsupported().into())
     }
 
-    /// A host process started ahead of its terminal. None exist on Windows
-    /// until `sys/windows.rs`.
-    pub(crate) enum StandbyTerminalHost {}
+    /// A host process started ahead of its terminal: the process and its
+    /// bootstrap pipes (the launch code uses them only through Read and
+    /// Write). Spawning one fails until `sys/windows.rs`.
+    pub(crate) struct StandbyTerminalHost {
+        pub(crate) process: super::super::shared::attachment::SpawnedHostProcess,
+        pub(crate) stdin: io::PipeWriter,
+        pub(crate) stdout: io::PipeReader,
+        pub(crate) host_pid: u32,
+    }
 
-    /// Launching a terminal host fails until `sys/windows.rs`.
-    pub(crate) fn launch_terminal_host_from(
-        _options: &crate::surface::SurfaceOptions,
+    impl StandbyTerminalHost {
+        pub(crate) fn spawn() -> anyhow::Result<Self> {
+            Err(unsupported().into())
+        }
+    }
+
+    /// No endpoint is ever named on Windows yet (`FileOwner` has no value).
+    pub(crate) fn endpoint_dir(owner: FileOwner) -> PathBuf {
+        match owner {}
+    }
+
+    pub(crate) fn reserve_terminal_host_publication(
         _root: &Path,
-        _default_colors: crate::surface::DefaultColors,
-        _cell_pixels: (u16, u16),
-        _kitty_graphics_limits: ghostty_vt::KittyGraphicsLimits,
-        _terminal_id: crate::terminal_host::TerminalId,
-        _standby: Option<StandbyTerminalHost>,
-    ) -> anyhow::Result<super::super::shared::attachment::HostAttachment> {
+    ) -> anyhow::Result<TerminalHostPublicationLock> {
         Err(unsupported().into())
     }
 
