@@ -67,10 +67,8 @@ public final class AgentPaneView: NSView {
     /// Records the user's real key and mouse events in this pane (``AgentPaneUserGestures``).
     private var gestureMonitor: Any?
     var transportPacer: AgentPaneFramePacer?
-    /// The message and the selected transcript text the page reported under the pointer for the
-    /// next context menu, and where the menu's copies go (tests record them instead).
-    var messageMenuTarget: AgentPaneMessageTarget?
-    var menuSelection: String?
+    /// Owns WebKit's context-menu bridge and the actions it dispatches to the page.
+    private lazy var contextMenuController = AgentPaneContextMenuController(view: self)
     var copyText: @MainActor (String) -> Void = { text in
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
