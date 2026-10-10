@@ -35,6 +35,9 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugNewTab.swift": {
   "JSON / property-list decode": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Feed/FeedInstallPrincipal.swift": {
+  "JSON / property-list decode": 1
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Feed/FeedService.swift": {
   "JSON / property-list decode": 1
  },
