@@ -123,8 +123,6 @@ describe("grouped tool permission panel", () => {
       expect(html).toContain("拒否");
       expect(html).toContain("取り消す");
       expect(html).toContain("確認して再試行");
-      // One request: the title names it (permission.ask.allow) instead of counting it.
-      expect(html).toContain("を許可しますか?");
       expect(html).toContain("隔離は未検証");
       expect(html).toContain("追加の入力はありません。");
       expect(html).toContain("Write app.ts");

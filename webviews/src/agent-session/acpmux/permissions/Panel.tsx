@@ -147,7 +147,7 @@ function AskTitle({ group }: { group: PermissionGroup }) {
   return (
     <>
       {before}
-      <code className="rounded-md bg-hover px-1 font-mono break-all text-fg">{title}</code>
+      <code className="rounded-md bg-hover px-1 font-mono [overflow-wrap:anywhere] text-fg">{title}</code>
       {after}
     </>
   );
@@ -155,10 +155,11 @@ function AskTitle({ group }: { group: PermissionGroup }) {
 
 const buttonBase =
   "inline-flex h-8 cursor-default items-center gap-1.5 rounded-lg border-0 px-3 font-[inherit] text-control disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fg";
-/// One primary action (light fill, dark text), one secondary (a filled dark chip), and a quiet
-/// tertiary; never blue (board principle 2).
+/// One primary action (a fill in the text color with the card fill as its text, so it contrasts in
+/// every theme), one secondary (a filled dark chip), and a quiet tertiary; never blue (board
+/// principle 2).
 const VARIANT: Record<PermissionDecision, { name: "primary" | "secondary" | "tertiary"; className: string }> = {
-  allow_once: { name: "primary", className: "bg-fg text-base hover:opacity-90" },
+  allow_once: { name: "primary", className: "bg-fg text-menu hover:opacity-90" },
   allow_chat: {
     name: "secondary",
     className: "bg-hover text-fg hover:bg-[color-mix(in_srgb,var(--agent-text)_14%,transparent)]",
@@ -282,9 +283,9 @@ export function PermissionPanel({ state, onRespond, onRetry, onRevoke, onRefresh
           data-hints={String(hints)}
           className="group/perm rounded-xl border-[0.5px] border-edge bg-menu p-3 text-fg shadow-[0_1px_2px_rgb(0_0_0/0.18)]"
         >
-          <div className="flex items-start gap-2.5">
+          <div className="flex flex-wrap items-start gap-x-2.5 gap-y-1.5">
             {group.items.length === 1 && <KindIcon kind={String(toolOf(group.items[0]!)?.kind ?? "")} />}
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0 flex-1 basis-48">
               <div data-permission-title="" className="text-title font-semibold">
                 <AskTitle group={group} />
               </div>
@@ -292,7 +293,7 @@ export function PermissionPanel({ state, onRespond, onRetry, onRevoke, onRefresh
             <span
               data-permission-isolation=""
               title={t("permission.coverageDetail")}
-              className="mt-0.5 max-w-[45%] flex-none truncate rounded-md border-[0.5px] border-edge px-1.5 text-caption text-warning"
+              className="mt-0.5 max-w-full flex-none truncate rounded-md border-[0.5px] border-edge px-1.5 text-caption text-warning"
             >
               {t("permission.coverage")}
             </span>

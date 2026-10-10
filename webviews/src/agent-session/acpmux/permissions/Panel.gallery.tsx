@@ -2,10 +2,37 @@
 // The tool permission card (Panel.tsx) in every state Lawrence reviews: one request, several, the
 // input expanded, a long command, deny-only, a chat allowance with an error, collecting, narrow.
 import { componentEntry } from "../../../gallery/format";
+import type { PlayContext } from "../../../gallery/play";
 import type { PermissionPanel } from "./Panel";
 import type { PermissionClientState, PermissionGroup } from "./protocol";
 
 type Props = Parameters<typeof PermissionPanel>[0];
+
+// The card's behavior, checked in a real engine by each variant's play (the shell and the matrix
+// runner fail a variant whose wait times out). Lawrence 2026-10-09: "this ui is ugly".
+const card = (ctx: PlayContext) => ctx.document.querySelector<HTMLElement>("[data-permission-card]");
+const decisions = (ctx: PlayContext) => [
+  ...(card(ctx)?.querySelectorAll<HTMLButtonElement>("button[data-decision]") ?? []),
+];
+/// One look: the title names the request; exactly one primary action (Allow once, at the trailing
+/// edge); shortcut keycaps are hidden from assistive technology and every button is named by its
+/// verb; no separate Expand button; the isolation note is a chip inside the card with its reason.
+async function oneLook(ctx: PlayContext, title: string) {
+  await ctx.waitFor(() => card(ctx)?.querySelector("[data-permission-title]")?.textContent === title);
+  await ctx.waitFor(() => {
+    const buttons = decisions(ctx);
+    const primary = buttons.filter((button) => button.dataset.variant === "primary");
+    return (
+      primary.length === 1 &&
+      primary[0] === buttons.at(-1) &&
+      primary[0]!.dataset.decision === "allow_once" &&
+      buttons.every((button) => button.getAttribute("aria-label") === button.firstChild?.textContent) &&
+      [...card(ctx)!.querySelectorAll("kbd")].every((kbd) => kbd.getAttribute("aria-hidden") === "true") &&
+      ![...card(ctx)!.querySelectorAll("button")].some((button) => button.textContent?.includes("Expand")) &&
+      !!card(ctx)!.querySelector("[data-permission-isolation][title]")
+    );
+  });
+}
 
 const noop = () => undefined;
 const item = (id: string, title: string, kind: string, rawInput: unknown, paths: string[] = []) => ({
@@ -57,21 +84,62 @@ export default componentEntry<Props>({
   height: 300,
   covers: ["agent-session/acpmux/permissions/Panel.tsx#PermissionPanel"],
   pane: true,
-  load: () => import("./Panel").then((module) => module.PermissionPanel),
+  // The pane's color tokens live on .acpmux-shell (styles.css); in the app the card always sits
+  // inside it, so the gallery draws it there too, or the card would show without its colors.
+  load: () =>
+    Promise.all([import("./Panel"), import("../shortcuts")]).then(
+      ([{ PermissionPanel }, { ShortcutsContext, SHORTCUT_ACTIONS }]) =>
+        Object.assign(
+          (props: Props) => (
+            <div className="acpmux-shell" style={{ display: "block", height: "auto", padding: 16 }}>
+              {/* The app's default keycaps for the permission commands, as the host sends them. */}
+              <ShortcutsContext.Provider
+                value={{
+                  [SHORTCUT_ACTIONS.permissionAllowOnce]: "⌥⌘1",
+                  [SHORTCUT_ACTIONS.permissionAllowChat]: "⌥⌘2",
+                  [SHORTCUT_ACTIONS.permissionDeny]: "⌥⌘3",
+                  [SHORTCUT_ACTIONS.permissionExpand]: "⌥⌘4",
+                }}
+              >
+                <PermissionPanel {...props} />
+              </ShortcutsContext.Provider>
+            </div>
+          ),
+          { displayName: "PermissionPanelInShell" },
+        ),
+    ),
   variants: {
     "one-request": {
       note: "One command: the title names it; Allow once is the only primary action; hover shows the ⌥⌘ hints.",
       props: props([group([guide])]),
+      // Holding Option-Command shows every shortcut hint at once (keycaps under the hovered card).
+      play: async (ctx) => {
+        await oneLook(ctx, "Run cmux harness guide?");
+        ctx.document.defaultView!.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Meta", metaKey: true, altKey: true }),
+        );
+        await ctx.waitFor(() => card(ctx)?.dataset.hints === "true");
+        await ctx.hover({ selector: "[data-permission-card]" });
+      },
     },
     "several-requests": {
       note: "Three requests from one turn: the title counts them and each one is its own row.",
       props: props([group([guide, write, fetch])]),
+      play: async (ctx) => {
+        await oneLook(ctx, "3 requests from this turn");
+        await ctx.waitFor(() => card(ctx)?.querySelectorAll("details summary").length === 3);
+        await ctx.hover({ selector: "[data-permission-card] [data-decision=allow_once]" });
+      },
     },
     expanded: {
       note: "The request row opened: the folder it touches and its full input, as text.",
       props: props([group([write])]),
+      // One disclosure: the request row itself opens and shows the input as text.
       play: async (ctx) => {
+        await oneLook(ctx, "Allow Write src/app.ts?");
         await ctx.click({ selector: "[data-permission-card] summary" });
+        await ctx.waitFor(() => card(ctx)?.querySelector("details")?.open === true);
+        await ctx.waitFor(() => card(ctx)?.querySelector("pre")?.textContent?.includes("export const retry"));
       },
     },
     "long-command": {

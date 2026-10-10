@@ -34,7 +34,10 @@ export async function mountComponent(
     await import("virtual:cmux-gallery/agent-pane.css");
   }
   await import("../../pages/shared/desktop");
-  await import("../../pages/shared/pageBase.css");
+  // The pages' base (a global `button, input { color: inherit }` among others) is not in the agent
+  // pane's bundle (scripts/cmux-next/build-agent-pane-web.sh); loading it over a pane component
+  // would beat the pane's own colors, so the gallery would show colors the app never draws.
+  if (!entry.pane) await import("../../pages/shared/pageBase.css");
   await import("../../ui/ui.css");
   await entry.styles?.();
   const Component = await entry.load();
