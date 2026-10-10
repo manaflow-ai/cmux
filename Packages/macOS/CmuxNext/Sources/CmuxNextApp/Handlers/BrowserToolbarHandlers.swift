@@ -74,7 +74,6 @@ enum BrowserToolbarHandlers {
         }
         buttons.profileName = profileName(forTab: key, services: services)
         buttons.downloads = { [weak services] in services?.cache.pageRequests.downloads.toolbarSummary ?? BrowserToolbarDownloads() }
-        services.cache.pageRequests.media.tabCreated()
         buttons.media = { [weak services] in services.map { $0.cache.pageRequests.media.toolbar(in: $0.cache) } ?? BrowserToolbarMedia() }
     }
 

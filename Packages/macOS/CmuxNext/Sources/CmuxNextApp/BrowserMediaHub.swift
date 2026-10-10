@@ -4,13 +4,13 @@ import Observation
 /// Every browser tab's media, for the toolbar's media hub (cx-6qwm.2):
 /// the tabs whose page script reports media (`BrowserTabState.media`),
 /// playing first. Reading `sessions` while observing tracks those tabs'
-/// states and, through `tabsVersion`, tabs created later.
+/// states and, through `tabsVersion`, tabs created or closed later.
 @Observable
 final class BrowserMediaHub {
-    /// Bumped as browser tabs are created (`BrowserToolbarHandlers.install`).
+    /// Bumped as browser tabs are created and closed (`TabContentCache.browsers`).
     private(set) var tabsVersion = 0
 
-    func tabCreated() { tabsVersion &+= 1 }
+    func tabsChanged() { tabsVersion &+= 1 }
 
     func sessions(in cache: TabContentCache) -> [(entry: BrowserEntry, media: BrowserMediaState)] {
         _ = tabsVersion

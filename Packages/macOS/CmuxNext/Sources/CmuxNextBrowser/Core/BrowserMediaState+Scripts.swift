@@ -17,14 +17,19 @@ nonisolated extension BrowserMediaState {
     /// The isolated world the observer runs in.
     static let world = "cmux-media"
 
-    /// The observer, posting with `post` (a JS expression taking the report).
-    static func observerScript(post: String) -> String {
+    /// The observer, posting with `post` (a JS expression taking the report)
+    /// once `ready` (a JS expression) is true.
+    static func observerScript(post: String, ready: String = "true") -> String {
         #"""
         (() => {
           if (window.__cmuxMedia) return;
           window.__cmuxMedia = true;
-          let last = '', reported = false, timer = 0, actions = '';
-          const send = (report) => { try { \#(post); } catch (_) {} };
+          let last = '', reported = false, pending = false, heartbeat = false, timer = 0, actions = '';
+          const send = (report) => {
+            if (!(\#(ready))) { pending = true; return false; }
+            pending = false;
+            try { \#(post); return true; } catch (_) { return false; }
+          };
           const active = () => {
             const all = Array.from(document.querySelectorAll('video, audio'));
             return all.find((e) => !e.paused && !e.ended) || all.find((e) => e.currentTime > 0 && !e.ended) || null;
@@ -38,7 +43,7 @@ nonisolated extension BrowserMediaState {
             timer = 0;
             const element = active();
             if (!element) {
-              if (reported) { reported = false; last = ''; send(null); }
+              if (reported && send(null)) { reported = false; last = ''; }
               return;
             }
             const meta = navigator.mediaSession ? navigator.mediaSession.metadata : null;
@@ -49,10 +54,12 @@ nonisolated extension BrowserMediaState {
               muted: element.muted || element.volume === 0, video: element.tagName === 'VIDEO', actions,
             };
             const key = JSON.stringify(state);
-            if (key === last) return;
+            // Again every few seconds while it plays: another frame's
+            // report may have replaced it.
+            if (key === last && !heartbeat) return;
+            if (!send(state)) return;
             last = key;
             reported = true;
-            send(state);
           };
           const schedule = () => { if (!timer) timer = setTimeout(report, 250); };
           for (const type of ['play', 'playing', 'pause', 'ended', 'emptied', 'volumechange', 'loadedmetadata']) {
@@ -62,8 +69,14 @@ nonisolated extension BrowserMediaState {
             actions = typeof event.detail === 'string' ? event.detail : '';
             schedule();
           }, true);
-          // Metadata changes fire no event: look again while something plays.
-          setInterval(() => { if (reported) schedule(); }, 2000);
+          // Metadata changes fire no event: look again while something
+          // plays, and retry a report the binding was not ready for.
+          let ticks = 0;
+          setInterval(() => {
+            ticks += 1;
+            heartbeat = reported && ticks % 3 === 0;
+            if (reported || pending) schedule();
+          }, 1000);
         })();
         """#
     }
