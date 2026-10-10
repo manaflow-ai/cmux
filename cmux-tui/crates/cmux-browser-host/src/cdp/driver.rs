@@ -243,7 +243,7 @@ impl CdpDriver {
 
     /// Closes a proxy store and every tab in it.
     pub fn dispose_context(&self, context: &str) -> Result<(), DriverError> {
-        self.inner.proxy_contexts.lock().unwrap_or_else(PoisonError::into_inner).remove(context);
+        super::cookies::forget_store(&self.inner, context);
         self.inner
             .conn
             .call(
