@@ -90,7 +90,11 @@ struct MachineBrowserPages {
             case .failure(.unavailable) where services.machines.daemon(machine: machine)?.connection == nil:
                 page.phase = nil
             case let .failure(error):
-                page.phase = .failed(name, error.description)
+                // The daemon's text starts with its own "did not start"; the page says that already.
+                let reason = error.description
+                let lead = "the browser did not start"
+                let detail = reason.hasPrefix(lead) ? reason.dropFirst(lead.count).drop { ": ".contains($0) } : Substring(reason)
+                page.phase = .failed(name, detail.isEmpty ? reason : String(detail))
             }
         }
     }
