@@ -21,6 +21,10 @@ public struct SidebarDebugRow: Sendable {
     public var activity: String? = nil
     /// The workspace row's icon kind (`symbol`, `swatch`, `emoji`, `favicon`), nil without one.
     public var icon: String? = nil
+    /// The view's frame as drawn now (its presentation, mid-animation), and
+    /// whether it clips its content (an opening or closing row).
+    public var shownFrame: CGRect? = nil
+    public var clips: Bool = false
     /// The group the row lists in (its id), nil for a loose row.
     public var group: String? = nil
 }
@@ -109,7 +113,7 @@ extension SidebarView {
             return SidebarDebugRow(key: String(describing: row.key), title: title, frame: list.frame(for: row), windowFrame: windowFrame,
                                    viewFrame: view?.frame, viewAlpha: view?.alphaValue, inList: view?.superview === list,
                                    suppressed: list.suppressed.contains(row.key), selected: view?.isSelected == true, muted: muted,
-                                   activity: activity, icon: icon, group: row.group?.rawValue)
+                                   activity: activity, icon: icon, shownFrame: view?.shownFrame, clips: view?.clipsToBounds == true, group: row.group?.rawValue)
         }
         let selection = model.orderedSelection.map { model.workspace($0)?.title ?? $0.rawValue }
         let dragging = list.drag.map { drag in drag.hiddenKeys.map { String(describing: $0) } } ?? []

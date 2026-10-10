@@ -25,6 +25,9 @@ enum BrowserHitStrings {
         String(format: t("browserHits.download.blocked", "Blocked download of “%@”"), name)
     }
 
+    /// The media hub with no tab playing (BrowserMediaMenu).
+    static var mediaNothingPlaying: String { t("browserHits.media.nothingPlaying", "Nothing Playing") }
+
     // The toolbar's Downloads menu (BrowserDownloadsMenu).
     static var downloadsEmpty: String { t("browserHits.downloads.empty", "No Downloads") }
     static var downloadsClear: String { t("browserHits.downloads.clear", "Clear Finished Downloads") }
