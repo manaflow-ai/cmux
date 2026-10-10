@@ -275,12 +275,12 @@ fn reply(
     let params = json!({"conversation": conversation, "idempotency_key": key,
            "op": {"kind": "message.send", "client_msg_id": key, "parts": parts,
                   "answers": answers, "answers_pending": pending}});
-    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    let deadline = Instant::now() + Duration::from_secs(30);
     loop {
         let refused = brain.attempt("conversation-op", params.clone());
         match refused {
             None => return,
-            Some(why) if why.contains("agent_rate") && std::time::Instant::now() < deadline => {
+            Some(why) if why.contains("agent_rate") && Instant::now() < deadline => {
                 std::thread::sleep(Duration::from_millis(200));
             }
             Some(why) => panic!("reply {key} refused: {why}"),
@@ -449,9 +449,9 @@ fn chief_shutdown_stops_the_brain_that_holds_the_home_lock() {
         .spawn()
         .unwrap();
     let ready = home.join("state/host.lock.ready");
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + Duration::from_secs(10);
     while !ready.exists() {
-        assert!(std::time::Instant::now() < deadline, "the stand-in brain never took the lock");
+        assert!(Instant::now() < deadline, "the stand-in brain never took the lock");
         std::thread::sleep(Duration::from_millis(20));
     }
     let output = Command::new(bin())
