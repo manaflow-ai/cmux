@@ -265,8 +265,8 @@ fn linked_turn(tty: bool, env: &[(&str, &str)]) -> Vec<u8> {
                 &mut primary,
                 &mut secondary,
                 std::ptr::null_mut(),
-                std::ptr::null(),
-                std::ptr::null(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
             )
         };
         assert_eq!(opened, 0, "openpty");
