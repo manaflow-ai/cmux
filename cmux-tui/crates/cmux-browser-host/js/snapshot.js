@@ -1064,6 +1064,7 @@
     }
     page._noteRefMax(frame, r.max);
     if (options.viewport) options._offscreen = (options._offscreen || 0) + (r.offscreen || 0);
+    if (options.viewport && r.offscreenMore) options._offscreenMore = true;
     const flat = r.flat || [];
     // An entry's depth in the stitched tree is `nest` plus its depth here.
     const iframes = [];
@@ -1195,7 +1196,7 @@
     if (options.interactive) nodes = interactiveOnly(nodes);
     const full = options.interactive ? render(shaped, options) : null;
     const body = render(nodes, options);
-    const trailer = options.viewport ? [`# ${options._offscreen || 0} interactive elements outside the viewport are not shown; snapshot() shows the whole page`] : [];
+    const trailer = options.viewport ? [`# ${options._offscreenMore ? "at least " : ""}${options._offscreen || 0} interactive elements outside the viewport are not shown; snapshot() shows the whole page`] : [];
     const budget = nodeBudget(options);
     if (budget.truncated) {
       const note = core.readCutNote("the snapshot", { truncated: budget.truncated, maxNodes: budget.total, maxSize: budget.sizeTotal });
