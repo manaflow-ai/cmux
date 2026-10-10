@@ -190,8 +190,10 @@ in history. In an incognito session `tabs.open {incognito: false}` fails
 with `forbidden`, tab-less `cookies.*` use the incognito store, and a
 tab-less `net.fetch` fails with `unsupported` (its hidden shell runs in the
 profile's store). Known gap: incognito with a proxy or permission grants is
-`unsupported`. App tabs (CEF, WebKit) answer `unsupported` until the app
-opens them in its non-persistent store; never a persistent tab.
+`unsupported`. App tabs (CEF, WebKit) answer `unsupported` and name
+`--engine headless` (decision D1, issue 13742: in the app incognito is a
+whole window that never mixes with normal windows, so v1 opens no agent
+incognito tab there); never a persistent tab.
 
 Permission names are Playwright's. The classic column is what the classic
 WebKit backend (the dev driver's Playwright WebKit) accepts; a name not known
