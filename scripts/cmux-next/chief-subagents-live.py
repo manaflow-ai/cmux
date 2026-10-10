@@ -166,6 +166,12 @@ def tagged(*args):
 
 
 def workspaces():
+    """Every workspace the app shows, on every machine row (the Chief's owner daemon included):
+    the app's topology (`snapshot.get`). `workspace list` names only the app's own session."""
+    return ((rpc("snapshot.get") or {}).get("topology") or {}).get("workspaces", []) or app_workspaces()
+
+
+def app_workspaces():
     value = tagged("workspace", "list")
     if isinstance(value, dict):
         value = value.get("value", value)
@@ -684,7 +690,8 @@ def subagent_link_opens_its_chat():
     session = (subs().get(sub) or {}).get("session_id")
     show_home()
     snapshot("link-home")
-    clicked = rpc("debug.home.drive", {"action": "link", "prefix": "cmux://chief/"}) or {}
+    # This subagent's own link (earlier replies link other subagents).
+    clicked = rpc("debug.home.drive", {"action": "link", "prefix": f"cmux://chief/{HOME_ID}/session/{session}"}) or {}
     print("link click:", json.dumps(clicked)[:300], flush=True)
     state = wait(lambda: (lambda st: st if st.get("sessionId") == session else None)(
         rpc("debug.agent_pane", {"action": "chat_state"}) or {}), 30) or rpc("debug.agent_pane", {"action": "chat_state"}) or {}
@@ -706,8 +713,11 @@ def subagent_mentions_are_links():
     a click on a2's opens a2's workspace and chat."""
     answer = spawn(["Reply with only the word mention-one.", "Reply with only the word mention-two."])
     ids = ids_in(answer)
+    print("spawn:", json.dumps(answer)[:400], flush=True)
     wait_done(ids, 300)
     reply = ask(f"In one plain sentence with no links and no markdown, say what {' and '.join(ids)} did.")
+    if reply.startswith("(my message"):  # the composer was not shown yet after the last flow's tab
+        reply = ask(f"In one plain sentence with no links and no markdown, say what {' and '.join(ids)} did.")
     print("chief:", reply[:300], flush=True)
     second = ids[1] if len(ids) > 1 else None
     session = (subs().get(second) or {}).get("session_id") if second else None
