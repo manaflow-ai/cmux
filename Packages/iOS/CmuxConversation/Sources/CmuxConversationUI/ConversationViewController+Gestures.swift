@@ -350,7 +350,8 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
     /// Messages' select-mode bar: the composer gives way to two glass circles,
     /// Delete at the leading edge and Forward at the trailing edge (48 pt,
     /// centers 52 pt in from each side, 4 pt above the composer's center line;
-    /// measured on iOS 26.5 Messages).
+    /// measured on iOS 26.5 Messages at 402 and 440 pt). The glyphs are bar
+    /// button defaults (17 pt regular: trash 19 x 20.67 pt).
     private func setSelectionToolbar(visible: Bool) {
         let tag = 4242
         if visible {
@@ -364,7 +365,7 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
                 tag: Self.selectionTrashTag
             ) { [weak self] button in self?.confirmDeleteSelection(from: button) }
             let forward = makeSelectionButton(
-                symbol: "arrowshape.turn.up.right",
+                symbol: "arrowshape.turn.up.forward",
                 label: String(localized: "conversation.select.forward", defaultValue: "Forward", bundle: .module),
                 tag: Self.selectionForwardTag
             ) { [weak self] _ in self?.forwardSelection() }
@@ -402,7 +403,7 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
         let glass = makeGlassView(cornerRadius: Self.selectionButtonSize / 2, interactive: true)
         glass.frame = CGRect(x: 0, y: 0, width: Self.selectionButtonSize, height: Self.selectionButtonSize)
         let button = UIButton(type: .system)
-        button.setImage(UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 20, weight: .regular)), for: .normal)
+        button.setImage(UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .regular)), for: .normal)
         button.tintColor = .label
         button.accessibilityLabel = label
         button.tag = tag
