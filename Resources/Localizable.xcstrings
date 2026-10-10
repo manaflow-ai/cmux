@@ -523077,6 +523077,72 @@
     "machines.new.max.checkout": {
       "extractionState": "manual",
       "localizations": {
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nastavi na plaćanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fortsæt til betaling"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continua al pagamento"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្តទៅកាន់ការទូទាត់"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fortsett til betaling"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przejdź do płatności"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuar para o pagamento"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перейти к оформлению заказа"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ดำเนินการต่อไปยังการชำระเงิน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ödemeye devam et"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перейти до оформлення замовлення"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
@@ -523136,6 +523202,72 @@
     "pricing.native.go.feature.vm": {
       "extractionState": "manual",
       "localizations": {
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 aktivni Cloud VM, 2 vCPU-a, 4 GiB RAM-a, disk od 16 GiB"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 aktiv Cloud VM, 2 vCPU, 4 GiB RAM, 16 GiB disk"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 Cloud VM attiva, 2 vCPU, 4 GiB di RAM, disco da 16 GiB"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VM សកម្ម 1 គ្រឿង, 2 vCPU, RAM 4 GiB, ថាស 16 GiB"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 aktiv Cloud VM, 2 vCPU, 4 GiB RAM, 16 GiB disk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 aktywna Cloud VM, 2 vCPU, 4 GiB RAM, dysk 16 GiB"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 Cloud VM ativa, 2 vCPUs, 4 GiB de RAM, disco de 16 GiB"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 активная Cloud VM, 2 vCPU, 4 ГиБ RAM, диск 16 ГиБ"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VM ที่ใช้งานอยู่ 1 เครื่อง, 2 vCPU, RAM 4 GiB, ดิสก์ 16 GiB"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 etkin Cloud VM, 2 vCPU, 4 GiB RAM, 16 GiB disk"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 активна Cloud VM, 2 vCPU, 4 ГіБ RAM, диск 16 ГіБ"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
@@ -523195,6 +523327,72 @@
     "pricing.native.manageBilling": {
       "extractionState": "manual",
       "localizations": {
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upravljaj naplatom"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Administrer fakturering"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gestisci la fatturazione"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្រប់គ្រងការចេញវិក្កយបត្រ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Administrer fakturering"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zarządzaj rozliczeniami"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gerenciar cobrança"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Управление оплатой"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จัดการการเรียกเก็บเงิน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faturalamayı yönet"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Керувати оплатою"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
@@ -523254,6 +523452,72 @@
     "machines.new.plan.name.max": {
       "extractionState": "manual",
       "localizations": {
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
@@ -523313,6 +523577,72 @@
     "pricing.native.max.price": {
       "extractionState": "manual",
       "localizations": {
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$200"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$200"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$200"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$200"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$200"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$200"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$200"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$200"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$200"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$200"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$200"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
