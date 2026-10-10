@@ -318,7 +318,9 @@ struct PageProbe {
             }
             guard case .string(let json) = value, let data = json.data(using: .utf8),
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Bool] else { return PageProbe(playingMedia: true) }
-            return PageProbe(playingMedia: object["media"] ?? true, editedForm: object["form"] ?? true)
+            // Media the tab's mute silences still plays (cx-d0d.24): hibernating would drop the mute.
+            let muted = tab.state.isAudioMuted && tab.state.media?.isPlaying == true
+            return PageProbe(playingMedia: muted || (object["media"] ?? true), editedForm: object["form"] ?? true)
         } catch {
             return PageProbe(playingMedia: true)
         }

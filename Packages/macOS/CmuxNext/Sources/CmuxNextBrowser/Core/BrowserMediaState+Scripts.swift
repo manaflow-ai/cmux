@@ -10,7 +10,9 @@ import Foundation
 /// `mediaSession` action handlers so Previous and Next can call them
 /// (handlers live in the page's world only); a page can see that wrapper,
 /// so those two are best effort. Media elements outside the document (a
-/// detached `new Audio()`) are not seen.
+/// detached `new Audio()`) are not seen. A `cmux-media-mute` event mutes
+/// (or unmutes) the frame's media elements, keeps muting the ones that play
+/// next, and passes on to the frame's child frames.
 nonisolated extension BrowserMediaState {
     /// WebKit's message handler and Chromium's binding.
     static let channel = "cmuxMedia"
@@ -24,7 +26,11 @@ nonisolated extension BrowserMediaState {
         (() => {
           if (window.__cmuxMedia) return;
           window.__cmuxMedia = true;
-          let last = '', reported = false, pending = false, heartbeat = false, timer = 0, actions = '';
+          let last = '', reported = false, pending = false, heartbeat = false, timer = 0, actions = '', tabMuted = false;
+          // The elements the tab's mute muted, which Unmute unmutes.
+          const hushed = new WeakSet();
+          const media = (e) => !!e && (e.tagName === 'VIDEO' || e.tagName === 'AUDIO');
+          const hush = (e) => { if (tabMuted && !e.muted) { e.muted = true; hushed.add(e); } };
           const send = (report) => {
             if (!(\#(ready))) { pending = true; return false; }
             pending = false;
@@ -51,7 +57,7 @@ nonisolated extension BrowserMediaState {
               title: (meta && meta.title) || document.title || '',
               artist: (meta && meta.artist) || '', album: (meta && meta.album) || '',
               artwork: artwork(meta), playing: !element.paused && !element.ended,
-              muted: element.muted || element.volume === 0, video: element.tagName === 'VIDEO', actions,
+              muted: element.muted || element.volume === 0, video: element.tagName === 'VIDEO', tabMuted, actions,
             };
             const key = JSON.stringify(state);
             // Again every few seconds while it plays: another frame's
@@ -65,6 +71,33 @@ nonisolated extension BrowserMediaState {
           for (const type of ['play', 'playing', 'pause', 'ended', 'emptied', 'volumechange', 'loadedmetadata']) {
             addEventListener(type, schedule, true);
           }
+          for (const type of ['play', 'volumechange', 'loadedmetadata']) {
+            addEventListener(type, (event) => { if (media(event.target)) hush(event.target); }, true);
+          }
+          const muteTab = (on) => {
+            tabMuted = on;
+            for (const e of document.querySelectorAll('video, audio')) {
+              if (on) { hush(e); } else if (hushed.has(e)) { hushed.delete(e); e.muted = false; }
+            }
+            for (let i = 0; i < frames.length; i++) {
+              try { frames[i].postMessage({ cmuxMediaMute: on }, '*'); } catch (_) {}
+            }
+            schedule();
+          };
+          document.addEventListener('cmux-media-mute', (event) => {
+            if (typeof event.detail === 'boolean') muteTab(event.detail);
+          }, true);
+          // A frame that loads after the mute hears it at once.
+          addEventListener('load', (event) => {
+            const frame = event.target;
+            if (tabMuted && frame && (frame.tagName === 'IFRAME' || frame.tagName === 'FRAME')) {
+              try { frame.contentWindow.postMessage({ cmuxMediaMute: true }, '*'); } catch (_) {}
+            }
+          }, true);
+          addEventListener('message', (event) => {
+            const data = event.data;
+            if (window !== top && data && typeof data.cmuxMediaMute === 'boolean') muteTab(data.cmuxMediaMute);
+          });
           document.addEventListener('cmux-media-actions', (event) => {
             actions = typeof event.detail === 'string' ? event.detail : '';
             schedule();
@@ -116,6 +149,8 @@ nonisolated extension BrowserMediaCommand {
             return ("(() => { \(element)if (e.paused) { e.play().catch(() => {}); } else { e.pause(); } return true; })()", .isolated)
         case .toggleMute:
             return ("(() => { \(element)e.muted = !e.muted; return true; })()", .isolated)
+        case .muteTab(let on):
+            return ("(() => { document.dispatchEvent(new CustomEvent('cmux-media-mute', { detail: \(on) })); return true; })()", .isolated)
         case .previousTrack:
             return ("(() => { const f = window[Symbol.for('cmux.mediaAction')]; return !!f && f('previoustrack'); })()", .page)
         case .nextTrack:
@@ -129,5 +164,13 @@ extension BrowserTab {
     public func media(_ command: BrowserMediaCommand) async {
         let script = command.script
         _ = try? await evaluate(script.source, world: script.world)
+    }
+
+    /// After the page's media report: a document or frame that has not
+    /// heard the tab's mute yet (a new page, a new frame) hears it now.
+    func keepAudioMute(after report: BrowserMediaState?) {
+        guard let report, report.isTabMuted != state.isAudioMuted else { return }
+        // Sends the state when it runs, so a quick Mute then Unmute ends right.
+        Task { await media(.muteTab(state.isAudioMuted)) }
     }
 }

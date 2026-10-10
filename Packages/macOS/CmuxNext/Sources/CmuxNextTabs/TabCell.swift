@@ -97,6 +97,7 @@ final class TabCell {
     var machineLayer: ChromeTextLayer?
     var themeBadgeLayer: CALayer?
     var profileLayer: CALayer? // browser profile dot (TabCell+ProfileBadge)
+    var audioLayer: CALayer? // speaker of a tab playing sound (TabCell+AudioBadge)
 
     var hasSpinnerLayer: Bool { spinnerLayer != nil }
     var hasBadgeLayer: Bool { badgeLayer != nil }
@@ -174,6 +175,7 @@ final class TabCell {
         if previous?.machineBadge != item.machineBadge { updateMachineBadge() }
         if previous?.themeBadge != item.themeBadge { updateThemeBadge() }
         if previous?.profileBadge != item.profileBadge { updateProfileBadge() }
+        if previous?.audio != item.audio { updateAudioBadge() }
         updateColors(animated: false)
         updateAccessibility()
         layoutLayers()
@@ -214,9 +216,7 @@ final class TabCell {
         updateColors(animated: true)
     }
 
-    func updateColors(animated: Bool) {
-        Motion.transaction(animated ? .hover : nil) { applyColors() }
-    }
+    func updateColors(animated: Bool) { Motion.transaction(animated ? .hover : nil) { applyColors() } }
 
     private func applyColors() {
         themeScope.perform {
@@ -231,6 +231,7 @@ final class TabCell {
             titleLayer.foregroundColor = text.cgColor
             machineLayer?.foregroundColor = Palette.textTertiary.cgColor
             applyProfileDotColors()
+            applyAudioIcon()
             let indicatorColors = StatusIndicatorLayer.Colors.current(loading: StatusIndicatorAppearance.shared.config.settings.color)
             spinnerLayer?.colors = indicatorColors
             statusGlyphLayer?.colors = indicatorColors
@@ -371,7 +372,8 @@ final class TabCell {
             let lineHeight = ceil(titleFont.ascender - titleFont.descender + titleFont.leading)
             titleLayer.opacity = 1
             let titleEnd = closeRect.map { $0.minX - m.titleCloseSpacing } ?? (bounds.width - m.contentTrailingInset)
-            let visibleEnd = layoutProfileBadge(titleX: titleX, titleEnd: layoutMachineBadge(titleX: titleX, titleEnd: titleEnd, midY: midY), midY: midY)
+            let badgesEnd = layoutAudioBadge(titleX: titleX, titleEnd: layoutMachineBadge(titleX: titleX, titleEnd: titleEnd, midY: midY), midY: midY)
+            let visibleEnd = layoutProfileBadge(titleX: titleX, titleEnd: badgesEnd, midY: midY)
             // The marquee fades glyphs out across the icon-title gap.
             let geometry = TitleFadeGeometry(
                 textWidth: titleWidth(), span: span, visibleWidth: visibleEnd - titleX,
@@ -383,8 +385,7 @@ final class TabCell {
             titleFade.stopMarquee(animated: false)
             titleLayer.opacity = 0
             titleLayer.mask = nil
-            machineLayer?.opacity = 0
-            profileLayer?.opacity = 0
+            for badge in [machineLayer, profileLayer, audioLayer] { badge?.opacity = 0 }
         }
     }
 

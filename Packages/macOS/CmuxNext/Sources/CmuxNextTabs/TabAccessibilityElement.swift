@@ -64,6 +64,7 @@ extension TabCell {
         if item.isDormant { parts.append(Strings.axHibernated) }
         if let machine = item.machineBadge { parts.append(Strings.axOnMachine(machine)) }
         if let profile = item.profileBadge { parts.append(Strings.browserProfile(profile.name)) }
+        if let audio = item.audio { parts.append(audio == .muted ? Strings.axMuted : Strings.axPlayingAudio) }
         if let theme = item.themeBadge { parts.append(Strings.axTheme(theme.name)) }
         switch item.status {
         case .needsInput: parts.append(Strings.axNeedsInput)

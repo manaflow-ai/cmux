@@ -90,7 +90,7 @@ extension TabHandlers {
             entry.chrome.perform(.reload)
         })
         registry.bindUnavailable("palette.toggleFullWidthTab", reason: RefusalStrings.fullWidthTabUnported)
-        registry.bindUnavailable("toggleTabAudioMute", reason: RefusalStrings.audioMuteUnported)
+        registry.bind("toggleTabAudioMute", invoke: { BrowserTabAudio.toggleMute(ctx, $0) })
         registry.bindUnavailable("disconnectRemoteTab", reason: RefusalStrings.needsDaemonCapability("remote-ssh-tabs"))
     }
 

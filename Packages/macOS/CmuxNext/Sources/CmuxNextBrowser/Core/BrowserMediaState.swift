@@ -14,11 +14,13 @@ public nonisolated struct BrowserMediaState: Hashable, Sendable {
     /// Muted, or at volume 0.
     public var isMuted: Bool
     public var isVideo: Bool
+    /// The reporting frame keeps the tab muted (`BrowserAudioMuting`).
+    public var isTabMuted: Bool
     /// The `mediaSession` actions the page handles (`nexttrack`, ...).
     public var actions: Set<BrowserMediaAction>
 
     public init(title: String, artist: String = "", album: String = "", artworkURL: URL? = nil, isPlaying: Bool,
-                isMuted: Bool = false, isVideo: Bool = false, actions: Set<BrowserMediaAction> = []) {
+                isMuted: Bool = false, isVideo: Bool = false, isTabMuted: Bool = false, actions: Set<BrowserMediaAction> = []) {
         self.title = title
         self.artist = artist
         self.album = album
@@ -26,6 +28,7 @@ public nonisolated struct BrowserMediaState: Hashable, Sendable {
         self.isPlaying = isPlaying
         self.isMuted = isMuted
         self.isVideo = isVideo
+        self.isTabMuted = isTabMuted
         self.actions = actions
     }
 
@@ -47,7 +50,7 @@ public nonisolated struct BrowserMediaState: Hashable, Sendable {
         return .some(BrowserMediaState(
             title: text("title"), artist: text("artist"), album: text("album"), artworkURL: artwork,
             isPlaying: object["playing"] as? Bool ?? false, isMuted: object["muted"] as? Bool ?? false,
-            isVideo: object["video"] as? Bool ?? false, actions: Set(actions)))
+            isVideo: object["video"] as? Bool ?? false, isTabMuted: object["tabMuted"] as? Bool ?? false, actions: Set(actions)))
     }
 
     /// The Chromium binding's payload: the same report as JSON text.
@@ -73,4 +76,18 @@ public nonisolated enum BrowserMediaCommand: Hashable, Sendable {
     case previousTrack
     case nextTrack
     case toggleMute
+    /// Mutes (true) or unmutes every media element of the page and its
+    /// frames, now and as they play (the tab's mute).
+    case muteTab(Bool)
+}
+
+/// A page whose tab can be muted (cx-d0d.24): Mute Tab keeps the media of
+/// the page and its frames muted, across navigations, until Unmute. Pages
+/// built on the media scripts (WebKit and Chromium) adopt it. It sets the
+/// elements' `muted`, which the page sees. Not muted: Web Audio, media in
+/// shadow roots, Chromium's out-of-process frames, and a new document's
+/// first moments, until its report brings the mute back.
+@MainActor
+public protocol BrowserAudioMuting: AnyObject {
+    func setAudioMuted(_ muted: Bool)
 }
