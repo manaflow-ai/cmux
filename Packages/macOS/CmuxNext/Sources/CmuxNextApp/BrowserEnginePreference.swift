@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextSettings
 import Observation
 
@@ -15,7 +16,7 @@ final class BrowserEnginePreference {
     func follow(_ settings: SettingsController) {
         observation?.cancel()
         observation = Task { [weak self] in
-            for await engine in Observations({ settings.snapshot.browserDefaultEngine }) {
+            for await engine in ObservationStream({ settings.snapshot.browserDefaultEngine }) {
                 guard let self else { return }
                 if self.defaultEngine != engine { self.defaultEngine = engine }
             }

@@ -21,7 +21,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextAppPermissions/Install/AppPresenceFilter
 Packages/macOS/CmuxNext/Sources/CmuxNextAppPermissions/Install/AppStateReducer.swift:AppStateReducer
 Packages/macOS/CmuxNext/Sources/CmuxNextAppPermissions/Policy/AppGrantReducer.swift:AppGrantReducer
 Packages/macOS/CmuxNext/Sources/CmuxNextAppPermissions/Policy/AppPermissionPolicy.swift:AppPermissionPolicy
-Packages/macOS/CmuxNext/Sources/CmuxNextApps/AppBundleLocator.swift:AppBundleLocator
 Packages/macOS/CmuxNext/Sources/CmuxNextApps/AppPlatformResources.swift:AppPlatformResources
 Packages/macOS/CmuxNext/Sources/CmuxNextApps/AppsTunables.swift:AppsTunables
 Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/BookmarkStrings.swift:BookmarkStrings
@@ -89,7 +88,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/DropOverlay/DropOverlayGeom
 Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/DropOverlay/DropOverlayTunables.swift:DropOverlayTunables
 Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/DropOverlay/DropOverlayTunables.swift:LayoutTunables
 Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/System/ExternalOpenRoute.swift:ShellQuote
-Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/Theme/GhosttyThemeFile.swift:GhosttyThemeFile
 Packages/macOS/CmuxNext/Sources/CmuxNextPalette/TabSearch/TabSearchPlan.swift:TabSearchPlan
 Packages/macOS/CmuxNext/Sources/CmuxNextPalette/TabSearch/TabSearchStyle.swift:PaletteTunables
 Packages/macOS/CmuxNext/Sources/CmuxNextServer/Model/HealthAlert.swift:HealthOrdering

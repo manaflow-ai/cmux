@@ -44,6 +44,15 @@ use serde_json::{Map, Value, json};
 pub const BIN_DIR_ENV: &str = "CMUX_AGENT_TOOLS_BIN_DIR";
 /// `0` turns the agent tools off for this daemon.
 pub const SWITCH_ENV: &str = "ACPMUX_AGENT_TOOLS";
+/// The agent session the cmux CLI and `cmux mcp serve` name as their caller
+/// (`caller.agent_session`), so the app opens their tabs beside its chat.
+pub const AGENT_SESSION_ENV: &str = "CMUX_AGENT_SESSION";
+
+/// Caller ids an agent must not inherit from the daemon's own environment
+/// (a daemon an agent started carries that agent's session too).
+pub const INHERITED_CALLER_ENV: [&str; 4] =
+    ["CMUX_TUI_TERMINAL_ID", "CMUX_SURFACE_ID", "CMUX_PANEL_ID", AGENT_SESSION_ENV];
+
 /// A session env key passed to `cmux-cua mcp`: exact bundle ids the
 /// session's computer use may target although the guard refuses them.
 pub const CUA_SCOPE_ENV: &str = "CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS";
@@ -125,6 +134,11 @@ pub struct Inputs {
     pub state_dir: PathBuf,
     /// The tag's helper socket the cmux app exported, if any.
     pub cua: Option<crate::cua_socket::Socket>,
+    /// The helper v2 endpoint folder, only while the helper v2 runs
+    /// (`endpoint.json` exists): sessions then get `acpmux cua-mcp`.
+    pub cua_v2: Option<PathBuf>,
+    /// This acpmux executable (the `cua-mcp` bridge command).
+    pub acpmux: Option<PathBuf>,
 }
 
 impl Inputs {
@@ -143,6 +157,8 @@ impl Inputs {
             cmux_json: std::fs::read_to_string(config).ok(),
             state_dir: crate::config::home().join("agent-tools"),
             cua: crate::cua_socket::from_env(),
+            cua_v2: crate::cua_v2::active_dir(crate::cua_v2::dir_from_env()),
+            acpmux: std::env::current_exe().ok(),
         }
     }
 }
@@ -163,9 +179,17 @@ pub fn left_out(remote_origin: bool, env: &BTreeMap<String, String>, args: &[Str
         || args.iter().any(|a| a == "--strict-mcp-config")
 }
 
-/// `mcpServers` for a session's ACP harness.
-pub fn acp_servers_for(remote_origin: bool, env: &BTreeMap<String, String>) -> Value {
-    if left_out(remote_origin, env, &[]) { json!([]) } else { current().scoped(env).acp_servers() }
+/// `mcpServers` for acpmux session `session_id`'s ACP harness.
+pub fn acp_servers_for(
+    remote_origin: bool,
+    env: &BTreeMap<String, String>,
+    session_id: &str,
+) -> Value {
+    if left_out(remote_origin, env, &[]) {
+        json!([])
+    } else {
+        current().scoped(env).for_session(session_id).acp_servers()
+    }
 }
 
 /// Extra Claude Code flags for session `session_id` whose command line is
@@ -179,7 +203,10 @@ pub fn claude_args_for(
     if left_out(remote_origin, env, args) {
         Vec::new()
     } else {
-        current().scoped(env).claude_args(&mcp_config_path(&crate::config::home(), session_id))
+        current()
+            .scoped(env)
+            .for_session(session_id)
+            .claude_args(&mcp_config_path(&crate::config::home(), session_id))
     }
 }
 
@@ -207,7 +234,17 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
     let executable = |name: &str| {
         inputs.bin_dir.as_ref().map(|dir| dir.join(name)).filter(|path| is_executable(path))
     };
-    if let Some(cua) = executable("cmux-cua") {
+    if let (Some(dir), Some(acpmux)) = (&inputs.cua_v2, &inputs.acpmux) {
+        // The helper v2: this acpmux as the agent's MCP server. Only the
+        // folder goes in its env; the bridge reads the socket and secret
+        // from endpoint.json there when it connects.
+        servers.push(McpServer {
+            name: crate::cua_v2::SERVER_NAME.into(),
+            command: acpmux.clone(),
+            args: vec!["cua-mcp".into()],
+            env: vec![(crate::cua_v2::ENDPOINT_DIR_ENV.into(), dir.to_string_lossy().into_owned())],
+        });
+    } else if let Some(cua) = executable("cmux-cua") {
         let mut args = vec!["mcp".to_owned()];
         let mut socket_env: Vec<(String, String)> = Vec::new();
         if let Some(socket) = &inputs.cua {
@@ -272,6 +309,19 @@ impl AgentTools {
         self
     }
 
+    /// The tools for acpmux session `session_id`: the cmux server gets it as
+    /// [`AGENT_SESSION_ENV`] in its own env, because a client may pass only
+    /// an allowlisted env to a stdio MCP server (Codex does).
+    pub fn for_session(mut self, session_id: &str) -> Self {
+        for server in &mut self.servers {
+            server.env.retain(|(k, _)| k != AGENT_SESSION_ENV);
+            if server.name == "cmux" {
+                server.env.push((AGENT_SESSION_ENV.to_owned(), session_id.to_owned()));
+            }
+        }
+        self
+    }
+
     /// `mcpServers` for an ACP `session/new`, `session/load` or `session/fork`.
     pub fn acp_servers(&self) -> Value {
         Value::Array(
@@ -330,6 +380,7 @@ impl AgentTools {
 
 /// Write `bytes` to `path` as a 0600 file in a 0700 folder (to a temporary
 /// file first, then renamed, so claude never reads half a config).
+#[cfg(unix)]
 fn write_private(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     use std::io::Write;
     use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
@@ -349,10 +400,22 @@ fn write_private(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     }
     Ok(written?)
 }
+/// Windows port: owner-only files are ACLs there (a later landing); until
+/// then no private file is written.
+#[cfg(not(unix))]
+fn write_private(_path: &Path, _bytes: &[u8]) -> anyhow::Result<()> {
+    Err(crate::platform::unsupported("private files"))
+}
 
+#[cfg(unix)]
 fn is_executable(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+}
+/// Windows has no execute bit: any file counts.
+#[cfg(not(unix))]
+fn is_executable(path: &Path) -> bool {
+    std::fs::metadata(path).is_ok_and(|m| m.is_file())
 }
 
 /// Same rule as `cmux mcp serve` (cmux-tui `cli/mcp/config.rs`): on only when
@@ -414,6 +477,6 @@ fn materialize(state_dir: &Path) -> anyhow::Result<PathBuf> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 #[path = "agent_tools_tests.rs"]
 mod tests;

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextPages
 
@@ -13,7 +14,7 @@ extension WindowController {
         }
         let model = sidebar.model
         sidebarObservation = Task { [weak self] in
-            for await hidden in Observations({ model.isHidden }) {
+            for await hidden in ObservationStream({ model.isHidden }) {
                 guard let self else { return }
                 if hidden { services.hoverCards.suppress(.sidebarHide) }
                 else { services.hoverCards.unsuppress(.sidebarHide) }

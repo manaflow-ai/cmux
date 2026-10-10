@@ -38,6 +38,8 @@ public struct TabSnapshot: Sendable, Hashable, Decodable {
     public var remote: RemoteTerminalRef?
     /// The conversation a `.conversation` tab shows.
     public var conversation: ConversationTabRef?
+    /// The app a frontend app tab shows (`app-screens-v1`).
+    public var app: AppTabRef?
     /// The workspace store's keep-layout record of a dead kept tab
     /// (`end-terminals-keep-layout-v1`).
     public var relaunch: TabRelaunch?
@@ -108,7 +110,7 @@ public struct TabSnapshot: Sendable, Hashable, Decodable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case surface, kind, name, title, size, dead, notification, url, pinned, cwd, remote, relaunch, conversation, end
+        case surface, kind, name, title, size, dead, notification, url, pinned, cwd, remote, relaunch, conversation, end, app
         case terminalState = "terminal_state"
         case hostRecordVersion = "host_record_version"
         case tabResourceID = "tab_resource_id"
@@ -162,6 +164,7 @@ public struct TabSnapshot: Sendable, Hashable, Decodable {
         remote = kind == .remoteTerminal ? try? c.decodeIfPresent(RemoteTerminalRef.self, forKey: .remote) : nil
         relaunch = try c.decodeIfPresent(TabRelaunch.self, forKey: .relaunch)
         conversation = kind == .conversation ? try? c.decodeIfPresent(ConversationTabRef.self, forKey: .conversation) : nil
+        app = kind == .browser ? try? c.decodeIfPresent(AppTabRef.self, forKey: .app) : nil
         // Unknown future states and ends must not fail the whole tree decode.
         terminalState = try? c.decodeIfPresent(TerminalTabState.self, forKey: .terminalState)
         end = try? c.decodeIfPresent(TerminalTabEnd.self, forKey: .end)

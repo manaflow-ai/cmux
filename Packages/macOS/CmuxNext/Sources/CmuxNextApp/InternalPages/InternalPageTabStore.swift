@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextIcons
 import CmuxNextTabs
@@ -125,6 +126,9 @@ final class InternalPageTabStore {
     }
 
     /// `key`'s view: an app-only page tab's, or a store page tab's by its id.
+    /// The provider key of store page tab `id`, nil for any other tab.
+    func storeKey(of id: String) -> String? { storeKeys[id] }
+
     func existingView(_ key: String) -> InternalPageView? { views[key] ?? storeKeys[key].flatMap { views[$0] } }
 
     /// The page an app-only or store page tab shows.
@@ -135,16 +139,18 @@ final class InternalPageTabStore {
     // MARK: Store page tabs
 
     /// A store page tab's strip title and icon, from the page it shows.
-    func storeTabItem(_ tab: TabModel) -> (title: String, icon: TabIcon)? {
-        guard let page = tab.page.map(InternalPageID.init(rawValue:)), let provider = providers[page] else { return nil }
+    func storeTabItem(_ tab: TabModel, page: InternalPageID? = nil) -> (title: String, icon: TabIcon)? {
+        guard let page = page ?? tab.page.map(InternalPageID.init(rawValue:)), let provider = providers[page] else { return nil }
         return (provider.title(for: storeKeys[tab.id] ?? ""), Self.tabIcon(provider))
     }
 
-    /// The view of store page tab `tab` (its `page` source), made on first
-    /// show under a provider key of its own.
-    func view(forStoreTab tab: TabModel, in store: DaemonStore, window: WindowController?) -> InternalPageView? {
+    /// The view of store page tab `tab` (its `page` source, or `page` for an
+    /// app tab, `app-screens-v1`), made on first show under a provider key of
+    /// its own.
+    func view(forStoreTab tab: TabModel, page: InternalPageID? = nil, in store: DaemonStore,
+              window: WindowController?) -> InternalPageView? {
         if let key = storeKeys[tab.id], let view = views[key] { return view }
-        guard let page = tab.page.map(InternalPageID.init(rawValue:)), let provider = providers[page] else { return nil }
+        guard let page = page ?? tab.page.map(InternalPageID.init(rawValue:)), let provider = providers[page] else { return nil }
         let key = storeKeys[tab.id] ?? LocalPageTab.makeKey(page)
         track(tab.id, key: key, in: store, window: window)
         // A pane lists it: the tree has it.
@@ -159,14 +165,17 @@ final class InternalPageTabStore {
     /// its view show at once (the store's provisional tab) and keep the
     /// view when the store's tab replaces it. Selects it when `focus`. Nil
     /// when the pane's daemon cannot hold page tabs. A failed creation keeps
-    /// the page as an app-only tab.
+    /// the page as an app-only tab. `key` is the provider key to use (a
+    /// provider that set up its tab under it first); `created` gets the
+    /// store tab's surface once the daemon made it.
     func openStoreTab(_ page: InternalPageID, in pane: PaneController, window: WindowController,
-                      focus: Bool) -> InternalPageView? {
+                      focus: Bool, key given: String? = nil,
+                      created onCreated: (@MainActor (SurfaceID) -> Void)? = nil) -> InternalPageView? {
         let daemon = pane.daemon, store = daemon.store
         guard let provider = providers[page], daemon.supports(DaemonCapabilities.shared.pageTabs),
               case .connected = store.connectionState else { return nil }
         let provisional = ProvisionalTab()
-        let key = LocalPageTab.makeKey(page)
+        let key = given.flatMap { LocalPageTab.page(of: $0) == page ? $0 : nil } ?? LocalPageTab.makeKey(page)
         var snapshot = TabSnapshot(surface: provisional.surface, tabResourceID: ResourceID(rawValue: provisional.id),
                                    kind: .conversation, title: provider.title(for: key), browserRenderer: "frontend")
         snapshot.conversation = ConversationTabRef(page: page.rawValue)
@@ -192,6 +201,7 @@ final class InternalPageTabStore {
                 // The store's tab replaces the provisional one in one step, never beside it.
                 ProvisionalTab.created(transaction, surface: created.surface, in: store)
                 if let sequence { store.noteSettled(transaction, at: sequence) } else { store.noteSettledAtNextSnapshot(transaction) }
+                onCreated?(created.surface)
             } catch {
                 daemon.logger.error("new-conversation-tab (page) failed: \(String(describing: error), privacy: .public)")
                 self?.keepAsLocalTab(provisional.id, key: key, page: page, in: pane, store: store, window: window)
@@ -301,7 +311,7 @@ final class InternalPageTabStore {
         guard watches[id] == nil else { return }
         // task-owner: stored in watches; cancelled once the store has no page tabs
         watches[id] = Task { [weak self] in
-            for await live in Observations({ Self.livePanes(store).map { [$0, Self.liveTabs(store) ?? []] } }) where live != nil {
+            for await live in ObservationStream({ Self.livePanes(store).map { [$0, Self.liveTabs(store) ?? []] } }) where live != nil {
                 guard let self else { return }
                 self.closeGonePanes(in: store)
                 self.closeGoneStoreTabs(in: store)

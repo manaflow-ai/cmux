@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2bf19d19dd792ab6ce12fb52406a3928efe88c839b5e097d4a042d2dcc4158d4. */
+/* cmux-tui mux protocol 12, IR c3e75f81f153b62db514f794bde678dc60c2776c6715471d2055c9cd99ec3172. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -1000,6 +1000,7 @@ export type SetTerminalIdlePolicyResult = {
 export type SetTerminalKeepResult = {
   "keep": boolean;
   "terminal_id": string;
+  "terminal_resource_id"?: (string) | null;
 };
 
 export type ShutdownDaemonResult = {
@@ -1289,6 +1290,7 @@ export type TerminalPlacement = {
   "surface": (Id) | null;
   "terminal_id": string;
   "terminal_incarnation": (string) | null;
+  "terminal_resource_id"?: string;
   "terminal_revision": bigint;
   "workspace": (Id) | null;
 };
@@ -1357,6 +1359,10 @@ export type Tree = {
 };
 
 export type ViewAttachmentOutcome = "applied" | "passive" | "superseded";
+
+export type ViewportPaneWidthResult = {
+  "width": number;
+};
 
 export type VtStateResult = {
   "cols": number;

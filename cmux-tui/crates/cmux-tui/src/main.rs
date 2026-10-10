@@ -1678,10 +1678,12 @@ fn run_main() {
         }
         return;
     }
-    // `cmux acp …` (and `cmux harness|chats …` = `cmux acp harness|chats …`) runs acpmux
+    // `cmux acp …` (and `cmux harness|chats|route …` = `cmux acp harness|chats|route …`) runs acpmux
     // in this process. It needs none of the mux's provider credentials or signal handlers.
     #[cfg(unix)]
-    if let Some(head @ ("acp" | "harness" | "chats")) = raw_args.first().map(String::as_str) {
+    if let Some(head @ ("acp" | "harness" | "chats" | "route")) =
+        raw_args.first().map(String::as_str)
+    {
         discard_provider_secret_environment();
         let args = std::env::args_os().skip(if head == "acp" { 2 } else { 1 }).collect();
         client_log::exit(acp::run_scope(head, args));
@@ -1766,6 +1768,12 @@ fn run_main() {
     #[cfg(unix)]
     let provider_token = CapturedProviderToken::capture();
     let provider_workspace_authority = CapturedProviderWorkspaceAuthority::capture();
+    if !args.attach {
+        // This process hosts terminals now (cx-4nar): an agent that started
+        // it must not mark a person's shells there as agent callers.
+        // SAFETY: still single-threaded startup, as for the captures above.
+        unsafe { startup_env::take_agent_caller_env() };
+    }
     let config = config::StartupConfigSnapshot::load();
     let provider = resolve_provider_launch(&args, &config)
         .unwrap_or_else(|error| usage_exit(&error.to_string()));

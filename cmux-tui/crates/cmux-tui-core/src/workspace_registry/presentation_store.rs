@@ -21,6 +21,7 @@
 
 mod snapshot;
 use crate::state::conversation_tabs_store::{ConversationTabRecord, read_conversation_tabs};
+use crate::state::remote_terminal_tabs_store::{RemoteTerminalRecord, read_remote_terminals};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use anyhow::Context;
@@ -265,8 +266,14 @@ pub struct PresentationSnapshot {
     pub frontend_browsers: HashMap<String, FrontendBrowserRecord>,
     /// `conversation-tabs-v1` records keyed by public browser id.
     pub conversation_tabs: HashMap<String, ConversationTabRecord>,
+    /// `remote-terminal-tabs-v1` references keyed by public browser id.
+    pub remote_terminals: HashMap<String, RemoteTerminalRecord>,
     /// Key of the store's home workspace (`workspace-kind-v1`), if any.
     pub home_workspace: Option<String>,
+    /// The app of every live app workspace, by workspace key (`app-screens-v1`).
+    pub app_workspaces: HashMap<String, String>,
+    /// App tab records, by public browser id (`app-screens-v1`).
+    pub app_tabs: HashMap<String, crate::state::app_workspaces::AppTabRecord>,
     /// Tab groups of every pane, rendered with Chrome-style colors.
     pub tab_groups: TabGroupState,
     /// Saved (pinned) tab groups, in bar order.

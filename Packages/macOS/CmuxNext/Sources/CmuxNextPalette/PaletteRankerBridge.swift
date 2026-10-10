@@ -99,18 +99,24 @@ public final class PaletteRankerBridge {
     }
 
     /// Ranks an empty palette query through the shared TypeScript implementation.
+    ///
+    /// - Parameter version: The snapshot identifier of `entries`. With one, the entries go to the
+    ///   context once per version (`__cmuxPaletteInstall`), shared with the typed queries of the
+    ///   same snapshot; without one, every call sends them all.
     nonisolated public func rankEmpty(
         entries: [PaletteSearchEntry],
+        version: Int? = nil,
         sectionOrders: [Int],
         frecency: FrecencyStore,
         now: Date,
         showsRecent: Bool,
         recentLimit: Int = 5
     ) throws -> [PaletteRankedSection] {
-        try invoke(PaletteRankerBridgeRequest(
+        if let version, version != installedVersion { try install(entries, version: version) }
+        return try invoke(PaletteRankerBridgeRequest(
             operation: "rankEmpty",
-            entries: entries.map(PaletteRankerBridgeEntry.init),
-            version: nil,
+            entries: version == nil ? entries.map(PaletteRankerBridgeEntry.init) : nil,
+            version: version,
             query: nil,
             sectionOrders: sectionOrders,
             frecency: PaletteRankerBridgeFrecency(frecency),

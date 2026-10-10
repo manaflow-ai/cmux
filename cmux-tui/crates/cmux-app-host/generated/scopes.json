@@ -385,6 +385,10 @@
       "scope": "coderouter:write",
       "class": "mutation"
     },
+    "coderouter.detect": {
+      "scope": "coderouter:read",
+      "class": "read"
+    },
     "coderouter.status": {
       "scope": "coderouter:read",
       "class": "read"
@@ -1566,6 +1570,10 @@
       "class": "mutation"
     },
     "workspace.create": {
+      "scope": "workspace:write",
+      "class": "mutation"
+    },
+    "workspace.ensure_app": {
       "scope": "workspace:write",
       "class": "mutation"
     },

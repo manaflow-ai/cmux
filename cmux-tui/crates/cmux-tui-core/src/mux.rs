@@ -21,6 +21,8 @@ use terminal_host_records::{
     acknowledge_exact_terminal_host_exit, cleanup_terminal_host_record,
     terminal_host_record_liveness, terminate_discovered_terminal_host_in,
 };
+mod detached_terminals;
+pub(crate) use detached_terminals::DetachedTerminalSpawn;
 mod terminal_runtime_index;
 use terminal_runtime_index::{
     insert_restored_terminal_runtime_checked, insert_surface_checked,
@@ -196,7 +198,7 @@ mod journal_plugin_host;
 mod journal_retention;
 mod kitty_budget;
 mod kitty_reservation;
-use kitty_reservation::{kitty_image_limits_exceed, kitty_image_limits_within};
+use kitty_reservation::kitty_image_limits_exceed;
 mod agent_types;
 pub use agent_types::{AgentRecord, AgentSource, AgentState};
 use agent_types::{

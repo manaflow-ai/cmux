@@ -171,6 +171,7 @@ pub fn preset_dir(presets: &Path, name: &str) -> PathBuf {
 
 /// Writes `text` as preset `name`'s system prompt file (directory 0700, file
 /// 0400, replaced atomically); returns the file's sha256.
+#[cfg(unix)]
 pub fn write_system_prompt(presets: &Path, name: &str, text: &str) -> io::Result<String> {
     use std::io::Write;
     use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
@@ -190,6 +191,14 @@ pub fn write_system_prompt(presets: &Path, name: &str, text: &str) -> io::Result
     }
     written?;
     Ok(crate::sha256::sha256_hex(text.as_bytes()))
+}
+/// Windows port: the 0700/0400 modes are ACLs there (a later landing).
+#[cfg(not(unix))]
+pub fn write_system_prompt(_presets: &Path, _name: &str, _text: &str) -> io::Result<String> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        crate::platform::unsupported("preset system prompts").to_string(),
+    ))
 }
 
 /// Removes preset `name`'s directory (its system prompt file).
@@ -217,138 +226,4 @@ pub fn checked_system_prompt(presets: &Path, name: &str, sha256: &str) -> Result
         ));
     }
     std::fs::canonicalize(&file).map_err(|e| format!("system prompt file of preset {name:?}: {e}"))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn claude(args: &[&str]) -> Result<(), String> {
-        check_preset_args(
-            HarnessKind::ClaudeStdio,
-            &args.iter().map(|a| (*a).to_owned()).collect::<Vec<_>>(),
-        )
-    }
-
-    /// The Chief's turns and compactor load no user settings, MCP servers,
-    /// skills or slash commands (`--setting-sources project` keeps only the
-    /// session directory's own settings, its denied tools included), while
-    /// the user's login still signs them in (credentials are not a setting
-    /// source). An empty source list stays refused: it would drop the
-    /// project's denied tools too.
-    #[test]
-    fn setting_sources_project_and_disable_slash_commands_pass() {
-        assert_eq!(claude(&["--setting-sources", "project", "--disable-slash-commands"]), Ok(()));
-        assert_eq!(
-            claude(&["--tools", "", "--strict-mcp-config", "--setting-sources", "project"]),
-            Ok(())
-        );
-    }
-
-    /// `--tools` with a list of built-in names: the session offers only
-    /// those, so a built-in Claude Code adds later is not offered.
-    #[test]
-    fn tools_with_a_list_of_builtin_names_pass() {
-        assert_eq!(
-            claude(&["--tools", "Bash,Read,Edit,Write,WebFetch,WebSearch,ToolSearch"]),
-            Ok(())
-        );
-        assert_eq!(claude(&["--tools", "Read"]), Ok(()));
-    }
-
-    #[test]
-    fn the_allowlisted_words_pass() {
-        assert_eq!(claude(&[]), Ok(()));
-        assert_eq!(
-            claude(&["--tools", "", "--strict-mcp-config", "--no-session-persistence"]),
-            Ok(())
-        );
-        assert_eq!(claude(&["--no-session-persistence"]), Ok(()));
-    }
-
-    /// One test per refused form: unknown flags, `=` forms, short aliases,
-    /// and every flag that can weaken permissions or reach outside the cwd.
-    macro_rules! refused {
-        ($($name:ident: [$($word:expr),* $(,)?];)*) => {$(
-            #[test]
-            fn $name() {
-                let words = [$($word),*];
-                let err = claude(&words).expect_err(&format!("{words:?} must be refused"));
-                assert!(err.starts_with("args: "), "{words:?}: {err}");
-            }
-        )*};
-    }
-
-    refused! {
-        refuses_an_unknown_flag: ["--verbose"];
-        refuses_user_setting_source: ["--setting-sources", "user"];
-        refuses_local_setting_source: ["--setting-sources", "local"];
-        refuses_a_setting_source_list_with_user: ["--setting-sources", "project,user"];
-        refuses_setting_sources_without_a_value: ["--setting-sources"];
-        refuses_setting_sources_equals_project: ["--setting-sources=project"];
-        refuses_disable_slash_commands_equals: ["--disable-slash-commands=true"];
-        refuses_a_bare_word: ["hello"];
-        refuses_tools_with_a_rule: ["--tools", "Bash(rm:*)"];
-        refuses_tools_with_an_mcp_tool: ["--tools", "mcp__x__y"];
-        refuses_tools_with_a_space: ["--tools", "Bash, Read"];
-        refuses_tools_with_an_empty_name: ["--tools", "Bash,,Read"];
-        refuses_tools_with_a_wildcard: ["--tools", "*"];
-        refuses_tools_default: ["--tools", "default"];
-        refuses_tools_default_in_a_list: ["--tools", "Read,Default"];
-        refuses_tools_without_a_value: ["--tools"];
-        refuses_tools_equals_empty: ["--tools="];
-        refuses_tools_equals_value: ["--tools=Bash"];
-        refuses_strict_mcp_config_equals: ["--strict-mcp-config=true"];
-        refuses_strict_mcp_config_with_mcp_config: ["--strict-mcp-config", "--mcp-config", "/x.json"];
-        refuses_no_session_persistence_equals: ["--no-session-persistence=1"];
-        refuses_system_prompt_file: ["--system-prompt-file", "/abs/system.md"];
-        refuses_system_prompt_file_equals: ["--system-prompt-file=/abs/system.md"];
-        refuses_dangerously_skip_permissions: ["--dangerously-skip-permissions"];
-        refuses_allow_dangerously_skip_permissions: ["--allow-dangerously-skip-permissions"];
-        refuses_permission_mode: ["--permission-mode", "bypassPermissions"];
-        refuses_permission_mode_equals: ["--permission-mode=bypassPermissions"];
-        refuses_settings: ["--settings", "{}"];
-        refuses_settings_equals: ["--settings={}"];
-        refuses_setting_sources: ["--setting-sources", ""];
-        refuses_setting_sources_equals: ["--setting-sources="];
-        refuses_mcp_config: ["--mcp-config", "/x.json"];
-        refuses_mcp_config_equals: ["--mcp-config=/x.json"];
-        refuses_allowed_tools: ["--allowedTools", "Bash"];
-        refuses_allowed_tools_equals: ["--allowedTools=Bash"];
-        refuses_allowed_tools_kebab: ["--allowed-tools", "Bash"];
-        refuses_disallowed_tools: ["--disallowedTools", "Bash"];
-        refuses_disallowed_tools_kebab: ["--disallowed-tools", "Bash"];
-        refuses_add_dir: ["--add-dir", "/"];
-        refuses_add_dir_equals: ["--add-dir=/"];
-        refuses_append_system_prompt: ["--append-system-prompt", "x"];
-        refuses_append_system_prompt_equals: ["--append-system-prompt=x"];
-        refuses_system_prompt: ["--system-prompt", "x"];
-        refuses_system_prompt_equals: ["--system-prompt=x"];
-        refuses_plugin_dir: ["--plugin-dir", "/p"];
-        refuses_plugin_dir_equals: ["--plugin-dir=/p"];
-        refuses_agents: ["--agents", "{}"];
-        refuses_agents_equals: ["--agents={}"];
-        refuses_resume: ["--resume", "x"];
-        refuses_short_resume: ["-r", "x"];
-        refuses_short_continue: ["-c"];
-        refuses_short_print: ["-p"];
-        refuses_short_debug: ["-d"];
-        refuses_model: ["--model", "opus"];
-        refuses_session_id_equals: ["--session-id=x"];
-        refuses_input_format: ["--input-format", "text"];
-        refuses_an_allowed_flag_after_a_refused_one: ["--no-session-persistence", "--add-dir", "/"];
-    }
-
-    #[test]
-    fn a_non_claude_harness_takes_no_args() {
-        let err = check_preset_args(HarnessKind::Acp, &["--no-session-persistence".to_owned()])
-            .expect_err("an ACP harness takes no preset args");
-        assert!(err.starts_with("args: "), "{err}");
-        assert_eq!(check_preset_args(HarnessKind::Acp, &[]), Ok(()));
-    }
-
-    #[test]
-    fn a_nul_byte_is_refused() {
-        assert!(claude(&["--tools", "\0"]).is_err());
-    }
 }

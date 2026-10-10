@@ -159,6 +159,10 @@ session and siblings. The event log carries `turn_started` and `turn_result`
 `turn_result failed outcome_unknown` so nobody replays a prompt that may have run. A
 `notifyCommand` in the config runs on a permission request and on a turn that ends
 unattended, with `ACPMUX_EVENT`, `ACPMUX_SESSION_NAME` and `ACPMUX_TEXT` set.
+`agentStartTimeoutMs` (default 90000) bounds a cold agent start (spawn, `initialize`,
+session load or new, config replay): past it the request fails with code -32000 and
+`data.reason` `deadline_exceeded` (`data.wait` `agent_start`), the agent is ended, the
+session stays open, and the log gets `agent_start_timed_out`.
 
 ## TUI
 

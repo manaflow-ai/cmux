@@ -24,11 +24,12 @@ nonisolated enum NewTabKind: Equatable, Sendable {
     /// `tabs.newTabKind` over the same-kind rule. Auto takes the kind last
     /// opened in the focused tab's folder (else anywhere), and the same
     /// kind before anything was opened.
-    /// The Terminal template (`tabs.newTabTemplate`) turns the page into a terminal.
+    /// The Terminal template (`tabs.newTabTemplate`) no longer turns the page into a terminal:
+    /// Cmd-T always opens the New Tab page unless `tabs.newTabKind` names another kind
+    /// (Lawrence 2026-10-10, cx-n0i9).
     static func resolve(_ setting: NewTabDefaultKind, template: NewTabTemplate? = nil, sameKind: NewTabKind,
                         recent: NewTabKind?) -> NewTabKind {
-        let kind = resolveKind(setting, sameKind: sameKind, recent: recent)
-        return kind == .page && template == .terminal ? .terminal : kind
+        resolveKind(setting, sameKind: sameKind, recent: recent)
     }
 
     private static func resolveKind(_ setting: NewTabDefaultKind, sameKind: NewTabKind, recent: NewTabKind?) -> NewTabKind {
