@@ -20280,6 +20280,70 @@ mod tests {
         .unwrap()
     }
 
+    #[test]
+    fn journal_maintenance_continues_sealing_a_subthreshold_tail() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-maintenance-tail-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let mux = open_persistent_test_mux("maintenance-tail", &root);
+        let manifest = crate::JournalProducerManifest {
+            producer_id: "maintenance_test".into(),
+            namespace: "plugin.maintenance_test".into(),
+            manifest_version: 1,
+            max_sensitivity: crate::JournalSensitivity::Metadata,
+            permissions: vec!["journal.append.plugin.maintenance_test".into()],
+            events: vec![crate::JournalEventSchema {
+                kind: "plugin.maintenance_test.event".into(),
+                schema_version: 1,
+                class: crate::JournalClass::Observation,
+                replay: crate::JournalReplayPolicy::Advisory,
+                sensitivity: crate::JournalSensitivity::Metadata,
+                payload_schema: serde_json::json!({"type":"object"}),
+            }],
+        };
+        mux.put_journal_producer(&manifest, "test", "maintenance-manifest")
+            .unwrap();
+        for index in 0..1_100 {
+            let ingress = crate::JournalIngress {
+                producer_id: manifest.producer_id.clone(),
+                manifest_version: 1,
+                kind: manifest.events[0].kind.clone(),
+                schema_version: 1,
+                occurred_at_ms: None,
+                subjects: Vec::new(),
+                sensitivity: None,
+                payload: serde_json::json!({"index": index}),
+                causation_id: None,
+                correlation_id: None,
+            };
+            mux.append_journal_ingress(&ingress, "test", &format!("maintenance-event-{index}"))
+                .unwrap();
+        }
+
+        let checkpoint = mux
+            .create_journal_checkpoint("test", "maintenance-checkpoint")
+            .unwrap();
+        let first_seal = mux
+            .seal_journal_segments(
+                checkpoint.checkpoint.source_sequence,
+                "test",
+                "maintenance-first-seal",
+            )
+            .unwrap();
+        assert!(first_seal.through_sequence < checkpoint.checkpoint.source_sequence);
+
+        mux.run_journal_maintenance();
+
+        assert_eq!(
+            mux.workspace_registry.lock().unwrap().journal_segments_end().unwrap(),
+            checkpoint.checkpoint.source_sequence,
+            "maintenance must finish a checkpoint even when the remaining tail is below the checkpoint threshold"
+        );
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     /// A machine resume reconnects every hosted terminal at once. Checkpoint
     /// capture can lose its consistency race while those reconnects append to
     /// the journal, but the skipped optimization is recovered by replaying
