@@ -31,8 +31,9 @@
 //! reports every change to the broker handler as a [`ClipboardReadSignal`]:
 //! a request, or a cancel when the host withdrew it or the connection ended.
 
+use crate::lock_rank::{Condvar, Mutex, MutexGuard, RankedMutex, rank};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::sync::{Arc, Weak};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -46,15 +47,16 @@ use super::control_responses::ControlResponses;
 use super::host_shared::HostShared;
 use super::host_state::HostTap;
 use super::host_state::ParserCommand;
+
 use ghostty_vt::{
     ClipboardLocation, ClipboardReadFn, ClipboardReadRequest, MAX_CLIPBOARD_READ_BYTES,
 };
-use std::sync::{MutexGuard, PoisonError};
+use std::sync::PoisonError;
 
 /// A poisoned lock still guards consistent broker state (every critical
 /// section leaves it whole), so the broker keeps working instead of
 /// panicking on it.
-pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+pub(crate) fn lock<T, const R: u16>(mutex: &RankedMutex<T, R>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
@@ -254,7 +256,7 @@ pub(crate) struct ClipboardReadState {
 }
 
 pub(crate) struct ClipboardReadsShared {
-    pub(crate) state: Mutex<ClipboardReadState>,
+    pub(crate) state: RankedMutex<ClipboardReadState, { rank::LEAF }>,
     pub(crate) changed: Condvar,
     pub(crate) clock: Arc<dyn ClipboardClock>,
 }
@@ -264,18 +266,18 @@ pub(crate) struct ClipboardReadsShared {
 pub(crate) struct ClipboardReads {
     pub(crate) shared: Arc<ClipboardReadsShared>,
     /// Reads the terminal reported during the current `vt_write`.
-    pub(crate) queued: Arc<Mutex<Vec<ClipboardReadRequest>>>,
+    pub(crate) queued: Arc<RankedMutex<Vec<ClipboardReadRequest>, { rank::LEAF }>>,
 }
 
 impl ClipboardReads {
     pub(crate) fn new(clock: Arc<dyn ClipboardClock>) -> Self {
         Self {
             shared: Arc::new(ClipboardReadsShared {
-                state: Mutex::new(ClipboardReadState::default()),
+                state: RankedMutex::new(ClipboardReadState::default()),
                 changed: Condvar::new(),
                 clock,
             }),
-            queued: Arc::new(Mutex::new(Vec::new())),
+            queued: Arc::new(RankedMutex::new(Vec::new())),
         }
     }
 
@@ -339,7 +341,12 @@ impl ClipboardReads {
 
     /// A connection granted `CLIPBOARD_READ` joined: reads are deferred
     /// from now on and asked of it.
-    pub(crate) fn register_owner(&self, term: &Mutex<Terminal>, client: u64, tap: HostTap) {
+    pub(crate) fn register_owner<const R: u16>(
+        &self,
+        term: &RankedMutex<Terminal, R>,
+        client: u64,
+        tap: HostTap,
+    ) {
         let mut term = lock(term);
         let mut state = lock(&self.shared.state);
         if state.ended {
@@ -352,7 +359,11 @@ impl ClipboardReads {
     /// Any connection left. Returns the open read it owned, which the
     /// caller refuses on the parser thread. The last owner turns deferral
     /// off, so reads are ignored again.
-    pub(crate) fn unregister_owner(&self, term: &Mutex<Terminal>, client: u64) -> Option<u64> {
+    pub(crate) fn unregister_owner<const R: u16>(
+        &self,
+        term: &RankedMutex<Terminal, R>,
+        client: u64,
+    ) -> Option<u64> {
         if !lock(&self.shared.state).owners.iter().any(|owner| owner.client == client) {
             return None;
         }
@@ -402,8 +413,8 @@ impl ClipboardReads {
 #[derive(Default)]
 pub(crate) struct ClipboardReadInbox {
     pub(crate) negotiated: AtomicBool,
-    pub(crate) pending: Mutex<Option<ClipboardReadRequest>>,
-    pub(crate) handler: Mutex<Option<ClipboardReadHandler>>,
+    pub(crate) pending: RankedMutex<Option<ClipboardReadRequest>, { rank::LEAF }>,
+    pub(crate) handler: RankedMutex<Option<ClipboardReadHandler>, { rank::LEAF }>,
 }
 
 impl ClipboardReadInbox {
@@ -633,7 +644,7 @@ impl HostAttachment {
 /// never keeps the host socket open.
 #[derive(Clone)]
 pub(crate) struct ClipboardReplier {
-    pub(crate) writer: Weak<Mutex<HostStream>>,
+    pub(crate) writer: Weak<RankedMutex<HostStream, { rank::LEAF }>>,
     pub(crate) responses: Weak<ControlResponses>,
     pub(crate) protocol_version: u16,
 }

@@ -2,7 +2,8 @@
 //! output reaches the parser with credit back, input and resize go to the
 //! app, the app's end ends the terminal, and a host close tells the app.
 
-use std::sync::{Arc, Mutex};
+use crate::lock_rank::Mutex;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};

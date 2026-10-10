@@ -10,13 +10,15 @@
 //! thread, which may block (backpressure): acpmux then fills its own bounded
 //! per-connection queue and reports `_acpmux/lagged`.
 
+use crate::lock_rank::{Mutex, RankedMutex, rank};
+
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::Path;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{SyncSender, sync_channel};
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -53,7 +55,7 @@ pub(super) enum Inbound {
 type Pending = Mutex<HashMap<u64, SyncSender<Result<Value, LinkError>>>>;
 
 pub(super) struct AcpmuxLink {
-    stream: Mutex<UnixStream>,
+    stream: RankedMutex<UnixStream, { rank::LEAF }>,
     pending: Arc<Pending>,
     next_id: AtomicU64,
     closed: Arc<AtomicBool>,
@@ -70,7 +72,7 @@ impl AcpmuxLink {
         stream.set_write_timeout(Some(CONNECT_TIMEOUT))?;
         let reader = stream.try_clone()?;
         let link = Arc::new(Self {
-            stream: Mutex::new(stream),
+            stream: RankedMutex::new(stream),
             pending: Arc::default(),
             next_id: AtomicU64::new(1),
             closed: Arc::new(AtomicBool::new(false)),

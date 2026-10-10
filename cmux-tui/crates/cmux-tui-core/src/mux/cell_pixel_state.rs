@@ -1,6 +1,7 @@
 //! Cell pixel update state: retry timing, public update results, completion tracking, test hooks, pending operations and the retry queue, and the bounded apply and convergence checks.
 
 use super::*;
+use crate::lock_rank::rank;
 
 pub(super) const CELL_PIXEL_RETRY_INITIAL: Duration = Duration::from_millis(25);
 
@@ -38,7 +39,7 @@ pub(super) struct CellPixelCompletionTracker {
     pub(super) generation: u64,
     pub(super) target: (u16, u16),
     pub(super) publishing: AtomicBool,
-    pub(super) completed: Mutex<HashSet<SurfaceId>>,
+    pub(super) completed: RankedMutex<HashSet<SurfaceId>, { rank::LEAF }>,
 }
 
 #[cfg(test)]

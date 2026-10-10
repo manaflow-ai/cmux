@@ -13,6 +13,7 @@
 //! request's result, so a retry with the same key replays it.
 
 use crate::Actor;
+use crate::lock_rank::{RankedMutex, rank};
 use crate::mux::tab_groups::pane_by_public_id;
 use crate::mux::tab_strip::StripRequest;
 use crate::mux::*;
@@ -92,7 +93,7 @@ fn choose(
 /// One reopen at a time per daemon, from resolving the group to the commit
 /// that removes the restored members: two presses (or two clients) never
 /// restore the same group or member twice.
-pub(super) static REOPEN: std::sync::Mutex<()> = std::sync::Mutex::new(());
+pub(super) static REOPEN: RankedMutex<(), { rank::CLOSED_HISTORY_REOPEN }> = RankedMutex::new(());
 
 /// The commit side of a reopen: re-read the group in the transaction, drop
 /// the restored members (by value: members of one group differ at least in

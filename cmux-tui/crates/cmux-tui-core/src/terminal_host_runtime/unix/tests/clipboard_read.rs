@@ -3,11 +3,11 @@
 //! lifecycle on a live parser with an injected clock.
 
 use super::*;
+use crate::lock_rank::MutexGuard;
 use crate::terminal_host_runtime::shared::clipboard_read::{
     ClipboardClock, ClipboardReadState, decode_clipboard_read_request, encode_clipboard_read_reply,
 };
 use ghostty_vt::{ClipboardLocation, ClipboardReadRequest};
-use std::sync::MutexGuard;
 
 const OSC52_READ: &[u8] = b"\x1b]52;c;?\x07";
 const REFUSED: &[u8] = b"\x1b]52;c;\x07";

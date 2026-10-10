@@ -12,6 +12,7 @@
 //! one computed deadline per burst and no timer while idle. Each write goes
 //! to a temporary file that is renamed over the old one, owner-only.
 
+use crate::lock_rank::{RankedMutex, rank};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::RecvTimeoutError;
 use std::thread::JoinHandle;
@@ -49,7 +50,7 @@ impl Default for LaunchSnapshotTiming {
 pub struct LaunchSnapshotWriter {
     path: PathBuf,
     stop: Arc<AtomicBool>,
-    events: Arc<Mutex<MuxEventReceiver>>,
+    events: Arc<RankedMutex<MuxEventReceiver, { rank::LAUNCH_SNAPSHOT_EVENTS }>>,
     writes: Arc<AtomicU64>,
     mux: Weak<Mux>,
     thread: Option<JoinHandle<()>>,
@@ -107,7 +108,7 @@ pub fn start_launch_snapshot_writer_with(
     let path = directory.join(LAUNCH_SNAPSHOT_FILE);
     let stop = Arc::new(AtomicBool::new(false));
     let writes = Arc::new(AtomicU64::new(0));
-    let events = Arc::new(Mutex::new(mux.subscribe_launch_snapshot()));
+    let events = Arc::new(RankedMutex::new(mux.subscribe_launch_snapshot()));
     let weak = Arc::downgrade(mux);
     let thread_path = path.clone();
     let thread_stop = stop.clone();

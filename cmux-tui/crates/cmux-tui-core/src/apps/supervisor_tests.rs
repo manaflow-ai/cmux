@@ -2,10 +2,11 @@
 //! re-run with `--ignored --exact …scripted_app_host`, speaks the fd 3
 //! protocol (the real host and its VM are tested in `cmux-app-host`).
 
+use crate::lock_rank::Mutex;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use cmux_app_host::{FromHost, ToHost};

@@ -9,8 +9,9 @@
 //! only after a method returns, so no event ever describes an uncommitted
 //! write. Typing indicators are never stored.
 
+use crate::lock_rank::{Mutex, RankedMutex, rank};
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use anyhow::Context;
 use cmux_conversation::{
@@ -749,17 +750,19 @@ impl ConversationEvent {
 /// `store`, then the workspace registry.
 #[derive(Default)]
 pub(crate) struct ConversationHost {
-    pub(crate) store: Mutex<Option<ConversationStore>>,
+    pub(crate) store: RankedMutex<Option<ConversationStore>, { rank::CONVERSATION_STORE }>,
     /// `conversation.draft` replay and rate state (memory only).
     pub(crate) drafts: Mutex<crate::conversation_drafts::DraftGate>,
-    pub(crate) publish: Mutex<()>,
+    pub(crate) publish: RankedMutex<(), { rank::CONVERSATION_STORE_GATE }>,
     /// The participant each connection bound with an agent token (memory only).
-    pub(crate) bindings: Mutex<std::collections::BTreeMap<u64, String>>,
+    pub(crate) bindings: std::sync::Mutex<std::collections::BTreeMap<u64, String>>,
     /// Who is typing in each conversation now (memory only): typing is never
     /// stored, but a snapshot says who types so a client that missed a
     /// typing item can recover the state.
-    pub(crate) typing:
-        Mutex<std::collections::BTreeMap<String, std::collections::BTreeSet<String>>>,
+    pub(crate) typing: RankedMutex<
+        std::collections::BTreeMap<String, std::collections::BTreeSet<String>>,
+        { rank::LEAF },
+    >,
     /// Remote-relay peers, pairing records and revocation limits.
     pub(crate) remote: crate::remote_relay_state::RemoteRelayState,
 }

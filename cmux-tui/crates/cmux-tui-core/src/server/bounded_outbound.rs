@@ -16,6 +16,8 @@ use super::OUTBOUND_CONTROL_BYTE_RESERVE;
 use super::OUTBOUND_CONTROL_RESERVE;
 use super::OutboundStream;
 use super::RENDER_ATTACH_MAX_BYTES;
+
+use crate::lock_rank::{Condvar, Mutex, RankedMutex, rank};
 use crate::platform::transport;
 use std::collections::HashMap;
 use std::collections::VecDeque;
@@ -24,14 +26,12 @@ use std::io::Write;
 use std::net::Shutdown;
 use std::net::TcpStream;
 use std::sync::Arc;
-use std::sync::Condvar;
-use std::sync::Mutex;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 #[derive(Default)]
 pub(super) struct BoundedOutbound {
-    pub(super) state: Mutex<BoundedOutboundState>,
+    pub(super) state: RankedMutex<BoundedOutboundState, { rank::BOUNDED_OUTBOUND }>,
     pub(super) changed: Condvar,
 }
 

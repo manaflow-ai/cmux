@@ -13,14 +13,16 @@
 //! - client to app: bytes from the socket become data frames within the
 //!   app's credit.
 
+use crate::lock_rank::{RankedMutex, rank};
+
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
 use std::net::Shutdown;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
 
 use super::{Frame, LinkRegistry};
 
@@ -37,13 +39,13 @@ const MAX_SOCKET_PATH: usize = 100;
 struct Relay {
     path: PathBuf,
     stopped: Arc<AtomicBool>,
-    client: Arc<Mutex<Option<UnixStream>>>,
+    client: Arc<RankedMutex<Option<UnixStream>, { rank::LEAF }>>,
 }
 
 /// The running relays, by channel.
 #[derive(Default)]
 pub(crate) struct RelaySet {
-    relays: Mutex<HashMap<String, Relay>>,
+    relays: RankedMutex<HashMap<String, Relay>, { rank::LEAF }>,
 }
 
 impl RelaySet {
@@ -76,7 +78,7 @@ impl RelaySet {
         let relay = Relay {
             path: path.clone(),
             stopped: Arc::new(AtomicBool::new(false)),
-            client: Arc::new(Mutex::new(None)),
+            client: Arc::new(RankedMutex::new(None)),
         };
         let accept = Accept {
             listener,
@@ -130,7 +132,7 @@ struct Accept {
     links: Arc<LinkRegistry>,
     channel: String,
     stopped: Arc<AtomicBool>,
-    client: Arc<Mutex<Option<UnixStream>>>,
+    client: Arc<RankedMutex<Option<UnixStream>, { rank::LEAF }>>,
     emit: Emit,
     gone: ClientGone,
 }

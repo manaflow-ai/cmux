@@ -3,6 +3,7 @@
 //! checks used by mutations.
 
 use super::*;
+use crate::lock_rank::rank;
 
 impl Mux {
     pub(super) fn next_id(&self) -> u64 {
@@ -79,13 +80,16 @@ impl Mux {
         Ok(())
     }
 
-    pub(super) fn workspace_lifecycle(&self, workspace: WorkspaceId) -> Arc<Mutex<()>> {
+    pub(super) fn workspace_lifecycle(
+        &self,
+        workspace: WorkspaceId,
+    ) -> Arc<RankedMutex<(), { rank::MUX_WORKSPACE_LIFECYCLE }>> {
         let mut lifecycles = self.workspace_lifecycles.lock().unwrap();
         lifecycles.retain(|_, lifecycle| lifecycle.strong_count() > 0);
         if let Some(lifecycle) = lifecycles.get(&workspace).and_then(Weak::upgrade) {
             return lifecycle;
         }
-        let lifecycle = Arc::new(Mutex::new(()));
+        let lifecycle = Arc::new(RankedMutex::new(()));
         lifecycles.insert(workspace, Arc::downgrade(&lifecycle));
         lifecycle
     }

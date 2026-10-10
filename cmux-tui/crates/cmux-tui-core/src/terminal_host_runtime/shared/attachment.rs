@@ -4,10 +4,11 @@
 //! (`connect_record*`), the receipt a durable input write waits on, and the
 //! launch-time ownership of the host process (`SpawnedHostProcess`).
 
+use crate::lock_rank::{RankedMutex, rank};
 use std::io as std_io;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, sync_channel};
-use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -150,10 +151,10 @@ pub struct HostAttachment {
     pub(crate) protocol_version: u16,
     pub(crate) smart_renderer: bool,
     pub(crate) reader: Option<HostStream>,
-    pub(crate) writer: Arc<Mutex<HostStream>>,
+    pub(crate) writer: Arc<RankedMutex<HostStream, { rank::LEAF }>>,
     pub(crate) control_responses: Arc<ControlResponses>,
     pub(crate) next_request: AtomicU64,
-    pub(crate) viewer_size: Mutex<Option<(u16, u16)>>,
+    pub(crate) viewer_size: RankedMutex<Option<(u16, u16)>, { rank::ATTACHMENT_VIEWER_SIZE }>,
     /// Exact process ownership retained only between a successful launch
     /// handshake and complete Surface materialization. Adoption never
     /// carries this guard.
@@ -177,8 +178,8 @@ impl std::fmt::Debug for HostAttachment {
 }
 
 /// One frame on a daemon-to-host connection's writer.
-pub(crate) fn send_host_frame(
-    writer: &Mutex<HostStream>,
+pub(crate) fn send_host_frame<const R: u16>(
+    writer: &RankedMutex<HostStream, R>,
     protocol_version: u16,
     kind: MessageKind,
     payload: &[u8],

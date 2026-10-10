@@ -4,10 +4,10 @@
 
 use super::SERVER_SURFACE_RETAINED_BYTE_CAPACITY;
 use super::SERVER_SURFACE_WORKER_CAPACITY;
+use crate::lock_rank::{Condvar, Mutex, RankedMutex, rank};
+
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::Condvar;
-use std::sync::Mutex;
 #[cfg(test)]
 use std::time::Instant;
 
@@ -115,7 +115,7 @@ pub(super) struct ServerSurfaceOperationState {
 
 #[derive(Default)]
 pub(crate) struct ServerSurfaceOperationAdmission {
-    pub(super) state: Mutex<ServerSurfaceOperationState>,
+    pub(super) state: RankedMutex<ServerSurfaceOperationState, { rank::LEAF }>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

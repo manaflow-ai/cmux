@@ -2,6 +2,7 @@
 //! the shared `from_workspace_registry` bootstrap, and test constructors.
 
 use super::*;
+use crate::lock_rank::RankedMutex;
 
 impl Mux {
     pub fn new(session: impl Into<String>, surface_options: SurfaceOptions) -> Arc<Self> {
@@ -168,7 +169,7 @@ impl Mux {
             host: agent_roster,
             diagnostic: agent_roster_diagnostic,
         } = agent_roster_restore::restore_agent_roster(&registry)?;
-        let feed_local = Mutex::new(registry.open_feed_local()?);
+        let feed_local = RankedMutex::new(registry.open_feed_local()?);
         let presentation = registry.presentation_snapshot()?;
         let journal_producers = registry.journal_producer_manifests()?;
         let session_public_id = registry.session_id().clone();
@@ -199,67 +200,67 @@ impl Mux {
             next_notification_id: AtomicU64::new(next_notification_id),
             next_active_at: AtomicU64::new(1),
             next_in_process_resize_owner: AtomicU64::new(1),
-            surface_options: Mutex::new(surface_options),
+            surface_options: RankedMutex::new(surface_options),
             provider_managed: AtomicBool::new(provider_workspace.managed),
-            provider_workspace: Mutex::new(provider_workspace),
-            workspace_lifecycles: Mutex::new(HashMap::new()),
-            pending_workspace_surfaces: Mutex::new(HashMap::new()),
-            client_sizing_lifecycle: Mutex::new(()),
-            client_sizing: Mutex::new(ClientSizingState::default()),
+            provider_workspace: RankedMutex::new(provider_workspace),
+            workspace_lifecycles: RankedMutex::new(HashMap::new()),
+            pending_workspace_surfaces: RankedMutex::new(HashMap::new()),
+            client_sizing_lifecycle: RankedMutex::new(()),
+            client_sizing: RankedMutex::new(ClientSizingState::default()),
             client_focus_memory: Mutex::new(Vec::new()),
             last_reported_focus: Mutex::new(None),
             conversations: Default::default(),
             cloud_conversations: OnceLock::new(),
             history_search: OnceLock::new(),
             #[cfg(test)]
-            client_resize_before_apply: Mutex::new(None),
+            client_resize_before_apply: RankedMutex::new(None),
             #[cfg(test)]
-            terminal_move_before_projection: Mutex::new(None),
+            terminal_move_before_projection: RankedMutex::new(None),
             #[cfg(test)]
             client_rollback_before_wait: Mutex::new(None),
             #[cfg(test)]
-            workspace_close_before_empty_check: Mutex::new(None),
+            workspace_close_before_empty_check: RankedMutex::new(None),
             #[cfg(test)]
-            workspace_close_after_selector_resolution: Mutex::new(None),
+            workspace_close_after_selector_resolution: RankedMutex::new(None),
             #[cfg(test)]
-            workspace_delta_before_emit: Mutex::new(None),
+            workspace_delta_before_emit: RankedMutex::new(None),
             #[cfg(test)]
-            resource_rename_after_selector_resolution: Mutex::new(None),
+            resource_rename_after_selector_resolution: RankedMutex::new(None),
             #[cfg(test)]
-            layout_apply_after_workspace_reservation: Mutex::new(None),
+            layout_apply_after_workspace_reservation: RankedMutex::new(None),
             #[cfg(test)]
-            terminal_create_after_empty_check: Mutex::new(None),
+            terminal_create_after_empty_check: RankedMutex::new(None),
             #[cfg(test)]
-            terminal_create_after_materialization_lock: Mutex::new(None),
+            terminal_create_after_materialization_lock: RankedMutex::new(None),
             #[cfg(test)]
-            terminal_create_after_workspace_reservation: Mutex::new(None),
+            terminal_create_after_workspace_reservation: RankedMutex::new(None),
             #[cfg(test)]
-            terminal_spawn_after_cell_pixel_snapshot: Mutex::new(None),
+            terminal_spawn_after_cell_pixel_snapshot: RankedMutex::new(None),
             #[cfg(test)]
-            terminal_spawn_before_cell_pixel_reconcile: Mutex::new(None),
+            terminal_spawn_before_cell_pixel_reconcile: RankedMutex::new(None),
             #[cfg(test)]
-            terminal_create_after_terminal_reservation: Mutex::new(None),
-            pending_terminal_hosts: Mutex::new(HashMap::new()),
-            reserved_in_process_terminals: Mutex::new(HashMap::new()),
+            terminal_create_after_terminal_reservation: RankedMutex::new(None),
+            pending_terminal_hosts: RankedMutex::new(HashMap::new()),
+            reserved_in_process_terminals: RankedMutex::new(HashMap::new()),
             #[cfg(test)]
-            viewport_split_after_spawn: Mutex::new(None),
+            viewport_split_after_spawn: RankedMutex::new(None),
             #[cfg(test)]
-            resource_mutation_metrics: Mutex::new(None),
+            resource_mutation_metrics: RankedMutex::new(None),
             #[cfg(test)]
-            resource_projection_before_commit: Mutex::new(None),
+            resource_projection_before_commit: RankedMutex::new(None),
             #[cfg(test)]
-            resource_close_after_commit: Mutex::new(None),
+            resource_close_after_commit: RankedMutex::new(None),
             #[cfg(test)]
-            layout_undo_before_commit: Mutex::new(None),
+            layout_undo_before_commit: RankedMutex::new(None),
             #[cfg(test)]
-            resource_close_cleanup: Mutex::new(None),
+            resource_close_cleanup: RankedMutex::new(None),
             browser_providers: Arc::new(BrowserProviderRegistry::default()),
-            browser_runtime: Mutex::new(None),
+            browser_runtime: RankedMutex::new(None),
             active_render_attachments: Arc::new(AtomicUsize::new(0)),
             deadline_fanout_pool: DeadlineFanoutPool::new(),
-            kitty_image_budget: Mutex::new(KittyImageBudgetState::default()),
+            kitty_image_budget: RankedMutex::new(KittyImageBudgetState::default()),
             kitty_image_budget_changed: Condvar::new(),
-            app_terminals: Mutex::default(),
+            app_terminals: RankedMutex::default(),
             #[cfg(debug_assertions)]
             terminal_host_reconnect_completion_failures: AtomicU64::new(
                 std::env::var("CMUX_TUI_TEST_RECONNECT_COMPLETION_FAILURES")
@@ -275,47 +276,43 @@ impl Mux {
                     .unwrap_or(0),
             ),
             #[cfg(test)]
-            kitty_image_budget_operation: Mutex::new(None),
-            cell_pixel_lifecycle: Mutex::new(()),
+            kitty_image_budget_operation: RankedMutex::new(None),
+            cell_pixel_lifecycle: RankedMutex::new(()),
             next_cell_pixel_generation: AtomicU64::new(1),
-            cell_pixels: Mutex::new((8, 16)),
-            pending_cell_pixels: Mutex::new(None),
-            cell_pixel_retries: Mutex::new(CellPixelRetryQueue::default()),
+            cell_pixels: RankedMutex::new((8, 16)),
+            pending_cell_pixels: RankedMutex::new(None),
+            cell_pixel_retries: RankedMutex::new(CellPixelRetryQueue::default()),
             #[cfg(test)]
-            cell_pixel_before_publish: Mutex::new(None),
+            cell_pixel_before_publish: RankedMutex::new(None),
             #[cfg(test)]
-            cell_pixel_operation: Mutex::new(None),
+            cell_pixel_operation: RankedMutex::new(None),
             #[cfg(test)]
-            cell_pixel_fanout_timeout: Mutex::new(None),
-            default_colors: crate::lock_rank::RankedMutex::new(
-                crate::lock_rank::LockRank::Leaf,
-                "mux.default_colors",
-                default_colors,
-            ),
+            cell_pixel_fanout_timeout: RankedMutex::new(None),
+            default_colors: RankedMutex::new(default_colors),
             durable_terminal_defaults: AtomicBool::new(has_terminal_defaults),
-            sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
+            sidebar_plugin: RankedMutex::new(SidebarPluginRuntime::default()),
             journal_plugin: crate::journal_plugin::JournalPluginRuntime::default(),
             machine_usage: Mutex::new(None),
-            agent_records: Mutex::new(agent_records),
-            agent_hook_fences: Mutex::new(agent_hook_fences),
-            agent_roster: Mutex::new(agent_roster),
-            agent_roster_fold: Mutex::new(()),
-            placement_notifications: Mutex::new(HashMap::new()),
-            terminal_notifications: Mutex::new(terminal_notifications),
+            agent_records: RankedMutex::new(agent_records),
+            agent_hook_fences: RankedMutex::new(agent_hook_fences),
+            agent_roster: RankedMutex::new(agent_roster),
+            agent_roster_fold: RankedMutex::new(()),
+            placement_notifications: RankedMutex::new(HashMap::new()),
+            terminal_notifications: RankedMutex::new(terminal_notifications),
             terminal_command_history: AtomicBool::new(false),
             shell_command_journal: Mutex::new(None),
-            notification_ledger: Mutex::new(notification_ledger),
-            notification_reads: Mutex::new(notification_reads),
-            notification_read_prunes: Mutex::new(Vec::new()),
+            notification_ledger: RankedMutex::new(notification_ledger),
+            notification_reads: RankedMutex::new(notification_reads),
+            notification_read_prunes: RankedMutex::new(Vec::new()),
             feed_local,
-            presentation: Mutex::new(Arc::new(presentation)),
-            git_heads: Mutex::new(HashMap::new()),
+            presentation: RankedMutex::new(Arc::new(presentation)),
+            git_heads: RankedMutex::new(HashMap::new()),
             resource_machine_service: OnceLock::new(),
             journal_kernel,
             journal_ingress,
             journal_hook_dispatcher_started: AtomicBool::new(false),
             journal_hook_runtime: Arc::new(crate::journal_hooks::JournalHookRuntime::default()),
-            journal_event_epoch: Mutex::new(0),
+            journal_event_epoch: RankedMutex::new(0),
             journal_event_changed: Condvar::new(),
             reconnect_checkpoint_skip_reported: AtomicBool::new(false),
             journal_retention: Default::default(),
@@ -324,18 +321,18 @@ impl Mux {
             #[cfg(test)]
             journal_segment_prepare_hook: Mutex::new(None),
             #[cfg(test)]
-            screen_created_hook: Mutex::new(None),
+            screen_created_hook: RankedMutex::new(None),
             terminal_exit_waiters: TerminalExitWaiters::default(),
             #[cfg(test)]
             terminal_exit_state_queries: AtomicU64::new(0),
-            resource_creation_handoff: Mutex::new(()),
+            resource_creation_handoff: RankedMutex::new(()),
             initial_bootstrap: Mutex::new(()),
-            resource_creation_execution: Mutex::new(()),
+            resource_creation_execution: RankedMutex::new(()),
             resource_creation_active: AtomicBool::new(false),
             terminal_adoptions: Mutex::new(HashSet::new()),
-            pending_terminals: Mutex::new(HashMap::new()),
-            terminal_ends: Mutex::new(HashMap::new()),
-            terminal_loss_causes: Mutex::new(loss_causes::LossCauses::default()),
+            pending_terminals: RankedMutex::new(HashMap::new()),
+            terminal_ends: RankedMutex::new(HashMap::new()),
+            terminal_loss_causes: RankedMutex::new(loss_causes::LossCauses::default()),
             terminal_exit_detaches: Arc::new(TerminalExitDetachTracker::default()),
             terminal_adoption_insert_failures: AtomicU64::new(
                 std::env::var("CMUX_TUI_TEST_ADOPTION_INSERT_FAILURES")
@@ -363,11 +360,11 @@ impl Mux {
             terminal_reap_grace_ms: AtomicU64::new(
                 u64::try_from(DEFAULT_TERMINAL_REAP_GRACE.as_millis()).unwrap_or(u64::MAX),
             ),
-            terminal_reaper_events: Mutex::new(None),
+            terminal_reaper_events: RankedMutex::new(None),
             launch_snapshot_path: Mutex::new(None),
             terminal_work: terminal_work::TerminalWorkPool::default(),
             #[cfg(unix)]
-            prelaunched_terminals: Mutex::new(HashMap::new()),
+            prelaunched_terminals: RankedMutex::new(HashMap::new()),
             #[cfg(unix)]
             image_pastes: crate::image_paste::ImagePasteStore::default(),
             surface_operation_admission: Arc::new(

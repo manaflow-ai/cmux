@@ -337,7 +337,7 @@ pub(crate) fn write_canonical_json(value: &Value, out: &mut String) {
 pub(crate) struct OriginClock {
     base: Instant,
     #[cfg(test)]
-    manual: std::sync::Mutex<Option<ManualTime>>,
+    manual: crate::lock_rank::Mutex<Option<ManualTime>>,
 }
 
 #[cfg(test)]
@@ -352,7 +352,7 @@ impl Default for OriginClock {
         Self {
             base: Instant::now(),
             #[cfg(test)]
-            manual: std::sync::Mutex::new(None),
+            manual: crate::lock_rank::Mutex::new(None),
         }
     }
 }

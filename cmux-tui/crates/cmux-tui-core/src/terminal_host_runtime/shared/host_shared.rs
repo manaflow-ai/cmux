@@ -3,11 +3,12 @@
 //! behind `sys` seams: the accept waker, the PTY drain waker stream, the
 //! adopted session id, and process-group signals (`GroupSignal`).
 
+use crate::lock_rank::{Condvar, Mutex, RankedMutex, rank};
 use std::collections::HashMap;
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender, SyncSender, sync_channel};
-use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::sync::{Arc, Weak};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -30,37 +31,38 @@ pub(crate) struct HostShared {
     pub(crate) incarnation: HostIncarnation,
     pub(crate) owner_token: CapabilityToken,
     pub(crate) capabilities: CapabilityStore,
-    pub(crate) term: Mutex<Terminal>,
+    pub(crate) term: RankedMutex<Terminal, { rank::HOST_TERM }>,
     /// Generic metadata parsed from the same ordered PTY bytes as the
     /// authoritative terminal. Snapshot code takes this after `term`,
     /// preserving one metadata boundary for reconnecting mirrors.
-    pub(crate) terminal_metadata: Mutex<crate::terminal_metadata::TerminalMetadata>,
-    pub(crate) default_colors: Mutex<DefaultColors>,
+    pub(crate) terminal_metadata:
+        RankedMutex<crate::terminal_metadata::TerminalMetadata, { rank::LEAF }>,
+    pub(crate) default_colors: RankedMutex<DefaultColors, { rank::LEAF }>,
     pub(crate) stream_progress: TerminalStreamProgress,
-    pub(crate) writer: Mutex<Box<dyn Write + Send>>,
-    pub(crate) master: Mutex<Box<dyn MasterPty + Send>>,
+    pub(crate) writer: RankedMutex<Box<dyn Write + Send>, { rank::HOST_WRITER }>,
+    pub(crate) master: RankedMutex<Box<dyn MasterPty + Send>, { rank::HOST_MASTER }>,
     pub(crate) killer: Mutex<Box<dyn ChildKiller + Send>>,
     pub(crate) pid: Option<u32>,
     pub(crate) command: Vec<String>,
     pub(crate) cwd: Option<String>,
-    pub(crate) size: Mutex<(u16, u16)>,
-    pub(crate) cell_pixels: Mutex<(u16, u16)>,
-    pub(crate) viewer_sizes: Mutex<ViewerSizes>,
-    pub(crate) taps: Mutex<HashMap<u64, HostTap>>,
+    pub(crate) size: RankedMutex<(u16, u16), { rank::HOST_SIZE }>,
+    pub(crate) cell_pixels: RankedMutex<(u16, u16), { rank::HOST_CELL_PIXELS }>,
+    pub(crate) viewer_sizes: RankedMutex<ViewerSizes, { rank::HOST_VIEWER_SIZES }>,
+    pub(crate) taps: RankedMutex<HashMap<u64, HostTap>, { rank::LEAF }>,
     pub(crate) broadcast_lock: Mutex<()>,
     pub(crate) sequence: AtomicU64,
     pub(crate) smart: SmartStreamState,
     /// Orders source-cursor allocation and parser-command enqueueing. A
     /// resize keeps this lock until all prior parser commands drain, which
     /// gives both the host and smart clients the same output/resize order.
-    pub(crate) source_order_lock: Mutex<()>,
+    pub(crate) source_order_lock: RankedMutex<(), { rank::HOST_SOURCE_ORDER }>,
     pub(crate) parser_commands: SyncSender<ParserCommand>,
     pub(crate) parser_budget: ParserBudget,
     pub(crate) clipboard: ClipboardReads,
     /// Generation advanced after each parser write. Snapshot admission
     /// waits here when a PTY read ends inside UTF-8 or a control sequence,
     /// without blocking the reader from enqueueing the completing bytes.
-    pub(crate) parser_progress: (Mutex<u64>, Condvar),
+    pub(crate) parser_progress: (RankedMutex<u64, { rank::HOST_PARSER_PROGRESS }>, Condvar),
     pub(crate) next_client: AtomicU64,
     pub(crate) dead: AtomicBool,
     pub(crate) launch_owner_claimed: AtomicBool,
@@ -80,7 +82,7 @@ pub(crate) struct HostShared {
     pub(crate) force_pty_drain: AtomicBool,
     pub(crate) pty_drain_waker: Mutex<HostStream>,
     pub(crate) termination_started: AtomicBool,
-    pub(crate) child_signal_lock: Mutex<()>,
+    pub(crate) child_signal_lock: RankedMutex<(), { rank::HOST_CHILD_SIGNAL }>,
     pub(crate) child_reaped: AtomicBool,
     pub(crate) group_escalation_complete: AtomicBool,
     /// Session of an adopted, non-child process (`adopted_child.rs`).
@@ -117,7 +119,7 @@ impl HostShared {
     pub(crate) fn terminal_at_snapshot_boundary(
         &self,
         timeout: Duration,
-    ) -> anyhow::Result<std::sync::MutexGuard<'_, Terminal>> {
+    ) -> anyhow::Result<crate::lock_rank::MutexGuard<'_, Terminal>> {
         let deadline = Instant::now() + timeout;
         let mut generation = self.parser_progress.0.lock().unwrap();
         loop {

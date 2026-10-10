@@ -50,10 +50,11 @@
 //! replays, so nothing buffers without bound and the acpmux link is always
 //! read (acpmux's own lag is reported as `lagged`).
 
+use crate::lock_rank::{Mutex, RankedMutex, rank};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::sync::{Arc, RwLock, Weak};
 use std::time::Duration;
 
 use serde::Deserialize;
@@ -94,7 +95,7 @@ const THREAD_STACK_BYTES: usize = 256 * 1024;
 #[derive(Default)]
 pub(crate) struct AgentSessions {
     socket: RwLock<Option<PathBuf>>,
-    state: Mutex<AttachState>,
+    state: RankedMutex<AttachState, { rank::AGENT_SESSION_ATTACH }>,
 }
 
 #[derive(Default)]
@@ -135,7 +136,7 @@ impl AgentSessions {
         Some(attachment)
     }
 
-    fn lock(&self) -> std::sync::MutexGuard<'_, AttachState> {
+    fn lock(&self) -> crate::lock_rank::MutexGuard<'_, AttachState> {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
     }
 
@@ -574,7 +575,7 @@ fn connect_and_attach(
     let sessions = &mux.control_clients.agent_sessions;
     let release = |sessions: &AgentSessions| sessions.lock().reserved.remove(&(client, surface));
     let newest_first = params.get("afterSeq").is_none() || params.get("beforeSeq").is_some();
-    let slot: Arc<Mutex<ReaderSlot>> = Arc::default();
+    let slot: Arc<RankedMutex<ReaderSlot, { rank::AGENT_SESSION_READER_SLOT }>> = Arc::default();
     let reader_slot = slot.clone();
     let reader_mux = Arc::downgrade(&mux);
     let link = AcpmuxLink::connect(&socket, move |inbound| {

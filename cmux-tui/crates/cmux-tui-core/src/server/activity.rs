@@ -7,8 +7,9 @@
 //! No polling: the worker thread blocks on a condvar until a change arrives and waits with a
 //! timeout only to keep the one-second spacing. It exits when the last subscriber leaves.
 
+use crate::lock_rank::{Condvar, Mutex};
 use std::collections::BTreeMap;
-use std::sync::{Arc, Condvar, Mutex, PoisonError, Weak};
+use std::sync::{Arc, PoisonError, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};

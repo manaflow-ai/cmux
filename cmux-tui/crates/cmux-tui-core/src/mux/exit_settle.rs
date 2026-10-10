@@ -11,9 +11,10 @@
 //! re-classifies an unsettled receipt at startup against the recorded
 //! shutdown window, with the same result.
 
+use crate::lock_rank::{Condvar, RankedMutex, rank};
 use std::collections::BTreeMap;
 use std::sync::atomic::Ordering;
-use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
+use std::sync::{Arc, OnceLock, Weak};
 use std::time::Duration;
 
 use super::Mux;
@@ -27,12 +28,12 @@ const SETTLE_RETRY_MAX_MS: u64 = 5_000;
 
 #[derive(Default)]
 pub(super) struct ExitSettleTimer {
-    state: Mutex<ExitSettleState>,
+    state: RankedMutex<ExitSettleState, { rank::LEAF }>,
     changed: Condvar,
     /// Serializes taking and running due detaches, so a caller of
     /// [`Mux::run_due_exit_settles`] returns after every due detach ran.
     /// Never held by `schedule`, which callers reach with the registry lock.
-    running: Mutex<()>,
+    running: RankedMutex<(), { rank::MUX_EXIT_SETTLE_GATE }>,
     /// The owner, bound once right after it is built.
     mux: OnceLock<Weak<Mux>>,
 }

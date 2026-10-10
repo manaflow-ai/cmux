@@ -1,6 +1,7 @@
 //! Small Mux state holders: pending terminal host binding and release guards, the pending workspace surface guard, the resource wait wake signal, config reload state, and the client focus record.
 
 use super::*;
+use crate::lock_rank::{RankedMutex, rank};
 
 #[cfg(unix)]
 pub(crate) struct PendingTerminalHostBinding {
@@ -31,7 +32,8 @@ impl Drop for PendingTerminalHostRelease {
 }
 
 pub(super) struct PendingWorkspaceSurface<'a> {
-    pub(super) pending: &'a Mutex<HashMap<SurfaceId, WorkspaceId>>,
+    pub(super) pending:
+        &'a RankedMutex<HashMap<SurfaceId, WorkspaceId>, { rank::MUX_PENDING_WORKSPACE_SURFACES }>,
     pub(super) surface: SurfaceId,
 }
 
@@ -45,13 +47,13 @@ impl Drop for PendingWorkspaceSurface<'_> {
 /// connection-owned cancellation sources. The durable terminal registry
 /// remains authoritative; this only decides when a waiter should query it.
 pub(crate) struct ResourceWaitWake {
-    pub(super) notified: Mutex<bool>,
+    pub(super) notified: RankedMutex<bool, { rank::LEAF }>,
     pub(super) changed: Condvar,
 }
 
 impl Default for ResourceWaitWake {
     fn default() -> Self {
-        Self { notified: Mutex::new(false), changed: Condvar::new() }
+        Self { notified: RankedMutex::new(false), changed: Condvar::new() }
     }
 }
 

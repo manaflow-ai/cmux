@@ -58,7 +58,7 @@ fn deadline_fanout_rejects_work_after_the_shared_deadline() {
 fn fanout_completion_after_the_shared_deadline_remains_retryable() {
     let deadline = Instant::now();
     let pending = DeadlinePending {
-        result: Arc::new(Mutex::new(Some(DeadlineCompletion {
+        result: Arc::new(RankedMutex::new(Some(DeadlineCompletion {
             completed_at: deadline + Duration::from_millis(1),
             value: 42,
         }))),

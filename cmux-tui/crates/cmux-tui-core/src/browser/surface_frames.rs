@@ -6,7 +6,7 @@ use super::*;
 impl BrowserSurface {
     pub fn attach_frames(&self) -> (BrowserAttachState, BrowserFrameStream) {
         let (tx, rx) = crate::stream_interrupt::signal();
-        let slot = Arc::new(Mutex::new(BrowserAttachUpdate::default()));
+        let slot = Arc::new(RankedMutex::new(BrowserAttachUpdate::default()));
         let mut state = self.state.lock().unwrap();
         let pointer_frame_floor_seq = self.exported_pointer_frame_floor_seq_locked(&state);
         let pointer_frame_seq = self.exported_pointer_frame_seq_locked(&state);

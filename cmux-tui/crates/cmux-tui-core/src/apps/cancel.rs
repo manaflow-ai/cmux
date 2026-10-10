@@ -10,8 +10,9 @@
 //! host run cannot be stopped: its callers are answered, and its own answer
 //! is stored for the key as usual.
 
+use crate::lock_rank::Mutex;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, PoisonError};
 
 use serde_json::{Value, json};
 

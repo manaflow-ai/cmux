@@ -1,6 +1,7 @@
+use crate::lock_rank::{Condvar, Mutex, RankedMutex, rank};
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
-use std::sync::{Arc, Condvar, Mutex, OnceLock, RwLock, Weak};
+use std::sync::{Arc, OnceLock, RwLock, Weak};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
@@ -199,7 +200,7 @@ struct JournalFanoutState {
 /// Session-local journal runtime. It owns the only persistent live-tail
 /// SQLite reader and publishes a bounded ring of decoded records.
 pub(crate) struct JournalKernel {
-    state: Mutex<JournalFanoutState>,
+    state: RankedMutex<JournalFanoutState, { rank::LEAF }>,
     changed: Condvar,
     tailer: Mutex<Option<std::thread::JoinHandle<()>>>,
     enabled: bool,
@@ -239,7 +240,7 @@ impl JournalKernel {
         let producers = compile_journal_producers(manifests)?;
         let Some(database_path) = database_path else {
             return Ok(Arc::new(Self {
-                state: Mutex::new(JournalFanoutState {
+                state: RankedMutex::new(JournalFanoutState {
                     epoch: 0,
                     requested_epoch: 0,
                     shutdown_requested: false,
@@ -260,7 +261,7 @@ impl JournalKernel {
         let reader = SessionJournalReader::open(&database_path)?;
         let head_sequence = reader.head()?;
         let kernel = Arc::new(Self {
-            state: Mutex::new(JournalFanoutState {
+            state: RankedMutex::new(JournalFanoutState {
                 epoch: 0,
                 requested_epoch: 0,
                 shutdown_requested: false,
@@ -758,7 +759,7 @@ mod performance_tests {
     #[test]
     fn explicit_wake_is_observable_even_before_a_waiter_sleeps() {
         let kernel = JournalKernel {
-            state: Mutex::new(JournalFanoutState {
+            state: RankedMutex::new(JournalFanoutState {
                 epoch: 7,
                 requested_epoch: 0,
                 shutdown_requested: false,
@@ -810,7 +811,7 @@ mod performance_tests {
         let construction = started.elapsed();
         let record_bytes = records.iter().map(|record| record.resident_bytes()).sum();
         let kernel = JournalKernel {
-            state: Mutex::new(JournalFanoutState {
+            state: RankedMutex::new(JournalFanoutState {
                 epoch: 1,
                 requested_epoch: 1,
                 shutdown_requested: false,

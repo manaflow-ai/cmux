@@ -17,7 +17,9 @@ pub use cmux_tui_util::backoff;
 mod browser;
 pub mod browser_host;
 mod browser_provider;
-mod lock_rank;
+/// Lock ranks for the cmux-tui-core locks (public because public items expose
+/// its lock and guard types).
+pub mod lock_rank;
 /// The cloud conversations proxy; its own crate, re-exported at the old path.
 pub use cmux_tui_cloud_conversations as cloud_conversations;
 mod conversation_drafts;

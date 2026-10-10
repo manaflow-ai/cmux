@@ -1,5 +1,5 @@
+use crate::lock_rank::{Condvar, Mutex};
 use std::collections::BTreeMap;
-use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::resource::TabPublicId;

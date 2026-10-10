@@ -4,7 +4,8 @@
 //! writes its durable record (`resource_content.rs`); until then it has no
 //! registry record, and the supervisor closes it after 60 s.
 
-use std::sync::{Arc, Mutex};
+use crate::lock_rank::Mutex;
+use std::sync::Arc;
 
 use anyhow::Context;
 

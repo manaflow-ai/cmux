@@ -26,8 +26,9 @@
 //! host's pid, so the app dials the provider socket only when its peer is that
 //! process. A restarted host has a new secret. The secret is never logged.
 
+use crate::lock_rank::{RankedMutex, rank};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, PoisonError, Weak};
+use std::sync::{Arc, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
 use crate::backoff::Backoff;
@@ -139,15 +140,15 @@ pub(crate) struct BrowserHostSupervisor {
 
 #[derive(Default)]
 struct Inner {
-    config: Mutex<Option<Config>>,
-    state: Mutex<State>,
+    config: RankedMutex<Option<Config>, { rank::LEAF }>,
+    state: RankedMutex<State, { rank::LEAF }>,
     /// Held while a host starts, so two callers never start two hosts.
-    starting: Mutex<()>,
-    backoff: Mutex<Option<Backoff>>,
+    starting: RankedMutex<(), { rank::BROWSER_HOST_GATE }>,
+    backoff: RankedMutex<Option<Backoff>, { rank::BROWSER_HOST_BACKOFF }>,
     /// After a crash: activation does not start a host before this time
     /// (the Backoff restart does), so a crash loop never runs at the speed
     /// of agent connects.
-    restart_due: Mutex<Option<Instant>>,
+    restart_due: RankedMutex<Option<Instant>, { rank::LEAF }>,
     #[cfg(unix)]
     activation: activation::Activation,
 }
@@ -296,7 +297,7 @@ impl Drop for Inner {
     }
 }
 
-fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+fn lock<T, const R: u16>(mutex: &RankedMutex<T, R>) -> crate::lock_rank::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 

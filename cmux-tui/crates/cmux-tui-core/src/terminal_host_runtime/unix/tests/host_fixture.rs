@@ -2,6 +2,7 @@
 //! caller's terminal, parser channel and clipboard broker.
 
 use super::*;
+use crate::lock_rank::RankedMutex;
 
 pub(super) fn test_host_shared() -> Arc<HostShared> {
     let term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
@@ -23,30 +24,30 @@ pub(super) fn test_host_shared_with(
         incarnation: HostIncarnation::random().unwrap(),
         owner_token: CapabilityToken::random().unwrap(),
         capabilities: CapabilityStore::new(64),
-        term: Mutex::new(term),
-        terminal_metadata: Mutex::new(crate::terminal_metadata::TerminalMetadata::default()),
-        default_colors: Mutex::new(DefaultColors::default()),
+        term: RankedMutex::new(term),
+        terminal_metadata: RankedMutex::new(crate::terminal_metadata::TerminalMetadata::default()),
+        default_colors: RankedMutex::new(DefaultColors::default()),
         stream_progress: TerminalStreamProgress::default(),
-        writer: Mutex::new(Box::new(std::io::sink())),
-        master: Mutex::new(Box::new(TestHostMaster {
+        writer: RankedMutex::new(Box::new(std::io::sink())),
+        master: RankedMutex::new(Box::new(TestHostMaster {
             size: Mutex::new(pty_size(80, 24, DEFAULT_CELL_PIXELS).unwrap()),
         })),
         killer: Mutex::new(Box::new(TestHostKiller)),
         pid: None,
         command: vec!["/bin/cat".into()],
         cwd: None,
-        size: Mutex::new((80, 24)),
-        cell_pixels: Mutex::new(DEFAULT_CELL_PIXELS),
-        viewer_sizes: Mutex::new(ViewerSizes::default()),
-        taps: Mutex::new(HashMap::new()),
+        size: RankedMutex::new((80, 24)),
+        cell_pixels: RankedMutex::new(DEFAULT_CELL_PIXELS),
+        viewer_sizes: RankedMutex::new(ViewerSizes::default()),
+        taps: RankedMutex::new(HashMap::new()),
         broadcast_lock: Mutex::new(()),
         sequence: AtomicU64::new(0),
         smart: SmartStreamState::new(),
-        source_order_lock: Mutex::new(()),
+        source_order_lock: RankedMutex::new(()),
         parser_commands,
         parser_budget: ParserBudget::new(1),
         clipboard,
-        parser_progress: (Mutex::new(0), Condvar::new()),
+        parser_progress: (RankedMutex::new(0), Condvar::new()),
         next_client: AtomicU64::new(1),
         dead: AtomicBool::new(false),
         launch_owner_claimed: AtomicBool::new(false),
@@ -67,7 +68,7 @@ pub(super) fn test_host_shared_with(
         force_pty_drain: AtomicBool::new(false),
         pty_drain_waker: Mutex::new(pty_drain_waker),
         termination_started: AtomicBool::new(false),
-        child_signal_lock: Mutex::new(()),
+        child_signal_lock: RankedMutex::new(()),
         child_reaped: AtomicBool::new(false),
         group_escalation_complete: AtomicBool::new(false),
         adopted_session: None,

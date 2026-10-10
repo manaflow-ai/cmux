@@ -49,7 +49,7 @@ impl TerminalHostReconnectBackoff {
 pub(super) fn wait_for_reconnect_after_geometry_failure(
     retry: &mut TerminalHostReconnectBackoff,
     pty: &PtySurface,
-    geometry: RankedGuard<'_, PtyGeometry>,
+    geometry: MutexGuard<'_, PtyGeometry>,
 ) -> bool {
     drop(geometry);
     retry.wait_or_fail(pty)

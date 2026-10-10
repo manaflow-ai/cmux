@@ -2,14 +2,15 @@
 //! acquisitions feed hold and wait telemetry (`server-stats`), and
 //! [`Mux::lock_state_pinned`], the state lock taken under the registry.
 
+use crate::lock_rank::{Condvar, Mutex, MutexGuard};
 use std::ops::{Deref, DerefMut};
-use std::sync::{Condvar, LockResult, Mutex, MutexGuard, PoisonError};
+use std::sync::{LockResult, PoisonError};
 #[cfg(test)]
 use std::sync::{TryLockError, TryLockResult};
 use std::time::Instant;
 
 use super::{Mux, State, WorkspaceRegistry};
-use crate::lock_rank::{HeldRank, LockRank};
+use crate::lock_rank::{HeldRank, rank};
 use crate::workspace_registry::registry_connection::RegistryConnectionPin;
 
 pub(crate) struct SignaledMutex<T> {
@@ -48,14 +49,14 @@ impl<T> SignaledMutex<T> {
             owner: self,
             site,
             acquired_at: Instant::now(),
-            _rank: HeldRank::record(LockRank::WorkspaceRegistry, REGISTRY_LOCK_NAME),
+            _rank: HeldRank::record(rank::WORKSPACE_REGISTRY),
         }
     }
 
     #[track_caller]
     pub(crate) fn lock(&self) -> LockResult<SignaledMutexGuard<'_, T>> {
         debug_assert_not_journal_writer_commit();
-        HeldRank::check(LockRank::WorkspaceRegistry, REGISTRY_LOCK_NAME);
+        HeldRank::check(rank::WORKSPACE_REGISTRY);
         let site = std::panic::Location::caller();
         let waited_from = Instant::now();
         let blocker = self.stats.wait_started();
@@ -98,7 +99,7 @@ impl<T> SignaledMutex<T> {
         deadline: Instant,
     ) -> anyhow::Result<SignaledMutexGuard<'_, T>> {
         debug_assert_not_journal_writer_commit();
-        HeldRank::check(LockRank::WorkspaceRegistry, REGISTRY_LOCK_NAME);
+        HeldRank::check(rank::WORKSPACE_REGISTRY);
         let site = std::panic::Location::caller();
         let waited_from = Instant::now();
         let blocker = self.stats.wait_started();
@@ -161,12 +162,10 @@ pub(crate) struct SignaledMutexGuard<'a, T> {
     owner: &'a SignaledMutex<T>,
     site: crate::diagnostics::LockSite,
     acquired_at: Instant,
-    /// Lock rank `WorkspaceRegistry` (crate::lock_rank), released after the
+    /// Lock rank `WORKSPACE_REGISTRY` (crate::lock_rank), released after the
     /// lock.
     _rank: HeldRank,
 }
-
-const REGISTRY_LOCK_NAME: &str = "workspace.registry";
 
 impl<T> Deref for SignaledMutexGuard<'_, T> {
     type Target = T;
@@ -211,18 +210,16 @@ pub(crate) struct StateMutex(Mutex<State>);
 /// A held mux state lock.
 pub(crate) struct StateGuard<'a> {
     guard: MutexGuard<'a, State>,
-    /// Lock rank `MuxState` (crate::lock_rank), released after the lock.
+    /// Lock rank `MUX_STATE` (crate::lock_rank), released after the lock.
     _rank: HeldRank,
 }
 
 impl StateGuard<'_> {
     fn new(guard: MutexGuard<'_, State>) -> StateGuard<'_> {
         crate::workspace_registry::registry_connection::note_state_lock(true);
-        StateGuard { guard, _rank: HeldRank::record(LockRank::MuxState, STATE_LOCK_NAME) }
+        StateGuard { guard, _rank: HeldRank::record(rank::MUX_STATE) }
     }
 }
-
-const STATE_LOCK_NAME: &str = "mux.state";
 
 impl Drop for StateGuard<'_> {
     fn drop(&mut self) {
@@ -251,7 +248,7 @@ impl StateMutex {
 
     #[track_caller]
     pub(crate) fn lock(&self) -> LockResult<StateGuard<'_>> {
-        HeldRank::check(LockRank::MuxState, STATE_LOCK_NAME);
+        HeldRank::check(rank::MUX_STATE);
         match self.0.lock() {
             Ok(guard) => Ok(StateGuard::new(guard)),
             Err(poison) => Err(PoisonError::new(StateGuard::new(poison.into_inner()))),

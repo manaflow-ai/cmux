@@ -5035,25 +5035,25 @@ static SESSION_GUARD_COORDINATOR_WAITER_SEQUENCE: std::sync::atomic::AtomicU64 =
     std::sync::atomic::AtomicU64::new(0);
 const TERMINAL_HOST_PUBLICATION_LOCK_FILE: &str = ".publication.lock";
 #[cfg(test)]
-static RESET_RENAME_SYNC_FAILURE_ROOT: std::sync::Mutex<Option<PathBuf>> =
-    std::sync::Mutex::new(None);
+static RESET_RENAME_SYNC_FAILURE_ROOT: crate::lock_rank::Mutex<Option<PathBuf>> =
+    crate::lock_rank::Mutex::new(None);
 #[cfg(test)]
-static RESET_DELETE_AFTER_MANIFEST_FILE: std::sync::Mutex<Option<(PathBuf, PathBuf)>> =
-    std::sync::Mutex::new(None);
+static RESET_DELETE_AFTER_MANIFEST_FILE: crate::lock_rank::Mutex<Option<(PathBuf, PathBuf)>> =
+    crate::lock_rank::Mutex::new(None);
 
 #[cfg(test)]
-static RESET_DELETE_AFTER_CHILD_VERIFY_FILE: std::sync::Mutex<Option<PathBuf>> =
-    std::sync::Mutex::new(None);
+static RESET_DELETE_AFTER_CHILD_VERIFY_FILE: crate::lock_rank::Mutex<Option<PathBuf>> =
+    crate::lock_rank::Mutex::new(None);
 
 #[cfg(test)]
-static RESET_REMOVE_LEGACY_HOST_RECORD_BEFORE_LIVENESS: std::sync::Mutex<Option<PathBuf>> =
-    std::sync::Mutex::new(None);
+static RESET_REMOVE_LEGACY_HOST_RECORD_BEFORE_LIVENESS: crate::lock_rank::Mutex<Option<PathBuf>> =
+    crate::lock_rank::Mutex::new(None);
 #[cfg(test)]
-static RESET_UNSUPPORTED_CHECKED_DELETION_ROOT: std::sync::Mutex<Option<PathBuf>> =
-    std::sync::Mutex::new(None);
+static RESET_UNSUPPORTED_CHECKED_DELETION_ROOT: crate::lock_rank::Mutex<Option<PathBuf>> =
+    crate::lock_rank::Mutex::new(None);
 #[cfg(test)]
-static RESET_RECREATE_SESSION_DIR_AFTER_STAGING: std::sync::Mutex<Option<PathBuf>> =
-    std::sync::Mutex::new(None);
+static RESET_RECREATE_SESSION_DIR_AFTER_STAGING: crate::lock_rank::Mutex<Option<PathBuf>> =
+    crate::lock_rank::Mutex::new(None);
 
 fn acquire_session_guard(root: &Path, session_name: &str) -> anyhow::Result<SessionLease> {
     fs::create_dir_all(root).with_context(|| format!("create state root {}", root.display()))?;

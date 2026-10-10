@@ -3,13 +3,14 @@
 //! reconnects changed the stream.
 
 use super::*;
+use crate::lock_rank::rank;
 
 pub(crate) struct TerminalStreamProgress {
     next_resource_waiter_id: AtomicU64,
-    state: Mutex<TerminalStreamProgressState>,
+    state: RankedMutex<TerminalStreamProgressState, { rank::LEAF }>,
     changed: Condvar,
     #[cfg(test)]
-    test_before_notify: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    test_before_notify: RankedMutex<Option<Arc<dyn Fn() + Send + Sync>>, { rank::LEAF }>,
 }
 
 #[derive(Default)]
@@ -66,10 +67,10 @@ impl Default for TerminalStreamProgress {
     fn default() -> Self {
         Self {
             next_resource_waiter_id: AtomicU64::new(1),
-            state: Mutex::new(TerminalStreamProgressState::default()),
+            state: RankedMutex::new(TerminalStreamProgressState::default()),
             changed: Condvar::new(),
             #[cfg(test)]
-            test_before_notify: Mutex::new(None),
+            test_before_notify: RankedMutex::new(None),
         }
     }
 }

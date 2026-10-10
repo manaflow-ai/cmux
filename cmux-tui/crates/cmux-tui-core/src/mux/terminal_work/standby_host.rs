@@ -15,7 +15,8 @@
 //!   before, with no error.
 //! - Memory pressure (macOS) drops the spare.
 
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
+use crate::lock_rank::{Mutex, MutexGuard};
+use std::sync::{Arc, PoisonError, Weak};
 
 use crate::terminal_host_runtime::StandbyTerminalHost;
 

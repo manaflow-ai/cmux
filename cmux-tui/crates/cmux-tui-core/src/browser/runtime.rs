@@ -45,7 +45,7 @@ impl BrowserRuntime {
             endpoint: web_socket_url.to_string(),
             bearer_token: bearer_token.map(str::to_string),
             stealth_user_agent,
-            routes: Mutex::new(Routes::default()),
+            routes: RankedMutex::new(Routes::default()),
             closed: AtomicBool::new(false),
         });
         start_router(Arc::downgrade(&runtime), event_rx)?;
@@ -239,9 +239,9 @@ pub(crate) fn new_surface_with_resource_identity(
     let capture_scale = capture_scale_for(pixel_w, pixel_h, capture_options);
     let capture_pixels = scaled_pixels(pixel_w, pixel_h, capture_scale);
     let (command_tx, command_rx) = sync_channel(BROWSER_COMMAND_QUEUE_CAPACITY);
-    let command_order = Arc::new(Mutex::new(BrowserCommandOrder::default()));
-    let latest_nav = Arc::new(Mutex::new(None));
-    let latest_authority = Arc::new(Mutex::new(None));
+    let command_order = Arc::new(RankedMutex::new(BrowserCommandOrder::default()));
+    let latest_nav = Arc::new(RankedMutex::new(None));
+    let latest_authority = Arc::new(RankedMutex::new(None));
     let frame_epoch = Arc::new(FrameEpoch::default());
     #[cfg(test)]
     let (worker_done_tx, worker_done_rx) = std::sync::mpsc::channel();
@@ -253,11 +253,11 @@ pub(crate) fn new_surface_with_resource_identity(
         meta: SurfaceMeta {
             id,
             resource_identity: Some(resource_identity),
-            name: Mutex::new(None),
+            name: RankedMutex::new(None),
             selection: Mutex::new(None),
         },
-        session: Mutex::new(None),
-        state: Mutex::new(Box::new(BrowserState {
+        session: RankedMutex::new(None),
+        state: RankedMutex::new(Box::new(BrowserState {
             latest_frame: None,
             accepted_frame_epoch: frame_epoch.current(),
             accepted_navigation_epoch: frame_epoch.latest_navigation(),
@@ -303,13 +303,13 @@ pub(crate) fn new_surface_with_resource_identity(
         frame_epoch,
         dirty: AtomicBool::new(true),
         dead: AtomicBool::new(false),
-        cell_pixels: Mutex::new((cell_w, cell_h)),
+        cell_pixels: RankedMutex::new((cell_w, cell_h)),
         capture_options,
-        command_tx: Mutex::new(Some(command_tx)),
+        command_tx: RankedMutex::new(Some(command_tx)),
         command_order: command_order.clone(),
         latest_nav: latest_nav.clone(),
         latest_authority: latest_authority.clone(),
-        navigation_hold: Mutex::default(),
+        navigation_hold: RankedMutex::default(),
         #[cfg(test)]
         worker_done: Mutex::new(Some(worker_done_rx)),
         #[cfg(test)]

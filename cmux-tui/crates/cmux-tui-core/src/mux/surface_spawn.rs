@@ -337,10 +337,11 @@ impl Mux {
                 };
                 self.emit_terminal_registry_changed(&registry, revision);
             }
+            // Run the test hook after releasing its slot lock.
             #[cfg(test)]
-            if let Some(hook) =
-                self.terminal_spawn_before_cell_pixel_reconcile.lock().unwrap().clone()
-            {
+            let hook = self.terminal_spawn_before_cell_pixel_reconcile.lock().unwrap().clone();
+            #[cfg(test)]
+            if let Some(hook) = hook {
                 hook(&surface);
             }
             let cell_pixel_lifecycle =

@@ -17,7 +17,7 @@ pub(crate) struct PendingControlResponse {
     receiver: Receiver<Frame>,
     deadline: Instant,
     control_responses: Arc<ControlResponses>,
-    writer: Arc<Mutex<HostStream>>,
+    writer: Arc<RankedMutex<HostStream, { rank::LEAF }>>,
 }
 
 impl HostAttachment {

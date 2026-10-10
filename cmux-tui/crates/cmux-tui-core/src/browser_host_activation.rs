@@ -5,11 +5,13 @@
 //! a host, which accepts the waiting connection. The daemon's end (the
 //! supervisor's drop) writes the cancel pipe, and the thread ends.
 
+use crate::lock_rank::{RankedMutex, rank};
+
 use std::fs::File;
 use std::os::fd::{AsRawFd, OwnedFd, RawFd};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Weak};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -17,8 +19,8 @@ use super::{Inner, PROVIDER_SOCKET_FILE, State, lock};
 
 #[derive(Default)]
 pub(super) struct Activation {
-    sockets: Mutex<Option<Sockets>>,
-    thread: Mutex<Option<JoinHandle<()>>>,
+    sockets: RankedMutex<Option<Sockets>, { rank::LEAF }>,
+    thread: RankedMutex<Option<JoinHandle<()>>, { rank::LEAF }>,
 }
 
 struct Sockets {

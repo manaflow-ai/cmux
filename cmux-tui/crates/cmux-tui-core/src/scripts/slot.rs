@@ -5,9 +5,11 @@
 //! reach it in every state: a start that finishes after its connection closed
 //! or its cancel arrived ends the new session at once.
 
+use crate::lock_rank::{RankedMutex, rank};
+
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, PoisonError};
 use std::time::Duration;
 
 use cmux_app_host::script::{LogSink, ScriptError, Session, codes};
@@ -110,7 +112,7 @@ impl Inner {
 
 #[derive(Default)]
 pub(crate) struct ScriptsSlot {
-    inner: Mutex<Inner>,
+    inner: RankedMutex<Inner, { rank::LEAF }>,
     /// Random per daemon, so script idempotency keys never repeat across
     /// daemon restarts (session ids do).
     nonce: std::sync::OnceLock<String>,
@@ -137,7 +139,7 @@ impl Drop for StartGuard<'_> {
 }
 
 impl ScriptsSlot {
-    fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
+    fn lock(&self) -> crate::lock_rank::MutexGuard<'_, Inner> {
         self.inner.lock().unwrap_or_else(PoisonError::into_inner)
     }
 

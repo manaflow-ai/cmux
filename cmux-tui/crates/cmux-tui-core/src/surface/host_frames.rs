@@ -42,10 +42,13 @@
 //! out, so a mint sent just before a reconnect replaced the connection is
 //! not lost to the drop's own shutdown.
 
+#[cfg(test)]
+use crate::lock_rank::Mutex;
+use crate::lock_rank::{Condvar, RankedMutex, rank};
 use std::collections::VecDeque;
 use std::io::Read;
 use std::os::unix::net::UnixStream;
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::Arc;
 
 use crate::terminal_host_protocol::{Frame, MAX_FRAME_PAYLOAD, MessageKind, read_frame};
 use crate::terminal_host_runtime::{CONTROL_RESPONSE_TIMEOUT, ControlResponses};
@@ -75,7 +78,7 @@ struct QueueState {
 }
 
 struct Queue {
-    state: Mutex<QueueState>,
+    state: RankedMutex<QueueState, { rank::HOST_FRAMES_QUEUE }>,
     changed: Condvar,
 }
 
@@ -135,8 +138,10 @@ impl HostFrames {
     ) -> std::io::Result<Self> {
         let early = EarlyResponses::new(smart_renderer);
         let shutdown = stream.try_clone()?;
-        let queue =
-            Arc::new(Queue { state: Mutex::new(QueueState::default()), changed: Condvar::new() });
+        let queue = Arc::new(Queue {
+            state: RankedMutex::new(QueueState::default()),
+            changed: Condvar::new(),
+        });
         let thread_queue = queue.clone();
         let thread_responses = control_responses.clone();
         std::thread::Builder::new().name(name).spawn(move || {
@@ -358,7 +363,7 @@ mod tests {
     }
 
     fn queue() -> Queue {
-        Queue { state: Mutex::new(QueueState::default()), changed: Condvar::new() }
+        Queue { state: RankedMutex::new(QueueState::default()), changed: Condvar::new() }
     }
 
     #[test]

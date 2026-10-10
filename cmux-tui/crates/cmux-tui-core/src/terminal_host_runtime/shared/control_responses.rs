@@ -3,12 +3,13 @@
 //! receipted-input window. The attachment's writers register waiters; the
 //! surface reader and the connection's frame reader resolve or fail them.
 
+use crate::lock_rank::{RankedMutex, rank};
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::SyncSender;
 #[cfg(test)]
 use std::sync::mpsc::{Receiver, sync_channel};
-use std::sync::{Arc, Mutex};
 
 use super::super::sys::HostStream;
 use super::super::*;
@@ -36,22 +37,26 @@ pub(crate) struct PendingInputAckWindow {
 }
 
 pub(crate) struct ControlResponses {
-    pub(crate) waiters: Mutex<HashMap<u64, ControlResponseWaiter>>,
-    pub(crate) deferred_cell_pixel_handler: Mutex<Option<DeferredCellPixelHandler>>,
+    pub(crate) waiters: RankedMutex<HashMap<u64, ControlResponseWaiter>, { rank::LEAF }>,
+    pub(crate) deferred_cell_pixel_handler: RankedMutex<
+        Option<DeferredCellPixelHandler>,
+        { rank::CONTROL_DEFERRED_CELL_PIXEL_HANDLER },
+    >,
     pub(crate) latest_cell_pixel_ack: AtomicU64,
-    pub(crate) pending_input_acks: Mutex<PendingInputAckWindow>,
-    pub(crate) input_ack_shutdown: Mutex<Option<Arc<HostStream>>>,
+    pub(crate) pending_input_acks: RankedMutex<PendingInputAckWindow, { rank::LEAF }>,
+    pub(crate) input_ack_shutdown:
+        RankedMutex<Option<Arc<HostStream>>, { rank::CONTROL_INPUT_ACK_SHUTDOWN }>,
     pub(crate) clipboard_reads: ClipboardReadInbox,
 }
 
 impl ControlResponses {
     pub(crate) fn new() -> Self {
         Self {
-            waiters: Mutex::new(HashMap::new()),
-            deferred_cell_pixel_handler: Mutex::new(None),
+            waiters: RankedMutex::new(HashMap::new()),
+            deferred_cell_pixel_handler: RankedMutex::new(None),
             latest_cell_pixel_ack: AtomicU64::new(0),
-            pending_input_acks: Mutex::new(PendingInputAckWindow::default()),
-            input_ack_shutdown: Mutex::new(None),
+            pending_input_acks: RankedMutex::new(PendingInputAckWindow::default()),
+            input_ack_shutdown: RankedMutex::new(None),
             clipboard_reads: ClipboardReadInbox::default(),
         }
     }
@@ -137,9 +142,9 @@ impl ControlResponses {
         }
     }
 
-    pub(crate) fn input_ack_shutdown_handle(
+    pub(crate) fn input_ack_shutdown_handle<const R: u16>(
         &self,
-        writer: &Mutex<HostStream>,
+        writer: &RankedMutex<HostStream, R>,
     ) -> std::io::Result<Arc<HostStream>> {
         let mut cached = self.input_ack_shutdown.lock().unwrap();
         if let Some(shutdown) = cached.as_ref() {

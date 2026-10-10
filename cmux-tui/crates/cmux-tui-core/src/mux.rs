@@ -329,6 +329,7 @@ pub use terminal_reap::{
     validate_terminal_reap_grace,
 };
 
+use crate::lock_rank::{Condvar, Mutex, MutexGuard, RankedMutex, rank};
 use public_projections::{RestoredPublicProjections, restore_public_projections};
 use registry_viewport::restore_registry_viewport;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
@@ -336,7 +337,7 @@ use std::fmt;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
+use std::sync::{Arc, OnceLock, PoisonError, Weak};
 use std::time::{Duration, Instant};
 use topology_result::persist_public_topology_result;
 
@@ -487,15 +488,19 @@ pub struct Mux {
     next_notification_id: AtomicU64,
     next_active_at: AtomicU64,
     next_in_process_resize_owner: AtomicU64,
-    surface_options: Mutex<SurfaceOptions>,
-    provider_workspace: Mutex<ProviderWorkspaceState>,
+    surface_options: RankedMutex<SurfaceOptions, { rank::MUX_SURFACE_OPTIONS }>,
+    provider_workspace: RankedMutex<ProviderWorkspaceState, { rank::MUX_PROVIDER_WORKSPACE }>,
     /// `provider_workspace.managed`, readable under the registry and state
     /// locks (the provider lock orders before them; the flag is one-way).
     provider_managed: AtomicBool,
-    workspace_lifecycles: Mutex<HashMap<WorkspaceId, Weak<Mutex<()>>>>,
-    pending_workspace_surfaces: Mutex<HashMap<SurfaceId, WorkspaceId>>,
-    client_sizing_lifecycle: Mutex<()>,
-    client_sizing: Mutex<ClientSizingState>,
+    workspace_lifecycles: RankedMutex<
+        HashMap<WorkspaceId, Weak<RankedMutex<(), { rank::MUX_WORKSPACE_LIFECYCLE }>>>,
+        { rank::LEAF },
+    >,
+    pending_workspace_surfaces:
+        RankedMutex<HashMap<SurfaceId, WorkspaceId>, { rank::MUX_PENDING_WORKSPACE_SURFACES }>,
+    client_sizing_lifecycle: RankedMutex<(), { rank::MUX_CLIENT_SIZING_LIFECYCLE }>,
+    client_sizing: RankedMutex<ClientSizingState, { rank::MUX_CLIENT_SIZING }>,
     /// Per-client focus memory (client-focus-v1): the most recent focus each
     /// client id reported, so a reconnecting client restores its own view
     /// instead of the shared session focus. In-memory and bounded; a mux
@@ -515,87 +520,120 @@ pub struct Mux {
     /// binary with its feeds; absent otherwise.
     history_search: OnceLock<crate::history_search::HistorySearch>,
     #[cfg(test)]
-    client_resize_before_apply: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    client_resize_before_apply: RankedMutex<Option<Arc<dyn Fn() + Send + Sync>>, { rank::LEAF }>,
     #[cfg(test)]
-    terminal_move_before_projection: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    terminal_move_before_projection:
+        RankedMutex<Option<Arc<dyn Fn() + Send + Sync>>, { rank::LEAF }>,
     #[cfg(test)]
     client_rollback_before_wait: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
-    workspace_close_before_empty_check: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    workspace_close_before_empty_check:
+        RankedMutex<Option<Arc<dyn Fn() + Send + Sync>>, { rank::LEAF }>,
     #[cfg(test)]
-    workspace_close_after_selector_resolution: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    workspace_close_after_selector_resolution:
+        RankedMutex<Option<Arc<dyn Fn() + Send + Sync>>, { rank::LEAF }>,
     #[cfg(test)]
-    workspace_delta_before_emit: Mutex<Option<WorkspaceDeltaBeforeEmitHook>>,
+    workspace_delta_before_emit: RankedMutex<Option<WorkspaceDeltaBeforeEmitHook>, { rank::LEAF }>,
     #[cfg(test)]
-    resource_rename_after_selector_resolution: Mutex<Option<WorkspaceRenameHook>>,
+    resource_rename_after_selector_resolution:
+        RankedMutex<Option<WorkspaceRenameHook>, { rank::LEAF }>,
     #[cfg(test)]
-    layout_apply_after_workspace_reservation: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    layout_apply_after_workspace_reservation:
+        RankedMutex<Option<Arc<dyn Fn() + Send + Sync>>, { rank::LEAF }>,
     #[cfg(test)]
-    terminal_create_after_empty_check: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    terminal_create_after_empty_check:
+        RankedMutex<Option<Arc<dyn Fn() + Send + Sync>>, { rank::LEAF }>,
     #[cfg(test)]
-    terminal_create_after_materialization_lock: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    terminal_create_after_materialization_lock:
+        RankedMutex<Option<Arc<dyn Fn() + Send + Sync>>, { rank::LEAF }>,
     #[cfg(test)]
-    terminal_create_after_workspace_reservation: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    terminal_create_after_workspace_reservation:
+        RankedMutex<Option<Arc<dyn Fn() + Send + Sync>>, { rank::LEAF }>,
     #[cfg(test)]
-    terminal_spawn_after_cell_pixel_snapshot:
-        Mutex<Option<TerminalSpawnAfterCellPixelSnapshotHook>>,
+    terminal_spawn_after_cell_pixel_snapshot: RankedMutex<
+        Option<TerminalSpawnAfterCellPixelSnapshotHook>,
+        { rank::MUX_TERMINAL_SPAWN_AFTER_CELL_PIXEL_SNAPSHOT_HOOK },
+    >,
     #[cfg(test)]
-    terminal_spawn_before_cell_pixel_reconcile:
-        Mutex<Option<TerminalSpawnBeforeCellPixelReconcileHook>>,
+    terminal_spawn_before_cell_pixel_reconcile: RankedMutex<
+        Option<TerminalSpawnBeforeCellPixelReconcileHook>,
+        { rank::MUX_TERMINAL_SPAWN_BEFORE_CELL_PIXEL_RECONCILE_HOOK },
+    >,
     #[cfg(test)]
-    terminal_create_after_terminal_reservation: Mutex<Option<TerminalReservationHook>>,
-    pending_terminal_hosts: Mutex<HashMap<SurfaceId, TerminalHostIdentity>>,
-    reserved_in_process_terminals: Mutex<HashMap<SurfaceId, TerminalHostIdentity>>,
+    terminal_create_after_terminal_reservation: RankedMutex<
+        Option<TerminalReservationHook>,
+        { rank::MUX_TERMINAL_CREATE_AFTER_RESERVATION_HOOK },
+    >,
+    pending_terminal_hosts: RankedMutex<HashMap<SurfaceId, TerminalHostIdentity>, { rank::LEAF }>,
+    reserved_in_process_terminals:
+        RankedMutex<HashMap<SurfaceId, TerminalHostIdentity>, { rank::LEAF }>,
     #[cfg(test)]
-    viewport_split_after_spawn: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    viewport_split_after_spawn: RankedMutex<
+        Option<Arc<dyn Fn() + Send + Sync>>,
+        { rank::MUX_VIEWPORT_SPLIT_AFTER_SPAWN_HOOK },
+    >,
     #[cfg(test)]
-    resource_mutation_metrics: Mutex<Option<ResourceMutationMetrics>>,
+    resource_mutation_metrics: RankedMutex<Option<ResourceMutationMetrics>, { rank::LEAF }>,
     #[cfg(test)]
-    resource_projection_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    resource_projection_before_commit:
+        RankedMutex<Option<Arc<dyn Fn() + Send + Sync>>, { rank::LEAF }>,
     #[cfg(test)]
-    resource_close_after_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    resource_close_after_commit: RankedMutex<Option<Arc<dyn Fn() + Send + Sync>>, { rank::LEAF }>,
     #[cfg(test)]
-    layout_undo_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    layout_undo_before_commit: RankedMutex<
+        Option<Arc<dyn Fn() + Send + Sync>>,
+        { rank::MUX_LAYOUT_UNDO_BEFORE_COMMIT_HOOK },
+    >,
     #[cfg(test)]
-    resource_close_cleanup: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    resource_close_cleanup: RankedMutex<Option<Arc<dyn Fn() + Send + Sync>>, { rank::LEAF }>,
     browser_providers: Arc<BrowserProviderRegistry>,
-    browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
+    browser_runtime: RankedMutex<Option<Arc<BrowserRuntime>>, { rank::MUX_BROWSER_RUNTIME }>,
     active_render_attachments: Arc<AtomicUsize>,
     deadline_fanout_pool: DeadlineFanoutPool,
-    kitty_image_budget: Mutex<KittyImageBudgetState>,
+    kitty_image_budget: RankedMutex<KittyImageBudgetState, { rank::MUX_KITTY_IMAGE_BUDGET }>,
     kitty_image_budget_changed: Condvar,
     /// App byte-backend terminals (`app_terminals.rs`), by catalog surface.
-    app_terminals: Mutex<HashSet<SurfaceId>>,
+    app_terminals: RankedMutex<HashSet<SurfaceId>, { rank::LEAF }>,
     #[cfg(debug_assertions)]
     terminal_host_reconnect_completion_failures: AtomicU64,
     #[cfg(debug_assertions)]
     terminal_host_test_disconnect_after_spawn_ms: AtomicU64,
     #[cfg(test)]
-    kitty_image_budget_operation: Mutex<Option<KittyImageBudgetOperationHook>>,
-    cell_pixel_lifecycle: Mutex<()>,
+    kitty_image_budget_operation: RankedMutex<
+        Option<KittyImageBudgetOperationHook>,
+        { rank::MUX_KITTY_IMAGE_BUDGET_OPERATION_HOOK },
+    >,
+    cell_pixel_lifecycle: RankedMutex<(), { rank::MUX_CELL_PIXEL_LIFECYCLE }>,
     next_cell_pixel_generation: AtomicU64,
-    cell_pixels: Mutex<(u16, u16)>,
-    pending_cell_pixels: Mutex<Option<PendingCellPixelUpdate>>,
-    cell_pixel_retries: Mutex<CellPixelRetryQueue>,
+    cell_pixels: RankedMutex<(u16, u16), { rank::LEAF }>,
+    pending_cell_pixels:
+        RankedMutex<Option<PendingCellPixelUpdate>, { rank::MUX_PENDING_CELL_PIXELS }>,
+    cell_pixel_retries: RankedMutex<CellPixelRetryQueue, { rank::LEAF }>,
     #[cfg(test)]
-    cell_pixel_before_publish: Mutex<Option<CellPixelBeforePublishHook>>,
+    cell_pixel_before_publish: RankedMutex<
+        Option<CellPixelBeforePublishHook>,
+        { rank::MUX_CELL_PIXEL_BEFORE_PUBLISH_HOOK },
+    >,
     #[cfg(test)]
-    cell_pixel_operation: Mutex<Option<CellPixelOperationHook>>,
+    cell_pixel_operation: RankedMutex<Option<CellPixelOperationHook>, { rank::LEAF }>,
     #[cfg(test)]
-    cell_pixel_fanout_timeout: Mutex<Option<Duration>>,
-    default_colors: crate::lock_rank::RankedMutex<DefaultColors>,
+    cell_pixel_fanout_timeout: RankedMutex<Option<Duration>, { rank::LEAF }>,
+    default_colors: RankedMutex<DefaultColors, { rank::LEAF }>,
     durable_terminal_defaults: AtomicBool,
-    sidebar_plugin: Mutex<SidebarPluginRuntime>,
+    sidebar_plugin: RankedMutex<SidebarPluginRuntime, { rank::MUX_SIDEBAR_PLUGIN }>,
     journal_plugin: crate::journal_plugin::JournalPluginRuntime,
     machine_usage: Mutex<Option<MachineUsage>>,
-    agent_records: Mutex<HashMap<TerminalPublicId, TerminalAgentRecord>>,
-    agent_hook_fences: Mutex<HashMap<TerminalPublicId, HookFence>>,
-    agent_roster: Mutex<AgentRosterHost>,
-    agent_roster_fold: Mutex<()>,
+    agent_records: RankedMutex<HashMap<TerminalPublicId, TerminalAgentRecord>, { rank::LEAF }>,
+    agent_hook_fences:
+        RankedMutex<HashMap<TerminalPublicId, HookFence>, { rank::MUX_AGENT_HOOK_FENCES }>,
+    agent_roster: RankedMutex<AgentRosterHost, { rank::MUX_AGENT_ROSTER }>,
+    agent_roster_fold: RankedMutex<(), { rank::MUX_AGENT_ROSTER_FOLD }>,
     /// Nonterminal notifications remain placement-local. Terminal unread state is keyed by
     /// stable content identity so every view of one terminal shares the same attention marker.
-    placement_notifications: Mutex<HashMap<SurfaceId, SurfaceNotification>>,
-    terminal_notifications: Mutex<HashMap<TerminalPublicId, SurfaceNotification>>,
+    placement_notifications:
+        RankedMutex<HashMap<SurfaceId, SurfaceNotification>, { rank::MUX_PLACEMENT_NOTIFICATIONS }>,
+    terminal_notifications:
+        RankedMutex<HashMap<TerminalPublicId, SurfaceNotification>, { rank::LEAF }>,
     /// Records finished shell commands in the journal (`terminal-command-journal-v1`). Off until
     /// a trusted client turns it on (`set-terminal-command-history`); never persisted, so a
     /// restarted daemon records nothing until asked again.
@@ -603,23 +641,28 @@ pub struct Mux {
     /// The shell command journal worker's bounded queue (started on first use).
     shell_command_journal:
         Mutex<Option<SyncSender<(TerminalPublicId, crate::shell_history::FinishedCommand)>>>,
-    notification_ledger: Mutex<VecDeque<ResourceNotification>>,
+    notification_ledger:
+        RankedMutex<VecDeque<ResourceNotification>, { rank::MUX_NOTIFICATION_LEDGER }>,
     /// Per-client read marks. The shared unread marker above answers "does this terminal need
     /// attention on the shared console"; this map answers "has this client install seen this
     /// notification", so several remote clients of one session keep independent unread state.
-    notification_reads: Mutex<HashMap<NotificationPublicId, BTreeSet<String>>>,
+    notification_reads: RankedMutex<
+        HashMap<NotificationPublicId, BTreeSet<String>>,
+        { rank::MUX_NOTIFICATION_READS },
+    >,
     /// Notification ids the in-memory ledger evicted whose durable read marks are still to be
     /// pruned: only after a create commits, and only for ids the committed receipts no longer
     /// retain, so a failed create cannot orphan marks the next restart would rebuild.
-    notification_read_prunes: Mutex<Vec<NotificationPublicId>>,
+    notification_read_prunes: RankedMutex<Vec<NotificationPublicId>, { rank::LEAF }>,
     /// The local feed owner's items (mux/feed_local.rs). Lock order: this, then
     /// `workspace_registry`, then `state`; never take it while holding either.
-    feed_local: Mutex<cmux_feed_core::Feed>,
+    feed_local: RankedMutex<cmux_feed_core::Feed, { rank::MUX_FEED_LOCAL }>,
     /// Shared presentation metadata (workspace groups and workspace
     /// presentation fields), replaced after each registry commit.
-    presentation: Mutex<Arc<crate::workspace_registry::PresentationSnapshot>>,
+    presentation: RankedMutex<Arc<crate::workspace_registry::PresentationSnapshot>, { rank::LEAF }>,
     /// Git HEAD lookups keyed by directory, with the time they were read.
-    git_heads: Mutex<HashMap<String, (Instant, Option<presentation::GitHead>)>>,
+    git_heads:
+        RankedMutex<HashMap<String, (Instant, Option<presentation::GitHead>)>, { rank::LEAF }>,
     resource_machine_service: OnceLock<Arc<dyn crate::ResourceMachineService>>,
     journal_kernel: Arc<crate::journal_kernel::JournalKernel>,
     journal_ingress: crate::journal_ingress::JournalIngressSender,
@@ -627,7 +670,7 @@ pub struct Mux {
     journal_hook_runtime: Arc<crate::journal_hooks::JournalHookRuntime>,
     /// Wake-only signal for durable journal subscribers. Consumers always
     /// reread SQLite by cursor, so missed or coalesced notifications are safe.
-    journal_event_epoch: Mutex<u64>,
+    journal_event_epoch: RankedMutex<u64, { rank::LEAF }>,
     journal_event_changed: Condvar,
     /// True once a skipped terminal-host reconnect checkpoint has been logged.
     /// A machine resume reconnects every hosted terminal at once, so
@@ -647,28 +690,29 @@ pub struct Mux {
     /// Runs right after a new screen's creation handoff is released, where a
     /// terminal that exits at once can already close its screen.
     #[cfg(test)]
-    screen_created_hook: Mutex<Option<ScreenCreatedHook>>,
+    screen_created_hook: RankedMutex<Option<ScreenCreatedHook>, { rank::MUX_SCREEN_CREATED_HOOK }>,
     terminal_exit_waiters: TerminalExitWaiters,
     #[cfg(test)]
     terminal_exit_state_queries: AtomicU64,
     /// Keeps a close from removing a just-created surface before legacy
     /// callers have resolved the committed public result back to its runtime.
-    resource_creation_handoff: Mutex<()>,
+    resource_creation_handoff: RankedMutex<(), { rank::MUX_RESOURCE_CREATION_HANDOFF }>,
     /// Serializes the check-and-create sequence used when an attached local
     /// frontend bootstraps an otherwise empty session.
     initial_bootstrap: Mutex<()>,
-    resource_creation_execution: Mutex<()>,
+    resource_creation_execution: RankedMutex<(), { rank::MUX_RESOURCE_CREATION_EXECUTION }>,
     resource_creation_active: AtomicBool,
     terminal_adoptions: Mutex<HashSet<String>>,
     /// Terminals with a possibly live host and no runtime surface (R41),
     /// keyed by public terminal id (`term_…`, what the tab JSON reads), with
     /// the host terminal id. A leaf lock: nothing else is locked under it.
-    pending_terminals: Mutex<HashMap<String, (String, PendingTerminal)>>,
+    pending_terminals:
+        RankedMutex<HashMap<String, (String, PendingTerminal)>, { rank::MUX_PENDING_TERMINALS }>,
     /// Typed ends (`TerminalEnd::wire_json`) of ended terminals that have no
     /// runtime surface, keyed by public terminal id. A leaf lock.
-    terminal_ends: Mutex<HashMap<String, Value>>,
+    terminal_ends: RankedMutex<HashMap<String, Value>, { rank::LEAF }>,
     /// Cause of each terminal's last host loss, by public id (cx-0tgl).
-    terminal_loss_causes: Mutex<loss_causes::LossCauses>,
+    terminal_loss_causes: RankedMutex<loss_causes::LossCauses, { rank::LEAF }>,
     terminal_exit_detaches: Arc<TerminalExitDetachTracker>,
     terminal_adoption_insert_failures: AtomicU64,
     template_completion_failures: AtomicU64,
@@ -696,14 +740,16 @@ pub struct Mux {
     terminal_reap_grace_ms: AtomicU64,
     /// The running reaper's event receiver, so keep and grace changes can
     /// wake it.
-    terminal_reaper_events: Mutex<Option<MuxEventReceiver>>,
+    terminal_reaper_events:
+        RankedMutex<Option<MuxEventReceiver>, { rank::MUX_TERMINAL_REAPER_EVENTS }>,
     /// The launch snapshot file while its writer runs (`launch-snapshot-v1`).
     launch_snapshot_path: Mutex<Option<std::path::PathBuf>>,
     /// Parallel terminal host launches and reaps (`terminal_work`).
     terminal_work: terminal_work::TerminalWorkPool,
     /// Hosts launched ahead of their creation, by reserved terminal id.
     #[cfg(unix)]
-    prelaunched_terminals: Mutex<HashMap<String, terminal_work::PrelaunchedTerminal>>,
+    prelaunched_terminals:
+        RankedMutex<HashMap<String, terminal_work::PrelaunchedTerminal>, { rank::LEAF }>,
     #[cfg(unix)]
     pub(crate) image_pastes: crate::image_paste::ImagePasteStore,
     pub(crate) surface_operation_admission: Arc<crate::server::ServerSurfaceOperationAdmission>,

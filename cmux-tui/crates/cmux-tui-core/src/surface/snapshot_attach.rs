@@ -7,6 +7,7 @@
 //! reach the viewer as a new READY snapshot taken under the terminal lock, so
 //! the snapshot and the live bytes after it never overlap or leave a gap.
 
+use crate::lock_rank::rank;
 use std::sync::atomic::AtomicU64;
 
 use ghostty_vt::SnapshotPhase;
@@ -154,7 +155,7 @@ struct GateState {
 #[derive(Clone)]
 pub(crate) struct SnapshotRequestGate {
     handle: SnapshotRequestHandle,
-    state: Arc<Mutex<GateState>>,
+    state: Arc<RankedMutex<GateState, { rank::SNAPSHOT_ATTACH_GATE }>>,
 }
 
 impl SnapshotRequestGate {
@@ -162,7 +163,7 @@ impl SnapshotRequestGate {
         // The first snapshot is already pending at attach.
         Self {
             handle,
-            state: Arc::new(Mutex::new(GateState { pending: true, ..Default::default() })),
+            state: Arc::new(RankedMutex::new(GateState { pending: true, ..Default::default() })),
         }
     }
 

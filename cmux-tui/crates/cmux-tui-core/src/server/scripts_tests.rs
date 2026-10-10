@@ -1,6 +1,7 @@
 //! `script-*` gates and the script op router (no host binary needed).
 
-use std::sync::{Arc, Mutex};
+use crate::lock_rank::Mutex;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use cmux_app_host::script::ScriptRouter;

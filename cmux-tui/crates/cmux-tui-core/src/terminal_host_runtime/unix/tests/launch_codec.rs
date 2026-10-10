@@ -1,6 +1,7 @@
 //! Launch, snapshot/resize payload codecs and the clear-history ack; spawned PTY child guards.
 
 use super::*;
+use crate::lock_rank::RankedMutex;
 
 #[test]
 fn spawned_pty_child_disarm_prevents_late_kill() {
@@ -499,10 +500,10 @@ fn clear_history_ack_preserves_known_not_delivered_failure() {
         protocol_version: PROTOCOL_VERSION,
         smart_renderer: false,
         reader: None,
-        writer: Arc::new(Mutex::new(client)),
+        writer: Arc::new(RankedMutex::new(client)),
         control_responses: control_responses.clone(),
         next_request: AtomicU64::new(2),
-        viewer_size: Mutex::new(None),
+        viewer_size: RankedMutex::new(None),
         launch_process: None,
         launch_activation_pending: false,
         pty_custody: None,

@@ -3,12 +3,13 @@ use std::io;
 use std::mem::size_of;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, TryRecvError, TrySendError, sync_channel};
-use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
 use crate::Mux;
+use crate::lock_rank::{Condvar, Mutex, RankedMutex, rank};
 use crate::resource::{
     ContentPublicId, FrontendProjectionPublicId, PanePublicId, ScreenPublicId, TabPublicId,
     TerminalPublicId, WorkspacePublicId,
@@ -449,14 +450,14 @@ pub(crate) enum JournalIngressTrySendError {
 #[derive(Default)]
 struct JournalIngressState {
     stats: crate::diagnostics::JournalWriterStats,
-    failure: Mutex<Option<String>>,
-    enqueue_admission: Mutex<()>,
+    failure: RankedMutex<Option<String>, { rank::LEAF }>,
+    enqueue_admission: RankedMutex<(), { rank::JOURNAL_INGRESS_GATE }>,
     closed: AtomicBool,
     commit_admission: Mutex<()>,
-    queue_space_epoch: Mutex<u64>,
+    queue_space_epoch: RankedMutex<u64, { rank::JOURNAL_INGRESS_EPOCH }>,
     queue_space_changed: Condvar,
     #[cfg(test)]
-    failure_notifier: Mutex<Option<SyncSender<String>>>,
+    failure_notifier: RankedMutex<Option<SyncSender<String>>, { rank::LEAF }>,
     #[cfg(test)]
     nonretryable_failure_hook: Mutex<Option<(SyncSender<()>, Receiver<()>)>>,
     #[cfg(test)]

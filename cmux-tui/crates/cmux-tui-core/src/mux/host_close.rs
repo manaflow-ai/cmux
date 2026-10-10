@@ -11,6 +11,7 @@
 //! therefore end their hosts in parallel instead of one after another on the
 //! requesting connection.
 
+use crate::lock_rank::rank;
 #[cfg(unix)]
 use std::collections::VecDeque;
 #[cfg(unix)]
@@ -60,7 +61,7 @@ struct HostCloseState {
 /// Shared queue of hosts that were asked to exit.
 #[derive(Default)]
 pub(crate) struct TerminalHostCloses {
-    state: Mutex<HostCloseState>,
+    state: RankedMutex<HostCloseState, { rank::LEAF }>,
     idle: Condvar,
 }
 

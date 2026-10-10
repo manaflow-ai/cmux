@@ -4,10 +4,10 @@
 //! separable security foundation used by `terminal_host_runtime`, where each
 //! PTY lives in an independently adoptable process.
 
+use crate::lock_rank::Mutex;
 use std::fmt;
 use std::io::{Read, Write};
 use std::ops::{BitOr, RangeInclusive};
-use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use crate::terminal_host_protocol::{

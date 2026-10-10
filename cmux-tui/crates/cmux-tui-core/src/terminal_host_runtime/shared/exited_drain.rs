@@ -12,7 +12,8 @@
 //! ends when no client stream is attached. The descendant gets a hangup when
 //! the master closes.
 
-use std::sync::{MutexGuard, PoisonError};
+use crate::lock_rank::MutexGuard;
+use std::sync::PoisonError;
 
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};

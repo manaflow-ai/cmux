@@ -10,6 +10,7 @@
 
 use super::snapshot_attach::LocalReadySnapshot;
 use super::*;
+use crate::lock_rank::rank;
 pub struct AttachFrameReceiver {
     state: Arc<AttachTapState>,
     lifecycle: AttachLifecycle,
@@ -297,7 +298,7 @@ pub(super) struct AttachTap {
 }
 
 pub(super) struct AttachTapState {
-    pub(super) queue: Mutex<AttachTapQueue>,
+    pub(super) queue: RankedMutex<AttachTapQueue, { rank::LEAF }>,
     ready: Condvar,
 }
 
@@ -491,7 +492,7 @@ impl AttachTap {
         snapshot_mode: bool,
     ) -> (Self, AttachFrameReceiver) {
         let state = Arc::new(AttachTapState {
-            queue: Mutex::new(AttachTapQueue {
+            queue: RankedMutex::new(AttachTapQueue {
                 frames: VecDeque::new(),
                 retained_bytes: 0,
                 max_frames,
@@ -574,11 +575,7 @@ impl AttachTap {
     }
 
     /// Queue `item` within the caps; past them, overflow.
-    fn push(
-        &self,
-        mut queue: std::sync::MutexGuard<'_, AttachTapQueue>,
-        item: QueuedFrame,
-    ) -> bool {
+    fn push(&self, mut queue: MutexGuard<'_, AttachTapQueue>, item: QueuedFrame) -> bool {
         let item_bytes = item.retained_bytes();
         if item_bytes > queue.max_retained_bytes.saturating_sub(queue.retained_bytes)
             || queue.frames.len() >= queue.max_frames
@@ -593,7 +590,7 @@ impl AttachTap {
     }
 
     /// Overflow: a legacy viewer disconnects, a snapshot viewer falls behind.
-    fn overflow(&self, mut queue: std::sync::MutexGuard<'_, AttachTapQueue>) -> bool {
+    fn overflow(&self, mut queue: MutexGuard<'_, AttachTapQueue>) -> bool {
         if queue.snapshot_mode {
             queue.fall_behind();
             drop(queue);

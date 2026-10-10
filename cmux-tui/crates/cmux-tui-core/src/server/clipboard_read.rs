@@ -13,8 +13,9 @@
 //! and the socket get `origin.forbidden`. Clipboard text is never logged or
 //! kept: it goes straight to the host connection.
 
+use crate::lock_rank::{MutexGuard, RankedMutex, rank};
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::PoisonError;
 
 use ghostty_vt::{ClipboardLocation, MAX_CLIPBOARD_READ_BYTES};
 use serde_json::{Value, json};
@@ -106,12 +107,12 @@ impl State {
 
 /// A poisoned lock still guards whole broker state (no critical section
 /// leaves it half changed), so the broker keeps refusing safely.
-fn lock(state: &Mutex<State>) -> MutexGuard<'_, State> {
+fn lock(state: &RankedMutex<State, { rank::SERVER_CLIPBOARD_READ }>) -> MutexGuard<'_, State> {
     state.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 #[derive(Default)]
-pub(crate) struct ClipboardReads(Mutex<State>);
+pub(crate) struct ClipboardReads(RankedMutex<State, { rank::SERVER_CLIPBOARD_READ }>);
 
 impl ClipboardReads {
     /// One host signal. A refused request is answered before this returns.

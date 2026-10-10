@@ -2,6 +2,7 @@
 //! pointer and lifecycle deadlines, and status/dirty/failure notifications.
 
 use super::*;
+use crate::lock_rank::rank;
 
 pub(super) fn start_surface_thread(
     surface: Arc<Surface>,
@@ -188,9 +189,9 @@ pub(super) fn start_surface_thread(
 pub(super) fn start_browser_worker(
     surface: Arc<Surface>,
     rx: Receiver<SequencedBrowserCommand>,
-    command_order: Arc<Mutex<BrowserCommandOrder>>,
-    latest_nav: Arc<Mutex<Option<SequencedBrowserCommand>>>,
-    latest_authority: Arc<Mutex<Option<SequencedBrowserCommand>>>,
+    command_order: Arc<RankedMutex<BrowserCommandOrder, { rank::BROWSER_COMMAND_ORDER }>>,
+    latest_nav: Arc<RankedMutex<Option<SequencedBrowserCommand>, { rank::LEAF }>>,
+    latest_authority: Arc<RankedMutex<Option<SequencedBrowserCommand>, { rank::LEAF }>>,
     mux: Weak<Mux>,
     done_tx: Option<Sender<()>>,
 ) {
@@ -346,8 +347,8 @@ pub(super) fn release_abandoned_pointer_presses(
     }
 }
 
-pub(super) fn take_latest_worker_commands(
-    latest_nav: &Arc<Mutex<Option<SequencedBrowserCommand>>>,
+pub(super) fn take_latest_worker_commands<const R: u16>(
+    latest_nav: &Arc<RankedMutex<Option<SequencedBrowserCommand>, R>>,
 ) -> Option<SequencedBrowserCommand> {
     latest_nav.lock().unwrap().take()
 }

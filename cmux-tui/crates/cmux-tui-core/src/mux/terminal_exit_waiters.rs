@@ -1,10 +1,11 @@
 //! Terminal exit waiter state: detach trackers and leases, exit waiter subscriptions, and the exit state query guard.
 
 use super::*;
+use crate::lock_rank::rank;
 
 #[derive(Default)]
 pub(super) struct TerminalExitDetachTracker {
-    pub(super) active: Mutex<HashSet<String>>,
+    pub(super) active: RankedMutex<HashSet<String>, { rank::LEAF }>,
     pub(super) changed: Condvar,
 }
 
@@ -62,7 +63,10 @@ impl Drop for TerminalExitDetachLease {
 #[derive(Default)]
 pub(super) struct TerminalExitWaiters {
     pub(super) next_id: AtomicU64,
-    pub(super) waiters: Mutex<HashMap<TerminalPublicId, HashMap<u64, Weak<ResourceWaitWake>>>>,
+    pub(super) waiters: RankedMutex<
+        HashMap<TerminalPublicId, HashMap<u64, Weak<ResourceWaitWake>>>,
+        { rank::LEAF },
+    >,
 }
 
 pub(crate) struct TerminalExitSubscription<'a> {

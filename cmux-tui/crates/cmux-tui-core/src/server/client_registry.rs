@@ -36,6 +36,8 @@ use super::{
 };
 use crate::SurfaceId;
 use crate::browser::BrowserPointerOwner;
+use crate::lock_rank::{Condvar, Mutex, RankedMutex, rank};
+
 use crate::mux::ClientSizingIdentity;
 use crate::mux::ResourceWaitWake;
 use crate::resource::RequestId as ResourceRequestId;
@@ -50,8 +52,6 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::sync::Arc;
-use std::sync::Condvar;
-use std::sync::Mutex;
 use std::sync::Weak;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
@@ -329,9 +329,10 @@ pub(super) struct ClientRegistryState {
 pub(crate) struct ClientRegistry {
     /// Called when a surface loses its last attached client (the idle-close
     /// reaper starts that terminal's unattached period).
-    pub(super) detach_waker: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
+    pub(super) detach_waker: RankedMutex<Option<Box<dyn Fn() + Send + Sync>>, { rank::LEAF }>,
     /// Called after any client connects or leaves (orphan_shutdown.rs).
-    pub(super) client_presence_observer: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
+    pub(super) client_presence_observer:
+        RankedMutex<Option<Box<dyn Fn() + Send + Sync>>, { rank::LEAF }>,
     pub(super) url_opens: url_open::URLRequests,
     pub(crate) clipboard_reads: clipboard_read::ClipboardReads,
     /// Connection-scoped loopback streams (`loopback-forward-v1`).
@@ -352,7 +353,7 @@ pub(crate) struct ClientRegistry {
     pub(super) next_id: AtomicU64,
     pub(super) resource_stream_admission: Arc<ResourceWorkerAdmission>,
     pub(super) resource_wait_admission: Arc<ResourceWorkerAdmission>,
-    pub(super) state: Mutex<ClientRegistryState>,
+    pub(super) state: std::sync::Mutex<ClientRegistryState>,
 }
 
 /// `browser-runtime-v1` is negotiable only where the daemon has runtimes.
@@ -393,8 +394,8 @@ fn validate_resource_client_label(
 impl ClientRegistry {
     pub(crate) fn new() -> Self {
         Self {
-            detach_waker: Mutex::new(None),
-            client_presence_observer: Mutex::new(None),
+            detach_waker: RankedMutex::new(None),
+            client_presence_observer: RankedMutex::new(None),
             next_id: AtomicU64::new(1),
             url_opens: url_open::URLRequests::default(),
             clipboard_reads: Default::default(),
@@ -417,7 +418,7 @@ impl ClientRegistry {
                 RESOURCE_WAITS_PER_CLIENT_CAPACITY,
                 RESOURCE_WAITS_SERVER_CAPACITY,
             ),
-            state: Mutex::new(ClientRegistryState::default()),
+            state: std::sync::Mutex::new(ClientRegistryState::default()),
         }
     }
 

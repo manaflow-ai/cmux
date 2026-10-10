@@ -6,10 +6,11 @@
 //! command queue with its byte budget. `HostShared` follows once its OS
 //! fields sit behind seams.
 
+use crate::lock_rank::{Condvar, Mutex, RankedMutex, rank};
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Sender, SyncSender};
-use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 use cmux_pty::PtySize;
@@ -129,8 +130,8 @@ impl ViewerSizes {
 /// in one critical section. If the guard were released after reduction,
 /// an older large resize could run after a newer small resize and leave
 /// the host at a size that no longer matches its viewer set.
-pub(crate) fn mutate_viewer_sizes(
-    viewer_sizes: &Mutex<ViewerSizes>,
+pub(crate) fn mutate_viewer_sizes<const R: u16>(
+    viewer_sizes: &RankedMutex<ViewerSizes, R>,
     mutation: impl FnOnce(&mut ViewerSizes),
     apply: impl FnOnce(Option<(u16, u16)>) -> anyhow::Result<()>,
 ) -> anyhow::Result<()> {
@@ -266,21 +267,21 @@ impl HostTap {
 /// the authoritative Ghostty parser, while legacy renderers keep their
 /// normalized Output + coupled Colors contract unchanged.
 pub(crate) struct SmartStreamState {
-    pub(crate) broadcast_lock: Mutex<()>,
-    pub(crate) taps: Mutex<HashMap<u64, HostTap>>,
+    pub(crate) broadcast_lock: RankedMutex<(), { rank::HOST_STATE_BROADCAST }>,
+    pub(crate) taps: RankedMutex<HashMap<u64, HostTap>, { rank::LEAF }>,
     pub(crate) source_cursor: AtomicU64,
     pub(crate) applied_cursor: AtomicU64,
-    pub(crate) retained: Mutex<SmartRetention>,
+    pub(crate) retained: RankedMutex<SmartRetention, { rank::LEAF }>,
 }
 
 impl SmartStreamState {
     pub(crate) fn new() -> Self {
         Self {
-            broadcast_lock: Mutex::new(()),
-            taps: Mutex::new(HashMap::new()),
+            broadcast_lock: RankedMutex::new(()),
+            taps: RankedMutex::new(HashMap::new()),
             source_cursor: AtomicU64::new(0),
             applied_cursor: AtomicU64::new(0),
-            retained: Mutex::new(SmartRetention::default()),
+            retained: RankedMutex::new(SmartRetention::default()),
         }
     }
 
@@ -466,14 +467,14 @@ pub(crate) enum ClearHistoryAckDisposition {
 }
 
 pub(crate) struct ParserBudget {
-    pub(crate) queued_bytes: Mutex<usize>,
+    pub(crate) queued_bytes: RankedMutex<usize, { rank::LEAF }>,
     pub(crate) available: Condvar,
     pub(crate) max_bytes: usize,
 }
 
 impl ParserBudget {
     pub(crate) fn new(max_bytes: usize) -> Self {
-        Self { queued_bytes: Mutex::new(0), available: Condvar::new(), max_bytes }
+        Self { queued_bytes: RankedMutex::new(0), available: Condvar::new(), max_bytes }
     }
 
     pub(crate) fn reserve(&self, bytes: usize) {
@@ -512,19 +513,19 @@ pub(crate) fn enqueue_parser_output(
     false
 }
 
-pub(crate) fn publish_host_frames(
-    broadcast_lock: &Mutex<()>,
+pub(crate) fn publish_host_frames<const B: u16, const T: u16>(
+    broadcast_lock: &RankedMutex<(), B>,
     sequence: &AtomicU64,
-    taps: &Mutex<HashMap<u64, HostTap>>,
+    taps: &RankedMutex<HashMap<u64, HostTap>, T>,
     frames: impl IntoIterator<Item = Frame>,
 ) {
     let _ = publish_host_frames_and_targeted(broadcast_lock, sequence, taps, frames, None);
 }
 
-pub(crate) fn publish_host_frames_and_targeted(
-    broadcast_lock: &Mutex<()>,
+pub(crate) fn publish_host_frames_and_targeted<const B: u16, const T: u16>(
+    broadcast_lock: &RankedMutex<(), B>,
     sequence: &AtomicU64,
-    taps: &Mutex<HashMap<u64, HostTap>>,
+    taps: &RankedMutex<HashMap<u64, HostTap>, T>,
     frames: impl IntoIterator<Item = Frame>,
     targeted: Option<(&HostTap, Frame)>,
 ) -> bool {

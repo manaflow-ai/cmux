@@ -14,11 +14,12 @@
 //! Other requests may be answered before an earlier create's reply.
 
 use super::*;
+use crate::lock_rank::{RankedMutex, rank};
 
 /// The creates of one connection, in request order.
 #[derive(Default)]
 pub(super) struct ConnectionCreations {
-    state: Mutex<CreationQueue>,
+    state: RankedMutex<CreationQueue, { rank::TERMINAL_CREATION_QUEUE }>,
 }
 
 #[derive(Default)]
@@ -32,7 +33,7 @@ struct CreationSlot {
     request: Mutex<Option<PendingSurfaceRequest>>,
     /// `None` until the slot's launch step finished; then the terminal id of
     /// its prelaunched host, if it has one.
-    launched: Mutex<Option<Option<String>>>,
+    launched: RankedMutex<Option<Option<String>>, { rank::LEAF }>,
     /// Debug timing marks of this create (`CMUX_TUI_DEBUG_SPANS`).
     trace: Mutex<Option<crate::debug_spans::Trace>>,
 }
@@ -173,7 +174,7 @@ impl ConnectionSurfaceScheduler {
         let trace = crate::debug_spans::Trace::start(label, Instant::now());
         let slot = Arc::new(CreationSlot {
             request: Mutex::new(Some(pending)),
-            launched: Mutex::new(None),
+            launched: RankedMutex::new(None),
             trace: Mutex::new(None),
         });
         self.begin_creation();

@@ -3,8 +3,10 @@
 //! are the terminal's channel. Parsing, journal, snapshots and attach stay
 //! the session host's, exactly as for a PTY child.
 
+use crate::lock_rank::{RankedMutex, rank};
+
 use std::io::{self, Read, Write};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use cmux_pty::{ChildKiller, MasterPty, PtySize};
 use serde_json::{Value, json};
@@ -41,12 +43,12 @@ impl BackendSide {
 /// The master side: resize goes to the app as a host event.
 pub(crate) struct BackendMaster {
     side: BackendSide,
-    size: Mutex<PtySize>,
+    size: RankedMutex<PtySize, { rank::LEAF }>,
 }
 
 impl BackendMaster {
     pub(crate) fn new(side: BackendSide, size: PtySize) -> Self {
-        Self { side, size: Mutex::new(size) }
+        Self { side, size: RankedMutex::new(size) }
     }
 }
 

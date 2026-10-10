@@ -28,12 +28,13 @@
 //! on `exec`, and `cmux_pty` resets these dispositions and the signal mask
 //! before it execs the shell.
 
+use crate::lock_rank::Mutex;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, AtomicU32, AtomicUsize, Ordering};
-use std::sync::{Mutex, OnceLock};
 
 /// The signals a host records and survives: every catchable signal whose
 /// default action ends or stops the process (cx-0tgl LB), plus, on Linux,

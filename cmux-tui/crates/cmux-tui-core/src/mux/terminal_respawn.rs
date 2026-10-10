@@ -31,6 +31,7 @@ pub(super) mod launch;
 mod prefill;
 mod supervisor;
 
+use crate::lock_rank::{RankedMutex, rank};
 use std::time::{Duration, Instant};
 
 use super::*;
@@ -63,19 +64,19 @@ const RESPAWN_REASONS: &[&str] = &[
 pub(crate) struct TerminalRespawns {
     disabled: bool,
     delay: Option<Duration>,
-    guard: Mutex<RespawnGuard>,
+    guard: RankedMutex<RespawnGuard, { rank::LEAF }>,
     /// Wakes respawn workers that wait out a backoff delay when the owner
     /// shuts down ([`TerminalRespawns::wake_all`]).
     wake: (Mutex<()>, Condvar),
     /// Full argv of command terminals this daemon process launched; it is
     /// never persisted, so a later daemon only names the program. Entries go
     /// when their terminal is closed; [`ARGV_LIMIT`] bounds the rest.
-    argv: Mutex<ArgvMemory>,
+    argv: RankedMutex<ArgvMemory, { rank::LEAF }>,
     /// VT replay a new terminal's host applies before its shell's first
     /// byte, by the reserved terminal id of a creation that has not launched
     /// yet (Reopen Closed of an archived terminal, ARCHIVE-1). The launch
     /// takes it; the creator removes it when the creation fails.
-    seeds: Mutex<HashMap<String, Vec<u8>>>,
+    seeds: RankedMutex<HashMap<String, Vec<u8>>, { rank::LEAF }>,
 }
 
 /// At most this many command argvs are kept; the oldest goes first.
@@ -117,10 +118,10 @@ impl TerminalRespawns {
                 .ok()
                 .and_then(|value| value.parse().ok())
                 .map(Duration::from_millis),
-            guard: Mutex::new(RespawnGuard::from_env()),
+            guard: RankedMutex::new(RespawnGuard::from_env()),
             wake: (Mutex::new(()), Condvar::new()),
-            argv: Mutex::default(),
-            seeds: Mutex::default(),
+            argv: RankedMutex::default(),
+            seeds: RankedMutex::default(),
         }
     }
 

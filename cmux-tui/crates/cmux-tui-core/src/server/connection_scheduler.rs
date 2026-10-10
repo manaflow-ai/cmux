@@ -3,6 +3,7 @@
 //! dispatcher thread that runs queued surface operations in order.
 
 use super::MessageWriter;
+use crate::lock_rank::{Condvar, Mutex, RankedMutex, rank};
 
 use super::CONNECTION_SURFACE_QUEUE_BYTE_CAPACITY;
 use super::CONNECTION_SURFACE_QUEUE_CAPACITY;
@@ -18,13 +19,12 @@ use super::send_request_error_with_delivery;
 use super::terminal_create;
 use crate::Mux;
 use crate::SurfaceId;
+
 use crate::stream_interrupt::InterruptSet;
 use crate::stream_interrupt::StreamInterrupt;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::sync::Arc;
-use std::sync::Condvar;
-use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::thread::JoinHandle;
@@ -73,7 +73,7 @@ impl ConnectionCancellation {
 }
 
 pub(super) struct ConnectionSurfaceScheduler {
-    pub(super) state: Mutex<ConnectionSurfaceState>,
+    pub(super) state: RankedMutex<ConnectionSurfaceState, { rank::CONNECTION_SCHEDULER }>,
     pub(super) changed: Condvar,
     pub(super) admission: Arc<ServerSurfaceOperationAdmission>,
     pub(super) cancelled: ConnectionCancellation,
@@ -106,7 +106,7 @@ impl ConnectionSurfaceScheduler {
         connection_permit: Option<ConnectionPermit>,
     ) -> Self {
         Self {
-            state: Mutex::new(ConnectionSurfaceState::default()),
+            state: RankedMutex::new(ConnectionSurfaceState::default()),
             changed: Condvar::new(),
             admission,
             cancelled: ConnectionCancellation::default(),

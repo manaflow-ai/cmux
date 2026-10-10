@@ -3,9 +3,10 @@
 //! flushes the terminal's own replies (queries, clipboard reads) to the PTY
 //! after every command.
 
+use crate::lock_rank::Mutex;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Receiver;
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use ghostty_vt::Callbacks;

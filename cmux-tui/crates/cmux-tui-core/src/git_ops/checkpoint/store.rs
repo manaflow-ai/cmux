@@ -5,11 +5,12 @@
 //! published but whose mutation is not yet in the session's
 //! `resource_mutations` ledger.
 
+use crate::lock_rank::{Mutex, RankedMutex, rank};
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+use std::sync::{Arc, OnceLock, PoisonError};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -85,7 +86,9 @@ impl Store {
     /// Runs `body` while holding this store's mutation lock: every capture,
     /// pin, unpin, ref change and id mint of the session is serialized.
     pub(super) fn exclusive<T>(&self, body: impl FnOnce() -> T) -> T {
-        static LOCKS: OnceLock<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>> = OnceLock::new();
+        static LOCKS: OnceLock<
+            Mutex<HashMap<PathBuf, Arc<RankedMutex<(), { rank::CHECKPOINT_PATH_LOCK }>>>>,
+        > = OnceLock::new();
         let lock = LOCKS
             .get_or_init(Mutex::default)
             .lock()
@@ -129,7 +132,7 @@ impl Store {
         if let Some(known) = self.known(common_dir, git_dir)? {
             return Ok(known);
         }
-        static IDENTITIES: Mutex<()> = Mutex::new(());
+        static IDENTITIES: RankedMutex<(), { rank::LEAF }> = RankedMutex::new(());
         let _guard = IDENTITIES.lock().unwrap_or_else(PoisonError::into_inner);
         let path = self.root.join("identities.json");
         let mut identities: Identities = read_json(&path)?.unwrap_or_default();

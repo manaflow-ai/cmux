@@ -3,10 +3,11 @@
 //! startup guard.
 
 use super::*;
+use crate::lock_rank::rank;
 
 #[derive(Default)]
 pub(super) struct ReaderCompletion {
-    finished: Mutex<bool>,
+    finished: RankedMutex<bool, { rank::LEAF }>,
     changed: Condvar,
 }
 
@@ -151,12 +152,12 @@ impl PtyTerminalRuntime {
 /// `geometry` -> `term` -> `runtime` -> `kitty_graphics_limits` -> `taps` ->
 /// leaf locks (`render`, `title`, `mouse_encoders`, `last_attach_colors`,
 /// `Mux::default_colors`, ...). These locks carry the ranks
-/// `LockRank::{MuxState, KittyLimitsRequest, Geometry, Terminal, Runtime,
-/// KittyLimits, AttachTaps, Leaf}`
-/// (crate::lock_rank; `Mux::state` through `StateMutex`, the others as
-/// [`RankedMutex`]): in debug and test builds a blocking acquisition at a rank
-/// equal to or before one the thread holds panics and names both locks;
-/// release builds compile the check out. Mux code holds `Mux::state` while it reads
+/// `rank::{MUX_STATE, PTY_KITTY_LIMITS_REQUEST, PTY_GEOMETRY, PTY_TERM,
+/// PTY_RUNTIME, PTY_KITTY_GRAPHICS_LIMITS, PTY_TAPS, LEAF}` in their type
+/// (crate::lock_rank; `Mux::state` through `StateMutex`): in debug and test
+/// builds a blocking acquisition at a rank equal to or below one the thread
+/// holds panics and names both locks; release builds compile the check out.
+/// The full crate table is in lock_rank.rs. Mux code holds `Mux::state` while it reads
 /// `geometry` (`Surface::size`), and a resize holds `geometry` while it takes
 /// `term`. So no path may call a mux method that takes `Mux::state` (every
 /// `emit_terminal_*`, `mark_output_dirty`) while it holds `term` or
@@ -175,7 +176,7 @@ pub struct PtyTerminalRuntime {
     /// Even while the emulator and terminal journal agree, odd while one
     /// output frame has updated one side but not yet reached the other.
     pub(super) journal_capture_epoch: AtomicU64,
-    pub(super) journal_capture_gate: Mutex<()>,
+    pub(super) journal_capture_gate: RankedMutex<(), { rank::PTY_JOURNAL_CAPTURE_GATE }>,
     pub(super) journal_capture_idle: Condvar,
     pub(super) journal_capture_open: AtomicBool,
     pub(super) journal_capture_reserved: AtomicBool,
@@ -183,23 +184,25 @@ pub struct PtyTerminalRuntime {
     /// Owned reader join fence. Shutdown gives this reader a bounded drain
     /// interval, then closes journal capture before it inserts the final
     /// journal barrier.
-    pub(super) reader_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
+    pub(super) reader_thread:
+        RankedMutex<Option<std::thread::JoinHandle<()>>, { rank::PTY_READER_THREAD }>,
     pub(super) reader_completion: Arc<ReaderCompletion>,
     /// Owned child-reaper join fence. Shutdown uses the same bounded deadline
     /// as the reader so the child wait cannot outlive terminal teardown.
-    pub(super) reaper_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
+    pub(super) reaper_thread: RankedMutex<Option<std::thread::JoinHandle<()>>, { rank::LEAF }>,
     pub(super) reaper_completion: Arc<ReaderCompletion>,
-    pub(super) term: RankedMutex<Box<Terminal>>,
+    pub(super) term: RankedMutex<Box<Terminal>, { rank::PTY_TERM }>,
     pub(super) stream_progress: Box<TerminalStreamProgress>,
     /// Generic metadata parsed from raw PTY output. This field has no agent
     /// or roster knowledge, so userland plugins can consume it through the
     /// resource API without moving detection policy into core.
-    pub(super) terminal_metadata: Mutex<crate::terminal_metadata::TerminalMetadata>,
+    pub(super) terminal_metadata:
+        RankedMutex<crate::terminal_metadata::TerminalMetadata, { rank::LEAF }>,
     /// OSC 133 command tracking (`terminal-command-journal-v1`); idle unless
     /// the daemon records terminal commands.
-    pub(super) command_tracker: Mutex<crate::shell_history::CommandTracker>,
-    pub(super) mouse_encoders: RankedMutex<Box<MouseEncoders>>,
-    pub(super) runtime: RankedMutex<PtyRuntime>,
+    pub(super) command_tracker: RankedMutex<crate::shell_history::CommandTracker, { rank::LEAF }>,
+    pub(super) mouse_encoders: RankedMutex<Box<MouseEncoders>, { rank::LEAF }>,
+    pub(super) runtime: RankedMutex<PtyRuntime, { rank::PTY_RUNTIME }>,
     /// Explicit lifecycle authority for this process. Session content may
     /// survive a daemon replacement through a durable host; daemon-owned
     /// auxiliaries must terminate with the backend that created them.
@@ -207,7 +210,10 @@ pub struct PtyTerminalRuntime {
     pub(super) supports_clear_history_key_fallback: AtomicBool,
     pub(super) host_identity: Option<crate::terminal_host_runtime::TerminalHostIdentity>,
     #[cfg(unix)]
-    pub(super) pending_host_binding: Mutex<Option<crate::mux::PendingTerminalHostBinding>>,
+    pub(super) pending_host_binding: RankedMutex<
+        Option<crate::mux::PendingTerminalHostBinding>,
+        { rank::PTY_PENDING_HOST_BINDING },
+    >,
     #[cfg(unix)]
     pub(super) host_exit_record_path: Option<PathBuf>,
     pub(super) pid: Option<u32>,
@@ -215,7 +221,7 @@ pub struct PtyTerminalRuntime {
     pub(super) cwd: Option<String>,
     /// How this incarnation ended, with its provenance (process end versus
     /// host loss); see [`TerminalEnd`].
-    pub(super) exit: Mutex<Option<TerminalEnd>>,
+    pub(super) exit: RankedMutex<Option<TerminalEnd>, { rank::LEAF }>,
     pub(super) local_pty_drained: AtomicBool,
     pub(super) exit_notified: AtomicBool,
     pub(super) dead: AtomicBool,
@@ -228,25 +234,26 @@ pub struct PtyTerminalRuntime {
     /// Set when output arrived since the last render; cleared by the
     /// frontend when it draws.
     pub(super) dirty: AtomicBool,
-    pub(super) title: RankedMutex<String>,
-    pub(super) pwd: Mutex<Option<String>>,
-    pub(super) published_directory: Mutex<PublishedDirectory>,
+    pub(super) title: RankedMutex<String, { rank::LEAF }>,
+    pub(super) pwd: RankedMutex<Option<String>, { rank::LEAF }>,
+    pub(super) published_directory: RankedMutex<PublishedDirectory, { rank::LEAF }>,
     pub(super) directory_pending: AtomicBool,
     /// A shell has reported a directory at least once; only then is a later
     /// absent report a clear rather than the still-unreported launch directory.
     pub(super) directory_reported: AtomicBool,
-    pub(super) geometry: RankedMutex<PtyGeometry>,
+    pub(super) geometry: RankedMutex<PtyGeometry, { rank::PTY_GEOMETRY }>,
     /// The Kitty limits this surface last committed. Ranked between the
     /// runtime and the attach taps: a request reads it under the runtime,
     /// and a commit holds it with the terminal while it resynchronizes taps.
-    pub(super) kitty_graphics_limits: Box<RankedMutex<KittyGraphicsLimits>>,
+    pub(super) kitty_graphics_limits:
+        Box<RankedMutex<KittyGraphicsLimits, { rank::PTY_KITTY_GRAPHICS_LIMITS }>>,
     /// Serializes Kitty limits requests for this surface. A request waits
     /// for the host's acknowledgement without the runtime lock (the
     /// reconnecting reader needs that lock), so this keeps a slower request
     /// from committing its limits after a newer one.
-    pub(super) kitty_limits_request: RankedMutex<()>,
+    pub(super) kitty_limits_request: RankedMutex<(), { rank::PTY_KITTY_LIMITS_REQUEST }>,
     #[cfg(test)]
-    pub(super) geometry_test_hook: Mutex<Option<PtyGeometryTestHook>>,
+    pub(super) geometry_test_hook: RankedMutex<Option<PtyGeometryTestHook>, { rank::LEAF }>,
     #[cfg(test)]
     pub(super) deferred_cell_pixel_ack_test_hook: Mutex<Option<DeferredCellPixelAckTestHook>>,
     #[cfg(test)]
@@ -259,7 +266,7 @@ pub struct PtyTerminalRuntime {
     /// terminal lock, and [`Surface::attach_stream`] registers taps under
     /// the same lock, so a subscriber sees exactly the bytes applied
     /// after its replay snapshot — no gap, no duplication.
-    pub(super) taps: RankedMutex<Vec<AttachTap>>,
+    pub(super) taps: RankedMutex<Vec<AttachTap>, { rank::PTY_TAPS }>,
     /// A PTY color mutation awaiting bounded attach-stream fan-out.
     pub(super) attach_colors_pending: AtomicBool,
     /// A reset or cursor-semantic transition requires reapplying equal state:
@@ -271,10 +278,10 @@ pub struct PtyTerminalRuntime {
     /// Last effective color state emitted to attach streams. This suppresses
     /// repeated OSC sets that advance Ghostty's revision without changing the
     /// frontend-visible state.
-    pub(super) last_attach_colors: RankedMutex<Option<Box<TerminalColors>>>,
+    pub(super) last_attach_colors: RankedMutex<Option<Box<TerminalColors>>, { rank::LEAF }>,
     /// Single consume-once Ghostty render state shared by the local TUI and
     /// every protocol-v7 render attachment.
-    pub(super) render: Arc<RankedMutex<RenderHub>>,
+    pub(super) render: Arc<RankedMutex<RenderHub, { rank::PTY_RENDER }>>,
     pub(super) render_generation: AtomicU64,
     pub(super) frame_requests: SyncSender<u64>,
     #[cfg(test)]

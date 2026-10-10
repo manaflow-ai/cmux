@@ -8,8 +8,8 @@
 //! keeps its last bytes after the app's `end` until the consumer has read
 //! them, so final output shows before the exit; a link ends at once.
 
+use crate::lock_rank::{Condvar, RankedMutex, rank};
 use std::collections::{BTreeMap, HashMap};
-use std::sync::{Condvar, Mutex};
 
 use super::{BackendError, Direction, End, Frame, FrameBody, Lost, ReceiveWindow, SendWindow};
 
@@ -56,7 +56,7 @@ struct Table<M> {
 
 pub(crate) struct ChannelTable<M> {
     prefix: &'static str,
-    state: Mutex<Table<M>>,
+    state: RankedMutex<Table<M>, { rank::LEAF }>,
     /// Signalled on data or credit from an app and on every end.
     changed: Condvar,
 }
@@ -66,7 +66,11 @@ impl<M: Clone> ChannelTable<M> {
     pub(crate) fn new(prefix: &'static str) -> Self {
         Self {
             prefix,
-            state: Mutex::new(Table { channels: BTreeMap::new(), next: 0, ends: HashMap::new() }),
+            state: RankedMutex::new(Table {
+                channels: BTreeMap::new(),
+                next: 0,
+                ends: HashMap::new(),
+            }),
             changed: Condvar::new(),
         }
     }

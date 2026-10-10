@@ -1,6 +1,7 @@
 //! Receipted input, termination receipts, discovery and exit records, liveness leases, handshake bounds.
 
 use super::*;
+use crate::lock_rank::RankedMutex;
 
 #[test]
 fn receipted_input_never_reaches_a_legacy_host_without_ack_support() {
@@ -29,10 +30,10 @@ fn receipted_input_never_reaches_a_legacy_host_without_ack_support() {
         protocol_version: PROTOCOL_VERSION,
         smart_renderer: true,
         reader: None,
-        writer: Arc::new(Mutex::new(client)),
+        writer: Arc::new(RankedMutex::new(client)),
         control_responses: Arc::new(ControlResponses::new()),
         next_request: AtomicU64::new(2),
-        viewer_size: Mutex::new(None),
+        viewer_size: RankedMutex::new(None),
         launch_process: None,
         launch_activation_pending: false,
         pty_custody: None,
@@ -292,10 +293,10 @@ fn terminate_waits_for_the_authoritative_host_receipt() {
         protocol_version: PROTOCOL_VERSION,
         smart_renderer: true,
         reader: None,
-        writer: Arc::new(Mutex::new(client)),
+        writer: Arc::new(RankedMutex::new(client)),
         control_responses: control_responses.clone(),
         next_request: AtomicU64::new(2),
-        viewer_size: Mutex::new(None),
+        viewer_size: RankedMutex::new(None),
         launch_process: None,
         launch_activation_pending: false,
         pty_custody: None,
@@ -342,10 +343,10 @@ fn clear_history_control_write_failure_after_header_is_ambiguous() {
         protocol_version: PROTOCOL_VERSION,
         smart_renderer: false,
         reader: None,
-        writer: Arc::new(Mutex::new(client)),
+        writer: Arc::new(RankedMutex::new(client)),
         control_responses: Arc::new(ControlResponses::new()),
         next_request: AtomicU64::new(2),
-        viewer_size: Mutex::new(None),
+        viewer_size: RankedMutex::new(None),
         launch_process: None,
         launch_activation_pending: false,
         pty_custody: None,

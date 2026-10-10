@@ -1,9 +1,10 @@
 //! Per-subscriber mux event delivery with bounded coalesced state.
 
+use crate::lock_rank::{Condvar, RankedMutex, rank};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::mpsc::{RecvError, RecvTimeoutError, TryRecvError};
-use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 
 use crate::{MuxEvent, PaneId, ScreenId, SurfaceId, TreeDelta, TreeDeltaKind, WorkspaceId};
@@ -51,7 +52,7 @@ pub(crate) fn defer_session_paths<R>(f: impl FnOnce() -> R) -> (R, DeferredSessi
 
 #[derive(Default)]
 pub struct MuxEventBroadcaster {
-    subscribers: Mutex<Vec<MuxEventSubscriber>>,
+    subscribers: RankedMutex<Vec<MuxEventSubscriber>, { rank::EVENT_BUS_SUBSCRIBERS }>,
 }
 
 struct MuxEventSubscriber {
@@ -86,7 +87,7 @@ pub struct MuxEventReceiver {
 
 #[derive(Default)]
 struct MuxEventMailbox {
-    state: Mutex<MuxEventMailboxState>,
+    state: RankedMutex<MuxEventMailboxState, { rank::LEAF }>,
     changed: Condvar,
 }
 

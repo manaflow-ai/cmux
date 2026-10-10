@@ -3,10 +3,11 @@
 //! (the end of the far side). A PTY child and an app's byte-backend
 //! terminal (`terminal_backend`) both start here, from a [`LocalLaunch`].
 
+use crate::lock_rank::{Condvar, Mutex, RankedMutex};
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::mpsc::sync_channel;
-use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::sync::{Arc, Weak};
 use std::time::Duration;
 
 use cmux_pty::{ChildKiller, MasterPty};
@@ -121,7 +122,7 @@ impl Surface {
             meta: SurfaceMeta {
                 id,
                 resource_identity,
-                name: Mutex::new(None),
+                name: RankedMutex::new(None),
                 selection: Mutex::new(None),
             },
             terminal: Arc::new(PtyTerminalRuntime {
@@ -133,66 +134,54 @@ impl Surface {
                 )),
                 journal_capture_supported: true,
                 journal_capture_epoch: AtomicU64::new(0),
-                journal_capture_gate: Mutex::new(()),
+                journal_capture_gate: RankedMutex::new(()),
                 journal_capture_idle: Condvar::new(),
                 journal_capture_open: AtomicBool::new(true),
                 journal_capture_reserved: AtomicBool::new(false),
                 journal_capture_active: AtomicBool::new(false),
-                reader_thread: Mutex::new(None),
+                reader_thread: RankedMutex::new(None),
                 reader_completion: Arc::new(ReaderCompletion::default()),
-                reaper_thread: Mutex::new(None),
+                reaper_thread: RankedMutex::new(None),
                 reaper_completion: Arc::new(ReaderCompletion::default()),
-                term: RankedMutex::new(LockRank::Terminal, "pty.term", Box::new(term)),
+                term: RankedMutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
-                terminal_metadata: Mutex::new(terminal_metadata),
-                command_tracker: Mutex::new(Default::default()),
-                mouse_encoders: RankedMutex::new(
-                    LockRank::Leaf,
-                    "pty.mouse_encoders",
-                    Box::new(mouse_encoders),
-                ),
-                runtime: RankedMutex::new(
-                    LockRank::Runtime,
-                    "pty.runtime",
-                    PtyRuntime::Local { writer, master: Some(master), killer },
-                ),
+                terminal_metadata: RankedMutex::new(terminal_metadata),
+                command_tracker: RankedMutex::new(Default::default()),
+                mouse_encoders: RankedMutex::new(Box::new(mouse_encoders)),
+                runtime: RankedMutex::new(PtyRuntime::Local {
+                    writer,
+                    master: Some(master),
+                    killer,
+                }),
                 lifetime,
                 supports_clear_history_key_fallback: AtomicBool::new(
                     supports_clear_history_key_fallback,
                 ),
                 host_identity: None,
                 #[cfg(unix)]
-                pending_host_binding: Mutex::new(None),
+                pending_host_binding: RankedMutex::new(None),
                 #[cfg(unix)]
                 host_exit_record_path: None,
                 pid,
                 command: argv,
                 cwd,
-                exit: Mutex::new(None),
+                exit: RankedMutex::new(None),
                 local_pty_drained: AtomicBool::new(false),
                 exit_notified: AtomicBool::new(false),
                 dead: AtomicBool::new(false),
                 owner_detaching: AtomicBool::new(false),
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
                 dirty: AtomicBool::new(false),
-                title: RankedMutex::new(LockRank::Leaf, "pty.title", String::new()),
-                pwd: Mutex::new(None),
-                published_directory: Mutex::new(PublishedDirectory::Reported(None)),
+                title: RankedMutex::new(String::new()),
+                pwd: RankedMutex::new(None),
+                published_directory: RankedMutex::new(PublishedDirectory::Reported(None)),
                 directory_pending: AtomicBool::new(true),
                 directory_reported: AtomicBool::new(false),
-                geometry: RankedMutex::new(LockRank::Geometry, "pty.geometry", initial_geometry),
-                kitty_graphics_limits: Box::new(RankedMutex::new(
-                    LockRank::KittyLimits,
-                    "pty.kitty_graphics_limits",
-                    initial_kitty_limits,
-                )),
-                kitty_limits_request: RankedMutex::new(
-                    LockRank::KittyLimitsRequest,
-                    "pty.kitty_limits_request",
-                    (),
-                ),
+                geometry: RankedMutex::new(initial_geometry),
+                kitty_graphics_limits: Box::new(RankedMutex::new(initial_kitty_limits)),
+                kitty_limits_request: RankedMutex::new(()),
                 #[cfg(test)]
-                geometry_test_hook: Mutex::new(None),
+                geometry_test_hook: RankedMutex::new(None),
                 #[cfg(test)]
                 deferred_cell_pixel_ack_test_hook: Mutex::new(None),
                 #[cfg(test)]
@@ -200,33 +189,25 @@ impl Surface {
                 #[cfg(test)]
                 vt_replay_builds: AtomicUsize::new(0),
                 mux: mux.clone(),
-                taps: RankedMutex::new(LockRank::AttachTaps, "pty.taps", Vec::new()),
+                taps: RankedMutex::new(Vec::new()),
                 attach_colors_pending: AtomicBool::new(false),
                 attach_colors_force_pending: AtomicBool::new(false),
                 snapshot_position: Default::default(),
-                last_attach_colors: RankedMutex::new(
-                    LockRank::Leaf,
-                    "pty.last_attach_colors",
-                    None,
-                ),
-                render: Arc::new(RankedMutex::new(
-                    LockRank::Leaf,
-                    "pty.render",
-                    RenderHub {
-                        state: Box::new(render_state),
-                        built_generation: 0,
-                        latest: None,
-                        initial_graphics: None,
-                        final_initial: None,
-                        taps: Vec::new(),
-                    },
-                )),
+                last_attach_colors: RankedMutex::new(None),
+                render: Arc::new(RankedMutex::new(RenderHub {
+                    state: Box::new(render_state),
+                    built_generation: 0,
+                    latest: None,
+                    initial_graphics: None,
+                    final_initial: None,
+                    taps: Vec::new(),
+                })),
                 render_generation: AtomicU64::new(1),
                 frame_requests,
                 #[cfg(test)]
                 frame_producer_before_upgrade,
             }),
-            viewport: Mutex::new(TerminalViewportState::default()),
+            viewport: RankedMutex::new(TerminalViewportState::default()),
         }));
 
         if let Some(reservation) = kitty_reservation

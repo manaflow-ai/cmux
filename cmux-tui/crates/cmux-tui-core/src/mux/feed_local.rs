@@ -21,7 +21,7 @@ use cmux_feed_core::{
     Actor, Changes, Context as FeedContext, Feed, FeedError, Item, ListFilter, Notice,
 };
 
-use std::sync::{MutexGuard, PoisonError};
+use std::sync::PoisonError;
 
 use super::*;
 use crate::workspace_registry::feed_local_store::{
@@ -35,7 +35,7 @@ pub const FEED_LOCAL_OWNER_CAPABILITY: &str = "feed-local-owner-v1";
 
 /// Lock a mutex this module takes. A poisoned lock still holds a consistent
 /// value here: the feed copy is installed only after its commit succeeds.
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+fn lock<T, const R: u16>(mutex: &RankedMutex<T, R>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 

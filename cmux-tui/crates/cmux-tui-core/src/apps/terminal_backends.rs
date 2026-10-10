@@ -9,8 +9,8 @@
 //! focused workspace; others ignore it. A terminal that never had a view
 //! 60 s after its open is closed; one that had a view stays.
 
+use crate::lock_rank::Mutex;
 use std::collections::HashMap;
-use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};

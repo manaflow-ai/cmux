@@ -1,6 +1,7 @@
 //! Adoption, control acks, detach fences, metric commits, protocol fallback, snapshot boundaries and resize resyncs.
 
 use super::*;
+use crate::lock_rank::RankedMutex;
 
 #[test]
 fn termination_adoption_does_not_probe_legacy_protocols_for_receipt_hosts() {
@@ -87,10 +88,10 @@ fn timed_out_cell_pixel_ack_reconciles_when_the_response_arrives_late() {
         protocol_version: PROTOCOL_VERSION,
         smart_renderer: false,
         reader: None,
-        writer: Arc::new(Mutex::new(client)),
+        writer: Arc::new(RankedMutex::new(client)),
         control_responses: control_responses.clone(),
         next_request: AtomicU64::new(2),
-        viewer_size: Mutex::new(None),
+        viewer_size: RankedMutex::new(None),
         launch_process: None,
         launch_activation_pending: false,
         pty_custody: None,
@@ -201,10 +202,10 @@ fn detach_fence_reports_a_delayed_receipt_after_output_as_a_failure() {
         protocol_version: PROTOCOL_VERSION,
         smart_renderer: true,
         reader: None,
-        writer: Arc::new(Mutex::new(client)),
+        writer: Arc::new(RankedMutex::new(client)),
         control_responses: control_responses.clone(),
         next_request: AtomicU64::new(2),
-        viewer_size: Mutex::new(None),
+        viewer_size: RankedMutex::new(None),
         launch_process: None,
         launch_activation_pending: false,
         pty_custody: None,
@@ -362,10 +363,10 @@ fn adoption_quota_reconfiguration_finishes_before_snapshot_use() {
         protocol_version: PROTOCOL_VERSION,
         smart_renderer: false,
         reader: Some(reader),
-        writer: Arc::new(Mutex::new(client)),
+        writer: Arc::new(RankedMutex::new(client)),
         control_responses: Arc::new(ControlResponses::new()),
         next_request: AtomicU64::new(2),
-        viewer_size: Mutex::new(None),
+        viewer_size: RankedMutex::new(None),
         launch_process: None,
         launch_activation_pending: false,
         pty_custody: None,

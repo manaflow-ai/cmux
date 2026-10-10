@@ -1,9 +1,11 @@
 //! The Kitty image replay of one terminal for snapshot viewers
 //! (`terminal-snapshot-images-v1`).
 
+use crate::lock_rank::{RankedMutex, rank};
+
 #[cfg(test)]
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, PoisonError};
 
 use ghostty_vt::Terminal;
 
@@ -19,7 +21,7 @@ use crate::SurfaceId;
 /// Used only under the terminal lock; dropped with the terminal.
 #[derive(Default)]
 pub(crate) struct KittyReplayCache {
-    last: Mutex<Option<CachedReplay>>,
+    last: RankedMutex<Option<CachedReplay>, { rank::LEAF }>,
     /// Encodes run (tests count them).
     #[cfg(test)]
     encodes: AtomicU64,

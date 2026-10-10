@@ -9,13 +9,14 @@ use super::VtStateMessage;
 use super::conversation_tabs_wire;
 use crate::AttachFrame;
 use crate::SurfaceId;
+
+use crate::lock_rank::{RankedMutex, rank};
 use crate::mux::ResourceWaitWake;
 use crate::stream_interrupt::InterruptSet;
 use crate::stream_interrupt::StreamInterrupt;
 use serde::Serialize;
 use serde_json::Value;
 use std::sync::Arc;
-use std::sync::Mutex;
 use std::sync::Weak;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
@@ -27,7 +28,7 @@ pub(super) struct OutboundStream {
     pub(super) id: u64,
     pub(super) open: Arc<AtomicBool>,
     pub(super) terminal_enqueued: Arc<AtomicBool>,
-    pub(super) overflow_text: Arc<Mutex<Arc<BudgetedText>>>,
+    pub(super) overflow_text: Arc<RankedMutex<Arc<BudgetedText>, { rank::LEAF }>>,
     /// Fired by `close`, so stream loops block instead of polling `is_open`.
     pub(super) closed: InterruptSet,
 }
@@ -38,7 +39,7 @@ impl OutboundStream {
             id,
             open: Arc::new(AtomicBool::new(true)),
             terminal_enqueued: Arc::new(AtomicBool::new(false)),
-            overflow_text: Arc::new(Mutex::new(overflow_text)),
+            overflow_text: Arc::new(RankedMutex::new(overflow_text)),
             closed: InterruptSet::default(),
         }
     }
@@ -106,7 +107,8 @@ pub(super) struct MessageWriter {
     pub(super) open: Arc<AtomicBool>,
     pub(super) next_stream_id: Arc<AtomicU64>,
     pub(super) render_service: Arc<RenderService>,
-    pub(super) wait_wakeups: Arc<Mutex<Vec<Weak<ResourceWaitWake>>>>,
+    pub(super) wait_wakeups:
+        Arc<RankedMutex<Vec<Weak<ResourceWaitWake>>, { rank::MESSAGE_WRITER_WAIT_WAKEUPS }>>,
     /// Fired when the writer closes, so stream loops block instead of polling `is_open`.
     pub(super) closed: InterruptSet,
     /// Negotiated conversation tab capabilities (server/conversation_tabs_wire.rs).
@@ -128,7 +130,7 @@ impl MessageWriter {
             open: Arc::new(AtomicBool::new(true)),
             next_stream_id: Arc::new(AtomicU64::new(1)),
             render_service,
-            wait_wakeups: Arc::new(Mutex::new(Vec::new())),
+            wait_wakeups: Arc::new(RankedMutex::new(Vec::new())),
             closed: InterruptSet::default(),
             conversation_tabs: Arc::default(),
         }

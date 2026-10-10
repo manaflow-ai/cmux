@@ -29,7 +29,7 @@ use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, TcpStream};
 use std::ops::RangeInclusive;
-use std::sync::{Arc, Condvar, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
@@ -37,6 +37,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::{MessageWriter, OutboundStream, Response, send_response};
+use crate::lock_rank::{Condvar, RankedMutex, rank};
 use crate::mux::Mux;
 
 pub const LOOPBACK_FORWARD_CAPABILITY: &str = "loopback-forward-v1";
@@ -257,9 +258,9 @@ pub type AuditReporter = Arc<dyn Fn(String) + Send + Sync>;
 /// Connection-scoped streams of every client, owned by the client registry.
 pub(crate) struct LoopbackForwarder {
     policy: RwLock<LoopbackForwardPolicy>,
-    state: Mutex<ForwarderState>,
-    audit: Mutex<VecDeque<AuditRecord>>,
-    diagnostics: Mutex<Option<AuditReporter>>,
+    state: RankedMutex<ForwarderState, { rank::LOOPBACK_FORWARDER }>,
+    audit: RankedMutex<VecDeque<AuditRecord>, { rank::LEAF }>,
+    diagnostics: RankedMutex<Option<AuditReporter>, { rank::LEAF }>,
 }
 
 #[derive(Default)]
@@ -277,9 +278,9 @@ impl Default for LoopbackForwarder {
     fn default() -> Self {
         Self {
             policy: RwLock::new(LoopbackForwardPolicy::default()),
-            state: Mutex::new(ForwarderState::default()),
-            audit: Mutex::new(VecDeque::new()),
-            diagnostics: Mutex::new(None),
+            state: RankedMutex::new(ForwarderState::default()),
+            audit: RankedMutex::new(VecDeque::new()),
+            diagnostics: RankedMutex::new(None),
         }
     }
 }
@@ -455,7 +456,7 @@ struct ForwardStream {
     tcp: TcpStream,
     writer: MessageWriter,
     outbound: OutboundStream,
-    inner: Mutex<StreamInner>,
+    inner: RankedMutex<StreamInner, { rank::LEAF }>,
     changed: Condvar,
 }
 
@@ -931,7 +932,7 @@ fn connect_and_start(
         tcp: socket,
         writer: writer.clone(),
         outbound,
-        inner: Mutex::new(StreamInner { send_credit: window, ..StreamInner::default() }),
+        inner: RankedMutex::new(StreamInner { send_credit: window, ..StreamInner::default() }),
         changed: Condvar::new(),
     });
     {
@@ -1073,7 +1074,7 @@ pub(super) fn window_probe() -> WindowProbe {
         tcp: socket,
         writer,
         outbound,
-        inner: Mutex::new(StreamInner::default()),
+        inner: RankedMutex::new(StreamInner::default()),
         changed: Condvar::new(),
     });
     WindowProbe { forwarder: LoopbackForwarder::default(), stream, _peer: peer }

@@ -1,9 +1,10 @@
+use crate::lock_rank::{Condvar, Mutex, RankedMutex, rank};
 use std::collections::{HashMap, VecDeque};
 #[cfg(test)]
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, SyncSender, TrySendError, sync_channel};
-use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 
 use cmux_tui_cdp::{
@@ -90,7 +91,7 @@ fn browser_frame_from_capture(session_id: &str, captured: CapturedFrame) -> Brow
 }
 
 pub struct BrowserFrameStream {
-    pub slot: Arc<Mutex<BrowserAttachUpdate>>,
+    pub slot: Arc<RankedMutex<BrowserAttachUpdate, { rank::LEAF }>>,
     /// Coalescing wake; a stream interrupt can also wake it.
     pub notify: crate::stream_interrupt::SignalReceiver,
 }
@@ -105,7 +106,7 @@ pub(crate) struct PendingBrowserResize {
 }
 
 struct BrowserFrameTap {
-    slot: Arc<Mutex<BrowserAttachUpdate>>,
+    slot: Arc<RankedMutex<BrowserAttachUpdate, { rank::LEAF }>>,
     notify: crate::stream_interrupt::SignalSender,
 }
 
@@ -615,7 +616,7 @@ pub struct BrowserRuntime {
     endpoint: String,
     bearer_token: Option<String>,
     stealth_user_agent: Option<String>,
-    routes: Mutex<Routes>,
+    routes: RankedMutex<Routes, { rank::LEAF }>,
     closed: AtomicBool,
 }
 
@@ -626,7 +627,7 @@ struct Routes {
 }
 
 struct SurfaceRoute {
-    state: Mutex<SurfaceRouteState>,
+    state: RankedMutex<SurfaceRouteState, { rank::LEAF }>,
     ready: Condvar,
 }
 
@@ -644,7 +645,7 @@ struct QueuedSurfaceEvent {
 
 impl SurfaceRoute {
     fn new() -> Self {
-        Self { state: Mutex::new(SurfaceRouteState::default()), ready: Condvar::new() }
+        Self { state: RankedMutex::new(SurfaceRouteState::default()), ready: Condvar::new() }
     }
 
     /// Returns true when the route must be removed from the runtime maps.
@@ -739,20 +740,21 @@ fn fail_surface_route(state: &mut SurfaceRouteState, reason: &str) {
 
 pub struct BrowserSurface {
     pub(crate) meta: SurfaceMeta,
-    session: Mutex<Option<BrowserSession>>,
+    session: RankedMutex<Option<BrowserSession>, { rank::BROWSER_SESSION }>,
     // Navigation and pointer lifecycle state grows independently of the
     // Surface enum. Keep that payload out of line.
-    state: Mutex<Box<BrowserState>>,
+    state: RankedMutex<Box<BrowserState>, { rank::BROWSER_STATE }>,
     frame_epoch: Arc<FrameEpoch>,
     dirty: AtomicBool,
     dead: AtomicBool,
-    cell_pixels: Mutex<(u16, u16)>,
+    cell_pixels: RankedMutex<(u16, u16), { rank::LEAF }>,
     capture_options: BrowserCaptureOptions,
-    command_tx: Mutex<Option<SyncSender<SequencedBrowserCommand>>>,
-    command_order: Arc<Mutex<BrowserCommandOrder>>,
-    latest_nav: Arc<Mutex<Option<SequencedBrowserCommand>>>,
-    latest_authority: Arc<Mutex<Option<SequencedBrowserCommand>>>,
-    navigation_hold: Mutex<navigation_hold::NavigationHold>,
+    command_tx: RankedMutex<Option<SyncSender<SequencedBrowserCommand>>, { rank::LEAF }>,
+    command_order: Arc<RankedMutex<BrowserCommandOrder, { rank::BROWSER_COMMAND_ORDER }>>,
+    latest_nav: Arc<RankedMutex<Option<SequencedBrowserCommand>, { rank::LEAF }>>,
+    latest_authority: Arc<RankedMutex<Option<SequencedBrowserCommand>, { rank::LEAF }>>,
+    navigation_hold:
+        RankedMutex<navigation_hold::NavigationHold, { rank::BROWSER_NAVIGATION_HOLD }>,
     #[cfg(test)]
     worker_done: Mutex<Option<Receiver<()>>>,
     /// Navigation commit waits that ran out their deadline: a test observes

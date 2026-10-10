@@ -2,8 +2,9 @@
 //! notification ledger. A live frontend explicitly subscribes to its terminal
 //! projections, claims each request, then acknowledges actual browser delivery.
 
+use crate::lock_rank::{RankedMutex, rank};
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
@@ -33,7 +34,7 @@ struct State {
 }
 
 #[derive(Default)]
-pub(super) struct URLRequests(Mutex<State>);
+pub(super) struct URLRequests(RankedMutex<State, { rank::URL_OPEN }>);
 
 impl URLRequests {
     pub(super) fn subscribe(

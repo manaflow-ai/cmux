@@ -8,11 +8,13 @@ use super::{
     handle_frame_navigated, handle_same_document_navigated, new_surface, normalize_url,
     runtime_endpoint, scaled_pixels, start_surface_thread, take_latest_worker_commands,
 };
+
+use crate::lock_rank::Mutex;
 use crate::{Mux, MuxEvent, Surface, SurfaceOptions};
 use serde_json::{Value, json};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, Weak, mpsc};
+use std::sync::{Arc, Weak, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 use tungstenite::{Message, accept};

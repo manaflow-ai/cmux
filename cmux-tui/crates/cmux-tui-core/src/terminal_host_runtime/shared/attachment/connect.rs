@@ -239,7 +239,7 @@ pub(crate) fn connect_record_at_version(
         protocol_version,
         smart_renderer,
         reader: Some(reader),
-        writer: Arc::new(Mutex::new(stream)),
+        writer: Arc::new(RankedMutex::new(stream)),
         control_responses: Arc::new(ControlResponses::with_clipboard_reads(
             hello.requested_rights.contains(CapabilityRights::CLIPBOARD_READ),
         )),
@@ -248,7 +248,7 @@ pub(crate) fn connect_record_at_version(
         // if they did so the unconditional release below also upgrades
         // live protocol-v1 hosts whose older implementation registered
         // every connection at the snapshot grid.
-        viewer_size: Mutex::new(Some(snapshot_size)),
+        viewer_size: RankedMutex::new(Some(snapshot_size)),
         launch_process: None,
         launch_activation_pending,
         pty_custody: None,

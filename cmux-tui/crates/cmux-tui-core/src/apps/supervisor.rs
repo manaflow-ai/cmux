@@ -6,10 +6,11 @@
 //! it: locked sections return [`Out`] lists that [`Supervisor::emit`] runs
 //! after the lock is released, in order.
 
+use crate::lock_rank::{RankedMutex, rank};
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_app_host::ToHost;
@@ -226,10 +227,10 @@ pub(super) enum Out {
 
 pub struct Supervisor {
     pub(super) config: Config,
-    pub(super) inner: Mutex<Inner>,
+    pub(super) inner: RankedMutex<Inner, { rank::APPS_SUPERVISOR }>,
     pub(super) router: Box<dyn OpRouter>,
     pub(super) fetcher: Box<dyn Fetcher>,
-    pub(super) storage: Mutex<Option<Storage>>,
+    pub(super) storage: RankedMutex<Option<Storage>, { rank::LEAF }>,
     pub(super) timers: Timers,
     pub(super) me: Weak<Supervisor>,
     /// Connector links of the terminal interfaces (`terminal_ops.rs`).
@@ -275,7 +276,7 @@ impl Supervisor {
             }
         }
         let supervisor = Arc::new_cyclic(|me| Self {
-            inner: Mutex::new(Inner {
+            inner: RankedMutex::new(Inner {
                 mirror,
                 catalog,
                 hosts: HashMap::new(),
@@ -299,7 +300,7 @@ impl Supervisor {
             config,
             router,
             fetcher,
-            storage: Mutex::new(None),
+            storage: RankedMutex::new(None),
             timers: Timers::default(),
             me: me.clone(),
             terminals: Default::default(),
@@ -503,7 +504,7 @@ impl Supervisor {
 
     /// The storage database, opened on first use. Lock order: `inner`, then
     /// `storage`.
-    pub(super) fn storage(&self) -> std::sync::MutexGuard<'_, Option<Storage>> {
+    pub(super) fn storage(&self) -> crate::lock_rank::MutexGuard<'_, Option<Storage>> {
         let mut guard = self.storage.lock().unwrap();
         if guard.is_none() {
             let path = self.config.state_dir.as_ref().map(|d| d.join("apps-storage.sqlite"));

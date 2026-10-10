@@ -450,6 +450,9 @@ impl std::error::Error for CellPixelRequestDeadlineElapsed {}
 #[cfg(unix)]
 mod unix {
     #[cfg(test)]
+    use crate::lock_rank::{Condvar, Mutex};
+    #[cfg(test)]
+    #[cfg(test)]
     use std::collections::HashMap;
     use std::fs::{self, File, OpenOptions};
     use std::io as std_io;
@@ -469,8 +472,6 @@ mod unix {
     use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize};
     #[cfg(test)]
     use std::sync::mpsc::{channel as mpsc_channel, sync_channel};
-    #[cfg(test)]
-    use std::sync::{Condvar, Mutex};
     use std::thread;
     use std::time::Duration;
     #[cfg(test)]

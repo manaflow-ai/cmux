@@ -37,12 +37,13 @@
 //! Anything else, link details included, goes over ops. The server's stderr
 //! goes to the app's log.
 
+use crate::lock_rank::Mutex;
 use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{ChildStdin, Command, Stdio};
+use std::sync::Arc;
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};

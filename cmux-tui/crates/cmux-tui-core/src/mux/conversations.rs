@@ -96,7 +96,9 @@ impl Mux {
 
     /// The bindings lock (tests poison it).
     #[cfg(test)]
-    pub(crate) fn conversation_bindings(&self) -> &Mutex<std::collections::BTreeMap<u64, String>> {
+    pub(crate) fn conversation_bindings(
+        &self,
+    ) -> &std::sync::Mutex<std::collections::BTreeMap<u64, String>> {
         &self.conversations.bindings
     }
 

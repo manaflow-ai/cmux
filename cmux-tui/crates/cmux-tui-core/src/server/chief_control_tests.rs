@@ -2,9 +2,9 @@
 //! only, forwarded to the brain's tools socket as optchat-chief's `engine`
 //! and `stop` tools, its answer and refusals mapped to the v2 result.
 
+use crate::lock_rank::Mutex as StdMutex;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixListener;
-use std::sync::Mutex as StdMutex;
 
 use super::super::*;
 use super::{ask, handle_with, require_owner, result, tool_line};

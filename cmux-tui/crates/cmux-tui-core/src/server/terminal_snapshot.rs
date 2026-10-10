@@ -55,8 +55,9 @@
 //! one requested snapshot per 500 ms (`snapshot_throttled {retry_after_ms}`).
 //! A channel transport maps its message onto [`handle_request`].
 
+use crate::lock_rank::Mutex;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Instant;
 
 use base64::Engine as _;

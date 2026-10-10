@@ -23,11 +23,9 @@ use parking_lot::{
 };
 use rusqlite::Connection;
 
-use crate::lock_rank::{HeldRank, LockRank};
+use crate::lock_rank::{HeldRank, rank};
 
-const CONNECTION_LOCK_NAME: &str = "registry.connection";
-
-/// A held connection lock with lock rank `RegistryConnection`
+/// A held connection lock with lock rank `REGISTRY_CONNECTION`
 /// (crate::lock_rank). Every acquisition records the rank, so the rank stays
 /// held while any hold of this thread lives; only the first acquisition on a
 /// thread is checked (a re-entry cannot deadlock).
@@ -71,7 +69,7 @@ pub(crate) struct RegistryConnection {
     /// Which thread commits durable writes (`server-stats` `write_path`).
     write_path_stats: crate::diagnostics::WritePathStats,
     #[cfg(test)]
-    pub(super) journal_hooks: std::sync::Mutex<JournalCommitHooks>,
+    pub(super) journal_hooks: crate::lock_rank::Mutex<JournalCommitHooks>,
 }
 
 thread_local! {
@@ -100,7 +98,7 @@ impl JournalWriterCommitScope {
             previous: IN_JOURNAL_WRITER_COMMIT.with(|flag| flag.replace(true)),
             // Recorded, not checked: scopes nest (the batch commit enters
             // again inside the loop iteration).
-            _rank: HeldRank::record(LockRank::JournalWriter, "journal.writer"),
+            _rank: HeldRank::record(rank::JOURNAL_WRITER),
         }
     }
 }
@@ -126,7 +124,7 @@ impl RegistryConnection {
             connection: Arc::new(ReentrantMutex::new(connection)),
             write_path_stats: crate::diagnostics::WritePathStats::default(),
             #[cfg(test)]
-            journal_hooks: std::sync::Mutex::default(),
+            journal_hooks: crate::lock_rank::Mutex::default(),
         })
     }
 
@@ -155,7 +153,7 @@ impl RegistryConnection {
     #[track_caller]
     fn check_rank(&self) {
         if !self.connection.is_owned_by_current_thread() {
-            HeldRank::check(LockRank::RegistryConnection, CONNECTION_LOCK_NAME);
+            HeldRank::check(rank::REGISTRY_CONNECTION);
         }
     }
 
@@ -206,5 +204,5 @@ impl RegistryConnection {
 }
 
 fn record_rank() -> HeldRank {
-    HeldRank::record(LockRank::RegistryConnection, CONNECTION_LOCK_NAME)
+    HeldRank::record(rank::REGISTRY_CONNECTION)
 }

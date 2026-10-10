@@ -369,7 +369,7 @@ impl Mux {
             generation,
             target: next,
             publishing: AtomicBool::new(true),
-            completed: Mutex::new(HashSet::new()),
+            completed: RankedMutex::new(HashSet::new()),
         });
         let mut surfaces = unique_surface_runtimes(&self.state.lock().unwrap());
         surfaces.sort_unstable_by_key(|surface| surface.id);

@@ -2,6 +2,7 @@
 //! bounded queues, the render hub, and the initial graphics snapshot.
 
 use super::*;
+use crate::lock_rank::rank;
 
 /// One immutable terminal frame plus retained-history metadata captured with it.
 #[derive(Debug, Clone)]
@@ -125,7 +126,7 @@ impl RenderTapQueue {
 }
 
 struct RenderTapState {
-    queue: Mutex<RenderTapQueue>,
+    queue: RankedMutex<RenderTapQueue, { rank::LEAF }>,
     ready: Condvar,
 }
 
@@ -134,9 +135,11 @@ pub(super) struct RenderTap {
 }
 
 impl RenderTap {
-    pub(super) fn pair(render: &Arc<RankedMutex<RenderHub>>) -> (Self, RenderAttachFrameReceiver) {
+    pub(super) fn pair(
+        render: &Arc<RankedMutex<RenderHub, { rank::PTY_RENDER }>>,
+    ) -> (Self, RenderAttachFrameReceiver) {
         let state = Arc::new(RenderTapState {
-            queue: Mutex::new(RenderTapQueue {
+            queue: RankedMutex::new(RenderTapQueue {
                 pending_frame: None,
                 pending_scroll: None,
                 latest_kind: None,
@@ -173,7 +176,7 @@ impl Drop for RenderTap {
 /// Bounded receiver for one render attachment.
 pub struct RenderAttachFrameReceiver {
     state: Arc<RenderTapState>,
-    render: Weak<RankedMutex<RenderHub>>,
+    render: Weak<RankedMutex<RenderHub, { rank::PTY_RENDER }>>,
 }
 
 impl RenderAttachFrameReceiver {

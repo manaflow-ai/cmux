@@ -5,6 +5,7 @@
 //! module. A plugin communicates through the local resource socket and writes
 //! normal journal events, so every frontend observes the same reducer state.
 
+use crate::lock_rank::{Condvar, Mutex, RankedMutex, rank};
 #[cfg(windows)]
 use std::mem::size_of;
 #[cfg(unix)]
@@ -13,7 +14,7 @@ use std::os::unix::process::CommandExt;
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -301,14 +302,14 @@ struct SupervisorState {
 /// event schema.
 pub struct JournalPluginRuntime {
     state: Arc<(Mutex<SupervisorState>, Condvar)>,
-    thread: Mutex<Option<JoinHandle<()>>>,
+    thread: RankedMutex<Option<JoinHandle<()>>, { rank::LEAF }>,
 }
 
 impl Default for JournalPluginRuntime {
     fn default() -> Self {
         Self {
             state: Arc::new((Mutex::new(SupervisorState::default()), Condvar::new())),
-            thread: Mutex::new(None),
+            thread: RankedMutex::new(None),
         }
     }
 }

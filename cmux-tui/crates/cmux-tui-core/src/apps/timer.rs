@@ -3,8 +3,9 @@
 //! condition variable until the earliest deadline or a change; with nothing
 //! scheduled it blocks without a timeout (no polling, idle-wakeups.md).
 
+use crate::lock_rank::{Condvar, Mutex};
 use std::collections::BTreeMap;
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 type Job = Box<dyn FnOnce() + Send>;

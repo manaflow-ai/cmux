@@ -14,6 +14,7 @@
 //! starts every pending grace period again: a restart can delay a reap but
 //! never make it early.
 
+use crate::lock_rank::rank;
 use std::sync::mpsc::RecvTimeoutError;
 use std::thread::JoinHandle;
 
@@ -610,7 +611,7 @@ pub struct TerminalReaper {
     stop: Arc<AtomicBool>,
     /// The receiver the thread currently waits on; it changes when an
     /// overflowed subscription is replaced.
-    events: Arc<Mutex<MuxEventReceiver>>,
+    events: Arc<RankedMutex<MuxEventReceiver, { rank::TERMINAL_REAP_EVENTS }>>,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -638,7 +639,7 @@ impl Drop for TerminalReaper {
 /// grace period. It runs until stopped or the mux is gone.
 pub fn start_terminal_reaper(mux: &Arc<Mux>) -> std::io::Result<TerminalReaper> {
     let stop = Arc::new(AtomicBool::new(false));
-    let events = Arc::new(Mutex::new(mux.subscribe_terminal_reaper()));
+    let events = Arc::new(RankedMutex::new(mux.subscribe_terminal_reaper()));
     let weak = Arc::downgrade(mux);
     let thread_stop = stop.clone();
     let shared_events = events.clone();

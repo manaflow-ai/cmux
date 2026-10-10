@@ -8,9 +8,9 @@
 //! which is held for nanoseconds, so the overhead stays far below the
 //! millisecond-scale critical sections it measures.
 
+use crate::lock_rank::{Mutex, RankedMutex, rank};
 use std::collections::HashMap;
 use std::panic::Location;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
@@ -176,9 +176,9 @@ pub struct LockStats {
     hold: LogLinearHistogram,
     contended: AtomicU64,
     stalls: AtomicU64,
-    holder: Mutex<Option<Holder>>,
-    last_stall: Mutex<Option<Stall>>,
-    sites: Mutex<HashMap<LockSite, SiteStats>>,
+    holder: RankedMutex<Option<Holder>, { rank::LEAF }>,
+    last_stall: RankedMutex<Option<Stall>, { rank::LEAF }>,
+    sites: RankedMutex<HashMap<LockSite, SiteStats>, { rank::LEAF }>,
 }
 
 impl LockStats {

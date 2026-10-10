@@ -2,7 +2,8 @@
 //! answers, every other read is refused at once, and a host cancel withdraws
 //! the question.
 
-use std::sync::{Arc, Mutex, mpsc};
+use crate::lock_rank::Mutex;
+use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
 use ghostty_vt::{Callbacks, ClipboardLocation, MAX_CLIPBOARD_READ_BYTES, Terminal};

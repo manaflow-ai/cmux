@@ -4,12 +4,13 @@
 //! PTY poll handle, the drain waker pair (`HostStream::pair`), the accept
 //! waker and the PTY readiness wait.
 
+use crate::lock_rank::{Condvar, Mutex, RankedMutex};
 use std::collections::HashMap;
 use std::io::Read;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{channel as mpsc_channel, sync_channel};
-use std::sync::{Arc, Condvar, Mutex, PoisonError};
+use std::sync::{Arc, PoisonError};
 use std::thread;
 
 use cmux_pty::MasterPty;
@@ -81,28 +82,28 @@ pub(crate) fn start_host_runtime(
         incarnation: bootstrapped.incarnation,
         owner_token: bootstrapped.owner_token(),
         capabilities: CapabilityStore::new(64),
-        term: Mutex::new(term),
-        terminal_metadata: Mutex::new(terminal_metadata),
-        default_colors: Mutex::new(launch.default_colors),
+        term: RankedMutex::new(term),
+        terminal_metadata: RankedMutex::new(terminal_metadata),
+        default_colors: RankedMutex::new(launch.default_colors),
         stream_progress: TerminalStreamProgress::default(),
-        writer: Mutex::new(pty_writer),
-        master: Mutex::new(master),
+        writer: RankedMutex::new(pty_writer),
+        master: RankedMutex::new(master),
         killer: Mutex::new(killer),
         pid,
         command: launch.command.clone(),
         cwd: launch.cwd.clone(),
-        size: Mutex::new((launch.cols, launch.rows)),
-        cell_pixels: Mutex::new(cell_pixels),
-        viewer_sizes: Mutex::new(ViewerSizes::default()),
-        taps: Mutex::new(HashMap::new()),
+        size: RankedMutex::new((launch.cols, launch.rows)),
+        cell_pixels: RankedMutex::new(cell_pixels),
+        viewer_sizes: RankedMutex::new(ViewerSizes::default()),
+        taps: RankedMutex::new(HashMap::new()),
         broadcast_lock: Mutex::new(()),
         sequence: AtomicU64::new(0),
         smart: SmartStreamState::new(),
-        source_order_lock: Mutex::new(()),
+        source_order_lock: RankedMutex::new(()),
         parser_commands,
         parser_budget: ParserBudget::new(MAX_HOST_PARSER_QUEUED_BYTES),
         clipboard,
-        parser_progress: (Mutex::new(0), Condvar::new()),
+        parser_progress: (RankedMutex::new(0), Condvar::new()),
         next_client: AtomicU64::new(1),
         dead: AtomicBool::new(false),
         launch_owner_claimed: AtomicBool::new(false),
@@ -119,7 +120,7 @@ pub(crate) fn start_host_runtime(
         force_pty_drain: AtomicBool::new(false),
         pty_drain_waker: Mutex::new(pty_drain_waker),
         termination_started: AtomicBool::new(false),
-        child_signal_lock: Mutex::new(()),
+        child_signal_lock: RankedMutex::new(()),
         child_reaped: AtomicBool::new(false),
         group_escalation_complete: AtomicBool::new(false),
         adopted_session: child.adopted_session(),

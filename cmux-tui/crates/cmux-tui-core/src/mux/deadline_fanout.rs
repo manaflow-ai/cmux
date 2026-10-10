@@ -3,8 +3,9 @@
 //! unscheduled results in input order. Cell pixel and kitty budget updates use
 //! it so one slow surface cannot stall the rest.
 
+use crate::lock_rank::{Condvar, RankedMutex, rank};
 use std::collections::VecDeque;
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// Most jobs admitted at once (queued plus running), and most worker threads.
@@ -24,7 +25,7 @@ pub(super) struct DeadlineFanoutState {
 
 #[derive(Default)]
 pub(super) struct DeadlineFanoutInner {
-    pub(super) state: Mutex<DeadlineFanoutState>,
+    pub(super) state: RankedMutex<DeadlineFanoutState, { rank::LEAF }>,
     pub(super) changed: Condvar,
 }
 
@@ -133,7 +134,7 @@ fn deadline_fanout_worker(inner: Arc<DeadlineFanoutInner>) {
 }
 
 pub(super) struct DeadlinePending<R> {
-    pub(super) result: Arc<Mutex<Option<DeadlineCompletion<R>>>>,
+    pub(super) result: Arc<RankedMutex<Option<DeadlineCompletion<R>>, { rank::LEAF }>>,
 }
 
 pub(super) struct DeadlineCompletion<R> {
@@ -189,7 +190,7 @@ where
         }
         let sender = sender.clone();
         let operation = operation.clone();
-        let result = Arc::new(Mutex::new(None));
+        let result = Arc::new(RankedMutex::new(None));
         let job_result = result.clone();
         let job = Box::new(move || {
             let value = operation(&item, deadline);

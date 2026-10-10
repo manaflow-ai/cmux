@@ -1,10 +1,10 @@
 //! The seven `fs-v1` ops on the daemon's roots. Params and results are the
 //! shapes of the request file `daemon-fs-for-cloud.md` ("Exact wire JSON").
 
+use crate::lock_rank::Mutex;
 use std::fs::File;
 use std::os::fd::AsFd;
 use std::os::unix::fs::FileExt as _;
-use std::sync::Mutex;
 use std::time::Instant;
 
 use base64::Engine as _;
@@ -327,7 +327,7 @@ impl FsService {
         Ok(json!({}))
     }
 
-    fn lock(&self) -> std::sync::MutexGuard<'_, Listings> {
+    fn lock(&self) -> crate::lock_rank::MutexGuard<'_, Listings> {
         self.listings.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 }

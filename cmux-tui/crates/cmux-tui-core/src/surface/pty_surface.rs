@@ -337,7 +337,7 @@ impl PtySurface {
     /// terminal lock is held.
     pub(super) fn build_producer_frame(
         &self,
-        mut term: RankedGuard<'_, Box<Terminal>>,
+        mut term: MutexGuard<'_, Box<Terminal>>,
         generation: u64,
     ) -> ghostty_vt::Result<bool> {
         let built = self.build_frame_locked(&mut term, generation, true);

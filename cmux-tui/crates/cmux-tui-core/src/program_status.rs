@@ -22,8 +22,9 @@
 //! and caps the length, so a record cannot hide or reorder text when a
 //! client shows it outside the terminal.
 
+use crate::lock_rank::Mutex;
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use ghostty_vt::{ProgramStatusEvent, ProgramStatusKind, ProgramStatusReport, ProgramStatusState};
 use serde_json::{Value, json};
