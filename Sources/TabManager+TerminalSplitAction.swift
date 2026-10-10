@@ -19,8 +19,25 @@ extension TabManager {
         direction: SplitDirection,
         focus: Bool = true
     ) -> TerminalPanelCreationOutcome {
-        guard let workspace = tabs.first(where: { $0.id == tabId }),
-              workspace.panels[surfaceId] != nil else { return .failed }
+        guard let workspace = tabs.first(where: { $0.id == tabId }) else { return .failed }
+        // Keyboard and menu actions identify the focused terminal surface.
+        // A projected tmux pane is owned by its mirror, outside workspace.panels.
+        // Route to that exact pane instead of rejecting it or splitting its
+        // container's currently active pane.
+        if let remotePane = workspace.remoteTmuxControlPane(surfaceID: surfaceId) {
+            workspace.clearSplitZoom()
+            sentryBreadcrumb("split.create", data: ["direction": String(describing: direction)])
+            let accepted = remotePane.owner.requestSplit(
+                fromPane: remotePane.pane.tmuxPaneID,
+                vertical: direction.orientation == .vertical,
+                focusIntent: focus ? .focusCreatedPane : .preserveActivePane,
+                insertBefore: direction.insertFirst,
+                shellCommand: nil,
+                workingDirectory: nil
+            )
+            return accepted ? .routedToRemote : .failed
+        }
+        guard workspace.panels[surfaceId] != nil else { return .failed }
         workspace.clearSplitZoom()
         sentryBreadcrumb("split.create", data: ["direction": String(describing: direction)])
         let outcome = workspace.newTerminalSplitOutcome(
