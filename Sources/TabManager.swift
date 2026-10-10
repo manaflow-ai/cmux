@@ -4570,10 +4570,14 @@ class TabManager: ObservableObject {
     /// in Pane and Next/Previous Workspace stay explicit.
     func stepTabOrWorkspace(forward: Bool, dock: DockSplitStore? = nil) {
         if let dock {
-            _ = dock.performShortcutCommand(forward ? .selectNextSurface : .selectPreviousSurface)
+            if dock.focusedPaneHasTabsToStep {
+                _ = dock.performShortcutCommand(forward ? .selectNextSurface : .selectPreviousSurface)
+                return
+            }
+        } else if selectedWorkspace?.stepFocusedPaneTab(forward: forward) == true {
             return
         }
-        if forward { selectNextSurface() } else { selectPreviousSurface() }
+        if forward { selectNextTab() } else { selectPreviousTab() }
     }
 
     /// Select a surface by index in the currently focused pane of the selected workspace
