@@ -84,15 +84,40 @@ fn an_unknown_anchor_appends() {
     assert_eq!(tabs(&mux, pane), vec![opener, middle, last, child]);
 }
 
-/// The slot after a group member that is not the group's last moves to the
-/// end of the group's run: an ungrouped tab never splits a group.
+/// The members of each tab group run in `pane`, in strip order.
+fn group_runs(mux: &Mux, pane: PaneId) -> Vec<Vec<SurfaceId>> {
+    let presentation = mux.presentation_snapshot();
+    mux.with_state(|state| {
+        crate::mux::pane_tab_groups(state, &presentation, pane).into_iter().map(|run| run.members).collect()
+    })
+}
+
+/// A link opened from a grouped tab joins the opener's group in its slot,
+/// as in Chrome (cx-d0d.55): Cmd-clicks inside a group stay in the group.
 #[test]
-fn a_slot_inside_a_group_moves_to_the_end_of_the_run() {
+fn a_child_of_a_grouped_opener_joins_the_group_in_its_slot() {
     let (mux, pane, [opener, middle, last]) = pane_with_three_tabs("group");
     mux.create_tab_group(&[opener, middle], None, Some("green".into()), Some("g1".into()), None)
         .unwrap();
-    let child = open_after(&mux, pane, opener, false);
-    assert_eq!(tabs(&mux, pane), vec![opener, middle, child, last]);
+    let first = open_after(&mux, pane, opener, false);
+    let second = open_after(&mux, pane, first, false);
+    assert_eq!(tabs(&mux, pane), vec![opener, first, second, middle, last]);
+    assert_eq!(group_runs(&mux, pane), vec![vec![opener, first, second, middle]]);
+    assert_eq!(active_tab(&mux, pane), 0, "the opener stays active");
+}
+
+/// The child of the group's last tab joins the group at its end; the child
+/// of an ungrouped tab stays ungrouped.
+#[test]
+fn only_a_grouped_openers_child_is_grouped() {
+    let (mux, pane, [opener, middle, last]) = pane_with_three_tabs("group-edge");
+    mux.create_tab_group(&[opener, middle], None, Some("green".into()), Some("g1".into()), None)
+        .unwrap();
+    let grouped = open_after(&mux, pane, middle, true);
+    let ungrouped = open_after(&mux, pane, last, false);
+    assert_eq!(tabs(&mux, pane), vec![opener, middle, grouped, last, ungrouped]);
+    assert_eq!(group_runs(&mux, pane), vec![vec![opener, middle, grouped]]);
+    assert_eq!(active_tab(&mux, pane), 2, "the foreground child is active");
 }
 
 /// The keyed (idempotent) creation takes the slot too.
