@@ -236,7 +236,8 @@ final class AcpmuxPermissionFeedBridge {
     }
 
     /// The feed.post body for one prompt: what the person must see to decide.
-    nonisolated static func postBody(session: String, permission: String, request: [String: Any]) -> [String: Any] {
+    /// `host`: this Mac's install id (`context.host`), the install the phone's proof names.
+    nonisolated static func postBody(session: String, permission: String, request: [String: Any], host: String) -> [String: Any] {
         let call = request["toolCall"] as? [String: Any] ?? [:]
         let rawTitle = call["title"] as? String ?? ""
         let title = visible(FeedSecretScrubber.scrub(rawTitle))
@@ -266,6 +267,8 @@ final class AcpmuxPermissionFeedBridge {
             "kind": "approve",
             "title": cut(heading, 200),
             "prompt": ["action": action, "scopes": ["once"]],
+            // The phone reads the Mac it answers from here (FeedApproveRequest).
+            "context": ["host": String(host.prefix(128)), "acp_session": String(session.prefix(128))],
             "dedupe_key": String(key.prefix(200)),
             "thread": String("acpmux:\(session)".prefix(200)),
             "poster": ["label": String(localized: "feed.bridge.poster", defaultValue: "Agent", bundle: .module)],
@@ -339,7 +342,12 @@ final class AcpmuxPermissionFeedBridge {
     private func post(session: String, permission: String, request: [String: Any]) async {
         guard isSignedIn(), postedPermissions.insert(permission).inserted else { return }
         do {
-            let body = Self.postBody(session: session, permission: permission, request: request)
+            // Without this Mac's install id the phone could not name it in a proof: no post.
+            guard let host = await ownInstall() else {
+                postedPermissions.remove(permission)
+                return logger.error("feed bridge: this Mac's install id is not known yet; \(permission, privacy: .public) not posted")
+            }
+            let body = Self.postBody(session: session, permission: permission, request: request, host: host)
             let reply = try await owner("v1/ops", body)
             guard let id = ((reply["value"] as? [String: Any])?["item"] as? [String: Any])?["id"] as? String else {
                 postedPermissions.remove(permission)
