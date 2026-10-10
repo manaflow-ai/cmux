@@ -506,6 +506,33 @@ pub(super) fn test_app(session: Session) -> App {
     test_app_with_events(session).0
 }
 
+/// Handles app events until no session mutation is pending. Each wait is
+/// bounded by [`crate::test_wait::EVENT`]; a timeout names the pending
+/// counts, the elapsed time and the settlements already handled, so a lost
+/// settlement can be told apart from a slow one (a full-suite failure of
+/// right_button_capture_cannot_cross_a_new_pairing_dialog, not reproduced).
+fn settle_pending_mutations(app: &mut App, events: &Receiver<AppEvent>) {
+    let started = Instant::now();
+    let mut handled = Vec::new();
+    while app.session.has_pending_mutations() {
+        let event = events.recv_timeout(crate::test_wait::EVENT).unwrap_or_else(|error| {
+            panic!(
+                "no session mutation settlement within {:?} ({error}): pending={} \
+                 pending_pointer={} elapsed={:?} handled={handled:?}",
+                crate::test_wait::EVENT,
+                app.session.pending_mutations.load(Ordering::Acquire),
+                app.session.pending_pointer_mutations.load(Ordering::Acquire),
+                started.elapsed(),
+            )
+        });
+        handled.push(match &event {
+            AppEvent::SessionMutationSettled { impact, .. } => format!("settled {impact:?}"),
+            other => format!("{:?}", std::mem::discriminant(other)),
+        });
+        app.handle(event).unwrap();
+    }
+}
+
 fn test_app_with_events(session: Session) -> (App, Receiver<AppEvent>) {
     let pty_failures = Arc::new(PtyFailureIngress::default());
     let failure_ingress = pty_failures.clone();

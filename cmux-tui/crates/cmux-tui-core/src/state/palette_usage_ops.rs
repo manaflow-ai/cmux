@@ -1,4 +1,4 @@
-//! `palette_usage.record` and `palette_usage.import`: one reducer step on
+//! `palette_usage.record`, `.import`, `.hide` and `.forget`: one reducer step on
 //! the state commit path (row, replay record and one `session.events` batch
 //! with a `state_upsert` of resource `palette_usage`, id `user`).
 //!
@@ -83,6 +83,40 @@ impl Mux {
             &fingerprint,
             |current| palette_usage::import(current, source, entries, now),
             |next, changed| json!({"revision": next.revision.to_string(), "imported": changed}),
+        )
+    }
+
+    /// Hides row `key` from the palette, or shows it again (`hidden` false).
+    pub(crate) fn state_palette_usage_hide(
+        &self,
+        mutation: &WorkspaceMutation,
+        key: &str,
+        hidden: bool,
+    ) -> anyhow::Result<StateCommit> {
+        let flag = if hidden { "hide" } else { "show" };
+        let fingerprint = json!({"operation": "palette_usage.hide", "row": digest(&[key, flag])});
+        self.commit_palette_usage(
+            mutation,
+            "palette_usage.hide",
+            &fingerprint,
+            |current| palette_usage::set_hidden(current, key, hidden),
+            |next, _| json!({"revision": next.revision.to_string()}),
+        )
+    }
+
+    /// Reset Ranking: forgets row `key`'s uses and learned picks.
+    pub(crate) fn state_palette_usage_forget(
+        &self,
+        mutation: &WorkspaceMutation,
+        key: &str,
+    ) -> anyhow::Result<StateCommit> {
+        let fingerprint = json!({"operation": "palette_usage.forget", "row": digest(&[key])});
+        self.commit_palette_usage(
+            mutation,
+            "palette_usage.forget",
+            &fingerprint,
+            |current| palette_usage::forget(current, key),
+            |next, _| json!({"revision": next.revision.to_string()}),
         )
     }
 

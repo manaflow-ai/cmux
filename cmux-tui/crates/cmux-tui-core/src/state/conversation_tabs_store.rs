@@ -311,7 +311,8 @@ impl crate::workspace_registry::WorkspaceRegistry {
     /// creation failed.
     pub fn delete_frontend_browser(&mut self, browser_id: &str) -> anyhow::Result<()> {
         crate::resource::BrowserPublicId::parse(browser_id.to_string())?;
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         tx.execute("DELETE FROM frontend_browser_tabs WHERE browser_id = ?1", [browser_id])?;
         tx.execute("DELETE FROM conversation_tabs WHERE browser_id = ?1", [browser_id])?;
         tx.execute("DELETE FROM agent_session_tabs WHERE browser_id = ?1", [browser_id])?;

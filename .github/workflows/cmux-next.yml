@@ -115,7 +115,7 @@ on:
       - scripts/cmux-next/bundle-ghostty-resources.sh
       - Resources/ghostty/**
       - Resources/terminfo-overlay/**
-      # The bundled CLI shims DaemonBundledCLIEnvironmentTests reads.
+      # The bundled CLI shims the app ships.
       - Resources/bin/**
       - ghostty-next
       - plans/cmux-next/daemon-capabilities.json
@@ -232,7 +232,7 @@ on:
       - scripts/cmux-next/bundle-ghostty-resources.sh
       - Resources/ghostty/**
       - Resources/terminfo-overlay/**
-      # The bundled CLI shims DaemonBundledCLIEnvironmentTests reads.
+      # The bundled CLI shims the app ships.
       - Resources/bin/**
       - ghostty-next
       - plans/cmux-next/daemon-capabilities.json
@@ -1251,7 +1251,7 @@ jobs:
       # its stacks; each test step timeout stops it holding the runner regardless.
       # Control tests use tight request deadlines and run in their own process so
       # they do not compete with the other MainActor-isolated suites.
-      - name: Run package tests (selected targets; control deadline, WebKit driver and attach stress tests run below)
+      - name: Run package tests (selected targets; control deadline and isolated suites run below)
         if: env.SWIFT_TARGETS != ''
         timeout-minutes: 20
         working-directory: Packages/macOS/CmuxNext
@@ -1269,7 +1269,7 @@ jobs:
           echo "Test targets: $SWIFT_TARGETS"
           filter=()
           [[ -z "$SWIFT_FILTER" ]] || filter=(--filter "$SWIFT_FILTER")
-          ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build ${filter[@]+"${filter[@]}"} --skip CmuxNextControlTests --skip CmuxNextBrowserAutomationTests --skip TerminalAttachDriverStressTests --skip ActionRunWaitTests --skip DaemonClosedHistoryTests --skip EphemeralWorkspaceTests --skip StateMutationRoutingTests --skip OmnibarTypingTests --skip OmnibarFieldEditorTests --skip BranchStateResourcesTests
+          ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build ${filter[@]+"${filter[@]}"} --skip CmuxNextControlTests --skip BranchStateResourcesTests
 
       # Each isolated step below runs when its suites' target is selected and
       # the build succeeded, even after a failed test step, so one red step
@@ -1280,58 +1280,29 @@ jobs:
         working-directory: Packages/macOS/CmuxNext
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "900"
-        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter 'CmuxNextControlTests|MobileReadinessRelayTests' --skip CLISurfaceParityTests
+        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter 'CmuxNextControlTests' --skip CLISurfaceParityTests
 
-      # These socket/readiness and CLI parity tests assert routing, not scheduler
-      # throughput. Concurrent app/catalog setup can occupy the main actor longer
-      # than their real request deadlines. Keep those deadlines and assertions,
-      # but run these suites alone and one test at a time, including action retries.
-      - name: Run daemon routing and CLI parity tests
+      # The CLI parity tests assert routing, not scheduler throughput. Concurrent
+      # app/catalog setup can occupy the main actor longer than their real request
+      # deadlines, so they run alone and one test at a time.
+      - name: Run CLI parity tests
         if: ${{ !cancelled() && steps.build-tests.outcome == 'success' && (env.SWIFT_TARGETS == 'all' || contains(env.SWIFT_TARGETS, 'CmuxNextControlTests') || contains(env.SWIFT_TARGETS, 'CmuxNextAppTests')) }}
         timeout-minutes: 10
         working-directory: Packages/macOS/CmuxNext
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "480"
-        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter 'ActionRunWaitTests|DaemonClosedHistoryTests|EphemeralWorkspaceTests|StateMutationRoutingTests|CLISurfaceParityTests'
+        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter CLISurfaceParityTests
 
-      # The real field editor and state-resource event round trips need their
-      # own process: unrelated UI suites can change focus or delay callbacks
-      # beyond these tests' existing deadlines. Every test still runs.
-      # OmnibarFieldEditorTests: in the shared process the field editor lost its
-      # IME marked text mid-test (1 of 4 package runs; 0 of 11 alone or with
-      # only the browser target).
-      - name: Run field-editor and state-resource regressions
-        if: ${{ !cancelled() && steps.build-tests.outcome == 'success' && (env.SWIFT_TARGETS == 'all' || contains(env.SWIFT_TARGETS, 'CmuxNextBrowserTests') || contains(env.SWIFT_TARGETS, 'CmuxNextDaemonTests')) }}
+      # The state-resource event round trips against the real daemon need their
+      # own process: unrelated suites can delay callbacks beyond these tests'
+      # existing deadlines. Every test still runs.
+      - name: Run state-resource regressions
+        if: ${{ !cancelled() && steps.build-tests.outcome == 'success' && (env.SWIFT_TARGETS == 'all' || contains(env.SWIFT_TARGETS, 'CmuxNextDaemonTests')) }}
         timeout-minutes: 10
         working-directory: Packages/macOS/CmuxNext
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "480"
-        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter 'OmnibarTypingTests|OmnibarFieldEditorTests|BranchStateResourcesTests'
-
-      # The WebKit driver tests drive real WKWebViews against wall-clock load
-      # deadlines through main-actor navigation callbacks. They run in a
-      # process of their own, so the package's other main-actor tests do not
-      # delay those callbacks.
-      - name: Run WebKit driver package tests
-        if: ${{ !cancelled() && steps.build-tests.outcome == 'success' && (env.SWIFT_TARGETS == 'all' || contains(env.SWIFT_TARGETS, 'CmuxNextBrowserAutomationTests')) }}
-        timeout-minutes: 10
-        working-directory: Packages/macOS/CmuxNext
-        env:
-          CMUX_NEXT_TEST_HANG_SECONDS: "420"
-        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter CmuxNextBrowserAutomationTests
-
-      # The attach driver stress tests run 80 seeded cases at once, each with
-      # its own typist, overflow and main-actor layout tasks. In the shared
-      # process they queued behind every other main-actor suite (and slowed
-      # them) past the time limits on loaded runners; alone, the run is bounded
-      # by its fixed work.
-      - name: Run attach driver stress tests
-        if: ${{ !cancelled() && steps.build-tests.outcome == 'success' && (env.SWIFT_TARGETS == 'all' || contains(env.SWIFT_TARGETS, 'CmuxNextBridgeTests')) }}
-        timeout-minutes: 10
-        working-directory: Packages/macOS/CmuxNext
-        env:
-          CMUX_NEXT_TEST_HANG_SECONDS: "420"
-        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter TerminalAttachDriverStressTests
+        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter BranchStateResourcesTests
 
       # A test helper that died on a signal leaves its crash report here
       # (scripts/cmux-next/swift-test-with-hang-sampler.sh): the crashed

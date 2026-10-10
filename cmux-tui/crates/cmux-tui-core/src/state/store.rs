@@ -87,6 +87,7 @@ pub(crate) fn create_state_schema(transaction: &Transaction<'_>) -> anyhow::Resu
     super::agent_folder::create_agent_folder_schema(transaction)?;
     super::window_record_store::create_window_record_schema(transaction)?;
     super::sidebar_layout_store::create_sidebar_layout_schema(transaction)?;
+    super::projects_store::create_projects_schema(transaction)?;
     super::palette_usage_store::create_palette_usage_schema(transaction)?;
     super::kept_tab_store::create_kept_tab_schema(transaction)?;
     super::home_store::create_home_schema(transaction)?;
@@ -227,7 +228,8 @@ impl WorkspaceRegistry {
         validate_identifier("mutation origin", &mutation.origin)?;
         validate_identifier("resource operation", operation)?;
         let fingerprint = canonical_json(fingerprint)?;
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         if let Some(replayed) = resource_patch_replay(&tx, mutation, operation, &fingerprint)? {
             return Ok(replayed.into());
         }
@@ -284,7 +286,7 @@ impl WorkspaceRegistry {
         &self,
         read: impl FnOnce(&Connection) -> anyhow::Result<T>,
     ) -> anyhow::Result<T> {
-        read(&self.connection)
+        read(&self.connection.get())
     }
 }
 
