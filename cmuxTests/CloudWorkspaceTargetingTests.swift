@@ -138,6 +138,19 @@ struct CloudWorkspaceTargetingTests {
         #expect(fixture.manager.rememberedCloudWorkspaceSelection?.machineID == "a")
     }
 
+    @Test("Clicking a Cloud row immediately replaces the previous shortcut context")
+    func clickedCloudRowWinsBeforeProjection() throws {
+        let fixture = CloudWorkspaceTargetingFixture()
+        defer { fixture.close() }
+        let local = try #require(fixture.manager.selectedWorkspace)
+        fixture.manager.recordCloudWorkspaceSelection(machineID: .cloud("first"))
+        fixture.manager.selectWorkspace(local)
+        fixture.manager.recordCloudWorkspaceSelection(machineID: .cloud("second"))
+        fixture.manager.selectWorkspace(local)
+        #expect(fixture.manager.rememberedCloudWorkspaceSelection?.machineID == "second")
+        #expect(fixture.manager.rememberedCloudWorkspaceSelection?.workspaceID == nil)
+    }
+
     @Test("Command-Y dispatches the configured action to the last selected Cloud machine")
     func actualShortcut() async throws {
 #if DEBUG

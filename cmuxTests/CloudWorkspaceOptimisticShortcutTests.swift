@@ -17,6 +17,42 @@ struct CloudWorkspaceOptimisticShortcutTests {
         manager.tabs.first { $0.cloudVMBinding?.vmID == machine.rawValue }
     }
 
+    @Test("Cmd-Y paints the predicted daemon workspace name during admission")
+    func optimisticWorkspaceName() async throws {
+        let fixture = try CloudWorkspaceCreationSidebarFixture(useSharedCatalog: true)
+        defer { fixture.close() }
+        let existing = SurfaceRemoteWorkspace(id: "existing", name: "workspace-1", index: 0, focused: false)
+        fixture.provider.info.remoteWorkspaces = [existing]
+        fixture.catalog.updateMachine(fixture.provider.info, from: fixture.provider)
+        let suite = "optimistic-cloud-name-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let entered = AsyncStream<Void>.makeStream()
+        let release = AsyncStream<Void>.makeStream()
+        fixture.provider.beforeCreate = {
+            entered.continuation.yield(())
+            for await _ in release.stream { break }
+        }
+        fixture.app.cloudWorkspaceOperationController = CloudWorkspaceOperationController(isAvailable: { true })
+        fixture.app.cloudWorkspaceCoordinator = cmuxApp.makeCloudWorkspaceCoordinator(
+            machinePinStore: CloudMachinePinStore(defaults: defaults, scopeProvider: { "scope" }),
+            allowsOperation: { true }, loadMachines: { [fixture.provider.machine.rawValue] },
+            tabManager: { $0 == fixture.windowID ? fixture.manager : nil },
+            provider: { _ in fixture.provider }, catalog: fixture.catalog
+        )
+        defer {
+            release.continuation.finish()
+            fixture.app.cloudWorkspaceOperationController?.cancelAll()
+            fixture.app.cloudWorkspaceCoordinator = nil
+        }
+        #expect(fixture.app.performNewCloudWorkspaceOnResolvedMachineAction(tabManager: fixture.manager))
+        for await _ in entered.stream { break }
+        let pending = try #require(fixture.manager.tabs.first { $0.cloudPendingCreations.isEmpty == false })
+        #expect(pending.title == "workspace-2")
+        release.continuation.yield(())
+        await fixture.app.cloudWorkspaceOperationController?.waitForPendingOperations()
+    }
+
     @Test("Cmd-Y selects its reservation before remote creation and preserves newer navigation",
           arguments: ["stay", "beforeResolution", "beforeProvider", "providerDelay", "awayAndBack", "afterAdmission", "background"])
     func optimisticSelection(navigation: String) async throws {

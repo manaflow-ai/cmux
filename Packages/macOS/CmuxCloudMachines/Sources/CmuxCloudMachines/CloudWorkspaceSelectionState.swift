@@ -29,4 +29,12 @@ public final class CloudWorkspaceSelectionState {
               let scopeID = scopeProvider(), !scopeID.isEmpty else { return }
         lastCloudSelection = CloudWorkspaceSelection(workspaceID: workspaceID, scopeID: scopeID, machineID: machineID)
     }
+
+    /// Records a Cloud row click before its local workspace projection exists.
+    /// The machine remains the shortcut target immediately; a later committed
+    /// local selection upgrades this context with its concrete workspace ID.
+    public func selectCloudMachine(machineID: String) {
+        guard !machineID.isEmpty, let scopeID = scopeProvider(), !scopeID.isEmpty else { return }
+        lastCloudSelection = CloudWorkspaceSelection(scopeID: scopeID, machineID: machineID)
+    }
 }

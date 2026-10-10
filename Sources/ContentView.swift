@@ -5828,7 +5828,8 @@ struct ContentView: View {
             onDidMutate: {},
             onFailure: { _ in NSSound.beep() },
             refresh: {},
-            workspaceCreationHost: { CloudWorkspaceCreationHost(manager: self.tabManager) }
+            workspaceCreationHost: { CloudWorkspaceCreationHost(manager: self.tabManager) },
+            recordCloudWorkspaceSelection: { self.tabManager.recordCloudWorkspaceSelection(machineID: $0) }
         )
         actions.openWorkspace(target.machine, target.workspace, target.group)
     }

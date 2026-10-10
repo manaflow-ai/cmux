@@ -88,16 +88,21 @@ extension cmuxApp {
                 try validate()
                 let host = CloudWorkspaceCreationHost(manager: manager)
                 let focus = request.selectionRevision == manager.cloudWorkspaceSelection.revision
+                let provisionalTitle = catalog.cloudWorkspaceCreationCoordinator
+                    .provisionalWorkspaceTitle(
+                        machine: .cloud(request.machineID), name: nil, catalog: catalog
+                    )
                 let reservation = try catalog.cloudWorkspaceCreationCoordinator.reserveLocalWorkspace(
                     machine: .cloud(request.machineID),
-                    title: String(localized: "workspace.cloudVM.defaultTitle", defaultValue: "Cloud VM"),
+                    title: provisionalTitle,
                     focus: focus,
                     host: host,
                     validateOperation: validate
                 )
                 var handedToCreation = false
                 defer {
-                    if !handedToCreation {
+                    if !handedToCreation,
+                       !catalog.cloudWorkspaceCreationCoordinator.ownsReservation(reservation) {
                         host.discard(reservation, catalog: catalog)
                     }
                 }
@@ -105,12 +110,12 @@ extension cmuxApp {
                     throw VMClientError.backendUnreachable(url: AuthEnvironment.apiBaseURL.absoluteString, detail: "Cloud machine provider unavailable")
                 }
                 try validate()
-                handedToCreation = true
                 let result = try await CloudTreeNodeActions.createWorkspaceAndOpenLocally(
                     machine: .cloud(request.machineID), provider: provider, catalog: catalog,
                     name: nil, focus: focus, existingReservation: reservation, host: host,
                     validateOperation: validate
                 )
+                handedToCreation = true
                 return result.opened?.workspaceID
             }
         )
