@@ -12,8 +12,8 @@ environments whose deployment policy admits the refs that really release:
 - `release-next`: branch nightly-next
 - `content-signing`: the content-signing key only
 - `ffi-release`: branch feat-cmux-next, the FFI release App credentials
-  (CMUX_FFI_RELEASE_APP_*) only, read by app-ffi-release.yml's publish job and
-  no other job. The release App credentials (CMUX_RELEASE_APP_*) never enter it.
+  (CMUX_FFI_RELEASE_APP_*) only, read by app-ffi-release.yml's publish and
+  repin jobs. The release App credentials (CMUX_RELEASE_APP_*) never enter it.
 
 A job without such an environment would read nothing once the repository-level
 copies are deleted, so this guard fails before that breaks a release. It also
@@ -37,7 +37,7 @@ RELEASE_ENVIRONMENTS = {"release", "release-next"}
 CONTENT_SIGNING_ENVIRONMENTS = {"content-signing"}
 FFI_RELEASE_ENVIRONMENTS = {"ffi-release"}
 # The only job that may read the FFI release App credentials.
-FFI_RELEASE_READERS = {("app-ffi-release.yml", "publish")}
+FFI_RELEASE_READERS = {("app-ffi-release.yml", "publish"), ("app-ffi-release.yml", "repin")}
 
 SIGNING_SECRET = re.compile(
     r"^(APPLE_[A-Z0-9_]+"

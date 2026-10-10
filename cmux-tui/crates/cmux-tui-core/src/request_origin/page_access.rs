@@ -70,7 +70,9 @@ const fn access(operation: Op) -> Access {
         | Op::BrowserInputText
         | Op::BrowserInputKey
         | Op::BrowserInputMouse
-        | Op::BrowserInputWheel => Access::Denied(Denied::Input),
+        | Op::BrowserInputWheel
+        // A message becomes an agent's input at its next turn.
+        | Op::AgentMessageSend => Access::Denied(Denied::Input),
         Op::TerminalScreenRead
         | Op::TerminalHistoryRead
         | Op::TerminalHistoryClear
@@ -99,7 +101,14 @@ const fn access(operation: Op) -> Access {
         | Op::GitCheckpointList
         | Op::GitCheckpointPin
         | Op::GitCheckpointUnpin
-        | Op::SessionJournalHookPut => Access::Denied(Denied::FileSystem),
+        | Op::SessionJournalHookPut
+        // The user's folders (project-list-v1): read and edited by the app, never a page.
+        | Op::ProjectList
+        | Op::ProjectObserve
+        | Op::ProjectAdd
+        | Op::ProjectUpdate
+        | Op::ProjectRemove
+        | Op::ProjectSync => Access::Denied(Denied::FileSystem),
         Op::PaneCreate | Op::PaneSplit | Op::TabCreateTerminal => Access::DeniedWithCwd,
         Op::MachineList
         | Op::MachineGet
@@ -191,6 +200,8 @@ const fn access(operation: Op) -> Access {
         | Op::NotificationClear
         | Op::AgentList
         | Op::AgentReport
+        | Op::AgentMessageList
+        | Op::AgentMessageMark
         | Op::SidebarViewGet
         | Op::SidebarViewEnsure
         | Op::SidebarViewResize
@@ -198,12 +209,18 @@ const fn access(operation: Op) -> Access {
         | Op::StreamCancel
         | Op::OriginConfirmationIssue
         | Op::ClosedList
+        | Op::ClosedDelete
         | Op::ClosedReopen
         | Op::WindowRecordList
         | Op::WindowRecordPut
         | Op::WindowRecordDelete
         | Op::SidebarLayoutGet
         | Op::SidebarLayoutUpdate
+        | Op::PaletteUsageGet
+        | Op::PaletteUsageRecord
+        | Op::PaletteUsageImport
+        | Op::PaletteUsageHide
+        | Op::PaletteUsageForget
         | Op::RoomCreate
         | Op::RoomDelete
         | Op::RoomFollow
@@ -254,6 +271,10 @@ const fn access(operation: Op) -> Access {
         | Op::WorkspaceStatusClear
         | Op::WorkspaceStatusList
         | Op::WorkspaceStatusSet
+        // A page never controls the Chief.
+        | Op::ChiefEngineGet
+        | Op::ChiefEngineSet
+        | Op::ChiefStop
         // A page never reads or writes the person's conversations.
         | Op::ConversationList
         | Op::ConversationGet

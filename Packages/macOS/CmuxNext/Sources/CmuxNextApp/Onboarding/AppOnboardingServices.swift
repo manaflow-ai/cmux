@@ -44,11 +44,12 @@ final class AppOnboardingServices: OnboardingServices {
         await Task.detached { ThemeChoice.loadCurated(resourcesDirectory: GhosttyRuntime.resourcesDirectory()) }.value
     }
 
-    /// The last write `applyAppearance` started; each waits for the one
-    /// before, so a revert never lands ahead of the try it undoes.
-    private var lastWrite: Task<Void, Never>?
+    /// The last cmux.json write onboarding started (`applyAppearance`,
+    /// `applyTabKeys`); each waits for the one before, so a revert never
+    /// lands ahead of the try it undoes.
+    var lastWrite: Task<Void, Never>?
 
-    /// Waits for every write `applyAppearance` started (tests).
+    /// Waits for every cmux.json write onboarding started (tests).
     func flush() async {
         await lastWrite?.value
     }
@@ -143,7 +144,7 @@ final class AppOnboardingServices: OnboardingServices {
         let summary = try await importer.run(plan, into: destination) { step in
             Task { @MainActor in progress(step) }
         }
-        owner.cookiePrompt.importFinished(summary)
+        owner.browserImportOffer.importFinished(summary)
         return summary
     }
 
@@ -224,7 +225,7 @@ final class AppOnboardingServices: OnboardingServices {
         owner.recordProgress(step, interacted: interacted)
     }
 
-    func onboardingDidLeave(notNow: Bool) {
-        if notNow { owner.recordNotNow() }
-    }
+    // `onboardingDidLeave` keeps the protocol's default (nothing): a launch
+    // that showed the first run was counted at the show
+    // (`OnboardingStateFile.takeLaunchShow`), closed or quit.
 }

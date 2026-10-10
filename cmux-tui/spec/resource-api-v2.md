@@ -86,11 +86,13 @@ lowercase hexadecimal digits. Older records keep the IDs they already have
 | Tab pin, zoom, user icon, browser back/forward, browser owner | shared | `tab.pin`, `tab.unpin`, `tab.update` |
 | Tab groups | shared | `tab_group.*` |
 | Screen pin, color, icon, order; screen groups | shared | `screen.update`, `screen.move`, `screen_group.*` |
-| Closed history (newest 50 tabs, screens, workspaces) | shared | `closed.list`, `closed.reopen` |
+| Closed history (one group per close gesture, kept until deleted) | shared | `closed.list`, `closed.reopen`, `closed.delete` |
 | Workspace status (64 entries), progress, log (newest 200 lines) | shared | `workspace_status.*`, `workspace_progress.*`, `workspace_log.*` |
 | Workspace groups, sidebar order, rooms, saved tab groups | personal (home session) | `workspace_group.*`, `workspace.place`, `workspace.placement.list`, `room.*`, `saved_tab_group.*` |
 | Window records (one per app window, keyed install id and window id, one writer) | personal (home session) | `window_record.list`, `window_record.put`, `window_record.delete` |
 | Sidebar section layout (one per user: sections in top, middle and bottom regions; plans/cmux-next/sidebar-sections.md) | personal (home session) | `sidebar_layout.get`, `sidebar_layout.update` |
+| Palette usage history (one per user: used rows and learned picks per query start; plans/cmux-next/palette-ranking.md 5.2) | personal (home session) | `palette_usage.get`, `palette_usage.record`, `palette_usage.import`, `palette_usage.hide`, `palette_usage.forget` |
+| Project list (the folders the user works in, imported from agent and editor sources, with the user's rename, pin, hide and order; plans/cmux-next/projects.md) | personal (home session) | `project.list`, `project.observe`, `project.add`, `project.update`, `project.remove`, `project.sync` |
 
 Every state mutation takes an idempotency key and commits through the same
 durable path as topology mutations: one transaction checks the replay record,
@@ -267,6 +269,25 @@ field, because SDK decoders refuse unknown fields) and refetch with
 `sidebar_layout.get`. Apps hold `sidebar_layout:read` with the app;
 `sidebar_layout:write` is elevated (scope-classes.json): only an explicit user
 grant adds it.
+
+The palette usage history is one document per user (`palette-usage-v1`): the
+palette rows the user ran (a decayed use count per row key, half-life three
+days) and learned picks (per normalized query start of 1 to 8 characters, the
+rows run for it, decayed with a seven-day half-life, and the latest of them).
+The daemon is its one writer and stamps every use with its own clock.
+`palette_usage.record {key, query?}` records one run and returns only
+`{revision}`; `palette_usage.import {source, entries}` merges a former history
+once per source and returns `{revision, imported}`. The `state_upsert` of
+resource `palette_usage`, id `user`, carries only `{revision}`, and replay
+fingerprints hold a SHA-256 of the key and query, so usage never reaches an
+event or the journal. `palette_usage.hide {key, hidden?}` hides a row from
+the palette (it shows only for a query that is its whole title) or shows it
+again, and `palette_usage.forget {key}` (Reset Ranking) forgets a row's uses
+and learned picks; both return only `{revision}`. `palette_usage.get` (a
+read) returns the whole history, with the hidden keys. The ranking
+rules that read it live in the shared palette ranker, not in the daemon. The
+history stays on the Mac: MCP and the CLI do not offer these operations, and
+`palette_usage:read|write` are restricted app scopes.
 
 ## Selectors
 
@@ -493,6 +514,27 @@ change for the agent.
 }
 ```
 
+`agent.message.send` stores a message from one agent (or a person) to others
+before anything tries to reach them. A recipient is a terminal agent
+(`term_…`) or an acpmux session (`acp:<session id>`). The message carries the
+agent-rooms envelope (`plans/feat-agent-rooms/DESIGN.md`): an id
+(`msg_<32 hex>`), a thread id, the sender address and an untrusted display
+name, the body, and the parent and ancestor ids of a reply. Each recipient
+has its own delivery receipt, which starts `queued`. The message and its
+receipts live in the session registry, so they survive a daemon restart.
+`agent.message.mark` moves a receipt to `delivered`, `acknowledged` or
+`failed` and records the delivery path in `via`; receipts only move forward,
+except that a queued or failed delivery may fail again or be delivered. A
+reply without recipients goes to its parent's sender and stays in the
+parent's thread. `agent.message.list` returns the newest messages first (or
+the oldest, with `oldest_first`), filtered by recipient, sender, thread and the
+recipient's delivery state. Messages are not published on `session.events`.
+Like every operation on the session socket, these trust the socket's caller:
+the sender address is asserted by the caller, any caller may list or mark any
+message, and the body is untrusted input for the recipient and never an
+authority grant. Messages beyond the newest 2000 are pruned once no recipient
+is still queued.
+
 `terminal.viewport.scroll` changes the session's compatibility inspection
 viewport. Interactive frontends keep scroll in their own terminal mirror and
 must not call this operation for user scrolling. Its first success returns the
@@ -611,7 +653,12 @@ covered cursor, it replays through the captured head before live delivery. A
 generation mismatch or expired cursor sends a fresh snapshot with
 `reset_reason`; a cursor ahead of head returns `cursor.invalid`. One atomic
 transaction produces one `session.delta` batch with `previous_revision` and
-the new revision. Durable resource batches are append-only. A registry upgraded
+the new revision. A batch need not restate unchanged resources: an upsert whose
+value the journal already states may be left out, and a topology create
+restates every workspace value but only the subtree of the workspace it changed
+(and of the old and new active workspace when focus moved), plus terminals of
+that subtree that live elsewhere. A consumer applies each batch on top of the
+state it holds. Durable resource batches are append-only. A registry upgraded
 from the earlier bounded store preserves its oldest retained revision and sends
 a fresh snapshot when a requested cursor predates that boundary. Transport
 stream queues remain bounded independently.
@@ -704,8 +751,8 @@ operations after the server socket is bound.
 
 | Class | Operations |
 | --- | --- |
-| read | `agent.list`, `browser.get`, `browser.list`, `client.get`, `client.list`, `closed.list`, `conversation.get`, `conversation.history`, `conversation.list`, `conversation.search`, `frontend_projection.get`, `git.checkpoint.diff`, `git.checkpoint.get`, `git.checkpoint.list`, `git.diff`, `git.files.search`, `git.status`, `machine.get`, `machine.list`, `notification.list`, `pairing_request.list`, `pane.get`, `pane.list`, `pane.neighbor.get`, `room.list`, `saved_tab_group.list`, `screen.get`, `screen.layout.export`, `screen.list`, `screen_group.get`, `screen_group.list`, `session.creation.resolve`, `session.get`, `session.journal.checkpoint.list`, `session.journal.hook.list`, `session.journal.producer.list`, `session.journal.restore.preview`, `session.journal.segment.list`, `session.list`, `session.ping`, `session.snapshot`, `sidebar_layout.get`, `sidebar_view.get`, `tab.get`, `tab.list`, `tab_group.get`, `tab_group.list`, `terminal.copy`, `terminal.get`, `terminal.history.read`, `terminal.list`, `terminal.output_read`, `terminal.process.get`, `terminal.screen.read`, `terminal.state.read`, `terminal.wait`, `terminal.wait_exit`, `window_record.list`, `workspace.get`, `workspace.list`, `workspace.placement.list`, `workspace_group.list`, `workspace_log.list`, `workspace_status.list` |
-| mutation | `agent.report`, `browser.activate`, `browser.back`, `browser.close`, `browser.forward`, `browser.input.key`, `browser.input.mouse`, `browser.input.text`, `browser.input.wheel`, `browser.navigate`, `browser.reload`, `closed.reopen`, `column.update`, `conversation.draft`, `conversation.send`, `conversation.typing`, `frontend_projection.put`, `git.checkpoint.create`, `git.checkpoint.pin`, `git.checkpoint.unpin`, `notification.ack`, `notification.clear`, `notification.create`, `pairing_request.resolve`, `pane.close`, `pane.create`, `pane.focus`, `pane.focus_direction`, `pane.rename`, `pane.run`, `pane.split`, `pane.split_ratio.set`, `pane.swap`, `pane.viewport_width.set`, `pane.zoom`, `room.create`, `room.delete`, `room.follow`, `room.move`, `room.pin`, `room.unpin`, `room.update`, `saved_tab_group.delete`, `saved_tab_group.reopen`, `saved_tab_group.save`, `screen.close`, `screen.create`, `screen.focus`, `screen.layout.undo`, `screen.move`, `screen.rename`, `screen.update`, `screen_group.add_screens`, `screen_group.create`, `screen_group.remove_screens`, `screen_group.ungroup`, `screen_group.update`, `session.journal.append`, `session.journal.checkpoint.create`, `session.journal.hook.put`, `session.journal.producer.put`, `session.journal.segment.seal`, `session.open`, `session.reload_config`, `session.shutdown`, `session.terminal_defaults.update`, `session.window.title.clear`, `session.window.title.set`, `sidebar_layout.update`, `sidebar_view.ensure`, `sidebar_view.input`, `sidebar_view.reload`, `sidebar_view.resize`, `tab.close`, `tab.create_browser`, `tab.create_terminal`, `tab.focus`, `tab.move`, `tab.pin`, `tab.rename`, `tab.unpin`, `tab.update`, `tab_group.add_tabs`, `tab_group.close`, `tab_group.create`, `tab_group.move`, `tab_group.remove_tabs`, `tab_group.ungroup`, `tab_group.update`, `terminal.close`, `terminal.history.clear`, `terminal.input.focus`, `terminal.input.keys`, `terminal.input.mouse`, `terminal.input.write`, `terminal.move`, `terminal.project`, `terminal.viewport.scroll`, `window_record.delete`, `window_record.put`, `workspace.agent_folder.set`, `workspace.close`, `workspace.create`, `workspace.ensure_home`, `workspace.focus`, `workspace.layout.apply`, `workspace.move`, `workspace.place`, `workspace.rename`, `workspace.run`, `workspace.update`, `workspace_group.create`, `workspace_group.delete`, `workspace_group.move`, `workspace_group.update`, `workspace_log.append`, `workspace_log.clear`, `workspace_progress.clear`, `workspace_progress.set`, `workspace_status.clear`, `workspace_status.set` |
+| read | `agent.list`, `agent.message.list`, `browser.get`, `browser.list`, `chief.engine.get`, `client.get`, `client.list`, `closed.list`, `conversation.get`, `conversation.history`, `conversation.list`, `conversation.search`, `frontend_projection.get`, `git.checkpoint.diff`, `git.checkpoint.get`, `git.checkpoint.list`, `git.diff`, `git.files.search`, `git.status`, `machine.get`, `machine.list`, `notification.list`, `pairing_request.list`, `palette_usage.get`, `pane.get`, `pane.list`, `pane.neighbor.get`, `project.list`, `room.list`, `saved_tab_group.list`, `screen.get`, `screen.layout.export`, `screen.list`, `screen_group.get`, `screen_group.list`, `session.creation.resolve`, `session.get`, `session.journal.checkpoint.list`, `session.journal.hook.list`, `session.journal.producer.list`, `session.journal.restore.preview`, `session.journal.segment.list`, `session.list`, `session.ping`, `session.snapshot`, `sidebar_layout.get`, `sidebar_view.get`, `tab.get`, `tab.list`, `tab_group.get`, `tab_group.list`, `terminal.copy`, `terminal.get`, `terminal.history.read`, `terminal.list`, `terminal.output_read`, `terminal.process.get`, `terminal.screen.read`, `terminal.state.read`, `terminal.wait`, `terminal.wait_exit`, `window_record.list`, `workspace.get`, `workspace.list`, `workspace.placement.list`, `workspace_group.list`, `workspace_log.list`, `workspace_status.list` |
+| mutation | `agent.message.mark`, `agent.message.send`, `agent.report`, `browser.activate`, `browser.back`, `browser.close`, `browser.forward`, `browser.input.key`, `browser.input.mouse`, `browser.input.text`, `browser.input.wheel`, `browser.navigate`, `browser.reload`, `chief.engine.set`, `chief.stop`, `closed.delete`, `closed.reopen`, `column.update`, `conversation.draft`, `conversation.send`, `conversation.typing`, `frontend_projection.put`, `git.checkpoint.create`, `git.checkpoint.pin`, `git.checkpoint.unpin`, `notification.ack`, `notification.clear`, `notification.create`, `pairing_request.resolve`, `palette_usage.forget`, `palette_usage.hide`, `palette_usage.import`, `palette_usage.record`, `pane.close`, `pane.create`, `pane.focus`, `pane.focus_direction`, `pane.rename`, `pane.run`, `pane.split`, `pane.split_ratio.set`, `pane.swap`, `pane.viewport_width.set`, `pane.zoom`, `project.add`, `project.observe`, `project.remove`, `project.sync`, `project.update`, `room.create`, `room.delete`, `room.follow`, `room.move`, `room.pin`, `room.unpin`, `room.update`, `saved_tab_group.delete`, `saved_tab_group.reopen`, `saved_tab_group.save`, `screen.close`, `screen.create`, `screen.focus`, `screen.layout.undo`, `screen.move`, `screen.rename`, `screen.update`, `screen_group.add_screens`, `screen_group.create`, `screen_group.remove_screens`, `screen_group.ungroup`, `screen_group.update`, `session.journal.append`, `session.journal.checkpoint.create`, `session.journal.hook.put`, `session.journal.producer.put`, `session.journal.segment.seal`, `session.open`, `session.reload_config`, `session.shutdown`, `session.terminal_defaults.update`, `session.window.title.clear`, `session.window.title.set`, `sidebar_layout.update`, `sidebar_view.ensure`, `sidebar_view.input`, `sidebar_view.reload`, `sidebar_view.resize`, `tab.close`, `tab.create_browser`, `tab.create_terminal`, `tab.focus`, `tab.move`, `tab.pin`, `tab.rename`, `tab.unpin`, `tab.update`, `tab_group.add_tabs`, `tab_group.close`, `tab_group.create`, `tab_group.move`, `tab_group.remove_tabs`, `tab_group.ungroup`, `tab_group.update`, `terminal.close`, `terminal.history.clear`, `terminal.input.focus`, `terminal.input.keys`, `terminal.input.mouse`, `terminal.input.write`, `terminal.move`, `terminal.project`, `terminal.viewport.scroll`, `window_record.delete`, `window_record.put`, `workspace.agent_folder.set`, `workspace.close`, `workspace.create`, `workspace.ensure_home`, `workspace.focus`, `workspace.layout.apply`, `workspace.move`, `workspace.place`, `workspace.rename`, `workspace.run`, `workspace.update`, `workspace_group.create`, `workspace_group.delete`, `workspace_group.move`, `workspace_group.update`, `workspace_log.append`, `workspace_log.clear`, `workspace_progress.clear`, `workspace_progress.set`, `workspace_status.clear`, `workspace_status.set` |
 | stream_open | `browser.attach`, `conversation.events`, `session.events`, `session.journal.subscribe`, `sidebar_view.attach`, `terminal.attach` |
 | connection_control | `browser.viewer.release`, `browser.viewer.resize`, `client.cell_pixels.set`, `client.detach`, `client.metadata.update`, `client.sizing.release`, `client.sizing.set`, `origin.confirmation.issue`, `request.cancel`, `stream.cancel`, `terminal.renderer_grant.create`, `terminal.viewer.release`, `terminal.viewer.resize` |
 | local | `sidebar_plugin.install`, `sidebar_plugin.list`, `sidebar_plugin.remove`, `sidebar_plugin.update`, `sidebar_plugin.use`, `sidebar_plugin.use_builtin` |
@@ -874,8 +921,8 @@ same owner and the same rules, with nothing added on the v2 path:
   64 KiB (`text_too_large`); a seq at or below the turn's last published seq
   is a replay. Drafts appear only on `conversation.events`, never on the raw
   `subscribe` stream.
-- `events` streams one conversation: a `snapshot` item (summary and the last
-  `tail` messages) unless the cursor is at the head, then `message`,
+- `events` streams one conversation: a `snapshot` item (summary, the last
+  `tail` messages and who is typing) unless the cursor is at the head, then `message`,
   `message_updated`, `read_cursor` and `conversation` items in commit order,
   each with the rev it produced, and live `typing` and `draft` items. The
   cursor is `{generation: conversation id, revision: rev}`. A cursor of
@@ -896,7 +943,11 @@ turn's end. So that turn's `typing` off, after a `read_cursor` of at least
 `S` and a `typing` on, ends it. A turn already running when `S` arrived stops
 for it before the cursor moves, and does not count. A `draft` of turn `T` is
 dropped when the posted message with `client_msg_id` `T` of the same author
-arrives, on `done`, or on `typing` off.
+arrives, on `done`, or on `typing` off. A client whose stream ended with
+`gap` reopens it and takes the turn's state from the snapshot: the
+Chief's read cursor, its replies after `S`, and whether it is still in
+`typing` (`get` carries the same list); typing is memory only, and an agent
+whose last bound connection ends stops typing (a `typing` off item).
 
 Remote relay analysis. A paired device reaches conversations only through
 the remote relay, whose frame gate refuses every `cmux.protocol/2` frame
@@ -911,6 +962,29 @@ principal's own conversations as above, and a page origin is refused every
 the principal's own conversations already show it; drafts are the agent's
 reply text for that conversation. The policy tests are in
 `server/conversation_resource_tests.rs`.
+
+## Chief control
+
+`chief.engine.get`, `chief.engine.set` and `chief.stop` are the owner's
+control of the Chief brain that runs with this session (risk: owner). The
+daemon forwards one line to the brain host's tools socket
+(`CMUX_TUI_CHIEF_TOOLS_SOCKET`, as `chief-inspect` does) and answers the
+brain's JSON: the engine report (passed through unchanged) or `{stopped,
+subagents?, note?}`. `chief.engine.set` also takes `speed` and
+`compactor_speed` (`default` or `fast`, the codex priority tier; a Claude
+harness refuses `fast` with `invalid_speed`); `chief.stop` takes an optional
+subagent `name` and then stops only that subagent.
+Only the owner's trusted connection may call them: a registered Unix client
+with no link peer record whose principal is `user_local`, which is a local
+client or the link's `owner_session` splice. An agent-bound connection (the
+Chief's own turns and subagents), a relayed, WebSocket or page connection is
+refused with `origin.forbidden` before anything is forwarded, so no agent
+changes the Chief's engine or stops its turn; there is no approval path for
+agents yet. A daemon without the tools socket answers `operation.failed`
+reason `not_configured`; a brain refusal keeps the brain's code as
+`details.reason` and its text as `extra.message`. An app reaches a brain on
+a paired server through its link to that server's daemon. They are not MCP
+tools.
 
 ## CLI
 

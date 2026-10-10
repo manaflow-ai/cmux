@@ -22,8 +22,19 @@ fn flatten(text: &str) -> String {
 }
 
 /// `<chat>`, one `id+n|text` line per part (newlines shown as spaces), `</chat>`.
+/// An unbuilt imported line is left out, as the reference client's turn
+/// view shows built lines only: during an import the view then ends at the
+/// build front, and a turn's cached prefix holds from one turn to the next
+/// (`zoom` still opens the left-out messages). An unbuilt line of the chat's
+/// own side (a stuck node) shows the placeholder.
 pub fn render_view(memory: &Memory, store: &dyn Store) -> RenderedView {
-    render_parts(memory.view(), store)
+    let parts: Vec<NodeId> = memory
+        .view()
+        .iter()
+        .copied()
+        .filter(|p| memory.is_built(*p) || !memory.is_imported(p.end() - 1))
+        .collect();
+    render_parts(&parts, store)
 }
 
 /// The view whose parts are `parts`, rendered as `render_view` does: a past
@@ -103,16 +114,21 @@ pub fn cache_pieces(text: &str) -> Vec<&str> {
 pub const BLOCK_LINES: usize = 4;
 
 /// Byte offsets in `text` (a rendered view: `<chat>`, one line per part,
-/// `</chat>`) just after every `BLOCK_LINES` lines of the view: after the
-/// header line and lines 4, 8, 12, ... A cut depends only on the bytes
-/// before it, so an unchanged prefix keeps its cuts from call to call.
+/// `</chat>`) just after the `<chat>` header and after every `BLOCK_LINES`
+/// lines of the view: after the header and lines 4, 8, 12, ... The header
+/// is its own block (the reference client's grid), so a view with no whole
+/// block still has one to mark, and every request carries our mark from
+/// the first turn (measured 2026-10-08 on the Claude Code path: early turns
+/// read 93-94% instead of 86-87%, later turns unchanged). A cut depends
+/// only on the bytes before it, so an unchanged prefix keeps its cuts from
+/// call to call.
 pub fn block_cuts(text: &str) -> Vec<usize> {
     let mut cuts = Vec::new();
     let mut lines = 0usize;
     for (byte, ch) in text.char_indices() {
         if ch == '\n' {
-            // The first newline ends the `<chat>` header.
-            if lines > 0 && lines.is_multiple_of(BLOCK_LINES) && byte + 1 < text.len() {
+            // The first newline (lines 0) ends the `<chat>` header.
+            if lines.is_multiple_of(BLOCK_LINES) && byte + 1 < text.len() {
                 cuts.push(byte + 1);
             }
             lines += 1;
@@ -131,7 +147,8 @@ pub const LOOKBACK_BLOCKS: usize = 20;
 pub const MARK_REACH: usize = 16;
 
 /// The piece of `block_pieces(view)` that carries the request's one mark, or
-/// None when the view has no whole block. It is the last whole block, unless
+/// None when the text has no block (no header). It is the last whole block
+/// (the header while there is none), unless
 /// `prev` (the view's text up to and including the last request's marked
 /// piece) is still a prefix of `view` ending on a block cut and the last
 /// whole block lies more than `MARK_REACH` pieces past it: then the mark
@@ -157,9 +174,8 @@ pub fn mark_piece(view: &str, prev: Option<&str>) -> Option<usize> {
     Some(last)
 }
 
-/// `text` cut at its `block_cuts`: every piece but the last is a whole
-/// block (the first with the header), the last holds the rest and the
-/// closing tag. The mark goes on the second to last piece, when there is one.
+/// `text` cut at its `block_cuts`: the header, then the whole blocks, then
+/// the rest with the closing tag. The mark goes on the second to last piece, when there is one.
 pub fn block_pieces(text: &str) -> Vec<&str> {
     let mut pieces = Vec::new();
     let mut start = 0;

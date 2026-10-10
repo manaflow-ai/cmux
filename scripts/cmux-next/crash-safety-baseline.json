@@ -16,7 +16,10 @@
    "cmux-remote": 60,
    "cmux-terminal-client": 1,
    "cmux-tui": 87,
-   "cmux-tui-core": 293,
+   "cmux-tui-core": 284,
+   "cmux-tui-platform": 1,
+   "cmux-tui-remote-access": 1,
+   "cmux-tui-util": 1,
    "cmux-wg": 15
   },
   "panic_macro": {
@@ -32,10 +35,24 @@
    "cmux-remote": 30,
    "cmux-terminal-client": 30,
    "cmux-tui": 435,
-   "cmux-tui-core": 1643
+   "cmux-tui-core": 1587,
+   "cmux-tui-image-paste": 22,
+   "cmux-tui-platform": 17,
+   "cmux-tui-remote-access": 5,
+   "cmux-tui-util": 12
   }
  },
  "swift": {
+  "async_closure_default_arg": {
+   "CMUXMobileCore": 3,
+   "CmuxAuthRuntime": 7,
+   "CmuxInstallAuthCore": 1,
+   "CmuxIrohTransport": 4,
+   "CmuxNextApp": 5,
+   "CmuxNextBrowserHost": 1,
+   "CmuxNextDaemon": 1,
+   "CmuxNextPalette": 1
+  },
   "dynamic_dispatch": {
    "CmuxNextAgentActivity": 2,
    "CmuxNextAgentCursor": 1,
@@ -47,37 +64,6 @@
    "CmuxNextPages": 4,
    "CmuxNextSidebar": 3,
    "MessagesLabHome": 20
-  },
-  "force_unwrap": {
-   "CmuxNextSidebar": 3,
-   "MessagesLabHome": 4,
-   "MessagesLabSidebar": 2
-  },
-  "index_subscript": {
-   "CMUXMobileCore": 124,
-   "CmuxHomeRender": 100,
-   "CmuxIrohTransport": 126,
-   "CmuxIrxTransport": 67,
-   "CmuxNextControl": 36,
-   "CmuxNextDaemon": 116,
-   "CmuxNextMobile": 13,
-   "CmuxTerminalSizing": 5,
-   "MessagesLabHome": 828,
-   "MessagesLabSidebar": 71
-  },
-  "int_conversion": {
-   "CMUXMobileCore": 123,
-   "CmuxHomeRender": 9,
-   "CmuxIrohTransport": 111,
-   "CmuxIrxTransport": 43,
-   "CmuxNextControl": 45,
-   "CmuxNextDaemon": 21,
-   "CmuxNextMobile": 5,
-   "MessagesLabHome": 84,
-   "MessagesLabSidebar": 18
-  },
-  "iuo": {
-   "CmuxNextSidebar": 5
   },
   "render_font": {
    "CmuxHomeRender": 4,
@@ -117,14 +103,6 @@
    "CmuxUpdater": 1,
    "MessagesLabHome": 14,
    "MessagesLabSidebar": 2
-  },
-  "unowned": {
-   "CmuxNextApp": 63,
-   "CmuxNextBrowser": 6,
-   "CmuxNextPalette": 1,
-   "CmuxNextSidebar": 2,
-   "CmuxNextTerminal": 1,
-   "MessagesLabHome": 2
   }
  }
 }

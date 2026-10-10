@@ -9305,130 +9305,130 @@
     "sidebar.chats.title": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chats"
-          }
-        },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "المحادثات"
+            "value": "كل المحادثات"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Razgovori"
+            "value": "Svi razgovori"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Samtaler"
+            "value": "Alle chats"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chats de"
+            "value": "Alle Chats"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All chats"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chats es"
+            "value": "Todos los chats"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conversations"
+            "value": "Tous les chats"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chat"
+            "value": "Tutte le chat"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "チャット"
+            "value": "すべてのチャット"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ការជជែក"
+            "value": "ការជជែកទាំងអស់"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "채팅"
+            "value": "모든 채팅"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chatter"
+            "value": "Alle chatter"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Czaty"
+            "value": "Wszystkie czaty"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conversas"
+            "value": "Todos os chats"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Чаты"
+            "value": "Все чаты"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "แชต"
+            "value": "แชททั้งหมด"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sohbetler"
+            "value": "Tüm sohbetler"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Чати"
+            "value": "Усі чати"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cuộc trò chuyện"
+            "value": "Tất cả cuộc trò chuyện"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "聊天"
+            "value": "所有聊天"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "聊天"
+            "value": "所有聊天"
           }
         }
       }
@@ -9826,133 +9826,133 @@
         }
       }
     },
-    "sidebar.footer.back": {
+    "sidebar.folder.none": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Back"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "戻る"
-          }
-        },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "رجوع"
+            "state": "needs_review",
+            "value": "بلا مجلد"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Nazad"
+            "state": "needs_review",
+            "value": "Bez mape"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Tilbage"
+            "state": "needs_review",
+            "value": "Ingen mappe"
           }
         },
         "de": {
           "stringUnit": {
+            "state": "needs_review",
+            "value": "Kein Ordner"
+          }
+        },
+        "en": {
+          "stringUnit": {
             "state": "translated",
-            "value": "Zurück"
+            "value": "No Folder"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Atrás"
+            "state": "needs_review",
+            "value": "Sin carpeta"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Retour"
+            "state": "needs_review",
+            "value": "Aucun dossier"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Indietro"
+            "state": "needs_review",
+            "value": "Nessuna cartella"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "フォルダなし"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ថយក្រោយ"
+            "value": "គ្មានថត"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "뒤로"
+            "state": "needs_review",
+            "value": "폴더 없음"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Tilbake"
+            "state": "needs_review",
+            "value": "Ingen mappe"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Wstecz"
+            "state": "needs_review",
+            "value": "Brak folderu"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Voltar"
+            "state": "needs_review",
+            "value": "Sem pasta"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Назад"
+            "state": "needs_review",
+            "value": "Без папки"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ย้อนกลับ"
+            "state": "needs_review",
+            "value": "ไม่มีโฟลเดอร์"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Geri"
+            "state": "needs_review",
+            "value": "Klasör yok"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Назад"
+            "state": "needs_review",
+            "value": "Без теки"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Quay lại"
+            "value": "Không có thư mục"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "返回"
+            "state": "needs_review",
+            "value": "无文件夹"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "後退"
+            "state": "needs_review",
+            "value": "無資料夾"
           }
         }
       }
@@ -11787,6 +11787,661 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "主題顏色 %d"
+          }
+        }
+      }
+    },
+    "sidebar.chats.group.newest": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الأحدث"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Najnovije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nyeste"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neueste"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Newest"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Más recientes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plus récents"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Più recenti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しい順"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថ្មីបំផុត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최신순"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nyeste"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Najnowsze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mais recentes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сначала новые"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ล่าสุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En yeni"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спершу нові"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mới nhất"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最新"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最新"
+          }
+        }
+      }
+    },
+    "sidebar.machine.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to start"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذر البدء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokretanje nije uspjelo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke starte"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Start fehlgeschlagen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se pudo iniciar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Échec du démarrage"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avvio non riuscito"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "起動に失敗"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចចាប់ផ្ដើមបាន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "시작 실패"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke starte"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie udało się uruchomić"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Falha ao iniciar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось запустить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เริ่มไม่สำเร็จ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Başlatılamadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося запустити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không khởi động được"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "启动失败"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "啟動失敗"
+          }
+        }
+      }
+    },
+    "sidebar.chats.menu.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح المحادثة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otvori razgovor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åbn chat"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Chat"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir le chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットを開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើកការជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åpne chat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otwórz czat"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть чат"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbeti aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відкрити чат"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mở cuộc trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开聊天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟聊天"
+          }
+        }
+      }
+    },
+    "sidebar.chats.menu.openInTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح في الطرفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otvori u terminalu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åbn i Terminal"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Terminal öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open in Terminal"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir en Terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir dans le Terminal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri nel Terminale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルで開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើកក្នុង Terminal"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널에서 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åpne i Terminal"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otwórz w terminalu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir no Terminal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть в терминале"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดในเทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalde aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відкрити в терміналі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mở trong Terminal"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在终端中打开"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在終端機中開啟"
+          }
+        }
+      }
+    },
+    "sidebar.chats.resize": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تغيير حجم كل المحادثات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Promijeni veličinu: Svi razgovori"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilpas størrelse på Alle chats"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Größe von „Alle Chats“ ändern"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resize All chats"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambiar tamaño de Todos los chats"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Redimensionner Tous les chats"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ridimensiona Tutte le chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのチャットのサイズを変更"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្ដូរទំហំ​ការជជែកទាំងអស់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 채팅 크기 조절"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Endre størrelse på Alle chatter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zmień rozmiar Wszystkich czatów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Redimensionar Todos os chats"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Изменить размер раздела «Все чаты»"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปรับขนาดแชททั้งหมด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tüm sohbetleri yeniden boyutlandır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Змінити розмір «Усі чати»"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đổi kích thước Tất cả cuộc trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "调整“所有聊天”大小"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "調整「所有聊天」大小"
           }
         }
       }

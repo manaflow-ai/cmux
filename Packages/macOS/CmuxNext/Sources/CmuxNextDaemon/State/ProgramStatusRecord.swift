@@ -52,7 +52,7 @@ public struct ProgramStatusRecord: Sendable, Hashable {
         guard case .object(let object) = value, let id = object["id"]?.stringValue,
               let state = object["state"]?.stringValue.flatMap(State.init(rawValue:)) else { return nil }
         var progress: Int?
-        if case .number(let number)? = object["progress"], number.isFinite { progress = Int(min(max(number, 0), 100)) }
+        if case .number(let number)? = object["progress"], number.isFinite { progress = min(max(number, 0), 100).saturatedInteger(Int.self) }
         self.init(id: id, state: state, progress: progress, kind: object["kind"]?.stringValue.flatMap(Kind.init(rawValue:)),
                   app: object["app"]?.stringValue, title: object["title"]?.stringValue, msg: object["msg"]?.stringValue,
                   updatedSeq: object["updated_seq"]?.stringValue.flatMap(UInt64.init) ?? 0,

@@ -5,6 +5,8 @@
 import { agentPaneEntry } from "../../gallery/format";
 import { assistant, chat, CWD, noChat, session, summary, user } from "../../gallery/fixtures/acpmux";
 
+const working = [user("Add retries", 1), assistant("Reading the helper…", 0.5, { streaming: true })];
+
 // A chat started without a project lives in cmux's agent home, one UUID folder per chat.
 const AGENT_HOME = "/Users/you/Library/Application Support/cmux/agent-home/6b16a112-289d-4467-9675-8e6feee99481";
 
@@ -43,7 +45,8 @@ export default agentPaneEntry({
   area: "Agent pane",
   height: 420,
   widths: { narrow: 400, normal: 760, wide: 760 },
-  // The transcript must not move while a play step opens a menu over it.
+  // The transcript must not move while a play step opens a menu over it, and the composer box
+  // must not move when queued prompts come and go above it.
   anchors: [
     { selector: ".acpmux-scroll" },
     { selector: ".acpmux-composer-box" },
@@ -71,6 +74,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/MarkdownField.tsx",
     "agent-session/acpmux/EffortPicker.tsx",
     "agent-session/acpmux/EmptyState.tsx",
+    "agent-session/acpmux/ComposerQueue.tsx#ComposerQueue",
   ],
   variants: {
     "new-chat": {
@@ -127,6 +131,26 @@ export default agentPaneEntry({
     idle: {
       note: "After a turn: Send, the mode and model chips.",
       snapshot: chat(finished),
+    },
+    // POLISH.md right-click contract: the prompt's own menu over selected text, never WebKit's.
+    "context-menu": {
+      note: "Right-click on selected prompt text: Cut, Copy, Paste, Paste as Plain Text, Attach Files…, Insert Mention.",
+      ready: { draft: "Add retries with backoff to the fetch helper" },
+      snapshot: chat(finished),
+      play: async (ctx) => {
+        const field = ctx.find({ selector: ".acpmux-md" });
+        ctx.document.defaultView!.getSelection()!.selectAllChildren(field);
+        const box = field.getBoundingClientRect();
+        field.dispatchEvent(
+          new MouseEvent("contextmenu", {
+            bubbles: true,
+            cancelable: true,
+            clientX: box.left + 40,
+            clientY: box.top + 12,
+          }),
+        );
+        await ctx.waitFor(() => ctx.document.querySelector('[role="menu"]'));
+      },
     },
     // Leo (dogfood 2026-10-08, 22-composer-image-chip.png): a pasted image draws as a cropped
     // thumbnail above the prompt, with a small × that shows on hover; a click opens the viewer.
@@ -195,9 +219,38 @@ export default agentPaneEntry({
     },
     working: {
       note: "A turn running: Send becomes Stop.",
-      snapshot: chat([user("Add retries", 1), assistant("Reading the helper…", 0.5, { streaming: true })], {
+      snapshot: chat(working, { isWorking: true }),
+    },
+    queued: {
+      note: "Two prompts waiting for the running turn: numbered rows on the composer's top edge.",
+      snapshot: chat(working, {
         isWorking: true,
+        queue: [
+          { id: "q1", prompt: "Then add a test for the 429 path" },
+          { id: "q2", prompt: "And update the README" },
+        ],
       }),
+    },
+    "queued-long": {
+      note: "Many queued prompts, one too long for its row: the rows scroll, and the cut-off one shows a tooltip on hover.",
+      snapshot: chat(working, {
+        isWorking: true,
+        queue: [
+          { id: "q1", prompt: "Then add a test for the 429 path" },
+          {
+            id: "q2",
+            prompt:
+              "Once the retries land, go through every caller of the fetch helper and make sure none of them retries on its own as well, then summarize what changed",
+          },
+          { id: "q3", prompt: "And update the README" },
+          { id: "q4", prompt: "Run the whole suite" },
+          { id: "q5", prompt: "Open a PR" },
+        ],
+      }),
+      play: async (ctx) => {
+        await ctx.hover({ text: /^Once the retries land/ });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-queued-text[title]"));
+      },
     },
     "codex-model": {
       note: "Another harness and model in the chips.",
@@ -224,6 +277,44 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.click({ selector: ".acpmux-composer-context .acpmux-location-button" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-menu, [role='dialog']"));
+      },
+    },
+    "context-usage-menu": {
+      note: "Play: right-click the context ring; Hide Context Usage hides it, and a right-click on the footer then offers Show Context Usage.",
+      snapshot: chat(finished, {
+        summary: {
+          sessionId: "gallery-usage",
+          harness: "claude",
+          model: "claude-opus-5-5",
+          cwd: CWD,
+          turnCount: 2,
+          usage: { used: 48_000, size: 200_000 },
+        },
+      }),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector("button.acpmux-context-ring"));
+        const ring = ctx.document.querySelector<HTMLElement>("button.acpmux-context-ring")!;
+        const box = ring.getBoundingClientRect();
+        const view = ctx.document.defaultView!;
+        ring.dispatchEvent(
+          new view.MouseEvent("contextmenu", {
+            bubbles: true,
+            cancelable: true,
+            clientX: box.left + 4,
+            clientY: box.top + 4,
+          }),
+        );
+        await ctx.waitFor(() => ctx.document.querySelector(".ui-context-menu [role=menuitem]"));
+      },
+    },
+    "add-menu": {
+      note: "Play: open +; Attach files or images comes first and opens the file chooser, and the menu rises out of +.",
+      snapshot: chat(finished, {
+        commands: [{ name: "compact", description: "Clear conversation history but keep a summary in context" }],
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-composer-plus [data-value="attach"]'));
       },
     },
     "context-breakdown": {
@@ -258,6 +349,87 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector("[role='listbox'], [role='menu']"));
       },
     },
+    "slash-fork": {
+      note: "Play: type /fork; the cmux-owned fork command appears with the harness commands.",
+      snapshot: chat([...finished.slice(0, -1), summary(9, { status: "completed", seq: 12 })], {
+        commands: [
+          { name: "compact", description: "Clear conversation history but keep a summary in context" },
+          { name: "review", description: "Review a pull request" },
+        ],
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: "[contenteditable='true']" });
+        await ctx.type("/fork");
+        await ctx.waitFor(() =>
+          Array.from(ctx.document.querySelectorAll(".acpmux-slash-name")).some((node) => node.textContent === "/fork"),
+        );
+      },
+    },
+    "reasoning-claude": {
+      note: "Play: Claude's reasoning menu: Low to Max with Extra High, Ultracode (with its line), Ultrathink, then Fast Mode On/Off; the chip reads Medium Fast.",
+      snapshot: withSummary(chat(finished, { title: "Claude reasoning" }), {
+        configOptions: [
+          {
+            id: "effort",
+            name: "Reasoning",
+            category: "thought_level",
+            currentValue: "medium",
+            options: [
+              { value: "default", name: "Default" },
+              { value: "low", name: "Low" },
+              { value: "medium", name: "Medium" },
+              { value: "high", name: "High" },
+              { value: "xhigh", name: "Extra High" },
+              { value: "max", name: "Max" },
+              { value: "ultracode", name: "Ultracode" },
+              { value: "ultrathink", name: "Ultrathink" },
+            ],
+          },
+          {
+            id: "fast-mode",
+            name: "Fast mode",
+            category: "model_config",
+            currentValue: "on",
+            options: [
+              { value: "off", name: "Off" },
+              { value: "on", name: "On" },
+            ],
+          },
+        ],
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-effort .acpmux-picker-button" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-effort-menu"));
+      },
+    },
+    "reasoning-codex": {
+      note: "Play: Codex's reasoning menu: Low to Ultra (Xhigh reads Extra High), then Service Tier Standard (Default) and Fast with Codex's own line.",
+      snapshot: withSummary(chat(finished, { harness: "codex", model: "gpt-6-astra", title: "Codex reasoning" }), {
+        configOptions: [
+          {
+            id: "reasoning_effort",
+            category: "thought_level",
+            currentValue: "medium",
+            options: ["low", "medium", "high", "xhigh", "max", "ultra"].map((value) => ({ value })),
+          },
+          {
+            id: "fast-mode",
+            category: "model_config",
+            currentValue: "off",
+            options: [
+              { value: "off", name: "Off", description: "Default speed, normal usage" },
+              { value: "on", name: "On", description: "1.5x speed, increased usage" },
+            ],
+          },
+        ],
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-effort .acpmux-picker-button" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-effort-menu"));
+        await ctx.click({ role: "menuitemradio", name: /^Fast/ });
+        await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-effort-menu"));
+      },
+    },
     "model-menu-keyboard": {
       note: "Play: open the model picker and move its highlight with the keyboard.",
       snapshot: chat(finished, {
@@ -269,20 +441,108 @@ export default agentPaneEntry({
         const picker = ".acpmux-model .acpmux-picker-button";
         await ctx.click({ selector: picker });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-model .acpmux-mp"));
+        const search = ctx.find({ selector: ".acpmux-mp input[role=combobox]" });
+        await ctx.waitFor(() => ctx.document.activeElement === search);
+        const previous = search.getAttribute("aria-activedescendant");
         await ctx.press("ArrowDown");
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-model .acpmux-mp-active"));
+        await ctx.waitFor(() => {
+          const current = search.getAttribute("aria-activedescendant");
+          return current !== previous && Boolean(current && ctx.document.getElementById(current));
+        });
       },
+    },
+    "picker-toggle": {
+      note: "Play: open the permission picker, then press its trigger again; the menu closes and does not reopen on the same WebKit click.",
+      snapshot: withSummary(chat(finished, { title: "Picker toggle" }), {
+        sessionId: "gallery-picker-toggle",
+        harness: "claude",
+        model: "claude-opus-5-5",
+        cwd: CWD,
+        turnCount: 1,
+        modes: composerControls.modes,
+      }),
+      play: async (ctx) => {
+        const trigger = '[aria-label="Mode"]';
+        await ctx.click({ selector: trigger });
+        await ctx.waitFor(() => ctx.document.querySelector('[role="menu"] [role="menuitemradio"]'));
+        await ctx.click({ selector: trigger });
+        await ctx.waitFor(() => !ctx.document.querySelector('[role="menu"]'));
+      },
+    },
+    "reasoning-menu": {
+      note: "Play: open Reasoning; a small menu lists only the model's levels and checks the current one.",
+      snapshot: chat(finished, {
+        summary: {
+          sessionId: "gallery-reasoning",
+          harness: "codex",
+          model: "gpt-5.5",
+          cwd: CWD,
+          turnCount: 1,
+          configOptions: [
+            {
+              id: "reasoning_effort",
+              name: "Reasoning",
+              category: "thought_level",
+              currentValue: "high",
+              options: [
+                { value: "low", name: "Low" },
+                { value: "medium", name: "Medium" },
+                { value: "high", name: "High" },
+                { value: "xhigh", name: "Extra high" },
+              ],
+            },
+          ],
+        },
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: '[data-menu="Effort"]' });
+        await ctx.waitFor(() => ctx.document.querySelector('[role="menu"] [role="menuitemradio"]'));
+      },
+    },
+    "reasoning-none": {
+      note: "A model whose only level is the agent's default shows no reasoning control, never Default / Default.",
+      snapshot: chat(finished, {
+        summary: {
+          sessionId: "gallery-reasoning-none",
+          harness: "claude",
+          model: "claude-opus-5-5",
+          cwd: CWD,
+          turnCount: 1,
+          configOptions: [
+            {
+              id: "effort",
+              name: "Effort",
+              category: "thought_level",
+              currentValue: "default",
+              options: [{ value: "default", name: "Default" }],
+            },
+          ],
+        },
+      }),
     },
     "model-menu-starred": {
       note: "Play: open the model picker, star Sonnet, then open the rail's Starred tab: it lists the starred models of every harness.",
       snapshot: chat(finished, { harness: "claude", model: "claude-opus-5-5", title: "Starred models" }),
       play: async (ctx) => {
+        const { translate } = await import("./i18n");
+        const starred = { role: "option", name: translate("picker.starred") };
+        const favorite = { selector: '.acpmux-mp-favorite[aria-label$="Sonnet 5.5"]' };
         await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-model .acpmux-mp"));
-        await ctx.click({ selector: '.acpmux-mp-favorite[aria-label$="Sonnet 5.5"]' });
-        await ctx.click({ selector: '.acpmux-mp [title="Starred"]' });
-        await ctx.waitFor(() =>
-          ctx.document.querySelector('.acpmux-mp-models [aria-label="Starred"], .acpmux-mp-models .acpmux-mp-row'),
+        // A full provider catalog places Sonnet below the visible rows. Filter it into view
+        // before pointer input, then reveal the row's hover-only favorite control.
+        await ctx.type("Sonnet 5.5", { selector: ".acpmux-mp input[role=combobox]" });
+        await ctx.hover(favorite);
+        // Replay retains the pane's favorites. Keep Sonnet starred instead of toggling it off.
+        if (ctx.find(favorite).getAttribute("aria-pressed") !== "true") await ctx.click(favorite);
+        // Tooltips consume title on hover; the translated accessible name stays available.
+        await ctx.click(starred);
+        await ctx.waitFor(
+          () =>
+            ctx.find(starred).getAttribute("aria-selected") === "true" &&
+            [...ctx.document.querySelectorAll(".acpmux-mp-models .acpmux-menu-label")].some((row) =>
+              row.textContent?.endsWith("Sonnet 5.5"),
+            ),
         );
       },
     },
@@ -332,3 +592,11 @@ export default agentPaneEntry({
     },
   },
 });
+
+/// A chat snapshot with extra summary fields (the agent's config options).
+function withSummary(
+  snapshot: ReturnType<typeof chat>,
+  summary: Partial<NonNullable<ReturnType<typeof chat>["summary"]>>,
+): ReturnType<typeof chat> {
+  return { ...snapshot, summary: { ...snapshot.summary!, ...summary } };
+}

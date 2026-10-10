@@ -517,3 +517,85 @@ describe("design B, D, F, G (third review)", () => {
     expect(w.errors.join("\n")).toContain(`runs as ${stranger}, not the owner`)
   })
 })
+
+describe("rails-hardening-1: owner checks, bootstrap and the environment (P3)", () => {
+  const refusedWith = async (setup: (owner: string) => string, expected: string) => {
+    const w = await world()
+    const s = await w.admin(w.staging)
+    for (const q of setup(w.provider.owner).split(";").filter((x) => x.trim())) await s.query(q)
+    await s.end()
+    expect(await w.run("apply", ...S)).toBe(1)
+    expect(w.errors.at(-1)).toContain(expected)
+  }
+  it("P3-9 refuses a column-level grant on a public table", () => refusedWith((o) => `CREATE TABLE public.users (id text, email text); GRANT SELECT (email) ON public.users TO "${o}"`, "has column privileges on public.users"))
+  it("P3-9 refuses CREATE on another schema", () => refusedWith((o) => `CREATE SCHEMA other; GRANT CREATE ON SCHEMA other TO "${o}"`, "has CREATE on schema other"))
+  it("P3-9 refuses CREATEDB", () => refusedWith((o) => `ALTER ROLE "${o}" CREATEDB`, "can create databases"))
+  it("P3-8 a pending CREATE SCHEMA is no bootstrap when the schema already exists", async () => {
+    const w = await world()
+    landed(w)
+    const p = await w.admin(w.production)
+    await p.query(`CREATE SCHEMA cmux_vm AUTHORIZATION "${w.provider.owner}"`)
+    await p.end()
+    expect(await w.run("apply", ...S)).toBe(0)
+    expect(await w.run("apply", ...P)).toBe(1)
+    expect(w.errors.at(-1)).toContain("CREATE on the database")
+  })
+  it("P3-2 production refuses NODE_OPTIONS and BUN_OPTIONS", async () => {
+    const w = await world()
+    landed(w)
+    w.setEnv("NODE_OPTIONS", "--require /tmp/x.js")
+    expect(await w.run("apply", ...P)).toBe(1)
+    expect(w.errors.at(-1)).toContain("NODE_OPTIONS")
+  })
+  it("P3-3 DROP INDEX CONCURRENTLY runs outside a transaction", async () => {
+    const w = await world()
+    expect(await w.run("apply", ...S)).toBe(0)
+    addMigration(w.root, "cmux-vm", "0010_drop_idx.sql", "-- contract: the labels index is unused since the search moved to the API\nDROP INDEX CONCURRENTLY IF EXISTS cmux_vm.resources_labels_idx;\n")
+    addRequirement(w.root, '{ table: "cmux_vm.resources", migration: "0010" }')
+    expect(await w.run("apply", ...S, "--allow-contract", "0010_drop_idx.sql")).toBe(0)
+    const s = await w.admin(w.staging)
+    expect((await s.query<{ v: string | null }>("SELECT to_regclass('cmux_vm.resources_labels_idx')::text AS v"))[0]?.v).toBeNull()
+    await s.end()
+  })
+})
+
+describe("rails-hardening-2 (fifth review follow-up)", () => {
+  it("(3) a production adopt refuses runtime injection", async () => {
+    const w = await world()
+    landed(w)
+    w.setEnv("NODE_OPTIONS", "--require /tmp/x.js")
+    expect(await w.run("adopt", "--tree", "cmux-vm", "--target", "production", "--url-env", "PROD_URL", "--through", "0008", "--confirm-production")).toBe(1)
+    expect(w.errors.at(-1)).toContain("NODE_OPTIONS")
+  })
+  it("(4) a DROP INDEX CONCURRENTLY rerun after the index is already gone records the file", async () => {
+    const w = await world()
+    expect(await w.run("apply", ...S)).toBe(0)
+    const s = await w.owner(w.staging)
+    await s.query("DROP INDEX cmux_vm.resources_labels_idx")
+    await s.end()
+    addMigration(w.root, "cmux-vm", "0010_drop_idx.sql", "-- contract: the labels index is unused since the search moved to the API\nDROP INDEX CONCURRENTLY cmux_vm.resources_labels_idx;\n")
+    addRequirement(w.root, '{ table: "cmux_vm.resources", migration: "0010" }')
+    expect(await w.run("apply", ...S, "--allow-contract", "0010_drop_idx.sql")).toBe(0)
+    expect((await rows(w, w.staging)).at(-1)).toBe("0010_drop_idx.sql")
+  })
+})
+
+describe("rehearsal login for a PlanetScale-role owner (live 2026-10-09)", () => {
+  // A PlanetScale-managed role gets a new password on a branch copy, so the main branch's login fails
+  // there ("password authentication failed", production and backend/staging applies on 2026-10-09).
+  // A SQL owner keeps its password on the copy; a PlanetScale-role owner resets its own copy record.
+  it("resets the copy's owner role instead of reusing the main branch password", async () => {
+    const w = await world()
+    ;(w.deps as { ownerPgRole?: string | null }).ownerPgRole = null
+    expect(await w.run("apply", ...S)).toBe(0)
+    expect(w.provider.calls.some((c) => c.startsWith("connect owner cmux-prod/rh-"))).toBe(true)
+    expect(w.provider.calls.some((c) => c.startsWith("copy url"))).toBe(false)
+  })
+
+  it("keeps the copied login for a SQL owner", async () => {
+    const w = await world()
+    expect(await w.run("apply", ...S)).toBe(0)
+    expect(w.provider.calls.some((c) => c.startsWith("copy url cmux-prod/rh-"))).toBe(true)
+    expect(w.provider.calls.some((c) => c.startsWith("connect owner"))).toBe(false)
+  })
+})

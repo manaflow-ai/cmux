@@ -34,12 +34,14 @@ public struct CloudConfiguration: Sendable, Equatable {
     public var linkSource: LinkSource = .legacy
 
     public enum LinkSource: Sendable, Equatable {
-        /// `/api/vm` attach endpoint and a `cmux-tui remote connect` process
-        /// (frozen, contract 2.5).
+        /// `/api/vm` list, create and attach endpoint and a `cmux-tui remote
+        /// connect` process (frozen, contract 2.5). The default until the
+        /// first-party app packages ship in the bundle (cx-t2rz).
         case legacy
-        /// The Cloud app server's `cloud.machine.connect` carrier socket
-        /// (contract 2.3). Debug builds with `CMUX_CLOUD_LINK=app` only,
-        /// until the machine list comes from the app server too.
+        /// The Cloud app server (contract 2.1, 2.3): the machine list,
+        /// create and the `cloud.machine.connect` carrier socket, all on the
+        /// cmux-next API Worker through the host credential relay (cx-t2rz).
+        /// Debug builds with `CMUX_CLOUD_LINK=app`.
         case appServer
     }
 
@@ -118,8 +120,8 @@ public struct CloudConfiguration: Sendable, Equatable {
     /// a release build never sends a credential to another origin.
     public func ownerAPIBaseURL(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
         if isDebugBuild, let raw = environment["CMUX_NEXT_FEED_API_URL"], let url = URL(string: raw) { return url }
-        // crash-allow: both operands are constant, valid https URL literals, so the parse cannot fail
-        return URL(string: isProductionAuth ? "https://cloud-api.cmux.dev" : "https://cloud-api-staging.cmux.dev")!
+        // Both are constant https literals (CloudCrashLiteralTests parses them); /dev/null stands in.
+        return URL(string: isProductionAuth ? "https://cloud-api.cmux.dev" : "https://cloud-api-staging.cmux.dev") ?? Self.inertURL
     }
 
     public static func current(bundle: Bundle = .main, isDebugBuild: Bool) -> CloudConfiguration {

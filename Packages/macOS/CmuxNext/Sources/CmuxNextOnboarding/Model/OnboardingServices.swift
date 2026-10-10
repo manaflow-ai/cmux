@@ -48,7 +48,7 @@ public protocol OnboardingServices: AnyObject {
     func resumeChats(_ chats: [AgentChat])
     // Classic cmux session import
     var canImportClassicSessions: Bool { get }
-    func scanClassicSessions() async -> [ClassicSessionWorkspace]
+    func scanClassicSessions() async throws -> [ClassicSessionWorkspace]
     /// The chat ids (`AgentChat.id`) classic cmux had open in its terminals.
     func scanClassicOpenChats() async -> Set<String>
     func importClassicSessions(_ workspaces: [ClassicSessionWorkspace])
@@ -74,6 +74,15 @@ public protocol OnboardingServices: AnyObject {
     /// The helper app's grants, or nil when this build has no computer use
     /// (the step is left out then).
     var computerUsePermissions: (any ComputerUsePermissionSource)? { get }
+
+    // Number keys (Ctrl-1…9)
+    /// Whether the first run offers the Ctrl-1…9 choice (`TabKeysStepModel`).
+    var offersTabKeys: Bool { get }
+    /// What Ctrl-1…9 select in cmux.json now; nil when the person bound
+    /// them by hand.
+    func currentTabKeys() async -> TabKeysChoice?
+    /// Writes `choice` to cmux.json (bindings set by hand stay).
+    func applyTabKeys(_ choice: TabKeysChoice)
 
     // Accounts
     /// Whether the App supplies the accounts step (`makeAccountsStepView`).
@@ -107,6 +116,9 @@ public extension OnboardingServices {
     func revealInFinder(_ url: URL) { NSWorkspace.shared.activateFileViewerSelecting([url]) }
     var ghosttyHasOwnTheme: Bool { true }
     var hasAccountsStep: Bool { false }
+    var offersTabKeys: Bool { false }
+    func currentTabKeys() async -> TabKeysChoice? { .tabs }
+    func applyTabKeys(_ choice: TabKeysChoice) {}
     var computerUsePermissions: (any ComputerUsePermissionSource)? { nil }
     func canImportPasswords() async -> Bool { false }
     func makeAccountsStepView() -> NSView? { nil }
@@ -118,8 +130,8 @@ public extension OnboardingServices {
     func scanAgentChats() async -> [AgentChat] { [] }
     func resumeChats(_ chats: [AgentChat]) {}
     var canImportClassicSessions: Bool { false }
-    func scanClassicSessions() async -> [ClassicSessionWorkspace] {
-        await Task.detached { (try? ClassicSessionImporter().read()) ?? [] }.value
+    func scanClassicSessions() async throws -> [ClassicSessionWorkspace] {
+        try await Task.detached { try ClassicSessionImporter().read() }.value
     }
     func scanClassicOpenChats() async -> Set<String> {
         await Task.detached { (try? ClassicSessionImporter().readOpenChats()) ?? [] }.value

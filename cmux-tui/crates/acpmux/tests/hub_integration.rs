@@ -12,6 +12,8 @@ use tokio::sync::mpsc;
 
 #[path = "hub_integration/cursor_requests.rs"]
 mod cursor_requests;
+#[path = "hub_integration/drafts.rs"]
+mod drafts;
 #[path = "hub_integration/permission_groups.rs"]
 mod permission_groups;
 #[path = "hub_integration/questions.rs"]
@@ -97,15 +99,29 @@ async fn setup_env(
     cfg.permission_policy = policy;
     let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(cfg, store);
+    // These clients stand for the person at the app (`hub/person.rs`).
+    hold_person_key(&hub);
     let (in_tx, in_rx) = mpsc::channel(64);
     let (out_tx, out_rx) = mpsc::channel(4096);
     tokio::spawn(serve_connection(hub.clone(), in_rx, out_tx));
     let mut client = TestClient { tx: in_tx, rx: out_rx, next: 0 };
-    client
-        .request(method::INITIALIZE, json!({"protocolVersion": 1, "clientInfo": {"name": "test"}}))
-        .await
-        .unwrap();
+    client.request(method::INITIALIZE, person_initialize()).await.unwrap();
     (hub, client)
+}
+
+/// The person key the in-process daemon of these tests holds.
+const PERSON_KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+/// `hub` holds [`PERSON_KEY`], as a daemon the app started does.
+fn hold_person_key(hub: &Hub) {
+    // A second call on one hub is refused: the hub already has the key.
+    let _ = hub.person.install_spawn_key(PERSON_KEY);
+    assert!(hub.person.matches(PERSON_KEY));
+}
+
+/// An `initialize` that presents [`PERSON_KEY`] (the app's first frame).
+fn person_initialize() -> Value {
+    json!({"protocolVersion": 1, "clientInfo": {"name": "test"}, "_meta": {"acpmux": {"personKey": PERSON_KEY}}})
 }
 
 fn cwd() -> String {
@@ -611,13 +627,12 @@ async fn restart_marks_unknown_outcome() {
     cfg.store.mode = StoreMode::Local;
     let store = acpmux::store::open(&cfg.store, &dir).unwrap();
     let hub = Hub::new(cfg.clone(), store);
+    hold_person_key(&hub);
     let (in_tx, in_rx) = mpsc::channel(64);
     let (out_tx, out_rx) = mpsc::channel(4096);
     tokio::spawn(serve_connection(hub.clone(), in_rx, out_tx));
     let mut c = TestClient { tx: in_tx, rx: out_rx, next: 0 };
-    c.request(method::INITIALIZE, json!({"protocolVersion": 1, "clientInfo": {"name": "test"}}))
-        .await
-        .unwrap();
+    c.request(method::INITIALIZE, person_initialize()).await.unwrap();
     let s = c
         .request(
             method::SESSION_NEW,
@@ -703,13 +718,12 @@ async fn limit_error_fails_over_to_the_fallback_profile() {
     cfg.permission_policy = PermissionPolicy::ApproveAll;
     let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(cfg, store);
+    hold_person_key(&hub);
     let (in_tx, in_rx) = mpsc::channel(64);
     let (out_tx, out_rx) = mpsc::channel(4096);
     tokio::spawn(serve_connection(hub.clone(), in_rx, out_tx));
     let mut c = TestClient { tx: in_tx, rx: out_rx, next: 0 };
-    c.request(method::INITIALIZE, json!({"protocolVersion": 1, "clientInfo": {"name": "test"}}))
-        .await
-        .unwrap();
+    c.request(method::INITIALIZE, person_initialize()).await.unwrap();
     let s = c
         .request(
             method::SESSION_NEW,
@@ -825,13 +839,12 @@ async fn family_defaults_presets_and_the_target_grammar() {
     );
     let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(cfg, store);
+    hold_person_key(&hub);
     let (in_tx, in_rx) = mpsc::channel(64);
     let (out_tx, out_rx) = mpsc::channel(4096);
     tokio::spawn(serve_connection(hub.clone(), in_rx, out_tx));
     let mut c = TestClient { tx: in_tx, rx: out_rx, next: 0 };
-    c.request(method::INITIALIZE, json!({"protocolVersion": 1, "clientInfo": {"name": "test"}}))
-        .await
-        .unwrap();
+    c.request(method::INITIALIZE, person_initialize()).await.unwrap();
     // -m fake: the family's prefer list picks the pool; defaults apply.
     let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"harness": "fake", "name": "fam"}}})).await.unwrap();
     let sum = &s["_meta"]["acpmux"];
@@ -1177,10 +1190,13 @@ impl TestClient {
 
 /// A second connection to the same hub.
 async fn connect(hub: &Arc<Hub>) -> TestClient {
+    hold_person_key(hub);
     let (in_tx, in_rx) = mpsc::channel(64);
     let (out_tx, out_rx) = mpsc::channel(4096);
     tokio::spawn(serve_connection(hub.clone(), in_rx, out_tx));
-    TestClient { tx: in_tx, rx: out_rx, next: 0 }
+    let mut client = TestClient { tx: in_tx, rx: out_rx, next: 0 };
+    client.request(method::INITIALIZE, person_initialize()).await.unwrap();
+    client
 }
 
 async fn new_session(c: &mut TestClient, name: &str) -> String {

@@ -44,6 +44,10 @@ const CONNECTION_REASON: &str =
 /// scripts (`cmux-tui conversation`) use the operations instead.
 const CONVERSATION_REASON: &str = "A conversation belongs to the person: MCP clients act as the local user, so conversations stay with Home, cmux chief and cmux-tui conversation.";
 
+/// The Chief's engine and turn are the owner's (the daemon refuses an
+/// agent-bound connection); an MCP client is an agent acting as the user.
+const CHIEF_REASON: &str = "The Chief's engine and turn are the owner's: cmux chief, Home and the owner's scripts control them, never an agent.";
+
 pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("conversation.list", CONVERSATION_REASON),
     ("conversation.get", CONVERSATION_REASON),
@@ -52,6 +56,9 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("conversation.send", CONVERSATION_REASON),
     ("conversation.typing", CONVERSATION_REASON),
     ("conversation.draft", CONVERSATION_REASON),
+    ("chief.engine.get", CHIEF_REASON),
+    ("chief.engine.set", CHIEF_REASON),
+    ("chief.stop", CHIEF_REASON),
     ("machine.list", MACHINE_REASON),
     ("machine.get", MACHINE_REASON),
     ("session.list", MACHINE_REASON),
@@ -91,10 +98,22 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("window_record.delete", WINDOW_RECORD_REASON),
     ("sidebar_layout.get", SIDEBAR_LAYOUT_REASON),
     ("sidebar_layout.update", SIDEBAR_LAYOUT_REASON),
+    ("project.list", PROJECT_REASON),
+    ("project.observe", PROJECT_REASON),
+    ("project.add", PROJECT_REASON),
+    ("project.update", PROJECT_REASON),
+    ("project.remove", PROJECT_REASON),
+    ("project.sync", PROJECT_REASON),
+    ("palette_usage.get", PALETTE_USAGE_REASON),
+    ("palette_usage.record", PALETTE_USAGE_REASON),
+    ("palette_usage.import", PALETTE_USAGE_REASON),
+    ("palette_usage.hide", PALETTE_USAGE_REASON),
+    ("palette_usage.forget", PALETTE_USAGE_REASON),
     ("workspace.ensure_home", HOME_REASON),
     ("workspace.agent_folder.set", AGENT_FOLDER_REASON),
 ];
 
+const PROJECT_REASON: &str = "The user's folders (project-list-v1) stay with the app and its importers; an MCP client never reads or edits them.";
 const MACHINE_REASON: &str =
     "Machine and session plumbing in the cmux-tui-only scopes; the curated cmux CLI omits it.";
 const LIFECYCLE_REASON: &str = "Session lifecycle (ends every terminal or reloads the daemon); \
@@ -110,6 +129,8 @@ const WINDOW_RECORD_REASON: &str = "A window record has one writer, the app that
      window; the CLI omits it too, and window_list reads the app's windows.";
 const SIDEBAR_LAYOUT_REASON: &str = "The Mac app's sidebar layout: agents edit it through the \
      app's sidebar actions (action tools), which keep the app's intent log.";
+const PALETTE_USAGE_REASON: &str = "The user's own palette usage history: the app's palette \
+     records and reads it; agents rank rows through palette.query, never read or write usage.";
 const SIDEBAR_REASON: &str = "TUI sidebar plugin views in the cmux-tui-only scope.";
 const HOME_REASON: &str = "The hosting app creates its one home workspace on connect; the CLI \
      never offers it (workspace-kind-v1).";

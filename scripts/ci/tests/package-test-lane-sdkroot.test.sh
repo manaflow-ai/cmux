@@ -16,7 +16,8 @@ trap 'rm -rf "$tmp"' EXIT
 repo="$tmp/repo"
 mkdir -p "$repo/scripts/ci" "$repo/Packages/macOS/Fake" "$tmp/bin"
 # The lane and the Python helpers it imports (hung_test_watchdog.py needs ci_process_tree.py).
-cp "$ROOT/scripts/ci/package-test-lane.sh" "$ROOT"/scripts/ci/*.py "$repo/scripts/ci/"
+cp "$ROOT/scripts/ci/package-test-lane.sh" "$ROOT"/scripts/ci/*.py \
+  "$ROOT/scripts/ci/swift-test-debug-info.sh" "$repo/scripts/ci/"
 printf '// swift-tools-version:5.9\nimport PackageDescription\nlet package = Package(name: "Fake")\n' \
   > "$repo/Packages/macOS/Fake/Package.swift"
 dev="$tmp/Xcode_26.6.app/Contents/Developer"
@@ -34,7 +35,7 @@ exit 1
 SH
 cat > "$tmp/bin/swift" <<'SH'
 #!/usr/bin/env bash
-echo "swift $1 SDKROOT=${SDKROOT:-unset}" >> "$FAKE_SEEN"
+echo "swift $* SDKROOT=${SDKROOT:-unset}" >> "$FAKE_SEEN"
 case "$1" in
   build) echo "Build complete!"; exit 0 ;;
   test)
@@ -57,7 +58,7 @@ fails=0
 lane() {
   local mode="$1" code="$2" out status=0
   : > "$tmp/seen"
-  out=$(cd "$repo" && env PATH="$tmp/bin:$PATH" DEVELOPER_DIR="$dev" \
+  out=$(cd "$repo" && env ${LANE_ENV:-} PATH="$tmp/bin:$PATH" DEVELOPER_DIR="$dev" \
     SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk \
     FAKE_SEEN="$tmp/seen" FAKE_MODE="$mode" FAKE_EXIT="$code" RUNNER_TEMP="$tmp" \
     CMUX_SWIFT_TEST_STALL_SECONDS=30 CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS=60 \
@@ -78,5 +79,20 @@ for code in 1 0; do
     fails=$((fails + 1))
   fi
 done
+# Crash program phase 3: suite mode with CMUX_SWIFT_SANITIZE builds and tests under the
+# sanitizer in its own scratch folder (the tip guard found suite mode ignoring it, so a
+# "TSan" step reported plain greens).
+LANE_ENV=CMUX_SWIFT_SANITIZE=thread lane ok 0
+for verb in build test; do
+  if ! grep -E "^swift $verb .*--sanitize=thread .*--scratch-path Packages/macOS/Fake/\.build-sanitize-thread" "$tmp/seen" >/dev/null; then
+    echo "FAIL: suite mode ran swift $verb without --sanitize=thread and its scratch path:" >&2; cat "$tmp/seen" >&2; fails=$((fails + 1))
+  fi
+done
+if ! grep -E "^swift build .*-Xlinker -no_compact_unwind" "$tmp/seen" >/dev/null; then
+  echo "FAIL: the sanitizer build does not drop compact unwind (ld refuses four personality routines):" >&2; cat "$tmp/seen" >&2; fails=$((fails + 1))
+fi
+if [[ "$LANE_OUT" != *"sanitize=thread"* ]]; then
+  echo "FAIL: the build group line does not name the sanitizer: $LANE_OUT" >&2; fails=$((fails + 1))
+fi
 if [ "$fails" -ne 0 ]; then exit 1; fi
 echo "package-test-lane SDKROOT pin: ok"

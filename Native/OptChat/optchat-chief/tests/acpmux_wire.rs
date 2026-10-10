@@ -230,9 +230,11 @@ fn a_turn_over_the_acpmux_wire() {
             preset: None,
             tags: Default::default(),
             env: Default::default(),
+            fast: false,
         },
         blocks: turn_blocks("<chat>\n</chat>", &["what is x?".into()]),
         limit: None,
+        idle_limit: None,
     };
     let outcome = turn::run(
         &*acpmux,
@@ -271,7 +273,7 @@ fn a_turn_over_the_acpmux_wire() {
     let prompt = find("session/prompt");
     assert_eq!(prompt["params"]["sessionId"], "s-1");
     assert_eq!(prompt["params"]["_meta"]["acpmux"]["promptId"], "optchat:0");
-    assert_eq!(prompt["params"]["prompt"][1]["text"], "what is x?");
+    assert_eq!(prompt["params"]["prompt"][2]["text"], "what is x?");
     assert_eq!(
         find("_acpmux/kill")["params"],
         json!({"sessionId": "s-1", "purge": true})
@@ -319,6 +321,7 @@ fn compactor_session(dir: &std::path::Path) -> SessionSpec {
         preset: Some("optchat-compact-1a2b3c4d".into()),
         tags: Default::default(),
         env: Default::default(),
+        fast: false,
     }
 }
 

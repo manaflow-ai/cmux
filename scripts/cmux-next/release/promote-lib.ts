@@ -28,6 +28,7 @@ import { spawnSync } from "node:child_process"
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { compatNow } from "./compat.ts"
 import { receiptsDir, runIdOf, summaryLine, writeReceipt } from "./receipts.ts"
 import { REPO_ROOT } from "./trees.ts"
 
@@ -207,7 +208,7 @@ export const promote = async (argv: ReadonlyArray<string>, deps: PromoteDeps): P
         }
       // cmux-old shares the Freestyle production account: the compat gate runs here, for the production copy's id.
       const change = { kind: "image" as const, variable: v, snapshotId: pointer.snapshot_id }
-      const compat = await (deps.compat ?? (async (c) => (await import("./compat.ts")).compatNow(deps.root, c, deps.env)))(change)
+      const compat = await (deps.compat ?? ((c) => compatNow(deps.root, c, deps.env)))(change)
       if (compat.length) {
         for (const c of compat) deps.error(c)
         return 1
@@ -251,6 +252,8 @@ export const promote = async (argv: ReadonlyArray<string>, deps: PromoteDeps): P
     promotion: rollback ? { rollback: true } : { smoke: smokeRecord },
   })
   const latest = existsSync(file) ? readJson(file) : doc // dev.json may have gained a promotion_smokes entry
+  // A top-level section is the whole file: its history is the copy read before the smoke, so the latest one wins.
+  if (!SECTION[v]) delete written.history
   writeJson(file, SECTION[v] ? { ...latest, [SECTION[v]!]: written } : { ...latest, ...written })
   const worker = WORKER_OF[channel]
   const version = value("--worker-version")

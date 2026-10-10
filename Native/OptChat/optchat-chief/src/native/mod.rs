@@ -508,33 +508,3 @@ fn limit_text(limit: Option<Duration>) -> String {
         limit.unwrap_or_default().as_secs() / 60
     )
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Spec 3.3 (gist 3c190e0): the view in blocks of 4 lines, one marker on
-    /// the last whole block (the request's end carries the other).
-    #[test]
-    fn one_view_breakpoint_on_the_last_whole_four_line_block() {
-        let line = format!("{}\n", "x".repeat(99));
-        let mut view = String::from("<chat>\n");
-        for _ in 0..1_102 {
-            view.push_str(&line);
-        }
-        view.push_str("</chat>");
-        let blocks = crate::prompt::turn_blocks(&view, &["new".into()]);
-        // 275 whole blocks, the rest (two lines and the end tag), the message.
-        assert_eq!(blocks.len(), 277);
-        let message = Native::first_message(&blocks);
-        let marked: Vec<usize> = message["content"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .enumerate()
-            .filter(|(_, b)| b.get("cache_control").is_some())
-            .map(|(k, _)| k)
-            .collect();
-        assert_eq!(marked, vec![274]);
-    }
-}

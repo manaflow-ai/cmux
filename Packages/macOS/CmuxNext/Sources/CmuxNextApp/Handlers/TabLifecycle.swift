@@ -110,7 +110,8 @@ enum TabLifecycle {
         var kind = sameKind
         if user {
             let setting = ctx.services.settings?.snapshot.newTabKind ?? NewTabDefaultKind.fallback
-            kind = NewTabKind.resolve(setting, sameKind: sameKind, recent: ctx.services.newTabKinds.recent(in: folder))
+            kind = NewTabKind.resolve(setting, template: ctx.services.settings?.snapshot.newTabTemplate,
+                                      sameKind: sameKind, recent: ctx.services.newTabKinds.recent(in: folder))
         }
         // Agent tabs and the page live in a shown pane whose daemon holds agent tabs; elsewhere,
         // a terminal. A build without the agent page has no new tab page either.
@@ -254,17 +255,18 @@ enum TabLifecycle {
             return
         }
         let browserTabs = ctx.services.cache.browserTabs
-        guard browserTabs.isAvailable() else { return ctx.refuse(RefusalStrings.needsDaemonCapability(DaemonCapabilities.shared.frontendBrowserTabs)) }
+        if let refusal = browserTabs.refusal(in: pane) { return ctx.refuse(refusal) }
+        guard browserTabs.isAvailable(in: pane) else { return ctx.refuse(RefusalStrings.needsDaemonCapability(DaemonCapabilities.shared.frontendBrowserTabs)) }
         let choice: BrowserEngineChoice
         switch browserTabs.resolve(requested: engine) {
         case .refuse(let reason): return ctx.refuse(BrowserTabService.message(reason))
         case .open(let resolved): choice = resolved
         }
-        let handle = pane.handle, address = url?.absoluteString ?? ctx.services.newTabAddress(for: choice)
+        let address = url?.absoluteString ?? ctx.services.newTabAddress(for: choice)
         let logger = ctx.services.daemon.logger
         ctx.registry.track(Task {
             do {
-                let surface = try await browserTabs.open(choice, in: handle, url: address)
+                let surface = try await browserTabs.open(choice, in: pane, url: address)
                 agentTab?(surface)
                 return nil
             } catch {
@@ -278,7 +280,7 @@ enum TabLifecycle {
     /// frontend tab on the resolved engine, else nil (the chat stays).
     private static func chatRespawn(_ ctx: AppActionContext, url: URL?, engine: String?,
                                     profile: AgentBrowserProfile.Request) -> SplitRespawn? {
-        guard case let browserTabs = ctx.services.cache.browserTabs, browserTabs.isAvailable(),
+        guard case let browserTabs = ctx.services.cache.browserTabs, browserTabs.isAvailable(on: ctx.services.daemon),
               case .open(let choice) = browserTabs.resolve(requested: engine) else { return nil }
         var profileID: String?
         if case .explicit(let id) = profile { profileID = id }
@@ -294,7 +296,9 @@ enum TabLifecycle {
             controller.newBrowserTab(url: url, engine: engine, profile: profile, then: agentTab)
             return
         }
-        guard case let browserTabs = ctx.services.cache.browserTabs, browserTabs.isAvailable() else {
+        let browserTabs = ctx.services.cache.browserTabs
+        if let refusal = browserTabs.refusal(in: pane) { return ctx.refuse(refusal) }
+        guard browserTabs.isAvailable(in: pane) else {
             return ctx.refuse(RefusalStrings.needsDaemonCapability(DaemonCapabilities.shared.frontendBrowserTabs))
         }
         let choice: BrowserEngineChoice
@@ -302,10 +306,10 @@ enum TabLifecycle {
         case .refuse(let reason): return ctx.refuse(BrowserTabService.message(reason))
         case .open(let resolved): choice = resolved
         }
-        let handle = pane.handle, address = url?.absoluteString ?? ctx.services.newTabAddress(for: choice)
+        let address = url?.absoluteString ?? ctx.services.newTabAddress(for: choice)
         ctx.registry.track(Task {
             do {
-                let surface = try await browserTabs.open(choice, in: handle, url: address, profile: profile)
+                let surface = try await browserTabs.open(choice, in: pane, url: address, profile: profile)
                 agentTab?(surface)
                 return nil
             } catch {

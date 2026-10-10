@@ -106,6 +106,25 @@ extension BrowserChromeView {
             renderPrompt()
         }
         headerBandReattachIfInstalled()
+        syncPageOverlays()
+    }
+
+    /// Its pane parked this tab hidden (another tab shows): popups close, as
+    /// when it leaves the window.
+    public override func viewDidHide() {
+        super.viewDidHide()
+        extensionToolbar.hidePopups()
+        syncPageOverlays()
+    }
+
+    /// Its pane shows this parked tab again: it repaints, as when it comes
+    /// back into the window (R55). The pane re-pins its header band itself.
+    public override func viewDidUnhide() {
+        super.viewDidUnhide()
+        guard window != nil else { return }
+        updateColors()
+        renderPrompt()
+        syncPageOverlays()
     }
 
     /// The region of this chrome that contains `view`, nil when outside.

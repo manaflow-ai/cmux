@@ -16,6 +16,7 @@ import {
 } from "./omnibar";
 import { homePath, projectLabel, sessionEntry, sessionMark, type AcpmuxSessionEntry } from "./sessionList";
 import { type StringKey, type Translate, translate, useT } from "./i18n";
+import { parseNewTabTemplate, type NewTabTemplate } from "./newtab/templates";
 
 /// The three things a new tab can become (#16620). Order is the switch's order and Tab's cycle.
 export const TAB_KINDS = ["terminal", "browser", "agent"] as const;
@@ -88,10 +89,14 @@ export type NewTabHost = {
   /// Which design (Debug Settings `newTab.layout`): "b" the one-input screen (default),
   /// "a" this Terminal | Browser | Agent page, kept until B passes dogfood (decision Q6).
   layout: "a" | "b";
+  /// The saved template (`tabs.newTabTemplate`); unset follows `layout` (newtab/templates.ts).
+  template?: NewTabTemplate;
   /// The agent last picked (decision Q3).
   lastAgent?: string;
   /// The home folder, so `~/path` reads as a folder.
   home?: string;
+  /// false: leave the field unfocused (Cmd-L opened the page for the omnibar, cx-e2aa).
+  focusesField?: boolean;
 };
 
 /// Reads `newTab` from the handshake: `true`, or `{hotkeys, kind, cwd, host}`. Nil for a plain chat.
@@ -109,6 +114,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
   const cwd =
     typeof object.cwd === "string" ? object.cwd : typeof handshake.cwd === "string" ? handshake.cwd : undefined;
   const omnibar = omnibarContext(object.omnibar);
+  const template = parseNewTabTemplate(object.template);
   const tools = Array.isArray(object.tools)
     ? object.tools.flatMap((tool) => {
         if (typeof tool !== "object" || tool === null) return [];
@@ -144,9 +150,11 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
       ? { defaultKind: object.defaultKind as DefaultKind }
       : {}),
     layout: object.layout === "a" ? "a" : "b",
+    ...(template ? { template } : {}),
     ...(typeof object.lastAgent === "string" && object.lastAgent ? { lastAgent: object.lastAgent } : {}),
     ...(typeof object.home === "string" && object.home.startsWith("/") ? { home: object.home } : {}),
     ...(typeof object.inputToken === "string" && object.inputToken ? { inputToken: object.inputToken } : {}),
+    ...(object.focusesField === false ? { focusesField: false } : {}),
   };
 }
 
@@ -667,7 +675,8 @@ export function KindIcon({ kind }: { kind: TabKind }) {
   }
 }
 
-const FolderIcon = () => (
+/// A folder glyph (the project picker on both New Tab designs).
+export const FolderIcon = () => (
   <Icon>
     <path d="M1.9 4.6c0-.8.6-1.4 1.4-1.4h2.6l1.5 1.6h5.3c.8 0 1.4.6 1.4 1.4v5.6c0 .8-.6 1.4-1.4 1.4H3.3c-.8 0-1.4-.6-1.4-1.4Z" />
   </Icon>

@@ -39,18 +39,25 @@ export type ModelPickerProps = {
   catalogRefresh?: CatalogRefreshState;
   /// Starts a new chat in another harness; without it, other harnesses are not offered.
   onHarness?(harness: string): void;
+  /// One pick of a model with the effort and fast mode a typed query named ("gpt medium fast"),
+  /// in this harness or another (which starts a new chat there, then applies the rest).
+  onCombo?(combo: ModelCombo): void;
   /// The pointer or keyboard rests on a harness row (undefined: the menu closed), for acpmux's
   /// prewarm hint (harnessSwitch.ts).
   onHarnessHint?(harness: string | undefined): void;
   /// Enables the chat folder's profile `id` from `folder` (a "needs Enable" row's pick). Called
   /// from the click or key handler itself: the host's confirmation needs the gesture.
   onHarnessEnable?(folder: string, id: string): void;
+  /// The rail's + (Add agent…): the app's agent.harness.add, which opens Settings > Agents > Add.
+  onAddAgent?(): void;
   /// A short note per harness in place of "New chat" (a harness that failed to start).
   harnessNotes?: Readonly<Record<string, string>>;
   /// The room, in px, left of the open menu for its submenus (`menuRoom`). Tests pass a
   /// number in place of real layout.
   measureRoom?(menu: HTMLElement): number;
 };
+
+export type ModelCombo = { harness: string; model: string; effort?: string; fast?: boolean };
 
 export type CatalogRefreshState = {
   status?: "idle" | "fetching" | "updated" | "error";

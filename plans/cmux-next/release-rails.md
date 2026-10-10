@@ -33,7 +33,8 @@ test and push guard, and before every rehearse and apply). Three layers on the p
    file), and on an existing table only ADD COLUMN (nullable or NOT NULL with a stable
    DEFAULT: constants, casts, CURRENT_*, now(); no IDENTITY, GENERATED, UNIQUE or PRIMARY
    KEY), SET DEFAULT, DROP NOT NULL, ADD CONSTRAINT CHECK/FOREIGN KEY NOT VALID, VALIDATE.
-   A table created in the same file may be shaped freely (except layer 1).
+   A table created in the same file may be shaped freely (except layer 1); `CREATE TABLE IF NOT EXISTS`
+   never counts as created (it may meet a live table).
 3. *cmux-vm confinement*, even with a header: every name (any node with a relname: tables,
    views, CTAS targets, sequences, policy tables, composite types; qualified types and
    functions; created types and domains, which must be qualified; COMMENT targets) is in schema `cmux_vm`
@@ -44,8 +45,8 @@ Every tree: `NNNN_lower_snake.sql`, numbered from 0001 without gaps; every file 
 entries are append-only; `--base <previous head>` also compares that revision's files and
 lock and requires new numbers above its highest. cmux-vm: `REQUIRED_SCHEMA` in
 `workers/cmux-vm/src/db/schema-requirements.ts` must name the newest file's number (add the
-table, column or index it creates). Files up to `grandfatheredThrough` (cmux-vm 0008,
-backend 0006) predate the rules and are hash-checked only. backend files keep
+table, column or index it creates). Only the files in lint.ts `GRANDFATHERED` (exact name and hash: cmux-vm 0001-0008, backend
+0001-0006) skip the statement rules; no lock edit or intermediate push can move that boundary. backend files keep
 `-- phase: contract` and `-- contract:` together.
 
 **Runner guards** (`runner.ts`, independent of the lint). Each file runs in its own
@@ -92,6 +93,13 @@ deploy's own credentials and refuses when a migration file of the commit is not 
 (`workers/cmux-vm/src/db/schema-requirements.ts`, the same query the Worker runs) finds a
 missing table, column or privilege. While the tracking table is absent or unreadable by
 the deploy role it warns and the schema check alone decides.
+
+**Development vars** (`worker-release.ts vars --base-config`, backend.yml deploy-development): the
+serving version's vars must equal wrangler.jsonc env.development.vars at the push's BEFORE commit
+(an all-zero BEFORE uses the parent of the feat-cmux-next head). A difference is drift (a var set
+out of band): refused, names only. When they match, the repo is the source: a var the pushed
+commits change (an image promotion, CLOUD_ALLOWED_TEAMS) deploys, and the step logs each change by
+name and plain value.
 
 **Post-deploy** (`worker-release.ts`): before the deploy it records the version serving
 100% (refuses during a gradual deployment); after it smokes `release-smoke.json` (routes
@@ -168,6 +176,24 @@ inherited roles; verify the old owner owns only cmux_vm objects (the read-only c
 change's notes); `pscale role reassign <old id> --successor <new pg role>` (pscale_admin moves the
 objects); never `--successor postgres`; verify as above; set `ownerPgRole`/`ownerRole` in trees.ts.
 
+## Hardening 1 (after the fourth review)
+
+No migration may name the tracking table; CREATE/DROP INDEX CONCURRENTLY is alone in its file and
+runs outside a transaction (CREATE names its index); serial columns and an inline CHECK on an
+existing table are refused (the CHECK needs a header); CREATE SCHEMA has no AUTHORIZATION;
+sequences are permanent with no OWNED BY; COMMENT names an exact table, column, index, sequence,
+type or the schema. The owner check also refuses CREATEDB, CREATE on another schema and column
+grants outside cmux_vm. A production step exports the files from git at the verified commit,
+re-checks HEAD right before it writes, and refuses NODE_OPTIONS, BUN_OPTIONS, BUN_CONFIG_*,
+NODE_PATH, LD_PRELOAD, DYLD_INSERT_LIBRARIES and a bunfig.toml preload. migrations.lock.json
+also pins libpg-query's package.json, and one digest over every file of the runtime packages
+(the pg and libpg-query closures); `lint.ts` prints `pins ok: ...` when both match. Library-path
+variables (LD_LIBRARY_PATH, LD_AUDIT, DYLD_LIBRARY_PATH, DYLD_FRAMEWORK_PATH), a preload in
+~/.bunfig.toml or $XDG_CONFIG_HOME/.bunfig.toml, and a --preload/--require flag are refused too;
+the clean-tree check runs again right before every production write, and production adopt
+checks the same. A production step that ever runs in CI runs under `env -i` with an explicit
+PATH and only the variables it needs.
+
 ## First live run of the deploy rails
 
 The deploy steps (cmux-vm.yml deploy-staging: ordering gate, record version, smoke and rollback;
@@ -178,6 +204,12 @@ steps "Deploy ordering gate", "Record the serving version", "Smoke health and ch
 "Smoke the API Worker") ran and logged `gate ok`, `previous version of ...` and `smoke green`, and
 reports the run id in the landing report. A red step there is that pusher's P0.
 
+Done 2026-10-09 on the rails' own trunk push d21f7844e1ba: cmux VM run 37882089972 (deploy-staging
+logged `gate ok: cmux-vm/staging has every migration this commit needs (9 files)`, `previous
+version of cmux-vm-staging: 64b76a0d-...`, 7 routes PASS, `smoke green`) and backend run 37882089907
+(deploy-staging logged `all 6 migrations applied`, `previous version of cmux-api-staging:
+5167083a-...`, `smoke green: cmux-api-staging`).
+
 ## Backend label apply (parked)
 
 backend-migrations.yml still applies on its `backend:apply-migrations` label through
@@ -186,6 +218,27 @@ feat-cmux-next-hq39-backend-label-rails: it needs `PLANETSCALE_SERVICE_TOKEN_ID`
 `PLANETSCALE_SERVICE_TOKEN` in cmux-next-staging and cmux-next-production (the chief) and a
 landed-checkout production apply (workflow_dispatch after landing); without both, the required
 gate "backend migrations applied" could not pass.
+
+## Image staleness
+
+`image-staleness.ts` (bead cx-4l51; workflow `cloud-image-staleness.yml`) keeps the Cloud images
+from falling behind the daemon silently. Each bake records the baked daemon's full `identify`
+answer (`web/scripts/cmux-vm-image/identify.ts`); the bake record in `channels/dev.json`
+`history` keeps it as `cmux_tui: {commit, committed_at, capabilities}`. The guard reads every
+image a channel points at (the Cloud image at the top level, the team VM image under `team_vm`)
+and the tip's capability list from the cmux-tui source (`advertised_capabilities` and
+`identify_capabilities` in `cmux-tui-core/src/server/capabilities.rs`; a name it cannot resolve
+fails it). Runtime-only capabilities (inside an `if` in `identify_capabilities`, and the app host
+and file ops lists) are never required. It fails when an image lacks a capability the tip always
+serves, when the set differs and the image's cmux-tui is more than 7 days older than the tip
+commit, when an image has no recorded list, or when wrangler.jsonc boots an image the channel
+does not point at. On feat-cmux-next pushes that touch `cmux-tui/crates/`, the channels or
+wrangler.jsonc it keeps one `cloud-image-stale` issue up to date and closes it when the images
+match again. The workflow job stays green (a warning only): staleness is not a code red and never
+blocks a landing. The daily schedule in the workflow is dormant until feat-cmux-next reaches main
+(GitHub schedules run only from the default branch). Fix: rebake from a published tip cmux-tui,
+smoke (`--expect-capabilities <bake json>` checks the fresh clone's handshake), record, promote.
+`web/scripts/cmux-vm-image/capabilities-probe.ts` reads an existing image's handshake on one clone.
 
 ## Rollback
 
@@ -212,19 +265,47 @@ receipt written elsewhere counts); `compat.ts check --change ...` runs the same 
 ```bash
 R=scripts/cmux-next/release
 bun $R/compat.ts check --change migrations:cmux-vm --target production    # or image:<VAR>:<sh-id>
-bun $R/cmux-old.ts replay --change dry-run                                 # the replay alone, any time
+bun $R/cmux-old.ts replay --change dry-run                                 # the signed-in replay alone, any time
+bun $R/cmux-old.ts revisions                                               # staging vs production web commit
 bun $R/cmux-old.ts generate --tag <new stable tag>                         # after every stable release; commit the spec
 ```
 
 The client half replays the requests the latest stable release's shipped Swift builds
-(`cmux-old/<tag>.json`: 70 for v0.65.0, tag commit 499779c6c2c0; GET status classes and JSON
-keys recorded from cmux.com without credentials) against https://cmux-staging.vercel.app. A GET
-must answer its recorded class (a JSON 2xx with at least its keys); any other method must not
-answer 404, 405 or 5xx. `cmux-old/staging-gaps.json` lists reviewed staging-only differences
-(today: POST /api/billing/recover answers 503 on staging). A production step refuses when the
-latest stable release is newer than the newest spec. The app is never started for this.
-Follow-up (bead filed by the lead): a real-binary smoke of the latest release on an isolated
-cloud Mac VM, and authenticated replays with a signed-in agent profile.
+(`cmux-old/<tag>.json`, generated from the tag alone, no network, byte-for-byte reproducible:
+81 requests for v0.65.0, tag commit dda24fbd2250, build 108; origin moved the tag from 499779c6c2c0
+on 2026-10-05, and the gate refuses a spec whose commit is not what origin's tag names now). For each "/api/" literal the generator finds
+the method (call argument, the helper or function that sets `httpMethod`, a ternary, a URL helper's
+callers), the path template, the header names the client sets, the JSON body keys and, for reads,
+the shape the client's decoder needs: parsed from the `Decodable` struct (CodingKeys, optionals,
+nested types, raw enums, custom `init(from:)`), or for a hand-written dictionary decoder from a
+reviewed entry in `cmux-old/<tag>.review.json` with its source line. A literal that resolves to
+nothing must be skipped there with a reason (cache tables, telemetry labels); a stale entry fails.
+
+The replay signs in as the AGENT test profile only (`CMUX_UITEST_STACK_EMAIL`/`_PASSWORD`, from
+the environment, else the file named by `--credentials` or `CMUX_RELEASE_AGENT_CREDENTIALS`, else
+`~/.secrets/cmuxterm-dev.env`; `--credentials -` reads stdin; values never
+printed; it refuses an email equal to `CMUX_DOGFOOD_STACK_EMAIL` of the environment, that file or
+`~/.secrets/cmuxterm-dev.env`; a file whose agent email is the personal one fails the step).
+`CMUX_RELEASE_AGENT_CREDENTIALS` is an optional override; the default is `~/.secrets/cmuxterm-dev.env`.
+It signs in exactly as the tag does:
+Stack password sign-in with the development project id and publishable key read from the tag's
+`AuthConfig.swift` (the project cmux-staging serves; the replay checks that first). Reads (21 for
+v0.65.0: every GET plus POST /api/client-config) go out with the client's headers (bearer, refresh
+token, the selected team) and must answer 2xx with their shape; a path parameter the agent account
+has no value for (no machine, no publication) is sent as `cmuxnp-dev-absent` and must answer a JSON
+4xx. Public reads (whats-new, mobile-mac-compat, client-config) go out without credentials, as the
+client sends them. Every other request (60, all state-changing) is shape-only: probed without
+credentials, it must not answer 404, 405 or 5xx; nothing on the agent account changes. The session
+is signed out afterwards. `cmux-old/staging-gaps.json` lists reviewed staging-only differences
+(today: POST /api/billing/recover answers 503 on staging). The app is never started for this.
+
+Web revisions: the gate reads the commit serving cmux-staging.vercel.app and cmux.com
+(`vercel api /v13/deployments/<host>`, read-only, the operator's Vercel login) and records both in
+the receipt with the relation (same, newer, older, diverged, unknown). A production step refuses
+when the replay was not signed in, when it failed, when the latest stable release is newer than
+the newest spec, or when staging is not production's commit or a descendant of it. A change that
+cmux-old reaches (inventory hit) passes only with all of that green. Follow-up: a real-binary
+smoke of the latest release on an isolated cloud Mac VM.
 
 Static: the inventory (`git grep` at the latest release tag for the hosts and names the
 change reaches; a hit is reported as cmux-old-affecting), the migration lint, and the API
@@ -233,3 +314,46 @@ contract (cmux-vm `openapi.json` through the pinned oasdiff 1.32.1; backend
 error codes, newly required params) against `--base` (origin/main for production). Change
 keys: `migrations:<tree>:<hash of every file>`, `image:<VAR>:<history snapshot id>`,
 `deploy:<tree>:<commit>`. Receipts count for 24 h.
+
+## Production runbook (ready, OFF)
+
+Status 2026-10-09: production stays OFF (Lawrence: "into feat-cmux-next is all we want rn"; the
+chief agreed). Nothing in production needs a change today. The steps below are ready for the first
+production need, the cmux-vm Worker at vm.cmux.dev, which needs cmux_vm 0001-0009 in cmux-prod main.
+An agent runs every step except step 1, which is a new production credential: the chief asks
+Lawrence for it first.
+
+1. Owner role (needs the chief's go). `pscale role create cmux-prod main <name> --org cmux` with no
+   inherited roles; verify as in "cmux_vm-only owner role" (no privilege in public, no membership,
+   no CREATEROLE/CREATEDB/BYPASSRLS/REPLICATION, no pg_* role). Never `--successor postgres`.
+   Store the login only in a 0600 file under `~/.secrets/cmux-vm-db/` (stat it; never print it).
+   trees.ts names it: production has no `ownerPgRole`, so the owner check looks up the PlanetScale
+   role `cmux-vm-owner` on main with pscale (staging and development check the SQL role `cmux_vm_migrator`).
+2. Apply, from a clean checkout whose HEAD is on origin/feat-cmux-next:
+   `bun scripts/cmux-next/release/db-release.ts apply --tree cmux-vm --target production --url-env OWNER_URL --confirm-production --allow-contract 0009_cmux_vm_mesh_device_address.sql`
+   In one run it takes the advisory lock, checks the owner (session_user and current_user, broad
+   privileges), archives the verified SHA, rehearses the exact set on a throwaway PITR branch of main
+   (deleted by exact name), runs the cmux-old gate (static contract diff + signed-in v0.65.0 replay
+   + web revision compare), then applies 0001-0009 in schema cmux_vm only under the runtime guard
+   and lock/statement timeouts, and writes a receipt. Bootstrap: the first apply creates schema
+   cmux_vm, so database CREATE is allowed only while the schema is absent.
+3. Worker grants: re-issue the cmux-vm-worker grants as the new owner (only USAGE on cmux_vm and the
+   table privileges the Worker contract names). Verify with the Worker's own schema check.
+4. Deploy the cmux-vm Worker to production through the deploy rails (ordering gate reads the DB,
+   previous version recorded, smoke, automatic `wrangler rollback` on red).
+5. Receipt (what, ids, before/after, rollback command) to the bead and to the chief.
+
+Rollback: `wrangler rollback <previous> --name cmux-vm-production`. The schema is additive and
+cmux-old never reads cmux_vm, so the migrations stay in place; if they must go, run each file's own
+`-- Rollback` section, newest first, after the code rollback.
+
+Image promotion (TEAM_VM_SNAPSHOT / CLOUD_FREESTYLE_SNAPSHOT for production) uses the same pattern
+through promote.ts (dev-smoked id, fresh-clone smoke of the channel's own id, previous kept for
+`--rollback`, new VMs only); it is not needed now either.
+
+## Lessons from the first production attempts (2026-10-09)
+
+- **One owner, lock first.** Two sessions prepared the production cmux_vm apply at the same time; the single-owner decision reached one of them after its run had started. A production DB step takes the rails lock (`db-release.ts apply` holds it) and announces its one owner before any role or grant is made.
+- **Rehearsal login.** A PlanetScale-managed owner role gets a new password on a branch copy, so a rehearsal that reuses the main branch login fails with `password authentication failed`. The rehearsal now uses the copied login only for a SQL owner and resets the copy's own owner record for a PlanetScale-role owner (rehearsal.ts; the reset refuses any branch that is not `rh-*`).
+- **PITR lag.** The copy is a point-in-time restore of the target 6 minutes back. A role or grant younger than that is not on the copy. Wait more than 6 minutes after creating the owner role or the bootstrap grant before a rehearsal.
+- **Bootstrap of the schema.** `CREATE SCHEMA cmux_vm AUTHORIZATION <owner>` is refused on PlanetScale (the admin role cannot SET ROLE to the owner). The bootstrap that works: a temporary admin role (`pscale role create <db> main <name> --inherited-roles postgres --ttl 90m`), `GRANT CREATE ON DATABASE postgres TO <owner>` as that role, wait past the PITR lag, apply, then `REVOKE CREATE ON DATABASE postgres FROM <owner>` as the same role (a grant made by the temporary role blocks its clean delete), then delete the temporary role by exact id. The owner never keeps database CREATE after the bootstrap (the apply refuses it in production).

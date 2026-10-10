@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR cc980c2e786fe8195a5544e2848f665d2327e00d12bf12272741181f768ee494.
+// cmux-tui mux protocol 12, IR e2aa9bda6ce2b99b533ab691a7df02cfab75c8fff586a74f4e6166bafa13d388.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -61,7 +61,7 @@ pub struct AgentSessionSource {
     /// The agent kind the chat was started with.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub harness: Optional<String>,
-    /// install: and the stable install id of the machine whose acpmux runs the session.
+    /// install: and the stable install id of the machine whose acpmux runs the session, or chief: and the 8 lowercase hex digit id of the Chief home whose own acpmux runs it.
     pub host: String,
     /// Display name of the host machine: 1 to 255 bytes, no control characters.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -1023,6 +1023,22 @@ pub struct PaneNeighborResult {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PaneSurfaceResult {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub pane_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub replayed: Optional<bool>,
+    pub surface: Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub tab_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_incarnation: Optional<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PingResult {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub build_commit: Optional<String>,
@@ -1423,12 +1439,48 @@ pub struct ServerStatsRegistryLock {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsResourceProjection {
+    pub commit_apply_us: ServerStatsHistogram,
+    pub commit_journal_us: ServerStatsHistogram,
+    pub commit_prune_us: ServerStatsHistogram,
+    pub commit_us: ServerStatsHistogram,
+    pub commits: u64,
+    pub crosscheck_mismatches: u64,
+    pub crosschecks: u64,
+    pub diff_us: ServerStatsHistogram,
+    pub full_projections: u64,
+    pub index_us: ServerStatsHistogram,
+    pub journaled_changes: ServerStatsHistogram,
+    pub projected_changes: ServerStatsHistogram,
+    pub projections: u64,
+    pub read_us: ServerStatsHistogram,
+    pub scope_fallbacks: u64,
+    pub scoped_projections: u64,
+    pub written_changes: ServerStatsHistogram,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsResult {
     pub connections: ServerStatsConnections,
     pub journal_writer: Nullable<ServerStatsJournalWriter>,
     pub registry_lock: ServerStatsRegistryLock,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub resource_projection: Option<ServerStatsResourceProjection>,
     pub schema: u32,
     pub uptime_ms: u64,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub write_path: Option<ServerStatsWritePath>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsWritePath {
+    pub effect_intent_batches: u64,
+    pub effect_intent_failures: u64,
+    pub effect_intents: u64,
+    pub request_effect_commits: u64,
+    pub writer_registry_locks: u64,
 }
 
 #[rustfmt::skip]

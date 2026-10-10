@@ -29,4 +29,22 @@ printf 'pub fn f() { panic!("tracked"); }\n' > "$tmp/cmux-tui/crates/x/src/lib.r
 if out="$(python3 "$tmp/scripts/cmux-next/crash_ratchet.py" 2>&1)"; then fail "a tracked panic! passed: $out"; fi
 [[ "$out" == *"rust x: panic_macro 0 -> 1"* ]] || fail "the tracked panic! is not reported: $out"
 
+
+# Outside a git checkout (a Testbox or tarball tree) the ratchet refuses with exit 2 instead
+# of walking every file: walking counted build output and vendored crates and made a false red
+# on 2026-10-09. An exported tree of tracked files (git archive) passes with --exported-tree.
+plain="$(mktemp -d)"
+trap 'rm -rf "$tmp" "$plain"' EXIT
+cp -R "$tmp/scripts" "$tmp/cmux-tui" "$tmp/Packages" "$plain/"
+status=0; out="$(python3 "$plain/scripts/cmux-next/crash_ratchet.py" --repo "$plain" 2>&1)" || status=$?
+[[ "$status" == 2 ]] || fail "a tree outside git did not exit 2 (exit $status): $out"
+[[ "$out" == *"not a git checkout"* ]] || fail "the refusal does not say why: $out"
+out="$(python3 "$plain/scripts/cmux-next/crash_ratchet.py" --repo "$plain" --exported-tree 2>&1)" \
+  || [[ "$out" == *"gained a crash-class hit"* ]] || fail "--exported-tree did not scan the tree: $out"
+
+# A checkout whose index lists none of the sources (a sync without a usable index) refuses too.
+rm -f "$tmp/.git/index"
+status=0; out="$(python3 "$tmp/scripts/cmux-next/crash_ratchet.py" --repo "$tmp" 2>&1)" || status=$?
+[[ "$status" == 2 ]] || fail "an empty index did not exit 2 (exit $status): $out"
+
 echo "crash-ratchet-tracked.test.sh: ok"

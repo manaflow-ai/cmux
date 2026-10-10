@@ -25,6 +25,10 @@ final class CloudMachineSession {
     /// Why the app link ended (localized), until the next connect. Nil
     /// while connected or connecting, and always nil for the legacy link.
     private(set) var linkEnded: String?
+    /// The link as this session's endpoint calls see it (cx-lu8f): starting,
+    /// up, or the last start's failure. Drives the booting and connecting
+    /// stages; never set from elapsed time.
+    private(set) var linkPhase: CloudLinkPhase = .idle
     /// The ticket of the app link's live connect; nil while none is live.
     @ObservationIgnored private var appTicket: UInt64?
     /// An app-link connect hop is queued or running.
@@ -83,7 +87,17 @@ final class CloudMachineSession {
             guard let link else { return }
             await link.resume()
             guard !disconnected, machine.status.isLive else { return }
-            daemon.start(remote: { try await link.socketPath() })
+            daemon.start(remote: { [weak self] in
+                await self?.noteLinkStarting()
+                do {
+                    let path = try await link.socketPath()
+                    await self?.noteLink(.up)
+                    return path
+                } catch {
+                    if !(error is CancellationError) { await self?.noteLink(.failed(String(describing: error))) }
+                    throw error
+                }
+            })
         }
         if appLink != nil { connectHop = linkTransition }
     }
@@ -96,6 +110,7 @@ final class CloudMachineSession {
         appTicket = nil
         daemon.shutdownConnection()
         linkEnded = nil
+        noteLinkStarting()
         let suspendsBefore = suspends
         let ticket: CloudLinkTicket
         do {
@@ -108,6 +123,7 @@ final class CloudMachineSession {
         }
         guard !disconnected, suspends == suspendsBefore, !Task.isCancelled else { return }
         appTicket = ticket.id
+        linkPhase = .up
         let localIdentity = localIdentity
         daemon.start(remote: { [weak self] in
             do {
@@ -144,6 +160,65 @@ final class CloudMachineSession {
         daemon.shutdownConnection()
         daemon.store.markFailed(message)
         linkEnded = message
+        linkPhase = .failed(message)
+    }
+
+    /// A link start began. A previous start's failure stays shown until a
+    /// start succeeds, so a retrying link does not flicker between the
+    /// failure and booting.
+    private func noteLinkStarting() {
+        if case .failed = linkPhase { return }
+        linkPhase = .starting
+    }
+
+    private func noteLink(_ phase: CloudLinkPhase) {
+        guard !disconnected else { return }
+        linkPhase = phase
+    }
+
+    // MARK: Progress (cx-lu8f)
+
+    /// The daemon's first connect gave up with a failed attempt's text; nil
+    /// while it still tries, and for a deadline with no failed attempt.
+    var daemonFailure: String? {
+        guard daemon.startup.isUnavailable, case .failed(let reason) = daemon.store.connectionState else { return nil }
+        return reason
+    }
+
+    /// The stage inputs of this machine's link and daemon.
+    var stageInput: CloudMachineStageInput {
+        var connected = false
+        if case .connected = daemon.store.connectionState { connected = daemon.connection != nil }
+        return CloudMachineStageInput(creation: nil, machineStatus: machine.status, link: linkPhase, daemonConnected: connected,
+                                      daemonLoaded: daemon.store.isLoaded, daemonFailure: daemonFailure, linkEnded: linkEnded)
+    }
+
+    /// Where the machine is on its way to a usable daemon.
+    var stage: CloudMachineStage { stageInput.stage }
+
+    /// The machine's status as the person sees it: the API record, except
+    /// that a connected daemon is a running machine. A create response has
+    /// no status (decoded as provisioning) and the list is not polled, so the
+    /// record alone said "provisioning" after the terminal worked.
+    var effectiveStatus: CloudMachine.Status {
+        guard machine.status == .provisioning || machine.status == .unknown, case .connected = daemon.store.connectionState else {
+            return machine.status
+        }
+        return .running
+    }
+
+    /// Retry after a failure (the progress view's Retry, a user gesture): an
+    /// ended app link connects again; a legacy link's daemon retries now
+    /// instead of waiting for its next wake.
+    func retry() {
+        if case .failed = linkPhase { linkPhase = .starting }
+        if appLink != nil {
+            connect(origin: .user)
+        } else if daemon.isStarting {
+            daemon.retryWake.fire()
+        } else {
+            connect(origin: .user)
+        }
     }
 
     /// A `cloud.link.changed` for this machine (app link only).
@@ -160,6 +235,7 @@ final class CloudMachineSession {
 
     func disconnect() {
         disconnected = true
+        linkPhase = .idle
         connectHop?.cancel()
         daemon.shutdownConnection()
         let previous = linkTransition
@@ -178,6 +254,7 @@ final class CloudMachineSession {
         suspends += 1
         connectHop?.cancel()
         appTicket = nil
+        linkPhase = .idle
         daemon.shutdownConnection()
         let previous = linkTransition
         let link = link, appLink = appLink

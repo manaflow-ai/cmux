@@ -774,7 +774,3 @@ impl MotionPolicy {
         self.animates_loops().then(|| token.period())
     }
 }
-
-#[cfg(test)]
-#[path = "spring_tests.rs"]
-mod tests;

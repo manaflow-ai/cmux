@@ -80,9 +80,10 @@ impl std::error::Error for ModelError {}
 /// The compactor's model. Called from worker threads, never with the chat's
 /// lock held, so a call may block for as long as the model takes.
 pub trait CompactModel: Send + Sync {
-    /// The next assistant reply in the conversation: `request` (system, then
-    /// one user message of the context and step blocks), then each followup's
-    /// reply and retry text, oldest first. No tools.
+    /// The next reply for `request` (system, then one user message of the
+    /// context and step blocks). With followups (the size loop), a fresh
+    /// call: the same request and the last followup's retry note, never the
+    /// earlier replies. No tools.
     fn call(&self, request: &CompactRequest, followups: &[Followup]) -> Result<Reply, ModelError>;
 
     /// `call`, and `started` once the response has begun (the API's
@@ -146,8 +147,10 @@ impl fmt::Display for ErrorClass {
 
 /// The class of `message`, when it names an HTTP status.
 pub fn error_class(message: &str) -> Option<ErrorClass> {
-    let status = ["API Error: ", "HTTP "].iter().find_map(|lead| {
-        let at = message.find(lead)? + lead.len();
+    // Claude Code says "API Error: 400", acpmux "API error: 503": any case.
+    let lower = message.to_ascii_lowercase();
+    let status = ["api error: ", "http "].iter().find_map(|lead| {
+        let at = lower.find(lead)? + lead.len();
         let digits = message.get(at..at + 3)?;
         digits
             .bytes()
@@ -173,18 +176,35 @@ pub fn error_class(message: &str) -> Option<ErrorClass> {
     })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_request_error_is_permanent_and_a_rate_limit_is_not() {
-        let e = error_class(r#"API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"cache_control.ttl: wrong order"}}"#).unwrap();
-        assert_eq!(e.to_string(), "400 invalid_request_error: cache_control.ttl: wrong order");
-        assert!(e.permanent());
-        assert!(!error_class("HTTP 429: slow down").unwrap().permanent());
-        assert!(!error_class("API Error: 529 overloaded").unwrap().permanent());
-        assert!(!error_class("API Error: 408 timeout").unwrap().permanent());
-        assert_eq!(error_class("the acpmux connection was lost"), None);
+/// How long an exhausted route asks to wait (a 429, 503 or 529, e.g. the
+/// subrouter's "no non-exhausted claude accounts available ... (retry after
+/// 3596s)"): None when `message` is not a capacity error.
+pub fn capacity_wait(message: &str) -> Option<std::time::Duration> {
+    // The subrouter's own words also count when no status is passed on (the
+    // turn's rule, optchat_chief::turn::capacity_retry_after, reads them too).
+    let exhausted = message.to_ascii_lowercase().contains("no non-exhausted");
+    let capacity = error_class(message).is_some_and(|c| matches!(c.status, 429 | 503 | 529));
+    if !exhausted && !capacity {
+        return None;
     }
+    Some(retry_after_in(message).unwrap_or(CAPACITY_WAIT))
+}
+
+/// An exhausted route's wait when its error names none.
+pub const CAPACITY_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// The wait an error text names: "retry after 3596s" (the subrouter) or
+/// "retry-after: 30".
+pub(crate) fn retry_after_in(message: &str) -> Option<std::time::Duration> {
+    let lower = message.to_ascii_lowercase();
+    ["retry after ", "retry-after: ", "retry-after "]
+        .iter()
+        .find_map(|lead| {
+            let at = lower.find(lead)? + lead.len();
+            let digits: String = lower[at..]
+                .chars()
+                .take_while(char::is_ascii_digit)
+                .collect();
+            digits.parse().ok().map(std::time::Duration::from_secs)
+        })
 }

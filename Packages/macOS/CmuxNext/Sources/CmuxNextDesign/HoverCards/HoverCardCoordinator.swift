@@ -9,7 +9,7 @@ import CmuxNextWakeups
 /// (content can move under a still pointer, and tracking areas then send
 /// nothing), dismissals, suppressions and removed targets. Nothing polls:
 /// the only timer is a one-shot `DemandTimer`, armed only in a pending,
-/// grace or pinned phase; the event monitor for dismissals exists only
+/// leaving, grace or pinned phase; the event monitor for dismissals exists only
 /// while a card is pending or shown.
 @MainActor
 public final class HoverCardCoordinator {
@@ -293,7 +293,7 @@ public final class HoverCardCoordinator {
             "quiet": "\(machine.quiet)",
             "card_windows": "\(HoverCardPanel.liveInstances)",
             "card_showing": "\(panel?.isShowingCard == true)",
-            "card_frame": panel.map { NSStringFromRect($0.frame) } ?? "-",
+            "card_frame": panel.map { NSStringFromRect($0.cardFrame) } ?? "-",
             "timer_armed": "\(timer.isScheduled)",
             "monitor": "\(monitor != nil)",
             "sources": "\(sources.values.filter { $0.source != nil }.count)",

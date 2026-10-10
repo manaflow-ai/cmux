@@ -27,9 +27,12 @@ pub mod clock;
 pub mod config;
 pub mod cua_socket;
 pub mod daemon;
+pub mod deliver;
 #[cfg(test)]
 mod git_short_sha;
+pub mod harness_admin;
 pub mod hub;
+pub mod live_models;
 pub mod login_env;
 pub mod native;
 pub mod peer;

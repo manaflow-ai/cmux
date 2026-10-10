@@ -46,7 +46,17 @@ export default diffPageEntry({
   area: "Pages",
   height: 640,
   widths: { narrow: 560, normal: 1000, wide: 1400 },
-  covers: ["page:cmux.diff", "App.tsx", "DiffToolbar.tsx", "BranchBasePicker.tsx"],
+  covers: [
+    "page:cmux.diff",
+    "App.tsx",
+    "DiffToolbar.tsx",
+    "BranchBasePicker.tsx",
+    "diff-viewer/FileHeader.tsx",
+    "diff-viewer/FilesSidebar.tsx",
+    "diff-viewer/Loading.tsx",
+    "diff-viewer/Toolbar.tsx",
+    "diff-viewer/WorkerRenderOptionsSync.tsx",
+  ],
   variants: {
     "small-split": {
       note: "Two files, split layout: one changed, one added.",

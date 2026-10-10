@@ -111,10 +111,12 @@ public struct DaemonLauncher: Sendable {
     /// The standard app launcher: bundled binary, session from the app's own
     /// tag (never an inherited `CMUX_TAG`), login-shell environment captured
     /// once per launch and remembered for the next (`LoginEnvironmentCache`). `terminalEnvironment` (the app's `CMUX_SOCKET_PATH`,
-    /// `CMUX_BUNDLE_ID`, `CMUX_TAG`) and the bundled `cmux` (`<Resources>/bin` first) reach every shell it spawns.
+    /// `CMUX_BUNDLE_ID`, `CMUX_TAG`) and the bundled `cmux` (`<Resources>/bin` first) reach every shell it spawns;
+    /// `daemonEnvironment` joins only `server ensure`; the daemon still passes it to children (bead cx-e0cs).
     public static func forApp(
         tag: String?,
         terminalEnvironment: [String: String],
+        daemonEnvironment: [String: String] = [:],
         bundle: Bundle = .main,
         processEnvironment: [String: String] = ProcessInfo.processInfo.environment,
         socketMemory: DaemonSocketMemory = DaemonSocketMemory()
@@ -134,8 +136,8 @@ public struct DaemonLauncher: Sendable {
         // A terminal the daemon starts with no caller env gets this env; its
         // shell integration keeps the bundled `cmux` first (cmux-tui `cli_path`).
         let cli = bundle.resourceURL.map { BundledCLIEnvironment(binDirectory: $0.path + "/bin", pathIntegration: nil) }
-        return DaemonLauncher(configuration: configuration, environment: appEnvironment(
-            cache: .shared, base: processEnvironment, overrides: overrides, cli: cli))
+        let environment = appEnvironment(cache: .shared, base: processEnvironment, overrides: overrides, cli: cli)
+        return DaemonLauncher(configuration: configuration, environment: { await environment().merging(daemonEnvironment) { _, owner in owner } })
     }
 
     /// The launcher of a Chief home's conversation owner
@@ -158,9 +160,9 @@ public struct DaemonLauncher: Sendable {
     }
 
     /// The Chief owner's `server ensure` environment: the user's basic
-    /// variables only, never a build's `CMUX_*` identity.
+    /// variables only, never a build's `CMUX_*` identity; and the brain's tools socket (chief.*).
     static func chiefEnvironment(_ base: [String: String]) -> [String: String] {
-        let kept = ["HOME", "USER", "LOGNAME", "PATH", "LANG", "LC_ALL", "SHELL"]
+        let kept = ["HOME", "USER", "LOGNAME", "PATH", "LANG", "LC_ALL", "SHELL", "CMUX_TUI_CHIEF_TOOLS_SOCKET"]
         return base.filter { kept.contains($0.key) }
     }
 
@@ -370,9 +372,8 @@ public struct DaemonLauncher: Sendable {
     }
 
     static func parseBuildCommit(_ version: String) -> String? {
-        guard let open = version.firstIndex(of: "(") else { return nil }
-        let rest = version[version.index(after: open)...]
-        let commit = rest.prefix { $0.isHexDigit }
+        guard version.contains("(") else { return nil }
+        let commit = version.drop { $0 != "(" }.dropFirst().prefix { $0.isHexDigit }
         return commit.count >= 7 ? String(commit) : nil
     }
 

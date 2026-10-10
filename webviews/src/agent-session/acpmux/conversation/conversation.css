@@ -459,6 +459,34 @@ pre.cv-math-source {
   left: max(var(--cv-gutter), calc((100% - var(--cv-column)) / 2));
   right: max(var(--cv-gutter), calc((100% - var(--cv-column)) / 2));
 }
+/* Keyboard transcript selection uses a roving article tab stop. The fill is deliberately on the
+   row rather than the prose so a range remains visible while its rows virtualize in and out. */
+.acpmux-row[data-transcript-selected="true"] {
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--agent-accent) 8%, transparent);
+}
+.acpmux-row[data-transcript-active="true"]:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
+  outline-offset: -1.5px;
+  border-radius: 8px;
+}
+.acpmux-row__copy {
+  position: absolute;
+  z-index: var(--layer-raised);
+  top: 0;
+  right: 0;
+  opacity: 0;
+}
+.acpmux-row:hover .acpmux-row__copy,
+.acpmux-row:focus-within .acpmux-row__copy,
+.acpmux-row[data-transcript-selected="true"] .acpmux-row__copy {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-row__copy {
+    transition: opacity 120ms ease-out;
+  }
+}
 .acpmux-permission {
   padding-left: max(var(--cv-gutter), calc((100% - var(--cv-column)) / 2));
   padding-right: max(var(--cv-gutter), calc((100% - var(--cv-column)) / 2));
@@ -869,6 +897,25 @@ pre.cv-math-source {
 .cv-iconbtn:hover {
   color: var(--cv-text);
   background: color-mix(in srgb, var(--cv-fg) 6%, transparent);
+}
+.cv-turn-auth-action {
+  all: unset;
+  box-sizing: border-box;
+  min-height: 26px;
+  padding: 3px 9px;
+  border: 1px solid color-mix(in srgb, var(--agent-accent) 34%, transparent);
+  border-radius: 6px;
+  color: var(--agent-accent);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 18px;
+}
+.cv-turn-auth-action:hover {
+  background: color-mix(in srgb, var(--agent-accent) 10%, transparent);
+}
+.cv-turn-auth-action:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
+  outline-offset: 1px;
 }
 .cv-turn-summary,
 .cv-turn-note,

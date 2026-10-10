@@ -413,6 +413,31 @@ public abstract class GeneratedCmuxClient {
         return ExportLayoutResult.fromWire(result);
     }
 
+    public final Object feedLocalHandoffAbort(FeedLocalHandoffAbortRequest request) throws CmuxException {
+        Object result = execute(Commands.FEED_LOCAL_HANDOFF_ABORT, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object feedLocalHandoffBegin(FeedLocalHandoffBeginRequest request) throws CmuxException {
+        Object result = execute(Commands.FEED_LOCAL_HANDOFF_BEGIN, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object feedLocalHandoffDone(FeedLocalHandoffDoneRequest request) throws CmuxException {
+        Object result = execute(Commands.FEED_LOCAL_HANDOFF_DONE, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object feedLocalList(FeedLocalListRequest request) throws CmuxException {
+        Object result = execute(Commands.FEED_LOCAL_LIST, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object feedLocalRead(FeedLocalReadRequest request) throws CmuxException {
+        Object result = execute(Commands.FEED_LOCAL_READ, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final FocusDirectionResult focusDirection(FocusDirectionRequest request) throws CmuxException {
         Object result = execute(Commands.FOCUS_DIRECTION, request.toWire());
         return FocusDirectionResult.fromWire(result);
@@ -668,14 +693,14 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
-    public final SurfaceResult newPane(NewPaneRequest request) throws CmuxException {
+    public final PaneSurfaceResult newPane(NewPaneRequest request) throws CmuxException {
         Object result = execute(Commands.NEW_PANE, request.toWire());
-        return SurfaceResult.fromWire(result);
+        return PaneSurfaceResult.fromWire(result);
     }
 
-    public final SurfaceResult newPaneRight(NewPaneRightRequest request) throws CmuxException {
+    public final PaneSurfaceResult newPaneRight(NewPaneRightRequest request) throws CmuxException {
         Object result = execute(Commands.NEW_PANE_RIGHT, request.toWire());
-        return SurfaceResult.fromWire(result);
+        return PaneSurfaceResult.fromWire(result);
     }
 
     public final NewRowResult newRow(NewRowRequest request) throws CmuxException {
@@ -898,8 +923,8 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
-    public final ServerStatsResult serverStats() throws CmuxException {
-        Object result = execute(Commands.SERVER_STATS, Map.of());
+    public final ServerStatsResult serverStats(ServerStatsRequest request) throws CmuxException {
+        Object result = execute(Commands.SERVER_STATS, request.toWire());
         return ServerStatsResult.fromWire(result);
     }
 
@@ -1033,9 +1058,9 @@ public abstract class GeneratedCmuxClient {
         return SnapshotRequestResult.fromWire(result);
     }
 
-    public final SurfaceResult split(SplitRequest request) throws CmuxException {
+    public final PaneSurfaceResult split(SplitRequest request) throws CmuxException {
         Object result = execute(Commands.SPLIT, request.toWire());
-        return SurfaceResult.fromWire(result);
+        return PaneSurfaceResult.fromWire(result);
     }
 
     public final CmuxStream<ProtocolEvent> subscribe(SubscribeRequest request) throws CmuxException {

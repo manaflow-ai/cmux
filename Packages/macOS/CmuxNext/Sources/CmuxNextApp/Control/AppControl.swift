@@ -237,6 +237,11 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugPaletteCapture.capture(call.params, services: services))
             },
+            // `debug.palette.entries {scope?, path}`: writes the scope's ranker input (the
+            // palette-ranking eval fixture, plans/cmux-next/palette-ranking.md) to `path`.
+            .async("debug.palette.entries") { [weak services] call in
+                try await DebugPaletteEntries.write(call.params, services: services)
+            },
             .mainActor("debug.mouse") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugOmnibar.mouse(call.params, services: services))
@@ -309,9 +314,9 @@ final class AppControl {
             .mainActor("debug.menu") { [weak services] call in
                 .value(DebugExtensions.menu(call.params, presenter: services?.contextMenus))
             },
-            // The cookie import card on browser pages (cx-367y).
-            .mainActor("debug.cookie_prompt") { [weak services] call in
-                .value(services.map { DebugCookiePrompt.run(call.params, services: $0) } ?? .null)
+            // The browser-data import offer on the first browser tab.
+            .mainActor("debug.browser_import_offer") { [weak services] call in
+                .value(services.map { DebugBrowserImportOffer.run(call.params, services: $0) } ?? .null)
             },
             .mainActor("debug.onboarding") { [weak services] call in
                 .value(services.map { DebugOnboarding.run(call.params, services: $0) } ?? .null)
@@ -348,8 +353,8 @@ final class AppControl {
             .mainActor("debug.extensions.prompt") { [weak services] call in
                 .value(services.map { DebugExtensionPrompts.run(call.params, $0) } ?? .null)
             },
-            .mainActor("debug.crash.app") { call in DebugCrashes.crashApp(call.params) },
-            .mainActor("debug.crash.exception") { _ in .value(DebugCrashes.raiseException()) },
+            .mainActor("debug.crash.app") { [weak services] call in DebugCrashes.crashApp(call.params, services?.crashReporting) },
+            .mainActor("debug.crash.exception") { [weak services] _ in .value(DebugCrashes.raiseException(services?.crashReporting)) },
             // Low Power Mode as WebKit tabs follow it: `enabled: bool` overrides
             // macOS (no sudo needed), `enabled: null` follows macOS again.
             .mainActor("debug.low_power_mode") { call in

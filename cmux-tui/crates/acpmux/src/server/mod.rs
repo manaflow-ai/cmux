@@ -36,9 +36,38 @@ pub struct Conn {
     out: mpsc::Sender<String>,
     subs: StdMutex<HashMap<String, SubOpts>>,
     watch_all: AtomicBool,
+    /// The unix socket peer's audit token, read at accept (macOS); what
+    /// `_acpmux/person_enroll` checks. None for WebSocket connections.
+    peer: Option<cmux_link::app_caller::PeerToken>,
+    /// Its first request was seen (`hub/person.rs`).
+    initialized: AtomicBool,
+    /// It presented this launch's person key in that `initialize`.
+    person: AtomicBool,
 }
 
 impl Conn {
+    /// Whether this connection is the person (`hub/person.rs`).
+    pub(super) fn is_person(&self) -> bool {
+        self.person.load(Ordering::SeqCst)
+    }
+
+    /// A request's person key leaves its params before anything else reads
+    /// them. A unix socket or LocalApp connection whose FIRST request is an
+    /// `initialize` that carries this launch's key is the person for its
+    /// life; a key anywhere else carries no weight.
+    fn bind_person(&self, hub: &Hub, m: &str, params: &mut Option<Value>) {
+        let key = params.as_mut().and_then(crate::hub::person::take_key);
+        let first = !self.initialized.swap(true, Ordering::SeqCst);
+        if !first || m != method::INITIALIZE {
+            return;
+        }
+        if matches!(self.origin, Origin::Local | Origin::LocalApp)
+            && key.is_some_and(|k| hub.person.matches(&k))
+        {
+            self.person.store(true, Ordering::SeqCst);
+        }
+    }
+
     fn send(&self, msg: &Message) {
         let _ = self.out.try_send(msg.to_line());
     }
@@ -112,6 +141,11 @@ pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
         };
         let hub = hub.clone();
         tokio::spawn(async move {
+            // Named by its audit token, read once here, never by pid.
+            let peer = {
+                use std::os::fd::AsRawFd;
+                cmux_link::app_caller::peer_token(stream.as_raw_fd())
+            };
             let (rd, mut wr) = stream.into_split();
             let (in_tx, in_rx) = mpsc::channel::<String>(256);
             let (out_tx, mut out_rx) = mpsc::channel::<String>(4096);
@@ -130,7 +164,7 @@ pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
                     }
                 }
             });
-            serve_connection(hub, in_rx, out_tx).await;
+            serve_connection_from(hub, in_rx, out_tx, Origin::Local, peer).await;
         });
     }
 }
@@ -587,9 +621,20 @@ pub async fn serve_connection(
 
 pub async fn serve_connection_with(
     hub: Arc<Hub>,
+    inbound: mpsc::Receiver<String>,
+    out: mpsc::Sender<String>,
+    origin: Origin,
+) {
+    serve_connection_from(hub, inbound, out, origin, None).await
+}
+
+/// `serve_connection_with` for a unix socket peer named by its audit token.
+async fn serve_connection_from(
+    hub: Arc<Hub>,
     mut inbound: mpsc::Receiver<String>,
     out: mpsc::Sender<String>,
     origin: Origin,
+    peer: Option<cmux_link::app_caller::PeerToken>,
 ) {
     let conn = Arc::new(Conn {
         id: uuid::Uuid::now_v7().to_string(),
@@ -598,6 +643,9 @@ pub async fn serve_connection_with(
         out,
         subs: StdMutex::new(HashMap::new()),
         watch_all: AtomicBool::new(false),
+        peer,
+        initialized: AtomicBool::new(false),
+        person: AtomicBool::new(false),
     });
     tracing::debug!(conn = %conn.id, "client connected");
 
@@ -659,7 +707,10 @@ pub async fn serve_connection_with(
             }
         };
         match msg {
-            Message::Request { id, method: m, params } => {
+            Message::Request { id, method: m, mut params } => {
+                // In order, before the request is spawned: a later request
+                // on this connection sees the person decided.
+                conn.bind_person(&hub, &m, &mut params);
                 let hub = hub.clone();
                 let conn = conn.clone();
                 tokio::spawn(async move {
@@ -832,7 +883,7 @@ fn str_param<'a>(params: &'a Value, key: &str) -> Option<&'a str> {
     params.get(key).and_then(Value::as_str)
 }
 
-pub(super) fn session_key(params: &Value) -> Result<&str, RpcError> {
+pub(crate) fn session_key(params: &Value) -> Result<&str, RpcError> {
     str_param(params, "sessionId")
         .or_else(|| str_param(params, "session"))
         .or_else(|| str_param(params, "name"))
@@ -874,6 +925,7 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 mod chats;
 mod fork_through;
 pub use fork_through::FORK_OPERATIONS;
+mod harness_admin;
 mod harness_enable;
 pub mod local_app;
 pub mod peer_auth;

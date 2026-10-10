@@ -10,6 +10,11 @@ enum PaneLinkTarget: Equatable {
     case card(String, URL?)
 }
 
+extension MarkdownLinkPolicy {
+    /// `dest` as a URL a click may open, or nil (the policy refuses it).
+    static func url(_ dest: String) -> URL? { sanitize(dest).flatMap(URL.init(string:)) }
+}
+
 extension ChatController {
     /// The link under `p` in its bubble, or nil when the point is on no link.
     func linkTarget(_ hit: MessagesWindowView.Hit, at p: CGPoint) -> PaneLinkTarget? {
@@ -26,7 +31,8 @@ extension ChatController {
     func openLink(_ hit: MessagesWindowView.Hit, at p: CGPoint) -> Bool {
         switch linkTarget(hit, at: p) {
         case let .text(url)?:
-            if let url { NSWorkspace.shared.open(url) }
+            // An app link (a Chief subagent) goes to the host, never to the system.
+            if let url, url.isChiefSubagentLink { onAppLink?(url) } else if let url { NSWorkspace.shared.open(url) }
         case let .card(raw, url)?:
             if let url { intents?.linkTapped(hit.row.ref, url: raw); NSWorkspace.shared.open(url) }
         case nil:
