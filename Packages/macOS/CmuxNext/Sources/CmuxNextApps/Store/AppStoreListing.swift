@@ -36,8 +36,9 @@ public nonisolated struct AppStoreVersion: Sendable, Hashable, Identifiable {
     }
 }
 
-/// A store listing (`app.search` / `app.info` result shape). Bundled
-/// listings also carry their package, so the store can preview them live.
+/// A store listing: what the Discover tab shows for one app the
+/// supervisor knows (installed or not). Built from the app's record; a
+/// cloud catalog (`app.search`, `app.info`) adds listings later.
 public nonisolated struct AppStoreListing: Sendable, Hashable, Identifiable {
     public var id: String
     public var name: AppLocalizedText
@@ -47,56 +48,59 @@ public nonisolated struct AppStoreListing: Sendable, Hashable, Identifiable {
     public var repository: URL?
     public var icon: AppIcon?
     public var categories: [String]
+    public var keywords: [String]
     public var tier: AppStoreTier
     public var latestVersion: String
-    public var installCount: Int
     public var versions: [AppStoreVersion]
     /// Requested scopes with the reason shown at consent.
     public var scopes: [AppScopeRequest]
     public var optionalScopes: [AppScopeRequest]
-    /// The package, when this client has it (bundled or downloaded).
-    public var bundle: AppBundle?
+    public var implementations: [AppImplementation]
+    /// Icons and scene images, when this Mac has the bundle.
+    public var bundleDirectory: URL?
 
-    public init(bundle: AppBundle, tier: AppStoreTier, installCount: Int = 0) {
-        let manifest = bundle.manifest
-        id = manifest.id
+    public init(record: AppRecord) {
+        let manifest = record.manifest
+        id = record.id
         name = manifest.name
         description = manifest.description
         publisherName = manifest.publisherName ?? manifest.publisher
-        publisherVerified = tier == .firstParty || tier == .verified
+        publisherVerified = record.tier == .firstParty || record.tier == .verified
         repository = manifest.repository
         icon = manifest.icon
         categories = manifest.categories
-        self.tier = tier
-        latestVersion = manifest.version
-        self.installCount = installCount
-        versions = [AppStoreVersion(version: manifest.version, engines: manifest.engine, scopes: manifest.scopes.map(\.scope))]
+        keywords = manifest.keywords
+        tier = record.tier
+        latestVersion = record.version
+        versions = [AppStoreVersion(version: record.version, engines: manifest.engine, scopes: manifest.scopes.map(\.scope))]
         scopes = manifest.scopes
         optionalScopes = manifest.optionalScopes
-        self.bundle = bundle
+        implementations = manifest.implementations
+        bundleDirectory = record.bundleDirectory
     }
+
+    /// The App Store's own app id: the store never lists itself.
+    public static let storeID = "cmux/app-store"
 
     /// Apps that are part of cmux itself (the sidebar's top items, wired to
     /// native pages): removing one would break cmux, and a sandbox would
     /// mean nothing, so the store offers neither.
-    public static let builtInIDs: Set<String> = ["cmux/home", "cmux/app-store"]
+    public static let builtInIDs: Set<String> = ["cmux/home", storeID]
 
     public var isBuiltIn: Bool { tier == .firstParty && Self.builtInIDs.contains(id) }
 
     /// Whether the store has any permission to show (requested or optional).
     public var requestsScopes: Bool { !scopes.isEmpty || !optionalScopes.isEmpty }
 
-    /// Matches a store search: name, id, description, categories, keywords.
+    /// The first implementation the store can preview live (a section or status item).
+    public var previewable: AppImplementation? { implementations.first(where: \.isPreviewable) }
+
+    /// Matches a store search: name, id, description, publisher, categories, keywords.
     public func matches(_ query: String) -> Bool {
         let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
         guard !needle.isEmpty else { return true }
-        let haystack = ([id, name.resolved(), name.english, description.resolved(), publisherName] + categories
-            + (bundle?.manifest.keywords ?? [])).joined(separator: " ").lowercased()
+        let haystack = ([id, name.resolved(), name.english, description.resolved(), publisherName] + categories + keywords)
+            .joined(separator: " ").lowercased()
         return needle.split(separator: " ").allSatisfy { haystack.contains($0) }
     }
-}
-
-extension InstalledApp {
-    /// Part of cmux itself (``AppStoreListing/builtInIDs``).
-    public var isBuiltIn: Bool { tier == .firstParty && AppStoreListing.builtInIDs.contains(id) }
 }

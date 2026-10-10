@@ -63,6 +63,7 @@ public final class BrowserChromeView: NSView {
     private let promptBar = PromptBarView()
     private let promptDialogs = BrowserPromptDialogs()
     let pageStatus = PageStatusViews()
+    lazy var pageOverlays = PageFloatingOverlays(page: contentContainer)
     /// Bound in setup (first read there), never an IUO.
     lazy var toolbarHeight: NSLayoutConstraint = density.bind(toolbar.heightAnchor.constraint(equalToConstant: 0)) { [weak self] in
         // A deallocated chrome view's constraint is never laid out again.
@@ -360,6 +361,7 @@ public final class BrowserChromeView: NSView {
         addressBar.layoutSubtreeIfNeeded()
         addressBar.followLayout()
         updateOcclusion()
+        syncPageOverlays()
         if pageAreaTop != reportedHeader {
             reportedHeader = pageAreaTop
             onPaneHeaderHeightChange?()
@@ -367,11 +369,11 @@ public final class BrowserChromeView: NSView {
     }
 
     /// Child-window pages draw above this view; tell them where the find
-    /// bar, prompt bar, and error page cover them.
+    /// bar, prompt bar, and error page cover them (floating cards are on
+    /// the overlay host instead, `PageFloatingOverlays`).
     private func updateOcclusion() {
         guard let occluded = tab as? any BrowserOcclusionHosting else { return }
-        let cards = ([currentNotice, currentCookieImportCard] as [NSView?]).compactMap { $0 }
-        let bars = ([findBar, promptBar] + cards).filter { !$0.isHidden && $0.superview != nil }
+        let bars = [findBar, promptBar].filter { !$0.isHidden && $0.superview != nil }
         let rects = (bars + pageStatus.shown).map { convert($0.frame, to: tab.contentView) }
         if occluded.occlusionRects != rects { occluded.occlusionRects = rects }
     }
@@ -384,7 +386,7 @@ public final class BrowserChromeView: NSView {
     /// Surface token in an opaque window, clear over a see-through one (windows.md);
     /// the toolbar takes `appearance.surfaces.browserChrome` over that (R55).
     func updateColors() {
-        let paints = WindowBackdrop(themeTokens).panesPaintBackground
+        let paints = WindowBackdrop.current(themeTokens).panesPaintBackground
         performWithTheme {
             let surface = paints ? Palette.surfaceBackground.cgColor : nil
             layer?.backgroundColor = surface

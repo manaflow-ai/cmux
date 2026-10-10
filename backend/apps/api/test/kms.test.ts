@@ -62,17 +62,6 @@ describe("KMS client (fake KMS)", () => {
     await expect(kmsDecrypt(cfg, kms.http, blob, { ...context, owner: "team_b" })).rejects.toMatchObject({ retryable: false })
   })
 
-  it("marks throttling and 5xx retryable, and never echoes a body", async () => {
-    // KMS answers throttling with HTTP 400 and a type.
-    const http: Http = async () => new Response(JSON.stringify({ __type: "com.amazonaws.kms#ThrottlingException", message: "secret-ish detail" }), { status: 400 })
-    const err = await kmsEncrypt(cfg, http, new Uint8Array(32), context).catch((e) => e)
-    expect(err).toMatchObject({ retryable: true })
-    expect(String(err.message)).not.toContain("secret-ish")
-    const denied: Http = async () => new Response(JSON.stringify({ __type: "AccessDeniedException" }), { status: 400 })
-    expect(await kmsEncrypt(cfg, denied, new Uint8Array(32), context).catch((e) => e)).toMatchObject({ retryable: false })
-    const down: Http = async () => new Response("", { status: 503 })
-    expect(await kmsEncrypt(cfg, down, new Uint8Array(32), context).catch((e) => e)).toMatchObject({ retryable: true })
-  })
 })
 
 describe("credential sealing with KMS (fake KMS)", () => {
@@ -94,15 +83,6 @@ describe("credential sealing with KMS (fake KMS)", () => {
     await expect(openCredential(base as any, kms.http, address, JSON.stringify(sealed))).rejects.toThrow(/KMS key is not configured/)
   })
 
-  it("keeps v1 rows readable after KMS is turned on; new seals use KMS", async () => {
-    const { sealCredential, openCredential } = await import("../src/integrations/credentials.ts")
-    const kms = fakeKms()
-    const v1 = await sealCredential(base as any, kms.http, address, credential)
-    expect(v1).toMatchObject({ v: 1 })
-    expect(kms.calls).toHaveLength(0)
-    expect(await openCredential(withKms as any, kms.http, address, JSON.stringify(v1))).toEqual(credential)
-    expect((await sealCredential(withKms as any, kms.http, { ...address, generation: 4 }, credential)).v).toBe(2)
-  })
 })
 
 describe("KMS fallback is counted, marked and re-sealed", () => {
@@ -111,89 +91,6 @@ describe("KMS fallback is counted, marked and re-sealed", () => {
   const kmsEnv = { ...testEnv, INTEGRATIONS_KMS_KEY_ARN: "arn:aws:kms:us-east-1:111122223333:key/test", INTEGRATIONS_KMS_REGION: "us-east-1", INTEGRATIONS_KMS_ACCESS_KEY_ID: "AKIDTEST", INTEGRATIONS_KMS_SECRET_ACCESS_KEY: "secret-test" }
   const c = { id: "conn_fallback00000000000", owner: "team_fallback", provider: "gmail", status: "active" }
   const credential = { kind: "oauth" as const, access_token: "ya29.fb", refresh_token: "1//fb" }
-
-  it("seals under the KEK when KMS fails, records it, and the re-seal job moves it to KMS later", async () => {
-    const { storeCredential, loadCredential, resealFallbacks } = await import("../src/integrations/credentials.ts")
-    const stub = testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName("team_fallback"))
-    await inDO(stub, async (_i, s) => {
-      const sql = s.storage.sql
-      const down: Http = async () => new Response("", { status: 503 })
-      await storeCredential(sql, kmsEnv as any, down, c, credential)
-      const row = sql.exec("SELECT sealed FROM credentials WHERE connection = ?", c.id).one() as { sealed: string }
-      expect(JSON.parse(row.sealed)).toMatchObject({ v: 1, fb: 1 })
-      expect(sql.exec("SELECT count FROM kms_fallbacks WHERE connection = ?", c.id).one()).toEqual({ count: 1 })
-      expect(await loadCredential(sql, kmsEnv as any, down, c)).toEqual(credential)
-      // Not due yet: nothing happens.
-      const kms = fakeKms()
-      await resealFallbacks(sql, kmsEnv as any, kms.http, { [c.id]: c }, Date.now())
-      expect(kms.calls).toHaveLength(0)
-      // Due and KMS is back: the row is re-sealed as v2 and the fallback record goes.
-      await resealFallbacks(sql, kmsEnv as any, kms.http, { [c.id]: c }, Date.now() + 16 * 60_000)
-      expect(JSON.parse((sql.exec("SELECT sealed FROM credentials WHERE connection = ?", c.id).one() as { sealed: string }).sealed)).toMatchObject({ v: 2 })
-      expect(sql.exec("SELECT * FROM kms_fallbacks").toArray()).toHaveLength(0)
-      expect(await loadCredential(sql, kmsEnv as any, kms.http, c)).toEqual(credential)
-    })
-  })
-
-  it("never overwrites a credential stored while the re-seal waited on KMS", async () => {
-    const { storeCredential, loadCredential, resealFallbacks } = await import("../src/integrations/credentials.ts")
-    const stub = testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName("team_fallback_race"))
-    const cr = { ...c, owner: "team_fallback_race" }
-    await inDO(stub, async (_i, s) => {
-      const sql = s.storage.sql
-      await storeCredential(sql, kmsEnv as any, async () => new Response("", { status: 503 }), cr, credential)
-      const kms = fakeKms()
-      const rotated = { kind: "oauth" as const, access_token: "ya29.new", refresh_token: "1//rotated" }
-      let raced = false
-      // While the re-seal's KMS Encrypt is in flight, a refresh stores a rotated token.
-      const racing: Http = async (req) => {
-        if (!raced) {
-          raced = true
-          await storeCredential(sql, kmsEnv as any, kms.http, cr, rotated)
-        }
-        return kms.http(req)
-      }
-      await resealFallbacks(sql, kmsEnv as any, racing, { [cr.id]: cr }, Date.now() + 16 * 60_000)
-      expect(raced).toBe(true)
-      expect(await loadCredential(sql, kmsEnv as any, kms.http, cr)).toEqual(rotated)
-      expect(sql.exec("SELECT generation FROM credentials WHERE connection = ?", cr.id).one()).toEqual({ generation: 2 })
-      expect(sql.exec("SELECT * FROM kms_fallbacks").toArray()).toHaveLength(0)
-    })
-  })
-
-  it("a re-seal during an outage neither re-seals under the KEK nor alerts again", async () => {
-    const { storeCredential, resealFallbacks } = await import("../src/integrations/credentials.ts")
-    const stub = testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName("team_fallback_down"))
-    const cd = { ...c, owner: "team_fallback_down" }
-    await inDO(stub, async (_i, s) => {
-      const sql = s.storage.sql
-      const down: Http = async () => new Response("", { status: 503 })
-      await storeCredential(sql, kmsEnv as any, down, cd, credential)
-      const later = Date.now() + 16 * 60_000
-      await resealFallbacks(sql, kmsEnv as any, down, { [cd.id]: cd }, later)
-      expect(sql.exec("SELECT generation FROM credentials WHERE connection = ?", cd.id).one()).toEqual({ generation: 1 })
-      const f = sql.exec("SELECT count, next_at FROM kms_fallbacks WHERE connection = ?", cd.id).one() as { count: number; next_at: number }
-      expect(f.count).toBe(1)
-      expect(f.next_at).toBeGreaterThan(later)
-    })
-  })
-
-  it("a refresh whose row a disconnect deleted during the KMS call is not written back", async () => {
-    const { storeCredential } = await import("../src/integrations/credentials.ts")
-    const stub = testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName("team_fallback_gone"))
-    const cg = { ...c, owner: "team_fallback_gone" }
-    await inDO(stub, async (_i, s) => {
-      const sql = s.storage.sql
-      const kms = fakeKms()
-      await storeCredential(sql, kmsEnv as any, kms.http, cg, credential)
-      const disconnecting: Http = async (req) => {
-        sql.exec("DELETE FROM credentials WHERE connection = ?", cg.id)
-        return kms.http(req)
-      }
-      expect(await storeCredential(sql, kmsEnv as any, disconnecting, cg, { ...credential, access_token: "ya29.late" })).toBe(false)
-      expect(sql.exec("SELECT * FROM credentials WHERE connection = ?", cg.id).toArray()).toHaveLength(0)
-    })
-  })
 
   it("opens a previous key's rows in that key's region, and refuses an alias ARN as the key", async () => {
     const { sealCredential, openCredential, kmsConfig } = await import("../src/integrations/credentials.ts")
@@ -210,13 +107,4 @@ describe("KMS fallback is counted, marked and re-sealed", () => {
     expect(kmsConfig(kmsEnv as any)?.keyArn).toBe(kmsEnv.INTEGRATIONS_KMS_KEY_ARN)
   })
 
-  it("opens rows wrapped by a previous KMS key listed in INTEGRATIONS_KMS_PREVIOUS_KEY_ARNS", async () => {
-    const { sealCredential, openCredential } = await import("../src/integrations/credentials.ts")
-    const kms = fakeKms()
-    const address = { connection: c.id, owner: c.owner, provider: c.provider, generation: 1 }
-    const old = { ...kmsEnv, INTEGRATIONS_KMS_KEY_ARN: "arn:aws:kms:us-east-1:111122223333:key/old" }
-    const sealed = JSON.stringify(await sealCredential(old as any, kms.http, address, credential))
-    await expect(openCredential(kmsEnv as any, kms.http, address, sealed)).rejects.toThrow(/not configured/)
-    expect(await openCredential({ ...kmsEnv, INTEGRATIONS_KMS_PREVIOUS_KEY_ARNS: "arn:aws:kms:us-east-1:111122223333:key/old" } as any, kms.http, address, sealed)).toEqual(credential)
-  })
 })

@@ -7,6 +7,7 @@
 /// same distinction Clap models with `ArgAction::SetTrue`, while retaining
 /// cmux's custom forwarding and error text.
 pub(super) const BOOLEAN_FLAGS: &[&str] = &[
+    "ack",
     "collapse",
     "patch",
     "candidates",
