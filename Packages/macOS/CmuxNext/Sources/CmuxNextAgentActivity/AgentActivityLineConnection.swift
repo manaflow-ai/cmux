@@ -88,11 +88,14 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
             guard let self else { return }
             if let data, !data.isEmpty {
                 buffer.append(data)
-                while let newline = buffer.firstIndex(of: 0x0A) {
-                    let line = buffer[buffer.startIndex..<newline]
-                    buffer.removeSubrange(buffer.startIndex...newline)
-                    if !line.isEmpty { onLine?(Data(line)) }
+                // One pass and one removal per chunk: removing each line from the front
+                // moved the rest of the buffer once per line (quadratic in a large chunk).
+                var start = buffer.startIndex
+                while let newline = buffer[start...].firstIndex(of: 0x0A) {
+                    if newline > start { onLine?(Data(buffer[start..<newline])) }
+                    start = buffer.index(after: newline)
                 }
+                if start > buffer.startIndex { buffer.removeSubrange(buffer.startIndex..<start) }
                 if buffer.count > Self.maxLine { buffer.removeAll(); connection.cancel(); return }
             }
             if complete || error != nil {

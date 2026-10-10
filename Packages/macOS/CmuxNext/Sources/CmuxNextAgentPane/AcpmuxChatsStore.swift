@@ -19,20 +19,37 @@ public nonisolated struct AcpmuxChatsStore: Sendable, Equatable {
         orderedKeys = values.values.sorted(by: Self.isNewer).map(\.id)
     }
 
+    /// One decoded `chat_changed` notification (decoded off the main actor).
+    public enum Change: Sendable, Equatable {
+        case removed(key: String)
+        case upserted(key: String, chat: AcpmuxChat)
+    }
+
+    /// Decodes a `chat_changed` notification's params, or nil when malformed.
+    public static func change(from params: [String: Any]) -> Change? {
+        guard let key = params["key"] as? String, !key.isEmpty else { return nil }
+        if params["kind"] as? String == "removed" { return .removed(key: key) }
+        guard let chat = (params["chat"] as? [String: Any]).flatMap(AcpmuxChat.init(json:)) else { return nil }
+        return .upserted(key: key, chat: chat)
+    }
+
     /// Applies a single `chat_changed` notification without re-sorting the full list.
     public mutating func apply(change: [String: Any]) {
-        let key = change["key"] as? String
-        guard let key, !key.isEmpty else { return }
-        if change["kind"] as? String == "removed" {
+        if let decoded = Self.change(from: change) { apply(decoded) }
+    }
+
+    /// Applies one decoded change without re-sorting the full list.
+    public mutating func apply(_ change: Change) {
+        switch change {
+        case .removed(let key):
             values[key] = nil
             if let index = orderedKeys.firstIndex(of: key) { orderedKeys.remove(at: index) }
-            return
+        case .upserted(let key, let chat):
+            if values[key] != nil, let index = orderedKeys.firstIndex(of: key) { orderedKeys.remove(at: index) }
+            values[key] = chat
+            let insertion = Self.insertionIndex(chat, in: orderedKeys, values: values)
+            orderedKeys.insert(key, at: insertion)
         }
-        guard let chat = (change["chat"] as? [String: Any]).flatMap(AcpmuxChat.init(json:)) else { return }
-        if values[key] != nil, let index = orderedKeys.firstIndex(of: key) { orderedKeys.remove(at: index) }
-        values[key] = chat
-        let insertion = Self.insertionIndex(chat, in: orderedKeys, values: values)
-        orderedKeys.insert(key, at: insertion)
     }
 
     public func filtered(query: String, grouping: AcpmuxChatGrouping? = nil) -> [AcpmuxChat] {
