@@ -184,7 +184,11 @@ export interface AppAttestKey {
  * the signature over nonce verifies with the attested key; the RP ID hash is
  * our app id; the counter grew. Returns the new counter to store.
  */
-export const verifyAppAttest = (key: AppAttestKey, payload: SignedPayload, assertion: string): { ok: true; counter: number } | { ok: false } => {
+export const verifyAppAttest = (key: AppAttestKey, payload: SignedPayload, assertion: string): { ok: true; counter: number } | { ok: false } =>
+  verifyAppAttestData(key, proofMessage(payload), assertion)
+
+/** The same assertion check over any client data (the model router's free tier signs a server challenge). */
+export const verifyAppAttestData = (key: AppAttestKey, clientData: Uint8Array, assertion: string): { ok: true; counter: number } | { ok: false } => {
   const raw = b64u(assertion)
   const pub = p256Key(key.jwk)
   if (!raw || !pub) return { ok: false }
@@ -195,7 +199,7 @@ export const verifyAppAttest = (key: AppAttestKey, payload: SignedPayload, asser
   if (!sameBytes(auth.subarray(0, 32), Buffer.from(key.app_id_hash, "base64url"))) return { ok: false }
   const counter = u32(auth, 33)
   if (counter <= key.counter) return { ok: false }
-  const clientDataHash = createHash("sha256").update(proofMessage(payload)).digest()
+  const clientDataHash = createHash("sha256").update(clientData).digest()
   const nonce = createHash("sha256").update(Buffer.concat([auth, clientDataHash])).digest()
   try {
     return verifySignature("sha256", nonce, pub, sig) ? { ok: true, counter } : { ok: false }

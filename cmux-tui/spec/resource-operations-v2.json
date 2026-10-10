@@ -22365,6 +22365,73 @@
         "validation.invalid"
       ]
     },
+    "workspace.ensure_app": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "workspace",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "app": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "The app id as its manifest names it (publisher/name). It must be installed and enabled on this daemon."
+          },
+          "route": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 4096
+            },
+            "description": "The first route of the app tab: a bounded client state, stored with the tab and restored after a restart."
+          },
+          "name": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "description": "The name of a new app workspace (the app's display name). A replay keeps the existing name."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "app-screens-v1: one app workspace per app per store. The first call creates the workspace (extra.kind app, extra.app) with exactly one app tab in one commit, so no v2 client sees it empty or without its kind (the raw tree's workspace-added delta already carries kind app); later calls replay the live workspace. Each call needs a fresh idempotency key. An app that is not installed and enabled is refused with validation.invalid (field app). workspace.close closes the app; the next call creates a new workspace."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "CreatedWorkspaceOnly"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
     "workspace.ensure_home": {
       "class": "mutation",
       "idempotency": "required",

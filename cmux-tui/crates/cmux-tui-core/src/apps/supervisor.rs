@@ -312,6 +312,12 @@ impl Supervisor {
         supervisor
     }
 
+    /// Whether `app` is installed and enabled in the mirror.
+    pub(crate) fn app_active(&self, app: &str) -> bool {
+        let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        inner.mirror.apps.get(app).is_some_and(|record| record.installed && record.enabled)
+    }
+
     /// Makes `client` receive `apps-changed` and `apps-host`.
     pub fn register_client(&self, client: u64, sink: Sink) {
         self.inner.lock().unwrap().sinks.entry(client).or_insert(sink);
