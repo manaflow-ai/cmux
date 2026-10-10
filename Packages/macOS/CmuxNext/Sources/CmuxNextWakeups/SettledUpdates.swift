@@ -1,6 +1,6 @@
 import Foundation
 import os
-import Synchronization
+import CmuxNextCompat
 
 /// Assigns `value` only when it differs. Observation (`@Observable`)
 /// notifies on every set, even of the same value, so a view that writes back

@@ -35,8 +35,6 @@ mod host_ops;
 mod hosts;
 #[cfg(unix)]
 mod mirror;
-#[cfg(all(test, unix))]
-mod mirror_tests;
 #[cfg(unix)]
 mod open_tokens;
 #[cfg(unix)]
@@ -51,6 +49,8 @@ mod runs;
 mod servers;
 #[cfg(unix)]
 mod storage;
+#[cfg(unix)]
+mod store;
 #[cfg(unix)]
 mod supervisor;
 #[cfg(all(test, unix))]
@@ -72,6 +72,8 @@ pub(crate) use mirror::{HiddenAccess, Origin, SetOp};
 pub(crate) use provider::{ProviderClaim, admit_origin};
 #[cfg(unix)]
 pub(crate) use runs::{Caller, RunRequest};
+#[cfg(unix)]
+pub(crate) use store::store_op_mutates;
 #[cfg(unix)]
 pub(crate) use supervisor::{ApiError, Supervisor};
 
