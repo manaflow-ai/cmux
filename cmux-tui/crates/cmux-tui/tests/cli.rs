@@ -3647,6 +3647,8 @@ mod closed_delete;
 #[cfg(unix)]
 #[path = "cli/feed_local.rs"]
 mod feed_local;
+#[path = "cli/icon_assets.rs"]
+mod icon_assets;
 #[cfg(unix)]
 #[path = "cli/wg_hub.rs"]
 mod wg_hub;
