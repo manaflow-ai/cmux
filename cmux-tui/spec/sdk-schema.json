@@ -462,6 +462,20 @@
    "fields": {},
    "additional_properties": false
   },
+  "ViewportPaneWidthResult": {
+   "kind": "object",
+   "fields": {
+    "width": {
+     "type": {
+      "kind": "scalar",
+      "name": "float32"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
   "Size": {
    "kind": "object",
    "fields": {
@@ -11814,7 +11828,7 @@
    },
    "result": {
     "kind": "ref",
-    "name": "EmptyResult"
+    "name": "ViewportPaneWidthResult"
    },
    "stream": null,
    "constraints": [

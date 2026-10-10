@@ -11933,6 +11933,31 @@ Result<ViewAttachmentOutcome> Codec<ViewAttachmentOutcome>::decode(const Json& v
     return make_error(ErrorCode::decode, "unknown ViewAttachmentOutcome value");
 }
 
+Result<Json> Codec<ViewportPaneWidthResult>::encode(const ViewportPaneWidthResult& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_width = encode_value(value.width);
+    if (!encoded_width) return std::move(encoded_width).error();
+    object.emplace("width", std::move(encoded_width).value());
+    return Json(std::move(object));
+}
+
+Result<ViewportPaneWidthResult> Codec<ViewportPaneWidthResult>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ViewportPaneWidthResult result{};
+    const Json* field_width = value.find("width");
+    if (!field_width) {
+        return make_error(ErrorCode::decode, "missing required field 'width'");
+    }
+    if (field_width) {
+        auto decoded = decode_value<float>(*field_width);
+        if (!decoded) return std::move(decoded).error();
+        result.width = std::move(decoded).value();
+    }
+    return result;
+}
+
 Result<Json> Codec<VtStateResult>::encode(const VtStateResult& value) {
     (void)value;
     Json::Object object;
@@ -37350,7 +37375,7 @@ Result<SetTerminalKeepResult> Client::set_terminal_keep(
     return decode_value<SetTerminalKeepResult>(response.value());
 }
 
-Result<EmptyResult> Client::set_viewport_pane_width(
+Result<ViewportPaneWidthResult> Client::set_viewport_pane_width(
     const SetViewportPaneWidthRequest& request, RequestOptions options) {
     auto encoded = encode_value(request);
     if (!encoded) return std::move(encoded).error();
@@ -37358,7 +37383,7 @@ Result<EmptyResult> Client::set_viewport_pane_width(
     if (!parameters) return std::move(parameters).error();
     auto response = core_.request("set-viewport-pane-width", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
-    return decode_value<EmptyResult>(response.value());
+    return decode_value<ViewportPaneWidthResult>(response.value());
 }
 
 Result<EmptyResult> Client::set_window_title(
