@@ -5649,6 +5649,7 @@ struct ContentView: View {
             hasher.combine(commandPaletteCurrentWorkRevision)
             return hasher.finalize()
         }
+        let workspaceOrder = commandPaletteWorkspaceOrder
         let windowContexts = commandPaletteSwitcherWindowContexts()
         let fingerprintContexts = windowContexts.map { context in
             CommandPaletteSwitcherFingerprintContext(
@@ -5683,6 +5684,12 @@ struct ContentView: View {
             )
         }
         var fingerprint = CommandPaletteSwitcherFingerprintContext.fingerprint(windowContexts: fingerprintContexts)
+        fingerprint = fingerprint &* 31 &+ workspaceOrder.rawValue.hashValue
+        if workspaceOrder == .recent {
+            for context in windowContexts {
+                fingerprint = fingerprint &* 31 &+ Int(truncatingIfNeeded: context.tabManager.focusHistoryRevision)
+            }
+        }
         fingerprint = fingerprint &* 31 &+ (commandPaletteCloudWorkspaceTargetsFingerprint ?? 0)
         return fingerprint
     }
@@ -6051,17 +6058,25 @@ struct ContentView: View {
     private func commandPaletteOrderedSwitcherWorkspaces(
         for context: CommandPaletteSwitcherWindowContext
     ) -> [Workspace] {
-        var workspaces = context.tabManager.tabs
-        guard !workspaces.isEmpty else { return [] }
-
         let selectedWorkspaceId = context.selectedWorkspaceId ?? context.tabManager.selectedTabId
-        if let selectedWorkspaceId,
-           let selectedIndex = workspaces.firstIndex(where: { $0.id == selectedWorkspaceId }) {
-            let selectedWorkspace = workspaces.remove(at: selectedIndex)
-            workspaces.insert(selectedWorkspace, at: 0)
-        }
+        let recentWorkspaceIDs = commandPaletteWorkspaceOrder == .recent
+            ? context.tabManager.recentlyFocusedFocusHistoryMenuItems(maxItemCount: max(50, context.tabManager.tabs.count)).map { $0.entry.workspaceId }
+            : []
+        let orderedIDs = CommandPaletteWorkspaceOrdering().orderedWorkspaceIDs(
+            sidebarIDs: context.tabManager.tabs.map(\.id),
+            selectedID: selectedWorkspaceId,
+            recentIDs: recentWorkspaceIDs,
+            mode: commandPaletteWorkspaceOrder == .recent ? .recent : .sidebar
+        )
+        let workspacesByID = Dictionary(
+            context.tabManager.tabs.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        return orderedIDs.compactMap { workspacesByID[$0] }
+    }
 
-        return workspaces
+    private var commandPaletteWorkspaceOrder: WorkspaceSwitcherOrder {
+        UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().app.goToWorkspaceOrder)
     }
 
     private func commandPaletteOrderedSwitcherPanels(for workspace: Workspace) -> [UUID] {
