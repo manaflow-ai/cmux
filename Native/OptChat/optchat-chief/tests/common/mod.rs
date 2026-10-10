@@ -12,7 +12,7 @@ use cmux_chief::acp::AcpmuxEvent;
 use cmux_conversation::{Change, DerivedImage, Message, Op, Part, Summary};
 use optchat_chief::acpmux::{AgentEvent, AgentPort, SessionSpec, TurnSignal};
 use optchat_chief::brain::{Brain, Engine, Input, PARENT, Settings};
-use optchat_chief::daemon::{ConversationPort, DaemonEvent, OpError, participants};
+use optchat_chief::daemon::{ConversationPort, DaemonEvent, ImageUploader, OpError, participants};
 use optchat_chief::state::StateFile;
 use optchat_host::{
     CompactModel, CompactRequest, Config, Followup, ModelError, OptChat, Reply, SystemClock,
@@ -135,6 +135,8 @@ pub struct Owner {
     pub acks: Vec<(String, u64)>,
     /// Every attachment upload: (conversation, record, name, width, height).
     pub uploads: Vec<(String, DerivedImage, String, u32, u32)>,
+    /// The owner lacks `link-preview-v1` (an older daemon).
+    pub no_link_previews: bool,
 }
 
 /// One side conversation as the fake owner keeps it.
@@ -202,25 +204,10 @@ impl Owner {
 #[derive(Clone)]
 pub struct FakeDaemon(pub Arc<Mutex<Owner>>);
 
-impl ConversationPort for FakeDaemon {
-    fn attachment(
-        &mut self,
-        _: &str,
-        hash: &str,
-        variant: &str,
-        bytes: u64,
-    ) -> Result<String, OpError> {
-        let mut owner = self.0.lock().unwrap();
-        owner
-            .attachment_reads
-            .push((hash.to_owned(), variant.to_owned(), bytes));
-        owner
-            .attachments
-            .get(&(hash.to_owned(), variant.to_owned()))
-            .cloned()
-            .ok_or_else(|| OpError::Rejected("unknown_attachment".into()))
-    }
+/// Preview pictures uploaded off the brain thread, into the same fake owner.
+pub struct FakeUploader(pub Arc<Mutex<Owner>>);
 
+impl ImageUploader for FakeUploader {
     fn upload_image(
         &mut self,
         conversation: &str,
@@ -247,6 +234,35 @@ impl ConversationPort for FakeDaemon {
             height,
         ));
         Ok(image)
+    }
+}
+
+impl ConversationPort for FakeDaemon {
+    fn attachment(
+        &mut self,
+        _: &str,
+        hash: &str,
+        variant: &str,
+        bytes: u64,
+    ) -> Result<String, OpError> {
+        let mut owner = self.0.lock().unwrap();
+        owner
+            .attachment_reads
+            .push((hash.to_owned(), variant.to_owned(), bytes));
+        owner
+            .attachments
+            .get(&(hash.to_owned(), variant.to_owned()))
+            .cloned()
+            .ok_or_else(|| OpError::Rejected("unknown_attachment".into()))
+    }
+
+    fn supports(&self, capability: &str) -> bool {
+        capability == optchat_chief::daemon::LINK_PREVIEW_CAPABILITY
+            && !self.0.lock().unwrap().no_link_previews
+    }
+
+    fn image_uploader(&self) -> Option<Box<dyn ImageUploader>> {
+        Some(Box::new(FakeUploader(self.0.clone())))
     }
 
     fn snapshot(
