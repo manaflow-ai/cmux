@@ -1821,6 +1821,89 @@ describe("Cloud VM publication workflows", () => {
     expect(calls).toEqual([`lookup:${current.hostname}`]);
   });
 
+  // 2026-10-10: a create refused at the provider left its row `provisioning`
+  // forever, so every PATCH answered a retryable 503 "already being configured".
+  test("a create that fails at the provider marks the publication unavailable", async () => {
+    const generatedDomain = domain("generated");
+    const reserved = target(publication("public", { routingRevision: 3 }), generatedDomain);
+    const marked: Array<{ id: string; expectedRoutingRevision: number }> = [];
+    const repository = fakeRepository({
+      listOwnedDomains: () => Effect.succeed([]),
+      reservePublicationWithNewDomain: () => Effect.succeed(reserved),
+      markPublicationUnavailable: (input) => {
+        marked.push({ id: input.id, expectedRoutingRevision: input.expectedRoutingRevision });
+        return Effect.succeed({ ...reserved.publication, state: "unavailable", routingRevision: 4 });
+      },
+    });
+    const failure = new VmPublicationProviderError({ operation: "reconcileTlsRule", cause: new Error("TLS rule limit reached") });
+    const provider = fakeProvider({ reconcileTlsRule: () => Effect.fail(failure) });
+
+    const result = await Effect.runPromise(Effect.either(createPublication({
+      principal: { userId: "owner-1", teamIds: [] },
+      providerVmId: "vm-provider-1",
+      port: 3_000,
+      accessMode: "public",
+      generatedHostname: generatedDomain.hostname,
+      now: NOW,
+    }).pipe(
+      Effect.provideService(CloudVmPublicationRepository, repository),
+      Effect.provideService(VmPublicationProvider, provider),
+    )));
+
+    expect(result._tag).toBe("Left");
+    if (result._tag === "Left") expect(result.left).toBe(failure);
+    expect(marked).toEqual([{ id: reserved.publication.id, expectedRoutingRevision: 3 }]);
+  });
+
+  test("changing access on a failed publication is a clear 409 that says to delete it", async () => {
+    const failed = publication("personal", { state: "unavailable", providerTlsRuleId: null });
+    const repository = fakeRepository({ findOwnedPublication: () => Effect.succeed(target(failed)) });
+    const result = await Effect.runPromise(Effect.either(updatePublicationAccess({
+      principal: { userId: "owner-1", teamIds: [] },
+      publicationId: failed.id,
+      accessMode: "public",
+      now: NOW,
+    }).pipe(
+      Effect.provideService(CloudVmPublicationRepository, repository),
+      Effect.provideService(VmPublicationProvider, fakeProvider({})),
+    )));
+    expect(result._tag).toBe("Left");
+    if (result._tag !== "Left") return;
+    expect(result.left).toBeInstanceOf(PublicationConflictError);
+    const response = publicationErrorResponse(result.left);
+    expect(response.status).toBe(409);
+    const body = await response.json() as Record<string, unknown>;
+    expect(body).toMatchObject({ error: "vm_publication_conflict", reason: "publication_failed" });
+    expect(String(body.action)).toContain("cmux cloud domains rm");
+  });
+
+  test("deleting a failed publication with no provider rule only sweeps by hostname", async () => {
+    const calls: string[] = [];
+    const failed = publication("personal", { state: "unavailable", providerTlsRuleId: null });
+    const repository = fakeRepository({
+      findOwnedPublication: () => Effect.succeed(target(failed)),
+      beginDisablePublication: () => Effect.succeed({ ...failed, state: "disabling" }),
+      revokePublicationSessions: () => Effect.succeed(0),
+      finishDisablePublication: () => {
+        calls.push("publication.finish");
+        return Effect.succeed({ ...failed, state: "disabled", disabledAt: NOW });
+      },
+    });
+    const provider = fakeProvider({
+      deleteTlsRulesForHostname: (hostname) => {
+        calls.push(`rules.sweep:${hostname}`);
+        return Effect.succeed(0);
+      },
+    });
+    const result = await run(deletePublication({
+      principal: { userId: "owner-1", teamIds: [] },
+      publicationId: failed.id,
+      now: NOW,
+    }), repository, provider);
+    expect(result).toEqual({ deleted: true, id: failed.id });
+    expect(calls).toEqual([`rules.sweep:${failed.hostname}`, "publication.finish"]);
+  });
+
   test("resumes a delete left in disabling by a failed sweep", async () => {
     const calls: string[] = [];
     const stuck = publication("public", {
