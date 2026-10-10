@@ -208,7 +208,7 @@ def run(theme, basic_port, remembered_port=None):
             failures.append(f"{theme}: the sign-in sheet came back after a correct password: {json.dumps(again)[:400]}")
         snap(f"signed-in-{tag}")
     finally:
-        rpc("action.run", {"action": "quitEndSessions"})
+        rpc("debug.quit", {"fixture_quit": "end-sessions"})
         if not wait(lambda: "error" in (rpc("debug.focus") or {"error": 1}), 40):
             failures.append(f"{theme}: the tagged app did not quit")
 

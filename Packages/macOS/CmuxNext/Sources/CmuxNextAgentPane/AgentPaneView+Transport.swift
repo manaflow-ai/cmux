@@ -47,7 +47,7 @@ extension AgentPaneView {
         case .mode(let mode): String(format: confirmOptionMessage, "mode", mode)
         }
         return CmuxDialogSpec(title: confirmModeTitle, lines: [line],
-                              buttons: [.cancel(), CmuxDialogButton(id: "switch", title: confirmModeButton, role: .destructive)])
+                              buttons: [.cancel(), CmuxDialogButton(id: "switch", title: confirmModeButton, role: .destructive)], confirmKind: .money)
     }
 
     /// Formats protocol values for a native confirmation while retaining raw identifiers for logs.

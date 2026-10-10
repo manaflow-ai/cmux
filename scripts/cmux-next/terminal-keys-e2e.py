@@ -9,7 +9,7 @@ viewport (`debug.surfaces` text) and the daemon's screen and history (`cmux term
 `history read`). It also presses Cmd-=, Cmd-0, Cmd-Up and Cmd-Shift-G in the terminal and prints
 which owner took each key (`debug.key` handled_by / action / trace).
 
-On exit it quits the app with quitEndSessions, stops the tag's cmux-tui session and kills any
+On exit it quits the app with debug.quit fixture_quit end-sessions, stops the tag's cmux-tui session and kills any
 process left from the tag's bundle by exact PID.
 
 Usage: terminal-keys-e2e.py --tag <tag> --app PATH [--out DIR]
@@ -160,7 +160,7 @@ def cleanup():
     print("cleanup", flush=True)
     if os.environ.get("KEYS_E2E_KEEP"):
         return
-    rpc("action.run", {"action": "quitEndSessions"}, timeout=10)
+    rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=10)
     if app:
         try:
             app.wait(timeout=20)
