@@ -89,6 +89,15 @@ impl ControlResponses {
         receiver
     }
 
+    /// Whether a blocking waiter for a response kind `select` picks is
+    /// registered.
+    pub(crate) fn has_waiter_where(&self, select: impl Fn(MessageKind) -> bool) -> bool {
+        self.waiters.lock().unwrap().values().any(|waiter| match waiter {
+            ControlResponseWaiter::Blocking { kind, .. } => select(*kind),
+            ControlResponseWaiter::DeferredCellPixel { .. } => false,
+        })
+    }
+
     /// Whether a waiter for `request_id` is registered.
     pub(crate) fn has_waiter(&self, request_id: u64) -> bool {
         self.waiters.lock().unwrap().contains_key(&request_id)

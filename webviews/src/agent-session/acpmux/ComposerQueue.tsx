@@ -1,7 +1,6 @@
 // Prompts waiting for the running turn, as compact rows attached to the composer's top edge. The
 // list is laid over the transcript's foot, not in the layout, so a prompt being queued, sent or
-// removed never moves the composer or the transcript. Its box is a fixed, click-through height
-// with the rows packed at the bottom, so a row leaving moves neither the list nor the rows below.
+// removed never moves the composer or the transcript.
 import React, { useEffect, useState } from "react";
 import { Icon } from "./icons/Icon";
 import type { AcpmuxSnapshot } from "./model";

@@ -32,6 +32,8 @@ use super::renderer_grant::ControlRequestUnanswered;
 
 mod connect;
 pub(crate) mod launch;
+mod pending_control;
+pub(crate) use pending_control::PendingControlResponse;
 mod terminate;
 // Only the Unix host calls these until the Windows host lands.
 #[cfg_attr(not(unix), allow(unused_imports))]
@@ -724,58 +726,8 @@ impl HostAttachment {
         deadline: Instant,
         disconnect_on_timeout: bool,
     ) -> Result<Vec<u8>, ClearHistoryFailure> {
-        let request_id = self.next_request.fetch_add(1, Ordering::Relaxed);
-        if request_id == 0 {
-            return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
-                "terminal host control request id exhausted"
-            )));
-        }
-        let (sender, receiver) = sync_channel(1);
-        {
-            let mut waiters = self.control_responses.waiters.lock().unwrap();
-            if waiters.contains_key(&request_id) {
-                return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
-                    "terminal host control request id collision"
-                )));
-            }
-            waiters.insert(
-                request_id,
-                ControlResponseWaiter::Blocking { kind: response_kind, sender },
-            );
-        }
-        let mut frame = Frame::new(request_kind, payload);
-        frame.version = self.protocol_version;
-        frame.request_id = request_id;
-        let write_result = {
-            let mut writer = self.writer.lock().unwrap();
-            let result = write_frame(&mut *writer, &frame).map_err(protocol_io_error);
-            if result.is_err() {
-                let _ = writer.shutdown(std::net::Shutdown::Both);
-            }
-            result
-        };
-        if let Err(error) = write_result {
-            self.control_responses.waiters.lock().unwrap().remove(&request_id);
-            return Err(ClearHistoryFailure::ambiguous(error.into()));
-        }
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        let response = if remaining.is_zero() {
-            Err(RecvTimeoutError::Timeout)
-        } else {
-            receiver.recv_timeout(remaining)
-        };
-        match response {
-            Ok(frame) => Ok(frame.payload),
-            Err(error) => {
-                self.control_responses.waiters.lock().unwrap().remove(&request_id);
-                if disconnect_on_timeout {
-                    self.disconnect();
-                }
-                Err(ClearHistoryFailure::ambiguous(
-                    ControlRequestUnanswered { request_kind, cause: error }.into(),
-                ))
-            }
-        }
+        self.begin_control_request(request_kind, response_kind, payload, deadline)?
+            .wait(disconnect_on_timeout)
     }
 
     pub fn persist_workspace(&mut self, workspace_key: &str) -> anyhow::Result<()> {

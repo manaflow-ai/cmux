@@ -687,7 +687,7 @@ wire_op! {
         class: Mutation,
         idempotency: Required,
         owner: "cloud:TeamDO",
-        risk: "read",
+        risk: "mutate-shared",
         principals: [Session],
         params: TeamVmRetiredExportParams,
         result: TeamVmRetiredExportResult,

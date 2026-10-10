@@ -16,14 +16,6 @@ on:
       - web/tests/vm-image-cmux-vm-lock.test.ts
       - web/tests/vm-image-cmux-vm-sshd.test.ts
       - .github/workflows/cloud-vm-image-lock.yml
-  push:
-    branches: [feat-cmux-next]
-    paths:
-      - images/cmux-vm/**
-      - web/scripts/cmux-vm-image/**
-      - web/tests/vm-image-cmux-vm-lock.test.ts
-      - web/tests/vm-image-cmux-vm-sshd.test.ts
-      - .github/workflows/cloud-vm-image-lock.yml
   workflow_dispatch:
 
 permissions:
