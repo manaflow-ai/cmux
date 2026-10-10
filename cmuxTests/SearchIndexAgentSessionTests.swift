@@ -89,6 +89,11 @@ struct SearchIndexAgentSessionTests {
     }
 
     @Test
+    func queryPhrasesLeaveOutPunctuationAroundAWord() {
+        #expect(SearchIndex.queryPhrases(for: "(4+4), \"api.ts\"! hello") == ["4+4", "api.ts"])
+    }
+
+    @Test
     func titleMatchOutranksOneMentionInALongBody() async throws {
         let (directory, index) = try makeIndex()
         defer { try? FileManager.default.removeItem(at: directory) }
