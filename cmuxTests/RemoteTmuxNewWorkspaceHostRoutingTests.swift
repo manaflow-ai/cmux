@@ -315,17 +315,19 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
     }
 
     /// A manager whose window closed (unregistered) during the round trip must
-    /// not receive the mirror — the detached session is picked up on the next
-    /// attach instead of resurrecting a dead manager.
+    /// not receive the mirror or leave the newly-created detached session behind.
     @Test func unregisteredManagerDoesNotReceiveTheMirror() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             _ = NSApplication.shared
             let appDelegate = try #require(AppDelegate.shared)
-            let stub = try makeNewSessionSuccessStub(sessionName: "orphaned", argvLog: "/dev/null")
+            let argvLog = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-unregistered-new-session-argv-\(UUID().uuidString).log").path
+            let stub = try makeNewSessionSuccessStub(sessionName: "orphaned", argvLog: argvLog)
             let restoreSSH = RemoteTmuxRoutingFixture.pinStubSSH(stub)
             defer {
                 restoreSSH()
                 try? FileManager.default.removeItem(atPath: stub)
+                try? FileManager.default.removeItem(atPath: argvLog)
             }
             let controller = RemoteTmuxController()
             let manager = TabManager()
@@ -348,6 +350,8 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
 
             #expect(!manager.tabs.contains { $0.title == "orphaned" })
             #expect(controller.sessionMirror(host: hostA, sessionName: "orphaned") == nil)
+            let argv = (try? String(contentsOfFile: argvLog, encoding: .utf8)) ?? ""
+            #expect(argv.contains("'kill-session' '-t' '=orphaned'"))
         }
     }
 

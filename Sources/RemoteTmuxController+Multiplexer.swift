@@ -566,10 +566,16 @@ extension RemoteTmuxController {
                 select: selectNewlyCreated
             ) != nil else {
                 // A finalized window manager admits no workspace; drop the
-                // channel registration so a later reconcile can recreate it.
+                // channel registration so a later reconcile can recreate it. If this
+                // was a routed New Workspace, remove the session over the same shared
+                // stream instead of leaving an unreachable orphan behind.
                 channelsByHostSession.removeValue(forKey: key)
+                if pendingMultiplexNewSessionCompletions.removeValue(forKey: key) != nil {
+                    view.killWorkspaceSession(named: sessionView.sessionName)
+                }
                 continue
             }
+            pendingMultiplexNewSessionCompletions.removeValue(forKey: key)?()
             pendingMultiplexWorkspaceNamesByHost.removeValue(forKey: hostHash)
         }
     }
@@ -643,6 +649,9 @@ extension RemoteTmuxController {
         viewEpochSessionIdByHost[host.connectionHash] = nil
         pendingMultiplexWorkspaceNamesByHost[host.connectionHash] = nil
         requestedMultiplexSessionByHost[host.connectionHash] = nil
+        pendingMultiplexNewSessionCompletions = pendingMultiplexNewSessionCompletions.filter {
+            !$0.key.hasPrefix("\(host.connectionHash)\u{1}")
+        }
         releaseLoginOfferIfHostHasNoMirrors(host: host)
         if !multiplexerHostStillInUse(host) {
             transportRegistry.remove(connectionHash: host.connectionHash)

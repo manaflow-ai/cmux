@@ -71,16 +71,37 @@ extension RemoteTmuxController {
             AppDelegate.shared?.mainWindowContexts.values
                 .contains(where: { $0.tabManager === manager }) == true
         }
+        if let mirror = sessionMirrors.values.first(where: { $0.mirroredWorkspaceId == request.activeTabId }),
+           isMultiplexed(mirror) {
+            guard managerIsLive() else { return }
+            if createMultiplexedNewSession(
+                host: host,
+                originatingTabId: request.activeTabId,
+                manager: manager,
+                onCreated: onCreated
+            ) {
+                return
+            }
+            newSessionEnvironment.reportFailure(host, .create, manager)
+            return
+        }
         // Create a detached session and read back its (auto-assigned) name.
         let name: String
         do {
             let result = try await transport(for: host).runTmux(
                 ["new-session", "-d", "-P", "-F", "#{session_name}"]
             )
-            // On a closed window, skip: the detached session is picked up on
-            // the next attach.
-            guard managerIsLive() else { return }
             let created = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+            // A closed window no longer has a requester who can pick up this
+            // detached session. Remove the session cmux just created instead of
+            // leaving an unreported remote orphan behind.
+            guard managerIsLive() else {
+                if result.succeeded, !created.isEmpty {
+                    _ = try? await transport(for: host)
+                        .runTmux(["kill-session", "-t", "=\(created)"])
+                }
+                return
+            }
             guard result.succeeded, !created.isEmpty else {
                 #if DEBUG
                 cmuxDebugLog("remote-tmux: new-session returned no session: \(result.stderr)")

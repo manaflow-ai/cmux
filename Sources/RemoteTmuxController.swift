@@ -61,6 +61,10 @@ final class RemoteTmuxController {
     /// Keeping the task here makes the lifetime explicit and lets a second request for
     /// the same window cancel the stale request before it can attach an unexpected tab.
     private var newSessionTasks: [ObjectIdentifier: Task<Void, Never>] = [:]
+    /// Completion callbacks for sessions created through a shared multiplexer stream.
+    /// The stream publishes the new mirror asynchronously, so the callback fires from
+    /// the reconcile that actually admits the workspace.
+    var pendingMultiplexNewSessionCompletions: [String: () -> Void] = [:]
 
     init(newSessionEnvironment: RemoteTmuxNewSessionEnvironment = .live) {
         self.newSessionEnvironment = newSessionEnvironment
@@ -581,6 +585,59 @@ final class RemoteTmuxController {
             defer { self.newSessionTasks.removeValue(forKey: managerID) }
             await self.createAndMirrorSession(request, in: manager, onCreated: onCreated)
         }
+        return true
+    }
+
+    /// Creates a routed session through the host's existing multiplexed control stream.
+    /// A shared `tmux -CC` host cannot accept the dedicated SSH attach used by the GA
+    /// mirror path, so the command and the later mirror admission must both ride that
+    /// one connection.
+    @discardableResult
+    func createMultiplexedNewSession(
+        host: RemoteTmuxHost,
+        originatingTabId: UUID,
+        manager: TabManager,
+        onCreated: (@MainActor () -> Void)?
+    ) -> Bool {
+        let hostHash = host.connectionHash
+        guard AppDelegate.shared?.mainWindowContexts.values
+            .contains(where: { $0.tabManager === manager }) == true else {
+            return false
+        }
+        guard let view = multiplexedViewsByHost[hostHash],
+              let connection = view.connection,
+              connection.connectionState == .connected else {
+            return false
+        }
+        let sessionName = "cmux-new-\(UUID().uuidString.lowercased().prefix(12))"
+        var intents = multiplexIntentsByHost[hostHash] ?? .init()
+        intents.pendingSelect = .init(sessionName: sessionName, originatingTabId: originatingTabId)
+        multiplexIntentsByHost[hostHash] = intents
+        let completionKey = Self.connectionKey(host: host, sessionName: sessionName)
+        if let onCreated {
+            pendingMultiplexNewSessionCompletions[completionKey] = onCreated
+        }
+        let sent = view.createDetachedSession(named: sessionName) { [weak self, weak manager] succeeded in
+            guard let self, !succeeded else { return }
+            self.pendingMultiplexNewSessionCompletions.removeValue(forKey: completionKey)
+            if var intents = self.multiplexIntentsByHost[hostHash] {
+                intents.pendingSelect = nil
+                self.multiplexIntentsByHost[hostHash] = intents.isEmpty ? nil : intents
+            }
+            guard let manager,
+                  AppDelegate.shared?.mainWindowContexts.values
+                    .contains(where: { $0.tabManager === manager }) == true else { return }
+            self.newSessionEnvironment.reportFailure(host, .create, manager)
+        }
+        guard sent else {
+            pendingMultiplexNewSessionCompletions.removeValue(forKey: completionKey)
+            if var intents = multiplexIntentsByHost[hostHash] {
+                intents.pendingSelect = nil
+                multiplexIntentsByHost[hostHash] = intents.isEmpty ? nil : intents
+            }
+            return false
+        }
+        view.requestReconcile()
         return true
     }
 
