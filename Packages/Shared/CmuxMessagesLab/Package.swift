@@ -12,7 +12,7 @@ let package = Package(
     name: "CmuxMessagesLab",
     defaultLocalization: "en",
     platforms: [
-        .macOS(.v26),
+        .macOS(.v14),
     ],
     products: [
         .library(name: "MessagesLabHome", targets: ["MessagesLabHome"]),

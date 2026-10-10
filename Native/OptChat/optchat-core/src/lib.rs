@@ -50,5 +50,7 @@ pub const CAP: usize = 30_000;
 pub const STEP_MESSAGE: usize = 200_000;
 /// Cache breakpoints inside the rendered view, in characters (section 8).
 pub const MARKS: [usize; 3] = [50_000, 80_000, 100_000];
-/// What an unbuilt view line shows; no model call ever sees it (section 6).
+/// What an unbuilt view line shows. No compaction sees it; a turn may, when
+/// it waited its bound (chief 2026-10-10: a user turn never waits more than
+/// 10 s on compaction; the spec's section 6 had no turn see it).
 pub const PLACEHOLDER: &str = "(not summarized yet: zoom it)";
