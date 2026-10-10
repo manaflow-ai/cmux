@@ -213,3 +213,133 @@ second row) growing from its slot.
 
 I did not validate this rule against Safari. It needs a recording with (+)
 taps at different tab counts.
+
+## Round 4: freeze, reversible zoom, pinch, overview bar, no scroll prediction
+
+### Grid freeze (fixed)
+
+**Root cause.** The grid's hit testing required two flags to be clear:
+
+- `creatingTab`, which is cleared only after the host's `browser.create`
+  returns. On the real host that takes up to 3 s, and longer when Chrome is
+  slow.
+- The zoom overlay being nil, which is cleared only in a `withAnimation`
+  completion.
+
+Returning to the grid before either happened left the grid unresponsive. This
+happens after (+) followed by a quick tabs-button tap, or when completions race
+each other.
+
+**Fix.**
+
+- **One state machine.** The zoom is now one state machine, `TabZoomState`: a
+  progress value from 0 (page) to 1 (card) on a retargetable spring. Grid,
+  bottom-bar and toolbar interactivity are derived from its phase:
+  - the grid takes input only when settled on the overview;
+  - the page takes input only when settled on the page;
+  - while a zoom heads one way, the control that sends it back stays tappable.
+- **No completion callbacks gate input.** No animation completion or host
+  call gates input any more.
+- **Tests.** `CNBrowserUITests/TabZoomStateTests` repeats 20 cycles of (+),
+  sometimes interrupted early, then tabs button. It also covers 30 rapid
+  toggles, pinch completion and cancel, and pinch handoff. 6 tests pass.
+- **Simulator check.** I ran 4 rapid "(+) then tabs" cycles, then a close, an
+  open and a reversal. The grid stayed responsive.
+
+### Reversible transitions
+
+The tabs button and Done now retarget the running spring from its current
+position. Fit to `~/nxios-ref/safari/user/tab-reverse-device.mp4`, card width
+per frame:
+
+- **Spring after a reversal:** response 0.39, damping 0.88 (RMSE 0.5 pt and
+  2.2 pt on the two reversals).
+- **Velocity after a reversal:** Safari keeps only a small part of the old
+  velocity, about 0.2. With full velocity, the spring keeps shrinking for 2
+  more frames, which does not match the recording: 7.5 pt RMSE against
+  0.5–2.4 pt.
+
+The comparison used a DEBUG trigger, `CMUX_NEXT_BROWSER_REVERSE_MS=140`,
+because AXe taps arrive about 11 frames apart and cannot land a second tap 140
+ms in.
+
+| | Safari (progress, card = 1) | Implementation |
+|---|---|---|
+| Return after the reversal (frames +12…+28) | 0.527 → 0.014 | 0.542 → 0.004, within 2.4 pt every frame |
+| Before the reversal | 1-tab layout, slower opening (fit 0.39 / 0.84) | 0.33 / 0.91 (the 2-tab recording's fit); runs about 8 pt ahead |
+
+The two Safari recordings disagree on the opening spring: 0.33 / 0.91 with 2
+tabs, 0.39 / 0.84 with 1 tab. Safari also shows a single tab as a larger,
+centered card (292 pt wide). The implementation does not have that 1-tab
+layout yet.
+
+### Pinch
+
+- **Pinch-in on the page.** Once the pinch scale drops below 0.94 and the
+  remote page is at its minimum zoom (`pageScale` ≤ 1.02 from the frame
+  metadata), the pinch is taken over:
+  - the page's touches are cancelled on the host;
+  - the page rect follows the fingers (width = screen × scale);
+  - on release it completes to the grid past half way or with inward velocity
+    over 1.2 progress/s, and springs back otherwise.
+- **Pinch-out on a card.** Opens the card the same way.
+- **Verification.** AXe has no multi-touch, so the recordings use a scripted
+  pinch (`CMUX_NEXT_BROWSER_PINCH=page|card|page-cancel`) that feeds the same
+  handlers. The `UIPinchGestureRecognizer` and `MagnifyGesture` themselves need
+  a device check. The page pinch followed the fingers to 221 pt, then sprang
+  into the card. The card pinch-out grew to 371 pt, then opened. The cancelled
+  pinch went to 341 pt and back to 402 pt.
+
+`reverse-and-pinch.png` shows these rows, top to bottom:
+
+1. Safari reversal
+2. Implementation reversal
+3. Page pinch
+4. Card pinch-out
+
+### Overview bar
+
+The tab-count capsule was two nested glass capsules. It is now one 48 pt glass
+capsule. The (+) and Done circles were already single glass shapes.
+
+### Local scroll prediction removed; real responsiveness
+
+Frames are now drawn exactly as streamed. `ScrollPrediction` is gone.
+
+A host trace (`CMUX_NEXT_BROWSER_TRACE=1`) on cmux15 showed where the time
+goes:
+
+- Touch input reaches Chrome within 1–25 ms of arriving at the host. Chrome
+  acknowledges a touch move in about 33 ms.
+- Chrome paints frames every 17 ms right after the input.
+- With 4 frames of about 55 KB in flight, the phone's acks came back about
+  500 ms later. The link is the bottleneck, not Chrome.
+
+Changes, all with environment overrides:
+
+- JPEG quality 65 → 50: about half the bytes in a probe, 44–53 KB per frame on
+  Wikipedia in practice.
+- Unacked window 4 → 3, so one frame fewer is queued ahead of each new scroll
+  frame.
+- The phone logs each drag (`dev.cmux.next` / `browser.perf`): frames shown,
+  frame rate, largest gap, time from the first touch move to the first frame
+  showing the page scrolled, and KB per frame.
+
+Measured on cmux15 with the simulator (6 drags per configuration). "Direct"
+went through Tailscale DERP, so both rows are relayed paths.
+
+| Path | Frames/s during a drag | First scrolled frame | KB/frame |
+|---|---|---|---|
+| Direct (q65, window 4) | 1–14, median about 2 | 0.22–0.98 s | 57–63 |
+| Direct (q50, window 3) | 0–14, median about 4 | 0.31–0.89 s, often after release | 44–53 |
+| Relay (q50, window 3) | 0–8, median about 4 | 0.25–0.89 s | 48–53 |
+
+These numbers are poor and noisy:
+
+- The simulator Mac's load average was 16–22.
+- Another agent restarted the cmux15 host several times during the runs. Some
+  runs were discarded because the host process changed mid-run.
+- 3–5 other iOS clients were connected to the same host.
+
+The remaining fix is throughput: video encoding (H.264) or smaller and
+differential frames instead of full JPEGs. That is beyond this round.
