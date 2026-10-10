@@ -3651,11 +3651,11 @@ mod closed_delete;
 #[cfg(unix)]
 #[path = "cli/feed_local.rs"]
 mod feed_local;
-#[path = "cli/lone_width.rs"]
-mod lone_width;
 #[cfg(unix)]
 #[path = "cli/left_dock_undock.rs"]
 mod left_dock_undock;
+#[path = "cli/lone_width.rs"]
+mod lone_width;
 #[cfg(unix)]
 #[path = "cli/wg_hub.rs"]
 mod wg_hub;
