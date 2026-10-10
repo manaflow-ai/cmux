@@ -140,7 +140,7 @@ impl Mux {
     pub(crate) fn from_workspace_registry(
         session: String,
         surface_options: SurfaceOptions,
-        registry: WorkspaceRegistry,
+        mut registry: WorkspaceRegistry,
         provider_workspace: ProviderWorkspaceState,
         #[cfg_attr(not(test), allow(unused_variables))] test_surface_runtime: bool,
     ) -> anyhow::Result<Arc<Self>> {
@@ -168,6 +168,7 @@ impl Mux {
             host: agent_roster,
             diagnostic: agent_roster_diagnostic,
         } = agent_roster_restore::restore_agent_roster(&registry)?;
+        let feed_local = Mutex::new(registry.open_feed_local()?);
         let presentation = registry.presentation_snapshot()?;
         let journal_producers = registry.journal_producer_manifests()?;
         let session_public_id = registry.session_id().clone();
@@ -306,6 +307,7 @@ impl Mux {
             notification_ledger: Mutex::new(notification_ledger),
             notification_reads: Mutex::new(notification_reads),
             notification_read_prunes: Mutex::new(Vec::new()),
+            feed_local,
             presentation: Mutex::new(Arc::new(presentation)),
             git_heads: Mutex::new(HashMap::new()),
             resource_machine_service: OnceLock::new(),
@@ -416,6 +418,10 @@ impl Mux {
             std::thread::sleep(Duration::from_millis(25));
         }
         mux.close_ephemeral_workspaces()?;
+        // cx-6so.49: host losses whose respawn an earlier owner never ran
+        // (it shut down first, or a session shutdown ended the shell).
+        #[cfg(unix)]
+        mux.respawn_lost_terminals_at_start();
         mux.retry_pending_agent_hooks()?;
         crate::journal_hooks::start(&mux)?;
         Ok(mux)

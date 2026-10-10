@@ -56,6 +56,22 @@ fn hub(d: &Path) -> Arc<Hub> {
 struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
 
 impl Client {
+    /// A client that presented the person key (`hub/person.rs`): the person
+    /// at the Mac app, who may allow and widen.
+    async fn person(hub: &Arc<Hub>, origin: Origin) -> Self {
+        const KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let _ = hub.person.install_spawn_key(KEY);
+        let mut c = Self::new(hub, origin);
+        let r = c
+            .call(
+                "initialize",
+                json!({"protocolVersion": 1, "_meta": {"acpmux": {"personKey": KEY}}}),
+            )
+            .await;
+        assert!(r.get("error").is_none(), "{r}");
+        c
+    }
+
     fn new(hub: &Arc<Hub>, origin: Origin) -> Self {
         let (in_tx, in_rx) = mpsc::channel(64);
         let (out_tx, out_rx) = mpsc::channel(4096);
@@ -134,7 +150,7 @@ const REFUSED: &[(&str, &[&str])] = &[
 async fn the_unix_socket_table_lists_no_codex_or_opencode_row() {
     let d = dir("table");
     let hub = hub(&d);
-    let mut local = Client::new(&hub, Origin::Local);
+    let mut local = Client::person(&hub, Origin::Local).await;
     let r = local.call("_acpmux/web_modes", json!({})).await;
     let families = &r["result"]["families"];
     for f in ["codex", "opencode", "alias"] {
@@ -150,7 +166,7 @@ async fn the_unix_socket_table_lists_no_codex_or_opencode_row() {
 async fn a_web_session_new_on_codex_or_opencode_is_refused_and_ended() {
     let d = dir("new");
     let hub = hub(&d);
-    let mut local = Client::new(&hub, Origin::Local);
+    let mut local = Client::person(&hub, Origin::Local).await;
     let mut web = Client::new(&hub, Origin::Web);
     let before = local.count().await;
     for (harness, _) in REFUSED {
@@ -168,7 +184,7 @@ async fn a_web_session_new_on_codex_or_opencode_is_refused_and_ended() {
 async fn web_control_of_codex_or_opencode_is_refused_in_every_mode() {
     let d = dir("control");
     let hub = hub(&d);
-    let mut local = Client::new(&hub, Origin::Local);
+    let mut local = Client::person(&hub, Origin::Local).await;
     let mut web = Client::new(&hub, Origin::Web);
     for (harness, modes) in REFUSED {
         let s = id(&local.new_on(&d, Some(harness)).await);
@@ -221,7 +237,7 @@ async fn a_queued_web_prompt_is_dropped_when_its_harness_turns_out_to_run_codex(
     let hub = hub(&d);
     let mut web = Client::new(&hub, Origin::Web);
     let mut busy = Client::new(&hub, Origin::Local);
-    let mut local = Client::new(&hub, Origin::Local);
+    let mut local = Client::person(&hub, Origin::Local).await;
     // `later` asks (config lists its mode), so the Web may drive it.
     let s = id(&local.new_on(&d, Some("flater")).await);
     assert!(web.prompt(&s, "hello").await.get("error").is_none());
@@ -252,7 +268,7 @@ async fn a_queued_web_prompt_is_dropped_when_codex_moves_to_read_only_before_dis
     let hub = hub(&d);
     let mut web = Client::new(&hub, Origin::Web);
     let mut busy = Client::new(&hub, Origin::Local);
-    let mut local = Client::new(&hub, Origin::Local);
+    let mut local = Client::person(&hub, Origin::Local).await;
     // A session on `later`, the fake agent in `normal`, which its row lists.
     let s = id(&local.new_on(&d, Some("flater")).await);
     let fifo = d.join("gate");

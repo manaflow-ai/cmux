@@ -8,8 +8,8 @@ nonisolated protocol AppHostCapabilityHandler: Sendable {
     func handle(_ request: AppHostCapabilityRequest) async throws(AppHostCapabilityError) -> AppJSON
 }
 
-/// The Mac-side handlers by family; the one place a caller (prototype
-/// engine now, provider channel later) looks an op up.
+/// The Mac-side handlers by family; the one place the provider channel
+/// (`AppsProviderChannel`) and the CodeRouter page look an op up.
 nonisolated struct AppHostCapabilities: Sendable {
     private let handlers: [String: any AppHostCapabilityHandler]
 
@@ -22,6 +22,9 @@ nonisolated struct AppHostCapabilities: Sendable {
     }
 
     static func family(of op: String) -> String { String(op.prefix { $0 != "." }) }
+
+    /// The families with a handler (registered with `apps-provider-register`).
+    var families: Set<String> { Set(handlers.keys) }
 
     func handles(_ op: String) -> Bool { handlers[Self.family(of: op)] != nil }
 

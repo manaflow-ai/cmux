@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "77071dd7ff3506e51ef9ed1075ee12a175ffcec086b4401a9664633596c94dd2";
+pub const ir_sha256 = "2bf19d19dd792ab6ce12fb52406a3928efe88c839b5e097d4a042d2dcc4158d4";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -4719,6 +4719,108 @@ pub fn exportLayout(client: anytype, request: ExportLayoutRequest) !wire.Decoded
             .authority = "control",
             .since = 6,
             .capability = null,
+        },
+        request,
+    );
+}
+
+pub const FeedLocalHandoffAbortRequest = struct {
+    item: []const u8,
+};
+
+pub const FeedLocalHandoffAbortResult = JsonValue;
+
+pub fn feedLocalHandoffAbort(client: anytype, request: FeedLocalHandoffAbortRequest) !wire.Decoded(FeedLocalHandoffAbortResult) {
+    return client.callTyped(
+        FeedLocalHandoffAbortResult,
+        .{
+            .name = "feed-local-handoff-abort",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "feed-local-owner-v1",
+        },
+        request,
+    );
+}
+
+pub const FeedLocalHandoffBeginRequest = struct {
+    item: []const u8,
+};
+
+pub const FeedLocalHandoffBeginResult = JsonValue;
+
+pub fn feedLocalHandoffBegin(client: anytype, request: FeedLocalHandoffBeginRequest) !wire.Decoded(FeedLocalHandoffBeginResult) {
+    return client.callTyped(
+        FeedLocalHandoffBeginResult,
+        .{
+            .name = "feed-local-handoff-begin",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "feed-local-owner-v1",
+        },
+        request,
+    );
+}
+
+pub const FeedLocalHandoffDoneRequest = struct {
+    home: []const u8,
+    item: []const u8,
+};
+
+pub const FeedLocalHandoffDoneResult = JsonValue;
+
+pub fn feedLocalHandoffDone(client: anytype, request: FeedLocalHandoffDoneRequest) !wire.Decoded(FeedLocalHandoffDoneResult) {
+    return client.callTyped(
+        FeedLocalHandoffDoneResult,
+        .{
+            .name = "feed-local-handoff-done",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "feed-local-owner-v1",
+        },
+        request,
+    );
+}
+
+pub const FeedLocalListRequest = struct {
+    state: wire.Field([]const u8) = .absent,
+    terminal_id: wire.Field([]const u8) = .absent,
+    unread: ?bool = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "unread",
+    };
+};
+
+pub const FeedLocalListResult = JsonValue;
+
+pub fn feedLocalList(client: anytype, request: FeedLocalListRequest) !wire.Decoded(FeedLocalListResult) {
+    return client.callTyped(
+        FeedLocalListResult,
+        .{
+            .name = "feed-local-list",
+            .authority = "control",
+            .since = 12,
+            .capability = "feed-local-owner-v1",
+        },
+        request,
+    );
+}
+
+pub const FeedLocalReadRequest = struct {
+    items: []const []const u8,
+};
+
+pub const FeedLocalReadResult = JsonValue;
+
+pub fn feedLocalRead(client: anytype, request: FeedLocalReadRequest) !wire.Decoded(FeedLocalReadResult) {
+    return client.callTyped(
+        FeedLocalReadResult,
+        .{
+            .name = "feed-local-read",
+            .authority = "control",
+            .since = 12,
+            .capability = "feed-local-owner-v1",
         },
         request,
     );
@@ -9531,7 +9633,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 237;
+pub const command_count: usize = 242;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -9613,6 +9715,11 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "detach-attached-view", .authority = "frontend", .since = 10, .capability = "view-attachment-detach-v1", .stream = null },
     .{ .name = "detach-client", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "export-layout", .authority = "control", .since = 6, .capability = null, .stream = null },
+    .{ .name = "feed-local-handoff-abort", .authority = "local-admin", .since = 12, .capability = "feed-local-owner-v1", .stream = null },
+    .{ .name = "feed-local-handoff-begin", .authority = "local-admin", .since = 12, .capability = "feed-local-owner-v1", .stream = null },
+    .{ .name = "feed-local-handoff-done", .authority = "local-admin", .since = 12, .capability = "feed-local-owner-v1", .stream = null },
+    .{ .name = "feed-local-list", .authority = "control", .since = 12, .capability = "feed-local-owner-v1", .stream = null },
+    .{ .name = "feed-local-read", .authority = "control", .since = 12, .capability = "feed-local-owner-v1", .stream = null },
     .{ .name = "focus-direction", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "focus-pane", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "forget-session", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },

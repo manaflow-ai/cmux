@@ -15,21 +15,6 @@ name: macOS cross-compile parity
 on:
   schedule:
     - cron: "17 6 * * *"
-  push:
-    branches: [feat-cmux-next]
-    paths:
-      - "scripts/ci/macos-cross.sh"
-      - "scripts/ci/macos_stubs.py"
-      - "scripts/ci/macho_weaken.py"
-      - "scripts/ci/macho_parity.py"
-      - "scripts/ci/macos-cross-runtime-check.sh"
-      - "scripts/ci/macos-stubs/**"
-      - "cmux-tui/rust-toolchain.toml"
-      # New framework imports (Cargo.lock) fail the Linux link loudly; a
-      # ghostty-next bump can change libghostty-vt's compiler_rt.
-      - "cmux-tui/Cargo.lock"
-      - "ghostty-next"
-      - ".github/workflows/macos-cross-parity.yml"
   workflow_dispatch:
 
 concurrency:
