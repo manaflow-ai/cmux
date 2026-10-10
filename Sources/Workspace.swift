@@ -12627,17 +12627,27 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return min(0.25, baseDelay * pow(2.0, Double(exponent)))
     }
 
+    /// Flushes only the host window that owns this workspace's layout.
+    ///
+    /// Layout follow-ups are emitted from AppKit and SwiftUI callbacks. Keep
+    /// the ownership lookup on MainActor so window and tab-manager state is
+    /// never read concurrently with window replacement.
     private func flushWorkspaceWindowLayouts() {
         // A follow-up belongs to this workspace's host window. Laying out
         // every visible application window here made each workspace retry
         // perform unrelated AppKit layout work (and multiplied the cost when
         // several workspaces were converging at once).
-        let window = AppDelegate.shared?.mainWindowContainingWorkspace(id)
-            ?? owningTabManager?.window
-            ?? AppDelegate.shared?.tabManagerFor(tabId: id)?.window
-        guard let window,
-              window.isVisible else { return }
-        window.contentView?.layoutSubtreeIfNeeded()
+        MainActor.assumeIsolated {
+            // The owning manager is the common case and gives us an O(1)
+            // lookup. Recovery scans are reserved for window replacement or
+            // orphaned workspaces whose live owner has not been restored yet.
+            let window = owningTabManager?.window
+                ?? AppDelegate.shared?.mainWindowContainingWorkspace(id)
+                ?? AppDelegate.shared?.tabManagerFor(tabId: id)?.window
+            guard let window,
+                  window.isVisible else { return }
+            window.contentView?.layoutSubtreeIfNeeded()
+        }
     }
 
     private func browserPortalAnchorReady(for browserPanel: BrowserPanel) -> Bool {
