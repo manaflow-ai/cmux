@@ -1903,6 +1903,20 @@ jobs:
         # Retried, and only a warning when Sentry stays down: a nightly is never lost to symbolication.
         run: ./scripts/upload-sentry-dsyms.sh build-universal/Build/Products/Release/
 
+      # The dSYMs of every nightly-next build, kept 90 days next to the build: a crash or hang
+      # report symbolicates from here when the Sentry download is not available (2026-10-10:
+      # a read with a scoped token got 403 for nightly 38005665577; the upload above works).
+      - name: Keep the nightly-next dSYMs (90 days)
+        if: needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.build_only != 'true'
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: nightly-next-dsyms-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          path: build-universal/Build/Products/Release/**/*.dSYM
+          if-no-files-found: warn
+          retention-days: 90
+          compression-level: 6
+
   # Runs beside build-nightly-app. Deepening the shallow clone to find the
   # newest published cmux-tui commit took 1.5 to 11 minutes after the Xcode
   # compile (runs 36044415287, 36051668491); here it overlaps the compile.
