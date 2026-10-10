@@ -1,5 +1,5 @@
 {
-  "description" : "Managed settings for cmux (every channel). Keys are cmux.json key paths; capitalized keys are policy keys. Forced values lock the setting; non-forced values replace its default.",
+  "description" : "Managed settings for cmux (every channel). Keys are cmux.json key paths; capitalized keys are policy keys. Forced values lock the setting; non-forced values replace its default. Exception: agents.chats.roots adds locked roots to the user list; agents.chats.enabled and agents.chats.discovery can only be forced off.",
   "properties" : {
     "agentPane.editedFiles.maxRows" : {
       "default" : 5,
@@ -42,7 +42,7 @@
       "type" : "string"
     },
     "agentPane.links.outsideRoots" : {
-      "default" : "confirm",
+      "default" : "open",
       "description" : "What a file link in a reply does when the file is outside the chat's folders. Keys and .env files never open.",
       "enum" : [
         "confirm",
@@ -51,6 +51,43 @@
       ],
       "title" : "Files Outside the Project",
       "type" : "string"
+    },
+    "agentPane.showContextUsage" : {
+      "default" : true,
+      "description" : "The ring beside the model that fills as the chat uses its context window.",
+      "title" : "Show Context Usage",
+      "type" : "boolean"
+    },
+    "agentPane.zoom" : {
+      "default" : 1,
+      "description" : "The display size for agent chat. Cmd-0 resets it.",
+      "maximum" : 2,
+      "minimum" : 0.5,
+      "title" : "Agent Chat Zoom",
+      "type" : "number"
+    },
+    "agents.chats.discovery" : {
+      "default" : true,
+      "description" : "Find harness chat folders automatically. When off, only the listed folders are used.",
+      "title" : "Discover Chat Folders",
+      "type" : "boolean"
+    },
+    "agents.chats.enabled" : {
+      "default" : true,
+      "description" : "Show chats stored on this device. Nothing is uploaded.",
+      "title" : "Enable Chats",
+      "type" : "boolean"
+    },
+    "agents.chats.roots" : {
+      "default" : [
+
+      ],
+      "description" : "Add absolute paths to harness data folders. Protected folders are refused. Your organization can add locked folders.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Chat Folders",
+      "type" : "array"
     },
     "AllowedSignInMethods" : {
       "description" : "Sign-in methods the app offers.",
@@ -95,6 +132,12 @@
       "title" : "When Quitting",
       "type" : "string"
     },
+    "app.startAgentGlobalHotKey" : {
+      "default" : false,
+      "description" : "Start Agent (⌃⌥⌘Space) works while another app is in front. Change its key in Keyboard Shortcuts.",
+      "title" : "Start Agent from Any App",
+      "type" : "boolean"
+    },
     "app.uiScale" : {
       "default" : 1,
       "description" : "app.uiScale",
@@ -105,15 +148,21 @@
     },
     "app.warnBeforeClosingAgentSession" : {
       "default" : true,
-      "description" : "Ask before closing a terminal tab whose agent is still working.",
+      "description" : "app.warnBeforeClosingAgentSession",
       "title" : "Warn Before Closing a Working Agent",
       "type" : "boolean"
     },
     "app.warnBeforeClosingTab" : {
       "default" : true,
-      "description" : "Ask before closing a tab or workspace whose terminal is running a program. Idle tabs always close at once.",
+      "description" : "app.warnBeforeClosingTab",
       "title" : "Warn Before Closing a Running Program",
       "type" : "boolean"
+    },
+    "appearance.appTheme" : {
+      "default" : "followTerminal",
+      "description" : "Colors for cmux's own pages. Every bundled theme works here, and each color meets WCAG AA contrast.",
+      "title" : "App Theme",
+      "type" : "string"
     },
     "appearance.backdropArt" : {
       "default" : "none",
@@ -124,21 +173,34 @@
         "met-saint-catherine-436908",
         "met-woman-man-casement-436896",
         "met-women-picking-olives-436536",
-        "met-sunflowers-436524"
+        "met-sunflowers-436524",
+        "nga-degas-halevy-standing-66489",
+        "nga-degas-dancer-from-behind-32137",
+        "nga-carpaccio-groups-of-male-figures-73858",
+        "nga-perino-del-vaga-figure-studies-57613",
+        "nga-rubens-battle-of-nude-men-63034",
+        "nga-teniers-market-figures-62615"
       ],
       "title" : "Backdrop Art",
       "type" : "string"
     },
     "appearance.background" : {
       "default" : "none",
-      "description" : "Choose a bundled public-domain painting or a macOS system wallpaper behind the window material.",
+      "description" : "Choose a public-domain figure drawing or painting, your desktop wallpaper, or a macOS system wallpaper behind the window material.",
       "enum" : [
         "none",
+        "nga-degas-halevy-standing-66489",
+        "nga-degas-dancer-from-behind-32137",
+        "nga-carpaccio-groups-of-male-figures-73858",
+        "nga-perino-del-vaga-figure-studies-57613",
+        "nga-rubens-battle-of-nude-men-63034",
+        "nga-teniers-market-figures-62615",
         "wheat-field-with-cypresses",
         "met-saint-catherine-436908",
         "met-woman-man-casement-436896",
         "met-women-picking-olives-436536",
-        "met-sunflowers-436524"
+        "met-sunflowers-436524",
+        "desktop"
       ],
       "title" : "Background",
       "type" : "string"
@@ -260,6 +322,18 @@
       "default" : true,
       "description" : "A status that asks for a style (cmux status set --style) uses it.",
       "title" : "Let Statuses Choose Their Style",
+      "type" : "boolean"
+    },
+    "appearance.statusIndicator.showAgentWorkingOnTabs" : {
+      "default" : true,
+      "description" : "Three dots take the tab's icon place while an agent works.",
+      "title" : "Show Agent Working on Tabs",
+      "type" : "boolean"
+    },
+    "appearance.statusIndicator.showPageLoading" : {
+      "default" : true,
+      "description" : "A spinner takes a browser tab's icon place while its page loads.",
+      "title" : "Show Page Loading on Tabs",
       "type" : "boolean"
     },
     "appearance.statusIndicator.size" : {
@@ -637,6 +711,22 @@
       "title" : "Show Bookmarks Bar",
       "type" : "boolean"
     },
+    "computerUse.driver" : {
+      "default" : "legacy",
+      "description" : "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately.",
+      "enum" : [
+        "legacy",
+        "upstream"
+      ],
+      "title" : "Computer Use Driver",
+      "type" : "string"
+    },
+    "computerUse.enabled" : {
+      "default" : false,
+      "description" : "Lets agents see and use your apps through the signed cmux Computer Use helper. macOS asks for Accessibility and Screen Recording when you first allow them.",
+      "title" : "Computer Use",
+      "type" : "boolean"
+    },
     "diff.diffIndicators" : {
       "default" : "bars",
       "description" : "diff.diffIndicators",
@@ -708,6 +798,11 @@
       },
       "title" : "DisabledFeatures",
       "type" : "array"
+    },
+    "DisableTelemetry" : {
+      "description" : "Turn off anonymous telemetry, crash reports included, whatever the user chose (also honored in the legacy com.cmuxterm.app domain).",
+      "title" : "DisableTelemetry",
+      "type" : "boolean"
     },
     "EnrollmentToken" : {
       "description" : "Team enrollment token from the cmux dashboard. Signed-in users in a verified domain of the team join it; the token alone never grants membership.",
@@ -985,9 +1080,10 @@
       "type" : "string"
     },
     "layout.stripScrollbar" : {
-      "default" : "auto",
+      "default" : "system",
       "description" : "A thin bar under the columns that shows and moves the visible range.",
       "enum" : [
+        "system",
         "auto",
         "always",
         "off"
@@ -1394,6 +1490,12 @@
       "title" : "Bottom Sections Height",
       "type" : "number"
     },
+    "sidebar.cards.tips" : {
+      "default" : true,
+      "description" : "A \"Did you know\" card above the account button shows one cmux feature a day that you have not used yet.",
+      "title" : "Show Tips",
+      "type" : "boolean"
+    },
     "sidebar.cmd9" : {
       "default" : "last",
       "description" : "Goes to the last item, as in browsers, or to the ninth.",
@@ -1403,6 +1505,22 @@
       ],
       "title" : "Command-9",
       "type" : "string"
+    },
+    "sidebar.groupBy" : {
+      "default" : "none",
+      "description" : "sidebar.groupBy",
+      "enum" : [
+        "none",
+        "folder"
+      ],
+      "title" : "Group Projects By",
+      "type" : "string"
+    },
+    "sidebar.groupByComputer" : {
+      "default" : false,
+      "description" : "Off: one list of workspaces, and a workspace on another computer names it under its title. On: a section per computer.",
+      "title" : "Group Workspaces by Computer",
+      "type" : "boolean"
     },
     "sidebar.minimalMode" : {
       "default" : "bottom",
@@ -1445,6 +1563,18 @@
       "title" : "Section Look",
       "type" : "string"
     },
+    "sidebar.showChats" : {
+      "default" : true,
+      "description" : "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar.",
+      "title" : "Show All Chats",
+      "type" : "boolean"
+    },
+    "sidebar.showProjects" : {
+      "default" : true,
+      "description" : "sidebar.showProjects",
+      "title" : "Show Projects",
+      "type" : "boolean"
+    },
     "sidebar.showWorkspaceTabs" : {
       "default" : false,
       "description" : "Lists tabs beneath each workspace in the sidebar.",
@@ -1469,6 +1599,16 @@
         "bottom"
       ],
       "title" : "Spaces Position",
+      "type" : "string"
+    },
+    "sidebar.spacesVisibility" : {
+      "default" : "hover",
+      "description" : "On Hover shows the spaces only while the pointer is over the sidebar, like its other buttons.",
+      "enum" : [
+        "hover",
+        "always"
+      ],
+      "title" : "Show Spaces",
       "type" : "string"
     },
     "sidebar.stepping" : {
@@ -1917,6 +2057,12 @@
       "title" : "Tab Bar Position",
       "type" : "string"
     },
+    "tabs.cmdWClosesPinnedTabs" : {
+      "default" : false,
+      "description" : "When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu.",
+      "title" : "Cmd-W Closes Pinned Tabs",
+      "type" : "boolean"
+    },
     "tabs.newTabKind" : {
       "default" : "page",
       "description" : "What Cmd-T and the + button open. Auto picks the kind you last opened in that folder.",
@@ -1929,6 +2075,20 @@
         "auto"
       ],
       "title" : "New Tab Opens",
+      "type" : "string"
+    },
+    "tabs.newTabTemplate" : {
+      "default" : "default",
+      "description" : "The layout of the New Tab page. Terminal skips the page and opens a terminal. The dots at the bottom of the page also change it.",
+      "enum" : [
+        "default",
+        "composer",
+        "threads",
+        "console",
+        "classic",
+        "terminal"
+      ],
+      "title" : "New Tab Template",
       "type" : "string"
     },
     "tabs.plusButton" : {
@@ -2063,6 +2223,17 @@
         "always"
       ],
       "title" : "Titlebar Buttons",
+      "type" : "string"
+    },
+    "workspaces.newPlacement" : {
+      "default" : "top",
+      "description" : "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. Pinned workspaces stay above it.",
+      "enum" : [
+        "top",
+        "afterCurrent",
+        "bottom"
+      ],
+      "title" : "New Workspace Position",
       "type" : "string"
     }
   },

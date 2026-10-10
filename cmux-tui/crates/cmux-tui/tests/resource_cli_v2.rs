@@ -118,7 +118,7 @@ fn every_public_scope_has_specific_help_instead_of_falling_back_to_root_help() {
         (&["terminal"][..], &["list", "show", "write", "keys", "history", "attach"][..]),
         (&["browser"][..], &["show", "navigate", "back", "forward", "attach"][..]),
         (&["notification"][..], &["list", "create"][..]),
-        (&["agent"][..], &["list", "message", "inbox", "report"][..]),
+        (&["agent"][..], &["list", "report"][..]),
         (&["sidebar"][..], &["view", "plugin"][..]),
         (&["pairing"][..], &["request"][..]),
         (&["projection"][..], &["show", "put"][..]),
@@ -195,9 +195,11 @@ fn nested_non_hyphenated_actions_have_specific_help() {
 #[test]
 fn old_action_first_commands_are_all_usage_errors() {
     let missing_socket = unique_temp_dir("removed-actions").join("missing.sock");
+    // `identify`, `ping` and `capabilities` are not here: they are the classic
+    // app discovery verbs and ask the app (`cmux app identify|ping|
+    // capabilities`); tests/cmux_surface.rs classic_discovery_verbs_ask_the_app
+    // pins that contract (cx-4w47 D1).
     for removed in [
-        "identify",
-        "ping",
         "set-client-info",
         "list-clients",
         "detach-client",

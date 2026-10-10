@@ -18,9 +18,12 @@ public nonisolated struct AgentPaneSeed: Sendable, Equatable {
     public var surface: AgentPaneSurface?
     /// The harness a new chat starts on (`newTab.submit --agent`); nil is the default.
     public var harness: String?
+    /// A chat that opened without its folder: the page explains it and offers Choose Folder.
+    public var folderNeeded: AgentPaneFolderNeeded?
 
     public init(cwd: String? = nil, draft: String? = nil, prompt: String? = nil, adopt: AgentPaneAdopt? = nil,
-                surface: AgentPaneSurface? = nil, harness: String? = nil) {
+                surface: AgentPaneSurface? = nil, harness: String? = nil, folderNeeded: AgentPaneFolderNeeded? = nil) {
+        self.folderNeeded = folderNeeded
         self.cwd = cwd
         self.draft = draft
         self.prompt = prompt
@@ -41,6 +44,8 @@ public final class AgentPaneSeedSource {
     /// The seed's surface. Unlike the draft it holds for the page's whole
     /// life, after the chat has a session too.
     public private(set) var surface: AgentPaneSurface?
+    /// The missing folder this pane's chat waits for (cx-nn3e.1), until a pick works.
+    public internal(set) var folderNeeded: AgentPaneFolderNeeded?
 
     public init(limit: Duration = .seconds(1), _ read: @escaping @MainActor @Sendable () async -> AgentPaneSeed?) {
         self.read = read
@@ -55,7 +60,7 @@ public final class AgentPaneSeedSource {
 
     /// The seed, read once. The draft and prompt are handed out only once,
     /// so a page that reloads before the first prompt does not get them twice.
-    func take() async -> AgentPaneSeed? {
+    public func take() async -> AgentPaneSeed? {
         if let read {
             self.read = nil
             value = await agentPaneFirst(within: limit, read)
@@ -64,6 +69,11 @@ public final class AgentPaneSeedSource {
         let seed = value
         value?.draft = nil
         value?.prompt = nil
+        // A missing folder is taken once; Choose Folder changes or clears it (cx-nn3e.1).
+        if let needed = value?.folderNeeded {
+            folderNeeded = needed
+            value?.folderNeeded = nil
+        }
         return seed
     }
 }

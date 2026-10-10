@@ -1,3 +1,4 @@
+import CmuxAgentQuestion
 import CmuxHomeCore
 import CmuxNextDaemon
 import Foundation
@@ -25,7 +26,7 @@ nonisolated enum HomeCoreMapping {
                            agentClass: participant.kind == .agent ? (isChief ? .chief : .agent) : nil)
     }
 
-    static func part(_ part: ConversationPart) -> MessagePart {
+    static func part(_ part: ConversationPart, messageID: String = "", index: Int = 0) -> MessagePart {
         switch part {
         case .text(let text, let runs):
             let mentions = runs.compactMap { run in
@@ -37,6 +38,12 @@ nonisolated enum HomeCoreMapping {
                                  status: WorkRef.Status(rawValue: status) ?? .running, preview: preview))
         case .attachment(let attachment):
             return .attachment(Self.ref(attachment))
+        case .unknown("question", let payload):
+            // The owner's question part (spec/commands.md `Question`).
+            guard let data = try? JSONEncoder().encode(payload), let json = try? AgentQuestionJSON(data: data),
+                  let question = AgentQuestion(conversationPart: json, messageID: messageID, partIndex: index)
+            else { return .text("question") }
+            return .question(question)
         case .unknown(let type, _):
             return .text(type)
         }
@@ -74,9 +81,11 @@ nonisolated enum HomeCoreMapping {
     static func message(_ message: ConversationMessage) -> Message {
         Message(id: MessageID(message.id), conversation: ConversationID(message.conversation), seq: message.seq,
                 clientMessageID: IdempotencyKey(message.clientMsgID), author: ParticipantID(message.author),
-                parts: message.parts.map(part), createdAt: date(message.createdAt) ?? .distantPast,
+                parts: message.parts.enumerated().map { part($1, messageID: message.id, index: $0) }, createdAt: date(message.createdAt) ?? .distantPast,
                 editedAt: date(message.editedAt), retractedAt: date(message.retractedAt),
-                reactions: message.reactions.map(reaction))
+                reactions: message.reactions.map(reaction),
+                replyTo: message.replyTo.map { PartRef(message: MessageID($0.messageID), partIndex: $0.partIndex) },
+                threadRoot: message.replyTo.map { MessageID($0.messageID) })
     }
 
     static func summary(_ summary: CmuxNextDaemon.ConversationSummary) -> CmuxHomeCore.ConversationSummary {
@@ -101,26 +110,42 @@ nonisolated enum HomeCoreMapping {
                 return .work(session: work.session, host: work.host, status: work.status.rawValue, preview: work.preview)
             case .attachment(let ref):
                 return .attachment(Self.attachment(ref))
-            case .approval, .linkPreview, .location:
-                // The local owner has no approval, link preview or location parts.
+            case .approval, .linkPreview, .location, .question:
+                // The local owner has no approval, link preview or location parts;
+                // a person never sends a question (agents post them).
                 return .text(part.plainText, runs: [])
             }
+        }
+    }
+
+    static func reactionKind(_ reaction: Reaction.Kind) -> ConversationReactionKind {
+        switch reaction {
+        case .tapback(let tapback): .tapback(tapback.rawValue)
+        case .emoji(let emoji): .emoji(emoji)
         }
     }
 
     /// The owner op of a Home intent, or nil when the local owner has no such op.
     static func op(_ op: HomeOp, key: IdempotencyKey) -> (conversation: String, op: ConversationOp)? {
         switch op {
-        case .sendMessage(let conversation, let parts):
-            return (conversation.rawValue, .send(clientMsgID: key.rawValue, parts: Self.parts(parts), replyTo: nil))
+        case .sendMessage(let conversation, let parts, let threadRoot):
+            // The local owner has no thread field: a thread reply is a reply to the root's first part.
+            return (conversation.rawValue, .send(clientMsgID: key.rawValue, parts: Self.parts(parts),
+                                                 replyTo: threadRoot.map { ConversationPartRef(messageID: $0.rawValue, partIndex: 0) }))
+        case .editMessage(let message, let conversation, let parts):
+            return (conversation.rawValue, .edit(messageID: message.rawValue, parts: Self.parts(parts)))
+        case .retractMessage(let message, let conversation):
+            return (conversation.rawValue, .retract(messageID: message.rawValue))
         case .setReadCursor(let conversation, let seq):
             return (conversation.rawValue, .setReadCursor(seq: seq))
         case .addReaction(let message, let conversation, let reaction, let partIndex):
-            let kind: ConversationReactionKind = switch reaction {
-            case .tapback(let tapback): .tapback(tapback.rawValue)
-            case .emoji(let emoji): .emoji(emoji)
-            }
-            return (conversation.rawValue, .addReaction(messageID: message.rawValue, partIndex: partIndex, kind: kind))
+            return (conversation.rawValue, .addReaction(messageID: message.rawValue, partIndex: partIndex, kind: Self.reactionKind(reaction)))
+        case .removeReaction(let message, let conversation, let reaction, let partIndex):
+            return (conversation.rawValue, .removeReaction(messageID: message.rawValue, partIndex: partIndex, kind: Self.reactionKind(reaction)))
+        case .answerQuestion(let message, let conversation, let partIndex, let answer):
+            guard let data = try? answer.conversationAnswer.data(),
+                  let value = try? JSONDecoder().decode(JSONValue.self, from: data) else { return nil }
+            return (conversation.rawValue, .answerQuestion(messageID: message.rawValue, partIndex: partIndex, answer: value))
         case .createGroup, .createChief, .startConversation, .invite, .openDirect, .setPinned, .setMuted, .setTyping:
             return nil
         }

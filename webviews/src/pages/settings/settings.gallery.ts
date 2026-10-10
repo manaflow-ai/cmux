@@ -1,7 +1,14 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
 import { settingsPageEntry, type PageFixtureStep, type SettingsPageVariant } from "../../gallery/format";
 import type { AccountsRow, AccountsState, HostLists } from "./ops";
-import { groupRows, rowsInSection, schema, sections } from "./schema";
+import { categories, homes } from "./categories";
+import { schema } from "./schema";
+import DEGAS_HALEVY from "../../gallery/fixtures/art/nga-degas-halevy-standing-66489.jpg?inline";
+import DEGAS_DANCER from "../../gallery/fixtures/art/nga-degas-dancer-from-behind-32137.jpg?inline";
+import CARPACCIO from "../../gallery/fixtures/art/nga-carpaccio-groups-of-male-figures-73858.jpg?inline";
+import PERINO from "../../gallery/fixtures/art/nga-perino-del-vaga-figure-studies-57613.jpg?inline";
+import RUBENS from "../../gallery/fixtures/art/nga-rubens-battle-of-nude-men-63034.jpg?inline";
+import TENIERS from "../../gallery/fixtures/art/nga-teniers-market-figures-62615.jpg?inline";
 
 const button = (id: string, title: string, disabled = false) => ({
   id,
@@ -42,6 +49,10 @@ const click = (selector: string): PageFixtureStep => ({ selector, action: "click
 const input = (selector: string, value: string): PageFixtureStep => ({ selector, action: "input", value });
 const wait = (selector: string): PageFixtureStep => ({ selector, action: "wait" });
 const row = (key: string) => `[data-row-key="${key}"]`;
+const focusComputerUse: PageFixtureStep = {
+  selector: '[data-card="computer-use"] [data-action="palette.computerUse.accessibility"]',
+  action: "focus",
+};
 const customValues: Record<string, unknown> = Object.fromEntries(
   schema.rows.map((setting) => {
     let value: unknown = setting.default;
@@ -56,7 +67,11 @@ const customValues: Record<string, unknown> = Object.fromEntries(
     else if (setting.kind === "choice_or_number") value = 45;
     else if (setting.kind === "host_list") value = ["docs.example.test", "*.research.example.test"];
     else if (setting.kind === "folder_list")
-      value = ["~/Projects/Atlas", "~/Projects/Research with a long folder name"];
+      // Chat roots take absolute paths only (validate.ts); the other folder lists also take ~/.
+      value =
+        setting.key === "agents.chats.roots"
+          ? ["/Users/sample/Projects/Atlas", "/Users/sample/Projects/Research with a long folder name"]
+          : ["~/Projects/Atlas", "~/Projects/Research with a long folder name"];
     else if (setting.kind === "time_range") value = { start: "22:00", end: "07:30" };
     else if (setting.kind === "url")
       value =
@@ -73,12 +88,13 @@ const variant = (section: string, extra: Omit<SettingsPageVariant, "section"> = 
   ...extra,
 });
 const variants: Record<string, SettingsPageVariant> = {};
-for (const section of sections) {
-  variants[section.id] = variant(section.id);
-  variants[`${section.id}-customized`] = variant(section.id, { options: { values: customValues } });
+for (const category of categories) {
+  const allThemes = category.id === "theme";
+  variants[category.id] = variant(category.id, { allThemes });
+  variants[`${category.id}-customized`] = variant(category.id, { allThemes, options: { values: customValues } });
   // Every group gets a scroll/focus target, including controls below the initial viewport.
-  for (const [index, group] of groupRows(rowsInSection(section.id)).entries())
-    variants[`${section.id}-group-${index + 1}`] = variant(section.id, {
+  for (const [index, group] of category.groups.entries())
+    variants[`${category.id}-group-${index + 1}`] = variant(category.id, {
       focus: group.rows[0]!.key,
       options: { values: customValues },
       note: `${group.title.text}: customized controls, focused and scrolled into view.`,
@@ -99,7 +115,27 @@ const longProfiles = longRows.map((r, i) => ({
   source: "Imported sample browser profile",
 }));
 Object.assign(variants, {
-  backdrops: variant("appearance", {
+  "agents-harnesses-registry": variant("agents", {
+    note: "Harnesses: found on PATH, a profile file, an installed ACP Registry agent, a terminal-only harness, and acpmux's problem text.",
+    harnesses: {
+      loading: false,
+      problem: null,
+      harnesses: [
+        { id: "claude", name: null, kind: "claude-stdio", source: "path", problem: null },
+        { id: "codex", name: null, kind: "acp", source: "path", problem: null },
+        { id: "cursor", name: null, kind: "acp", source: "path", problem: null },
+        { id: "github-copilot-cli", name: "GitHub Copilot", kind: "acp", source: "user-file", problem: null },
+        { id: "goose", name: null, kind: "acp", source: "registry", problem: null },
+        { id: "grok", name: null, kind: "acp", source: "path", problem: "Authentication required" },
+        { id: "aider", name: "Aider", kind: "terminal", source: "user-file", problem: null },
+      ],
+    },
+  }),
+  "agents-harnesses-unreachable": variant("agents", {
+    note: "Harnesses when the acpmux daemon did not answer.",
+    harnesses: { loading: false, problem: "unreachable", harnesses: [] },
+  }),
+  backdrops: variant("experimental", {
     options: { values: { "appearance.experimentalControls": true, "appearance.background": "starryNight" } },
     host: {
       ...host,
@@ -117,6 +153,63 @@ Object.assign(variants, {
       { selector: '[data-card="backdrop"] button[aria-pressed="true"]', action: "focus" },
     ],
     note: "The real wallpaper picker with a public-safe sample thumbnail.",
+  }),
+  // The bundled figure drawings (cx-t2x.1): the real grayscale files as thumbnails, with the
+  // credit lines the app sends, and one drawing picked (the background is off until the user picks).
+  "figure-drawings": variant("appearance", {
+    options: {
+      values: { "appearance.experimentalControls": true, "appearance.background": "nga-degas-halevy-standing-66489" },
+    },
+    host: {
+      ...host,
+      backdrops: [
+        {
+          id: "nga-degas-halevy-standing-66489",
+          title: "Three Studies of Ludovic Halévy Standing",
+          attribution:
+            "Three Studies of Ludovic Halévy Standing · Edgar Degas · c. 1880 · National Gallery of Art · CC0",
+        },
+        {
+          id: "nga-degas-dancer-from-behind-32137",
+          title: "Dancer Seen from Behind",
+          attribution:
+            "Dancer Seen from Behind and Three Studies of Feet · Edgar Degas · c. 1878 · National Gallery of Art · CC0",
+        },
+        {
+          id: "nga-carpaccio-groups-of-male-figures-73858",
+          title: "Groups of Male Figures",
+          attribution: "Groups of Male Figures · Vittore Carpaccio · c. 1514 · National Gallery of Art · CC0",
+        },
+        {
+          id: "nga-perino-del-vaga-figure-studies-57613",
+          title: "Figure Studies",
+          attribution: "Figure Studies · Perino del Vaga · c. 1530/1540 · National Gallery of Art · CC0",
+        },
+        {
+          id: "nga-rubens-battle-of-nude-men-63034",
+          title: "Battle of Nude Men",
+          attribution: "Battle of Nude Men · Sir Peter Paul Rubens · National Gallery of Art · CC0",
+        },
+        {
+          id: "nga-teniers-market-figures-62615",
+          title: "Studies of Market Figures",
+          attribution: "Studies of Market Figures · David Teniers the Younger · National Gallery of Art · CC0",
+        },
+      ],
+    },
+    backdropImages: {
+      "nga-degas-halevy-standing-66489": DEGAS_HALEVY,
+      "nga-degas-dancer-from-behind-32137": DEGAS_DANCER,
+      "nga-carpaccio-groups-of-male-figures-73858": CARPACCIO,
+      "nga-perino-del-vaga-figure-studies-57613": PERINO,
+      "nga-rubens-battle-of-nude-men-63034": RUBENS,
+      "nga-teniers-market-figures-62615": TENIERS,
+    },
+    steps: [
+      wait('[data-card="backdrop"]'),
+      { selector: '[data-card="backdrop"] button[aria-pressed="true"]', action: "focus" },
+    ],
+    note: "The background picker with the bundled CC0 figure drawings, credited, one picked.",
   }),
   "theme-level-selected": variant("appearance", { steps: [click('input[name="theme-level"][value="workspace"]')] }),
   "theme-custom-spec": variant("appearance", {
@@ -142,9 +235,9 @@ Object.assign(variants, {
   "unsupported-rooms": variant("rooms", { host: { ...host, rooms: null } }),
   "empty-machines": variant("machines", { host: { ...host, machines: [] } }),
   "long-rooms": variant("rooms", { host: { ...host, rooms: longRows, browser_profiles: longProfiles } }),
-  "long-profiles": variant("rooms", { host: { ...host, rooms: [], browser_profiles: longProfiles } }),
+  "long-profiles": variant("browser", { host: { ...host, rooms: [], browser_profiles: longProfiles } }),
   "long-machines": variant("machines", { host: { ...host, machines: longRows } }),
-  "profile-editor": variant("rooms", {
+  "profile-editor": variant("browser", {
     steps: [
       click('[data-profile="p-work"] .host-toggle'),
       wait(".host-form"),
@@ -152,19 +245,68 @@ Object.assign(variants, {
     ],
   }),
   "search-results": variant("general", { steps: [input("[data-settings-search]", "browser")] }),
+  "search-results-font": variant("general", { steps: [input("[data-settings-search]", "font")] }),
   "search-empty": variant("general", { steps: [input("[data-settings-search]", "no-such-setting")] }),
   "reset-confirmation": variant("advanced", { steps: [click("[data-reset-all]"), wait("[data-confirm-reset-all]")] }),
-  "theme-picker": variant("appearance", {
-    steps: [click(`${row("appearance.theme")} .domain-button`), wait(".domain-panel")],
+  "theme-picker": variant("theme", {
+    allThemes: true,
+    steps: [click("[data-theme-picker]"), wait(".theme-popover [data-theme-option]")],
+    note: "The theme popover over every bundled theme.",
   }),
-  "theme-picker-empty": variant("appearance", {
-    steps: [click(`${row("appearance.theme")} .domain-button`), input(".domain-panel input", "no-such-theme")],
+  "theme-picker-search": variant("theme", {
+    allThemes: true,
+    steps: [click("[data-theme-picker]"), input(".theme-popover input", "solarized"), wait("[data-theme-option]")],
   }),
-  "font-picker": variant("terminal", {
+  "theme-picker-empty": variant("theme", {
+    allThemes: true,
+    steps: [click("[data-theme-picker]"), input(".theme-popover input", "no-such-theme")],
+  }),
+  "theme-light-dark": variant("theme", {
+    allThemes: true,
+    options: { values: { "appearance.theme": "light:Catppuccin Latte,dark:Catppuccin Mocha" } },
+    note: "Match System Appearance: a light and a dark theme.",
+  }),
+  "theme-overrides": variant("theme", {
+    allThemes: true,
+    options: { values: { "appearance.theme": "Nord" } },
+    host: {
+      ...host,
+      theme: {
+        levels: ["room", "workspace", "terminal"],
+        current: { room: null, workspace: "Tokyo Night", terminal: "Gruvbox Dark" },
+      },
+    },
+    note: "Scope overrides inline on the setting (P4): no space, workspace or terminal tabs.",
+  }),
+  "theme-app-separate": variant("theme", {
+    allThemes: true,
+    options: { values: { "appearance.theme": "Gruvbox Dark", "appearance.appTheme": "Rose Pine" } },
+    note: "An app theme apart from the terminal theme (appearance.appTheme).",
+  }),
+  "theme-managed": variant("theme", {
+    allThemes: true,
+    options: {
+      managed: {
+        "appearance.theme": {
+          value: "GitHub Light Default",
+          source: "profile",
+          reason: "Set by your organization",
+          team: "Acme",
+        },
+      },
+    },
+    note: "An MDM lock inline on the setting.",
+  }),
+  "changed-only": variant("general", {
+    options: { values: customValues },
+    steps: [click("[data-changed-only]"), wait("[data-search-results]")],
+    note: "Show Only Changed lists every changed setting across categories.",
+  }),
+  "font-picker": variant("appearance", {
     steps: [click(`${row("terminal.fontFamily")} .domain-button`), wait(".domain-panel")],
   }),
-  "domains-unavailable": variant("terminal", { options: { domains: null } }),
-  "theme-text-fallback": variant("appearance", { options: { domains: null } }),
+  "domains-unavailable": variant("appearance", { options: { domains: null } }),
+  "theme-text-fallback": variant("theme", { options: { domains: null } }),
   "invalid-search-template": variant("browser", {
     focus: "browser.customSearchEngine.search",
     options: { values: { "browser.customSearchEngine.search": "https://search.example.test/" } },
@@ -185,7 +327,7 @@ Object.assign(variants, {
       wait(".host-list [role=alert]"),
     ],
   }),
-  "write-error": variant("general", {
+  "write-error": variant("privacy", {
     options: { failing: { "cmux.settings.set": "cmux.settings.permission_denied" } },
     steps: [
       click(`${row("history.terminalCommands")} button:not(:disabled)`),
@@ -228,6 +370,58 @@ Object.assign(variants, {
       ],
     },
   }),
+  // Agents > Computer Use Setup (ComputerUseCard): off (grants unknown), every grant given, none.
+  // Focusing the card's first button scrolls it into view.
+  "computer-use-off": variant("agents", {
+    host: { ...host, computer_use: { phase: "off", accessibility: null, screen_recording: null, helper: null } },
+    steps: [wait('[data-card="computer-use"]'), focusComputerUse],
+    note: "Computer Use off: both grants Unknown, the card says to turn it on.",
+  }),
+  "computer-use-granted": variant("agents", {
+    host: {
+      ...host,
+      computer_use: { phase: "ready", accessibility: true, screen_recording: true, helper: "cmux Computer Use" },
+    },
+    steps: [wait('[data-card="computer-use"] [data-granted="true"]'), focusComputerUse],
+    note: "Computer Use ready: Accessibility and Screen Recording both allowed.",
+  }),
+  "computer-use-not-granted": variant("agents", {
+    host: {
+      ...host,
+      computer_use: { phase: "ready", accessibility: false, screen_recording: false, helper: "cmux Computer Use" },
+    },
+    steps: [wait('[data-card="computer-use"] [data-granted="false"]'), focusComputerUse],
+    note: "Computer Use ready but neither grant given: both rows say Not Allowed.",
+  }),
+  // Settings > Agents > Agent Harnesses (BRING-YOUR-OWN-HARNESS).
+  "agents-harnesses": variant("agents", {
+    steps: [wait("[data-agent-harness]")],
+    note: "Every harness acpmux knows: kind, source, a probe problem; Check and Remove on user profiles.",
+  }),
+  "agents-add-custom": variant("agents", {
+    focus: "agents.add",
+    steps: [wait("[data-agents-custom]")],
+    note: "Add ACP Agent… (palette, the model picker's +): the custom command form.",
+  }),
+  "agents-add-registry": variant("agents", {
+    focus: "agents.registry",
+    steps: [wait("[data-registry-agent]")],
+    note: "Add Agent from ACP Registry…: one click per agent; Added when it is a harness, disabled when it cannot start here.",
+  }),
+  "agents-doctor": variant("agents", {
+    steps: [click('[data-agent-harness="acme-agent"] button'), wait("[data-agent-doctor]")],
+    note: "Check: the doctor's steps inline, a failed step with its fix, later steps skipped.",
+  }),
+  "agents-removed": variant("agents", {
+    steps: [click('[data-agent-harness="acme-agent"] button:last-of-type'), wait("output")],
+    note: "Remove moves the profile aside: Removed with Undo.",
+  }),
+  "agents-cli": variant("agents", {
+    agents: { manages: false },
+    steps: [wait("[data-agents-cli]")],
+    note: "An acpmux without the operations: the CLI commands, no Add, Check or Remove.",
+  }),
+  "agents-empty": variant("agents", { agents: { harnesses: [] }, note: "No harness: the empty line." }),
   "accounts-empty": variant("accounts", { accounts: accounts({}, { groups: [], signIn: "Sign in to cmux" }) }),
   "accounts-refreshing": variant("accounts", {
     accounts: accounts(
@@ -283,8 +477,64 @@ Object.assign(variants, {
   }),
 } satisfies Record<string, SettingsPageVariant>);
 
+// The two overall looks for the chief's pick (layout.css): each on the Theme section with every
+// bundled theme, on General, and on Show Only Changed. Light and dark come from the gallery theme.
+for (const look of ["quiet", "dense"] as const) {
+  variants[`look-${look}-theme`] = variant("theme", { look, allThemes: true, note: `${look} look: Theme.` });
+  variants[`look-${look}-general`] = variant("general", { look, note: `${look} look: General.` });
+  variants[`look-${look}-browser`] = variant("browser", {
+    look,
+    options: { values: customValues },
+    note: `${look} look: Browser, customized, with an MDM lock.`,
+  });
+  variants[`look-${look}-changed`] = variant("general", {
+    look,
+    options: { values: customValues },
+    steps: [click("[data-changed-only]"), wait("[data-search-results]")],
+    note: `${look} look: Show Only Changed.`,
+  });
+}
+
+// The Reset control never moves the row (P1 fix, Lawrence 2026-10-07): for a row of each editor
+// kind, start customized and press its Reset; the matrix measures layout shift (strict 0) and the
+// anchors (the row's title, the next row's title) on each.
+const RESET_SAMPLES: Record<string, string> = {
+  toggle: "history.terminalCommands",
+  segmented: "navigation.historyScope",
+  number: "layout.defaultColumnWidth",
+  url: "browser.newTabPage",
+  color: "layout.paneBorderColor",
+  sound: "notifications.sound",
+  "time-range": "notifications.quietHours",
+};
+for (const [kind, key] of Object.entries(RESET_SAMPLES))
+  variants[`play-reset-${kind}`] = variant(homes.get(key)!.category, {
+    focus: key,
+    options: { values: customValues },
+    note: `Reset on a ${kind} row: the control fades out in its reserved slot.`,
+    play: async (ctx) => {
+      // Input lands at the control's page position: bring the row into view first.
+      ctx.find({ selector: row(key) }).scrollIntoView({ block: "center" });
+      await ctx.click({ selector: `${row(key)} [data-reset]` });
+      await ctx.waitFor(() => !ctx.document.querySelector(`${row(key)} [data-reset]`));
+    },
+  });
+variants["play-section-change"] = variant("accounts", {
+  note: "Changing category: the column fades in; the sidebar never moves.",
+  play: async (ctx) => {
+    await ctx.click({ selector: '[data-section-link="advanced"]' });
+    await ctx.waitFor(() => ctx.document.querySelector('[data-section="advanced"]'));
+  },
+});
+
+const resetAnchors = Object.values(RESET_SAMPLES).flatMap((key) => [
+  { selector: `${row(key)} .row-title` },
+  { selector: `${row(key)} + [data-row-key] .row-title` },
+]);
+
 export default settingsPageEntry({
   id: "pages.settings",
+  anchors: [{ selector: "[data-settings-search]" }, { selector: '[data-section-link="general"]' }, ...resetAnchors],
   title: "Settings",
   area: "Settings",
   height: 760,
@@ -293,6 +543,10 @@ export default settingsPageEntry({
   covers: [
     "page:cmux.settings",
     "pages/settings/components/AccountsSection.tsx",
+    "pages/settings/components/AgentHarnesses.tsx",
+    "pages/settings/components/ComputerUseCard.tsx",
+    "pages/settings/components/HarnessesCard.tsx",
+    "pages/settings/components/AgentHarnesses.tsx#AgentHarnesses",
     "pages/settings/components/ActionRow.tsx",
     "pages/settings/components/GhosttyDiagnostics.tsx",
     "pages/settings/components/GroupList.tsx",
@@ -311,6 +565,10 @@ export default settingsPageEntry({
     "pages/settings/components/SettingRow.tsx",
     "pages/settings/components/SettingsApp.tsx",
     "pages/settings/components/SettingsPage.tsx",
+    "pages/settings/components/ScopeOverrides.tsx",
+    "pages/settings/components/ThemePicker.tsx",
+    "pages/settings/components/ThemePreview.tsx",
+    "pages/settings/components/ThemeStudio.tsx",
     "pages/settings/editors/ChoiceOrNumberEditor.tsx",
     "pages/settings/editors/ColorEditor.tsx",
     "pages/settings/editors/DomainListEditor.tsx",

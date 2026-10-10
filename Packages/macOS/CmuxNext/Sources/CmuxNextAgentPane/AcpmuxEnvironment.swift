@@ -15,6 +15,17 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     public var daemonArguments: [String]
     /// Variables the daemon and the status client must agree on.
     public var childEnvironment: [String: String]
+    /// The Computer Use socket and agent token (`computerUseKeys`) for the
+    /// daemon this app spawns, so its agents reach the app's Computer Use
+    /// helper; empty while Computer Use is off. Only the spawn environment
+    /// carries them: the app never writes its own process environment.
+    public var computerUse: [String: String] = [:]
+
+    /// The Computer Use variables (AgentActivitySocketSource.Configuration).
+    /// The spawn environment drops all three when inherited and takes only
+    /// the first two from `computerUse`: the host token never leaves the app.
+    public static let computerUseKeys = ["CMUX_NEXT_CUA_SOCKET", "CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN"]
+    public static let computerUseHostKey = "CMUX_NEXT_CUA_SOCKET_HOST_AUTH_TOKEN"
 
     public var logPath: String { home.appendingPathComponent("daemon.log").path }
 
@@ -43,7 +54,9 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
         return AcpmuxEnvironment(
             executable: executable, home: home, socketPath: socket,
             daemonArguments: slug == nil ? [] : ["--listen", "127.0.0.1:0"],
-            childEnvironment: ["ACPMUX_HOME": home.path, "ACPMUX_SOCKET": socket]
+            // ACPMUX_LOCAL_ROUTER: the daemon starts the local model relay
+            // (cmux-router routes; ModelRouterLease gives it the bearer).
+            childEnvironment: ["ACPMUX_HOME": home.path, "ACPMUX_SOCKET": socket, "ACPMUX_LOCAL_ROUTER": "1"]
         )
     }
 

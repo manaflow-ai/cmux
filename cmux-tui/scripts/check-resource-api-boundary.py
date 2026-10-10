@@ -1061,6 +1061,17 @@ def _validate_catalog_type(
                 "types.SidebarLayoutSnapshot.fields.sections.items",
                 "types.SidebarLayoutOpSectionAdd.fields.section",
                 "types.SidebarLayoutOpItemAdd.fields.item",
+                # Conversation message parts and reactions: the conversation
+                # reducer (cmux-conversation) validates them, and a newer
+                # app's part kinds (questions, attachments, work cards) must
+                # survive a round trip, which a closed union would refuse.
+                "types.ConversationMessage.fields.parts.items",
+                "types.ConversationMessage.fields.reactions.items",
+                "operations.conversation.send.params.fields.parts.items",
+                # The Chief brain's engine report, owned by optchat-chief and
+                # passed through unchanged (its turn summaries grow fields).
+                "operations.chief.engine.get.result",
+                "operations.chief.engine.set.result.arguments[0]",
             }
             is_explicit_extra = (
                 context.startswith("types.")

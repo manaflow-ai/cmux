@@ -1,7 +1,8 @@
 import CmuxNextDesign
+import CmuxNextIcons
 import SwiftUI
 
-/// Installed: every installed app with Enabled, Reload, Logs and Remove.
+/// Installed: every installed app with Enabled, Hide/Show, permissions, Logs and Remove.
 struct AppInstalledView: View {
     let model: AppStoreModel
     @Environment(\.appSceneColors) private var colors
@@ -12,9 +13,9 @@ struct AppInstalledView: View {
                 ForEach(model.installedApps) { app in
                     AppInstalledRow(model: model, app: app)
                 }
-                AppPrototypeNote().padding(.top, Metrics.space4)
             }
-            .padding(Metrics.space5)
+            .appStoreColumn()
+            .padding(.vertical, Metrics.space5)
         }
         .overlay {
             if model.installedApps.isEmpty {
@@ -24,54 +25,69 @@ struct AppInstalledView: View {
     }
 }
 
-/// One installed app.
+/// One installed app: its visible state (mirror + pending change). A
+/// refused change animates back and the row shows why.
 struct AppInstalledRow: View {
     let model: AppStoreModel
-    let app: InstalledApp
+    let app: AppRecord
     @Environment(\.appSceneColors) private var colors
 
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.space2) {
             HStack(spacing: Metrics.space3) {
-                AppIconView(icon: app.manifest.icon, bundleDirectory: app.bundle.directory, size: 32)
+                AppIconView(icon: app.manifest.icon, bundleDirectory: app.bundleDirectory, size: 32)
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(spacing: Metrics.space2) {
                         Text(app.manifest.name.resolved()).font(Font(Typography.bodyEmphasized)).foregroundStyle(colors.primary)
                         Text(app.manifest.version).font(Font(Typography.caption).monospacedDigit()).foregroundStyle(colors.tertiary)
-                        if app.bundle.source == .local { AppStoreBadge(text: AppsStrings.localBadge) }
+                        if app.source == .local { AppStoreBadge(text: AppsStrings.localBadge) }
+                        if app.hidden { AppStoreBadge(text: AppsStrings.hiddenBadge) }
                     }
-                    Text(model.host.failures[app.id] ?? app.id).font(Font(Typography.caption))
-                        .foregroundStyle(model.host.failures[app.id] == nil ? colors.secondary : colors.attention).lineLimit(1)
+                    Text(status ?? app.id).font(Font(Typography.caption))
+                        .foregroundStyle(status == nil ? colors.secondary : colors.attention).lineLimit(1)
                 }
                 Spacer()
-                Toggle(AppsStrings.enabled, isOn: Binding(get: { app.isEnabled }, set: { enabled in
+                Toggle(AppsStrings.enabled, isOn: Binding(get: { app.enabled }, set: { enabled in
                     // task-owner: one enable/disable from a toggle
                     Task { try? await model.setEnabled(app.id, enabled) }
                 }))
                 .toggleStyle(.switch).controlSize(.mini).labelsHidden()
                 .tint(colors.secondary)
+                .disabled(!model.canChange)
                 .help(AppsStrings.enabled)
-                iconButton("arrow.clockwise", AppsStrings.reload) {
-                    // task-owner: one reload from a button
-                    Task { await model.reload(app.id) }
+                iconButton(app.hidden ? .actionShow : .actionHide, app.hidden ? AppsStrings.show : AppsStrings.hide,
+                           enabled: model.canChange && !app.isBuiltIn) {
+                    // task-owner: one hide or show from a button
+                    Task { try? await model.setHidden(app.id, !app.hidden) }
                 }
-                iconButton("checkmark.shield", AppsStrings.permissions) {
+                // Disabled, not hidden, with nothing to grant: the row's buttons stay in place.
+                iconButton(.appPermissions, AppsStrings.permissions, enabled: hasGrants) {
                     model.grantsShown = model.grantsShown == app.id ? nil : app.id
                 }
-                iconButton("text.alignleft", model.logsShown == app.id ? AppsStrings.hideLogs : AppsStrings.logs) {
+                iconButton(.textDescription, model.logsShown == app.id ? AppsStrings.hideLogs : AppsStrings.logs) {
                     model.logsShown = model.logsShown == app.id ? nil : app.id
                 }
-                AppInstallButton(model: model, id: app.id)
+                AppInstallButton(model: model, id: app.id, builtIn: app.isBuiltIn)
             }
-            if model.grantsShown == app.id { AppGrantsView(model: model, app: app).padding(.leading, 32 + Metrics.space3) }
+            if model.grantsShown == app.id, hasGrants { AppGrantsView(model: model, app: app).padding(.leading, 32 + Metrics.space3) }
             if model.logsShown == app.id { logs }
         }
         .padding(Metrics.space3)
         .background(RoundedRectangle(cornerRadius: Metrics.itemCornerRadius + 2, style: .continuous).fill(colors.hover))
+        .animation(Motion.animation(.focus), value: app)
     }
 
+    /// The supervisor's refusal of the last change, else a crashed host.
+    private var status: String? {
+        if let rejection = model.client.rejections[app.id] { return rejection }
+        guard let host = model.client.hostStates[app.id], host.state == .crashed else { return nil }
+        return host.reason ?? AppsStrings.crashed
+    }
+
+    private var hasGrants: Bool { !app.manifest.scopes.isEmpty || !app.manifest.optionalScopes.isEmpty }
+
     private var logs: some View {
-        let lines = model.host.logs[app.id] ?? []
+        let lines = model.client.logs[app.id] ?? []
         return VStack(alignment: .leading, spacing: 1) {
             if lines.isEmpty { Text(AppsStrings.noLogs).foregroundStyle(colors.tertiary) }
             ForEach(lines.suffix(200)) { line in
@@ -86,26 +102,14 @@ struct AppInstalledRow: View {
         .background(RoundedRectangle(cornerRadius: Metrics.itemCornerRadius, style: .continuous).fill(colors.background))
     }
 
-    private func iconButton(_ symbol: String, _ help: String, action: @escaping () -> Void) -> some View {
+    private func iconButton(_ icon: IconName, _ help: String, enabled: Bool = true, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: symbol).font(.system(size: 12)).foregroundStyle(colors.secondary).frame(width: 22, height: 22)
+            Icon(icon, size: 14).foregroundStyle(enabled ? colors.secondary : colors.tertiary).frame(width: 22, height: 22)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .disabled(!enabled)
         .help(help)
         .accessibilityLabel(help)
-    }
-}
-
-/// "Prototype engine" label (DEV): the JSC engine is in-process.
-struct AppPrototypeNote: View {
-    @Environment(\.appSceneColors) private var colors
-
-    var body: some View {
-        HStack(spacing: Metrics.space2) {
-            Image(systemName: "flask").font(.system(size: 10))
-            Text(AppsStrings.prototypeEngine).font(Font(Typography.caption).weight(.medium))
-            Text(AppsStrings.prototypeHelp).font(Font(Typography.caption))
-        }
-        .foregroundStyle(colors.tertiary)
     }
 }

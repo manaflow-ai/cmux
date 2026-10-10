@@ -29,6 +29,7 @@ impl Hub {
             .clone()
             .ok_or_else(|| RpcError::internal("no agent session"))?;
         let cwd = cwd.unwrap_or_else(|| parent_meta.cwd.clone());
+        let id = uuid::Uuid::now_v7().to_string();
         let (res, new_sid) = if is_claude {
             // The fork happens when the new session's process starts with
             // --resume <parent> --fork-session; no agent call now.
@@ -38,7 +39,7 @@ impl Hub {
             let res = child
                 .request(
                     method::SESSION_FORK,
-                    json!({"sessionId": sid, "cwd": cwd, "mcpServers": crate::agent_tools::acp_servers_for(parent_meta.remote_origin, &fork_env)}),
+                    json!({"sessionId": sid, "cwd": cwd, "mcpServers": crate::agent_tools::acp_servers_for(parent_meta.remote_origin, &fork_env, &id)}),
                 )
                 .await?;
             let new_sid = res
@@ -49,7 +50,6 @@ impl Hub {
             (res, new_sid)
         };
         let fork_seq = session.seq.load(Ordering::SeqCst);
-        let id = uuid::Uuid::now_v7().to_string();
         let name = name.unwrap_or_else(|| self.unique_name(&format!("{}-fork", parent_meta.name)));
         let now = now_ms();
         let meta = SessionMeta {
@@ -88,12 +88,15 @@ impl Hub {
             permission_rules: None,
             tags: Default::default(),
             unread: false,
+            claude_unstored: false,
+            claude_profile: None,
             last_turn: None,
             // A fork of a remote-origin session stays remote-origin.
             remote_origin: parent_meta.remote_origin,
             // Never inherited: the fork request sets its own or runs without one.
             session_env,
             harness_roots: vec![],
+            composer_draft: None,
         };
         let new = self.make_session(meta);
         if is_claude {
@@ -115,6 +118,8 @@ impl Hub {
                         | "tool_call"
                         | "tool_call_update"
                         | "plan"
+                        | "turn_started"
+                        | "turn_result"
                         | "turn_end"
                 ) {
                     self.append(&new, &e.dir, &e.kind, e.msg);

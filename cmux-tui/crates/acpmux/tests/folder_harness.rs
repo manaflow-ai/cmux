@@ -2,6 +2,9 @@
 //! protocol handler: session/new starts a folder profile only when its folder
 //! is trusted, the user enabled these bytes, and the chat folder is inside it.
 
+// Unix only until the Windows port runs the daemon (cmux::local_socket).
+#![cfg(unix)]
+
 use acpmux::config::folder_profiles::{self, FolderGate};
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
@@ -70,6 +73,7 @@ fn scratch(name: &str) -> (PathBuf, PathBuf, FolderGate) {
             claude_json: root.join("claude.json"),
             codex_config: root.join("config.toml"),
             record: root.join("acpmux").join("trust.json"),
+            agent_home: None,
         },
     };
     (root, folder, gate)

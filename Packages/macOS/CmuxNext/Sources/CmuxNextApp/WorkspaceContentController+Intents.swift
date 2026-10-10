@@ -43,7 +43,7 @@ extension WorkspaceContentController {
             setRowHeights(column, heights: heights, fit: fit)
         case .newRow(let below, let height):
             guard daemon.supports(DaemonCapabilities.shared.rows), let handle = handles.panes[below] else {
-                return services.registry.refuse(RefusalStrings.needsDaemonCapability(DaemonCapabilities.shared.rows))
+                return services.registry.refuse(daemon.missingCapabilityMessage(DaemonCapabilities.shared.rows))
             }
             let cwd = panes[below]?.selectedTab?.cwd
             let key = workspace.key
@@ -59,6 +59,9 @@ extension WorkspaceContentController {
             services.windows.recordSaver.stateDidChange(state)
         case .scrollTo:
             services.windows.recordSaver.stateDidChange(state)
+        case .cancelGesture(let transaction):
+            // No `.ended` will come for this gesture (its target went away).
+            gestureTransactions[transaction] = nil
         case .dropTab(let tabID, let target):
             drop(tabID, on: target)
         case .newColumn(let after, let width):
@@ -92,16 +95,18 @@ extension WorkspaceContentController {
     /// Runs a pane-creating command and focuses the new pane when it lands;
     /// `then` runs after it succeeded (a new column's width change).
     private func spawnPane(_ label: String, then: (@MainActor () -> Void)? = nil,
-                           _ body: @escaping @Sendable (DaemonConnection) async throws -> SurfaceCreated) {
+                           _ body: @escaping @Sendable (isolated DaemonConnection) async throws -> SurfaceCreated) {
         guard let connection = daemon.connection else { return }
         let intent = beginFocusIntent()
-        Task {
+        // [services, state]: the task pins this controller's owners until it ends (cx-6so P1b).
+        Task { [services, state] in
             do {
                 expectFocus(on: try await body(connection).surface, generation: intent)
                 then?()
             } catch {
                 daemon.logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             }
+            withExtendedLifetime((services, state)) {}
         }
     }
 
@@ -141,7 +146,7 @@ extension WorkspaceContentController {
     }
 
     private func sendGesture(_ transaction: LayoutTransactionID, phase: LayoutGesturePhase, label: String,
-                             _ body: @escaping @Sendable (DaemonConnection) async throws -> Void) {
+                             _ body: @escaping DaemonCommandBody) {
         Task {
             let ok = await daemon.run(label, body)
             guard phase == .ended || !ok else { return }

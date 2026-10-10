@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "9b549aa75d8fd6bd2f372c45e54bf6b83040972fd29650063c2fcea82f199033",
+  "catalog_sha256": "b4447adf6db5ac3a81eb297b385ad39a4a212a3892fb9ae0e57fe1de3d45eff8",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -61,6 +61,15 @@
     "browser.viewer.resize": {
       "class": "connection_control"
     },
+    "chief.engine.get": {
+      "class": "read"
+    },
+    "chief.engine.set": {
+      "class": "mutation"
+    },
+    "chief.stop": {
+      "class": "mutation"
+    },
     "client.cell_pixels.set": {
       "class": "connection_control"
     },
@@ -82,6 +91,9 @@
     "client.sizing.set": {
       "class": "connection_control"
     },
+    "closed.delete": {
+      "class": "mutation"
+    },
     "closed.list": {
       "class": "read"
     },
@@ -89,6 +101,30 @@
       "class": "mutation"
     },
     "column.update": {
+      "class": "mutation"
+    },
+    "conversation.draft": {
+      "class": "mutation"
+    },
+    "conversation.events": {
+      "class": "stream_open"
+    },
+    "conversation.get": {
+      "class": "read"
+    },
+    "conversation.history": {
+      "class": "read"
+    },
+    "conversation.list": {
+      "class": "read"
+    },
+    "conversation.search": {
+      "class": "read"
+    },
+    "conversation.send": {
+      "class": "mutation"
+    },
+    "conversation.typing": {
       "class": "mutation"
     },
     "frontend_projection.get": {
@@ -151,6 +187,21 @@
     "pairing_request.resolve": {
       "class": "mutation"
     },
+    "palette_usage.forget": {
+      "class": "mutation"
+    },
+    "palette_usage.get": {
+      "class": "read"
+    },
+    "palette_usage.hide": {
+      "class": "mutation"
+    },
+    "palette_usage.import": {
+      "class": "mutation"
+    },
+    "palette_usage.record": {
+      "class": "mutation"
+    },
     "pane.close": {
       "class": "mutation"
     },
@@ -191,6 +242,24 @@
       "class": "mutation"
     },
     "pane.zoom": {
+      "class": "mutation"
+    },
+    "project.add": {
+      "class": "mutation"
+    },
+    "project.list": {
+      "class": "read"
+    },
+    "project.observe": {
+      "class": "mutation"
+    },
+    "project.remove": {
+      "class": "mutation"
+    },
+    "project.sync": {
+      "class": "mutation"
+    },
+    "project.update": {
       "class": "mutation"
     },
     "request.cancel": {
@@ -524,6 +593,9 @@
       "class": "mutation"
     },
     "workspace.create": {
+      "class": "mutation"
+    },
+    "workspace.ensure_app": {
       "class": "mutation"
     },
     "workspace.ensure_home": {

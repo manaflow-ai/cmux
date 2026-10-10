@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextSettings
 import CmuxNextWakeups
@@ -52,7 +53,7 @@ final class BrowserHibernation {
         source.setEventHandler { [weak self, weak source] in
             guard let event = source?.data else { return }
             let level: MemoryPressureLevel = event.contains(.critical) ? .critical : event.contains(.warning) ? .warning : .normal
-            MainActor.assumeIsolated { self?.pressureDidChange(level) }
+            MainActor.assumeIsolated { self?.pressureDidChange(level) } // main-proof: dispatch source on queue: .main
         }
         source.activate()
         pressureSource = source
@@ -69,7 +70,7 @@ final class BrowserHibernation {
     func follow(_ settings: SettingsController) {
         settingsObservation?.cancel()
         settingsObservation = Task { [weak self] in
-            for await setting in Observations({ settings.snapshot.browserHibernation }) {
+            for await setting in ObservationStream({ settings.snapshot.browserHibernation }) {
                 self?.apply(setting)
             }
         }
@@ -241,7 +242,7 @@ final class BrowserHibernation {
         var configuration = BrowserTabConfiguration(id: placeholder.id, profile: placeholder.profileID, zoom: placeholder.state.zoom)
         switch placeholder.engineKind {
         case .webkit:
-            let tab = cache.webKit.makeWebKitTab(configuration)
+            let tab = cache.webKit.makeWebKitTab(id: configuration.id, profile: configuration.profile, zoom: configuration.zoom)
             if !tab.restore(placeholder.restoreState), let url = placeholder.state.url { tab.load(url) }
             finishRestore(key, token: token, page: tab)
         case .cef:

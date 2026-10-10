@@ -13,7 +13,7 @@ enum IncognitoCloseConfirmation {
         guard !programs.isEmpty else { return nil }
         return DestructiveConfirmation.Prompt(
             title: ConfirmationStrings.closeIncognitoWindowTitle,
-            body: ConfirmationStrings.incognitoBody(programs.joined(separator: ", ")),
+            body: ConfirmationStrings.stillRunning(programs.joined(separator: ", ")),
             button: ConfirmationStrings.close
         )
     }

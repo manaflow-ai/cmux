@@ -166,12 +166,25 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::ScreenGroupUngroup
         | ResourceOperation::ClosedList
         | ResourceOperation::ClosedReopen
+        | ResourceOperation::ClosedDelete
         | ResourceOperation::WindowRecordList
         | ResourceOperation::WindowRecordPut
         | ResourceOperation::WorkspaceEnsureHome
+        | ResourceOperation::WorkspaceEnsureApp
         | ResourceOperation::WindowRecordDelete
         | ResourceOperation::SidebarLayoutGet
         | ResourceOperation::SidebarLayoutUpdate
+        | ResourceOperation::ProjectList
+        | ResourceOperation::ProjectObserve
+        | ResourceOperation::ProjectAdd
+        | ResourceOperation::ProjectUpdate
+        | ResourceOperation::ProjectRemove
+        | ResourceOperation::ProjectSync
+        | ResourceOperation::PaletteUsageGet
+        | ResourceOperation::PaletteUsageRecord
+        | ResourceOperation::PaletteUsageImport
+        | ResourceOperation::PaletteUsageHide
+        | ResourceOperation::PaletteUsageForget
         | ResourceOperation::WorkspaceStatusList
         | ResourceOperation::WorkspaceStatusSet
         | ResourceOperation::WorkspaceStatusClear
@@ -215,6 +228,17 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::BrowserAttach
         | ResourceOperation::SidebarViewAttach
         | ResourceOperation::StreamCancel
+        | ResourceOperation::ChiefEngineGet
+        | ResourceOperation::ChiefEngineSet
+        | ResourceOperation::ChiefStop
+        | ResourceOperation::ConversationList
+        | ResourceOperation::ConversationGet
+        | ResourceOperation::ConversationHistory
+        | ResourceOperation::ConversationSearch
+        | ResourceOperation::ConversationSend
+        | ResourceOperation::ConversationTyping
+        | ResourceOperation::ConversationDraft
+        | ResourceOperation::ConversationEvents
         | ResourceOperation::OriginConfirmationIssue => OperationOwner::Connection,
     }
 }

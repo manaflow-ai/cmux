@@ -1,7 +1,8 @@
 /* The changes view's per-file menu. Colors come from the pane's theme tokens only. */
 .acpmux-file-menu{position:relative;display:inline-flex}
-.acpmux-file-menu-list{position:absolute;top:calc(100% + 4px);right:0;z-index:4;display:flex;flex-direction:column;min-width:180px;padding:6px;box-sizing:border-box;border-radius:12px;background:var(--acpmux-menu-bg);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),0 10px 30px var(--agent-shadow,rgb(0 0 0/.35));color:var(--agent-text);font-size:13px;line-height:18px}
-.acpmux-file-menu-item{display:flex;align-items:center;min-height:30px;padding:6px 10px;border:0;border-radius:8px;background:none;color:inherit;font:inherit;text-align:left;white-space:nowrap;cursor:default}
+.acpmux-file-menu-list{position:absolute;z-index:var(--layer-dropdown);top:calc(100% + 4px);right:0;display:flex;flex-direction:column;min-width:180px;padding:var(--ui-popup-padding);box-sizing:border-box;border-radius:var(--ui-popup-radius);background:var(--acpmux-menu-bg);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),var(--ui-popup-shadow);transform-origin:top right;color:var(--agent-text);font-size:13px;line-height:18px}
+.ui-positioner>.acpmux-file-menu-list{position:static;top:auto;right:auto}
+.acpmux-file-menu-item{display:flex;align-items:center;min-height:var(--ui-row-height);padding:4px var(--ui-row-padding-inline);border:0;border-radius:var(--ui-row-radius);background:none;color:inherit;font:inherit;text-align:left;white-space:nowrap;cursor:default}
 .acpmux-file-menu-item:hover,.acpmux-file-menu-item:focus-visible{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 10%,transparent));outline:none}
 /* The scope pill is a menu button; its menu opens under it, from its left edge. */
 .acpmux-scope-menu{position:relative;display:inline-flex;min-width:0}
@@ -10,7 +11,9 @@ button.acpmux-diff-scope:hover,button.acpmux-diff-scope[aria-expanded="true"]{ba
 button.acpmux-diff-scope:focus-visible{outline:2px solid var(--agent-accent);outline-offset:1px}
 .acpmux-scope-chevron{margin-left:-4px;color:var(--agent-muted)}
 .acpmux-scope-list{left:0;right:auto;min-width:200px}
-.acpmux-scope-list .acpmux-file-menu-item{justify-content:space-between;gap:12px}
+.acpmux-scope-list .acpmux-file-menu-item{justify-content:flex-start;gap:12px}
+.acpmux-scope-list .acpmux-file-menu-item .ui-menu-check{order:2;margin-inline-start:auto}
+.acpmux-scope-list .ui-separator{flex:none;height:1px;margin:4px 8px;background:var(--agent-border)}
 .acpmux-scope-separator{height:1px;margin:4px 8px;border:0;background:var(--agent-border)}
 /* A git scope while it loads, when it fails, and when it is empty: centered in the diffs. */
 .acpmux-changes-state{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-height:240px;height:100%;padding:24px;box-sizing:border-box;text-align:center;color:var(--agent-text)}
@@ -91,3 +94,4 @@ button.acpmux-edited-file:focus-visible{outline:1.5px solid var(--agent-muted);o
 .acpmux-diff-keys{flex:none;display:flex;align-items:center;gap:6px;padding:4px 12px 6px;border-top:1px solid var(--agent-border);color:var(--agent-muted);font-size:11px;line-height:16px;white-space:nowrap;overflow:hidden}
 .acpmux-diff-key{display:inline-flex;align-items:center;gap:2px}
 .acpmux-diff-key .acpmux-keycap:last-of-type{margin-right:3px}
+@media (prefers-reduced-motion:no-preference){.acpmux-file-menu-list{animation:ui-popup-open var(--ui-popup-open) ease-out}}

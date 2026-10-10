@@ -37,7 +37,7 @@
 //! Anything else, link details included, goes over ops. The server's stderr
 //! goes to the app's log.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{ChildStdin, Command, Stdio};
@@ -138,6 +138,9 @@ pub(super) struct Server {
     pub spec: ServerSpec,
     /// Calls by wire id; every one waits for its `result` line.
     pub pending: HashMap<String, Responder>,
+    /// Wire ids of pending calls admitted with origin user: while one is in
+    /// flight, a relay line may claim origin user (`relay.rs`).
+    pub user_ops: HashSet<String>,
     /// Lines for calls that arrived while the process was stopping; they go
     /// to the next process.
     pub queued: Vec<(String, Vec<u8>)>,
@@ -332,11 +335,21 @@ impl Supervisor {
         op: &str,
         origin: Origin,
     ) -> Result<(), ApiError> {
-        let Some((family, entry)) = inner.catalog.packages.get(app).and_then(|p| p.catalog_op(op))
-        else {
+        let user = origin == Origin::User;
+        let package = inner.catalog.packages.get(app);
+        let Some((family, entry)) = package.and_then(|p| p.catalog_op(op)).or_else(|| {
+            // A backend op the app serves: the backend catalog's policy (super::serves).
+            package.and_then(|p| p.served_op(op)).map(|policy| {
+                let family = op.split('.').next().unwrap_or(op).to_string();
+                let mut entry = policy.entry;
+                if policy.person_only {
+                    entry["gesture"] = Value::from("required");
+                }
+                (family, entry)
+            })
+        }) else {
             return Err(ApiError::new("apps.op.unknown", format!("{app} has no op {op}")));
         };
-        let user = origin == Origin::User;
         if entry["gesture"] == "required" && !user {
             return Err(ApiError::new(
                 "apps.gesture_required",
@@ -355,11 +368,13 @@ impl Supervisor {
         }
     }
 
-    /// True when `app` declares a server and `op` is one of its catalog ops.
+    /// True when `app` declares a server and `op` is one of its catalog ops,
+    /// or a backend op it serves that a server may run (`serves`).
     pub(super) fn server_op_locked(inner: &Inner, app: &str, op: &str) -> bool {
         inner.catalog.packages.get(app).is_some_and(|package| {
             package.manifest.get("server").is_some()
-                && package.catalog_ops().iter().any(|(name, _)| name == op)
+                && (package.catalog_ops().iter().any(|(name, _)| name == op)
+                    || package.served_op(op).is_some())
         })
     }
 
@@ -412,6 +427,9 @@ impl Supervisor {
         }
         let message = line(&message);
         server.pending.insert(id.clone(), respond);
+        if origin == Origin::User {
+            server.user_ops.insert(id.clone());
+        }
         if server.stopping {
             server.queued.push((id.clone(), message));
         } else {
@@ -480,6 +498,7 @@ impl Supervisor {
                 process: Arc::new(process),
                 spec,
                 pending: HashMap::new(),
+                user_ops: HashSet::new(),
                 queued: Vec::new(),
                 next_id: 0,
                 idle: None,
@@ -523,6 +542,7 @@ impl Supervisor {
             })
             .collect();
         server.queued.clear();
+        outs.extend(self.cancel_relay_calls_locked(inner, app));
         outs.extend(self.log_locked(inner, app, "info", format!("server stopping: {reason}")));
         outs
     }
@@ -581,6 +601,23 @@ impl Supervisor {
                 self.terminal_line(app, &value).iter().for_each(|r| process.send(line(r)));
                 return;
             }
+            if super::relay::is_relay_line(&value) {
+                let generation = inner.servers[app].generation;
+                if inner.servers[app].stopping {
+                    // An app being disabled or removed starts no Cloud call.
+                    let reply = super::relay::stopping_reply(&value);
+                    inner.servers[app].process.send(line(&reply));
+                    return;
+                }
+                match self.relay_line_locked(&mut inner, app, generation, &value) {
+                    Ok(outs) => {
+                        drop(inner);
+                        self.emit(outs);
+                    }
+                    Err(reply) => inner.servers[app].process.send(line(&reply)),
+                }
+                return;
+            }
             if value["t"] == "host.request" {
                 let reply = self.host_request_locked(&inner, app, &value);
                 inner.servers[app].process.send(line(&reply));
@@ -590,6 +627,7 @@ impl Supervisor {
             match value["type"].as_str() {
                 Some("result") => {
                     let id = value["id"].as_str().unwrap_or_default();
+                    server.user_ops.remove(id);
                     let Some(respond) = server.pending.remove(id) else { return };
                     let result = if value["ok"] == true {
                         Ok(json!({ "value": value.get("result").cloned().unwrap_or(Value::Null) }))
@@ -675,6 +713,7 @@ impl Supervisor {
                 })
                 .collect();
             outs.extend(self.terminal_server_gone_locked(&mut inner, app));
+            outs.extend(self.cancel_relay_calls_locked(&mut inner, app));
             let level = if server.stopping { "info" } else { "error" };
             outs.extend(self.log_locked(
                 &mut inner,

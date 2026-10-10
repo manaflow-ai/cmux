@@ -6,6 +6,8 @@
 //! protocol/2 errors through `request_raw`.
 //! Each test runs the SDK against a one-connection mock daemon and checks the
 //! exact request and the typed result.
+// Unix sockets and a live Unix daemon; the Windows suite is separate.
+#![cfg(unix)]
 
 use cmux::raw::{
     ClientConfig, FrontendBrowserEngine, FrontendBrowserTabCreate, FrontendBrowserTabUpdate,
@@ -217,10 +219,16 @@ fn tab_pin_unpin_and_update_send_their_operations_and_decode_tab_snapshots() {
         assert_eq!(params["back"], json!(["https://a.example/", "https://b.example/"]));
         assert_eq!(params["forward"], json!([]));
         assert_eq!(params["owner"], "install-a");
-        mutation_ok(stream, &update, tab_snapshot(json!({"zoom": 1.25, "owner": "install-a"})));
+        assert_eq!(params["icon"], "hammer.fill");
+        mutation_ok(
+            stream,
+            &update,
+            tab_snapshot(json!({"zoom": 1.25, "owner": "install-a", "icon": "hammer.fill"})),
+        );
 
         let clear = request(reader, "tab.update");
         assert_eq!(clear["params"]["zoom"], Value::Null);
+        assert_eq!(clear["params"]["icon"], Value::Null);
         assert!(clear["params"].get("back").is_none());
         mutation_ok(stream, &clear, tab_snapshot(json!({})));
     });
@@ -235,10 +243,13 @@ fn tab_pin_unpin_and_update_send_their_operations_and_decode_tab_snapshots() {
             back: Some(vec!["https://a.example/".into(), "https://b.example/".into()]),
             forward: Some(vec![]),
             owner: Some("install-a".into()),
+            icon: Update::Set("hammer.fill".into()),
         })
         .unwrap();
     assert_eq!(updated.value.extra["owner"], "install-a");
-    tab.update(TabUpdateOptions { zoom: Update::Clear, ..Default::default() }).unwrap();
+    assert_eq!(updated.value.extra["icon"], "hammer.fill");
+    tab.update(TabUpdateOptions { zoom: Update::Clear, icon: Update::Clear, ..Default::default() })
+        .unwrap();
 
     // Catalog limits are refused before any request.
     for invalid in [
@@ -247,6 +258,7 @@ fn tab_pin_unpin_and_update_send_their_operations_and_decode_tab_snapshots() {
         TabUpdateOptions { zoom: Update::Set(f64::NAN), ..Default::default() },
         TabUpdateOptions { back: Some(vec![String::new(); 21]), ..Default::default() },
         TabUpdateOptions { owner: Some(String::new()), ..Default::default() },
+        TabUpdateOptions { icon: Update::Set(String::new()), ..Default::default() },
     ] {
         assert!(matches!(tab.update(invalid), Err(Error::InvalidArgument(_))));
     }
@@ -449,7 +461,27 @@ fn workspace_groups_create_update_move_delete_send_the_catalog_fields() {
         );
         let mut placed = group_snapshot("Deep work", Value::Null, true, 0);
         placed["top_index"] = json!(3);
-        mutation_ok(stream, &slot, placed);
+        mutation_ok(stream, &slot, placed.clone());
+
+        let icon = request(reader, "workspace_group.update");
+        assert_eq!(
+            icon["params"],
+            json!({"machine": "current", "session": SESSION, "workspace_group": GROUP,
+                   "icon": "🚀"})
+        );
+        let mut iconed = placed;
+        iconed["icon"] = json!("🚀");
+        mutation_ok(stream, &icon, iconed.clone());
+
+        let pin = request(reader, "workspace_group.update");
+        assert_eq!(
+            pin["params"],
+            json!({"machine": "current", "session": SESSION, "workspace_group": GROUP,
+                   "pinned": true})
+        );
+        let mut saved = iconed;
+        saved["pinned"] = json!(true);
+        mutation_ok(stream, &pin, saved);
 
         let moved = request(reader, "workspace_group.move");
         assert_eq!(
@@ -495,6 +527,8 @@ fn workspace_groups_create_update_move_delete_send_the_catalog_fields() {
         collapsed: Some(true),
         room: None,
         top_index: Update::Unchanged,
+        icon: Update::Unchanged,
+        pinned: None,
     };
     let updated = session.update_workspace_group(GROUP, update).unwrap().value;
     assert_eq!((updated.name.as_str(), updated.collapsed), ("Deep work", true));
@@ -504,6 +538,15 @@ fn workspace_groups_create_update_move_delete_send_the_catalog_fields() {
         ..WorkspaceGroupUpdateOptions::default()
     };
     assert_eq!(session.update_workspace_group(GROUP, slot).unwrap().value.top_index, Some(3));
+    let iconed = WorkspaceGroupUpdateOptions {
+        icon: Update::Set("🚀".into()),
+        ..WorkspaceGroupUpdateOptions::default()
+    };
+    let iconed = session.update_workspace_group(GROUP, iconed).unwrap().value;
+    assert_eq!((iconed.icon.as_deref(), iconed.top_index), (Some("🚀"), Some(3)));
+    assert!(!iconed.pinned, "a snapshot without pinned decodes as not pinned");
+    let pin = WorkspaceGroupUpdateOptions { pinned: Some(true), ..Default::default() };
+    assert!(session.update_workspace_group(GROUP, pin).unwrap().value.pinned);
     assert_eq!(session.move_workspace_group(GROUP, 2).unwrap().value.index, 1);
     let deleted = session.delete_workspace_group(GROUP).unwrap().value;
     assert_eq!(deleted.ungrouped.len(), 2);
@@ -603,7 +646,7 @@ fn workspace_group_snapshots_refuse_unknown_fields() {
     let mock = mock(|stream, reader| {
         let list = request(reader, "workspace_group.list");
         let mut group = group_snapshot("Work", Value::Null, false, 0);
-        group["pinned"] = json!(true);
+        group["frozen"] = json!(true);
         respond(stream, &list, json!({"ok": true, "result": [group]}));
     });
     let client = mock.client();

@@ -103,7 +103,7 @@ public extension PageDescriptor {
 
     /// The classic viewer's resources (`mermaid.min.js`, `vega.min.js`, `vega-lite.min.js`), the
     /// markdown page's `__lib` libraries.
-    static func markdownLibraries(inAppResources resources: URL) -> URL {
+    nonisolated static func markdownLibraries(inAppResources resources: URL) -> URL {
         resources.appending(path: "markdown-viewer", directoryHint: .isDirectory)
     }
 

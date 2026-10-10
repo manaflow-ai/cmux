@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDaemon
 import Observation
 
@@ -85,7 +86,7 @@ extension WindowManager {
             let prior = WindowProfiles.visible(previous[window.id] ?? window.workspaceIDs, profile: state.profileID, machines: machines)
             let pick = WindowRegistry.repairedSelection(current: state.workspaceID, previous: prior,
                                                         members: visible, preferred: wanted)
-            if state.workspaceID != pick { select(pick, in: state) }
+            if state.workspaceID != pick { select(pick, in: state, keepsCreation: true) }
         }
     }
 
@@ -104,11 +105,11 @@ extension WindowManager {
         noteInvariantViolations(problems)
     }
 
-    /// Sets the window's shown workspace (its own state).
-    func select(_ workspaceID: String?, in state: WindowState) {
+    /// Sets the window's shown workspace (its own state); see `WindowState.showWorkspace(_:keepsCreation:)`.
+    func select(_ workspaceID: String?, in state: WindowState, keepsCreation: Bool = false) {
         if let workspaceID { enterProfile(of: workspaceID, in: state) }
         if let workspaceID, let machine = services.machines.daemon(forWorkspace: workspaceID)?.machineID { state.machineID = machine }
-        state.showWorkspace(workspaceID)
+        state.showWorkspace(workspaceID, keepsCreation: keepsCreation || services.cloud.creations.opens(workspaceID, shownIn: state))
         recordSaver.stateDidChange(state)
     }
 
@@ -262,10 +263,10 @@ extension WindowManager {
     /// load state, or the Cloud machine list changes.
     func observeMembership() {
         let machines = services.machines
-        let cloud = services.cloud!
+        let cloud = services.cloud
         membershipObservation?.cancel()
         membershipObservation = Task { [weak self] in
-            for await _ in Observations({ () -> [String] in
+            for await _ in ObservationStream({ () -> [String] in
                 [String(cloud.hasLoadedMachines), String(cloud.isSignedIn)]
                     + machines.daemons.map { "\($0.machineID):\($0.store.isLoaded):\(Self.order(of: $0, machines: machines))" }
                     + [Self.profileTags(of: machines.local)]
@@ -350,7 +351,7 @@ extension WindowManager {
 
     /// Every Cloud machine that could still report workspaces has loaded.
     private var cloudSettled: Bool {
-        guard let cloud = services.cloud, cloud.isSignedIn || cloud.auth.isRestoring else { return true }
+        guard case let cloud = services.cloud, cloud.isSignedIn || cloud.auth.isRestoring else { return true }
         guard cloud.hasLoadedMachines else { return false }
         return services.machines.cloud.allSatisfy { !$0.machine.status.isLive || $0.daemon.store.isLoaded }
     }

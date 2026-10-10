@@ -34,9 +34,17 @@ extension AppActions {
             guard let number = invocation["index"]?.intValue else { return }
             SidebarNavigation.select(number: number, services)
         })
+        // The native Home as a pane tab (HomePageTab), next to any other tab. Registered at
+        // launch so a restored Home tab finds its provider.
+        services.pages.register(HomePageTab(services: services))
+        registry.bind("home.tab", invoke: { _ = HomePageTab.open(services, focus: $0.allowsViewChange) })
         // Home is a top page (TOP-SECTION-ITEMS-ARE-PAGES): the active
         // window shows it, from any origin (a focus action). With no window,
         // the store's home workspace opens one; else refused with why.
+        // The channels Home tab (HomeChannelsPageTab), next to the native Home. Registered at
+        // launch so a restored Channels tab finds its provider.
+        services.pages.register(HomeChannelsPageTab(services: services))
+        registry.bind("home.channels") { _ = HomeChannelsPageTab.open(services) }
         registry.bind("home.show") {
             if TopPages.show(.home, services: services) != nil { return }
             guard services.windows.active == nil, let home = services.home.homeWorkspace else {
@@ -82,7 +90,7 @@ extension AppActions {
         let focus = NewWorkspaceFocus(invocation)
         let show = focus.shows
 
-        let windows = services.windows!
+        let windows = services.windows
         // Shown: the active window, or a new one when none is open. Not
         // shown (the CLI default): the most recent window lists it, or a new
         // window when none is open (a workspace never lives in no window).

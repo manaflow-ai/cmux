@@ -83,6 +83,8 @@ pub(crate) struct ParsedResourceRequest {
     pub envelope: RequestEnvelope,
     pub selectors: ResourceSelectors,
     pub fields: Map<String, Value>,
+    /// Who sends it, set by the daemon (never from the envelope).
+    pub actor: crate::workspace_registry::Actor,
 }
 
 /// The one parse of a connection line (decisions: the origin gate). `None`
@@ -167,10 +169,29 @@ pub(crate) fn malformed_resource_response(message: &str, error: ResourceError) -
         .expect("resource failure envelopes are serializable")
 }
 
+impl ParsedResourceRequest {
+    /// The durable mutation of this catalog-validated request, caused by its actor.
+    pub(crate) fn mutation(&self) -> anyhow::Result<crate::WorkspaceMutation> {
+        let key = self.envelope.idempotency_key.clone();
+        let key = key.expect("catalog-validated mutations have an idempotency key");
+        crate::WorkspaceMutation::new(key, "resource-api", self.actor.clone())
+    }
+}
+
+/// One request of `actor`, parsed and validated.
+pub(crate) fn parse_resource_request_as(
+    message: &str,
+    actor: crate::workspace_registry::Actor,
+) -> Result<ParsedResourceRequest, ResourceError> {
+    validate_resource_envelope(parse_resource_envelope(message)?, actor)
+}
+
+/// Tests: a request of the local user.
+#[cfg(test)]
 pub(crate) fn parse_resource_request(
     message: &str,
 ) -> Result<ParsedResourceRequest, ResourceError> {
-    validate_resource_envelope(parse_resource_envelope(message)?)
+    parse_resource_request_as(message, crate::workspace_registry::Actor::local_user())
 }
 
 /// The typed envelope of `message` (size limit, then one serde parse that
@@ -192,10 +213,11 @@ fn parse_resource_envelope(message: &str) -> Result<RequestEnvelope, ResourceErr
 /// is already parsed (it is moved into the request, never parsed again).
 pub(crate) fn validate_resource_envelope(
     envelope: RequestEnvelope,
+    actor: crate::workspace_registry::Actor,
 ) -> Result<ParsedResourceRequest, ResourceError> {
     envelope.validate()?;
     let (selectors, fields) = validate_catalog_params(envelope.operation, &envelope.params)?;
-    Ok(ParsedResourceRequest { envelope, selectors, fields })
+    Ok(ParsedResourceRequest { envelope, selectors, fields, actor })
 }
 
 fn dispatch_resource_request(
@@ -216,6 +238,7 @@ fn dispatch_resource_request(
                 selectors: request.selectors,
                 fields: request.fields,
                 idempotency_key: request.envelope.idempotency_key,
+                actor: request.actor,
             })
         }
         OperationOwner::Snapshot => match operation {
@@ -416,7 +439,13 @@ fn create_notification(mux: &Mux, request: ParsedResourceRequest) -> Result<Valu
         .lookup_resource_effect(idempotency_key, operation, &fingerprint)
         .map_err(resource_operation_error)?
     {
-        return finish_notification_effect(mux, idempotency_key, &fingerprint, preparation);
+        return finish_notification_effect(
+            mux,
+            &request.actor,
+            idempotency_key,
+            &fingerprint,
+            preparation,
+        );
     }
 
     ensure_session_route(mux, &request.selectors)?;
@@ -465,7 +494,7 @@ fn create_notification(mux: &Mux, request: ParsedResourceRequest) -> Result<Valu
     });
     let preparation = mux
         .prepare_resource_effect(
-            idempotency_key,
+            &request.mutation().map_err(resource_operation_error)?,
             operation,
             &fingerprint,
             &intent,
@@ -473,11 +502,12 @@ fn create_notification(mux: &Mux, request: ParsedResourceRequest) -> Result<Valu
             expected_revision(&request.fields)?,
         )
         .map_err(resource_operation_error)?;
-    finish_notification_effect(mux, idempotency_key, &fingerprint, preparation)
+    finish_notification_effect(mux, &request.actor, idempotency_key, &fingerprint, preparation)
 }
 
 fn finish_notification_effect(
     mux: &Mux,
+    actor: &crate::Actor,
     idempotency_key: &str,
     fingerprint: &Value,
     preparation: ResourceEffectPreparation,
@@ -494,13 +524,14 @@ fn finish_notification_effect(
             let intent = mux
                 .mark_resource_effect_executing(idempotency_key, "notification.create", fingerprint)
                 .map_err(resource_operation_error)?;
-            execute_notification_effect(mux, idempotency_key, fingerprint, &intent)
+            execute_notification_effect(mux, actor, idempotency_key, fingerprint, &intent)
         }
     }
 }
 
 fn execute_notification_effect(
     mux: &Mux,
+    actor: &crate::Actor,
     idempotency_key: &str,
     fingerprint: &Value,
     intent: &Value,
@@ -590,7 +621,7 @@ fn execute_notification_effect(
         .and_then(Value::as_str)
         .and_then(crate::NotificationSource::parse)
         .unwrap_or(crate::NotificationSource::Cli);
-    mux.post_resource_notification(
+    let numeric_id = mux.post_resource_notification(
         notification_id.clone(),
         title.to_string(),
         subtitle.clone(),
@@ -601,21 +632,18 @@ fn execute_notification_effect(
         created_at_ms,
         source,
     );
-    let value = mux.notification_snapshot_value(
-        &crate::ResourceNotification {
-            id: notification_id.clone(),
-            title: title.to_string(),
-            subtitle,
-            body: body.to_string(),
-            level,
-            terminal_id,
-            created_at_ms,
-            source,
-            surface,
-        },
-        &session_id,
-        &[],
-    );
+    let notification = crate::ResourceNotification {
+        id: notification_id.clone(),
+        title: title.to_string(),
+        subtitle,
+        body: body.to_string(),
+        level,
+        terminal_id,
+        created_at_ms,
+        source,
+        surface,
+    };
+    let value = mux.created_notification_value(&notification, &session_id);
     let outcome = ResourceEffectOutcome::Success(value.clone());
     let deltas = json!([{
         "kind":"upsert",
@@ -624,12 +652,14 @@ fn execute_notification_effect(
         "id":notification_id,
         "value":value,
     }]);
-    let revision = match mux.commit_resource_effect(
+    let revision = match mux.commit_notification_effect(
+        actor,
         idempotency_key,
-        "notification.create",
         fingerprint,
         &outcome,
-        Some(&deltas),
+        &deltas,
+        &notification,
+        numeric_id,
     ) {
         Ok(revision) => revision,
         Err(_) => {
@@ -661,15 +691,7 @@ fn ack_notifications(mux: &Mux, request: ParsedResourceRequest) -> Result<Value,
             )
         })
         .collect::<Result<Vec<_>, ResourceError>>()?;
-    let mutation = crate::workspace_registry::WorkspaceMutation::new(
-        request
-            .envelope
-            .idempotency_key
-            .clone()
-            .expect("catalog-validated mutations have an idempotency key"),
-        "resource-api",
-    )
-    .map_err(resource_operation_error)?;
+    let mutation = request.mutation().map_err(resource_operation_error)?;
     let ack = mux
         .ack_notifications(
             &mutation,
@@ -692,15 +714,7 @@ fn clear_notifications(mux: &Mux, request: ParsedResourceRequest) -> Result<Valu
             )
         })
         .transpose()?;
-    let mutation = crate::workspace_registry::WorkspaceMutation::new(
-        request
-            .envelope
-            .idempotency_key
-            .clone()
-            .expect("catalog-validated mutations have an idempotency key"),
-        "resource-api",
-    )
-    .map_err(resource_operation_error)?;
+    let mutation = request.mutation().map_err(resource_operation_error)?;
     let commit = mux
         .clear_notifications(&mutation, expected_revision(&request.fields)?, terminal_id.as_ref())
         .map_err(|error| {

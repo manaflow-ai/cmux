@@ -160,32 +160,6 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .menu], cliName: "settings upgrade-to-pro", mainMenu: .app
             ),
             ActionDescriptor(
-                id: "palette.welcomeChecklist",
-                title: String(localized: "action.palette.onboarding", defaultValue: "Onboarding…", bundle: .module),
-                keywords: ["onboarding", "getting started", "welcome", "import", "theme", "default browser", "tour"],
-                category: .settings, symbol: "sparkles",
-                surfaces: [.palette, .menu], cliName: "settings onboarding", mainMenu: .app
-            ),
-            ActionDescriptor(
-                id: "palette.importClassicSessions",
-                title: String(localized: "action.palette.importClassicSessions", defaultValue: "Import Classic cmux Sessions…", bundle: .module),
-                keywords: ["classic", "session", "workspace", "restore", "import"], category: .settings, symbol: "arrow.down.doc",
-                surfaces: [.palette, .menu], cliName: "settings import-classic-sessions"
-            ),
-            ActionDescriptor(
-                id: "importAndSync.show",
-                title: String(localized: "action.importAndSync.show", defaultValue: "Import and Sync…", bundle: .module),
-                keywords: ["import", "sync", "classic", "session", "workspace", "chat", "onboarding"], category: .settings,
-                symbol: "square.and.arrow.down", surfaces: [.palette],
-                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
-            ),
-            ActionDescriptor(
-                id: "palette.onboardingGallery",
-                title: String(localized: "action.palette.onboardingGallery", defaultValue: "Onboarding Gallery", bundle: .module),
-                keywords: ["onboarding", "variants", "design", "gallery"], category: .settings, symbol: "square.grid.3x3",
-                surfaces: [.palette], cliName: "settings onboarding-gallery", isDebugOnly: true
-            ),
-            ActionDescriptor(
                 id: "sendFeedback",
                 title: String(localized: "action.sendFeedback", defaultValue: "Send Feedback", bundle: .module),
                 keywords: ["bug", "report", "contact"], category: .settings, symbol: "envelope",

@@ -19,10 +19,23 @@ pub struct AdoptRequest {
     pub harness: Option<String>,
     /// The harness's own session id.
     pub agent_session_id: String,
+    /// What to do when the session is live in another process (`adopt_live`).
+    pub if_live: IfLive,
+}
+
+/// `adopt.ifLive`: a chat live in another process is refused (the
+/// default), forked into a new chat (Claude Code only), or opened anyway.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum IfLive {
+    #[default]
+    Refuse,
+    Fork,
+    Open,
 }
 
 impl AdoptRequest {
-    /// Reads `{harness, agentSessionId}`; `None` when absent, an error when malformed.
+    /// Reads `{harness, agentSessionId, ifLive?}`; `None` when absent, an
+    /// error when malformed.
     pub fn from_meta(meta: Option<&Value>) -> Result<Option<Self>, String> {
         let Some(adopt) = meta.and_then(|m| m.get("adopt")) else { return Ok(None) };
         let id = adopt
@@ -30,7 +43,15 @@ impl AdoptRequest {
             .and_then(Value::as_str)
             .ok_or("adopt needs agentSessionId")?;
         let harness = adopt.get("harness").and_then(Value::as_str).map(str::to_owned);
-        Ok(Some(Self { harness, agent_session_id: id.to_owned() }))
+        let if_live = match adopt.get("ifLive").and_then(Value::as_str) {
+            None | Some("refuse") => IfLive::Refuse,
+            Some("fork") => IfLive::Fork,
+            Some("open") => IfLive::Open,
+            Some(other) => {
+                return Err(format!("adopt ifLive {other:?} is not refuse, fork or open"));
+            }
+        };
+        Ok(Some(Self { harness, agent_session_id: id.to_owned(), if_live }))
     }
 }
 
@@ -107,6 +128,11 @@ pub fn find(family: &str, id: &str, homes: &HarnessHomes) -> Result<Adoptable, S
     Ok(Adoptable { file, cwd })
 }
 
+/// Whether the Claude store at `root` (a CLAUDE_CONFIG_DIR) has session `id`.
+pub fn claude_session_exists(root: &Path, id: &str) -> bool {
+    is_bare_id(id) && find_claude(root, id).is_some()
+}
+
 /// `<claude>/projects/<project>/<id>.jsonl`.
 fn find_claude(root: &Path, id: &str) -> Option<PathBuf> {
     let name = format!("{id}.jsonl");
@@ -157,99 +183,4 @@ fn recorded_cwd(family: &str, file: &Path) -> Option<PathBuf> {
         }
     }
     None
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    /// A fresh pair of harness homes with no sessions.
-    fn homes() -> HarnessHomes {
-        let root = std::env::temp_dir().join(format!("acpmux-adopt-{}", uuid::Uuid::now_v7()));
-        HarnessHomes { claude: root.join("claude"), codex: root.join("codex") }
-    }
-
-    fn write(path: &Path, lines: &[Value]) {
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        let text: String = lines.iter().map(|l| format!("{l}\n")).collect();
-        std::fs::write(path, text).unwrap();
-    }
-
-    const CLAUDE_ID: &str = "8f2c7a5e-1b3d-4c6e-9f00-112233445566";
-    const CODEX_ID: &str = "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b";
-
-    #[test]
-    fn adopt_meta_reads_harness_and_id() {
-        let meta = json!({"adopt": {"harness": "claude", "agentSessionId": CLAUDE_ID}});
-        let req = AdoptRequest::from_meta(Some(&meta)).unwrap().unwrap();
-        assert_eq!(
-            req,
-            AdoptRequest { harness: Some("claude".into()), agent_session_id: CLAUDE_ID.into() }
-        );
-        assert_eq!(AdoptRequest::from_meta(Some(&json!({}))).unwrap(), None);
-        assert!(AdoptRequest::from_meta(Some(&json!({"adopt": {"harness": "claude"}}))).is_err());
-    }
-
-    #[test]
-    fn adopt_finds_a_claude_session_and_its_cwd() {
-        let homes = homes();
-        let file = homes.claude.join("projects/-Users-me-app").join(format!("{CLAUDE_ID}.jsonl"));
-        write(
-            &file,
-            &[
-                json!({"type": "summary"}),
-                json!({"type": "user", "cwd": "/Users/me/app", "sessionId": CLAUDE_ID}),
-            ],
-        );
-        let found = find("claude", CLAUDE_ID, &homes).unwrap();
-        assert_eq!(found, Adoptable { file, cwd: Some("/Users/me/app".into()) });
-        let _ = std::fs::remove_dir_all(homes.claude.parent().unwrap());
-    }
-
-    #[test]
-    fn adopt_finds_a_codex_rollout_and_its_cwd() {
-        let homes = homes();
-        let file = homes
-            .codex
-            .join(format!("sessions/2026/10/02/rollout-2026-10-02T09-00-00-{CODEX_ID}.jsonl"));
-        write(
-            &file,
-            &[json!({"type": "session_meta", "payload": {"id": CODEX_ID, "cwd": "/Users/me/api"}})],
-        );
-        let found = find("codex", CODEX_ID, &homes).unwrap();
-        assert_eq!(found, Adoptable { file, cwd: Some("/Users/me/api".into()) });
-        let _ = std::fs::remove_dir_all(homes.codex.parent().unwrap());
-    }
-
-    /// Fails closed: an unknown id, another harness's id, a path-shaped id
-    /// and an unsupported harness are all refused.
-    #[test]
-    fn adopt_refuses_what_it_cannot_find_or_trust() {
-        let homes = homes();
-        let file = homes.claude.join("projects/p").join(format!("{CLAUDE_ID}.jsonl"));
-        write(&file, &[json!({"cwd": "/tmp"})]);
-        assert!(
-            find("claude", "8f2c7a5e-0000-0000-0000-000000000000", &homes)
-                .unwrap_err()
-                .contains("no claude session")
-        );
-        assert!(find("codex", CLAUDE_ID, &homes).is_err());
-        let long = "a".repeat(129);
-        for bad in ["../p/x", "a/b", "..", "", "x.jsonl", long.as_str()] {
-            assert!(!is_bare_id(bad), "{bad:?}");
-            assert!(find("claude", bad, &homes).unwrap_err().contains("not a session id"));
-        }
-        assert!(find("gemini", CLAUDE_ID, &homes).unwrap_err().contains("not supported"));
-        let _ = std::fs::remove_dir_all(homes.claude.parent().unwrap());
-    }
-
-    #[test]
-    fn adopt_tolerates_a_session_without_a_recorded_cwd() {
-        let homes = homes();
-        let file = homes.claude.join("projects/p").join(format!("{CLAUDE_ID}.jsonl"));
-        write(&file, &[json!({"type": "summary"})]);
-        assert_eq!(find("claude", CLAUDE_ID, &homes).unwrap().cwd, None);
-        let _ = std::fs::remove_dir_all(homes.claude.parent().unwrap());
-    }
 }

@@ -1,10 +1,17 @@
+public import CmuxAgentQuestion
 public import Foundation
 
 /// A typed change the client asks an owner to make. Every op travels with an
 /// idempotency key; the owner applies a key at most once.
 public enum HomeOp: Hashable, Sendable {
-    /// `message.send`. The key is the message's client id.
-    case sendMessage(conversation: ConversationID, parts: [MessagePart])
+    /// `message.send`. The key is the message's client id. `threadRoot` set:
+    /// a reply in that message's thread (both owners carry it as `reply_to`
+    /// part 0 of the root, so the root must be in the same conversation).
+    case sendMessage(conversation: ConversationID, parts: [MessagePart], threadRoot: MessageID? = nil)
+    /// `message.edit`: the user's own message gets new parts (`editedAt` set).
+    case editMessage(message: MessageID, conversation: ConversationID, parts: [MessagePart])
+    /// `message.retract`: the user's own message is unsent (`retractedAt` set, parts cleared).
+    case retractMessage(message: MessageID, conversation: ConversationID)
     /// `read_cursor.set` for the signed-in user.
     case setReadCursor(conversation: ConversationID, seq: Seq)
     /// `conversation.create`: a group with these participants (humans and Chiefs).
@@ -25,6 +32,11 @@ public enum HomeOp: Hashable, Sendable {
     case setPinned(conversation: ConversationID, rank: Int?)
     case setMuted(conversation: ConversationID, muted: Bool)
     case addReaction(message: MessageID, conversation: ConversationID, reaction: Reaction.Kind, partIndex: Int)
+    /// `reaction.remove`: takes back the user's own reaction (the same kind and part).
+    case removeReaction(message: MessageID, conversation: ConversationID, reaction: Reaction.Kind, partIndex: Int)
+    /// `question.answer`: the signed-in person answers the question part at
+    /// `partIndex`. Only the selections travel; the owner stamps who answered.
+    case answerQuestion(message: MessageID, conversation: ConversationID, partIndex: Int, answer: AgentQuestionAnswer)
     /// My typing state. Ephemeral: never stored by the owner and never in the
     /// intent log (the store sends it directly; nothing to settle).
     case setTyping(conversation: ConversationID, on: Bool)
@@ -32,9 +44,13 @@ public enum HomeOp: Hashable, Sendable {
     /// The stream this op writes. Its result's `rev` is a revision of this stream.
     public var stream: HomeStream {
         switch self {
-        case .sendMessage(let conversation, _),
+        case .sendMessage(let conversation, _, _),
+             .editMessage(_, let conversation, _),
+             .retractMessage(_, let conversation),
              .setReadCursor(let conversation, _),
              .addReaction(_, let conversation, _, _),
+             .removeReaction(_, let conversation, _, _),
+             .answerQuestion(_, let conversation, _, _),
              .setTyping(let conversation, _):
             .conversation(conversation)
         case .setPinned, .setMuted, .createGroup, .createChief, .startConversation, .invite, .openDirect:
@@ -45,11 +61,15 @@ public enum HomeOp: Hashable, Sendable {
     /// The conversation this op writes, when it targets one.
     public var conversation: ConversationID? {
         switch self {
-        case .sendMessage(let conversation, _),
+        case .sendMessage(let conversation, _, _),
+             .editMessage(_, let conversation, _),
+             .retractMessage(_, let conversation),
              .setReadCursor(let conversation, _),
              .setPinned(let conversation, _),
              .setMuted(let conversation, _),
              .addReaction(_, let conversation, _, _),
+             .removeReaction(_, let conversation, _, _),
+             .answerQuestion(_, let conversation, _, _),
              .setTyping(let conversation, _):
             conversation
         case .createGroup, .createChief, .startConversation, .invite, .openDirect:
@@ -106,9 +126,22 @@ public struct InviteReceipt: Hashable, Sendable {
     }
 }
 
+/// A source sent nothing: the op's owner is not connected, while the
+/// merged connection may stay online (another owner answers, as the cloud
+/// does for a router whose local Chief owner is down). `HomeStore` keeps a
+/// send waiting for the owner's `.ownerRecovered` ("sending", then "Not
+/// Delivered" past `HomeStore.offlineSendDeadline`, never "May Not Have
+/// Been Delivered") and refuses any other op with `ownerUnreachable`. It
+/// never reaches the store's callers.
+public struct HomeOwnerOffline: Error, Hashable, Sendable {
+    public init() {}
+}
+
 /// Why the owner refused an op, or why the client refused to send it.
 public enum HomeRejection: Error, Hashable, Sendable {
-    /// The owner is unreachable; nothing queues (U5).
+    /// The owner is unreachable. Ops other than sends are refused (U5); a
+    /// send waits for the reconnect and fails with this only after
+    /// `HomeStore.offlineSendDeadline` (Messages parity).
     case ownerUnreachable
     case notAuthorized
     case invalid(String)

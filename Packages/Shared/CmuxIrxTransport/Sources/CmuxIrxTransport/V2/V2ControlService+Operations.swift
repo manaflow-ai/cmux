@@ -35,11 +35,11 @@ extension V2ControlService {
         cache.ticket = response.ticket
         failure = nil
         try await persist(run: run)
-        let issued = Int(dependencies.now().timeIntervalSince1970)
+        let issued = unixSeconds
         journal("refresh-succeeded", [
             "schema": "ticket.request.v1",
-            "refresh_after_in_s": String(response.ticket.refreshAfter - issued),
-            "expires_in_s": String(response.ticket.expiresAt - issued),
+            "refresh_after_in_s": String(response.ticket.refreshAfter.saturatingSubtraction(issued)),
+            "expires_in_s": String(response.ticket.expiresAt.saturatingSubtraction(issued)),
         ])
         return response.ticket
     }
@@ -87,12 +87,12 @@ extension V2ControlService {
         cache.relayCredentials = response.credentials
         failure = nil
         try await persist(run: run)
-        let issued = Int(dependencies.now().timeIntervalSince1970)
+        let issued = unixSeconds
         journal("refresh-succeeded", [
             "schema": "relay.request.v1",
             "count": String(response.credentials.count),
-            "refresh_after_in_s": String((response.credentials.map(\.refreshAfter).min() ?? issued) - issued),
-            "expires_in_s": String((response.credentials.map(\.expiresAt).min() ?? issued) - issued),
+            "refresh_after_in_s": String((response.credentials.map(\.refreshAfter).min() ?? issued).saturatingSubtraction(issued)),
+            "expires_in_s": String((response.credentials.map(\.expiresAt).min() ?? issued).saturatingSubtraction(issued)),
         ])
         return response.credentials
     }
@@ -165,7 +165,7 @@ extension V2ControlService {
                 "schema": "directory.request.v1",
                 "revision": String(directory.revision),
                 "bindings": String(directory.devices.count),
-                "expires_in_s": String(directory.permissionExpiresAt - Int(dependencies.now().timeIntervalSince1970)),
+                "expires_in_s": String(directory.permissionExpiresAt.saturatingSubtraction(unixSeconds)),
             ])
             return directory
         }

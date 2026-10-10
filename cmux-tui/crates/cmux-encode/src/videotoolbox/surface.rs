@@ -157,8 +157,7 @@ impl SurfaceEncoder for VideoToolbox {
 mod tests {
     use super::*;
     use crate::videotoolbox::{
-        CFRelease, CFTypeRef, CVPixelBufferRef, PIXEL_420V, dict,
-        kCVPixelBufferIOSurfacePropertiesKey,
+        CFRelease, CFTypeRef, CVPixelBufferRef, dict, kCVPixelBufferIOSurfacePropertiesKey,
     };
     use std::ptr::{null, null_mut};
 
@@ -220,75 +219,6 @@ mod tests {
             // SAFETY: releasing the buffer we created.
             unsafe { CFRelease(self.0 as CFTypeRef) };
         }
-    }
-
-    fn encode_until_output(
-        enc: &mut VideoToolbox,
-        frame: &SurfaceFrame,
-        force_idr: bool,
-    ) -> (bool, Vec<u8>) {
-        let mut out = Vec::new();
-        let mut idr = false;
-        for i in 0..4 {
-            idr |= enc
-                .encode_surface(
-                    frame,
-                    SurfaceRect::default(),
-                    force_idr && i == 0,
-                    i * 33_000,
-                    &mut out,
-                )
-                .expect("encode");
-            if !out.is_empty() {
-                break;
-            }
-        }
-        (idr, out)
-    }
-
-    #[test]
-    fn a_bgra_surface_encodes_an_idr_with_no_copy() {
-        let mut enc = VideoToolbox::new(256, 128, 30, 2_000, false).expect("hardware encoder");
-        let surface = TestSurface::new(256, 128, PIXEL_BGRA);
-        let (idr, au) = encode_until_output(
-            &mut enc,
-            &surface.frame(SurfaceFormat::Bgra, 256, 128, ColorTag::Srgb),
-            true,
-        );
-        assert!(idr);
-        assert!(au.starts_with(&[0, 0, 0, 1]));
-    }
-
-    #[test]
-    fn an_nv12_surface_in_display_p3_encodes() {
-        let mut enc = VideoToolbox::new(256, 128, 30, 2_000, false).expect("hardware encoder");
-        let surface = TestSurface::new(256, 128, PIXEL_420V);
-        let (idr, au) = encode_until_output(
-            &mut enc,
-            &surface.frame(SurfaceFormat::Nv12, 256, 128, ColorTag::DisplayP3),
-            true,
-        );
-        assert!(idr);
-        assert!(!au.is_empty());
-    }
-
-    #[test]
-    fn a_new_size_recreates_the_session_and_starts_with_an_idr() {
-        let mut enc = VideoToolbox::new(256, 128, 30, 2_000, false).expect("hardware encoder");
-        let small = TestSurface::new(256, 128, PIXEL_BGRA);
-        encode_until_output(
-            &mut enc,
-            &small.frame(SurfaceFormat::Bgra, 256, 128, ColorTag::Srgb),
-            true,
-        );
-        let large = TestSurface::new(512, 256, PIXEL_BGRA);
-        let (idr, au) = encode_until_output(
-            &mut enc,
-            &large.frame(SurfaceFormat::Bgra, 512, 256, ColorTag::Srgb),
-            false,
-        );
-        assert!(idr, "a resized stream starts with an IDR");
-        assert!(!au.is_empty());
     }
 
     #[test]

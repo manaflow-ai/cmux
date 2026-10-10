@@ -24,7 +24,11 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/watch", "_acpmux/events", "_acpmux/attach", "_acpmux/detach", "_acpmux/warm",
         "_acpmux/kill", "_acpmux/prewarm", "_acpmux/harnesses", "_acpmux/models", "_acpmux/permission_respond",
         // Read-only, and its reply is filtered to ``replyShapes`` (ad349).
-        "_acpmux/status",
+        "_acpmux/status", "_acpmux/draft_get",
+        // Session-scoped draft writes are kept separate from the filtered replies above.
+        "_acpmux/draft_set",
+        // Withdraw a queued prompt of a session in the pane's scope (direct.ts removeQueued).
+        "_acpmux/queue_remove",
         // Hand-off (handoff/protocol.ts HANDOFF_OPS).
         "_acpmux/handoff_prepare", "_acpmux/handoff_get", "_acpmux/handoff_draft", "_acpmux/handoff_start",
         "_acpmux/handoff_discard",
@@ -32,6 +36,9 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/permission_groups", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
         // Fork (operations.ts FORK_OP) and folder trust (direct.ts trustGet/trustSet).
         "acp.session.fork", "acp.trust.get", "acp.trust.set",
+        // Enable a folder harness (direct.ts harnessEnable): the relay asks the user on its own
+        // native sheet and adds the confirmed sha256 itself (``AgentPaneHarnessEnablePrompt``).
+        "_acpmux/harness_enable",
     ]
 
     /// The shape of a reply the relay filters itself, without relying on the daemon's redaction.
@@ -140,14 +147,16 @@ nonisolated enum AcpmuxPaneMethods {
         return allowed ? .success(object) : refuse(.methodRefused, method, id)
     }
 
-    /// The first frame with the LocalApp token in `_meta.acpmux` (the host's own key; the page
-    /// never sees it).
+    /// The first frame with the LocalApp token and this launch's person key (``AcpmuxPersonKey``)
+    /// in `_meta.acpmux` (the host's own keys; the page never sees them). Any `personKey` the
+    /// page put there is replaced.
     static func withLocalAppToken(_ object: [String: Any], _ token: String) -> [String: Any] {
         var object = object
         var params = object["params"] as? [String: Any] ?? [:]
         var meta = params["_meta"] as? [String: Any] ?? [:]
         var acpmux = meta["acpmux"] as? [String: Any] ?? [:]
         acpmux["localAppToken"] = token
+        acpmux["personKey"] = AcpmuxPersonKey.current
         meta["acpmux"] = acpmux
         params["_meta"] = meta
         object["params"] = params
@@ -159,8 +168,12 @@ nonisolated enum AcpmuxPaneMethods {
     /// one click) is a read-only view, and the pane never sends anything to it.
     public static let sessionScoped: Set<String> = [
         "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
-        "_acpmux/kill", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
+        "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/queue_remove", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
     ]
+
+    /// The folder trust question may name its chat (`sessionId`, so acpmux asks the chat's peer):
+    /// a named session must be in the pane's scope (``sessionScoped``'s rule); none is fine.
+    public static let optionallySessionScoped: Set<String> = ["acp.trust.get", "acp.trust.set"]
 
     /// The methods that copy a session's content into a new session the pane then controls: a
     /// fork, and the handoff steps (prepare captures the source and makes the target, draft edits
@@ -176,7 +189,8 @@ nonisolated enum AcpmuxPaneMethods {
     ]
 
     /// The error frame that answers a refused request, as the daemon would answer an unknown one.
-    /// `rootRequested`: the host offered the user to add the refused folder as a root.
+    /// `rootRequested` stays in the frame the Rust policy shares; this host no longer offers to add
+    /// a refused folder as a root, so it never sets it.
     public static func refusal(requestID: String, error: AgentPaneTransportError, method: String?, rootRequested: Bool = false) -> String {
         var data: [String: Any] = ["code": error.rawValue, "origin": "native"]
         if let method { data["method"] = method }
@@ -205,6 +219,8 @@ nonisolated enum AcpmuxPaneMethods {
         "session/set_mode": .always,
         "session/set_config_option": .always,
         "acp.trust.set": .whenTrusting,
+        // The page's click opens the native sheet; the sheet's Enable is the second gesture.
+        "_acpmux/harness_enable": .always,
         "_acpmux/permission_respond": .whenOptionAllows,
         "_acpmux/permission_group_respond": .whenDecisionAllows,
         // _acpmux/permission_chat_revoke revokes: no gesture.
@@ -235,28 +251,6 @@ nonisolated enum AcpmuxPaneMethods {
 
     /// Where a frame carries the ticket of a gesture reserved at its pick (`params._meta.cmuxGesture`).
     public static let gestureTicketKey = "cmuxGesture"
-
-    /// The frame's gesture ticket, the frame without it (the daemon never sees it), and whether
-    /// its `_meta` held anything besides the ticket (R1: a redeeming frame may carry nothing else).
-    static func takeGestureTicket(_ text: String) -> (text: String, ticket: String?, otherMeta: Bool) {
-        guard let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return (text, nil, false) }
-        let (stripped, ticket, otherMeta) = takeGestureTicket(object)
-        guard ticket != nil, let data = try? JSONSerialization.data(withJSONObject: stripped, options: [.withoutEscapingSlashes]) else {
-            return (text, ticket, otherMeta)
-        }
-        return (String(decoding: data, as: UTF8.self), ticket, otherMeta)
-    }
-
-    /// The same on the parsed frame (the relay's one parse; an escaped key was decoded by it).
-    static func takeGestureTicket(_ object: [String: Any]) -> (object: [String: Any], ticket: String?, otherMeta: Bool) {
-        guard var params = object["params"] as? [String: Any], var meta = params["_meta"] as? [String: Any],
-              let value = meta.removeValue(forKey: gestureTicketKey) else { return (object, nil, false) }
-        let otherMeta = !meta.isEmpty
-        if meta.isEmpty { params.removeValue(forKey: "_meta") } else { params["_meta"] = meta }
-        var object = object
-        object["params"] = params
-        return (object, value as? String ?? "", otherMeta)
-    }
 
     /// A session/prompt with every `_meta` inside its prompt blocks removed, at any depth (a block's
     /// own, a nested resource's, annotations'); nil when there is none (the frame goes unchanged).
@@ -297,66 +291,6 @@ nonisolated enum AcpmuxPaneMethods {
         default:
             return nil
         }
-    }
-
-    /// The params rule (P1), on every path: each method's top-level params and `_meta.acpmux` keys,
-    /// exactly as the pane sends them (`webviews/src/agent-session/acpmux`). This is the pane's own
-    /// param schema, not a mode list. The daemon's `modeFields` are an extra deny inside it.
-    static let knownParams: [String: (params: Set<String>, acpmux: Set<String>)] = [
-        "initialize": (["protocolVersion", "clientInfo", "clientCapabilities"], []),
-        "session/new": (["cwd", "mcpServers", "_meta"], ["harness", "adopt", "peer"]),
-        "session/prompt": (["sessionId", "prompt", "_meta"], ["promptId"]),
-        "session/set_model": (["sessionId", "modelId"], []),
-        "session/cancel": (["sessionId"], []),
-        "_acpmux/watch": (["enabled"], []),
-        "_acpmux/events": (["sessionId", "afterSeq", "beforeSeq", "limit", "kinds"], []),
-        "_acpmux/attach": (["sessionId", "limit", "kinds", "eventStream"], []),
-        "_acpmux/detach": (["sessionId"], []),
-        "_acpmux/warm": (["sessionIds", "limit"], []),
-        "_acpmux/kill": (["sessionId", "purge"], []),
-        "_acpmux/prewarm": (["harness", "cwd"], []),
-        "_acpmux/harnesses": ([], []),
-        "_acpmux/models": ([], []),
-        "_acpmux/status": ([], []),
-        "_acpmux/permission_respond": (["sessionId", "permissionId", "optionId"], []),
-        "_acpmux/handoff_prepare": (["sessionId", "harness", "handoffKey"], []),
-        "_acpmux/handoff_get": (["sessionId", "handoffId"], []),
-        "_acpmux/handoff_draft": (["handoffId", "revision", "draftKey", "capsule", "checkpoint"], []),
-        "_acpmux/handoff_start": (["handoffId", "revision", "promptId", "capsule", "checkpoint"], []),
-        "_acpmux/handoff_discard": (["handoffId"], []),
-        "_acpmux/permission_groups": (["sessionId"], []),
-        "_acpmux/permission_group_respond": (["sessionId", "groupId", "revision", "decisionKey", "decision"], []),
-        "_acpmux/permission_chat_revoke": (["sessionId"], []),
-        "acp.session.fork": (["sessionId", "throughSeq"], []),
-        "acp.trust.get": (["cwd"], []),
-        "acp.trust.set": (["cwd", "level"], []),
-        // They meet the gesture rule and the sheet; their mode field is their purpose.
-        "session/set_mode": (["sessionId", "modeId", "_meta"], []),
-        "session/set_config_option": (["sessionId", "configId", "value", "_meta"], []),
-    ]
-
-    /// P1: whether a page frame breaks the params rule. On every method: a top-level param outside
-    /// the method's ``knownParams``; a `_meta` that is not an object, or that holds a key other
-    /// than `acpmux`; an `acpmux` key outside the method's list. On every method except set_mode and
-    /// set_config_option, also a daemon `modeFields` name at the top of params or in `acpmux`.
-    /// A set_mode or set_config_option with `cmuxGesture` in `_meta` redeems a ticket: its `_meta`
-    /// is the gesture rule's (R1 refuses any other key there and spends the ticket).
-    static func breaksParamsRule(_ object: [String: Any]?, modeFields: Set<String>?) -> Bool {
-        guard let object, let method = object["method"] as? String, let rawParams = object["params"] else { return false }
-        guard let params = rawParams as? [String: Any] else { return true }
-        guard let known = knownParams[method] else { return !params.isEmpty }
-        if params.keys.contains(where: { !known.params.contains($0) }) { return true }
-        let setting = settingMethods.contains(method)
-        let denied = setting ? [] : modeFields ?? []
-        if params.keys.contains(where: denied.contains) { return true }
-        guard let rawMeta = params["_meta"] else { return false }
-        guard let meta = rawMeta as? [String: Any] else { return true }
-        // A redeeming frame: R1 first (nothing but the ticket in _meta), then the gesture rule.
-        if setting, meta["cmuxGesture"] != nil { return meta.keys.contains { $0 != "cmuxGesture" } }
-        if meta.keys.contains(where: { $0 != "acpmux" }) { return true }
-        guard let rawAcpmux = meta["acpmux"] else { return false }
-        guard let acpmux = rawAcpmux as? [String: Any] else { return true }
-        return acpmux.keys.contains(where: { !known.acpmux.contains($0) || denied.contains($0) })
     }
 
     /// A frame's method and raw JSON-RPC id, for a refusal.

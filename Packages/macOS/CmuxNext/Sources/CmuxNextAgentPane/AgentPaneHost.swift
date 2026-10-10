@@ -43,6 +43,12 @@ public nonisolated enum AgentPaneHostError: Error, Equatable, Sendable {
 public actor AcpmuxHost: AgentPaneHostProviding {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.acpmux")
     private let resolveEnvironment: @Sendable () -> AcpmuxEnvironment?
+    /// The Computer Use socket and agent token now (`AcpmuxEnvironment.computerUse`),
+    /// read at each daemon start, since Computer Use turns on and off while the app runs.
+    private let computerUse: @Sendable () -> [String: String]
+    /// Called with the daemon socket after each successful find or start, so
+    /// the Computer Use helper v2 can register this daemon.
+    private let daemonReady: @Sendable (String) async -> Void
     /// Kept only once found, so acpmux installed after the first chat is picked up.
     private var environment: AcpmuxEnvironment?
     /// The lookup in flight, by whether it may start a daemon.
@@ -50,12 +56,18 @@ public actor AcpmuxHost: AgentPaneHostProviding {
 
     public init(environment: AcpmuxEnvironment?) {
         self.resolveEnvironment = { environment }
+        self.computerUse = { [:] }
+        self.daemonReady = { _ in }
     }
 
     /// Looks for acpmux (bundled, PATH, install directories) on the actor,
     /// off the main thread, at the first handshake that needs it.
-    public init(resolve: @escaping @Sendable () -> AcpmuxEnvironment?) {
+    public init(resolve: @escaping @Sendable () -> AcpmuxEnvironment?,
+                computerUse: @escaping @Sendable () -> [String: String] = { [:] },
+                daemonReady: (@Sendable (String) async -> Void)? = nil) {
         self.resolveEnvironment = resolve
+        self.computerUse = computerUse
+        self.daemonReady = daemonReady ?? { _ in }
     }
 
     public func handshake(sessionId: String?) async throws -> AgentPaneHandshake {
@@ -82,16 +94,20 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         // reporting it stopped.
         if !startsDaemon, let task = inFlight[true] { return try await task.value }
         if environment == nil { environment = resolveEnvironment() }
-        guard let environment else {
+        guard var environment else {
             Self.logger.error("acpmux environment unresolved startsDaemon=\(startsDaemon, privacy: .public)")
             throw AgentPaneHostError.acpmuxNotFound
         }
+        environment.computerUse = computerUse()
+        let daemonSocket = environment.socketPath
         Self.logger.info("acpmux environment resolved executable=\(environment.executable.path, privacy: .public) home=\(environment.home.path, privacy: .public) socket=\(environment.socketPath, privacy: .public) startsDaemon=\(startsDaemon, privacy: .public)")
         // task-owner: stored in inFlight and cleared when it settles; callers await its value
         let task = Task { try await Self.findOrStart(environment, startsDaemon: startsDaemon) }
         inFlight[startsDaemon] = task
         defer { if inFlight[startsDaemon] == task { inFlight[startsDaemon] = nil } }
-        return try await task.value
+        let endpoint = try await task.value
+        await daemonReady(daemonSocket)
+        return endpoint
     }
 
     private static func findOrStart(_ environment: AcpmuxEnvironment, startsDaemon: Bool) async throws -> AcpmuxWebEndpoint {
@@ -99,9 +115,18 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             let status = try await AcpmuxStatusClient.status(socketPath: environment.socketPath)
             // After an update the daemon may be the previous build's: hand it
             // off (its agents keep running under their hosts) and start ours.
-            guard startsDaemon, await AcpmuxVersionHandoff.handOffIfStale(status, environment: environment) else {
+            // A reconnect never stops or starts a daemon. It still gives a daemon that restarted
+            // this launch's person key (a signed daemon takes it by this app's signature), so
+            // the reconnected pane's allows keep working.
+            guard startsDaemon else {
+                _ = await AcpmuxPersonKey.enroll(status, environment: environment, mayHandOff: false)
                 return try status.endpoint()
             }
+            // After an update, or for this launch's person key (`AcpmuxPersonKey`): a daemon
+            // that cannot take the key is handed off and ours starts with it.
+            let stale = await AcpmuxVersionHandoff.handOffIfStale(status, environment: environment)
+            let stopped = stale ? true : await AcpmuxPersonKey.enroll(status, environment: environment)
+            guard stopped else { return try status.endpoint() }
         } catch AcpmuxStatusClient.Failure.unreachable {
             logger.info("acpmux status unreachable socket=\(environment.socketPath, privacy: .public) startsDaemon=\(startsDaemon, privacy: .public)")
             // Nothing listens on the socket: start a daemon below, unless
@@ -118,7 +143,12 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             throw AgentPaneHostError.daemonFailed(logPath: environment.logPath)
         }
         do {
-            return try await AcpmuxDaemonLauncher.launch(environment)
+            let endpoint = try await AcpmuxDaemonLauncher.launch(environment)
+            // A signed daemon ignores the spawn key: it takes the key by this app's signature.
+            if let status = try? await AcpmuxStatusClient.status(socketPath: environment.socketPath) {
+                _ = await AcpmuxPersonKey.enroll(status, environment: environment)
+            }
+            return endpoint
         } catch AcpmuxDaemonLauncher.Failure.exited {
             logger.error("acpmux launcher exited before ready log=\(environment.logPath, privacy: .public)")
             // Another client may have started the daemon first; the loser

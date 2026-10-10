@@ -44,6 +44,9 @@ public final class TabModel: Identifiable {
     /// Browser page zoom or terminal font scale saved on the tab record;
     /// nil = 1 (daemon state resources).
     public internal(set) var zoom: Double?
+    /// The icon the user set on the tab record (`tab.update {icon}`; the shared icon
+    /// wire string: one emoji or an SF Symbol name). Nil shows the tab kind's icon.
+    public internal(set) var userIcon: String?
     /// A browser tab's saved back URLs (oldest first) and forward URLs
     /// (nearest first).
     public internal(set) var backURLs: [String] = []
@@ -51,6 +54,8 @@ public final class TabModel: Identifiable {
     /// The terminal's OSC 9;4 progress as the daemon parses it, mounted or
     /// not (`TerminalSnapshot.extra.progress`).
     public internal(set) var progress: TerminalProgressReport?
+    /// The terminal's OSC 7501 program status records (`extra.program_status`).
+    public internal(set) var programStatus: [ProgramStatusRecord] = []
     /// The terminal a remote-terminal tab references (on another session).
     public internal(set) var remote: RemoteTerminalRef?
     /// Last snapshot, for fields the record does not surface. Views should
@@ -65,13 +70,20 @@ public final class TabModel: Identifiable {
 
     public var hasUnread: Bool { notification?.unread == true }
 
-    /// Public tab id (`tab_…`) on registry daemons.
-    public var resourceID: ResourceID? { snapshot.tabResourceID }
+    /// Public tab id (`tab_…`) on registry daemons. Stored and observed: a
+    /// tab can get its id in a later snapshot of the same surface, and an
+    /// observer that found no tab by this id must hear it.
+    public internal(set) var resourceID: ResourceID?
 
     /// The acpmux session record of an agent chat tab (a conversation tab with an agent session
     /// source, `agent-session-tabs-v1`); nil for every other tab.
     public var agentSession: AgentSessionRef? {
         kind == .conversation ? snapshot.conversation?.agentSession : nil
+    }
+
+    /// The app an app tab shows (a frontend tab of an app workspace, `app-screens-v1`).
+    public var appTab: AppTabRef? {
+        kind == .browser ? snapshot.app : nil
     }
 
     /// The page id of a page tab (a conversation tab with a page source, `page-tabs-v1`: the
@@ -83,6 +95,7 @@ public final class TabModel: Identifiable {
     init(_ s: TabSnapshot) {
         id = Self.identity(s)
         snapshot = s
+        resourceID = s.tabResourceID
         surface = s.surface
         terminalID = s.terminalID
         terminalIncarnation = s.terminalIncarnation
@@ -114,6 +127,7 @@ public final class TabModel: Identifiable {
     func update(_ s: TabSnapshot) {
         guard s != snapshot else { return }
         snapshot = s
+        if resourceID != s.tabResourceID { resourceID = s.tabResourceID }
         if surface != s.surface { surface = s.surface }
         if terminalID != s.terminalID { terminalID = s.terminalID }
         if terminalIncarnation != s.terminalIncarnation { terminalIncarnation = s.terminalIncarnation }
@@ -139,12 +153,14 @@ public final class TabModel: Identifiable {
     }
 
     /// Lays the daemon's tab record and terminal progress over the record.
-    func applyState(_ record: SessionStateMirror.TabRecord?, progress: TerminalProgressReport?) {
+    func applyState(_ record: SessionStateMirror.TabRecord?, progress: TerminalProgressReport?, programStatus: [ProgramStatusRecord] = []) {
         let record = record ?? SessionStateMirror.TabRecord()
         if zoom != record.zoom { zoom = record.zoom }
+        if userIcon != record.icon { userIcon = record.icon }
         if backURLs != record.back { backURLs = record.back }
         if forwardURLs != record.forward { forwardURLs = record.forward }
         if self.progress != progress { self.progress = progress }
+        if self.programStatus != programStatus { self.programStatus = programStatus }
     }
 
     /// Point updates from surface events (no full snapshot).
@@ -193,7 +209,8 @@ public final class TabModel: Identifiable {
             path = URL(string: value)?.path
         } else if value.hasPrefix("kitty-shell-cwd://") {
             let rest = value.dropFirst("kitty-shell-cwd://".count)
-            path = rest.firstIndex(of: "/").map { String(rest[$0...]) }
+            let fromSlash = rest.drop { $0 != "/" }
+            path = fromSlash.isEmpty ? nil : String(fromSlash)
         }
         // Only an absolute local path; a relative or `~` report says nothing usable.
         return path?.hasPrefix("/") == true ? path : nil

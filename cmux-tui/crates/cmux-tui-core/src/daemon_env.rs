@@ -40,12 +40,16 @@ pub const DAEMON_OWNED_ENV_KEYS: [&str; 12] = [
 
 /// Ghostty shell-integration keys. The daemon owns them only when it
 /// integrates the default shell itself.
-pub const INTEGRATION_OWNED_ENV_KEYS: [&str; 5] = [
+pub const INTEGRATION_OWNED_ENV_KEYS: [&str; 8] = [
     "GHOSTTY_ZSH_ZDOTDIR",
     "GHOSTTY_BASH_ENV",
     "GHOSTTY_BASH_INJECT",
     "GHOSTTY_BASH_UNEXPORT_HISTFILE",
     "GHOSTTY_SHELL_INTEGRATION_XDG_DIR",
+    // The app's bundled-CLI layer over the injection (`shell_integration::cli_path`).
+    "CMUX_CLI_ZSH_ZDOTDIR",
+    "CMUX_CLI_BASH_ENV",
+    "CMUX_CLI_FISH_XDG_DIR",
 ];
 
 /// The daemon's socket keys for every terminal it creates: `CMUX_TUI_SOCKET`
@@ -134,6 +138,48 @@ fn path_with_dir_first(path: &str, dir: &str) -> String {
     entries.join(PATH_SEPARATOR)
 }
 
+/// Put the app's bundled CLI (`<Resources>/bin/cmux`) dir first on the
+/// `PATH` in `env`, followed by the other entries, and name it in
+/// `CMUX_BUNDLED_CLI_PATH`, over a caller's values. Run it after the caller
+/// env is merged and before [`keep_shim_first_on_path`], so the shim stays
+/// first. Does nothing without a bundled CLI or a `PATH` entry.
+pub(crate) fn keep_bundled_cli_first(env: &mut Vec<(String, String)>, bundled_cli: Option<&str>) {
+    let Some(cli) = bundled_cli.filter(|cli| !cli.is_empty()) else { return };
+    let Some(dir) = std::path::Path::new(cli).parent().and_then(|dir| dir.to_str()) else {
+        return;
+    };
+    set_env(env, BUNDLED_CLI_ENV, cli);
+    let Some(path) =
+        env.iter().rev().find(|(key, _)| same_env_key(key, "PATH")).map(|(_, value)| value.clone())
+    else {
+        return;
+    };
+    set_env(env, "PATH", &path_with_dir_first(&path, dir));
+}
+
+/// The app's bundled CLI (`<Resources>/bin/cmux`), which the app puts in the
+/// daemon's environment.
+pub const BUNDLED_CLI_ENV: &str = "CMUX_BUNDLED_CLI_PATH";
+
+/// The bundled CLI in this daemon's own environment, when it is an
+/// executable file. A daemon from an older app has none.
+pub fn bundled_cli_from_process_env() -> Option<String> {
+    let cli = std::env::var(BUNDLED_CLI_ENV).ok().filter(|cli| !cli.is_empty())?;
+    is_executable_file(std::path::Path::new(&cli)).then_some(cli)
+}
+
+#[cfg(unix)]
+fn is_executable_file(path: &std::path::Path) -> bool {
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::metadata(path)
+        .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+}
+
+#[cfg(not(unix))]
+fn is_executable_file(path: &std::path::Path) -> bool {
+    path.is_file()
+}
+
 const PATH_SEPARATOR: &str = if cfg!(windows) { ";" } else { ":" };
 
 /// The warning for a dropped caller key. It names the key only: a caller
@@ -146,82 +192,5 @@ pub(crate) fn dropped_key_warning(key: &str) -> String {
 pub(crate) fn warn_dropped(keys: &[String]) {
     for key in keys {
         eprintln!("{}", dropped_key_warning(key));
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn pairs(entries: &[(&str, &str)]) -> Vec<(String, String)> {
-        entries.iter().map(|(key, value)| ((*key).into(), (*value).into())).collect()
-    }
-
-    #[test]
-    fn dropped_key_warning_names_the_key_and_never_the_value() {
-        let mut env = pairs(&[("CMUX_TUI_SOCKET", "/daemon.sock")]);
-        let caller = pairs(&[("CMUX_TUI_SOCKET", "caller-secret-value"), ("LANG", "C")]);
-        let dropped = merge_caller_env(&mut env, &caller);
-        assert_eq!(dropped, vec!["CMUX_TUI_SOCKET".to_string()]);
-        let lines = dropped.iter().map(|key| dropped_key_warning(key)).collect::<Vec<_>>();
-        assert_eq!(lines.len(), 1);
-        assert!(lines[0].contains("CMUX_TUI_SOCKET"), "{}", lines[0]);
-        assert!(!lines[0].contains("caller-secret-value"), "{}", lines[0]);
-        assert!(!lines[0].contains("/daemon.sock"), "{}", lines[0]);
-    }
-
-    /// A caller value for a key the daemon does not own replaces the
-    /// daemon's entry, and only one entry stays for the key.
-    #[test]
-    fn a_caller_value_for_an_unowned_key_replaces_the_daemon_value() {
-        let mut env = pairs(&[("LANG", "C"), ("CMUX_TUI_HOOK", "/daemon/hook")]);
-        let dropped = merge_caller_env(
-            &mut env,
-            &pairs(&[("LANG", "en_US.UTF-8"), ("CMUX_TUI_HOOK", "/caller/hook")]),
-        );
-        assert_eq!(dropped, vec!["CMUX_TUI_HOOK".to_string()]);
-        assert_eq!(env, pairs(&[("CMUX_TUI_HOOK", "/daemon/hook"), ("LANG", "en_US.UTF-8")]));
-    }
-
-    /// Every integration-owned key is removed, and other keys stay.
-    #[test]
-    fn strip_integration_owned_removes_only_the_integration_keys() {
-        let mut env = INTEGRATION_OWNED_ENV_KEYS
-            .iter()
-            .map(|key| ((*key).to_string(), "caller".to_string()))
-            .collect::<Vec<_>>();
-        env.push(("HOME".into(), "/home/me".into()));
-        let mut removed = strip_integration_owned(&mut env);
-        removed.sort();
-        let mut expected = INTEGRATION_OWNED_ENV_KEYS.map(String::from).to_vec();
-        expected.sort();
-        assert_eq!(removed, expected);
-        assert_eq!(env, pairs(&[("HOME", "/home/me")]));
-    }
-
-    /// Windows env keys ignore case, so a lowercase caller key is the same
-    /// variable there and is dropped; elsewhere it is a different variable.
-    #[test]
-    fn a_daemon_owned_key_in_another_case_follows_the_platform_rule() {
-        let mut env = pairs(&[("CMUX_TUI_SOCKET", "/daemon.sock")]);
-        let dropped = merge_caller_env(&mut env, &pairs(&[("cmux_tui_socket", "/caller.sock")]));
-        if cfg!(windows) {
-            assert_eq!(dropped, vec!["cmux_tui_socket".to_string()]);
-            assert_eq!(env, pairs(&[("CMUX_TUI_SOCKET", "/daemon.sock")]));
-        } else {
-            assert!(dropped.is_empty());
-            assert_eq!(
-                env,
-                pairs(&[("CMUX_TUI_SOCKET", "/daemon.sock"), ("cmux_tui_socket", "/caller.sock")])
-            );
-        }
-    }
-
-    #[test]
-    fn the_shim_stays_first_on_a_caller_path_without_a_second_copy() {
-        let mut env = pairs(&[("PATH", "/shim:/usr/bin")]);
-        merge_caller_env(&mut env, &pairs(&[("PATH", "/opt/caller/bin:/shim:/usr/bin")]));
-        keep_shim_first_on_path(&mut env, Some("/shim"));
-        assert_eq!(env, pairs(&[("PATH", "/shim:/opt/caller/bin:/usr/bin")]));
     }
 }

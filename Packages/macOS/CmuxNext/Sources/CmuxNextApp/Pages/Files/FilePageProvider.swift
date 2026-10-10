@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextAgentPane
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
@@ -75,7 +76,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     private(set) var isClosed = false
 
     static let preferenceValueLimit = 2048
-    static let listLimit = 50
+    nonisolated static let listLimit = 50
 
     /// `userChose`: the user opened the tab's document (Open File..., the picker, a click), so it
     /// is granted and writable; a document an agent or script opened is the page's to show, and
@@ -126,9 +127,9 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
             try await openLink(params, host: host, userGesture: context.userGesture)
             return .object([:])
         case kind.op("resolveLinks") where kind == .markdown:
-            return try resolveLinks(params, host: host)
+            return try await resolveLinks(params, host: host)
         case kind.op("listFiles") where kind == .markdown:
-            return try listFiles(params)
+            return try await listFiles(params)
         default:
             throw PageError.unknownOp(op)
         }
@@ -220,17 +221,17 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         }
         host?.record(opened.url)
         host?.opened(opened.url)
-        return config(opened)
+        return await config(opened)
     }
 
     private func config(for url: URL) async throws -> JSONValue {
         let file = try await snapshot(url)
         // A tab made with its file starts watching on its first config.
         if file.url == self.file, watch == nil { restartWatch(known: file.hash) }
-        return config(file)
+        return await config(file)
     }
 
-    private func config(_ file: FileSnapshot) -> JSONValue {
+    private func config(_ file: FileSnapshot) async -> JSONValue {
         var config: [String: JSONValue] = ["path": .string(file.url.path), "text": .string(file.text), "hash": .string(file.hash)]
         writable = file.readOnlyReason == nil
         if let recovered = recoveredText, file.url == self.file {
@@ -246,6 +247,9 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
             config["assetBase"] = .string("\(origin)/\(MarkdownPageResource.asset)/\(assetToken)/")
             config["libBase"] = .string("\(origin)/\(MarkdownPageResource.library)/")
             if host?.remoteImages ?? false { config["remoteImageBase"] = .string("\(origin)/\(MarkdownPageResource.remoteImage)/") }
+            if let repository = await AgentPaneGitHubRepository.read(at: file.url.deletingLastPathComponent().path) {
+                config["githubRepository"] = .string(repository)
+            }
         case .editor:
             config["size"] = JSONValue(file.size)
         }
@@ -364,24 +368,14 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         host.openExternal(url)
     }
 
-    private func resolveLinks(_ params: JSONValue, host: any FilePageHosting) throws -> JSONValue {
-        let base = try linkBase(params)
-        var links: [String: JSONValue] = [:]
-        for case .string(let relative) in (params["paths"]?.arrayValue ?? []).prefix(500) {
-            guard let real = target(relative, from: base) else {
-                links[relative] = ["exists": false]
-                continue
-            }
-            var isDirectory: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: real.path, isDirectory: &isDirectory) else {
-                links[relative] = ["exists": false, "path": .string(real.path)]
-                continue
-            }
-            let kind = isDirectory.boolValue ? "directory" : FilePageKind.isMarkdown(real) ? "markdown" : "file"
-            if kind == "markdown", inGrantedFolder(real) { linked.insert(real.path) }
-            links[relative] = ["exists": true, "path": .string(real.path), "kind": .string(kind)]
-        }
-        return ["links": .object(links)]
+    private func resolveLinks(_ params: JSONValue, host: any FilePageHosting) async throws -> JSONValue {
+        let from = try path(params["from"])
+        var relatives: [String] = []
+        for case .string(let relative) in (params["paths"]?.arrayValue ?? []).prefix(500) { relatives.append(relative) }
+        // The symlink resolution and existence checks run off the main actor; the grants stay here.
+        let found = try await Self.resolve(relatives, from: from, file: file, roots: host.roots)
+        for path in found.markdown where inGrantedFolder(URL(fileURLWithPath: path)) { linked.insert(path) }
+        return ["links": .object(found.links)]
     }
 
     // MARK: Teardown

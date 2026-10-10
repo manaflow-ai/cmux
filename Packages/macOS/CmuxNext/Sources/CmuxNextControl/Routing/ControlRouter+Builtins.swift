@@ -1,6 +1,7 @@
 public import CmuxNextSettings
 import CmuxNextActions
 import Foundation
+import os
 
 /// The router's own methods. Reads use the snapshot lane; `action.run`
 /// validates off the main actor and runs only the handler through the work
@@ -11,9 +12,12 @@ extension ControlRouter {
             .snapshot("system.ping") { [identity] _ in
                 ["pong": true, "app": .string(identity.appName), "protocol_version": JSONValue(Self.protocolVersion)]
             },
-            .snapshot("system.identify") { [weak self] _ in
+            .snapshot("system.identify") { [weak self] call in
                 guard let self else { throw Self.stopped }
-                return self.identify()
+                guard case .object(var members) = self.identify() else { return self.identify() }
+                // `caller`: where the agent or terminal that asks is, and `beside`, where its tabs open.
+                try ControlCallerLocation.annotate(&members, params: call.params, topology: call.snapshot.topology)
+                return .object(members)
             },
             .snapshot("system.capabilities") { [weak self] _ in
                 guard let self else { throw Self.stopped }
@@ -40,6 +44,7 @@ extension ControlRouter {
             // `cmux tab <id> focus` (state-ownership.md 3): runs the
             // `tab.focus` action on the tab, with action.run's contract.
             .async("tab.focus") { [weak self] call in
+                tabSwitchMark("request")
                 guard let self else { throw Self.stopped }
                 guard let tab = (call.params["tab"] ?? call.params["id"])?.stringValue, !tab.isEmpty else {
                     throw ControlError.invalidParams(ControlStrings.format("control.error.missingParam", "%1$@ requires params.%2$@", "tab.focus", "tab"))
@@ -54,6 +59,7 @@ extension ControlRouter {
                 return try await self.runAction(ControlCall(request: request, snapshot: call.snapshot, connection: call.connection,
                                                             deadline: call.deadline, progress: call.progress))
             }.claimingProgress(),
+            BrowserOpenSplitRun.method(router: self),
             .async("settings.get") { [weak self] call in
                 guard let self else { throw Self.stopped }
                 return try await self.settingsGet(call)
@@ -77,13 +83,15 @@ extension ControlRouter {
         } + [
             .snapshot("snapshot.get") { call in
                 let snapshot = call.snapshot
-                return [
+                var members: [String: JSONValue] = [
                     "sequence": JSONValue.number(Double(snapshot.topology.daemonSequence)),
                     "generation": JSONValue(Int(truncatingIfNeeded: snapshot.generation)),
                     "published_uptime_ns": .number(Double(snapshot.publishedAtUptimeNanos)),
                     "tab_count": JSONValue(snapshot.topology.tabCount),
                     "topology": snapshot.topology.json,
                 ]
+                try ControlCallerLocation.annotate(&members, params: call.params, topology: snapshot.topology)
+                return .object(members)
             },
         ] + diagnosticMethods()
     }
@@ -98,7 +106,7 @@ extension ControlRouter {
             "build": .string(identity.build),
             "bundle_id": identity.bundleID.map(JSONValue.string) ?? .null,
             "tag": identity.tag.map(JSONValue.string) ?? .null,
-            "pid": JSONValue(Int(identity.processID)),
+            "pid": JSONValue(Int(clamping: identity.processID)),
             "app_bundle_path": identity.appBundlePath.map(JSONValue.string) ?? .null,
             "app_cli_path": identity.appCLIPath.map(JSONValue.string) ?? .null,
             "socket_path": transport.socketPath.map(JSONValue.string) ?? .null,
@@ -179,4 +187,12 @@ extension ControlRouter {
         guard !path.contains(where: \.isEmpty) else { throw ControlError.invalidParams(ControlStrings.text("control.error.pathEmptyKey", "path has an empty key")) }
         return path
     }
+}
+
+/// Tab switch timeline marks (cx-asb1): wall-clock ms, so a bench can line
+/// them up with the page's own clock. Debug level: nothing is written unless
+/// a `log stream --level debug` reads category "tab-switch".
+private let tabSwitchLog = Logger(subsystem: "com.cmuxterm.app.next", category: "tab-switch")
+private func tabSwitchMark(_ name: String) {
+    tabSwitchLog.debug("tab-switch \(name, privacy: .public) \(Date().timeIntervalSince1970 * 1_000, format: .fixed(precision: 3), privacy: .public)")
 }

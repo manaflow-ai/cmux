@@ -1,24 +1,29 @@
 import Foundation
 
 /// What the sidebar shows, read from this Chief's files.
-struct HomeChiefSnapshot: Sendable {
+nonisolated struct HomeChiefSnapshot: Sendable {
     var harness: String?
     var model: String?
     var effort: String?
     var avatar: String?
+    /// This Chief's acpmux has a CodeRouter Claude route (`claude-cr`).
+    var routeConfigured = false
     /// The trace's last `turn.end`s, newest first.
     var turns: [HomeEngineTurn]
 }
 
 /// This Chief's files under its mux home: `optchat/engine.json` (the engine
-/// optchat-chief reads at each turn start), `optchat/profile.json` (the
-/// avatar) and `optchat/traces/` (read only). Blocking file I/O, so it runs
+/// optchat-chief reads at each turn start; read only here, the brain is its
+/// one writer and a change goes through `chief.engine.set`),
+/// `optchat/profile.json` (the avatar) and `optchat/traces/` (read only). Blocking file I/O, so it runs
 /// off the main actor.
 nonisolated struct HomeChiefFiles: Sendable {
     let muxHome: URL
     var engineFile: URL { muxHome.appendingPathComponent("optchat/engine.json") }
     var profileFile: URL { muxHome.appendingPathComponent("optchat/profile.json") }
     var traceDirectory: URL { muxHome.appendingPathComponent("optchat/traces", isDirectory: true) }
+    /// The Chief home's acpmux config (`ChiefHome.acpmuxHome`), read only.
+    var acpmuxConfigFile: URL { muxHome.appendingPathComponent("acpmux/config.json") }
 
     private func object(_ file: URL) -> [String: Any] {
         // concurrency-allow: HomeChiefFiles runs only inside Task.detached, never on the main actor
@@ -31,18 +36,23 @@ nonisolated struct HomeChiefFiles: Sendable {
         let choice = object(engineFile)
         let avatar = (object(profileFile)["avatar"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         return HomeChiefSnapshot(harness: choice["harness"] as? String, model: choice["model"] as? String,
-                                 effort: choice["effort"] as? String, avatar: avatar, turns: recentTurns(limit: 5))
+                                 effort: choice["effort"] as? String, avatar: avatar,
+                                 routeConfigured: coderouterRouteConfigured(environment: ProcessInfo.processInfo.environment),
+                                 turns: recentTurns(limit: 5))
+    }
+
+    /// Whether this Chief's acpmux has a CodeRouter Claude route configured:
+    /// `ACPMUX_CODEROUTER_CLAUDE_ROUTE` in the environment the Chief's acpmux
+    /// inherits, else `coderouterClaudeRoute` in its config.json (acpmux
+    /// `coderouter_claude_route`). Blank values do not count.
+    func coderouterRouteConfigured(environment: [String: String]) -> Bool {
+        let configured = { (value: String?) in !(value ?? "").trimmingCharacters(in: .whitespaces).isEmpty }
+        if let value = environment["ACPMUX_CODEROUTER_CLAUDE_ROUTE"] { return configured(value) }
+        return configured(object(acpmuxConfigFile)["coderouterClaudeRoute"] as? String)
     }
 
     /// The avatar alone (the header reads it when Home opens).
     func avatar() -> String? { snapshot().avatar }
-
-    /// Sets (or with nil clears) one engine field; the compactor fields stay.
-    func setEngine(_ key: String, _ value: String?) {
-        var choice = object(engineFile)
-        if let value { choice[key] = value } else { choice.removeValue(forKey: key) }
-        write(choice, to: engineFile)
-    }
 
     func writeAvatar(_ text: String) {
         var profile = object(profileFile)

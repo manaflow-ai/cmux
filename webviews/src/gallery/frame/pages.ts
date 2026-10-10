@@ -70,6 +70,7 @@ export async function mountMarkdownPage(state: MarkdownPageVariant, context: Sta
       text: file.text,
       hash: file.hash,
       readOnly: state.readOnly === true,
+      githubRepository: state.githubRepository,
       assetBase: "/__gallery/none/",
       libBase: "/__gallery/none/",
       settings,
@@ -336,6 +337,7 @@ export async function mountChangelogPage(state: ChangelogPageVariant, _context: 
     [],
   );
   host.delayMs = 0;
+  if (state.route) history.replaceState(null, "", state.route);
   document.documentElement.dataset.cmuxPage = "changelog";
   document.documentElement.dataset.cmuxWebviewKind = "changelog";
   await import("../../pages/changelog/main");

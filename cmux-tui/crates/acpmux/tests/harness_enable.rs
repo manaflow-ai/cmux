@@ -3,6 +3,9 @@
 //! bytes the user saw. The unix socket and the local app only: never a Web
 //! or peer connection.
 
+// Unix only until the Windows port runs the daemon (cmux::local_socket).
+#![cfg(unix)]
+
 use acpmux::config::folder_profiles::{self, FolderGate};
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
@@ -72,6 +75,7 @@ fn scratch(name: &str) -> (PathBuf, FolderGate) {
             claude_json: root.join("claude.json"),
             codex_config: root.join("config.toml"),
             record: root.join("acpmux").join("trust.json"),
+            agent_home: None,
         },
     };
     (folder, gate)

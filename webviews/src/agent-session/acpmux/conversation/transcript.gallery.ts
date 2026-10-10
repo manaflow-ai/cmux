@@ -5,8 +5,53 @@ import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
 import { workedTurnRows } from "../workedTurn";
 import { minutesAgo } from "../../../gallery/clock";
+import {
+  BUILD_REPORT_PDF_PAGE_PNG,
+  BUILD_TIMES_PNG,
+  LOGIN_SCREENSHOT_PNG,
+  LOGIN_TESTS_MP4,
+} from "../../../gallery/fixtures/toolImages";
 
 const prompt = "Add retries with backoff to the fetch helper";
+
+const selectionRows = [
+  user("Select this prompt to copy it into a bug report", 5, { id: "gallery-selection-user" }),
+  assistant(
+    "The response stays selectable while controls keep their keyboard focus.\n\nUse the highlighted prose to compare the real transcript against the reference.",
+    4.9,
+    { id: "gallery-selection-answer" },
+  ),
+  summary(4.9, { id: "gallery-selection-summary", status: "completed" }),
+];
+
+const keyboardRows = [
+  user("Open the work details with the keyboard", 4, { id: "gallery-keyboard-user" }),
+  activity(
+    [
+      thought("The disclosure should keep its focus while the tool list opens."),
+      tool("Read src/net/client.ts", "read", "completed"),
+      tool("bun test src/net", "execute", "completed"),
+    ],
+    3.9,
+    { id: "gallery-keyboard-activity" },
+  ),
+  assistant("The work details are open without moving the transcript column.", 3.8, {
+    id: "gallery-keyboard-answer",
+  }),
+  summary(3.8, { id: "gallery-keyboard-summary", status: "completed", toolCount: 2 }),
+];
+
+const longChatRows = Array.from({ length: 24 }, (_, index) => {
+  const at = 3000 - index * 120;
+  return [
+    user(`Question ${index + 1}: how does part ${index + 1} of the retry flow work?`, at),
+    assistant(
+      `Part ${index + 1} waits, then calls the task again. ${"It is covered by a test. ".repeat(1 + (index % 4))}`,
+      at - 1,
+    ),
+    summary(at - 1, { status: "completed" }),
+  ];
+}).flat();
 
 const LONG_CODE = [
   "Here is the whole retry module after the change:",
@@ -35,6 +80,56 @@ const MATH = [
   "$$",
   "",
   "With $d_0 = 250\\,\\text{ms}$, $d_{\\max} = 4\\,\\text{s}$ and $N = 3$ that is $E[W] = 1000\\,\\text{ms}$.",
+].join("\n");
+
+const WEB_VIDEO = "https://github.com/user-attachments/assets/7d3f2c1a-58b4-4e0f-9a61-2c8e5b0d4f17";
+const WEB_VIDEO_REPLY = [
+  "Yes. The recording attached to the PR shows all six login tests passing:",
+  "",
+  WEB_VIDEO,
+].join("\n");
+
+const BUILD_CHART = [
+  "The app target dominates the build. Per-target wall time from the last 20 CI runs on main:",
+  "",
+  "```vega-lite",
+  JSON.stringify(
+    {
+      $schema: "https://vega.github.io/schema/vega-lite/v5.json",
+      width: 420,
+      height: 180,
+      data: {
+        values: [
+          { target: "app", p50: 312, p90: 371 },
+          { target: "api", p50: 204, p90: 229 },
+          { target: "worker", p50: 171, p90: 190 },
+          { target: "ui-kit", p50: 122, p90: 140 },
+          { target: "docs", p50: 88, p90: 97 },
+          { target: "e2e", p50: 64, p90: 82 },
+          { target: "lint", p50: 41, p90: 45 },
+        ],
+      },
+      layer: [
+        {
+          mark: { type: "bar", color: "#3b6fd8" },
+          encoding: {
+            y: { field: "target", type: "nominal", sort: "-x", title: null },
+            x: { field: "p50", type: "quantitative", title: "seconds (p50, tick = p90)" },
+            tooltip: [{ field: "target" }, { field: "p50" }, { field: "p90" }],
+          },
+        },
+        {
+          mark: { type: "tick", color: "#e8a33d", thickness: 2 },
+          encoding: { y: { field: "target", type: "nominal", sort: "-x" }, x: { field: "p90", type: "quantitative" } },
+        },
+      ],
+    },
+    null,
+    2,
+  ),
+  "```",
+  "",
+  "Splitting the app target's type check (41% of its time) is the biggest win.",
 ].join("\n");
 
 const MARKDOWN_MIX = [
@@ -122,9 +217,12 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/Markdown.tsx",
     "agent-session/acpmux/conversation/RevealedMarkdown.tsx",
     "agent-session/acpmux/conversation/CodeBlock.tsx",
+    "agent-session/acpmux/conversation/DiagramBlock.tsx",
     "agent-session/acpmux/conversation/StreamingCode.tsx",
     "agent-session/acpmux/conversation/Math.tsx",
     "agent-session/acpmux/conversation/ToolRow.tsx",
+    "agent-session/acpmux/chips/ReplyMedia.tsx",
+    "agent-session/acpmux/conversation/icons.tsx#Expand",
     "agent-session/acpmux/conversation/ToolRun.tsx",
     "agent-session/acpmux/conversation/ToolGroupRow.tsx",
     "agent-session/acpmux/conversation/CommandRow.tsx",
@@ -144,7 +242,20 @@ export default agentPaneEntry({
       snapshot: chat([
         user(prompt, 30),
         assistant(MARKDOWN_MIX, 29),
-        summary(29, { status: "completed", durationMs: 41_000 }),
+        summary(29, { status: "completed", durationMs: 41_000, seq: 2 }),
+      ]),
+    },
+    "github-references": {
+      note: "Issue and pull request references link in prose while code stays untouched.",
+      ready: { githubRepository: "manaflow-ai/cmux" },
+      native: { "git.githubRepository": { repository: "manaflow-ai/cmux" } },
+      snapshot: chat([
+        user("Please review #18325 and manaflow-ai/cmux#18321", 3),
+        assistant(
+          "The fixes are in #18325.\n\n`#18325` stays code, and fenced examples stay code too:\n\n```text\n#18321\n```",
+          2,
+        ),
+        summary(2, { status: "completed", durationMs: 12_000 }),
       ]),
     },
     tasks: {
@@ -244,6 +355,155 @@ export default agentPaneEntry({
         summary(5.5, { status: "failed", error: "The agent stopped: model overloaded (529). Try again in a moment." }),
       ]),
     },
+    "turn-error-with-pdf": {
+      note: "A failed turn keeps its attached PDF available to Retry, so the next request does not lose document context.",
+      snapshot: chat([
+        user("Review the attached build report", 6, {
+          retryAttachments: [
+            {
+              id: "gallery-build-report",
+              kind: "document",
+              name: "build-report.pdf",
+              mimeType: "application/pdf",
+              size: 128,
+              data: "JVBERi0xLjQK",
+              pageCount: 3,
+            },
+          ],
+        }),
+        summary(5.5, { status: "failed", error: "The model stopped before reading the document. Try again." }),
+      ]),
+    },
+    "turn-error-long": {
+      note: "A turn that failed with a long gateway error: the note wraps and the row grows.",
+      snapshot: chat([
+        user(prompt, 6),
+        summary(5.5, {
+          status: "failed",
+          error:
+            "API Error: 503 no non-exhausted claude accounts available, next account frees up in 50m (retry after 2945s). This is a server-side issue, usually temporary. Try again in a moment. If it persists, check your inference gateway (100.89.225.106:31415).",
+        }),
+      ]),
+    },
+    "turn-error-signed-out": {
+      note: "The CLI's own login is gone: only this class says sign in.",
+      snapshot: chat(
+        [
+          user(prompt, 6),
+          summary(5.5, {
+            status: "failed",
+            error: "Claude Code is not logged in. Please run /login. (OAuth token has expired)",
+          }),
+        ],
+        { harness: "claude" },
+      ),
+      // cx-w10a: the footer classifies the failure honestly; only subscription-login says "sign in".
+      play: async (ctx) => {
+        await ctx.waitFor(() => {
+          const note = ctx.document.querySelector('[data-failure-kind="subscription-login"]');
+          return note && !/Your sign-in expired\. Sign in again to continue/.test(note.textContent ?? "") ? note : null;
+        });
+      },
+    },
+    "turn-error-proxy-401": {
+      note: "A proxy route refused the request: name the route and the status, not a sign-in.",
+      snapshot: chat(
+        [
+          user(prompt, 6),
+          summary(5.5, {
+            status: "failed",
+            error:
+              'API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"unauthorized"}} from http://cmux-lawrences-mac-mini:31415/v1/messages',
+          }),
+        ],
+        { harness: "claude-sr" },
+      ),
+      // cx-w10a: the footer classifies the failure honestly; only subscription-login says "sign in".
+      play: async (ctx) => {
+        await ctx.waitFor(() => {
+          const note = ctx.document.querySelector('[data-failure-kind="proxy-auth"]');
+          return note && !/Your sign-in expired\. Sign in again to continue/.test(note.textContent ?? "") ? note : null;
+        });
+      },
+    },
+    "turn-error-invalid-key": {
+      note: "A bad or missing API key.",
+      snapshot: chat(
+        [
+          user(prompt, 6),
+          summary(5.5, { status: "failed", error: "API Error: 401 authentication_error: invalid x-api-key" }),
+        ],
+        { harness: "claude" },
+      ),
+      // cx-w10a: the footer classifies the failure honestly; only subscription-login says "sign in".
+      play: async (ctx) => {
+        await ctx.waitFor(() => {
+          const note = ctx.document.querySelector('[data-failure-kind="invalid-key"]');
+          return note && !/Your sign-in expired\. Sign in again to continue/.test(note.textContent ?? "") ? note : null;
+        });
+      },
+    },
+    "turn-error-rate-limited": {
+      note: "Rate limits mention authentication sometimes; they are still rate limits.",
+      snapshot: chat(
+        [
+          user(prompt, 6),
+          summary(5.5, {
+            status: "failed",
+            error:
+              "API Error: 429 rate_limit_error: This request would exceed your account's rate limit. Please check your authentication plan.",
+          }),
+        ],
+        { harness: "claude" },
+      ),
+      // cx-w10a: the footer classifies the failure honestly; only subscription-login says "sign in".
+      play: async (ctx) => {
+        await ctx.waitFor(() => {
+          const note = ctx.document.querySelector('[data-failure-kind="rate-limited"]');
+          return note && !/Your sign-in expired\. Sign in again to continue/.test(note.textContent ?? "") ? note : null;
+        });
+      },
+    },
+    "turn-error-unreachable": {
+      note: "The route's server is down or unreachable.",
+      snapshot: chat(
+        [
+          user(prompt, 6),
+          summary(5.5, {
+            status: "failed",
+            error: "Connection error: fetch failed (connect ECONNREFUSED 127.0.0.1:31415)",
+          }),
+        ],
+        { harness: "claude-cr" },
+      ),
+      // cx-w10a: the footer classifies the failure honestly; only subscription-login says "sign in".
+      play: async (ctx) => {
+        await ctx.waitFor(() => {
+          const note = ctx.document.querySelector('[data-failure-kind="unreachable"]');
+          return note && !/Your sign-in expired\. Sign in again to continue/.test(note.textContent ?? "") ? note : null;
+        });
+      },
+    },
+    "turn-error-other": {
+      note: "Anything else keeps the agent's own words.",
+      snapshot: chat(
+        [
+          user(prompt, 6),
+          summary(5.5, {
+            status: "failed",
+            error: "The agent stopped: the tool output was larger than the context window.",
+          }),
+        ],
+        { harness: "claude" },
+      ),
+      // cx-w10a: the footer classifies the failure honestly; only subscription-login says "sign in".
+      play: async (ctx) => {
+        await ctx.waitFor(() => {
+          const note = ctx.document.querySelector('[data-failure-kind="other"]');
+          return note && !/Your sign-in expired\. Sign in again to continue/.test(note.textContent ?? "") ? note : null;
+        });
+      },
+    },
     "refused-retry": {
       note: "A prompt the host refused: why, and Retry.",
       snapshot: chat([
@@ -282,6 +542,94 @@ export default agentPaneEntry({
       note: "Markdown mixing URL/path chips, host-mediated images, an oversized image guard, and a local preview.",
       chipHost: CHIP_HOST,
       snapshot: chat([user("Show the links and images", 5), assistant(CHIP_PREVIEW_MIX, 4.9), summary(4.9)]),
+    },
+    "tool-images": {
+      note: "Images tool calls produced: a screenshot a browser tool returned, a chart a script saved, and the first page of a PDF report; a click opens the viewer.",
+      chipHost: {
+        paths: {
+          "/Users/you/src/atlas-web/out/build-times.png": { place: "root" as const, folder: false },
+          "/Users/you/src/atlas-web/out/build-report.pdf": { place: "root" as const, folder: false },
+        },
+        images: {
+          "/Users/you/src/atlas-web/out/build-times.png": `data:image/png;base64,${BUILD_TIMES_PNG}`,
+          "/Users/you/src/atlas-web/out/build-report.pdf": `data:image/png;base64,${BUILD_REPORT_PDF_PAGE_PNG}`,
+        },
+      },
+      snapshot: chat([
+        user("Check the sign-in page, then chart the build times", 6),
+        activity(
+          [
+            tool("Screenshot localhost:5173/login", "other", "completed", {
+              output: "Captured 640x400",
+              images: [`data:image/png;base64,${LOGIN_SCREENSHOT_PNG}`],
+            }),
+            tool("python3 scripts/plot_build_times.py", "execute", "completed", {
+              command: "python3 scripts/plot_build_times.py",
+              output: "Saved chart to /Users/you/src/atlas-web/out/build-times.png\n",
+              exitCode: 0,
+            }),
+            tool("python3 scripts/build_report.py", "execute", "completed", {
+              command: "python3 scripts/build_report.py",
+              output: "Wrote 3 pages to /Users/you/src/atlas-web/out/build-report.pdf\n",
+              exitCode: 0,
+            }),
+          ],
+          5.8,
+        ),
+        assistant(
+          "The sign-in page renders with both fields and the Continue button. The app target is the slowest build at 312 s; the report has the per-file timings.",
+          5.6,
+        ),
+        summary(5.6, { status: "completed", toolCount: 3 }),
+      ]),
+    },
+    "tool-video": {
+      note: "A terminal recording a tool saved plays inline with controls (muted while hovered); Expand shows it over the pane.",
+      chipHost: {
+        paths: { "/Users/you/src/atlas-web/out/login-tests.mp4": { place: "root" as const, folder: false } },
+        media: { "/Users/you/src/atlas-web/out/login-tests.mp4": `data:video/mp4;base64,${LOGIN_TESTS_MP4}` },
+      },
+      snapshot: chat([
+        user("Record the login tests running so I can attach it to the PR", 4),
+        activity(
+          [
+            tool("vhs scripts/login-tests.tape", "execute", "completed", {
+              command: "vhs scripts/login-tests.tape",
+              output: "Recorded 7 s to /Users/you/src/atlas-web/out/login-tests.mp4\n",
+              exitCode: 0,
+            }),
+          ],
+          3.8,
+        ),
+        assistant("All six login tests pass; the recording is ready to attach.", 3.6),
+        summary(3.6, { status: "completed", toolCount: 1 }),
+      ]),
+    },
+    "web-video": {
+      note: "A GitHub attachment alone on its line: with images.remote = click (the default) it shows its site and Load video.",
+      chipHost: { media: { [WEB_VIDEO]: `data:video/mp4;base64,${LOGIN_TESTS_MP4}` } },
+      snapshot: chat([
+        user("Did the PR's recording show the login tests passing?", 3),
+        assistant(WEB_VIDEO_REPLY, 2.9),
+        summary(2.9),
+      ]),
+    },
+    "web-video-loaded": {
+      note: "The same reply with images.remote = always: the host fetched the attachment and the copy plays inline.",
+      chipHost: {
+        policy: { remoteImages: "always" as const },
+        media: { [WEB_VIDEO]: `data:video/mp4;base64,${LOGIN_TESTS_MP4}` },
+      },
+      snapshot: chat([
+        user("Did the PR's recording show the login tests passing?", 3),
+        assistant(WEB_VIDEO_REPLY, 2.9),
+        summary(2.9),
+      ]),
+    },
+    "vega-lite-chart": {
+      note: "A vega-lite fence in a reply draws as a chart (the markdown viewer's bundled Vega); Code shows the spec.",
+      height: 520,
+      snapshot: chat([user("Which build targets are slowest?", 3), assistant(BUILD_CHART, 2.9), summary(2.9)]),
     },
     "long-code": {
       note: "Long code blocks: wide lines, many lines, two languages.",
@@ -328,19 +676,54 @@ export default agentPaneEntry({
     "long-chat": {
       note: "Many turns over two days (date lines, virtualized rows).",
       height: 720,
-      snapshot: chat(
-        Array.from({ length: 24 }, (_, index) => {
-          const at = 3000 - index * 120;
-          return [
-            user(`Question ${index + 1}: how does part ${index + 1} of the retry flow work?`, at),
-            assistant(
-              `Part ${index + 1} waits, then calls the task again. ${"It is covered by a test. ".repeat(1 + (index % 4))}`,
-              at - 1,
-            ),
-            summary(at - 1, { status: "completed" }),
-          ];
-        }).flat(),
-      ),
+      snapshot: chat(longChatRows),
+    },
+    "scrolling-history": {
+      note: "Play: move from the latest reply to the oldest history while the virtual transcript keeps its lead rows mounted.",
+      height: 560,
+      snapshot: chat(longChatRows),
+      play: async (ctx) => {
+        await ctx.scroll({ selector: ".acpmux-scroll" }, "top");
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-row[aria-posinset="1"]'));
+      },
+    },
+    selection: {
+      note: "Play: select a whole prompt row, then the assistant's rendered prose; both remain browser text selection.",
+      snapshot: chat(selectionRows),
+      play: async (ctx) => {
+        await ctx.selectText({ selector: '[data-row-id="gallery-selection-user"]' });
+        await ctx.selectText({ selector: '[data-row-id="gallery-selection-answer"] .cv-md' });
+      },
+    },
+    "keyboard-selection": {
+      note: "Play: move the transcript roving focus with Shift+ArrowDown and keep the selected range visible.",
+      snapshot: chat(selectionRows),
+      play: async (ctx) => {
+        await ctx.focus({ selector: '[data-row-id="gallery-selection-user"]' });
+        await ctx.press("Shift+ArrowDown");
+        await ctx.waitFor(
+          () =>
+            ctx.document
+              .querySelector('[data-row-id="gallery-selection-answer"]')
+              ?.getAttribute("data-transcript-selected") === "true",
+        );
+      },
+    },
+    "keyboard-focus": {
+      note: "Play: focus the Worked for disclosure and press Enter; the tool details open without leaving the transcript.",
+      snapshot: chat(keyboardRows),
+      checks: {
+        layoutShiftMax: {
+          value: 0.25,
+          reason: "Opening the disclosure intentionally reveals its folded tool rows below the focused control.",
+        },
+      },
+      play: async (ctx) => {
+        const worked = { selector: ".cv-worked" };
+        await ctx.focus(worked);
+        await ctx.press("Enter");
+        await ctx.waitFor(() => ctx.find(worked).getAttribute("aria-expanded") === "true");
+      },
     },
   },
 });

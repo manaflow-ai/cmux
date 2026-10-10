@@ -48,27 +48,49 @@ public final class SidebarModel {
         transientTopItems.isEmpty ? nil : LayoutSection(id: LayoutSectionID(LayoutItemID.transientPrefix + "top"), showsTitle: false,
                                                         region: .top, look: .builtIn, items: transientTopItems.map(\.item))
     }
+    /// The current profile's avatar: the account item draws it as the
+    /// profile control (`resolvedItemInfo`; SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2).
+    public var profileAvatar: SidebarAvatar?
     /// Apps whose sections and items draw nothing (installed but hidden or
     /// disabled, D55); the App fills it from its one presence rule
     /// (`AppsService.presence`). The layout keeps their places.
     public var suppressedApps: Set<String> = []
     /// Collapsed titled sections: client view state, saved with the window.
-    public var collapsedLayoutSections: Set<LayoutSectionID> = []
+    public var collapsedLayoutSections: Set<LayoutSectionID> = [] {
+        didSet { if collapsedLayoutSections != oldValue { onCollapsedLayoutSectionsChange?(collapsedLayoutSections) } }
+    }
+    /// Told the new set when a layout section collapses or expands (the App saves it).
+    @ObservationIgnored public var onCollapsedLayoutSectionsChange: ((Set<LayoutSectionID>) -> Void)?
+    /// Collapsed top-level sections (Pinned, a machine): client view state,
+    /// never sent to a daemon. `setSections` and the section toggle keep
+    /// each section's `isCollapsed` equal to it, so the live remap of the
+    /// daemon's rows does not expand a section the user collapsed; the
+    /// window's sidebar snapshot saves it for the next launch.
+    public var collapsedSections: Set<SectionID> = []
     /// Search field contents. Non-empty text filters rows and disables drag.
     public var filterText = ""
-    /// The card stack above the bottom band (R114): update, announcements.
-    public var cards: [SidebarCard] = []
     /// The staged update card above the footer (UPDATE-CARD): set by the App
     /// only while an update is staged or installing; nil shows nothing.
     public var updateCard: SidebarUpdateCard?
-    /// A card's click, button or dismiss.
-    @ObservationIgnored public var onCardAction: ((String, SidebarCardAction) -> Void)?
+    /// The shared notice card (the update status or the "Did you know"
+    /// tip), shown only while ``updateCard`` and ``updatedCard`` are nil.
+    public var noticeCard: SidebarNoticeCard?
+    /// The "cmux Updated!" card (cx-7py7), shown only while ``updateCard`` is nil.
+    public var updatedCard: SidebarUpdatedCard?
     /// Whether each workspace expands to show its intra-workspace tabs.
     public var showWorkspaceTabs = false
     /// The workspaces whose disclosure hid their tabs: window view state.
     public var collapsedWorkspaces: Set<WorkspaceID> = []
     /// What workspace rows show (`sidebar.workspaceRow.*`).
     public var workspaceRow = WorkspaceRowPreferences.defaults
+    /// The workspace list is hidden (`sidebar.showProjects` off).
+    public var hidesWorkspaces = false
+    /// Minimal mode (`sidebar.minimal`): rows draw only icon, name and marks.
+    public var minimal = false
+    /// Group by Folder (`sidebar.groupBy`): loose rows sit under folder headers.
+    public var groupsByFolder = false
+    /// `sidebar.groupByComputer`: a header per computer; off, one list.
+    public var groupsByComputer = SidebarSectionsPreferences.defaults.groupsByComputer
     /// Machine sections list loose workspaces before groups (a daemon-backed
     /// sidebar: cmux-tui keeps no slot for one after a group), so a drag
     /// never offers a slot past the first group.
@@ -101,6 +123,7 @@ public final class SidebarModel {
 
     public init(sections: [SidebarSection] = [], activeWorkspaceID: WorkspaceID? = nil) {
         self.sections = sections
+        collapsedSections = Set(sections.filter(\.isCollapsed).map(\.id))
         self.activeWorkspaceID = activeWorkspaceID
         if let activeWorkspaceID { selection = [activeWorkspaceID] }
     }
@@ -119,6 +142,10 @@ public final class SidebarModel {
     public var filterMatches: Set<WorkspaceID>? { SidebarFilter.matches(filterText, in: sections) }
 
     public var isFiltering: Bool { filterMatches != nil }
+
+    /// Drag and keyboard reorder are off while the drawn order is not the
+    /// model's: filtering, or grouping by folder.
+    public var locksReorder: Bool { isFiltering || groupsByFolder }
 
     /// Every workspace in visual order.
     public var allWorkspaces: [SidebarWorkspace] { sections.flatMap(\.workspaces) }
@@ -165,12 +192,17 @@ public final class SidebarModel {
             dropClosed(Set(ids))
         case let .switchProfile(id):
             activeProfileID = id
-        case .activateItem, .installUpdate, .setAutomaticUpdates, .openUpdateLink:
+        case .activateItem, .installUpdate, .setAutomaticUpdates, .openUpdateLink, .dropOnLayoutSection, .noticeAction, .dismissNotice,
+             .openWhatsNew, .shareCmux, .dismissUpdated:
             break
         case let .layout(op):
             if case .success(let next) = SidebarLayoutReducer.reduce(layout, op) { layout = next }
         case let .toggleLayoutSection(id):
             if collapsedLayoutSections.remove(id) == nil { collapsedLayoutSections.insert(id) }
+        case let .toggleCollapse(.section(id)):
+            let collapse = !(section(id)?.isCollapsed ?? collapsedSections.contains(id))
+            if collapse { collapsedSections.insert(id) } else { collapsedSections.remove(id) }
+            setSections(sections)
         case let .reorderProfile(id, index):
             guard let from = profiles.firstIndex(where: { $0.id == id }),
                   let to = ProfileBarLogic.finalIndex(from: from, insertion: index, count: profiles.count) else { return }
@@ -182,6 +214,17 @@ public final class SidebarModel {
         default:
             SidebarEdits.apply(intent, to: &sections)
         }
+    }
+
+    /// Shows `new` (the App's mapping of daemon state) with this window's
+    /// collapsed sections applied; assigns only when something changed.
+    public func setSections(_ new: [SidebarSection]) {
+        var shown = new
+        for index in shown.indices {
+            let collapsed = collapsedSections.contains(shown[index].id)
+            if shown[index].isCollapsed != collapsed { shown[index].isCollapsed = collapsed }
+        }
+        if sections != shown { sections = shown }
     }
 
     /// Clears closed workspaces from the selection and picks a new active one.
@@ -251,7 +294,7 @@ public final class SidebarModel {
     /// boundary or while filtering.
     @discardableResult
     public func moveSelection(_ direction: KeyboardReorder.Direction) -> Bool {
-        guard !isFiltering else { return false }
+        guard !locksReorder else { return false }
         let ids = orderedSelection
         guard let position = KeyboardReorder.target(moving: ids, direction: direction, in: sections) else { return false }
         send(.reorder(ids, to: position))
@@ -260,8 +303,13 @@ public final class SidebarModel {
 
     /// The `sidebar.*` settings that shape the workspace list.
     func applyListPreferences(_ preferences: SidebarSectionsPreferences) {
-        showWorkspaceTabs = preferences.showWorkspaceTabs
+        // Minimal mode lists no tab rows under a workspace.
+        showWorkspaceTabs = preferences.showWorkspaceTabs && !preferences.minimal
         workspaceRow = preferences.workspaceRow
+        minimal = preferences.minimal
+        hidesWorkspaces = !preferences.showProjects
+        groupsByFolder = preferences.groupBy == .folder
+        groupsByComputer = preferences.groupsByComputer
     }
 
     /// The disclosure on a workspace row: hide its listed tabs, or list them again.
@@ -276,7 +324,18 @@ public final class SidebarModel {
         o.showWorkspaceTabs = showWorkspaceTabs
         o.collapsedWorkspaces = collapsedWorkspaces
         o.workspaceRow = workspaceRow
+        o.minimal = minimal
+        o.flattensMachines = !groupsByComputer
+        if o.flattensMachines {
+            for section in sections {
+                guard let machine = section.machine, machine.kind != .local,
+                      let status = Strings.attentionStatus(machine.status) else { continue }
+                o.machineStatusLabels[machine.id] = status
+            }
+        }
         o.now = Calendar.current.startOfDay(for: Date())
+        o.hidesWorkspaces = hidesWorkspaces
+        o.groupsByFolder = groupsByFolder
         return o
     }
 

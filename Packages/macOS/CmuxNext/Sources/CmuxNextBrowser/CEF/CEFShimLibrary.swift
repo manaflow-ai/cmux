@@ -139,6 +139,16 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let passkeysAvailable: @convention(c) () -> Int32
     let passkeysList: @convention(c) (UnsafePointer<CChar>?, Int32) -> Int32
     let passkeyDelete: @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, Int32) -> Int32
+    /// Password manager core (fork API 18; see CEFEngine+Passwords). The reveal callback gets
+    /// the bytes in a shim buffer that is zeroed after it returns.
+    typealias PasswordRevealCallback = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<CChar>?, Int) -> Void
+    let passwordCoreAvailable: @convention(c) () -> Int32
+    let passwordList: @convention(c) (UnsafePointer<CChar>?, Int32) -> Int32
+    let passwordRemove: @convention(c) (UnsafePointer<CChar>?, UnsafePointer<UnsafePointer<CChar>?>?, Int32, Int32) -> Int32
+    let passwordExceptionRemove: @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, Int32) -> Int32
+    let passwordSetUsername: @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?, Int32) -> Int32
+    let passwordReveal: @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, PasswordRevealCallback?, UnsafeMutableRawPointer?) -> Int32
+    let passwordExport: @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, Int32) -> Int32
     let sslStatus: @convention(c) (Int32) -> UnsafeMutablePointer<CChar>?
     /// Clears the profile's certificate error decisions and connections.
     let clearCertificateExceptions: @convention(c) (Int32, Int32) -> Int32
@@ -151,6 +161,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let contextProxyState: @convention(c) (UnsafePointer<CChar>?) -> Int32
     let releaseContext: @convention(c) (UnsafePointer<CChar>?) -> Void
     let setNavigationGuard: @convention(c) (Int32, Int32) -> Void
+    /// A sign-in tab's callback: scheme, https host, https path (all empty clears).
+    let setAuthCallback: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Void
 
     // Allowlisted boolean profile preferences (password and autofill settings).
     /// JSON {"value", "modifiable"}, freed with `freeOwned`; NULL for an
@@ -292,6 +304,13 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         passkeysAvailable = try r("cmux_shim_passkeys_available")
         passkeysList = try r("cmux_shim_passkeys_list")
         passkeyDelete = try r("cmux_shim_passkey_delete")
+        passwordCoreAvailable = try r("cmux_shim_password_core_available")
+        passwordList = try r("cmux_shim_password_list")
+        passwordRemove = try r("cmux_shim_password_remove")
+        passwordExceptionRemove = try r("cmux_shim_password_exception_remove")
+        passwordSetUsername = try r("cmux_shim_password_set_username")
+        passwordReveal = try r("cmux_shim_password_reveal")
+        passwordExport = try r("cmux_shim_password_export")
         sslStatus = try r("cmux_shim_ssl_status")
         clearCertificateExceptions = try r("cmux_shim_clear_certificate_exceptions")
         freeOwned = try r("cmux_shim_free_owned")
@@ -300,6 +319,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         contextProxyState = try r("cmux_shim_context_proxy_state")
         releaseContext = try r("cmux_shim_release_context")
         setNavigationGuard = try r("cmux_shim_set_navigation_guard")
+        setAuthCallback = try r("cmux_shim_set_auth_callback")
         prefGet = try r("cmux_shim_pref_get")
         prefSetBool = try r("cmux_shim_pref_set_bool")
         prefWatch = try r("cmux_shim_pref_watch")

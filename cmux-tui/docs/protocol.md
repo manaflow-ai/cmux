@@ -155,6 +155,22 @@ most 64 KiB) per frontend-rendered browser tab, such as its back/forward
 entries and scroll, and reads it back after a relaunch. `history:null`
 clears it. The daemon never journals it or puts it in the tree.
 
+`remote-terminal-tabs-v1` adds tabs that reference a terminal on another
+session, for frontends that federate several sessions. `new-remote-terminal-tab`
+stores `{session_id, terminal_id, session_name, title?}` in the durable tree;
+`update-remote-terminal-tab` records the title, session name, or a bounded
+text snapshot, which `remote-terminal-snapshot` reads back. The daemon never
+attaches or spawns anything for these tabs. They report
+`kind:"remote-terminal"` with a `remote` object and move, pin, group, and
+close like any tab. The TUI does not render them.
+
+`detached-terminals-v1` adds `detached:true` to `create-terminal`: the daemon
+creates a kept terminal with no workspace, pane, screen, or tab and returns
+its public `terminal_resource_id`, so another session's frontend can show it
+as a remote-terminal tab and attach by that id. Send it only to a daemon that
+advertises the capability; an older daemon ignores the field and creates a
+tab.
+
 `tab-drag-v1` makes every tab drag outcome one atomic command:
 `move-tab` (pane and index, across screens and workspaces),
 `move-tab-to-split` (pane edge), `move-tab-to-column` (new strip column),
@@ -185,6 +201,17 @@ acknowledgement durably, so it survives a daemon restart; frontends call it
 when the user has seen the tab instead of sending `select-tab`.
 `list-notifications` returns the retained ledger with `created_at_ms` and an
 `acknowledged` flag, and each workspace reports `unread_count`.
+
+`feed-local-owner-v1` makes the daemon the local owner of feed items
+(plans/cmux-next/feed.md section 9.1). Each notification is also a local item,
+committed in the same transaction. Selection and focus never clear unread: a
+client acknowledges with `ack-tab-notifications`, which also reads the tab's
+items. The app drives the move of an item to the cloud owner with
+`feed-local-handoff-begin` and `feed-local-handoff-done`, or takes it back
+with `feed-local-handoff-abort` after `feed.adopt.cancel` answered
+`cancelled: true` (the verified cmux app connection only), and rebuilds its
+queue at launch from `feed-local-list {state:"handing_off"}`. A moved item
+refuses reads with `owner.unreachable`, which is retryable; nothing queues.
 
 `tab-groups-v1` adds tab groups inside a pane's strip. Panes
 report `tab_groups` (id, name, color, collapsed, saved id, start, count,
@@ -354,7 +381,9 @@ forwarded input to that sub-view), relay sub-views (`resize-attached-view`
 with `view` and `identity`), and `detach-client` with a participant id and
 `by`. `user_id` is
 asserted by the client; the daemon does not verify it. The cmux-tui frontend
-opts in with `device_kind: "tui"` and its hostname as `device_name`. See
+opts in with `device_kind: "tui"` and its hostname as `device_name`. The GPUI
+desktop app sends `linux` or `windows` on those systems; only clients that send
+`open-device-kinds-v1` receive those kinds, others read them as `unknown`. See
 [`spec/commands.md`](../spec/commands.md#sizing).
 
 ## Client Compatibility

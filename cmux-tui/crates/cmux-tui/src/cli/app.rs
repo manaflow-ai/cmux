@@ -12,7 +12,7 @@
 //! `action.run` carries an idempotency key and waits for its work by default
 //! (plans/cmux-next/state-ownership.md, section 4).
 
-use std::io::{BufRead, BufReader, IsTerminal, Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -21,10 +21,14 @@ use serde_json::{Map, Value, json};
 
 use super::{GlobalArgs, OutputMode, UsageError};
 use crate::app_identity::AppIdentity;
+use open::{OpenRequest, parse_open};
+#[cfg(test)]
+use open::{is_web_url, parse_open_with};
 pub(super) use run::{action_run_params, insert_run_key, request_with_retry};
 
 mod call;
 mod keybinding;
+mod open;
 mod run;
 mod settings;
 mod skew;
@@ -68,12 +72,6 @@ pub(super) enum ActionName {
 }
 
 #[derive(Debug, PartialEq)]
-pub(super) struct OpenRequest {
-    method: &'static str,
-    params: Value,
-}
-
-#[derive(Debug, PartialEq)]
 pub(super) enum AppCommand {
     /// `timeout: None` waits until the app answers (a person at a sheet).
     Call {
@@ -84,6 +82,9 @@ pub(super) enum AppCommand {
     },
     Open {
         requests: Vec<OpenRequest>,
+        /// `open -`: the first failed request ends the command, so a refused
+        /// URL is never followed by the next one.
+        stop_on_failure: bool,
     },
     /// `app call`: one method of a debug build (app/call.rs).
     DebugCall {
@@ -95,9 +96,42 @@ pub(super) enum AppCommand {
     },
 }
 
+/// The classic CLI's top-level discovery verbs: `cmux identify`, `cmux ping`
+/// and `cmux capabilities`, with the classic `--id-format <refs|uuids|both>`
+/// before or after the verb (ignored: these answers carry no refs). Skills,
+/// prompts and agent habits written for both apps still run them (cx-4w47
+/// D1); they are this app's `app identify|ping|capabilities`, the same
+/// `system.*` methods the classic CLI sends.
+fn classic_system_method(args: &[String]) -> Option<&'static str> {
+    let words = args.iter().map(String::as_str).collect::<Vec<_>>();
+    let verb = match words.as_slice() {
+        [verb] => *verb,
+        ["--id-format", format, verb] | [verb, "--id-format", format]
+            if matches!(*format, "refs" | "uuids" | "both") =>
+        {
+            *verb
+        }
+        _ => return None,
+    };
+    match verb {
+        "identify" => Some("system.identify"),
+        "ping" => Some("system.ping"),
+        "capabilities" => Some("system.capabilities"),
+        _ => None,
+    }
+}
+
 /// Parses an app scope. `Ok(None)` when `args` does not start with one.
 pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
     let Some(scope) = args.first() else { return Ok(None) };
+    if let Some(method) = classic_system_method(args) {
+        return Ok(Some(AppCommand::Call {
+            method,
+            params: json!({}),
+            timeout: Some(READ_TIMEOUT),
+            pick: None,
+        }));
+    }
     if scope == "browser"
         && let Some(target) = args.get(1)
         && (target == "page" || target.starts_with("tab_"))
@@ -224,145 +258,8 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
     Ok(Some(command))
 }
 
-/// `cmux open` opens paths and URLs through the app control socket.
-fn parse_open(args: &[String]) -> Result<AppCommand, UsageError> {
-    let environment = std::env::vars().collect::<std::collections::HashMap<_, _>>();
-    parse_open_with(
-        args,
-        std::io::stdin().is_terminal() && std::io::stdout().is_terminal(),
-        &environment,
-    )
-}
-
-fn parse_open_with(
-    args: &[String],
-    interactive: bool,
-    environment: &std::collections::HashMap<String, String>,
-) -> Result<AppCommand, UsageError> {
-    let messages = &crate::localization::catalog().app_control;
-    let mut explicit_focus = None;
-    let mut targets = Vec::new();
-    let mut index = 0;
-    let mut literal = false;
-    while index < args.len() {
-        let arg = &args[index];
-        if literal {
-            targets.push(arg.clone());
-            index += 1;
-            continue;
-        }
-        if arg == "--" {
-            literal = true;
-            index += 1;
-            continue;
-        }
-        let (name, inline) =
-            arg.split_once('=').map_or((arg.as_str(), None), |(name, value)| (name, Some(value)));
-        match name {
-            "--focus" => {
-                let value = inline.map(str::to_owned).or_else(|| {
-                    args.get(index + 1)
-                        .filter(|value| matches!(value.as_str(), "true" | "false"))
-                        .cloned()
-                });
-                if inline.is_none() && value.is_some() {
-                    index += 1;
-                }
-                explicit_focus = Some(
-                    value
-                        .as_deref()
-                        .unwrap_or("true")
-                        .parse::<bool>()
-                        .map_err(|_| UsageError::new("--focus must be true|false"))?,
-                );
-            }
-            "--no-focus" => {
-                if inline.is_some() {
-                    return Err(UsageError::new("--no-focus does not take a value"));
-                }
-                explicit_focus = Some(false);
-            }
-            _ if name.starts_with('-') => {
-                return Err(UsageError::new(messages.unexpected_argument.replace("{value}", arg)));
-            }
-            _ => targets.push(arg.clone()),
-        }
-        index += 1;
-    }
-    if targets.is_empty() {
-        return Err(UsageError::new("open requires at least one path or URL"));
-    }
-    let focus =
-        explicit_focus.unwrap_or_else(|| default_focus_for_user_open(environment, interactive));
-    let mut requests = Vec::new();
-    let mut pending_files = Vec::new();
-    let flush_files = |requests: &mut Vec<OpenRequest>, pending: &mut Vec<String>| {
-        if pending.is_empty() {
-            return;
-        }
-        let paths = std::mem::take(pending);
-        requests.push(OpenRequest {
-            method: "file.open",
-            params: json!({"paths": paths, "focus": focus}),
-        });
-    };
-    for target in targets {
-        if target.starts_with("http://")
-            || target.starts_with("https://")
-            || target.starts_with("mailto:")
-        {
-            flush_files(&mut requests, &mut pending_files);
-            requests.push(OpenRequest {
-                method: "browser.open_split",
-                params: json!({"url": target, "focus": focus}),
-            });
-        } else if std::fs::metadata(&target).map(|metadata| metadata.is_dir()).unwrap_or(false) {
-            flush_files(&mut requests, &mut pending_files);
-            requests.push(OpenRequest {
-                method: "workspace.create",
-                params: json!({"cwd": target, "focus": focus, "activate": focus}),
-            });
-        } else {
-            pending_files.push(target);
-        }
-    }
-    flush_files(&mut requests, &mut pending_files);
-    Ok(AppCommand::Open { requests })
-}
-
-fn default_focus_for_user_open(
-    environment: &std::collections::HashMap<String, String>,
-    interactive: bool,
-) -> bool {
-    match environment.get("CMUX_FOCUS_NEW").map(String::as_str) {
-        Some("1") => return true,
-        Some("0") => return false,
-        _ => {}
-    }
-    if !interactive {
-        return false;
-    }
-    [
-        "CODEX_CI",
-        "CODEX_THREAD_ID",
-        "CODEX_SESSION_ID",
-        "CODEX_SANDBOX",
-        "CODEX_MANAGED_BY_BUN",
-        "CLAUDECODE",
-        "CLAUDE_CODE",
-        "CLAUDE_CODE_ENTRYPOINT",
-        "CLAUDE_CODE_SESSION_ID",
-        "OPENCODE",
-        "OPENCODE_PORT",
-        "OPENCODE_SESSION_ID",
-        "AI_AGENT",
-    ]
-    .iter()
-    .all(|key| environment.get(*key).is_none_or(|value| value.trim().is_empty()))
-}
-
 /// `cli` when a person runs the command at a terminal, else `script`.
-fn action_origin() -> &'static str {
+pub(super) fn action_origin() -> &'static str {
     use std::io::IsTerminal;
     if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() { "cli" } else { "script" }
 }
@@ -592,8 +489,9 @@ pub(super) fn run(global: &GlobalArgs, command: AppCommand) -> i32 {
 /// the caller reports its own usage error. One connection, one `action.run`.
 pub(super) fn run_cli_action(global: &GlobalArgs, name: &str, args: &[String]) -> Option<i32> {
     let command = run_action(name, args, ActionName::Cli).ok()?;
-    let socket = socket_path(global).ok()?;
-    let mut stream = connect(&socket).ok()?;
+    // A named socket that is missing or not an app (a daemon's `--socket`)
+    // has no CLI action; the caller reports its own usage error.
+    let mut stream = connect_command(global).ok()?;
     match call(global, &mut stream, command) {
         Ran::Done(code) => Some(code),
         Ran::NoSuchCliAction { .. } => None,
@@ -611,15 +509,62 @@ enum Ran {
 }
 
 fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
-    let socket = match socket_path(global) {
-        Ok(socket) => socket,
-        Err(error) => return Ran::Done(failure("app.not_found", &error, global.output, 3)),
-    };
-    let mut stream = match connect(&socket) {
+    let mut stream = match connect_command(global) {
         Ok(stream) => stream,
-        Err(error) => return Ran::Done(failure("app.unreachable", &error, global.output, 3)),
+        Err(error) => return Ran::Done(super::wire::print_local_error(&error, global.output, 3)),
     };
     call(global, &mut stream, command)
+}
+
+/// The app control connection of an app command ([`command_socket`]). A
+/// named socket that is missing or refuses is `socket.unreachable`, and one
+/// that does not answer as the cmux app is `socket.wrong_kind`; neither
+/// tries another socket.
+pub(super) fn connect_command(global: &GlobalArgs) -> Result<UnixStream, Value> {
+    let socket = command_socket(global)?;
+    let Some(flag) = socket.named_by else {
+        return connect(&socket.path).map_err(|message| typed("app.unreachable", message, None));
+    };
+    let messages = &crate::localization::catalog().app_control;
+    let path = socket.path.display().to_string();
+    let mut stream = UnixStream::connect(&socket.path).map_err(|error| {
+        let message = messages
+            .explicit_unreachable
+            .replace("{path}", &path)
+            .replace("{flag}", flag)
+            .replace("{error}", &error.to_string());
+        typed("socket.unreachable", message, Some(&socket))
+    })?;
+    // `--socket` may name a daemon's socket: the app answers `system.ping`
+    // with `pong`, anything else is another kind of socket, and no app
+    // request runs there. `--app-socket` names the app socket itself.
+    if flag == "--socket" {
+        // An app's refusal is an object with a code (a classic app in
+        // password mode refuses ping before `auth.login`); a daemon's
+        // refusal of the unknown line is a plain string.
+        let pong = exchange(&mut stream, "system.ping", json!({}), READ_TIMEOUT);
+        let is_app = match &pong {
+            Ok(Ok(result)) => result.get("pong") == Some(&Value::Bool(true)),
+            Ok(Err(error)) => error.get("code").is_some_and(Value::is_string),
+            Err(_) => false,
+        };
+        if !is_app {
+            let message = messages.wrong_kind.replace("{path}", &path);
+            return Err(typed("socket.wrong_kind", message, Some(&socket)));
+        }
+    }
+    Ok(stream)
+}
+
+fn typed(code: &str, message: String, socket: Option<&AppSocket>) -> Value {
+    let details = match socket {
+        Some(socket) => json!({
+            "socket": socket.path.display().to_string(),
+            "flag": socket.named_by,
+        }),
+        None => json!({}),
+    };
+    json!({ "code": code, "message": message, "details": details, "retryable": false })
 }
 
 fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ran {
@@ -631,20 +576,24 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::DebugCall { method, params } => {
             return Ran::Done(call::run(global, stream, &method, params));
         }
-        AppCommand::Open { requests } => {
+        AppCommand::Open { requests, stop_on_failure } => {
             let mut status = 0;
             for request in requests {
+                let timeout = Some(request.timeout());
                 if let Ran::Done(code) = call(
                     global,
                     stream,
                     AppCommand::Call {
                         method: request.method,
                         params: request.params,
-                        timeout: Some(READ_TIMEOUT),
+                        timeout,
                         pick: None,
                     },
                 ) {
                     status = status.max(code);
+                }
+                if stop_on_failure && status != 0 {
+                    break;
                 }
             }
             return Ran::Done(status);
@@ -738,23 +687,113 @@ fn busy_retry_delay(error: &Value) -> Duration {
         .min(MAX_BUSY_RETRY_DELAY)
 }
 
+/// The app control socket of a command the app serves (`cmux identify`,
+/// `cmux app …`, `cmux window list`, action verbs, `cmux coderouter …`).
+///
+/// This is the one owner of the explicit-socket rule for the app (cx-siev):
+/// a socket the caller names is the only socket tried, never a default
+/// path and never the app the inherited environment names. `--app-socket`
+/// names the app socket. Else `--socket` is the target, as in the classic
+/// CLI, where it names the app socket; a daemon there is
+/// `socket.wrong_kind` ([`connect_command`]). Else `--session` reaches only the
+/// app that owns that session. With no explicit route, the app the
+/// environment (`CMUX_SOCKET_PATH`, which is itself never replaced) or the
+/// bundle names.
+pub(super) fn command_socket(global: &GlobalArgs) -> Result<AppSocket, Value> {
+    if let Some(path) = &global.app_socket {
+        return Ok(AppSocket { path: path.clone(), named_by: Some("--app-socket") });
+    }
+    if let Some(path) = &global.socket {
+        return Ok(AppSocket { path: path.clone(), named_by: Some("--socket") });
+    }
+    let path = socket_path(global).map_err(|message| {
+        let code =
+            if explicit_daemon_route(global).is_some() { "socket.no_app" } else { "app.not_found" };
+        json!({ "code": code, "message": message, "details": {}, "retryable": false })
+    })?;
+    Ok(AppSocket { path, named_by: None })
+}
+
+/// An app control socket and the flag that named it (`None`: discovered).
+#[derive(Debug)]
+pub(super) struct AppSocket {
+    pub path: PathBuf,
+    pub named_by: Option<&'static str>,
+}
+
+/// The app half of a daemon command (focus follow, a browser tab the app
+/// renders, the agent snapshot, MCP app tools). With an explicit daemon
+/// route (`--socket`, `--session`) only the app that owns that daemon is
+/// reached, or `--app-socket` (cx-siev): never the app that the inherited
+/// environment names for some other session. With no explicit route, the
+/// app the environment or the bundle names.
 pub(super) fn socket_path(global: &GlobalArgs) -> Result<PathBuf, String> {
     let messages = &crate::localization::catalog().app_control;
     if let Some(path) = &global.app_socket {
         return Ok(path.clone());
     }
     let exe = std::env::current_exe().ok();
-    let identity = AppIdentity::detect(|key| std::env::var(key).ok(), exe.as_deref())
-        .ok_or_else(|| messages.no_app.to_owned())?;
+    let identity = AppIdentity::detect(|key| std::env::var(key).ok(), exe.as_deref());
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
-    Ok(identity.control_socket(&home))
+    let Some(flag) = explicit_daemon_route(global) else {
+        return identity
+            .map(|identity| identity.control_socket(&home))
+            .ok_or_else(|| messages.no_app.to_owned());
+    };
+    let no_app = || messages.explicit_no_app.replace("{flag}", flag);
+    let (daemon, _) = super::wire::resolve_socket_with_origin(global)
+        .map_err(|error| super::wire::resolve_failure_message(&error))?;
+    match identity {
+        Some(identity) if app_owns_daemon(&identity, &daemon) => Ok(identity.control_socket(&home)),
+        _ => Err(no_app()),
+    }
 }
 
+/// The route that names a daemon explicitly while nothing names the app:
+/// `--socket`, `--session`, or `CMUX_TUI_SOCKET`/`CMUX_MUX_SOCKET` without
+/// `CMUX_SOCKET_PATH` (an app terminal sets both, so its app stays named).
+/// `None`: the app the environment or the bundle names may serve.
+fn explicit_daemon_route(global: &GlobalArgs) -> Option<&'static str> {
+    if global.socket.is_some() {
+        return Some("--socket");
+    }
+    if global.session.is_some() {
+        return Some("--session");
+    }
+    let set = |key: &str| std::env::var(key).is_ok_and(|value| !value.trim().is_empty());
+    if set("CMUX_SOCKET_PATH") {
+        return None;
+    }
+    ["CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET"].into_iter().find(|key| set(key))
+}
+
+/// Whether `daemon` is the own session socket of the app `identity` names
+/// (`DaemonLauncher`'s session, macOS only).
+#[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
+pub(super) fn app_owns_daemon(identity: &AppIdentity, daemon: &std::path::Path) -> bool {
+    #[cfg(target_os = "macos")]
+    if let Some(own) = crate::app_identity::app_daemon_socket(identity) {
+        let canonical = |path: &std::path::Path| {
+            std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned())
+        };
+        // Two spellings of one socket (`/var` is `/private/var` on macOS).
+        return own == daemon || canonical(&own) == canonical(daemon);
+    }
+    false
+}
+
+/// No app listens at `socket` (no file, or a stale one): the command needs
+/// the app, which a Chief without the app must hear plainly (E17).
 pub(super) fn connect(socket: &PathBuf) -> Result<UnixStream, String> {
     let messages = &crate::localization::catalog().app_control;
     UnixStream::connect(socket).map_err(|error| {
-        messages
-            .unreachable
+        let template = match error.kind() {
+            std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused => {
+                messages.needs_app
+            }
+            _ => messages.unreachable,
+        };
+        template
             .replace("{path}", &socket.display().to_string())
             .replace("{error}", &error.to_string())
     })
@@ -772,6 +811,54 @@ fn with_read_barrier(mut params: Value) -> Value {
     params
 }
 
+/// The app methods that place a new tab or report where the caller is: the
+/// app opens an agent's tabs in the column right of its chat
+/// (`beside_caller`) and marks the caller in `snapshot.get` and
+/// `system.identify`.
+const CALLER_METHODS: [&str; 4] =
+    ["action.run", "browser.open_split", "snapshot.get", "system.identify"];
+
+/// Who calls, from the environment: the acpmux agent session
+/// (`CMUX_AGENT_SESSION`, set by acpmux for the agent and its cmux MCP
+/// server), else the caller's own terminal (`CMUX_TUI_TERMINAL_ID`).
+pub(super) fn caller_from(env: impl Fn(&str) -> Option<String>) -> Option<Value> {
+    let set = |key: &str| env(key).filter(|value| !value.is_empty());
+    if let Some(session) = set("CMUX_AGENT_SESSION") {
+        return Some(json!({ "agent_session": session }));
+    }
+    set("CMUX_TUI_TERMINAL_ID").map(|terminal| json!({ "terminal_id": terminal }))
+}
+
+/// `params` with the caller added for a [`CALLER_METHODS`] method that names
+/// none, and whether it was added. `browser.open_split` names a terminal with
+/// its own `terminal_id`, so it gets only an agent caller.
+fn with_caller(method: &str, mut params: Value) -> (Value, bool) {
+    if !CALLER_METHODS.contains(&method) {
+        return (params, false);
+    }
+    let Some(caller) = caller_from(|key| std::env::var(key).ok()) else { return (params, false) };
+    if method == "browser.open_split" && caller.get("agent_session").is_none() {
+        return (params, false);
+    }
+    let mut added = false;
+    if let Some(object) = params.as_object_mut()
+        && !object.contains_key("caller")
+    {
+        object.insert("caller".into(), caller);
+        added = true;
+    }
+    (params, added)
+}
+
+/// An app from before `caller` refuses it as an unknown param (its
+/// `browser.open_split` takes no unknown params): the request is sent again
+/// without it, so a newer CLI still opens the tab there.
+fn refused_caller(response: &Result<Value, Value>) -> bool {
+    let Err(error) = response else { return false };
+    error_code(error) == Some("invalid_params")
+        && error.get("message").and_then(Value::as_str).is_some_and(|text| text.contains("caller"))
+}
+
 /// `timeout: None` reads until the app answers or closes the connection.
 pub(super) fn request(
     stream: &mut UnixStream,
@@ -779,7 +866,13 @@ pub(super) fn request(
     params: Value,
     timeout: impl Into<Option<Duration>>,
 ) -> Result<Result<Value, Value>, String> {
-    exchange(stream, method, with_read_barrier(params), timeout)
+    let timeout = timeout.into();
+    let (with, added) = with_caller(method, params.clone());
+    let response = exchange(stream, method, with_read_barrier(with), timeout)?;
+    if added && refused_caller(&response) {
+        return exchange(stream, method, with_read_barrier(params), timeout);
+    }
+    Ok(response)
 }
 
 /// One request with exactly `params` (no read barrier) and its response.

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextTerminal
 
@@ -53,7 +54,7 @@ final class LaunchSettle {
             DebugTimings.markLaunch("first_terminal_content_applied")
             // Ghostty presents on its own layer in this commit.
             CATransaction.setCompletionBlock {
-                MainActor.assumeIsolated {
+                MainActor.assumeIsolated { // main-proof: CATransaction.h: the completion block is called on the main thread
                     DebugTimings.markLaunch("first_terminal_frame")
                     self?.reveal.markReady(.pane)
                     self?.settle()
@@ -62,7 +63,7 @@ final class LaunchSettle {
         }
         // task-owner: ends when the daemon is unavailable or the launch settled (cancelled in settle)
         unavailableWatch = Task { [weak self] in
-            for await unavailable in Observations({ daemon.startup.isUnavailable }) where unavailable {
+            for await unavailable in ObservationStream({ daemon.startup.isUnavailable }) where unavailable {
                 // No region will get its data: show everything as it is.
                 self?.reveal.markAllReady()
                 self?.settle()

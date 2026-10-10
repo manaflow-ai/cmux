@@ -20,6 +20,10 @@ final class PageState {
     /// Rows last shown on this page, restored instantly when the page comes
     /// back into view (popping) while a fresh search runs.
     var lastSections: [PaletteResultSection]?
+    /// The rows on screen stand in for a rank still running off the main
+    /// actor (provider order or a cached rank): an empty stand-in is not
+    /// "No results" yet.
+    var awaitsRank = false
     /// Item last reported to the page's `onHighlight`.
     /// False until the page reported its first highlight: the row selected
     /// when the page opens is not a choice yet, so it previews nothing.
@@ -89,6 +93,27 @@ final class PageState {
                 entries.append(PaletteSearchEntry(item, visible: provider.showsItemsForEmptyQuery && item.queryPrefix == nil,
                                                   sectionIndex: sectionIndex))
             }
+        }
+        // The empty query's Suggested section (rows with a suggestion rank);
+        // appended after the item sections, like the typing section.
+        if page.showsRecent, entries.contains(where: { $0.suggestedRank != nil }) {
+            let suggestedIndex = sections.count
+            sections.append(.suggested)
+            for position in entries.indices where entries[position].suggestedRank != nil {
+                entries[position].suggestedSectionIndex = suggestedIndex
+            }
+        }
+        // One ranked list while typing (`mergesSectionsWhenTyping`); appended
+        // last, so a row's own section index never moves.
+        if page.mergesSectionsWhenTyping, !entries.isEmpty {
+            let merged: Int
+            if let existing = sectionIndexByID[PaletteSection.results.id] {
+                merged = existing
+            } else {
+                merged = sections.count
+                sections.append(.results)
+            }
+            for position in entries.indices { entries[position].typingSectionIndex = merged }
         }
         self.items = items
         self.entries = entries

@@ -41,14 +41,18 @@ final class AgentPaneLaunchImages {
     /// Replaces the saved pages with `images` (by tab key).
     func save(_ images: [String: NSImage]) async {
         guard let directory else { return }
-        var files: [String: Data] = [:]
+        // NSImage stays on the main actor; the JPEG encode and the writes run detached.
+        var frames: [String: CGImage] = [:]
         for (key, image) in images where Self.isFileSafe(key) {
             guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil), image.size.width > 0 else { continue }
             let scale = max(1, min(3, Int((CGFloat(cgImage.width) / image.size.width).rounded())))
-            guard let data = NSBitmapImageRep(cgImage: cgImage).representation(using: .jpeg, properties: [.compressionFactor: 0.8]) else { continue }
-            files[Self.fileName(key, scale: scale)] = data
+            frames[Self.fileName(key, scale: scale)] = cgImage
         }
-        await Task.detached { Self.write(files, to: directory) }.value
+        await Task.detached { Self.write(Self.encode(frames), to: directory) }.value
+    }
+
+    private nonisolated static func encode(_ frames: [String: CGImage]) -> [String: Data] {
+        frames.compactMapValues { NSBitmapImageRep(cgImage: $0).representation(using: .jpeg, properties: [.compressionFactor: 0.8]) }
     }
 
     private nonisolated static func write(_ files: [String: Data], to directory: URL) {

@@ -17,6 +17,9 @@ public final class PageRouter {
     private var routes: [PageRoute]
     /// Runs one envelope in the page (`window.__cmuxPageReceive(<json>)`).
     public var send: ((JSONValue) -> Void)?
+    /// Runs at every ``close()`` (and so at ``reset()`` and rebind): the host drops envelopes it
+    /// has not delivered yet, which belong to the subscriptions that just ended.
+    public var didClose: (() -> Void)?
     private var subscriptions: [UInt64: PageSubscription] = [:]
     private var sequences: [UInt64: UInt64] = [:]
     private var nextSubscription: UInt64 = 1
@@ -45,8 +48,12 @@ public final class PageRouter {
     }
 
     /// The script that delivers `envelope` to the page.
+    /// One buffer: the envelope's JSON is appended in place, never built and copied.
     public nonisolated static func receiveScript(_ envelope: JSONValue) -> String {
-        "window.__cmuxPageReceive && window.__cmuxPageReceive(\(envelope.compactText));"
+        var script = "window.__cmuxPageReceive && window.__cmuxPageReceive("
+        envelope.appendCompactText(to: &script)
+        script += ");"
+        return script
     }
 
     // MARK: Page to host
@@ -146,7 +153,11 @@ public final class PageRouter {
         let (provider, filter) = try admit(stream, params: filter)
         let sub = nextSubscription
         nextSubscription += 1
+        // A provider may send its current state from inside `subscribe` (the icon picker's open
+        // session). Those events wait until the reply that names `sub` reaches the page.
+        let early = PageEarlyEvents()
         let subscription = try await provider.subscribe(stream, filter: filter, context: PageCallContext(page: descriptor.id)) { [weak self] data in
+            if early.hold(data) { return }
             self?.deliver(sub: sub, data)
         }
         guard !closed else {
@@ -154,6 +165,16 @@ public final class PageRouter {
             throw PageError.closed
         }
         subscriptions[sub] = subscription
+        // Nothing held: later events go straight to the page. Otherwise they queue behind the held
+        // ones until the flush, which runs after the reply.
+        guard early.isHolding else {
+            _ = early.release()
+            return sub
+        }
+        // task-owner: one flush after the reply; ends with the router
+        Task { @MainActor [weak self] in
+            for data in early.release() { self?.deliver(sub: sub, data) }
+        }
         return sub
     }
 
@@ -231,6 +252,7 @@ public final class PageRouter {
     /// The page went away (tab closed, reload): cancels every subscription and fails pending calls.
     public func close() {
         closed = true
+        didClose?()
         for subscription in subscriptions.values { subscription.cancel() }
         subscriptions.removeAll()
         builtIn.removeAll()
@@ -290,5 +312,28 @@ final class PageCallInFlight {
         guard let continuation else { return }
         self.continuation = nil
         continuation.resume(with: result)
+    }
+}
+
+/// Events a provider sends before its subscription is registered and answered: held in order,
+/// then released once, after which events go straight to the page.
+@MainActor
+final class PageEarlyEvents {
+    private var held: [JSONValue]? = []
+
+    /// Whether any event is held (the subscription is not released and something arrived).
+    var isHolding: Bool { !(held?.isEmpty ?? true) }
+
+    /// Holds `data` while the subscription is not released yet; false once it is.
+    func hold(_ data: JSONValue) -> Bool {
+        guard held != nil else { return false }
+        held?.append(data)
+        return true
+    }
+
+    /// The held events, oldest first; later events are not held.
+    func release() -> [JSONValue] {
+        defer { held = nil }
+        return held ?? []
     }
 }

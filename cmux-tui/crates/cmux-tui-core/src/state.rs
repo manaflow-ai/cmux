@@ -15,7 +15,9 @@ pub(crate) mod agent_folder;
 mod agent_folder_tests;
 pub(crate) mod agent_message_store;
 pub(crate) mod agent_messages;
+pub(crate) mod app_workspaces;
 pub(crate) mod closed_history;
+pub(crate) mod closed_history_delete;
 pub(crate) mod closed_history_query;
 pub(crate) mod closed_history_store;
 #[cfg(test)]
@@ -29,6 +31,12 @@ pub(crate) mod ephemeral_moves;
 #[cfg(test)]
 mod ephemeral_moves_tests;
 pub(crate) mod frontend_browser_keys;
+#[cfg(test)]
+mod group_delete_tests;
+#[cfg(test)]
+mod group_icon_tests;
+#[cfg(test)]
+mod group_pin_tests;
 pub(crate) mod home;
 pub(crate) mod home_store;
 #[cfg(test)]
@@ -39,11 +47,24 @@ pub(crate) mod kept_tabs;
 mod last_tab_closes_workspace_tests;
 #[cfg(test)]
 mod mixed_order_tests;
+pub(crate) mod palette_usage;
+pub(crate) mod palette_usage_ops;
+#[cfg(test)]
+mod palette_usage_protocol_tests;
+pub(crate) mod palette_usage_store;
 pub(crate) mod personal;
 pub(crate) mod personal_order;
 pub(crate) mod personal_state_store;
 mod prelude;
+pub(crate) mod project_sources;
+pub(crate) mod projects;
+pub(crate) mod projects_ops;
+pub(crate) mod projects_store;
+pub(crate) mod remote_terminal_tabs;
+pub(crate) mod remote_terminal_tabs_store;
 pub(crate) mod room_delete;
+#[cfg(test)]
+mod room_delete_amendment_tests;
 #[cfg(test)]
 mod room_delete_tests;
 pub(crate) mod router;

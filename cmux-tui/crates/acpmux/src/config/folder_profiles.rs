@@ -75,6 +75,7 @@ impl FolderGate {
                 claude_json: user.join(".claude.json"),
                 codex_config: user.join(".codex").join("config.toml"),
                 record: home.join("trust.json"),
+                agent_home: trust::agent_home_root(),
             },
         })
     }
@@ -401,9 +402,15 @@ pub fn resolve_program(profile: &HarnessProfile, base: Option<&Path>) -> Option<
 }
 
 /// An executable regular file (a link counts by its target).
+#[cfg(unix)]
 fn executable(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+}
+/// Windows has no execute bit: any regular file counts.
+#[cfg(not(unix))]
+fn executable(path: &Path) -> bool {
+    std::fs::metadata(path).is_ok_and(|m| m.is_file())
 }
 
 /// Why a session may not start a folder profile now.
@@ -728,6 +735,7 @@ fn catalog_names(cfg: &Config) -> BTreeSet<String> {
 }
 
 /// The file's bytes after the type, size and owner checks.
+#[cfg(unix)]
 fn read_folder_file(path: &Path) -> Result<Vec<u8>, Diagnostic> {
     use std::os::unix::fs::MetadataExt;
     let shown = path.to_string_lossy().into_owned();
@@ -753,6 +761,18 @@ fn read_folder_file(path: &Path) -> Result<Vec<u8>, Diagnostic> {
         return Err(error(format!("the file is larger than {MAX_PROFILE_BYTES} bytes"), None));
     }
     Ok(bytes)
+}
+/// Windows port: the owner check reads the file's ACL there (a later
+/// landing); until then no folder profile is read (fail closed).
+#[cfg(not(unix))]
+fn read_folder_file(path: &Path) -> Result<Vec<u8>, Diagnostic> {
+    let shown = path.to_string_lossy().into_owned();
+    Err(Diagnostic::error(
+        &shown,
+        None,
+        crate::platform::unsupported("folder profiles").to_string(),
+        None,
+    ))
 }
 
 /// The icon's bytes: a regular file directly in the profile folder.
@@ -843,6 +863,6 @@ fn enabled_in(gate: &FolderGate, folder: &str, id: &str, sha: &str) -> bool {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 #[path = "folder_profiles_tests.rs"]
 mod tests;

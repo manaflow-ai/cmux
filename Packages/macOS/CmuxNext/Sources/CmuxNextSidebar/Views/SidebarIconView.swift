@@ -6,13 +6,18 @@ import QuartzCore
 
 /// Workspace icon: the user's choice, an SF Symbol (tinted with the
 /// workspace color), one emoji (on a chip of the workspace color) or a color
-/// alone shown as a small dot; else the row's type glyph from the icon
+/// alone shown as a small dot; a browser workspace's page icon, untinted;
+/// else the row's type glyph from the icon
 /// registry, or the brand mark of the agent it shows, at row size.
 final class SidebarIconView: NSView {
     private let imageView = NSImageView()
     private let swatch = CALayer()
-    private let emoji = NSTextField(labelWithString: "")
+    private let emoji = SidebarEmojiGlyphView()
     private var icon: WorkspaceIcon?
+    /// A symbol without a color draws in the primary text color (a group's
+    /// icon inside its colored label, next to the name) instead of the
+    /// secondary one.
+    var drawsUncoloredSymbolAsText = false { didSet { needsDisplay = true } }
 
     /// Rows reserve room for a chosen icon or a built-in type glyph.
     static func showsIcon(_ icon: WorkspaceIcon?, fallback: IconName? = nil) -> Bool {
@@ -26,7 +31,6 @@ final class SidebarIconView: NSView {
         layer?.addSublayer(swatch)
         imageView.imageScaling = .scaleProportionallyDown
         addSubview(imageView)
-        emoji.alignment = .center
         addSubview(emoji)
     }
 
@@ -39,7 +43,7 @@ final class SidebarIconView: NSView {
     static let chipAlpha: CGFloat = 0.35
 
     /// The emoji drawn now, or nil (tests).
-    var emojiText: String? { emoji.isHidden ? nil : emoji.stringValue }
+    var emojiText: String? { emoji.isHidden ? nil : emoji.text }
 
     /// Whether the emoji sits on a color chip (tests).
     var showsChip: Bool {
@@ -51,14 +55,18 @@ final class SidebarIconView: NSView {
         isHidden = !Self.showsIcon(icon, fallback: fallback)
         emoji.isHidden = true
         switch icon {
-        case let .emoji(text, _)?:
-            emoji.stringValue = text
+        case let .emoji(text, chip)?:
+            emoji.text = text
+            emoji.fill = chip == nil ? 0.86 : 0.7
             emoji.isHidden = false
             imageView.isHidden = true
         case let .symbol(name, tint)?:
             let config = SidebarStyle.glyphConfig
             imageView.image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(config)
                 ?? NSImage(systemSymbolName: "terminal", accessibilityDescription: nil)?.withSymbolConfiguration(config)
+            imageView.isHidden = false
+        case let .favicon(favicon)?:
+            imageView.image = NSImage(cgImage: favicon.image, size: NSSize(width: SidebarStyle.kindGlyphSize, height: SidebarStyle.kindGlyphSize))
             imageView.isHidden = false
         case .swatch?:
             imageView.isHidden = true
@@ -77,7 +85,7 @@ final class SidebarIconView: NSView {
         CATransaction.setDisableActions(true)
         performWithTheme {
             let tint: NSColor? = if case let .symbol(_, tint)? = icon {
-                tint.map(SidebarStyle.color) ?? Palette.textSecondary
+                tint.map(SidebarStyle.color) ?? (drawsUncoloredSymbolAsText ? Palette.textPrimary : Palette.textSecondary)
             } else if icon == nil {
                 Palette.textSecondary
             } else {
@@ -101,9 +109,7 @@ final class SidebarIconView: NSView {
     override func layout() {
         super.layout()
         imageView.frame = bounds
-        emoji.font = .systemFont(ofSize: max(8, bounds.height * 0.72))
-        let height = ceil(emoji.intrinsicContentSize.height)
-        emoji.frame = NSRect(x: 0, y: (bounds.height - height) / 2, width: bounds.width, height: height)
+        emoji.frame = bounds
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         if case .emoji(_, _?)? = icon {

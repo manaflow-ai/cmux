@@ -96,6 +96,24 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+# Crash program phase 3 (plans/cmux-next/crash-elimination.md section 7):
+# CMUX_SWIFT_SANITIZE=address|thread|undefined builds and tests under that
+# sanitizer, in its own scratch folder so it never mixes with a normal build.
+case "${CMUX_SWIFT_SANITIZE:-}" in
+  ""|address|thread|undefined) ;;
+  *) echo "package-test-lane.sh: CMUX_SWIFT_SANITIZE must be address, thread or undefined (got '$CMUX_SWIFT_SANITIZE')" >&2; exit 2 ;;
+esac
+
+# A sanitizer runtime adds a C personality routine, and the Rust static libraries the app
+# links bring their own: ld's compact unwind encodes at most three ("Too many personality
+# routines", CmuxNext under thread, 2026-10-09). The test binary keeps DWARF unwind instead.
+sanitize_link_flags=(-Xlinker -no_compact_unwind)
+
+# CMUX_SWIFT_TEST_DEBUG_INFO (dwarf|none): debug info of the test builds; the
+# builds and the test runs below share it (scripts/ci/swift-test-debug-info.sh).
+# shellcheck source=scripts/ci/swift-test-debug-info.sh
+source "$(dirname "${BASH_SOURCE[0]}")/swift-test-debug-info.sh" || exit 2
+
 lane_script="${BASH_SOURCE[0]}"
 work="${RUNNER_TEMP:-}"
 if [ -z "$work" ]; then
@@ -287,7 +305,21 @@ package_args() {
     echo "package '$pkg' not found: give a name under Packages/*/ or a Packages/<group>/<name> path with a Package.swift"
     return 1
   fi
-  swift_test_args=(--package-path "$pkgdir")
+  swift_test_args=(--package-path "$pkgdir" ${swift_test_debug_info_args[@]+"${swift_test_debug_info_args[@]}"})
+  if [ -n "${CMUX_SWIFT_SANITIZE:-}" ]; then
+    swift_test_args+=(--sanitize="$CMUX_SWIFT_SANITIZE" --scratch-path "$pkgdir/.build-sanitize-$CMUX_SWIFT_SANITIZE"
+      "${sanitize_link_flags[@]}")
+  fi
+}
+
+# record_built_ref PKGDIR: after a complete build of PKGDIR, name the commit in
+# its .build. A fleet worker keeps a warm .build after a failed or cancelled step
+# only when this marker was written for the step's commit during the step (hq
+# build-fleet cmd/worker/step_warm.go); a half-written .build is rebuilt cold.
+# Sanitizer builds use their own scratch path, which never stays warm.
+record_built_ref() {
+  [ -z "${CMUX_SWIFT_SANITIZE:-}" ] && [ -d "$1/.build" ] || return 0
+  git rev-parse HEAD > "$1/.build/.cmux-ci-built-ref" 2>/dev/null || true
 }
 
 # One package's build. It exits non-zero when the package is not found or its
@@ -306,6 +338,7 @@ prebuild_one() {
     --timeout-seconds "${CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS:-900}" \
     -- swift build --build-tests "${swift_test_args[@]}" > "$log" 2>&1 < /dev/null || status=$?
   if [ "$status" -eq 0 ]; then
+    record_built_ref "$pkgdir"
     echo "Prebuilt $pkg in $((SECONDS - started))s."
     return 0
   fi
@@ -313,6 +346,7 @@ prebuild_one() {
   # diagnostic after a complete build; anything else is a failed build.
   if [ "$status" -eq 1 ] && grep -q 'GhosttyKit\.xcframework' "$pkgdir/Package.swift" 2>/dev/null \
     && grep -Fq 'Build complete!' "$log" && grep -Eq 'unexpected binary' "$log"; then
+    record_built_ref "$pkgdir"
     echo "Prebuilt $pkg in $((SECONDS - started))s (tolerated the GhosttyKit binaryTarget diagnostic)."
     return 0
   fi
@@ -327,16 +361,33 @@ prebuild_one() {
 # selected packages CMUX_SWIFT_PACKAGE_BUILD_JOBS at a time first; the test
 # pass below then finds each build up to date and runs the tests serially as
 # before, so no two packages' tests ever overlap.
+#
+# A fleet step runs with the cores its worker granted it (CMUX_CI_CPU_BUDGET,
+# hq build-fleet internal/cpubudget), and every swift build here passes --jobs
+# of that grant (swift-test-debug-info.sh). Parallel package builds therefore
+# split the grant: at most one build per 2 granted cores, each build getting
+# its share as its own CMUX_CI_CPU_BUDGET (3 builds x 2 cores on a 6-core
+# grant, where they ran 3 x 6 = 18 compile jobs before). A grant below 4
+# leaves one build at a time: the test pass then builds each package in turn.
 prebuild_packages() {
   local jobs="${CMUX_SWIFT_PACKAGE_BUILD_JOBS:-3}"
-  if ! [[ "$jobs" =~ ^[0-9]+$ ]] || [ "$jobs" -le 1 ] || [ "${SELECTED_COUNT:-0}" -le 1 ]; then
+  if ! [[ "$jobs" =~ ^[0-9]+$ ]]; then
+    return 0
+  fi
+  local grant_env=()
+  if [[ "${CMUX_CI_CPU_BUDGET:-}" =~ ^[1-9][0-9]*$ ]]; then
+    local by_grant=$((CMUX_CI_CPU_BUDGET / 2))
+    [ "$by_grant" -ge "$jobs" ] || jobs="$by_grant"
+    [ "$jobs" -lt 1 ] || grant_env=(CMUX_CI_CPU_BUDGET="$((CMUX_CI_CPU_BUDGET / jobs))")
+  fi
+  if [ "$jobs" -le 1 ] || [ "${SELECTED_COUNT:-0}" -le 1 ]; then
     return 0
   fi
   local logs="$work/package-prebuild" started=$SECONDS
   mkdir -p "$logs"
-  echo "::group::Prebuild $SELECTED_COUNT Swift packages, $jobs at a time"
+  echo "::group::Prebuild $SELECTED_COUNT Swift packages, $jobs at a time${grant_env[0]:+ (${grant_env[0]} each)}"
   grep -v '^$' "$selected" \
-    | RUNNER_TEMP="$work" xargs -P "$jobs" -I '{}' \
+    | env RUNNER_TEMP="$work" ${grant_env[@]+"${grant_env[@]}"} xargs -P "$jobs" -I '{}' \
       bash "$lane_script" prebuild-one '{}' "$logs/{}.log" || true
   echo "::endgroup::"
   echo "Prebuilt $SELECTED_COUNT Swift packages in $((SECONDS - started))s."
@@ -400,6 +451,9 @@ run_package_tests() {
   # or hung package cannot hide the results of the packages after it.
   # test_package returns the package's status instead of exiting; every
   # package gets a summary row, and the summary at the end fails the lane.
+  if grep -Eqx 'CmuxNext|Packages/macOS/CmuxNext/?' "$selected"; then
+    ensure_web_bundles
+  fi
   prebuild_packages
   run_default_package_test() {
     # Blacksmith macOS runners intermittently abort a package's
@@ -496,6 +550,14 @@ run_package_tests() {
   fi
 }
 
+# The cmux-next package tests read the web bundles, which are build output since cx-vn5:
+# make them current before a CmuxNext build (scripts/ci/ensure-web-bundles.sh).
+ensure_web_bundles() {
+  echo "::group::cmux-next web bundles"
+  bash scripts/ci/ensure-web-bundles.sh
+  echo "::endgroup::"
+}
+
 run_suite() {
   select_xcode
   echo "Xcode: $DEVELOPER_DIR"
@@ -504,15 +566,25 @@ run_suite() {
   fi
   # CMUX_SWIFT_SUITE_CONFIGURATION=release builds the suites optimized (measurements of what the
   # user runs); @testable imports then need -enable-testing. The default stays debug.
-  local configuration=(-c "${CMUX_SWIFT_SUITE_CONFIGURATION:-debug}")
+  local configuration=(-c "${CMUX_SWIFT_SUITE_CONFIGURATION:-debug}" ${swift_test_debug_info_args[@]+"${swift_test_debug_info_args[@]}"})
   # Release keeps DEBUG defined, so test helpers behind #if DEBUG still build; the code is optimized.
   # The Xcode 26.6 optimizer crashes in CopyPropagation on CmuxNextSettingsTests (signal 6), so a
   # release suite build turns that one SIL pass off.
   if [ "${CMUX_SWIFT_SUITE_CONFIGURATION:-debug}" = release ]; then
     configuration+=(-Xswiftc -enable-testing -Xswiftc -DDEBUG -Xswiftc -Xllvm -Xswiftc -sil-disable-pass=copy-propagation)
   fi
+  # CMUX_SWIFT_SANITIZE (crash program phase 3): the suites build and run under the sanitizer in
+  # its own scratch folder; the group line names it, so a sanitizer step's log shows it ran.
+  if [ -n "${CMUX_SWIFT_SANITIZE:-}" ]; then
+    configuration+=(--sanitize="$CMUX_SWIFT_SANITIZE" --scratch-path "$suite_package/.build-sanitize-$CMUX_SWIFT_SANITIZE"
+      "${sanitize_link_flags[@]}")
+  fi
+  if [ "$suite_package" = Packages/macOS/CmuxNext ]; then
+    ensure_web_bundles
+  fi
   echo "::group::swift build --build-tests ${configuration[*]} $suite_package"
   swift build --build-tests "${configuration[@]}" --package-path "$suite_package" < /dev/null
+  record_built_ref "$suite_package"
   echo "::endgroup::"
   # swift build copies String Catalogs into the resource bundles uncompiled; without the
   # compiled <lang>.lproj tables, localization suites fail (cmux-next.yml runs the same step).

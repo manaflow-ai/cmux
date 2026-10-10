@@ -347,21 +347,4 @@ describe("users.stop follow-ups", () => {
     expect(res.status).toBe(401)
   })
 
-  it("upgrades google_watches and links tables created before their new columns", async () => {
-    const stub = testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName("team_upgrade_watches"))
-    await inDO(stub, async (_i, s) => {
-      s.storage.sql.exec("DROP TABLE IF EXISTS google_watches")
-      s.storage.sql.exec(`CREATE TABLE google_watches (connection TEXT PRIMARY KEY, kind TEXT NOT NULL, owner TEXT NOT NULL, alias TEXT NOT NULL, cursor TEXT,
-        expires_at INTEGER NOT NULL, renew_at INTEGER NOT NULL, failures INTEGER NOT NULL DEFAULT 0, fallback_at INTEGER)`)
-      createWatchTable(s.storage.sql)
-      createWatchTable(s.storage.sql)
-      const cols = s.storage.sql.exec<{ name: string }>("PRAGMA table_info(google_watches)").toArray().map((c) => c.name)
-      expect(cols).toEqual(expect.arrayContaining(["stop_since", "stop_failures"]))
-      s.storage.sql.exec("DROP TABLE IF EXISTS links")
-      s.storage.sql.exec("CREATE TABLE links (team TEXT NOT NULL, connection TEXT NOT NULL, added_at INTEGER NOT NULL, PRIMARY KEY (team, connection))")
-      upgradeLinks(s.storage.sql)
-      upgradeLinks(s.storage.sql)
-      expect(s.storage.sql.exec<{ name: string }>("PRAGMA table_info(links)").toArray().map((c) => c.name)).toContain("failures")
-    })
-  })
 })

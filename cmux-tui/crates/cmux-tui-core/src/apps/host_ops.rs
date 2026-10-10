@@ -9,14 +9,14 @@
 //! The id is the server's own (any JSON value), echoed back.
 //! - `cmux.host.link.get {}` -> `{binary, hub_socket, state_dir,
 //!   socket_dir, device_name}` from the daemon's own values (see
-//!   [`Supervisor::host_link`]; `hub_socket` is `null` until the link
-//!   lane's registration exists); event `cmux.host.link.changed` with the
-//!   same value. Needs server scope `op:cmux.host.link.get` and a
+//!   [`Supervisor::host_link`]; `hub_socket` is the live link
+//!   registration's socket, else `null`); event `cmux.host.link.changed`
+//!   with the same value. Needs server scope `op:cmux.host.link.get` and a
 //!   first-party app, else `host.error` `apps.scope_missing`.
-//! - `cmux.credential.relay` answers `host.error` `unavailable` until the
-//!   Mac provider side exists (APP-R1): the supervisor will forward the
-//!   request params over the provider channel and the Mac app answers
-//!   through its host capabilities; no user credential enters the daemon.
+//! - `cmux.credential.relay` as a `host.request` answers `host.error`
+//!   `unavailable`: the relay is served for the server's `relay.op` and
+//!   `relay.session` lines (`relay.rs`), which the scope
+//!   `op:cmux.credential.relay` allows; no user credential enters the daemon.
 //! - Any other `cmux.host.*` op answers `host.error` `apps.op.unknown`.
 
 use serde_json::{Value, json};
@@ -30,19 +30,19 @@ impl Supervisor {
     /// hub socket, a link state directory in the app's data directory, the
     /// app's temporary directory for link sockets, and this machine's name.
     ///
-    /// `hub_socket` is always `null` for now. The link lane (lane 12: the
-    /// WireGuard engine and the `cmux link` agent) owns that socket; the
-    /// daemon neither spawns it nor reads it from its launch environment. It
-    /// will come from the link agent's registration file at a well-known
-    /// path under the daemon state directory, which lane 12 defines. Until
-    /// then the Cloud server answers `link_unavailable`.
+    /// `hub_socket` comes from the link agent's registration (lane 12,
+    /// `<daemon state dir>/link.json`, `cmux_link::registration`) and is set
+    /// only while that link runs (its pid is alive and its socket accepts);
+    /// otherwise `null`, and the Cloud server answers `link_unavailable`.
+    /// The daemon never spawns the link and never reads it from its launch
+    /// environment.
     pub(super) fn host_link(&self, app: &str) -> Value {
         let (data, tmp) = self.server_dirs(app);
         let state_dir = data.join("link");
         let _ = std::fs::create_dir_all(&state_dir);
         json!({
             "binary": std::env::current_exe().ok(),
-            "hub_socket": Value::Null,
+            "hub_socket": hub_socket(),
             "state_dir": state_dir,
             "socket_dir": tmp,
             "device_name": device_name(),
@@ -51,7 +51,7 @@ impl Supervisor {
 
     /// Whether `app` may call the host op `op`: a first-party app whose
     /// manifest declares the server scope `op:<op>`.
-    fn host_op_allowed(inner: &Inner, app: &str, op: &str) -> bool {
+    pub(super) fn host_op_allowed(inner: &Inner, app: &str, op: &str) -> bool {
         inner.catalog.packages.get(app).is_some_and(|package| {
             package.tier == Tier::FirstParty
                 && package
@@ -86,9 +86,9 @@ impl Supervisor {
     }
 
     /// Sends `cmux.host.link.changed` to every running server that may read
-    /// the link. Nothing changes the daemon's link values during its life
-    /// yet; the daemon calls this when the link agent's registration (lane
-    /// 12) appears or changes.
+    /// the link. No watch on the link registration calls it yet (a watch
+    /// needs a file-notify dependency in this crate); until then a server
+    /// asks `cmux.host.link.get` again, which reads the registration live.
     #[cfg_attr(not(test), allow(dead_code))]
     pub(super) fn host_link_changed(&self) {
         let inner = self.inner.lock().unwrap();
@@ -100,6 +100,28 @@ impl Supervisor {
             }
         }
     }
+}
+
+/// How long the liveness probe of the link registration may take: the
+/// caller holds the supervisor lock, and a link with a full accept backlog
+/// would block a plain connect.
+const LINK_PROBE: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// The live link registration's socket, if a link runs: `link.json` in the
+/// daemon state directory, the directory the link agent registers in (the
+/// parent of its own `link` directory). A probe that does not finish within
+/// [`LINK_PROBE`] counts as no link.
+fn hub_socket() -> Option<std::path::PathBuf> {
+    let dir = crate::platform::workspace_state_dir()?;
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    std::thread::Builder::new()
+        .name("cmux-apps-link-probe".into())
+        .spawn(move || {
+            let live = cmux_link::registration::read_live(&dir).map(|r| r.socket);
+            let _ = sender.send(live);
+        })
+        .ok()?;
+    receiver.recv_timeout(LINK_PROBE).ok().flatten()
 }
 
 /// This machine's name, or `cmux`.

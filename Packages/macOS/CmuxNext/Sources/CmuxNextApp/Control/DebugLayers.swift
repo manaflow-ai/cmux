@@ -18,6 +18,30 @@ enum DebugLayers {
         return .object([
             "windows": .array(windows),
             "consistent": .bool(windows.allSatisfy { $0["consistent"]?.boolValue == true }),
+            "layout_passes": layoutPasses(),
+        ])
+    }
+
+    /// `LayoutPassGuard`: the most layout calls one view had in one
+    /// run-loop turn, the loops it caught (view class, window, ancestry)
+    /// and the busiest view classes since launch or the last reset.
+    static func layoutPasses() -> JSONValue {
+        let guardian = LayoutPassGuard.shared
+        return .object([
+            "installed": .bool(guardian.isInstalled),
+            "bound": .number(Double(LayoutPassGuard.bound)),
+            "max_in_one_turn": .number(Double(guardian.maxPassesInOneTurn)),
+            "loops": .array(guardian.reports.map { report in
+                .object([
+                    "view_class": .string(report.viewClass),
+                    "window_class": report.windowClass.map(JSONValue.string) ?? .null,
+                    "ancestry": .array(report.ancestry.map(JSONValue.string)),
+                    "passes": .number(Double(report.passes)),
+                ])
+            }),
+            "top_classes": .array(guardian.passesByClass.prefix(20).map { entry in
+                .object(["view_class": .string(entry.viewClass), "passes": .number(Double(entry.passes))])
+            }),
         ])
     }
 
@@ -141,7 +165,7 @@ enum DebugLayers {
     /// tab drag API (the one `TabDropTargets` calls on every drag move) at
     /// `pane`'s point `at` ([fx, fy] fractions, default center), so the drop
     /// zone shows over that pane without moving the user's pointer.
-    /// `"end": true` cancels it.
+    /// `"end": true` cancels it; `"report": true` only reads its state.
     static func dropHighlight(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         let windowID = params["window"]?.stringValue
         guard let controller = services.windows.controllers.first(where: { windowID == nil || $0.state.id == windowID }),
@@ -155,6 +179,13 @@ enum DebugLayers {
         if params["end"]?.boolValue == true {
             layout.cancelTabDrag()
             return .object(["ended": .bool(true)])
+        }
+        // `"report": true` reads the overlay without driving it: after a real
+        // drop the ring must be gone and stay gone (cx-ohle).
+        if params["report"]?.boolValue == true {
+            return .object(["showing": .bool(layout.dropHighlightShowing),
+                            "ring_opacity": layout.dropRingOpacity.map { .number(Double($0)) } ?? .null,
+                            "style": .string(String(describing: layout.dropHighlightStyle))])
         }
         guard let pane = params["pane"]?.stringValue ?? controller.focus.state.pane,
               let frame = layout.frame(of: LayoutPaneID(pane)) else { return .object(["error": .string("no pane")]) }

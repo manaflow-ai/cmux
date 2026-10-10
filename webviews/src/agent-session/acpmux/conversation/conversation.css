@@ -459,6 +459,34 @@ pre.cv-math-source {
   left: max(var(--cv-gutter), calc((100% - var(--cv-column)) / 2));
   right: max(var(--cv-gutter), calc((100% - var(--cv-column)) / 2));
 }
+/* Keyboard transcript selection uses a roving article tab stop. The fill is deliberately on the
+   row rather than the prose so a range remains visible while its rows virtualize in and out. */
+.acpmux-row[data-transcript-selected="true"] {
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--agent-accent) 8%, transparent);
+}
+.acpmux-row[data-transcript-active="true"]:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
+  outline-offset: -1.5px;
+  border-radius: 8px;
+}
+.acpmux-row__copy {
+  position: absolute;
+  z-index: var(--layer-raised);
+  top: 0;
+  right: 0;
+  opacity: 0;
+}
+.acpmux-row:hover .acpmux-row__copy,
+.acpmux-row:focus-within .acpmux-row__copy,
+.acpmux-row[data-transcript-selected="true"] .acpmux-row__copy {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-row__copy {
+    transition: opacity 120ms ease-out;
+  }
+}
 .acpmux-permission {
   padding-left: max(var(--cv-gutter), calc((100% - var(--cv-column)) / 2));
   padding-right: max(var(--cv-gutter), calc((100% - var(--cv-column)) / 2));
@@ -650,6 +678,28 @@ pre.cv-math-source {
   margin-top: 6px;
   text-align: right;
 }
+/* The images a tool call returned or wrote (ToolRow): a row of capped thumbnails, so a long
+   transcript stays light; a click opens the image viewer. */
+.cv-tool-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 8px;
+}
+.cv-tool-images .cv-img {
+  max-width: min(100%, 360px);
+  max-height: 220px;
+  margin: 0;
+  object-fit: contain;
+  background: var(--cv-card-fill);
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+}
+
+.cv-tool-images .cv-media.is-video video {
+  max-width: min(100%, 360px);
+  max-height: 220px;
+}
+
 .cv-tool-output {
   margin: 4px 0 8px;
   max-height: 240px;
@@ -807,16 +857,25 @@ pre.cv-math-source {
   margin: 0 10px 8px 32.5px;
 }
 
-/* Copy under an answer; the row's height is reserved. */
+/* Copy under an answer; the row's height is reserved. A long failure note (a gateway 503) wraps
+ * and grows the row instead of overflowing a fixed 28px box, which cut its first and last lines. */
 .cv-turn-actions {
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 28px;
+  min-height: 28px;
   margin-left: -4.5px;
   color: var(--cv-text-muted);
   font-family: var(--cv-font);
   font-size: 13px;
+}
+.cv-turn-action-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.cv-turn-action-group:empty {
+  display: none;
 }
 .cv-iconbtn {
   all: unset;
@@ -830,9 +889,33 @@ pre.cv-math-source {
   color: var(--cv-text-muted);
   cursor: pointer;
 }
+.cv-iconbtn--compact {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+}
 .cv-iconbtn:hover {
   color: var(--cv-text);
   background: color-mix(in srgb, var(--cv-fg) 6%, transparent);
+}
+.cv-turn-auth-action {
+  all: unset;
+  box-sizing: border-box;
+  min-height: 26px;
+  padding: 3px 9px;
+  border: 1px solid color-mix(in srgb, var(--agent-accent) 34%, transparent);
+  border-radius: 6px;
+  color: var(--agent-accent);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 18px;
+}
+.cv-turn-auth-action:hover {
+  background: color-mix(in srgb, var(--agent-accent) 10%, transparent);
+}
+.cv-turn-auth-action:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
+  outline-offset: 1px;
 }
 .cv-turn-summary,
 .cv-turn-note,
@@ -842,6 +925,18 @@ pre.cv-math-source {
 }
 .cv-turn-summary {
   margin-left: 4.5px;
+}
+.cv-turn-summary,
+.cv-turn-time {
+  flex: none;
+  white-space: nowrap;
+}
+.cv-turn-note {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-block: 5px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
 }
 
 /* R104: a block that appears while the reply streams, and a row that arrives live (a reply, a
@@ -989,6 +1084,130 @@ pre.cv-math-source {
   margin: 6px 0;
   border-radius: 8px;
 }
+/* A reply image that opens the image viewer (ImageViewer.tsx). */
+.cv-img-open {
+  all: unset;
+  display: block;
+  max-width: 100%;
+  cursor: zoom-in;
+}
+.cv-img-open:focus-visible .cv-img {
+  outline: 2px solid var(--agent-accent-soft);
+  outline-offset: 2px;
+}
+
+/* The image viewer: one image over the whole pane, a bar with its name, position, copy and close,
+   and arrows through the chat's images at the sides. */
+.acpmux-image-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  background: color-mix(in srgb, var(--agent-page-bg) 94%, transparent);
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+  color: var(--agent-text);
+  outline: none;
+}
+.acpmux-image-viewer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+}
+.acpmux-image-viewer-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.acpmux-image-viewer-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 44px;
+  padding: 0 10px 0 16px;
+  font-size: 13px;
+}
+.acpmux-image-viewer-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-image-viewer-count {
+  margin-right: 8px;
+  color: var(--agent-muted);
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-image-viewer-action,
+.acpmux-image-viewer-step {
+  all: unset;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  color: var(--agent-muted);
+  cursor: pointer;
+}
+.acpmux-image-viewer-action:hover,
+.acpmux-image-viewer-step:hover {
+  color: var(--agent-text);
+  background: var(--agent-control-hover);
+}
+.acpmux-image-viewer-action:focus-visible,
+.acpmux-image-viewer-step:focus-visible {
+  outline: 2px solid var(--agent-accent-soft);
+}
+.acpmux-image-viewer-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Symmetric, so the stage's center is the fitted image's center (zoomAbout in ImageViewer.tsx). */
+  padding: 16px 56px;
+  overflow: hidden;
+  touch-action: none;
+}
+.acpmux-image-viewer-stage.is-zoomed {
+  cursor: grab;
+}
+.acpmux-image-viewer-stage.is-zoomed:active {
+  cursor: grabbing;
+}
+.acpmux-image-viewer-image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 8px;
+  transform-origin: center;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.acpmux-image-viewer-stage:not(.is-zoomed) .acpmux-image-viewer-image {
+  cursor: zoom-in;
+}
+.acpmux-image-viewer-step {
+  position: absolute;
+  top: 50%;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  transform: translateY(-50%);
+  background: var(--agent-control);
+}
+.acpmux-image-viewer-step.is-previous {
+  left: 12px;
+}
+.acpmux-image-viewer-step.is-next {
+  right: 12px;
+}
 
 /* A shell mode command's block (shell/ShellRow.tsx): the command in mono after a `!` in the
    theme's magenta, one status slot (Stop while it runs, then exit status and time), "Open in
@@ -1118,6 +1337,43 @@ pre.cv-math-source {
   outline-offset: 1px;
 }
 
+/* A render card (RenderCard.tsx): a quiet head over the live frame, which takes its page's height. */
+.acpmux-render-card {
+  position: relative;
+  margin-bottom: 6px;
+  border-radius: 9px;
+  overflow: hidden;
+  background: var(--agent-page-bg);
+  box-shadow: inset 0 0 0 0.5px var(--agent-border-strong, var(--agent-border));
+}
+.acpmux-render-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  box-sizing: border-box;
+  padding: 4px 6px 4px 12px;
+  box-shadow: inset 0 -1px 0 var(--agent-border);
+}
+.acpmux-render-card-head .acpmux-review-changes {
+  height: 24px;
+}
+.acpmux-render-card-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--agent-muted);
+  font-size: 12.5px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.acpmux-render-card-frame {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+}
+
 /* A message that could not be drawn (MessageBoundary.tsx): a note over its plain source text. */
 .cv-unrendered__note {
   margin: 0 0 6px;
@@ -1160,4 +1416,135 @@ pre.cv-math-source {
   color: var(--agent-text);
   font: inherit;
   cursor: pointer;
+}
+
+/* Charts in replies (DiagramBlock). */
+.cv-diagram {
+  margin: 8px 0;
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  overflow: hidden;
+}
+.cv-diagram__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 28px;
+  padding: 0 6px 0 10px;
+  font-size: 11px;
+  background: var(--cv-card-fill);
+}
+.cv-diagram__lang {
+  opacity: 0.7;
+}
+.cv-diagram__toggle {
+  border: 0;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+}
+.cv-diagram__toggle:hover {
+  background: var(--cv-card-ring);
+}
+.cv-diagram__chart {
+  min-height: 120px;
+  padding: 12px;
+  overflow-x: auto;
+}
+.cv-diagram__chart svg {
+  max-width: 100%;
+  height: auto;
+}
+.cv-diagram__error {
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--agent-danger);
+}
+.cv-diagram .cv-codeblock {
+  margin: 0;
+  border-radius: 0;
+}
+
+/* Find in Chat (conversation/ChatFindBar.tsx, chatFind.ts): a compact bar pinned to the
+   transcript's top right, over the rows, like the minimap; the matches are custom highlights. */
+.acpmux-find {
+  position: sticky;
+  top: 0;
+  z-index: var(--layer-sticky, 10);
+  height: 0;
+}
+.acpmux-find__bar {
+  position: absolute;
+  top: 8px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 28px;
+  padding: 0 3px 0 9px;
+  border: 0.5px solid var(--agent-border);
+  border-radius: 8px;
+  background: var(--acpmux-base, var(--agent-page-bg));
+  box-shadow: 0 4px 14px var(--agent-shadow, rgb(0 0 0 / 18%));
+  font-family: var(--cv-font);
+  font-size: var(--text-body);
+}
+.acpmux-find__field {
+  width: 180px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: none;
+  color: var(--agent-text);
+  font: inherit;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.acpmux-find__field::placeholder {
+  color: var(--agent-muted);
+}
+.acpmux-find__field::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+.acpmux-find__count {
+  min-width: 0;
+  padding-right: 4px;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.acpmux-find__step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--agent-soft, var(--agent-muted));
+  cursor: default;
+}
+.acpmux-find__step:hover:not(:disabled) {
+  background: var(--agent-control-hover, color-mix(in srgb, var(--agent-text) 6%, transparent));
+}
+.acpmux-find__step:disabled {
+  opacity: 0.4;
+}
+.acpmux-find__step:focus-visible {
+  outline: 2px solid var(--agent-accent);
+  outline-offset: -2px;
+}
+::highlight(acpmux-find) {
+  background-color: color-mix(in srgb, #f5c542 40%, transparent);
+}
+::highlight(acpmux-find-active) {
+  background-color: #f5c542;
+  color: #1d1d1f;
 }

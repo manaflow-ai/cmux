@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextBridge
 import CmuxNextDaemon
@@ -62,10 +63,9 @@ final class WindowManager {
     /// Windows being closed by the registry (not by the user).
     var programmaticCloses: Set<String> = []
     private(set) var restored = false
-    /// The window opened at launch, before the saved state loaded: it shows
-    /// the connecting state outside the registry, then becomes the frontmost
-    /// restored window (or the window of the first workspaces). Nil once it
-    /// is registered.
+    /// The window opened at launch before the saved state loaded: it shows the connecting state
+    /// outside the registry, then becomes the frontmost restored window (or the window of the
+    /// first workspaces). Nil once it is registered.
     var launchWindowID: String?
     /// Windows placed by `TestWindowPlacement` so far (cascade ordinal).
     private var placedWindows = 0
@@ -160,7 +160,7 @@ final class WindowManager {
         }
         let store = services.daemon.store
         loadObservation = Task { [weak self] in
-            for await loaded in Observations({ store.isLoaded }) where loaded {
+            for await loaded in ObservationStream({ store.isLoaded }) where loaded {
                 await self?.restore()
                 return
             }
@@ -178,18 +178,15 @@ final class WindowManager {
         }
         // Incognito workspaces a crashed run left on a daemon without state
         // resources: the app's ledger owns them, so they close, never shown.
-        // A daemon with state resources owns its ephemeral workspaces (it
-        // closes them at its next start); until then they show in an
-        // incognito window, never a normal one, so wait for its flags.
+        // A daemon with state resources owns its ephemeral workspaces (it closes them at its
+        // next start); until then they show in an incognito window only, so wait for its flags.
         let leftover = await incognitoLedger.load()
         if !leftover.isEmpty {
             registry.apply { $0.markDiscarding(leftover); return WindowRegistry.Changes() }
             discard(leftover)
         }
         await EphemeralWorkspaces.awaitFlags(self)
-        if FirstWorkspace.isNeeded(services.daemon.store.workspaces, leftover: leftover) {
-            _ = await createWorkspace(newTabPage: true)
-        }
+        let firstWorkspace = await FirstWorkspaceLaunch(manager: self).create(leftover: leftover)
         let restoredRegistry = WindowRegistry(records: document.windows)
         let adopted = adoptLaunchWindow(restoredRegistry, records: document.windows)
         for record in document.windows where states[record.id] == nil { states[record.id] = WindowState(record: record) }
@@ -217,6 +214,7 @@ final class WindowManager {
         observeMembership()
         sessionRegistrar.start()
         registry.isLaunching = false
+        FirstWorkspaceLaunch(manager: self).land(firstWorkspace) // its New Tab page, not Home
     }
 
     /// The launch window takes the frontmost saved window's identity and
@@ -255,7 +253,7 @@ final class WindowManager {
         let controller = WindowController(state: state, services: services, frame: frame)
         controller.sidebar.restore(width: state.sidebarWidth, hidden: state.sidebarHidden)
         if registry.value.isIncognito(window.id) { controller.showIncognitoBadge() }
-        services.dragSession.installWorkspaceHandoff(on: controller)
+        SidebarTabRowHandoff.install(on: controller, session: services.dragSession)
         controllers.append(controller)
         // A window none of whose workspaces is mirrored yet stays off screen
         // until `contentDidAppear` (never an empty frame). The launch window
@@ -322,6 +320,7 @@ final class WindowManager {
     func windowWillClose(_ controller: WindowController) {
         let id = controller.state.id
         controllers.removeAll { $0 === controller }
+        if lastActive === controller { lastActive = nil } // S22: a closed window is never active, even if retained.
         awaitingContent[id] = nil
         contentWaiters[id] = nil
         controller.teardown()

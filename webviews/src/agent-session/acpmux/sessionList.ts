@@ -26,6 +26,10 @@ export type AcpmuxSessionEntry = {
   worktree?: string;
   /** Pinned by the fixture's flag, or tagged `pinned` through `_acpmux/tag`; listed under Pinned instead of its project. */
   pinned?: boolean;
+  /** Tagged `archived` through `_acpmux/tag` (the chat menu's Archive): off every list, found only by search. */
+  archived?: boolean;
+  /** A side chat: a fork tagged `side` with its chat's session, shown beside that chat and off every list. */
+  side?: boolean;
   pullRequest?: SessionPullRequest;
   /** A line of the session's latest reply, for previews. */
   preview?: string;
@@ -57,6 +61,19 @@ export type SessionGroup = {
 
 /** The tag that pins a session to the top of the list. */
 export const PINNED_TAG = "pinned";
+/** The tag the chat menu's Archive sets. */
+export const ARCHIVED_TAG = "archived";
+/** The tag New side chat sets on its fork (the value is the chat's session). */
+export const SIDE_TAG = "side";
+
+/** Whether a session belongs in the sidebar, Home and recents: neither archived nor a side chat. */
+export const listed = (session: AcpmuxSessionEntry) => !session.archived && !session.side;
+
+/** Whether acpmux's tags (an object of key to value; a list in older fixtures) hold `tag`. */
+function tagged(tags: unknown, tag: string): boolean {
+  if (Array.isArray(tags)) return tags.includes(tag);
+  return typeof tags === "object" && tags !== null && tag in tags;
+}
 
 /** What a row draws at its right edge, most urgent first. */
 export type SessionMark = "input" | "running" | "error" | "unread" | undefined;
@@ -84,7 +101,9 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     hostKind: hostKind(session.hostKind),
     branch: text(session.branch),
     worktree: text(session.worktree),
-    pinned: session.pinned === true || (Array.isArray(session.tags) && session.tags.includes(PINNED_TAG)),
+    pinned: session.pinned === true || tagged(session.tags, PINNED_TAG),
+    archived: session.archived === true || tagged(session.tags, ARCHIVED_TAG),
+    side: session.side === true || tagged(session.tags, SIDE_TAG),
     pullRequest: pullRequest(session.pullRequest),
     preview: text(session.preview),
   };
@@ -121,6 +140,14 @@ export function sessionTitle(
   return session.title?.trim() || session.lastPrompt?.trim() || t("sidebar.newChat");
 }
 
+/**
+ * A folderless workspace's private chat folder, `~/Library/Application Support/cmux/agent-home/<workspace-id>`
+ * (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE). It is not a project, so it is never shown by its id.
+ */
+export function isAgentHome(cwd: string | undefined): boolean {
+  return /\/Library\/Application Support\/cmux\/agent-home(?:\/|$)/.test(cwd ?? "");
+}
+
 /** A project's name for its header: the folder's last component, `~` for a home folder. */
 export function projectLabel(cwd: string | undefined, t: Translate = translate): string {
   const trimmed = (cwd ?? "").replace(/\/+$/, "");
@@ -138,6 +165,11 @@ export function homePath(path: string): string {
 /** Newest first. */
 function byRecency(sessions: AcpmuxSessionEntry[]): AcpmuxSessionEntry[] {
   return [...sessions].sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0));
+}
+
+/** A stable newest-first view for ungrouped sidebar sections. */
+export function sortByRecency(sessions: AcpmuxSessionEntry[]): AcpmuxSessionEntry[] {
+  return byRecency(sessions);
 }
 
 /** Sessions under one header per folder (a cloud-only folder per machine). Groups follow their most recent session; sessions stay newest first. */
@@ -215,14 +247,15 @@ export function filterSessions(sessions: AcpmuxSessionEntry[], query: string): A
   });
 }
 
-/** The list's two sections: pinned sessions, newest first, then every other session grouped by project. A query narrows both. */
+/** The list's two sections: pinned sessions, newest first, then every other session grouped by project. A query narrows both. Archived sessions and side chats are in neither. */
 export function sidebarSections(
-  sessions: AcpmuxSessionEntry[],
+  all: AcpmuxSessionEntry[],
   query = "",
 ): {
   pinned: AcpmuxSessionEntry[];
   groups: SessionGroup[];
 } {
+  const sessions = all.filter(listed);
   const pinned = byRecency(
     filterSessions(
       sessions.filter((session) => session.pinned),

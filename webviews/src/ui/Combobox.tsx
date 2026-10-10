@@ -27,9 +27,21 @@ export interface ComboboxProps {
   inputRef?: React.Ref<HTMLInputElement>;
   /** Render the suggestions under the field in place (inside a popover) instead of in a popup. */
   inline?: boolean;
+  /** Keep a multi-control panel open when focus moves to its buttons. */
+  cancelOnBlur?: boolean;
+  /** Disabled rows remain visible but cannot be highlighted or submitted. */
+  isItemDisabled?(value: string): boolean;
+  /** true: the first row highlights while filtering; "always": also before any typing. */
+  autoHighlight?: boolean | "always";
+  /** Handle a shortcut while the Base UI input owns focus. */
+  onCommand?(event: KeyboardEvent<HTMLInputElement>): void;
+  /** Class for the Base UI root when the field and list are laid out together. */
+  rootClassName?: string;
   /** A row's content (a name over a path); default: the suggestion text. The row still submits
    * and completes its suggestion string. */
   renderItem?(value: string): ReactNode;
+  /** The highlighted suggestion changed (arrows, pointer); undefined when none is. */
+  onHighlight?(value: string | undefined): void;
 }
 
 export function Combobox({
@@ -45,7 +57,13 @@ export function Combobox({
   itemClassName,
   inputRef,
   inline = false,
+  cancelOnBlur = true,
+  isItemDisabled,
+  autoHighlight = false,
+  onCommand,
+  rootClassName,
   renderItem,
+  onHighlight,
 }: ComboboxProps) {
   const container = usePortalContainer();
   const [value, setValue] = useState(defaultValue);
@@ -55,12 +73,15 @@ export function Combobox({
     onQuery(next);
   };
   const onKeyDown = (event: BaseUIKeyEvent) => {
+    onCommand?.(event);
+    if (event.defaultPrevented) return;
     if (event.metaKey || event.ctrlKey || event.altKey) return;
     const typed = event.currentTarget.value;
     if (event.key === "Enter") {
       event.preventDefault();
       event.preventBaseUIHandler?.();
-      onSubmit(highlighted ?? typed);
+      const next = highlighted && suggestions.includes(highlighted) ? highlighted : typed;
+      if (!isItemDisabled?.(next)) onSubmit(next);
     } else if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
@@ -72,34 +93,57 @@ export function Combobox({
       update(highlighted ?? suggestions[0]);
     }
   };
+  const enabledSuggestions = suggestions.filter((item) => !isItemDisabled?.(item));
+  const disabledSuggestions = suggestions.filter((item) => isItemDisabled?.(item));
+  const renderItemContent = (item: string) => (renderItem ? renderItem(item) : item);
   const list = (
     <Autocomplete.List
       className={cx("ui-combobox-list", listClassName)}
       render={<ul />}
       hidden={suggestions.length === 0}
     >
-      {(item: string) => (
-        <Autocomplete.Item
+      <Autocomplete.Collection>
+        {(item: string) => (
+          <Autocomplete.Item
+            key={item}
+            value={item}
+            className={cx("ui-combobox-item", itemClassName)}
+            render={<li />}
+            onClick={() => onSubmit(item)}
+          >
+            {renderItemContent(item)}
+          </Autocomplete.Item>
+        )}
+      </Autocomplete.Collection>
+      {disabledSuggestions.map((item) => (
+        <li
           key={item}
-          value={item}
+          // The disabled rows stay out of Base UI's collection, but retain listbox semantics.
+          // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-to-interactive-role, jsx-a11y/prefer-tag-over-role
+          role="option"
+          aria-disabled="true"
+          aria-selected="false"
+          data-disabled
           className={cx("ui-combobox-item", itemClassName)}
-          render={<li />}
-          onClick={() => onSubmit(item)}
         >
-          {renderItem ? renderItem(item) : item}
-        </Autocomplete.Item>
-      )}
+          {renderItemContent(item)}
+        </li>
+      ))}
     </Autocomplete.List>
   );
-  return (
+  const root = (
     <Autocomplete.Root
-      items={suggestions as string[]}
+      items={enabledSuggestions as string[]}
       filter={null}
       value={value}
       onValueChange={(next) => update(next)}
-      open={inline || suggestions.length > 0}
+      open={inline || enabledSuggestions.length > 0}
       inline={inline}
-      onItemHighlighted={(item) => setHighlighted(item as string | undefined)}
+      autoHighlight={autoHighlight}
+      onItemHighlighted={(item) => {
+        setHighlighted(item as string | undefined);
+        onHighlight?.(item as string | undefined);
+      }}
     >
       <Autocomplete.Input
         ref={inputRef}
@@ -109,7 +153,9 @@ export function Combobox({
         spellCheck={false}
         onKeyDown={onKeyDown}
         // A press on a suggestion keeps focus in the field (Base UI items are not focusable).
-        onBlur={() => onCancel()}
+        onBlur={() => {
+          if (cancelOnBlur) onCancel();
+        }}
       />
       {inline ? (
         list
@@ -122,4 +168,5 @@ export function Combobox({
       )}
     </Autocomplete.Root>
   );
+  return rootClassName ? <div className={rootClassName}>{root}</div> : root;
 }

@@ -39,7 +39,9 @@ import Testing
             }
             for placement in plan.contextMenus {
                 if placement.style == .choices {
-                    let hasChoices = descriptor.arguments.contains { ActionRegistry.menuChoices($0) != nil }
+                    let hasChoices = descriptor.arguments.contains {
+                        ActionRegistry.menuChoices($0) != nil || ActionTargetChoices.kind(of: $0, in: descriptor) != nil
+                    }
                     #expect(hasChoices, "\(id): choices needs an argument with menu choices")
                 }
                 if let parent = placement.parent {

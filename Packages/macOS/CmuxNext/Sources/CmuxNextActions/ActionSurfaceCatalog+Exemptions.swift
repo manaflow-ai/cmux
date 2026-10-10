@@ -27,13 +27,13 @@ nonisolated extension ActionSurfaceCatalog {
         "palette.layout.open", "workspace.newAbove", "workspace.newBelow", "workspace.newAtTop",
         "workspace.newAtBottom", "workspace.newInGroup", "workspace.newInNewGroup", "workspace.newOnMachine",
         "workspace.newInSameDirectory", "workspace.duplicate", "workspace.duplicateTerminalsOnly", "workspace.setIcon",
-        "workspace.clearIcon", "workspace.moveToBottom", "workspace.moveToNewGroup", "workspace.closeOthersInGroup",
+        "workspace.clearIcon", "workspace.toggleTop", "workspace.moveToBottom", "workspace.moveToNewGroup", "workspace.closeOthersInGroup",
         "workspace.sortByName", "workspace.sortByLastUsed", "workspace.sortByDirectory", "workspaceGroup.collapseAll",
         "workspaceGroup.expandAll", "workspace.mergeInto", "pane.moveToNewWorkspace", "newWorkspaceGroup",
-        "moveWorkspaceToGroup", "removeWorkspaceFromGroup", "workspaceGroup.setColor", "workspaceGroup.collapse",
+        "moveWorkspaceToGroup", "removeWorkspaceFromGroup", "workspaceGroup.setColor", "workspaceGroup.setIcon", "workspaceGroup.clearIcon", "workspaceGroup.collapse",
         "workspaceGroup.expand", "workspaceGroup.moveUp", "workspaceGroup.moveDown", "workspaceGroup.moveToWindow",
         "workspaceGroup.closeWorkspaces", "workspaceGroup.moveToNewWindow",
-        "space.newWindow", "space.newWorkspace", "space.rename", "space.setColor", "space.clearColor",
+        "space.newWindow", "space.newWorkspace", "space.newGroup", "space.rename", "space.setColor", "space.clearColor",
         "space.setIcon", "space.clearIcon", "space.setDefaults", "space.delete", "space.moveLeft",
         "space.moveRight", "space.move", "space.switch", "workspace.moveToSpace", "workspace.duplicateToSpace",
         "workspaceGroup.moveToSpace", "space.setTheme", "space.clearTheme",
@@ -50,6 +50,7 @@ nonisolated extension ActionSurfaceCatalog {
         "moveSurfaceLeft", "moveSurfaceRight", "moveSurfaceToPreviousPane", "moveSurfaceToNextPane",
         "moveSurfaceToPaneLeft", "moveSurfaceToPaneRight", "moveSurfaceToPaneUp", "moveSurfaceToPaneDown",
         "palette.moveTabToNewWorkspace", "palette.toggleTabPin", "palette.toggleTabUnread", "duplicateTab",
+        "tab.setIcon", "tab.clearIcon",
         "reloadTab", "reopenClosedBrowserPanel", "tabGroup.create",
         "tabGroup.addTab", "tabGroup.removeTab", "tabGroup.rename", "tabGroup.setColor", "tabGroup.collapse",
         "tabGroup.expand", "tabGroup.ungroup", "tabGroup.close", "tabGroup.moveToNewSplit", "tabGroup.moveToNewColumn",
@@ -64,6 +65,7 @@ nonisolated extension ActionSurfaceCatalog {
         "screenGroup.moveToWorkspace", "screenGroup.moveToNewWorkspace", "screenGroup.moveToNewWindow",
         "screenGroup.save", "screenGroup.unsave", "screenGroup.reopenSaved", "screenGroup.deleteSaved",
         "terminal.keep", "clearScreenKeepScrollback", "resetTerminal", "reconnectPane", "resumeCommandSet",
+        "agentPaneZoomIn", "agentPaneZoomOut", "agentPaneZoomReset",
         "resumeCommandClear", "palette.terminalOpenDirectory", "browserReload",
         "browserHardReload", "browser.openInChromium", "browser.openInWebKit", "splitBrowserRight", "splitBrowserDown",
         "palette.browserOpenDefault", "palette.browserClearHistory", 
@@ -96,7 +98,7 @@ nonisolated extension ActionSurfaceCatalog {
         "remote.openTerminalHere", "remote.reconnect", "remote.disconnect", "remote.install", "remote.forget",
         "reloadConfiguration", "palette.makeDefaultBrowser", "palette.makeDefaultTerminal", "palette.toggleSetting",
         "palette.shortcutKeymap", "palette.installCLI", "palette.uninstallCLI", "palette.restartSocketListener",
-        "palette.checkForUpdates", "updates.whatsNew", "announcements.show", "announcements.hide", "palette.applyUpdateIfAvailable", "palette.switchAppChannel", "palette.importClassicSessions",
+        "palette.checkForUpdates", "updates.whatsNew", "announcements.show", "announcements.hide", "palette.applyUpdateIfAvailable", "palette.switchAppChannel",
         "appearance.density.compact", "appearance.density.comfortable", "appearance.animationSpeed.fast",
         "appearance.animationSpeed.normal", "appearance.animationSpeed.off", "browser.defaultEngine.chromium",
         "browser.defaultEngine.webkit", "appearance.paneBorder.toggle", "appearance.panePadding.toggle",
@@ -113,7 +115,7 @@ nonisolated extension ActionSurfaceCatalog {
         "terminal.sendText", "history.show", "agentActivity.open", "history.resumeAgentSession", "history.reopen", "history.open", "history.clear",
         "layout.undo", "bookmark.addPage", "bookmark.addAllTabs", "bookmark.add", "bookmark.newFolder",
         "bookmark.open", "bookmark.openInNewTab", "bookmark.openInBackgroundTab", "bookmark.openAll", "bookmark.edit",
-        "bookmark.move", "bookmark.remove", "bookmark.import", "bookmark.export",
+        "bookmark.move", "bookmark.remove", "bookmark.import", "bookmark.importFromBrowser", "bookmark.export",
     ]
 
     /// Why the CLI has no verb for an action (`cmux action run <id>` still runs it).
@@ -144,7 +146,7 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.openFilesPane",
         ],
         .guiOnly: [
-            "openSettings", "minimizeWindow", "toggleFullScreen", "globalSearch", "commandPalette", "appearance.customize",
+            "notifications.dismissHighlight", "openSettings", "minimizeWindow", "toggleFullScreen", "globalSearch", "commandPalette", "appearance.customize",
             "closeAllWindows", "zoomWindow", "selectNextWindow", "selectPreviousWindow",
             "palette.openTaskManager", "palette.sleepyMode", "about", "palette.workspaceCustomColor",
             "revealWorkspaceInFinder", "workspaceGroup.editConfig", "manageLayouts",
@@ -164,9 +166,10 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording",
             "palette.cloud.tools", "cloudOpenMachine", "openTeamPicker", "palette.mobileConnect",
             "palette.openCmuxSettingsFile", "palette.openGhosttySettings", "ghostty.showDiagnostics", "palette.searchShortcuts", "agentPane.searchChats",
-            "palette.pro.upgrade", "palette.welcomeChecklist", "sendFeedback", "help.featureFlags",
+            "palette.pro.upgrade", "sendFeedback", "help.featureFlags",
             "help.documentation", "recentlyFocused", "recentlyClosed", "history.commands", "browserShowHistory",
             "history.search", "bookmark.toggleBar", "bookmark.manager", "browserLinkHints", "browserLinkHintsNewSplit",
+            "sidebar.profileMenu", "browser.downloads.showFolder",
         ],
         .liveInput: [
             "palette.toggleDictation",
@@ -214,7 +217,7 @@ nonisolated extension ActionSurfaceCatalog {
             "selectWorkspaceByNumber", "workspace.selectFirst",
             "workspace.selectLast", "workspace.selectLastUsed", "space.next", "space.previous", "space.selectByNumber",
             "focusLeft", "focusRight", "focusUp", "focusDown", "focusPreviousPane", "focusNextPane",
-            "canvasRevealFocusedPane", "nextSurface", "prevSurface", "selectSurfaceByNumber",
+            "canvasRevealFocusedPane", "navigate.next", "navigate.previous", "nextSurface", "prevSurface", "selectSurfaceByNumber",
             "screen.next", "screen.previous", "screen.select", "screen.selectLast", "focusTextBoxInput",
             "focusBrowserAddressBar", "focusLocation", "focusRightSidebar", "vaultFocusSession", "jumpToUnread",
             "markOldestUnreadAndJumpNext", "notificationOpen", "computerUseFocus", "computerUseFocusCallingTerminal",
@@ -240,7 +243,7 @@ nonisolated extension ActionSurfaceCatalog {
             "commandPaletteNext", "commandPalettePrevious",
         ],
         .devOnly: [
-            "openDebugSettings", "palette.onboardingGallery",
+            "openDebugSettings",
         ],
     ]
 
@@ -290,6 +293,7 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.switchAppChannel",
             // Opens TextEdit on the user's desktop: a person's choice.
             "help.showCrashLogs",
+            "agentPaneZoomIn", "agentPaneZoomOut", "agentPaneZoomReset",
         ],
         .credentials: [
             "palette.auth.signIn", "palette.auth.signOut", "accounts.reauthenticate", "accounts.connect",

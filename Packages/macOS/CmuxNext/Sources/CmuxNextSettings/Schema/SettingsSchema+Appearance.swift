@@ -15,6 +15,10 @@ nonisolated enum AppearanceSettingsSchema {
         let appTheme = SettingsText.keyed("settings.group.appTheme", "App Theme")
         let tuning = SettingsText.keyed("settings.group.appearanceTuning", "Appearance Tuning")
         let artChoices = BackdropArt.allCases.map { SettingChoice($0.rawValue, $0.title) }
+        // The background picker lists figure drawings first.
+        let backgroundChoices = [BackdropArtCollection.figureDrawings, .paintings].flatMap { collection in
+            BackdropArt.allCases.filter { $0.collection == collection }.map { SettingChoice($0.rawValue, $0.title) }
+        } + [SettingChoice(BackdropSelection.desktopID, SettingsText.keyed("settings.choice.desktopWallpaper", "Desktop Wallpaper"))]
         return [
             SettingDescriptor(
                 AppThemeSetting().configPath, section: .appearance, group: appTheme,
@@ -23,6 +27,15 @@ nonisolated enum AppearanceSettingsSchema {
                                         "Colors for cmux and its terminals. A space, workspace or terminal theme overrides it."),
                 kind: .theme, default: nil, defaultLabel: ghostty,
                 keywords: ["theme", "color", "colors", "color scheme", "dark", "light", "ghostty", "palette"]
+            ),
+            SettingDescriptor(
+                ChromeThemeSetting().configPath, section: .appearance, group: appTheme,
+                title: SettingsText.keyed("settings.appearance.appTheme", "App Theme"),
+                help: SettingsText.keyed("settings.appearance.appTheme.help",
+                                        "Colors for cmux's own pages. Every bundled theme works here, and each color meets WCAG AA contrast."),
+                kind: .theme, default: .string(ChromeThemeSetting.followTerminal),
+                defaultLabel: SettingsText.keyed("settings.default.followTerminal", "Match Terminal Theme"),
+                keywords: ["app theme", "accent", "chrome", "interface", "colors", "contrast", "wcag"]
             ),
             SettingDescriptor(
                 BackdropArtSetting().configPath, section: .appearance, group: window,
@@ -36,9 +49,10 @@ nonisolated enum AppearanceSettingsSchema {
                 BackdropSelectionSetting().configPath, section: .appearance, group: window,
                 title: SettingsText.keyed("settings.appearance.background", "Background"),
                 help: SettingsText.keyed("settings.appearance.background.help",
-                                        "Choose a bundled public-domain painting or a macOS system wallpaper behind the window material."),
-                kind: .choice([SettingChoice("none", SettingsText.keyed("settings.choice.none", "None"))] + artChoices),
-                default: "none", keywords: ["painting", "art", "wallpaper", "backdrop", "desktop", "attribution"]
+                                        "Choose a public-domain figure drawing or painting, your desktop wallpaper, or a macOS system wallpaper behind the window material."),
+                kind: .choice([SettingChoice("none", SettingsText.keyed("settings.choice.none", "None"))] + backgroundChoices),
+                default: .string(BackdropSelectionSetting.defaultSelection?.id ?? "none"),
+                keywords: ["painting", "art", "wallpaper", "backdrop", "desktop", "attribution", "drawing", "figure", "sketch"]
             ),
             SettingDescriptor(
                 ExperimentalAppearanceSetting().configPath, section: .appearance, group: window,

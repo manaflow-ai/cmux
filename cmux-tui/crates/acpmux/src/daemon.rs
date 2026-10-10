@@ -17,6 +17,9 @@ pub struct DaemonOptions {
     /// Write one JSON readiness line to this file descriptor once the
     /// socket and the listen address are bound, then close it.
     pub ready_fd: Option<i32>,
+    /// `--person-key-fd`: this launch's person key from the app that
+    /// spawned the daemon (`hub/person.rs`); read and closed at once.
+    pub person_key_fd: Option<i32>,
     /// `--allow-dev-origin`: loopback page dev server origins, never saved.
     pub dev_origins: Vec<String>,
     /// `--dev`: a development launch (see `dev_origins_permitted`).
@@ -31,16 +34,20 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // The CLI restores default SIGPIPE so `acpmux ls | head` ends quietly. A
     // daemon must not die when its launcher or a client goes away mid-write:
     // a closed pipe is an ordinary write error here.
+    #[cfg(unix)]
     unsafe {
         libc::signal(libc::SIGPIPE, libc::SIG_IGN);
     }
     // Processes started before readiness (the login shell probe, agents)
     // must not hold the readiness pipe open.
+    #[cfg(unix)]
     if let Some(fd) = opts.ready_fd.filter(|fd| *fd > 2) {
         unsafe {
             libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
         }
     }
+    // Before anything is spawned: the key never reaches a child.
+    let person_key = opts.person_key_fd.and_then(read_person_key);
     let login_env = crate::login_env::requested();
     anyhow::ensure!(
         opts.dev_origins.is_empty() || dev_origins_permitted(cfg!(debug_assertions), opts.dev),
@@ -52,6 +59,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         .map(|origin| crate::server::dev_origin(origin))
         .collect::<Result<Vec<_>>>()?;
     let mut config = Config::load()?;
+    // config.json holds the dashboard token: owner-only, also when another
+    // tool wrote it with the umask's mode and the daemon never saves it.
+    narrow_to_owner(&Config::path());
     config.dev_origins = dev_origins;
     if opts.memory {
         config.store.mode = crate::config::StoreMode::Memory;
@@ -69,6 +79,13 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     let _ = std::env::set_current_dir(home());
     let lock = home().join("daemon.lock");
     let _lock_file = acquire_lock(&lock)?;
+    // The local CodeRouter relay (crate cmux-coderouter): `cmux-router` and
+    // `local-coderouter` routes read its port and mint keys from it. Opt-in
+    // (the cmux app sets ACPMUX_LOCAL_ROUTER=1): test daemons in temporary
+    // homes must not leave detached routers behind.
+    if std::env::var("ACPMUX_LOCAL_ROUTER").as_deref() == Ok("1") {
+        ensure_router();
+    }
     let store = crate::store::open(&config.store, &home())?;
     // The dashboard and WebSocket always run. First run picks a loopback port
     // and a random token and saves both, so the URL is stable afterwards.
@@ -165,6 +182,47 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         });
     }
     let hub = Hub::new(config, store);
+    if let Some(key) = person_key {
+        // A Team-signed daemon takes the key only from the signed app's
+        // `_acpmux/person_enroll`: a same-uid process could restart it with
+        // a key of its own.
+        if cmux_link::app_caller::signed_app_build() {
+            tracing::warn!(
+                "--person-key-fd ignored: a signed daemon enrolls the app by its signature"
+            );
+        } else if let Err(e) = hub.person.install_spawn_key(&key) {
+            tracing::warn!("--person-key-fd: {e}");
+        }
+    }
+    // The curated model catalog (`catalog/`): the last good copy now, then a fetch at
+    // once and every 6 h. `ACPMUX_CATALOG_FETCH=0` keeps the stored or bundled copy.
+    let fetch_catalog = !std::env::var("ACPMUX_CATALOG_FETCH").is_ok_and(|v| v == "0");
+    let fetcher: Option<std::sync::Arc<dyn crate::catalog::Fetcher>> =
+        fetch_catalog.then(|| std::sync::Arc::new(crate::catalog::HttpsFetcher::current()) as _);
+    hub.catalog.attach(home().join("catalog"), fetcher);
+    if fetch_catalog {
+        tokio::spawn(hub.catalog.clone().run());
+    }
+    // The ACP Registry (`registry.rs`): fetched once per daemon start; a copy
+    // that changes which installed agents are harnesses reloads them (and
+    // only then: a reload restarts pooled sessions).
+    // `ACPMUX_REGISTRY_FETCH=0` keeps the cached copy.
+    if !std::env::var("ACPMUX_REGISTRY_FETCH").is_ok_and(|v| v == "0") {
+        let hub = hub.clone();
+        tokio::spawn(async move {
+            let installed = || tokio::task::spawn_blocking(|| crate::registry::installed(&home()));
+            let before = installed().await.ok();
+            match crate::registry::refresh(&home()).await {
+                Ok(true) if installed().await.ok() != before => {
+                    if let Err(e) = hub.reload_catalog().await {
+                        tracing::warn!(error = %e.message, "harness reload after the ACP Registry refresh");
+                    }
+                }
+                Ok(_) => {}
+                Err(e) => tracing::info!(error = %e, "ACP Registry not refreshed"),
+            }
+        });
+    }
     // The app's pane sends no prompt before the folder's trust answer (`server/trust_gate.rs`).
     // Without a home directory no file can answer, so every folder waits (fails closed).
     hub.set_trust_gate(Some(crate::trust::Paths::current().unwrap_or_else(|| {
@@ -173,6 +231,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             claude_json: none.join(".claude.json"),
             codex_config: none.join("config.toml"),
             record: none.join("trust.json"),
+            agent_home: None,
         }
     })));
     // Agents outlive this daemon unless the user opts out for this release.
@@ -183,11 +242,24 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     {
         hub.set_idle_child((secs > 0).then(|| std::time::Duration::from_secs(secs)));
     }
+    // `ACPMUX_PROBE_HARNESSES=a,b`: the model probes start only these
+    // harnesses (the Chief lists the ones it uses); unset, every harness.
+    hub.set_probe_only(Hub::probe_only_from_env(
+        std::env::var("ACPMUX_PROBE_HARNESSES").ok().as_deref(),
+    ));
     if !std::env::var("ACPMUX_AGENT_HOSTS").is_ok_and(|v| v == "0") {
         hub.enable_agent_hosts();
     }
     hub.begin_startup(login_env);
     std::fs::write(home().join("daemon.pid"), std::process::id().to_string())?;
+    // The listener's token is on the hub before the unix socket serves, so a
+    // `_acpmux/web_token_rotate` can never be overwritten by the launch token.
+    let ws_listener = ws_listener.map(|(l, token)| {
+        // `needs_token` above gave the saved listener a token.
+        let token = token.unwrap_or_else(random_token);
+        hub.web_token.set(token.clone());
+        (l, token)
+    });
     let unix = tokio::spawn(crate::server::serve_unix(hub.clone(), unix_listener));
     // A new LocalApp token at every launch (`server/local_app.rs`), for the
     // app's bundled pane and an explicit `--allow-dev-origin` page only.
@@ -223,8 +295,6 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     let local_app_file = local_app.as_ref().map(|a| a.path().to_owned());
     let peer_file = peer.as_ref().map(|a| a.path().to_owned());
     let ws_task = ws_listener.map(|(l, token)| {
-        // `needs_token` above gave the saved listener a token.
-        let token = token.unwrap_or_else(random_token);
         let auth = crate::server::WsAuth { local_app, peer };
         tokio::spawn(crate::server::serve_ws_with(hub.clone(), l, token, auth))
     });
@@ -242,8 +312,28 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         socket_path().display(),
         bound.as_deref().unwrap_or("none")
     );
+    // The stop signals are registered before the ready line: a launcher may
+    // stop the daemon as soon as it reads the line, and a signal that came
+    // before registration would end the daemon by the default action
+    // (no shutdown path: the token, pid file and socket would stay).
+    #[cfg(unix)]
+    let mut stop_signals = {
+        use tokio::signal::unix::{SignalKind, signal};
+        (signal(SignalKind::terminate()).ok(), signal(SignalKind::interrupt()).ok())
+    };
+    #[cfg(not(unix))]
+    let ctrl_c = tokio::signal::ctrl_c();
     if let Some(fd) = opts.ready_fd {
         write_ready(fd, &ready);
+    }
+    // Debug builds only: `ACPMUX_TEST_HOLD_AFTER_READY_MS` holds the daemon
+    // right after the ready line, so integration tests can stop it in that
+    // window. Bounded; release builds have no seam.
+    #[cfg(debug_assertions)]
+    if let Some(ms) =
+        std::env::var("ACPMUX_TEST_HOLD_AFTER_READY_MS").ok().and_then(|v| v.parse::<u64>().ok())
+    {
+        tokio::time::sleep(Duration::from_millis(ms.min(5_000))).await;
     }
     // Profile files hot-reload (no polling); before startup work writes the config.
     hub.start_harness_watch();
@@ -265,14 +355,12 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     tokio::spawn(notify_loop(hub.clone()));
 
     let shutdown = async {
-        let ctrl_c = tokio::signal::ctrl_c();
         #[cfg(unix)]
         {
-            let mut term =
-                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).ok();
+            let (term, int) = &mut stop_signals;
             tokio::select! {
-                _ = ctrl_c => {},
-                _ = async { match term.as_mut() { Some(t) => { t.recv().await; } None => std::future::pending::<()>().await } } => {},
+                _ = next_signal(term.as_mut()) => {},
+                _ = next_signal(int.as_mut()) => {},
                 _ = hub.shutdown.notified() => {},
             }
         }
@@ -304,7 +392,54 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     Ok(())
 }
 
+/// The next delivery of a registered signal; never, if registration failed.
+#[cfg(unix)]
+async fn next_signal(stream: Option<&mut tokio::signal::unix::Signal>) {
+    match stream {
+        Some(stream) => {
+            stream.recv().await;
+        }
+        None => std::future::pending::<()>().await,
+    }
+}
+
+/// Read the person key (one line, at most 128 bytes) from an inherited
+/// descriptor and close it. The key is never logged.
+#[cfg(unix)]
+fn read_person_key(fd: i32) -> Option<String> {
+    use std::io::Read;
+    use std::os::fd::FromRawFd;
+    if fd <= 2 {
+        tracing::warn!("--person-key-fd {fd}: not a stdio descriptor");
+        return None;
+    }
+    // SAFETY: the launcher passed this descriptor for us to read and close;
+    // `File` owns and closes it here.
+    let f = unsafe { std::fs::File::from_raw_fd(fd) };
+    let mut buf = Vec::with_capacity(80);
+    if let Err(e) = f.take(128).read_to_end(&mut buf) {
+        tracing::warn!("--person-key-fd {fd}: {e}");
+        return None;
+    }
+    let key = String::from_utf8(buf).ok()?.trim().to_owned();
+    if crate::hub::person::valid_key(&key) {
+        Some(key)
+    } else {
+        tracing::warn!("--person-key-fd {fd}: not a person key");
+        None
+    }
+}
+
+/// Windows: no inherited descriptors yet (the CreateProcess handle list
+/// lands with the daemon start); no person key is read.
+#[cfg(not(unix))]
+fn read_person_key(fd: i32) -> Option<String> {
+    tracing::warn!("--person-key-fd {fd}: {}", crate::platform::unsupported("--person-key-fd"));
+    None
+}
+
 /// Write the readiness line to an inherited descriptor and close it.
+#[cfg(unix)]
 fn write_ready(fd: i32, ready: &Value) {
     use std::io::Write;
     use std::os::fd::FromRawFd;
@@ -323,6 +458,12 @@ fn write_ready(fd: i32, ready: &Value) {
         std::mem::forget(f);
     }
 }
+/// Windows port: the readiness pipe is an inherited handle there (a later
+/// landing, with the CreateProcess handle list); nothing is written yet.
+#[cfg(not(unix))]
+fn write_ready(fd: i32, _ready: &Value) {
+    tracing::warn!("--ready-fd {fd}: {}", crate::platform::unsupported("--ready-fd"));
+}
 
 /// Whether `--allow-dev-origin` may take effect: in a debug build, or with
 /// an explicit `--dev` that release launchers never pass. A release config
@@ -330,6 +471,24 @@ fn write_ready(fd: i32, ready: &Value) {
 pub(crate) fn dev_origins_permitted(debug_build: bool, dev_flag: bool) -> bool {
     debug_build || dev_flag
 }
+
+/// Clears the group and other bits of `path`, if it exists.
+#[cfg(unix)]
+fn narrow_to_owner(path: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let Ok(meta) = std::fs::metadata(path) else { return };
+    let mode = meta.permissions().mode();
+    if mode & 0o077 != 0
+        && let Err(e) =
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode & 0o700))
+    {
+        tracing::warn!("could not make {} owner-only: {e}", path.display());
+    }
+}
+/// Windows port: owner-only access is an ACL there
+/// (`cmux::local_socket::private_directory`, a later landing).
+#[cfg(not(unix))]
+fn narrow_to_owner(_path: &std::path::Path) {}
 
 /// The rotation `websocket.tokenRotated` records (see `rotate_saved_token_once`).
 const TOKEN_ROTATION: u32 = 1;
@@ -376,6 +535,7 @@ fn random_token() -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+#[cfg(unix)]
 fn acquire_lock(path: &PathBuf) -> Result<std::fs::File> {
     use std::os::unix::io::AsRawFd;
     let file = std::fs::OpenOptions::new()
@@ -389,6 +549,11 @@ fn acquire_lock(path: &PathBuf) -> Result<std::fs::File> {
         return Err(anyhow!("another acpmux daemon holds {}", path.display()));
     }
     Ok(file)
+}
+/// Windows port: the daemon lock is `LockFileEx` there (a later landing).
+#[cfg(not(unix))]
+fn acquire_lock(_path: &PathBuf) -> Result<std::fs::File> {
+    Err(crate::platform::unsupported("the acpmux daemon"))
 }
 
 static DAEMON_PREFIX: std::sync::OnceLock<Vec<std::ffi::OsString>> = std::sync::OnceLock::new();
@@ -418,6 +583,7 @@ pub async fn wait_for_exit() -> bool {
 /// Polls a non-blocking `flock`, so the deadline always ends the wait: a
 /// blocking `flock` on a worker thread would outlive the timeout and hold
 /// up runtime teardown.
+#[cfg(unix)]
 async fn wait_for_lock_release(lock: PathBuf, budget: Duration) -> bool {
     use std::os::unix::io::AsRawFd;
     let Ok(file) = std::fs::OpenOptions::new().read(true).write(true).open(&lock) else {
@@ -439,6 +605,11 @@ async fn wait_for_lock_release(lock: PathBuf, budget: Duration) -> bool {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }
+/// Windows port: no daemon runs there yet, so no lock is held.
+#[cfg(not(unix))]
+async fn wait_for_lock_release(_lock: PathBuf, _budget: Duration) -> bool {
+    true
+}
 
 /// Connect to the daemon, starting one if needed.
 pub async fn connect(autostart: bool) -> Result<Arc<Client>> {
@@ -455,6 +626,7 @@ pub async fn connect(autostart: bool) -> Result<Arc<Client>> {
 
 /// A connected socket to the daemon, starting one if needed, for a client
 /// that speaks the wire protocol itself (`acpmux stdio`).
+#[cfg(unix)]
 pub async fn connect_stream() -> Result<tokio::net::UnixStream> {
     let path = socket_path();
     if let Ok(stream) = tokio::net::UnixStream::connect(&path).await {
@@ -466,6 +638,7 @@ pub async fn connect_stream() -> Result<tokio::net::UnixStream> {
 
 /// Start a daemon and wait until it reports readiness or exits. Returns its
 /// readiness line (empty when it exited first).
+#[cfg(unix)]
 async fn start_daemon() -> Result<String> {
     let path = socket_path();
     // Async pipe I/O, so the timeout cancels the read; a blocking read on a
@@ -489,6 +662,12 @@ async fn start_daemon() -> Result<String> {
         )),
     }
 }
+/// Windows port: the daemon starts through CreateProcess with a handle list
+/// there (a later landing).
+#[cfg(not(unix))]
+async fn start_daemon() -> Result<String> {
+    Err(crate::platform::unsupported("starting the acpmux daemon"))
+}
 
 fn not_ready(path: &std::path::Path, ready: &str, error: &anyhow::Error) -> anyhow::Error {
     let why = if ready.trim().is_empty() {
@@ -506,6 +685,7 @@ fn not_ready(path: &std::path::Path, ready: &str, error: &anyhow::Error) -> anyh
 /// Open the daemon log for append, owner-only like the config file: the log
 /// can carry agent output and request details. A log left by an older build
 /// with wider bits is narrowed to 0600.
+#[cfg(unix)]
 fn open_daemon_log(path: &std::path::Path) -> Result<std::fs::File> {
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
     let log = std::fs::OpenOptions::new()
@@ -523,6 +703,7 @@ fn open_daemon_log(path: &std::path::Path) -> Result<std::fs::File> {
 
 /// Start `<exe> [prefix] daemon run --ready-fd N` in its own session and
 /// return the read end of its readiness pipe.
+#[cfg(unix)]
 fn spawn_detached() -> Result<std::fs::File> {
     use std::os::fd::FromRawFd;
     let exe = std::env::current_exe()?;
@@ -641,70 +822,61 @@ fn first_run_listen(shared_home: bool, saved: Option<&str>) -> &str {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_release_launch_refuses_a_dev_origin() {
-        assert!(
-            !dev_origins_permitted(false, false),
-            "a release config refuses --allow-dev-origin"
-        );
-        assert!(dev_origins_permitted(false, true), "an explicit --dev launch accepts it");
-        assert!(dev_origins_permitted(true, false), "a debug build accepts it");
-    }
-
-    #[test]
-    fn only_the_shared_home_listens_on_the_fixed_port() {
-        assert_eq!(first_run_listen(true, None), "127.0.0.1:47811");
-        assert_eq!(first_run_listen(false, None), "127.0.0.1:0");
-        // A tagged home that saved the fixed port moves to a free one; other choices stay.
-        assert_eq!(first_run_listen(false, Some("127.0.0.1:47811")), "127.0.0.1:0");
-        assert_eq!(first_run_listen(false, Some("127.0.0.1:5555")), "127.0.0.1:5555");
-        assert_eq!(first_run_listen(true, Some("0.0.0.0:47811")), "0.0.0.0:47811");
-    }
-
-    #[test]
-    fn daemon_log_is_owner_only_when_created_and_when_an_old_log_is_wider() {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = std::env::temp_dir().join(format!("acpmux-log-{}", uuid::Uuid::now_v7()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
-
-        let fresh = dir.join("daemon.log");
-        drop(open_daemon_log(&fresh).unwrap());
-        assert_eq!(mode(&fresh), 0o600);
-
-        let old = dir.join("old.log");
-        std::fs::write(&old, b"kept\n").unwrap();
-        std::fs::set_permissions(&old, std::fs::Permissions::from_mode(0o644)).unwrap();
-        {
-            use std::io::Write;
-            let mut f = open_daemon_log(&old).unwrap();
-            f.write_all(b"appended\n").unwrap();
+/// Start `acpmux router serve` as a detached child unless a router already
+/// answers on `<home>/router/router.sock`. It outlives a daemon restart (model
+/// streams keep running); a later daemon finds and reuses it.
+#[cfg(unix)]
+fn ensure_router() {
+    use std::io::{BufRead, BufReader, Write};
+    use std::os::unix::net::UnixStream;
+    use std::os::unix::process::CommandExt;
+    let socket = home().join("router").join("router.sock");
+    let ask = |line: &[u8]| -> std::io::Result<Value> {
+        let stream = UnixStream::connect(&socket)?;
+        stream.set_read_timeout(Some(Duration::from_secs(2)))?;
+        let mut writer = stream.try_clone()?;
+        writer.write_all(line)?;
+        let mut answer = String::new();
+        BufReader::new(stream).read_line(&mut answer)?;
+        serde_json::from_str(&answer).map_err(std::io::Error::other)
+    };
+    let build = crate::hub::BUILD;
+    if let Ok(status) = ask(b"{\"op\":\"status\"}\n") {
+        if status.get("build").and_then(Value::as_str) == Some(build) {
+            return;
         }
-        assert_eq!(mode(&old), 0o600);
-        assert_eq!(std::fs::read_to_string(&old).unwrap(), "kept\nappended\n");
-        let _ = std::fs::remove_dir_all(&dir);
+        // Another build: it stops; the new router waits on router.lock until
+        // the old one has exited, so no sleep is needed here.
+        let _ = ask(b"{\"op\":\"shutdown\"}\n");
     }
+    let Ok(exe) = std::env::current_exe() else { return };
+    let mut command = std::process::Command::new(exe);
+    command
+        .args(["router", "serve"])
+        .env("CMUX_ROUTER_BUILD", build)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    // Its own session: a daemon exit or a terminal hangup does not stop it.
+    unsafe {
+        command.pre_exec(|| {
+            libc::setsid();
+            Ok(())
+        });
+    }
+    match command.spawn() {
+        Ok(mut child) => {
+            std::thread::spawn(move || {
+                let _ = child.wait();
+            });
+        }
+        Err(e) => tracing::warn!("could not start the local router: {e}"),
+    }
+}
 
-    #[tokio::test]
-    async fn lock_release_wakes_the_waiter_and_a_held_lock_times_out() {
-        let dir = std::env::temp_dir().join(format!("acpmux-lock-{}", uuid::Uuid::now_v7()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let lock = dir.join("daemon.lock");
-        let held = acquire_lock(&lock).unwrap();
-        // Held for the whole budget: not released.
-        assert!(!wait_for_lock_release(lock.clone(), Duration::from_millis(200)).await);
-        let started = std::time::Instant::now();
-        let waiter = tokio::spawn(wait_for_lock_release(lock.clone(), Duration::from_secs(10)));
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        drop(held);
-        assert!(waiter.await.unwrap());
-        assert!(started.elapsed() < Duration::from_secs(5));
-        // No lock file at all means no daemon.
-        assert!(wait_for_lock_release(dir.join("absent.lock"), Duration::from_secs(1)).await);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
+/// Windows port: the router's admin socket and its detached start come with
+/// the daemon start landing; no router is started yet.
+#[cfg(not(unix))]
+fn ensure_router() {
+    tracing::warn!("{}", crate::platform::unsupported("starting the local router"));
 }

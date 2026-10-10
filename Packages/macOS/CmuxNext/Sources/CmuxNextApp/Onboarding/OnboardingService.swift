@@ -1,47 +1,36 @@
 import AppKit
-import CmuxNextAgentActivity
 import CmuxNextActions
-import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextBrowserImport
 import CmuxNextDesign
 import CmuxNextOnboarding
 import os
 
-/// Owns the onboarding window: shows it on the first launch (once per Mac
-/// account, `OnboardingStateFile`), reopens it from the palette, the menu
-/// and the import and default-app actions, and feeds imported history to
-/// the omnibar at launch.
+/// Owns the tool window (Import from Browser, Computer Use setup), the
+/// browser-data import offer, the default-app registry and the imported
+/// data, and feeds imported history to the omnibar at launch. Nothing opens
+/// at launch (Lawrence 2026-10-09: a launch goes straight to the main
+/// window).
 @MainActor
 final class OnboardingService {
     unowned let services: AppServices
-    let state: OnboardingStateFile
     let defaultApps: any DefaultAppRegistering
     let importStore: ImportedDataStore
-    private(set) var controller: OnboardingWindowController?
+    /// The one tool window (set up in `init`).
+    private let presenter = OnboardingWindowPresenter()
+    var controller: OnboardingWindowController? { presenter.controller }
+    /// The browser-data import offer on the first browser tab of a launch.
+    private(set) lazy var browserImportOffer = BrowserImportOfferService(services: services)
     /// Background-discovered local folders offered by new agent tabs.
     private(set) var projectFolders: [String] = []
     private var projectScanTask: Task<Void, Never>?
-    private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "onboarding")
 
-    /// Shows onboarding on the first launch even in a no-activate test launch.
-    static let forceKey = "CMUX_NEXT_ONBOARDING"
-
-    /// The cmux-cua socket the computer use step reads (CMUX_NEXT_CUA_SOCKET,
-    /// else cmux-cua's default). Tests point it at their own socket.
-    var computerUseConfiguration = AgentActivitySocketSource.Configuration.standard(machineName: "")
-
-    /// Whether an open window can show `step`: it already has that step (or
-    /// no step was asked for). Otherwise the window is rebuilt for the step.
-    static func reusesWindow(showing steps: [OnboardingModel.Step], for step: OnboardingModel.Step?) -> Bool {
-        guard let step else { return true }
-        return steps.contains(step)
-    }
+    /// Computer Use Setup: the helper's grants for the palette action, Settings and the tool window.
+    private(set) lazy var computerUseSetup = ComputerUseSetup.app(services: services)
 
     init(services: AppServices) {
         self.services = services
         let environment = ProcessInfo.processInfo.environment
-        state = OnboardingStateFile.live(environment: environment)
         // Test launches never change the Mac's real default browser.
         defaultApps = environment[RecordingDefaultApps.environmentKey] == "1" ? RecordingDefaultApps() : SystemDefaultApps()
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -54,17 +43,25 @@ final class OnboardingService {
                 var scan = AgentProjectScan.live()
                 scan.filesPerApp = 200
                 let agent = scan.run().map(\.id)
+                let classic: [ClassicSessionWorkspace]
+                do {
+                    classic = try ClassicSessionImporter().read()
+                } catch {
+                    Logger(subsystem: "com.cmuxterm.app.next", category: "onboarding")
+                        .error("classic session snapshot could not be read: \(String(describing: error), privacy: .public)")
+                    classic = []
+                }
                 func classicDirectories(_ layout: ClassicSessionLayout) -> [String] {
                     switch layout {
                     case .pane(let pane): pane.tabs.compactMap(\.workingDirectory)
                     case .split(_, _, let first, let second): classicDirectories(first) + classicDirectories(second)
                     }
                 }
-                let classic = (try? ClassicSessionImporter().read())?.flatMap { workspace in
+                let classicFolders = classic.flatMap { workspace in
                     [workspace.workingDirectory] + classicDirectories(workspace.layout)
-                } ?? []
+                }
                 var seen = Set<String>()
-                return (agent + classic).compactMap { path in
+                return (agent + classicFolders).compactMap { path in
                     let normalized = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL.path
                     return seen.insert(normalized).inserted ? normalized : nil
                 }
@@ -72,142 +69,26 @@ final class OnboardingService {
             guard let self else { return }
             projectFolders = folders
         }
-    }
-
-    /// The last state file write; each write waits for the one before.
-    private var lastWrite: Task<Void, Never>?
-
-    /// Runs one small state file write off the main thread, after the one before.
-    private func write(_ label: String, _ work: @escaping @Sendable () throws -> Void) {
-        let previous = lastWrite
-        let logger = logger
-        // task-owner: one small file write, chained after the previous one
-        lastWrite = Task.detached {
-            await previous?.value
-            do { try work() } catch { logger.error("\(label, privacy: .public): \(String(describing: error), privacy: .public)") }
+        presenter.makeModel = { [weak self] step in
+            self.map { OnboardingModel(services: AppOnboardingServices(owner: $0), step: step) }
         }
-    }
-
-    /// The first task's chat, kept while the window is open so the step
-    /// shows the same chat when the user comes back to it.
-    private var firstTask: (cwd: URL, prompt: String, view: AgentPaneView)?
-
-    func firstTaskView(cwd: URL, prompt: String) -> AgentPaneView? {
-        if let firstTask, firstTask.cwd == cwd, firstTask.prompt == prompt { return firstTask.view }
-        firstTask?.view.close()
-        let view = services.agentTabs.standaloneView(seed: AgentPaneSeed(cwd: cwd.path, prompt: prompt))
-        firstTask = view.map { (cwd, prompt, $0) }
-        return view
     }
 
     var isShowing: Bool { controller != nil }
-    private(set) var gallery: OnboardingGalleryController?
-    /// The review tool's state: picks, notes, position
-    /// (`~/Library/Application Support/cmux/<tag>/onboarding-feedback.json`).
-    private(set) lazy var galleryStore = GalleryReviewStore(url: Self.galleryFile(tag: services.environment.tag))
 
-    static func galleryFile(tag: String?) -> URL {
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return support.appending(path: "cmux").appending(path: tag ?? "default").appending(path: "onboarding-feedback.json")
-    }
-
-    /// The onboarding review tool (DEBUG builds): one window, every screen's variants.
-    func showGallery() {
-        if let gallery { return gallery.present() }
-        let picks = AppOnboardingServices(owner: self)
-        // task-owner: one-shot theme file load for the samples
-        Task { [weak self] in
-            let themes = await picks.loadThemeChoices()
-            let ownTheme = await Task.detached { GhosttyOwnTheme.isSet() }.value
-            guard let self, gallery == nil else { return }
-            let accounts: () -> NSView? = { [weak self] in self.map { AppOnboardingServices(owner: $0).makeAccountsStepView() } ?? nil }
-            let gallery = OnboardingGalleryController(store: galleryStore, makeServices: { store in
-                let sample = MockOnboardingServices.gallerySample(themes: themes, accountsView: accounts())
-                sample.ghosttyTheme = ThemeStore.shared.input
-                sample.ghosttyHasOwnTheme = ownTheme
-                for step in OnboardingModel.Step.allCases { sample.variantIDs[step] = store.pick(for: step) }
-                return sample
-            }, previewAppearance: { [weak self] dark in self?.services.terminalTheme.preview(dark: dark) })
-            gallery.onClose = { [weak self] in self?.gallery = nil }
-            self.gallery = gallery
-            gallery.present()
-        }
-    }
-
-    /// Opens onboarding at `step` (or brings the open one to that step).
-    func show(step: OnboardingModel.Step? = nil, resumingFirstRunAt resume: OnboardingModel.Step? = nil) {
-        var interrupted: OnboardingModel.Step?
-        if let controller {
-            if resume == nil, Self.reusesWindow(showing: controller.model.steps, for: step) {
-                if let step { controller.model.go(to: step) }
-                controller.present()
-                return
-            }
-            // The open window was built without this step (for example the
-            // first run, or a helper that came up since): rebuild it. Closing
-            // leaves the first run unfinished (never skipped); it continues
-            // at its step when this window closes.
-            if controller.model.isFirstRun { interrupted = controller.model.step }
-            controller.close()
-            self.controller = nil
-        }
-        let model = OnboardingModel(services: AppOnboardingServices(owner: self), start: step, resumingFirstRunAt: resume)
-        let controller = OnboardingWindowController(model: model)
-        controller.onClose = { [weak self] in
-            self?.controller = nil
-            // The task's session stays in acpmux (the agent may still be working); only the page closes.
-            self?.firstTask?.view.close()
-            self?.firstTask = nil
-            // A first run this window interrupted continues where it was.
-            if let interrupted, !model.isFirstRun, let self {
-                self.show(resumingFirstRunAt: interrupted)
+    /// Opens the tool window for `step` (or brings the open one forward).
+    /// `importKinds` checks only those kinds on the import step and
+    /// `importTarget` names the cmux browser profile they go into (the
+    /// browser-data offer: into the tab's profile); without kinds the step
+    /// makes one profile per source.
+    func show(step: OnboardingModel.Step, importKinds: Set<ImportDataKind>? = nil, importTarget: String? = nil) {
+        presenter.show(step: step) { model, reused in
+            if let importKinds {
+                model.importer.preset(kinds: importKinds, into: importTarget)
+            } else if reused {
+                model.importer.resetTarget()
             }
         }
-        self.controller = controller
-        controller.present()
-    }
-
-    /// The first run is at `step`: kept so a relaunch resumes it there.
-    func recordProgress(_ step: OnboardingModel.Step) {
-        let state = state
-        write("onboarding progress") { try state.markProgress(step) }
-    }
-
-    /// First launch: show once the first window is up. A no-activate launch
-    /// (agents, tests) skips it unless `CMUX_NEXT_ONBOARDING=1`.
-    func showIfNeeded() {
-        let forced = ProcessInfo.processInfo.environment[Self.forceKey] == "1"
-        guard forced || !services.environment.noActivate else { return }
-        let state = state
-        // task-owner: one-shot launch check; ends after one file read
-        Task { [weak self] in
-            let (needed, resume) = await Task.detached { (state.needsOnboarding(), state.resumeStep()) }.value
-            guard needed, let self, !self.isShowing else { return }
-            // An unfinished first run (quit, crash, new build) resumes at its step.
-            show(resumingFirstRunAt: resume)
-        }
-    }
-
-    func markDone(completed: Bool) {
-        let state = state
-        write("onboarding state") { try state.markDone(completed: completed) }
-    }
-
-    /// Onboarding ended: records it, and Done over Home lands on the New
-    /// Tab page through the sidebar's New (`newTab`).
-    func didEnd(completed: Bool) {
-        // Only the first run's Skip or Done ends the first run; another
-        // window's (Import and Sync, a single step) leaves it as it is.
-        if controller?.model.isFirstRun ?? true { markDone(completed: completed) }
-        guard Self.opensNewTab(completed: completed, shown: services.windows?.active?.shownTopPage) else { return }
-        services.registry.perform("newTab")
-    }
-
-    /// Done (not Skip) opens the New Tab page when the window behind
-    /// onboarding shows Home; reopened over a workspace or another page,
-    /// the window stays as it is.
-    nonisolated static func opensNewTab(completed: Bool, shown: TopPageRoute?) -> Bool {
-        completed && shown == .home
     }
 
     /// Imported history and bookmarks go into each browser profile's

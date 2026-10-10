@@ -18,7 +18,9 @@ path = "src/main.rs"
 
 [dependencies]
 cmux-chat-index.workspace = true
+cmux-coderouter.workspace = true
 cmux-local-auth.workspace = true
+cmux-link.workspace = true
 anyhow = "1"
 cmux-unix-socket.workspace = true
 clap = { version = "4.5", features = ["derive"] }
@@ -45,6 +47,10 @@ unicode-width = "0.2"
 wait-timeout.workspace = true
 zeroize.workspace = true
 regex = "1"
+# The model catalog fetch (src/catalog/fetch.rs): HTTPS only, through the
+# workspace's reqwest and ring rustls provider.
+reqwest.workspace = true
+rustls.workspace = true
 pulldown-cmark = { version = "0.13", default-features = false }
 syntect = { version = "5.3", default-features = false, features = ["default-fancy"] }
 

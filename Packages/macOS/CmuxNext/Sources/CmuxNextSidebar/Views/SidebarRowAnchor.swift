@@ -25,7 +25,7 @@ public struct SidebarRowAnchor {
     /// item shows), in `sidebar`'s coordinates. Nil when no shown item has it.
     public static func layoutItem(_ ref: LayoutItemRef, in sidebar: SidebarView) -> CGRect? {
         guard let item = sidebar.model.layout.firstItem(with: ref) else { return nil }
-        for region in [sidebar.aboveRegion, sidebar.belowRegion] {
+        for region in sidebar.bandRegions {
             guard let view = region.itemView(item.id), !view.isHiddenOrHasHiddenAncestor, view.bounds.width > 0 else { continue }
             return view.convert(view.bounds, to: sidebar)
         }

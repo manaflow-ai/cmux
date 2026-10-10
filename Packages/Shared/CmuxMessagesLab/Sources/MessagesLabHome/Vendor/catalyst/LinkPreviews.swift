@@ -44,8 +44,8 @@ final class LinkPreviews: LinkPreviewFetching {
         if let d = try? Data(contentsOf: index), let saved = try? JSONDecoder().decode([String: Saved].self, from: d) {
             let now = Date().timeIntervalSince1970
             for (k, v) in saved {
-                if v.ok { cache[k] = .some(LinkMetadata(title: v.title, site: v.site, image: v.image)) }
-                else if let at = v.at, now - at < LinkPreviews.negativeTTL { cache[k] = .some(nil); negativeAt[k] = at }
+                if v.ok { cache.updateValue(.some(LinkMetadata(title: v.title, site: v.site, image: v.image)), forKey: k) } // cmux
+                else if let at = v.at, now - at < LinkPreviews.negativeTTL { cache.updateValue(Optional<LinkMetadata>.none, forKey: k); /* a known failure: the stored value is nil */ negativeAt.updateValue(at, forKey: k) } // cmux
             }
         }
     }
@@ -62,8 +62,8 @@ final class LinkPreviews: LinkPreviewFetching {
             if hit?.title == nil { enqueueFallback(url) }
             return
         }
-        if waiting[url] != nil { waiting[url]!.append(done); return }
-        guard let u = URL(string: url), u.scheme == "https" || u.scheme == "http" else { done(nil); return }
+        if waiting[url] != nil { waiting[url]?.append(done); return } // cmux: no force unwrap
+        guard let u = URL(string: url), u.scheme == "https" || u.scheme == "http", LinkGuard.checkURL(u) != .scheme else { done(nil); return }
         waiting[url] = [done]
         let file = dir.appendingPathComponent(String(format: "%016llx.png", LinkPreviews.fnv1a(url)))
         // Every request goes through LinkGuard (LinkGuard.swift): public addresses
@@ -107,9 +107,11 @@ final class LinkPreviews: LinkPreviewFetching {
     /// `<meta property|name="…" content="…">` (either attribute order), entities decoded.
     static func metaTags(_ html: String) -> [String: String] {
         var out: [String: String] = [:]
-        let re = try! NSRegularExpression(pattern: "<meta\\s+[^>]*>", options: [.caseInsensitive])
-        let key = try! NSRegularExpression(pattern: "(?:property|name)\\s*=\\s*[\"']([^\"']+)[\"']", options: [.caseInsensitive])
-        let val = try! NSRegularExpression(pattern: "content\\s*=\\s*(\"([^\"]*)\"|'([^']*)')", options: [.caseInsensitive])
+        // cmux: no try! (crash program); a pattern that fails to compile reads no tags.
+        guard let re = try? NSRegularExpression(pattern: "<meta\\s+[^>]*>", options: [.caseInsensitive]),
+              let key = try? NSRegularExpression(pattern: "(?:property|name)\\s*=\\s*[\"']([^\"']+)[\"']", options: [.caseInsensitive]),
+              let val = try? NSRegularExpression(pattern: "content\\s*=\\s*(\"([^\"]*)\"|'([^']*)')", options: [.caseInsensitive])
+        else { return out }
         let ns = html as NSString
         for m in re.matches(in: html, range: NSRange(location: 0, length: min(ns.length, 400_000))) {
             let tag = ns.substring(with: m.range) as NSString
@@ -118,7 +120,7 @@ final class LinkPreviews: LinkPreviewFetching {
             let name = tag.substring(with: k.range(at: 1)).lowercased()
             let r = v.range(at: 2).location != NSNotFound ? v.range(at: 2) : v.range(at: 3)
             let content = decode(tag.substring(with: r)).trimmingCharacters(in: .whitespacesAndNewlines)
-            if out[name] == nil, !content.isEmpty { out[name] = content }
+            if !out.keys.contains(name), !content.isEmpty { out.updateValue(content, forKey: name) } // cmux
         }
         return out
     }
@@ -151,12 +153,12 @@ final class LinkPreviews: LinkPreviewFetching {
     /// A stable file name per URL (String.hashValue changes per launch).
     static func fnv1a(_ s: String) -> UInt64 {
         var h: UInt64 = 0xcbf29ce484222325
-        for b in s.utf8 { h = (h ^ UInt64(b)) &* 0x100000001b3 }
+        for b in s.utf8 { h = (h ^ UInt64(truncatingIfNeeded: b)) &* 0x100000001b3 /* cmux: a byte widens exactly */ }
         return h
     }
 
     private func finish(_ url: String, _ meta: LinkMetadata?) {
-        cache[url] = .some(meta)
+        cache.updateValue(meta, forKey: url) /* cmux: the value type is LinkMetadata? (nil: a failed fetch) */
         if meta?.title == nil { negativeAt[url] = Date().timeIntervalSince1970 }
         let cbs = waiting.removeValue(forKey: url) ?? []
         cbs.forEach { $0(meta) }
@@ -184,7 +186,7 @@ final class LinkPreviews: LinkPreviewFetching {
     func consider(_ urls: [String]) {
         for url in urls {
             if let hit = cache[url], let meta = hit, meta.title != nil { onLateMetadata?(url, meta); continue }
-            if cache[url] == nil && waiting[url] == nil { fetch(url) { _ in } }   // the og path first
+            if !cache.keys.contains(url) && !waiting.keys.contains(url) { fetch(url) { _ in } } /* cmux */   // the og path first
             else if waiting[url] == nil { enqueueFallback(url) }
         }
     }
@@ -253,7 +255,7 @@ final class LinkPreviews: LinkPreviewFetching {
         provider = nil
         fallbackLog.append("\(url) \(String(format: "%.1f", Date().timeIntervalSince(fallbackStart))) s \(meta?.title ?? "no title")")
         if let meta {
-            cache[url] = .some(meta)
+            cache.updateValue(.some(meta), forKey: url) /* cmux */
             negativeAt[url] = nil
             save()
             onLateMetadata?(url, meta)
@@ -275,8 +277,8 @@ final class LinkPreviews: LinkPreviewFetching {
     private func save() {
         var out: [String: Saved] = [:]
         for (k, v) in cache {
-            if let v, v.title != nil { out[k] = Saved(ok: true, title: v.title, site: v.site, image: v.image, at: nil) }
-            else { out[k] = Saved(ok: false, title: nil, site: nil, image: nil, at: negativeAt[k] ?? Date().timeIntervalSince1970) }
+            if let v, v.title != nil { out.updateValue(Saved(ok: true, title: v.title, site: v.site, image: v.image, at: nil), forKey: k) } // cmux
+            else { out.updateValue(Saved(ok: false, title: nil, site: nil, image: nil, at: negativeAt[k] ?? Date().timeIntervalSince1970), forKey: k) } // cmux
         }
         if let d = try? JSONEncoder().encode(out) { try? d.write(to: index, options: .atomic) }
     }

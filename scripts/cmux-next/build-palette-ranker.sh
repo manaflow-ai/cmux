@@ -1,9 +1,9 @@
 #!/bin/sh
 # Builds the shared TypeScript palette ranker for the native JavaScriptCore bridge.
-# The checked-in output is a small IIFE with no web or Node dependencies.
+# The output (gitignored; scripts/cmux-next/build-web-bundles.sh) is a small IIFE with no web or Node dependencies.
 #
 #   scripts/cmux-next/build-palette-ranker.sh          # rebuild the resource
-#   scripts/cmux-next/build-palette-ranker.sh --check  # fail if it is stale
+#   scripts/cmux-next/build-palette-ranker.sh --check  # build into a temp dir only (the sources build)
 #   scripts/cmux-next/build-palette-ranker.sh --out DIR  # write DIR/palette-ranker.js
 set -eu
 
@@ -52,9 +52,7 @@ cd "$ROOT/webviews"
 bun build "$SRC" --target browser --format=iife --outfile "$WORK/palette-ranker.js" >/dev/null || fail "TypeScript palette ranker bundle failed"
 
 if [ "$MODE" = "--check" ]; then
-  [ -f "$OUT" ] || fail "$OUT is missing; run scripts/cmux-next/build-palette-ranker.sh"
-  cmp -s "$WORK/palette-ranker.js" "$OUT" || fail "$OUT is stale; run scripts/cmux-next/build-palette-ranker.sh"
-  echo "palette ranker bridge bundle is current"
+  echo "palette ranker bridge bundle builds"
   exit 0
 fi
 

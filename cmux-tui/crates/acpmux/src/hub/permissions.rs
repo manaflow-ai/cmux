@@ -1,5 +1,6 @@
 //! Part of `Hub`; see `hub/mod.rs`.
 
+use super::person::ANSWERED_BY_SLOT;
 use super::*;
 
 impl Hub {
@@ -145,6 +146,29 @@ impl Hub {
         let Some(child) = session.child.lock().await.clone() else {
             return;
         };
+        // Grok's x.ai extension requests: a question or a plan approval,
+        // asked through the same permission path (xai.rs).
+        if let Some(kind) = super::xai::request_kind(&m) {
+            let result = self
+                .handle_xai_request(&session, kind, params.unwrap_or(Value::Null), epoch, turn_id)
+                .await;
+            let _ = child.respond(id, result).await;
+            return;
+        }
+        // Cursor's cursor/ requests: a question or a plan approval (cursor_ext.rs).
+        if let Some(kind) = super::cursor_ext::request_kind(&m) {
+            let result = self
+                .handle_cursor_request(
+                    &session,
+                    kind,
+                    params.unwrap_or(Value::Null),
+                    epoch,
+                    turn_id,
+                )
+                .await;
+            let _ = child.respond(id, result).await;
+            return;
+        }
         if m == method::SESSION_REQUEST_PERMISSION {
             let params = params.unwrap_or(Value::Null);
             let result =
@@ -349,11 +373,15 @@ impl Hub {
     pub(super) async fn handle_permission_for(
         self: &Arc<Self>,
         session: &Arc<Session>,
-        request: Value,
+        mut request: Value,
         epoch: u64,
         turn_id: Option<String>,
         agent_request_id: Option<&Id>,
     ) -> Value {
+        // One harness-neutral copy of any questions, before rules and the
+        // record see the request (questions.rs).
+        super::questions::normalize(&mut request);
+        let needs_person = super::questions::needs_person(&request);
         let (rx, prev, grouping, permission_id) = {
             let cfg = self.config.read().await;
             let mut state = session.permissions.lock().unwrap();
@@ -436,7 +464,8 @@ impl Hub {
             let floored = web_turn && !denied && auto.is_some();
             let auto = if denied {
                 pick(&["reject_once", "reject_always"])
-            } else if web_turn {
+            } else if needs_person || web_turn {
+                // Policy never answers a question: only a person does.
                 None
             } else {
                 chat_option.clone().or(auto)
@@ -489,13 +518,15 @@ impl Hub {
         if let Some((id, true)) = grouping {
             self.start_permission_group_timer(session, id);
         }
-        let outcome = rx.await.unwrap_or_else(|_| json!({"outcome":"cancelled"}));
-        self.append(
-            session,
-            "mux",
-            "permission_decision",
-            json!({"permissionId":permission_id,"outcome":outcome}),
-        );
+        let mut outcome = rx.await.unwrap_or_else(|_| json!({"outcome":"cancelled"}));
+        // Who answered for the person (`hub/person.rs` answered_by): audit
+        // only, never sent to the agent.
+        let answered_by = outcome.as_object_mut().and_then(|o| o.remove(ANSWERED_BY_SLOT));
+        let mut decision = json!({"permissionId":permission_id,"outcome":outcome});
+        if let Some(by) = answered_by {
+            decision["answeredBy"] = by;
+        }
+        self.append(session, "mux", "permission_decision", decision);
         {
             let state = session.permissions.lock().unwrap();
             if state.pending.is_empty() && session.status() == SessionStatus::Waiting {
@@ -522,6 +553,7 @@ impl Hub {
         permission_id: &str,
         option_id: Option<String>,
         answers: Option<Value>,
+        answered_by: Option<Value>,
         control: Control,
     ) -> Result<(), RpcError> {
         // Checked again here, at the answer, not only in the remote guard.
@@ -569,6 +601,7 @@ impl Hub {
                     session.floor.harness_grant.store(true, Ordering::SeqCst);
                 }
             }
+            super::questions::check_reply(&p.request, option_id.as_deref(), answers.as_ref())?;
             let p = map.remove(permission_id).unwrap();
             if let Some(group) = state.finish_item(&session.id, permission_id, option_id.is_none())
             {
@@ -585,6 +618,9 @@ impl Hub {
                 pending.request.pointer("/toolCall/rawInput").cloned().unwrap_or(json!({}));
             input["answers"] = a;
             outcome["_meta"] = json!({"updatedInput": input});
+        }
+        if let Some(by) = answered_by {
+            outcome[ANSWERED_BY_SLOT] = by;
         }
         let _ = pending.reply.send(outcome);
         Ok(())
@@ -639,17 +675,4 @@ fn normalize_path(path: &std::path::Path) -> std::path::PathBuf {
         }
     }
     out
-}
-
-#[cfg(test)]
-mod tests {
-    use super::normalize_path;
-    use std::path::Path;
-
-    #[test]
-    fn normalize_resolves_parent_components() {
-        assert_eq!(normalize_path(Path::new("/w/src/../../secret")), Path::new("/secret"));
-        assert_eq!(normalize_path(Path::new("/w/./src/a.rs")), Path::new("/w/src/a.rs"));
-        assert_eq!(normalize_path(Path::new("/../x")), Path::new("/x"));
-    }
 }

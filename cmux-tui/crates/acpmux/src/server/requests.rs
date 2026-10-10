@@ -47,10 +47,21 @@ pub(super) async fn handle_request(
     m: &str,
     mut params: Value,
 ) -> Result<Value, RpcError> {
+    // The pane's fork through a turn is a session/fork at the chat's end,
+    // checked as one from here on (`fork_through.rs`).
+    let m = if m == method::ACP_SESSION_FORK {
+        params = super::fork_through::to_session_fork(hub, &params)?;
+        method::SESSION_FORK
+    } else {
+        m
+    };
     // Before anything runs or is forwarded to a peer (`remote_guard.rs`).
     if conn.origin != Origin::Local {
         super::remote_guard::check(hub, conn.origin, m, &mut params).await?;
     }
+    // Only the person allows or widens what runs without asking
+    // (`hub/person.rs`): one check, before the request runs or reaches a peer.
+    hub.person_check(conn.is_person(), m, &params).await?;
     let resolved = super::session_key(&params).ok().and_then(|key| hub.resolve(key).ok());
     super::trust_gate::check(hub, conn.origin, m, &params, resolved.as_ref()).await?; // the folder-trust gate
     let key = super::session_key(&params).ok().map(str::to_owned);
@@ -88,16 +99,50 @@ async fn dispatch_request(
                 // `local`: the unix socket or the proven local app
                 // (`local_app.rs`), which the session pool serves.
                 "origin": match conn.origin { Origin::Web => "remote", Origin::Peer => "peer", _ => "local" },
+                // This connection presented this launch's person key (`hub/person.rs`).
+                "person": conn.is_person(),
                 "extensions": [
                     method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
-                    method::MUX_DETACH, method::MUX_WATCH, method::MUX_RENAME, method::MUX_KILL,
+                    method::MUX_DETACH, method::MUX_WATCH, method::MUX_RENAME, method::MUX_KILL, method::MUX_QUEUE_REMOVE,
                     method::MUX_INFO, method::MUX_EVENTS, method::MUX_PERMISSION_RESPOND,
+                    method::MUX_DRAFT_GET, method::MUX_DRAFT_SET,
                     method::MUX_SET_POLICY, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_SHUTDOWN,
-                ], "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate"], "trustGate": true}}
+                ], "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets"], "trustGate": true}}
             }))
         }
         method::AUTHENTICATE => Ok(json!({})),
+        method::MUX_PERSON_ENROLL => {
+            // The unix socket only: a WebSocket peer has no audit token.
+            if conn.origin != Origin::Local {
+                return Err(RpcError::invalid_params(
+                    "_acpmux/person_enroll is accepted only over the local unix socket",
+                )
+                .with_data(json!({"reason": crate::hub::person::ENROLL_REFUSED})));
+            }
+            let key = str_param(&params, "key")
+                .ok_or_else(|| RpcError::invalid_params("key is required"))?;
+            let signed = cmux_link::app_caller::signed_app_build();
+            let verified = match (signed, conn.peer.as_ref()) {
+                (true, Some(token)) => match cmux_link::app_caller::verify_containing_app(token) {
+                    Ok(()) => true,
+                    Err(why) => {
+                        tracing::warn!("person_enroll refused: {why}");
+                        return Err(RpcError::new(
+                            -32000,
+                            "only the cmux app that contains this daemon may enroll a person key",
+                        )
+                        .with_data(json!({"reason": crate::hub::person::ENROLL_REFUSED})));
+                    }
+                },
+                (true, None) => {
+                    return Err(RpcError::new(-32000, "the peer's audit token is unknown")
+                        .with_data(json!({"reason": crate::hub::person::ENROLL_REFUSED})));
+                }
+                (false, _) => false,
+            };
+            hub.person.enroll(key, verified)
+        }
         method::SESSION_NEW => {
             // A peer name in _meta.acpmux.peer creates the session on that daemon.
             if let Some(peer_name) =
@@ -252,6 +297,10 @@ async fn dispatch_request(
                 .and_then(|m| m.get("resend"))
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
+            let steer_only = mux_meta(&params)
+                .and_then(|m| m.get("steerOnly"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
             let notify = conn.clone();
             let opts = crate::hub::PromptOptions {
                 prompt_id,
@@ -261,6 +310,7 @@ async fn dispatch_request(
                 resend,
                 control: super::remote_guard::control_of(conn.origin, &params),
                 trust_gate: super::trust_gate::gated(conn.origin, &params),
+                steer_only,
             };
             hub.prompt_with(&s, blocks, &conn.label(), steer, opts).await
         }
@@ -326,6 +376,7 @@ async fn dispatch_request(
         method::MUX_STATUS => Ok(hub.status().await),
         method::MUX_SESSIONS => Ok(json!({"sessions": hub.all_session_summaries()})),
         method::MUX_WEB_MODES => hub.web_modes_view(&params),
+        method::MUX_WEB_TOKEN_ROTATE => hub.rotate_web_token().await,
         method::MUX_WARM => {
             let requested: Vec<String> = params
                 .get("sessionIds")
@@ -380,6 +431,15 @@ async fn dispatch_request(
             Ok(result)
         }
         "_acpmux/models" => {
+            // `probe`: harnesses a client now uses (the Chief's engine set),
+            // probed now even when the start-time list left them out.
+            if let Some(names) = params.get("probe").and_then(Value::as_array) {
+                let names: std::collections::BTreeSet<String> =
+                    names.iter().filter_map(Value::as_str).map(str::to_owned).collect();
+                if !names.is_empty() {
+                    hub.allow_probes(names).await;
+                }
+            }
             if params.get("refresh").and_then(Value::as_bool).unwrap_or(false) {
                 hub.refresh_models().await;
             }
@@ -404,6 +464,8 @@ async fn dispatch_request(
             }
             Ok(cat)
         }
+        crate::catalog::RPC_GET => Ok(hub.catalog.get()),
+        crate::catalog::RPC_REFRESH => Ok(hub.catalog.refresh(false).await),
         "_acpmux/peer_add" => {
             hub.add_peer_from(&params).await?;
             Ok(json!({"peers": hub.peers()}))
@@ -626,6 +688,22 @@ async fn dispatch_request(
                     // Checked against the profile the preset resolves to now.
                     let profile =
                         cfg.resolve_harness(&p.harness).map_err(RpcError::invalid_params)?;
+                    // A built-in Chief preset without a client env gets its
+                    // env from the definition (`config/chief_builtins.rs`),
+                    // whoever installs it; a client env is the person's
+                    // (`hub/person.rs` refused it from anyone else).
+                    if let Some(builtin) = crate::config::chief_builtins::parse(&name)
+                        && obj.get("env").is_none()
+                    {
+                        let family =
+                            crate::config::derive_family(&profile, &cfg.harnesses[&profile]);
+                        p.env = crate::config::chief_builtins::env(
+                            &builtin,
+                            &family,
+                            &crate::config::chief_builtins::Context::current(),
+                        )
+                        .map_err(RpcError::invalid_params)?;
+                    }
                     let kind = cfg.harnesses[&profile].kind;
                     crate::config::check_preset_args(kind, &p.args)
                         .map_err(RpcError::invalid_params)?;
@@ -710,6 +788,17 @@ async fn dispatch_request(
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
             Ok(json!({"sessionId": s.id, "turns": hub.history(&s, limit)}))
         }
+        method::MUX_DRAFT_GET => {
+            let s = hub.resolve(session_key(&params)?)?;
+            Ok(json!({"sessionId": s.id, "draft": s.meta().composer_draft}))
+        }
+        method::MUX_DRAFT_SET => {
+            let s = hub.resolve(session_key(&params)?)?;
+            let text = str_param(&params, "text")
+                .ok_or_else(|| RpcError::invalid_params("text is required"))?;
+            let draft = hub.set_composer_draft(&s, text).map_err(RpcError::invalid_params)?;
+            Ok(json!({"sessionId": s.id, "draft": draft}))
+        }
         method::MUX_TAG => {
             let s = hub.resolve(session_key(&params)?)?;
             let remove: Vec<String> = params
@@ -728,6 +817,20 @@ async fn dispatch_request(
         method::MUX_HARNESS_ENABLE => {
             super::harness_enable::handle(hub, conn.origin, &params).await
         }
+        method::MUX_HARNESS_ADD
+        | method::MUX_HARNESS_REMOVE
+        | method::MUX_HARNESS_RESTORE
+        | method::MUX_HARNESS_DOCTOR
+        | method::MUX_REGISTRY => super::harness_admin::handle(hub, conn.origin, m, &params).await,
+        method::MUX_ROUTE_LIST
+        | method::MUX_ROUTE_SHOW
+        | method::MUX_ROUTE_ADD
+        | method::MUX_ROUTE_EDIT
+        | method::MUX_ROUTE_REMOVE
+        | method::MUX_ROUTE_RESTORE
+        | method::MUX_ROUTE_TEST
+        | method::MUX_ROUTE_DEFAULT_SET
+        | method::MUX_CHAT_ROUTE_SET => super::routes::handle(hub, conn.origin, m, &params).await,
         method::ACP_TRUST_GET | method::ACP_TRUST_SET => {
             super::trust_gate::answer(hub, m, &params).await
         }
@@ -811,6 +914,13 @@ async fn dispatch_request(
             hub.kill(&s, purge).await?;
             Ok(json!({"sessionId": s.id, "purged": purge}))
         }
+        method::MUX_QUEUE_REMOVE => {
+            let s = hub.resolve(session_key(&params)?)?;
+            let prompt_id = str_param(&params, "promptId")
+                .ok_or_else(|| RpcError::invalid_params("promptId is required"))?;
+            let removed = hub.remove_queued(&s, prompt_id);
+            Ok(json!({"sessionId": s.id, "promptId": prompt_id, "removed": removed}))
+        }
         method::MUX_PERMISSION_GROUPS => {
             let s = hub.resolve(session_key(&params)?)?;
             hub.permission_groups(&s, &params)
@@ -830,8 +940,9 @@ async fn dispatch_request(
                 .ok_or_else(|| RpcError::invalid_params("permissionId is required"))?;
             let option = str_param(&params, "optionId").map(str::to_owned);
             let answers = params.get("answers").cloned();
+            let answered_by = crate::hub::person::answered_by(&params)?;
             let control = super::remote_guard::control_of(conn.origin, &params);
-            hub.respond_permission(&s, pid, option, answers, control).await?;
+            hub.respond_permission(&s, pid, option, answers, answered_by, control).await?;
             Ok(json!({}))
         }
         method::MUX_SET_POLICY => {
@@ -906,6 +1017,7 @@ async fn dispatch_request(
             }
             if let Ok(key) = session_key(&params) {
                 let s = hub.resolve(key)?;
+                crate::hub::person::harness_forward_check(conn.is_person(), other)?;
                 return hub.forward(&s, other, params).await;
             }
             Err(RpcError::method_not_found(other))

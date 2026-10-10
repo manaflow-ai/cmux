@@ -17,13 +17,14 @@ import SwiftUI
 /// them. The field follows the shared field geometry; a height change is
 /// animated by `FieldAnimation`.
 final class FieldChrome: NSView {
-    let container = NSGlassEffectContainerView()
+    // cmux: LabGlass surfaces (system glass on macOS 26+, a visual-effect stand-in on 14/15).
+    let container = LabGlass.container()
     private let group = FlippedView()
-    let fieldContainer = NSGlassEffectContainerView()
+    let fieldContainer = LabGlass.container()
     private let fieldGroup = FlippedView()
-    let field = NSGlassEffectView()
-    let plusGlass = NSGlassEffectView()
-    let emojiGlass = NSGlassEffectView()
+    let field = LabGlass.surface()
+    let plusGlass = LabGlass.surface()
+    let emojiGlass = LabGlass.surface()
     let plus = NSButton()
     let emoji = NSButton()
     var onPlus: () -> Void = {}
@@ -41,22 +42,20 @@ final class FieldChrome: NSView {
         fieldContainer.contentView = fieldGroup
         addSubview(fieldContainer)
         field.cornerRadius = 15
-        field.style = .regular
         // Real Messages' field glass reacts to a press (field-keyboard reference: the rim
         // and a light under the pointer brighten 14 ms after the click and fade in 0.1 s).
         // `effectIsInteractive` is declared only in the macOS 27 SDK; Swift 6.4 ships with
         // it (Xcode 27), Swift 6.3.3 with the 26.5 SDK (Xcode 26.6), where #available
         // cannot hide an undeclared symbol.
         #if compiler(>=6.4)
-        if #available(macOS 27.0, *) { field.effectIsInteractive = true }
+        if #available(macOS 27.0, *) { (field as? NSGlassEffectView)?.effectIsInteractive = true } // cmux: LabGlass
         #endif
         fieldGroup.addSubview(field)
         for (g, b, sym, label, sel) in [(plusGlass, plus, "plus", NativeStrings.attach, #selector(plusClicked)),
                                          (emojiGlass, emoji, "face.smiling", NativeStrings.emoji, #selector(emojiClicked))] {
             g.cornerRadius = 15
-            g.style = .regular
             #if compiler(>=6.4)
-            if #available(macOS 27.0, *) { g.effectIsInteractive = true }
+            if #available(macOS 27.0, *) { (g as? NSGlassEffectView)?.effectIsInteractive = true } // cmux: LabGlass
             #endif
             b.isBordered = false
             b.bezelStyle = .regularSquare
@@ -64,7 +63,8 @@ final class FieldChrome: NSView {
             let cfg = FieldChrome.glyphConfig
             b.image = (sym == "face.smiling" ? FieldChrome.emojiGlyph(tinted: false) : NSImage(systemSymbolName: sym, accessibilityDescription: label)?.withSymbolConfiguration(cfg))
             b.image?.accessibilityDescription = label
-            b.contentTintColor = .white
+            // White on dark glass, black on light glass (light Messages capture, 2026-10-09).
+            b.contentTintColor = NSColor(name: nil) { $0.bestMatch(from: [.darkAqua, .aqua]) == .aqua ? .black : .white }
             b.setAccessibilityLabel(label)
             b.toolTip = label
             b.target = self
@@ -75,12 +75,119 @@ final class FieldChrome: NSView {
     }
     required init?(coder: NSCoder) { fatalError() }
     override var isFlipped: Bool { true }
-    /// Only the buttons take clicks; the field's clicks reach the text view.
+    /// The field's text view. A click in the field hits `pressSensor` (the field glass's content
+    /// view), so the interactive glass sees the press as its own (Messages: the field brightens about
+    /// 1.2 levels from +6 ms after the release, gone by +0.36 s); the sensor hands the event to
+    /// the text view, which tracks the drag itself.
+    weak var pressTarget: NSView? {
+        didSet { if pressTarget != nil, Self.pressGlow { pressSensor.target = pressTarget; field.contentView = pressSensor } }
+    }
+    private let pressSensor = PressSensor()
+    static let pressGlow = ProcessInfo.processInfo.arguments.contains("--field-press-sensor")
+    /// Only the buttons (and, with the sensor, the field) take clicks; else the field's clicks reach
+    /// the text view.
     override func hitTest(_ point: NSPoint) -> NSView? {
         let p = convert(point, from: superview)
         for g in [plusGlass, emojiGlass] where g.frame.contains(p) { return g.contentView }
+        if pressTarget != nil, field.contentView === pressSensor, field.frame.contains(p) { return pressSensor }
         return nil
     }
+    // MARK: Press light
+
+    /// Real Messages' field glass answers a press with a light under the pointer (macOS 27,
+    /// Catalyst's interactive glass): a vertical band across the field, Gaussian across x, that
+    /// rises from +35 ms after the down to +3.2 levels over the field's 59 at +95 ms, then spreads
+    /// and fades (sigma 27 -> 95 pt) until +416 ms; the same in field-focus-type-take1,
+    /// link-url-only-take1, link-url-and-text-take1 and attach-image-paste-send-take1 (2x frames,
+    /// the band's center 600-640 px and profiles every 8 px). AppKit's `effectIsInteractive` shows
+    /// no light for this field (a click on the glass itself, on an NSControl content view, or on
+    /// the text view: takes 6301-6304), so the light is drawn here, timed from the event.
+    /// `--no-field-press-light`: none.
+    static let pressLightOn = !ProcessInfo.processInfo.arguments.contains("--no-field-press-light")
+    /// (ms after the down, levels at the center, sigma in pt).
+    static let pressLightCurve: [(Double, Double, Double)] = [
+        (0, 0, 27), (30, 0, 27), (41, 1.04, 27), (66, 2.15, 26), (83, 2.95, 27), (95, 3.2, 28), (125, 3.2, 36),
+        (150, 3.0, 41), (166, 2.8, 51), (183, 2.45, 55), (200, 2.13, 65), (216, 1.9, 68), (241, 1.7, 77),
+        (258, 1.32, 87), (283, 1.06, 89), (316, 0.83, 90), (349, 0.6, 92), (400, 0.19, 95), (416, 0, 95)]
+    static let pressLightSigma: CGFloat = 25
+    private lazy var lightHost: NSView = {
+        let v = NSView(frame: .zero)
+        v.wantsLayer = true
+        v.layer?.masksToBounds = true
+        v.layer?.cornerRadius = 15
+        v.layer?.cornerCurve = .continuous
+        v.layer?.addSublayer(pressLightLayer)
+        v.layer?.addSublayer(flashLayer)
+        fieldGroup.addSubview(v, positioned: .above, relativeTo: field)
+        return v
+    }()
+    private let pressLightLayer: CALayer = {
+        let l = CALayer()
+        let w = 256, s = Double(w) / 8
+        let px = (0..<w).map { i -> UInt8 in let x = (Double(i) + 0.5 - Double(w) / 2) / s; return UInt8(clamping: CrashGuard.int((exp(-x * x / 2) * 255).rounded(), in: 0...255)) } // cmux: no trap
+        let data = px.flatMap { [UInt8(255), UInt8(255), UInt8(255), $0] }
+        if let p = CGDataProvider(data: Data(data) as CFData) {
+            l.contents = CGImage(width: w, height: 1, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: w * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                 bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue), provider: p, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
+        }
+        l.contentsGravity = .resize
+        l.opacity = 0
+        l.actions = ["position": NSNull(), "bounds": NSNull(), "opacity": NSNull(), "transform": NSNull()]
+        return l
+    }()
+
+    /// The release flash: real Messages' field shows +2 levels flat over the whole field for ONE frame
+    /// about 14 ms after the mouse-up (the second frame after it: +13, +14.5 and +25 ms in field-focus-type,
+    /// link-url-only and link-url-and-text take1; attach-image-paste-send-take1 has no capture between
+    /// +0 and +25 ms after its up, a capture hole there). The press light is hidden in that frame (the
+    /// frame's center is +2.1, not the sum).
+    private let flashLayer: CALayer = {
+        let l = CALayer()
+        l.backgroundColor = NSColor.white.cgColor
+        l.opacity = 0
+        l.actions = ["position": NSNull(), "bounds": NSNull(), "opacity": NSNull()]
+        return l
+    }()
+    /// Opacity per level: 1/168 (take 6701: 1/120 gave +2.8 for +2; the flat layer is toned less than the band).
+    static let flashLevels = 2.0, flashDelay: CFTimeInterval = 0.008, flashLength: CFTimeInterval = 1.0 / 120
+
+    func releaseFlash(_ up: NSEvent) {
+        guard Self.pressLightOn, #available(macOS 27.0, *), lightHost.superview != nil else { return }
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        flashLayer.frame = lightHost.bounds
+        // Never before this commit can show it (a late main thread would skip the frame).
+        let begin = max(flashLayer.convertTime(up.timestamp, from: nil) + Self.flashDelay, flashLayer.convertTime(CACurrentMediaTime(), from: nil) + 0.002)
+        let f = CABasicAnimation(keyPath: "opacity"); f.fromValue = Self.flashLevels / 168; f.toValue = Self.flashLevels / 168
+        let h = CABasicAnimation(keyPath: "hidden"); h.fromValue = true; h.toValue = true
+        for (a, l) in [(f, flashLayer), (h, pressLightLayer)] as [(CABasicAnimation, CALayer)] {
+            a.beginTime = begin; a.duration = Self.flashLength; a.isRemovedOnCompletion = true
+            l.add(a, forKey: "press.flash")
+        }
+        CATransaction.commit()
+    }
+
+    /// The light for a press at `e` (a down in the field), as Messages', from the event's time.
+    func pressLight(_ e: NSEvent) {
+        guard Self.pressLightOn, #available(macOS 27.0, *), let last = Self.pressLightCurve.last else { return }
+        let p = fieldGroup.convert(e.locationInWindow, from: nil)
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        lightHost.frame = field.frame
+        let x = p.x - field.frame.minX, w = Self.pressLightSigma * 8
+        pressLightLayer.frame = CGRect(x: x - w / 2, y: 0, width: w, height: field.frame.height)
+        let c = Self.pressLightCurve, total = last.0 / 1000
+        let times = c.map { NSNumber(value: $0.0 / 1000 / total) }
+        // White over the field glass: +1 level per 1/120 of opacity (measured on the rig, take 6400: 1/196,
+        // the over-blend's gain, gave 0.61 of the levels asked for; the glass container tones its content).
+        let op = CAKeyframeAnimation(keyPath: "opacity"); op.values = c.map { $0.1 / 120 }; op.keyTimes = times
+        let sc = CAKeyframeAnimation(keyPath: "transform.scale.x"); sc.values = c.map { $0.2 / Double(Self.pressLightSigma) }; sc.keyTimes = times
+        let begin = pressLightLayer.convertTime(e.timestamp, from: nil)
+        for a in [op, sc] { a.duration = total; a.beginTime = begin; a.fillMode = .both; a.calculationMode = .linear; a.isRemovedOnCompletion = true }
+        pressLightLayer.removeAllAnimations()
+        pressLightLayer.add(op, forKey: "press.opacity")
+        pressLightLayer.add(sc, forKey: "press.scale")
+        CATransaction.commit()
+    }
+
     @objc private func plusClicked() { onPlus() }
     @objc private func emojiClicked() { onEmoji() }
 
@@ -193,7 +300,7 @@ enum FieldAnimation: String {
 
     static let mode: FieldAnimation = {
         let a = ProcessInfo.processInfo.arguments
-        return a.firstIndex(of: "--field-anim").flatMap { $0 + 1 < a.count ? FieldAnimation(rawValue: a[$0 + 1]) : nil } ?? .`internal`
+        return a.firstIndex(of: "--field-anim").flatMap { a.dropFirst($0 + 1).first }.flatMap { FieldAnimation(rawValue: $0) } /* cmux */ ?? .`internal`
     }()
 
     func run(_ chrome: FieldChrome, from start: CGRect, to target: CGRect, _ el: SpringElement, begin: CFTimeInterval) {
@@ -223,6 +330,8 @@ enum FieldAnimation: String {
         case .swiftui:
             chrome.setFrameNow(start)
             chrome.markAnimating(to: target)
+            // cmux: SwiftUI-spring NSAnimationContext needs macOS 15; 14 takes the size at once.
+            guard #available(macOS 15, *) else { chrome.setFrameNow(target); return }
             NSAnimationContext.animate(.spring(duration: c.spring.duration, bounce: c.spring.bounce)) {
                 NSAnimationContext.current.allowsImplicitAnimation = true
                 field.animator().frame = target
@@ -258,6 +367,17 @@ enum FieldAnimation: String {
     }
 }
 
+/// The field glass's content: takes the field's mouse events for the glass and gives them to the
+/// text view (FieldChrome.pressTarget).
+final class PressSensor: NSView {
+    weak var target: NSView?
+    override func mouseDown(with event: NSEvent) { target.map { $0.mouseDown(with: event) } ?? super.mouseDown(with: event) }
+    override func rightMouseDown(with event: NSEvent) { target.map { $0.rightMouseDown(with: event) } ?? super.rightMouseDown(with: event) }
+    override func otherMouseDown(with event: NSEvent) { target.map { $0.otherMouseDown(with: event) } ?? super.otherMouseDown(with: event) }
+    override func scrollWheel(with event: NSEvent) { target.map { $0.scrollWheel(with: event) } ?? super.scrollWheel(with: event) }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { target?.acceptsFirstMouse(for: event) ?? false }
+}
+
 final class FlippedView: NSView {
     override var isFlipped: Bool { true }
 }
@@ -266,8 +386,9 @@ final class FlippedView: NSView {
 
 /// Double-click picker: six tapbacks in a glass capsule above the bubble.
 /// Real buttons (keyboard and VoiceOver reach each one).
-final class TapbackPickerView: NSGlassEffectView {
+final class TapbackPickerView: NSView { // cmux: hosts a LabGlass surface (macOS 14)
     let ref: PartRef
+    private let glass = LabGlass.surface()
     private let stack = NSStackView()
     private let selected: Reaction.Kind?
     private let pick: (Reaction.Kind) -> Void
@@ -286,8 +407,10 @@ final class TapbackPickerView: NSGlassEffectView {
         self.selected = selected
         self.pick = pick
         super.init(frame: .zero)
-        cornerRadius = Self.size.height / 2
-        style = .regular
+        glass.frame = bounds
+        glass.autoresizingMask = [.width, .height]
+        addSubview(glass)
+        glass.cornerRadius = Self.size.height / 2
         stack.orientation = .horizontal
         stack.spacing = 0
         stack.alignment = .centerY
@@ -313,7 +436,7 @@ final class TapbackPickerView: NSGlassEffectView {
         clip.layer?.masksToBounds = true
         clip.addSubview(stack)
         stack.frame = NSRect(x: 0, y: 0, width: Self.firstCenter - Self.pitch / 2 + Self.pitch * CGFloat(kinds.count), height: Self.size.height)
-        contentView = clip
+        glass.contentView = clip
         setAccessibilityLabel(Strings.menuTapback)
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -355,7 +478,7 @@ final class TapbackPickerView: NSGlassEffectView {
         }
     }
 
-    private static func drawGlyph(_ kind: Reaction.Kind, in g: CGRect, ctx: CGContext) {
+    static func drawGlyph(_ kind: Reaction.Kind, in g: CGRect, ctx: CGContext) {
         switch kind {
         case .tapback("love"): PartRenderer.drawEmoji("\u{1FA77}", in: g, ctx: ctx)
         case .tapback("laugh"): TapbackGlyph.draw("laugh", in: g.insetBy(dx: 1, dy: 1), color: NSColor(srgbRed: 0.33, green: 0.64, blue: 1, alpha: 1), ctx: ctx)
@@ -405,7 +528,7 @@ final class InlineEditor: NSView {
         textView.typingAttributes = ComposeView.typing
         textView.insertionPointColor = Fixture.caret
         textView.isContinuousSpellCheckingEnabled = true
-        textView.writingToolsBehavior = ComposeView.writingTools
+        if #available(macOS 15, *) { textView.writingToolsBehavior = ComposeView.writingTools } // cmux: macOS 14
         textView.setAccessibilityLabel(Strings.menuEdit)
         textView.onSend = { [weak textView] in commit(textView?.string ?? text) }
         textView.onEscape = cancel

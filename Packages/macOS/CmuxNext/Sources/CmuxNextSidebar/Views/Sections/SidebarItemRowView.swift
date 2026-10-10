@@ -2,6 +2,7 @@ import AppKit
 import CmuxAgentBrands
 import CmuxNextDesign
 import CmuxNextIcons
+import Observation
 import QuartzCore
 
 /// One item of a pinned section: a row (built-in or list look) or a tray
@@ -9,7 +10,7 @@ import QuartzCore
 /// active, in the shared chrome fills (`ChromeHover.fillColor`), fading on
 /// pointer changes. The rail's icon-only items show unread items as a dot
 /// on the glyph instead of a count; the sidebar's own icon looks hide them.
-final class SidebarItemRowView: NSView {
+class SidebarItemRowView: NSView {
     enum Style: Hashable {
         /// Bare glyph and label: reads as app chrome (Home).
         case builtIn
@@ -43,10 +44,20 @@ final class SidebarItemRowView: NSView {
     private(set) var style = Style.builtIn
     private let pill = CALayer()
     private let chip = CALayer()
-    private let icon = NSImageView()
-    private let title = NSTextField(labelWithString: "")
-    private let badge = UnreadBadgeView()
-    private var isHovered = false { didSet { if isHovered != oldValue { pointerChanged() } } }
+    let icon = NSImageView()
+    let title = NSTextField(labelWithString: "")
+    let badge = UnreadBadgeView()
+    let avatarView = SidebarAvatarView()
+    /// Set only by the hover owner (`PointerHover`, cx-3wu5): the pointer
+    /// now over the row's frame now. Leaving also ends a press.
+    private(set) var isHovered = false {
+        didSet {
+            guard isHovered != oldValue else { return }
+            if !isHovered { isPressed = false }
+            pointerChanged()
+        }
+    }
+    private var pointerHover: PointerHover?
     private var isPressed = false { didSet { if isPressed != oldValue { pointerChanged() } } }
     /// The next fill change came from the pointer, so it fades.
     private var fadesNextFill = false
@@ -62,9 +73,10 @@ final class SidebarItemRowView: NSView {
         icon.imageScaling = .scaleProportionallyDown
         title.lineBreakMode = .byTruncatingTail
         title.maximumNumberOfLines = 1
-        [icon, title, badge].forEach(addSubview)
+        [icon, title, badge, avatarView].forEach(addSubview)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
+        pointerHover = PointerHover(self) { [weak self] hovering in self?.isHovered = hovering }
     }
 
     @available(*, unavailable)
@@ -79,34 +91,10 @@ final class SidebarItemRowView: NSView {
     private var didDrag = false
     /// The press's modifiers, which the release acts with (Option opens a workspace).
     private var pressModifiers: NSEvent.ModifierFlags = []
+    /// One observation of the Notifications glyph look is registered at a time.
+    private var observesNotificationIcon = false
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-
-    /// Width of a chip showing `title` (and an unread count): padding,
-    /// glyph, gap, label, badge, padding. Cached per title and font size,
-    /// because inline sections measure every item on every layout pass.
-    static func chipWidth(title: String, font: NSFont, badge: Int? = nil) -> CGFloat {
-        let key = ChipKey(title: title, pointSize: font.pointSize, badge: badge.map { min($0, 100) })
-        if let cached = chipWidths[key] { return cached }
-        // The label's own width (a text field adds its cell padding), plus
-        // one space2 of slack: measured and drawn widths differ by a few
-        // points between window contexts (seen in offscreen renders).
-        let label = NSTextField(labelWithString: title)
-        label.font = font
-        var width = Metrics.space2 + SidebarStyle.iconBox + Metrics.space2 + ceil(label.intrinsicContentSize.width) + Metrics.space2 * 2
-        if let badge, badge > 0 { width += UnreadBadgeView.width(count: badge) + Metrics.space2 }
-        if chipWidths.count > 512 { chipWidths.removeAll() }
-        chipWidths[key] = width
-        return width
-    }
-
-    private struct ChipKey: Hashable {
-        var title: String
-        var pointSize: CGFloat
-        var badge: Int?
-    }
-
-    private static var chipWidths: [ChipKey: CGFloat] = [:]
 
     /// The unread badge draws (tests).
     var isBadgeShown: Bool { !badge.isHidden }
@@ -143,6 +131,7 @@ final class SidebarItemRowView: NSView {
         // caption can truncate, so it keeps the full title.
         toolTip = style.isIconOnly ? info.toolTip : style == .favorite ? info.title : nil
         setAccessibilityLabel(info.title)
+        applyAvatar()
         setAccessibilitySelected(info.isActive)
         alphaValue = info.isMissing ? 0.5 : 1
         needsLayout = true
@@ -162,6 +151,7 @@ final class SidebarItemRowView: NSView {
             // An icon is secondary at rest and full strength under the pointer
             // or keyboard focus (the footer's avatar and gear).
             let strong = style == .icon && (isHovered || isPressed || isKeyFocused)
+            avatarView.isStrong = strong
             icon.contentTintColor = wells && info.color != nil ? Palette.textOnPrimary
                 : style == .favorite ? Palette.textPrimary
                 : info.isActive || isRailButton || strong ? Palette.textPrimary : Palette.textSecondary
@@ -204,11 +194,17 @@ final class SidebarItemRowView: NSView {
         chip.cornerRadius = Metrics.space1 + 1
         CATransaction.commit()
 
+        if layoutAvatar(in: b) { return }
         // Row size beside a title, like a workspace row's type glyph; inside a list well, the well's
         // glyph size; a rail button's own glyph size.
         let glyphSide = isRailButton ? SidebarStyle.railGlyphSize : style == .list ? SidebarStyle.wellGlyphSize : SidebarStyle.kindGlyphSize
-        icon.image = glyphImage(side: glyphSide)
-        icon.frame = alignedGlyphFrame(side: glyphSide, centeredIn: iconFrame)
+        if style == .icon, !isRailButton, let (image, frame) = inkSizedGlyph(centeredIn: b) {
+            icon.image = image
+            icon.frame = frame
+        } else {
+            icon.image = glyphImage(side: glyphSide)
+            icon.frame = alignedGlyphFrame(side: glyphSide, centeredIn: iconFrame)
+        }
         title.font = SidebarStyle.titleFont
         if style.isIconOnly {
             let dot = SidebarStyle.dotSize
@@ -256,12 +252,66 @@ final class SidebarItemRowView: NSView {
 
     /// The item's registry icon at `side` points; without one, its SF Symbol at the matching text size.
     private func glyphImage(side: CGFloat) -> NSImage? {
+        if let emoji = info.emoji { return Self.emojiImage(emoji, side: side) }
         if let brand = info.brand, let mark = AgentBrandCatalog.templateImage(brand: brand, size: side) { return mark }
-        if let name = info.icon { return NSImage.icon(name, size: side) }
-        let symbol = NSImage(systemSymbolName: info.symbol, accessibilityDescription: nil)?
+        var glyphIcon = info.icon, symbolName = info.symbol
+        // The Notifications item draws the Debug Settings glyph (`NotificationIconLook`, cx-epgo).
+        if glyphIcon == .notification {
+            let look = observedNotificationIcon()
+            glyphIcon = look.icon
+            symbolName = look.symbol
+        }
+        if let name = glyphIcon { return NSImage.icon(name, size: side) }
+        let symbol = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: side * 0.8, weight: .regular))
         return symbol ?? NSImage.icon(.appGeneric, size: side)
     }
+
+    /// Reads the Notifications glyph look and lays the row out again once
+    /// when Debug Settings changes it (no polling).
+    private func observedNotificationIcon() -> NotificationIconLook {
+        guard !observesNotificationIcon else { return NotificationIconLook.tunable.value }
+        observesNotificationIcon = true
+        return withObservationTracking {
+            NotificationIconLook.tunable.value
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.observesNotificationIcon = false
+                self?.needsLayout = true
+            }
+        }
+    }
+
+    /// `emoji` drawn as a text glyph filling a `side` square (in color, not a template).
+    static func emojiImage(_ emoji: String, side: CGFloat) -> NSImage {
+        NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
+            let text = NSAttributedString(string: emoji, attributes: [.font: NSFont.systemFont(ofSize: side * 0.85)])
+            let size = text.size()
+            text.draw(at: NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2))
+            return true
+        }
+    }
+
+    /// An icon-only item's glyph (the footer's avatar and gear): drawn so its
+    /// ink, not its image box, is `iconInkSize` across and centered in `box`.
+    /// Icons leave different margins in their square, so equal image boxes
+    /// read as different sizes. Nil when the glyph draws nothing.
+    private func inkSizedGlyph(centeredIn box: NSRect) -> (NSImage, NSRect)? {
+        let nominal = SidebarStyle.kindGlyphSize
+        let iconKey = info.icon == .notification ? "\(info.icon?.rawValue ?? "")#\(NotificationIconLook.tunable.value.rawValue)" : info.icon?.rawValue ?? ""
+        let glyph = "\(info.emoji ?? "")|\(info.brand.map { "\($0)" } ?? "")|\(iconKey)|\(info.symbol)"
+        guard let probe = glyphImage(side: nominal), let ink = SidebarGlyphInk.shared.box(of: probe, glyph: glyph),
+              max(ink.width, ink.height) > 0 else { return nil }
+        let scale = window?.backingScaleFactor ?? 2
+        let snap = { (value: CGFloat) in (value * scale).rounded() / scale }
+        let side = snap(nominal * Self.iconInkSize / max(ink.width, ink.height))
+        guard let image = glyphImage(side: side), let drawn = SidebarGlyphInk.shared.box(of: image, glyph: glyph) else { return nil }
+        return (image, NSRect(x: snap(box.midX - drawn.midX), y: snap(box.midY - drawn.midY), width: side, height: side))
+    }
+
+    /// The ink extent of an icon-only item's glyph, in points: the avatar's
+    /// circle and the gear's teeth both span it.
+    static var iconInkSize: CGFloat { SidebarStyle.kindGlyphSize }
 
     /// A `side` square centered in `box`, on the device pixel grid so the icon's strokes stay crisp.
     private func alignedGlyphFrame(side: CGFloat, centeredIn box: NSRect) -> NSRect {
@@ -284,14 +334,6 @@ final class SidebarItemRowView: NSView {
 
     // MARK: Pointer
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        for area in trackingAreas where area.owner === self { removeTrackingArea(area) }
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
-    }
-
-    override func mouseEntered(with event: NSEvent) { isHovered = true }
-    override func mouseExited(with event: NSEvent) { isHovered = false; isPressed = false }
 
     /// Activates on press, as the sidebar's rows do; the pressed fill shows
     /// until release.

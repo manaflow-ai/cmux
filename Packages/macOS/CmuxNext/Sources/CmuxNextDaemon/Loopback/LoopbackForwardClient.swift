@@ -1,5 +1,5 @@
 public import Foundation
-import Synchronization
+import CmuxNextCompat
 import os
 
 /// Browser traffic to one machine's loopback services over a dedicated
@@ -91,7 +91,7 @@ public actor LoopbackForwardClient {
         }
         let transport: LineTransport
         do {
-            transport = try LineTransport(path: endpoint.socketPath, preamble: endpoint.preamble)
+            transport = try LineTransport(path: endpoint.socketPath, bridge: endpoint.bridge)
         } catch {
             throw LoopbackForwardError.unavailable(error.description)
         }

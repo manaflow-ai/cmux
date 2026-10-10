@@ -15,7 +15,8 @@ final class ChromeSecureTextField: NSSecureTextField {
         isBezeled = false
         drawsBackground = false
         focusRingType = .none
-        density.update { [unowned self] in
+        density.update { [weak self] in
+            guard let self else { return }
             font = BrowserMetrics.bodyFont
             applyColors()
         }
@@ -38,9 +39,9 @@ final class ChromeSecureTextField: NSSecureTextField {
     private func applyColors() {
         performWithTheme {
             textColor = Palette.textPrimary
-            placeholderAttributedString = NSAttributedString(string: placeholderText, attributes: [
+            setPlaceholderKeepingEdit(NSAttributedString(string: placeholderText, attributes: [
                 .foregroundColor: Palette.textSecondary, .font: font ?? BrowserMetrics.bodyFont,
-            ])
+            ]))
         }
     }
 }

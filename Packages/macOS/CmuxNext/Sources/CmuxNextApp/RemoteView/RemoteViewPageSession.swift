@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextSettings
 import CmuxNextRemoteView
 
 /// The live part of a `remote_view` tab: the pane and its stream source.
@@ -16,20 +17,45 @@ final class RemoteViewPageSession {
     private var visible = false
 
     private init(record: RemoteViewTabRecord, closeTab: @escaping @MainActor () -> Void) {
-        let source = MockRemoteStreamSource()
+        // The test desktop offers upstream media, so the share buttons show.
+        let source = MockRemoteStreamSource(status: Self.mockStatus)
         self.source = source
         pane = RemoteDesktopPane(hostName: record.host, source: source, inputSink: MockRemoteInputSink(host: source),
                                  initialMode: record.mode)
         pane.handlers.stop = { [weak source] in source?.end(.stoppedByViewer) }
         pane.handlers.reconnect = { [weak source] in
-            source?.setStatus(RemoteViewStatus(path: .direct, rttMs: 4, state: .streaming))
+            source?.setStatus(Self.mockStatus)
             source?.requestKeyframe()
         }
         pane.handlers.close = closeTab
+        pane.upstreamControl = source
     }
+
+    private nonisolated static let mockStatus = RemoteViewStatus(
+        path: .direct, rttMs: 4, state: .streaming, upstream: RemoteUpstreamStatus(offered: true)
+    )
 
     var view: NSView { pane.view }
     var focusTarget: NSView { pane.view.focusView }
+
+    /// `debug.remote_view` state of this session: the source, the session
+    /// state and the decode counters.
+    func debugState() async -> JSONValue {
+        let stats = await pane.decodeStats()
+        let state = pane.state
+        return .object([
+            "source": "mock",
+            "host": .string(state.hostName),
+            "state": .string(String(describing: state.sessionState)),
+            "visible": .bool(visible),
+            "decoded": stats.map { .number(Double($0.decoded)) } ?? .null,
+            "skipped": stats.map { .number(Double($0.skipped)) } ?? .null,
+            "gaps": stats.map { .number(Double($0.gaps)) } ?? .null,
+            "decode_errors": stats.map { .number(Double($0.decodeErrors)) } ?? .null,
+            "hardware": stats.map { .bool($0.hardware) } ?? .null,
+            "upstream_offered": .bool(state.status?.upstream.offered ?? false),
+        ])
+    }
 
     /// Starts the stream while the tab is shown. Idempotent.
     func resume() {

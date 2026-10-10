@@ -1,11 +1,12 @@
 import CmuxNextActions
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 
 /// Recently closed tabs, screens, and workspaces as the daemon records them
 /// (`closed-history-v1`, state-ownership.md 2). One shared path for Reopen
-/// Closed Tab, Reopen Closed Screen, and Recently Closed: read the newest
+/// Closed Tab, Reopen Closed Screen, Reopen Closed Workspace, and Recently Closed: read the newest
 /// item from the mirrored history (`DaemonStore.closedItems`), reopen it
 /// with `closed.reopen`, and show what came back. The history lists
 /// (Recently Closed…, `history.list`, the history page) show these items
@@ -43,6 +44,12 @@ enum DaemonClosedHistory {
         entries([.tab, .screen, .workspace], in: services).first { $0.item.id == id }
     }
 
+    /// The newest recorded delete of personal workspace group `id`, if a
+    /// daemon serves one (Ungroup and Delete Group record the group).
+    static func groupEntry(_ id: String, in services: AppServices) -> Entry? {
+        entries([.workspace], in: services).first { $0.item.group?.id == id }
+    }
+
     /// Reopens `entry` on its daemon and shows it: a tab selected in its
     /// pane, a screen selected in its workspace, a workspace in the active
     /// window. The failure (if any) is the tracked work's result.
@@ -69,20 +76,39 @@ enum DaemonClosedHistory {
                     let inStore = { tabs.allSatisfy { id in daemon.store.workspaces.contains { $0.screens.contains { $0.panes.contains { $0.tabs.contains { $0.resourceID == id } } } } } }
                     undo?.noteReopenApplied(start.duration(to: clock.now), tabsInStore: inStore())
                     // When the reopened tabs reach the store (nxdog54: the first restore only after another event).
-                    for await present in Observations({ inStore() }) where present {
+                    for await present in ObservationStream({ inStore() }) where present {
                         undo?.noteReopenTabsArrived(start.duration(to: clock.now))
                         return
                     }
                 }
             } catch {
                 daemon.logger.error("closed.reopen failed: \(String(describing: error), privacy: .public)")
+                if item.kind == .workspace, item.group == nil,
+                   case DaemonError.command(_, _, let code, _, _) = error, code == "resource.not_found" {
+                    services.registry.refuse(RefusalStrings.noRecentlyClosedWorkspace)
+                    return ActionWorkFailure(refusal: .unavailable, reason: RefusalStrings.noRecentlyClosedWorkspace)
+                }
                 return "closed.reopen: \(error)"
             }
+            // A reopened workspace group forms again in the sidebar; no window changes what it shows.
+            if item.group != nil { return nil }
             if item.kind == .tab, let tab = reopened.tabIDs.first, let pane, let controller = services.paneController(for: pane) {
                 controller.selectWhenReported(tab: tab.rawValue)
                 return nil
             }
             await daemon.store.applied(through: await connection.eventSequence())
+            if item.kind == .workspace {
+                if let id = reopened.workspaceID,
+                   let workspace = await workspaceAfterReopen(id, in: daemon.store, clock: daemon.reopenClock) {
+                    services.windows.reveal(workspaceID: workspace)
+                    return nil
+                } else {
+                    let reason = RefusalStrings.noWorkspace(reopened.workspaceID?.rawValue ?? item.id)
+                    daemon.logger.error("closed.reopen timed out waiting for its workspace: \(item.id, privacy: .public)")
+                    services.registry.refuse(reason)
+                    return ActionWorkFailure(reason, mayHaveApplied: true)
+                }
+            }
             show(reopened, kind: item.kind, daemon: daemon, services: services)
             return nil
         })

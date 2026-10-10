@@ -31,6 +31,6 @@ public nonisolated enum SidebarTunables {
         default: .off, code: "SidebarTunables.agentMark")
 
     public static var all: [TunableDescriptor] {
-        [groupEdgeFraction, groupExitFraction, sectionTopFraction, workspaceOntoStart, workspaceOntoEnd].map(\.descriptor) + [agentMark.descriptor, updateCardButton.descriptor] + SidebarSectionTunables.all
+        [groupEdgeFraction, groupExitFraction, sectionTopFraction, workspaceOntoStart, workspaceOntoEnd].map(\.descriptor) + [agentMark.descriptor, NotificationBadgeLook.tunable.descriptor, NotificationIconLook.tunable.descriptor, updateCardButton.descriptor, SidebarChatsDesign.tunable.descriptor] + SidebarSectionTunables.all
     }
 }

@@ -8,7 +8,7 @@ extension AppActionContext {
 
     func requireRooms() throws {
         guard services.machines.local.supports(DaemonCapabilities.shared.profiles) else {
-            throw ActionFailure.needsDaemonCapability(DaemonCapabilities.shared.profiles)
+            throw ActionFailure(message: services.machines.local.missingCapabilityMessage(DaemonCapabilities.shared.profiles))
         }
     }
 

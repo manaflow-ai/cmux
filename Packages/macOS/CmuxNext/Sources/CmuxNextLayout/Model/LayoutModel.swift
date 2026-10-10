@@ -216,7 +216,13 @@ public final class LayoutModel {
     public func focus(_ pane: PaneID, notify: Bool, source: ColumnFocusSource = .programmatic) {
         guard let screen = screen(containing: pane) else { return }
         if activeScreenID != screen.id { activeScreenID = screen.id }
-        guard focusedPane != pane else { return }
+        if focusedPane == pane {
+            // A pointer or scroll can re-focus the already active pane. Keep the source current
+            // so a keyboard ring is dismissed immediately, without letting passive programmatic
+            // reveals overwrite that pointer state.
+            if source == .pointer || source == .scroll { lastFocusSource = source }
+            return
+        }
         lastFocusSource = source
         focusedPane = pane
         if notify { emit(.focus(pane)) }
@@ -317,6 +323,24 @@ public final class LayoutModel {
     }
 
     public var hasPendingGestureIntents: Bool { !pendingIntents.isEmpty }
+
+    /// Cancels a pointer gesture that will get no release (its divider or
+    /// column went away mid-drag): its overrides and its coalesced intents
+    /// drop, so no stale `.changed` reaches the daemon or another column,
+    /// the last daemon values show, and `.cancelGesture` closes the
+    /// transaction for the App.
+    public func cancelGesture(_ transaction: LayoutTransactionID) {
+        pendingIntents = pendingIntents.filter { Self.transaction(of: $0.value) != transaction }
+        rejectTransaction(transaction)
+        emit(.cancelGesture(transaction))
+    }
+
+    private static func transaction(of intent: LayoutIntent) -> LayoutTransactionID? {
+        switch intent {
+        case .setSplitRatio(_, _, let transaction, _), .setColumnWidth(_, _, _, let transaction, _): transaction
+        default: nil
+        }
+    }
 
     private func record(_ intent: LayoutIntent, key: PendingKey, phase: LayoutGesturePhase) {
         switch phase {

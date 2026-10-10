@@ -18,6 +18,14 @@ use serde::Serialize;
 
 use crate::journal_ingress::JournalLane;
 
+mod resource_projection;
+pub use resource_projection::{
+    CommitSpans, ProjectionSpans, ResourceProjectionSnapshot, ResourceProjectionStats,
+};
+mod write_path;
+pub(crate) use write_path::writer_took_registry_lock;
+pub use write_path::{WritePathSnapshot, WritePathStats};
+
 /// Sub-buckets per power of two. Four keeps the reported percentile within
 /// 25% above the true value while costing 256 counters per histogram.
 const SUB_BUCKETS_LOG2: u32 = 2;
@@ -534,133 +542,13 @@ pub struct ServerStatsSnapshot {
     pub registry_lock: LockStatsSnapshot,
     pub journal_writer: Option<JournalWriterSnapshot>,
     pub connections: ConnectionSnapshot,
+    /// Present only when the request names `resource_projection` in
+    /// `include`: older SDK decoders refuse unknown result fields.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resource_projection: Option<ResourceProjectionSnapshot>,
+    /// Present only when the request names `write_path` in `include`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub write_path: Option<WritePathSnapshot>,
 }
 
 pub const SERVER_STATS_SCHEMA: u32 = 1;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn histogram_percentiles_are_bucket_upper_bounds_within_a_quarter() {
-        let histogram = LogLinearHistogram::new();
-        for value in [1u64, 2, 3, 5, 9, 17, 100, 1000, 20_000, 1_000_000] {
-            histogram.record(value);
-            let index = LogLinearHistogram::bucket_index(value);
-            let upper = LogLinearHistogram::bucket_upper_bound(index);
-            assert!(upper >= value, "{value} above its bucket bound {upper}");
-            assert!(upper <= value + value / 4 + 1, "{value} bound {upper} too loose");
-            if index > 0 {
-                assert!(LogLinearHistogram::bucket_upper_bound(index - 1) < value);
-            }
-        }
-        let snapshot = histogram.snapshot();
-        assert_eq!(snapshot.count, 10);
-        assert_eq!(snapshot.max, 1_000_000);
-        assert!(snapshot.p50 >= 9 && snapshot.p50 <= 12, "{snapshot:?}");
-        assert!(snapshot.p99 >= 1_000_000, "{snapshot:?}");
-    }
-
-    #[test]
-    fn empty_histogram_reports_zeros() {
-        assert_eq!(LogLinearHistogram::new().snapshot(), HistogramSnapshot::default());
-    }
-
-    #[test]
-    fn default_constructed_stats_can_record() {
-        let histogram = LogLinearHistogram::default();
-        histogram.record(u64::MAX);
-        histogram.record(u64::MAX);
-        let snapshot = histogram.snapshot();
-        assert_eq!((snapshot.count, snapshot.max, snapshot.p99), (2, u64::MAX, u64::MAX));
-        assert_eq!(snapshot.mean, u64::MAX / 2, "sum saturates instead of wrapping");
-        let stats = LockStats::default();
-        stats.acquired(Location::caller(), Duration::from_secs(1), None);
-        assert_eq!(stats.snapshot().wait_us.count, 1);
-    }
-
-    #[test]
-    fn lock_stats_track_holder_stalls_and_sites() {
-        let stats = LockStats::new();
-        let site_a: LockSite = Location::caller();
-        assert!(stats.wait_started().is_none());
-        stats.acquired(site_a, Duration::from_micros(10), None);
-        let snapshot = stats.snapshot();
-        assert_eq!(
-            snapshot.holder.as_ref().map(|h| h.site.as_str()),
-            Some(site_label(site_a).as_str())
-        );
-        assert_eq!(snapshot.contended_acquisitions, 0);
-
-        let blocker = stats.wait_started();
-        assert_eq!(blocker, Some(site_a));
-        stats.released(site_a, Duration::from_millis(3));
-        stats.acquired(site_a, LOCK_STALL_THRESHOLD, blocker);
-        stats.released(site_a, Duration::from_millis(1));
-
-        let snapshot = stats.snapshot();
-        assert!(snapshot.holder.is_none());
-        assert_eq!(snapshot.contended_acquisitions, 1);
-        assert_eq!(snapshot.stalls, 1);
-        let stall = snapshot.last_stall.expect("stall recorded");
-        assert_eq!(stall.blocker.as_deref(), Some(site_label(site_a).as_str()));
-        assert_eq!(snapshot.top_sites.len(), 1);
-        assert_eq!(snapshot.top_sites[0].acquisitions, 2);
-        assert_eq!(snapshot.top_sites[0].hold_max_us, 3_000);
-        assert_eq!(snapshot.hold_us.count, 2);
-    }
-
-    #[test]
-    fn writer_stats_follow_queue_and_batches() {
-        let stats = JournalWriterStats::default();
-        stats.enqueued(JournalLane::Durable);
-        stats.enqueued(JournalLane::Durable);
-        stats.enqueued(JournalLane::Terminal);
-        assert_eq!(stats.snapshot().durable_queued, 2);
-        stats.enqueue_failed(JournalLane::Durable);
-        assert_eq!(stats.snapshot().durable_queued, 1);
-        stats.enqueued(JournalLane::Durable);
-        stats.drained(JournalLane::Durable, 2);
-        stats.drained(JournalLane::Terminal, 5);
-        stats.set_phase(WriterPhase::Committing);
-        stats.batch_committed(1, 2);
-        stats.commit_finished(Duration::from_micros(5), Duration::from_millis(20));
-        stats.set_phase(WriterPhase::Idle);
-        let snapshot = stats.snapshot();
-        assert_eq!((snapshot.durable_queued, snapshot.terminal_queued), (0, 0));
-        assert_eq!(snapshot.batches, 1);
-        assert_eq!(snapshot.batch_size.max, 3);
-        assert!(snapshot.commit_us.p50 >= 20_000);
-        assert_eq!(snapshot.phase, WriterPhase::Idle);
-    }
-
-    #[test]
-    fn writer_phase_snapshot_uses_one_timestamp_for_each_phase() {
-        let stats = JournalWriterStats::default();
-        stats.set_phase(WriterPhase::WaitingLock);
-        let waiting = stats.snapshot();
-        std::thread::sleep(Duration::from_millis(1));
-        stats.set_phase(WriterPhase::Committing);
-        let committing = stats.snapshot();
-
-        assert_eq!(waiting.phase, WriterPhase::WaitingLock);
-        assert_eq!(committing.phase, WriterPhase::Committing);
-        assert!(committing.phase_for_us < 100_000, "phase timestamp was not reset: {committing:?}");
-    }
-
-    #[test]
-    fn connection_stats_enforce_the_limit_and_count_refusals() {
-        let stats = ConnectionStats::default();
-        assert!(stats.try_claim(2));
-        assert!(stats.try_claim(2));
-        assert!(!stats.try_claim(2));
-        stats.release();
-        assert!(stats.try_claim(2));
-        let snapshot = stats.snapshot(2);
-        assert_eq!(
-            (snapshot.active, snapshot.peak, snapshot.accepted, snapshot.refused),
-            (2, 2, 3, 1)
-        );
-    }
-}

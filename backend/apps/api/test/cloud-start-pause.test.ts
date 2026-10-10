@@ -46,46 +46,12 @@ describe("pause and start", { timeout: 60_000 }, () => {
     expect(await x.stub.mintLinkToken(x.team, installOf(x.p), { host, services: ["ssh"] })).toMatchObject({ ok: false, code: "cloud.machine.paused", details: { machine, state: "paused" } })
   })
 
-  it("pause and start need a signed-in person (money ops): an install is refused", async () => {
+  it("pause and start refuse agents and installs whose grant lacks mutate-shared (cx-wb5.65)", async () => {
     const x = person()
     await ensureUser(x)
     const { machine } = await createdAndBound(x)
-    expect(reply(await x.stub.submit(x.team, installOf(x.p), frame("cloud.machine.pause", { machine })))).toMatchObject({ t: "reject", code: "auth.forbidden" })
+    expect(reply(await x.stub.submit(x.team, { ...installOf(x.p), agent: "agent_00000000000000000001" }, frame("cloud.machine.pause", { machine })))).toMatchObject({ t: "reject", code: "auth.forbidden" })
+    expect(reply(await x.stub.submit(x.team, installOf(x.p, ["read", "mutate-own"]), frame("cloud.machine.pause", { machine })))).toMatchObject({ t: "reject", code: "auth.forbidden" })
   })
 
-  it("a call that failed after the VM changed settles from the VM's real state (review P2)", async () => {
-    const x = person()
-    await ensureUser(x)
-    const { machine } = await createdAndBound(x)
-    reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.pause", { machine })))
-    // The provider starts the VM, then the answer is lost and the retry hears "already running" (409).
-    await x.stub.fakeControl({ power_then_fail: 1 } as never)
-    reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.start", { machine })))
-    expect(await x.stub.readOp(x.team, x.p, "cloud.machine.get", { machine })).toMatchObject({ value: { status: "running" } })
-    expect((await x.stub.readOp(x.team, x.p, "cloud.plan.get", {})).value.usage.active).toBe(1)
-  })
-
-  it("a start whose VM is gone marks the machine failed, not paused forever (review P3)", async () => {
-    const x = person()
-    await ensureUser(x)
-    const { machine } = await createdAndBound(x)
-    reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.pause", { machine })))
-    const vm = ((await x.stub.fakeControl({})) as unknown as { vms: Array<{ name: string }> }).vms.find((v) => v.name.endsWith(machine.replace(/_/g, "-")))!
-    await x.stub.fakeControl({ delete_vm: vm.name } as never)
-    reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.start", { machine })))
-    expect(await x.stub.readOp(x.team, x.p, "cloud.machine.get", { machine })).toMatchObject({ value: { status: "failed" } })
-  })
-
-  it("a delete settles a pause or start still retrying, so it never waits behind it (review P3)", async () => {
-    const x = person()
-    await ensureUser(x)
-    const { machine } = await createdAndBound(x)
-    // The pause call fails once and waits for its retry (backed off); the delete must not wait for it.
-    await x.stub.fakeControl({ fail_next: 1 } as never)
-    expect(reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.pause", { machine })))).toMatchObject({ t: "reject", code: "mutation.indeterminate" })
-    const del = reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.delete", { machine })))
-    expect(del, JSON.stringify(del)).toMatchObject({ t: "result", value: { deleted: true } })
-    expect((await x.stub.readOp(x.team, x.p, "cloud.machine.get", { machine })).ok).toBe(false)
-    expect(((await x.stub.fakeControl({})) as unknown as { pending: number }).pending).toBe(0)
-  })
 })

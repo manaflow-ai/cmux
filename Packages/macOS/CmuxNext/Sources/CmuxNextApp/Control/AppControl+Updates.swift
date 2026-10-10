@@ -12,21 +12,28 @@ extension AppControl {
         service?.router.register([
             .mainActor("updates.status") { _ in .value(Self.json(updater.status, log: updater.log.recent)) },
             // `{build?, check?}`: rolls back to a kept build, or with check
-            // only reports whether it would. The daemon's stored formats come
-            // with the cmux-tui store.schemas op; until then it refuses.
+            // only reports whether it would. Both daemons' stores count: the
+            // app's and the Chief conversation owner's.
             .mainActor("updates.rollback") { call in
                 let build = call.params["build"]?.stringValue
-                if call.params["check"]?.boolValue == true {
-                    switch updater.rollbackDecision(to: build, stored: nil) {
-                    case .success(let kept): return .value(.object(["allowed": true, "build": .string(kept.build)]))
-                    case .failure(let refusal): return .value(.object(["allowed": false, "reason": .string(refusal.message)]))
+                let check = call.params["check"]?.boolValue == true
+                let stateDirectories = appServices.environment.daemonStateDirectories
+                return .followUp {
+                    let inputs = await updater.rollbackInputs(stateDirectories: stateDirectories)
+                    return try await MainActor.run { () throws -> JSONValue in
+                        if check {
+                            switch updater.rollbackDecision(to: build, inputs: inputs) {
+                            case .success(let kept): return .object(["allowed": true, "build": .string(kept.build)])
+                            case .failure(let refusal): return .object(["allowed": false, "reason": .string(refusal.message)])
+                            }
+                        }
+                        do {
+                            let kept = try updater.rollback(to: build, inputs: inputs, relaunch: UpdaterService.relaunchAfterExit)
+                            return .object(["rolled_back_to": .string(kept.build)])
+                        } catch let refusal as RollbackRefusal {
+                            throw ControlError(code: "rollback_refused", message: refusal.message)
+                        }
                     }
-                }
-                do {
-                    let kept = try updater.rollback(to: build, stored: nil, relaunch: UpdaterService.relaunchAfterExit)
-                    return .value(.object(["rolled_back_to": .string(kept.build)]))
-                } catch let refusal as RollbackRefusal {
-                    throw ControlError(code: "rollback_refused", message: refusal.message)
                 }
             },
             .mainActor("updates.check") { call in
@@ -72,27 +79,11 @@ extension AppControl {
         #if DEBUG
         service?.router.register([
             .mainActor("debug.update_indicator") { call in
-                updater.debugIndicatorPhase = Self.indicatorPhase(call.params)
+                updater.debugIndicatorPhase = UpdateIndicatorPhase(debugParams: call.params)
                 return .value(.object(["phase": .string(String(describing: updater.indicatorPhase))]))
             },
         ])
         #endif
-    }
-
-    /// `debug.update_indicator {phase, version?, progress?, text?}`: a fixed
-    /// rail update circle for screenshots; `phase: "live"` (or none) follows
-    /// the updater again.
-    static func indicatorPhase(_ params: [String: JSONValue]) -> UpdateIndicatorPhase? {
-        switch params["phase"]?.stringValue {
-        case "hidden": .hidden
-        case "checking": .checking
-        case "downloading": .downloading(progress: params["progress"]?.doubleValue)
-        case "available": .available(version: params["version"]?.stringValue)
-        case "ready": .ready(version: params["version"]?.stringValue)
-        case "installing": .installing
-        case "note": .note(params["text"]?.stringValue ?? "", isError: params["error"]?.boolValue == true)
-        default: nil
-        }
     }
 
     static func json(_ status: UpdaterStatus, log: [String]) -> JSONValue {
@@ -116,8 +107,11 @@ extension AppControl {
             "channel_switch_target": status.channelSwitchTarget.map { .string($0.rawValue) } ?? .null,
             "test_feed": status.testFeedURL.map(JSONValue.string) ?? .null,
             "card": status.card.map { card in
-                .object(["kind": .string(card.kind), "title": .string(card.presentation.title),
-                         "detail": card.presentation.detail.map(JSONValue.string) ?? .null])
+                let shown = status.cardPresentation ?? card.presentation(version: status.version, build: status.build)
+                return .object(["kind": .string(card.kind), "title": .string(shown.title),
+                                "detail": shown.detail.map(JSONValue.string) ?? .null,
+                                "lines": .array(shown.lines.map(JSONValue.string)),
+                                "actions": .array(shown.actions.map { .string($0.rawValue) })])
             } ?? .null,
             "badge": status.badge.map(JSONValue.string) ?? .null,
             "log": .array(log.suffix(20).map(JSONValue.string)),

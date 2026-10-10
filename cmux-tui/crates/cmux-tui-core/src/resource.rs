@@ -10,7 +10,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 mod error;
+mod idempotency;
+mod request_id;
 pub use error::*;
+pub use idempotency::{MAX_IDEMPOTENCY_KEY_BYTES, validate_idempotency_key};
+pub use request_id::RequestId;
 
 pub const PROTOCOL: &str = "cmux.protocol/2";
 pub const MAX_MESSAGE_BYTES: usize = 4 * 1024 * 1024;
@@ -18,62 +22,6 @@ pub const STREAM_EVENT_CAPACITY: usize = 256;
 pub const STREAM_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
 pub const JOURNAL_CAPACITY: usize = 4096;
 pub const JOURNAL_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
-pub const MAX_IDEMPOTENCY_KEY_BYTES: usize = 128;
-
-pub fn validate_idempotency_key(value: &str) -> Result<(), ResourceError> {
-    if value.trim().is_empty() {
-        return Err(ResourceError::validation_invalid(
-            Some("idempotency_key"),
-            "idempotency_key must contain at least one non-whitespace Unicode scalar",
-        ));
-    }
-    if value.len() > MAX_IDEMPOTENCY_KEY_BYTES {
-        return Err(ResourceError::validation_invalid(
-            Some("idempotency_key"),
-            "idempotency_key must contain 1 to 128 UTF-8 bytes",
-        ));
-    }
-    if value.chars().any(char::is_control) {
-        return Err(ResourceError::validation_invalid(
-            Some("idempotency_key"),
-            "idempotency_key must not contain Unicode control characters",
-        ));
-    }
-    Ok(())
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
-#[serde(transparent)]
-pub struct RequestId(String);
-
-impl RequestId {
-    pub const MAX_BYTES: usize = 128;
-
-    pub fn parse(value: impl Into<String>) -> Result<Self, ResourceError> {
-        let value = value.into();
-        if value.is_empty() || value.len() > Self::MAX_BYTES {
-            return Err(ResourceError::validation_invalid(
-                Some("id"),
-                "request id must contain 1 to 128 UTF-8 bytes",
-            ));
-        }
-        Ok(Self(value))
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl<'de> Deserialize<'de> for RequestId {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        Self::parse(String::deserialize(deserializer)?).map_err(serde::de::Error::custom)
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EnvelopeType {
     #[serde(rename = "request")]
@@ -174,6 +122,28 @@ pub enum ResourceOperation {
     GitCheckpointPin,
     #[serde(rename = "git.checkpoint.unpin")]
     GitCheckpointUnpin,
+    #[serde(rename = "chief.engine.get")]
+    ChiefEngineGet,
+    #[serde(rename = "chief.engine.set")]
+    ChiefEngineSet,
+    #[serde(rename = "chief.stop")]
+    ChiefStop,
+    #[serde(rename = "conversation.list")]
+    ConversationList,
+    #[serde(rename = "conversation.get")]
+    ConversationGet,
+    #[serde(rename = "conversation.history")]
+    ConversationHistory,
+    #[serde(rename = "conversation.search")]
+    ConversationSearch,
+    #[serde(rename = "conversation.send")]
+    ConversationSend,
+    #[serde(rename = "conversation.typing")]
+    ConversationTyping,
+    #[serde(rename = "conversation.draft")]
+    ConversationDraft,
+    #[serde(rename = "conversation.events")]
+    ConversationEvents,
     #[serde(rename = "git.diff")]
     GitDiff,
     #[serde(rename = "git.files.search")]
@@ -188,6 +158,8 @@ pub enum ResourceOperation {
     WorkspaceCreate,
     #[serde(rename = "workspace.ensure_home")]
     WorkspaceEnsureHome,
+    #[serde(rename = "workspace.ensure_app")]
+    WorkspaceEnsureApp,
     #[serde(rename = "workspace.rename")]
     WorkspaceRename,
     #[serde(rename = "workspace.move")]
@@ -374,6 +346,8 @@ pub enum ResourceOperation {
     OriginConfirmationIssue,
     #[serde(rename = "closed.list")]
     ClosedList,
+    #[serde(rename = "closed.delete")]
+    ClosedDelete,
     #[serde(rename = "closed.reopen")]
     ClosedReopen,
     #[serde(rename = "window_record.list")]
@@ -386,6 +360,28 @@ pub enum ResourceOperation {
     SidebarLayoutGet,
     #[serde(rename = "sidebar_layout.update")]
     SidebarLayoutUpdate,
+    #[serde(rename = "project.list")]
+    ProjectList,
+    #[serde(rename = "project.observe")]
+    ProjectObserve,
+    #[serde(rename = "project.add")]
+    ProjectAdd,
+    #[serde(rename = "project.update")]
+    ProjectUpdate,
+    #[serde(rename = "project.remove")]
+    ProjectRemove,
+    #[serde(rename = "project.sync")]
+    ProjectSync,
+    #[serde(rename = "palette_usage.get")]
+    PaletteUsageGet,
+    #[serde(rename = "palette_usage.record")]
+    PaletteUsageRecord,
+    #[serde(rename = "palette_usage.import")]
+    PaletteUsageImport,
+    #[serde(rename = "palette_usage.hide")]
+    PaletteUsageHide,
+    #[serde(rename = "palette_usage.forget")]
+    PaletteUsageForget,
     #[serde(rename = "room.create")]
     RoomCreate,
     #[serde(rename = "room.delete")]
@@ -526,6 +522,7 @@ impl ResourceOperation {
             self,
             Self::SessionEvents
                 | Self::SessionJournalSubscribe
+                | Self::ConversationEvents
                 | Self::TerminalAttach
                 | Self::BrowserAttach
                 | Self::SidebarViewAttach
@@ -566,6 +563,11 @@ impl ResourceOperation {
                 | Self::ClientGet
                 | Self::PairingRequestList
                 | Self::FrontendProjectionGet
+                | Self::ChiefEngineGet
+                | Self::ConversationList
+                | Self::ConversationGet
+                | Self::ConversationHistory
+                | Self::ConversationSearch
                 | Self::GitCheckpointDiff
                 | Self::GitCheckpointGet
                 | Self::GitCheckpointList
@@ -601,6 +603,8 @@ impl ResourceOperation {
                 | Self::ClosedList
                 | Self::WindowRecordList
                 | Self::SidebarLayoutGet
+                | Self::ProjectList
+                | Self::PaletteUsageGet
                 | Self::RoomList
                 | Self::SavedTabGroupList
                 | Self::ScreenGroupGet
@@ -624,6 +628,7 @@ impl ResourceOperation {
 }
 
 mod envelope;
+mod hex;
 mod journal;
 #[cfg(test)]
 #[path = "resource/wire_name_tests.rs"]
@@ -633,6 +638,7 @@ mod wire_decimal;
 mod wire_name;
 
 pub use envelope::{RequestEnvelope, ResponseEnvelope};
+use hex::encode_hex;
 pub use journal::{ResourceDelta, ResourceDeltaBatch, ResourceJournal};
 pub use wire_decimal::WireDecimal;
 
@@ -810,16 +816,6 @@ impl ContentPublicId {
             Self::Browser(id) => id.as_str(),
         }
     }
-}
-
-fn encode_hex(bytes: [u8; 16]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut output = String::with_capacity(32);
-    for byte in bytes {
-        output.push(char::from(HEX[(byte >> 4) as usize]));
-        output.push(char::from(HEX[(byte & 0x0f) as usize]));
-    }
-    output
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

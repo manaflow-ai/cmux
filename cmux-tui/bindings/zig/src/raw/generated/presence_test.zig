@@ -21,6 +21,7 @@ fn expectExplicitNullRejected(
 test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.AttachSurfaceRequest, "snapshot_images");
     try expectExplicitNullRejected(protocol.AttachSurfaceRequest, "snapshot_local_history");
+    try expectExplicitNullRejected(protocol.ChiefInspectRequest, "query");
     try expectExplicitNullRejected(protocol.ClosePaneRequest, "end_terminals");
     try expectExplicitNullRejected(protocol.CloseScreenRequest, "end_terminals");
     try expectExplicitNullRejected(protocol.CloseScreenGroupRequest, "end_terminals");
@@ -33,9 +34,12 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ConversationOpResult, "transaction");
     try expectExplicitNullRejected(protocol.CreatePersonalGroupRequest, "collapsed");
     try expectExplicitNullRejected(protocol.CreateSurfaceWithReceiptRequest, "selector_fallbacks");
+    try expectExplicitNullRejected(protocol.CreateTerminalRequest, "detached");
     try expectExplicitNullRejected(protocol.CreateTerminalRequest, "keep");
     try expectExplicitNullRejected(protocol.CreateWorkspaceGroupRequest, "collapsed");
+    try expectExplicitNullRejected(protocol.FeedLocalListRequest, "unread");
     try expectExplicitNullRejected(protocol.ForgetSessionRequest, "force");
+    try expectExplicitNullRejected(protocol.HistorySearchRequest, "kinds");
     try expectExplicitNullRejected(protocol.ImportBookmarksRequest, "replace");
     try expectExplicitNullRejected(protocol.ImportSessionOrganizationRequest, "groups");
     try expectExplicitNullRejected(protocol.ImportSessionOrganizationRequest, "workspaces");
@@ -65,6 +69,8 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.CloudConversationResyncedEvent, "account");
     try expectExplicitNullRejected(protocol.CloudInboxChangedEvent, "account");
     try expectExplicitNullRejected(protocol.CloudInboxResetEvent, "account");
+    try expectExplicitNullRejected(protocol.CloudMuxResyncedEvent, "account");
+    try expectExplicitNullRejected(protocol.CloudMuxWakeEvent, "account");
     try expectExplicitNullRejected(protocol.CloudSubscriptionStateEvent, "account");
     try expectExplicitNullRejected(protocol.ColorsChangedEvent, "overrides");
     try expectExplicitNullRejected(protocol.ColorsChangedEvent, "palette");
@@ -170,6 +176,8 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.RenderRun, "width_hint");
     try expectExplicitNullRejected(protocol.SavedTabGroupMember, "url");
     try expectExplicitNullRejected(protocol.Screen, "short_id");
+    try expectExplicitNullRejected(protocol.ServerStatsResult, "resource_projection");
+    try expectExplicitNullRejected(protocol.ServerStatsResult, "write_path");
     try expectExplicitNullRejected(protocol.SetSizeCountsResult, "changed");
     try expectExplicitNullRejected(protocol.SetSizeCountsResult, "participant");
     try expectExplicitNullRejected(protocol.SetSizePolicyResult, "state");
@@ -182,6 +190,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.TerminalColors, "overrides");
     try expectExplicitNullRejected(protocol.TerminalColors, "palette");
     try expectExplicitNullRejected(protocol.TerminalKeyInput, "composing");
+    try expectExplicitNullRejected(protocol.TerminalPlacement, "terminal_resource_id");
     try expectExplicitNullRejected(protocol.Tree, "generation");
     try expectExplicitNullRejected(protocol.Tree, "pane_revision");
     try expectExplicitNullRejected(protocol.Tree, "registry_id");

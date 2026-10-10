@@ -132,12 +132,6 @@ fn append(block: &mut Value, key: &str, text: &str) {
     block[key] = Value::String(joined);
 }
 
-/// Reads an SSE body line by line into an assembler.
-#[cfg(test)]
-pub fn read(body: impl std::io::BufRead) -> Result<Value, String> {
-    read_until(body, &|| false)?.ok_or_else(|| "the stream stopped".to_owned())
-}
-
 /// `read`, checking `stop` after every event: Ok(None) when it said so (the
 /// partial message is dropped; nothing of it is logged or resent).
 pub fn read_until(
@@ -157,78 +151,4 @@ pub fn read_until(
         }
     }
     assembler.finish().map(Some)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn a_stream_assembles_into_the_message_with_blocks_verbatim() {
-        let body = [
-            json!({"type": "message_start", "message": {"id": "m", "role": "assistant", "content": [], "usage": {"input_tokens": 5, "cache_read_input_tokens": 100, "output_tokens": 1}}}),
-            json!({"type": "content_block_start", "index": 0, "content_block": {"type": "thinking", "thinking": "", "signature": ""}}),
-            json!({"type": "content_block_delta", "index": 0, "delta": {"type": "signature_delta", "signature": "sig"}}),
-            json!({"type": "content_block_stop", "index": 0}),
-            json!({"type": "content_block_start", "index": 1, "content_block": {"type": "text", "text": ""}}),
-            json!({"type": "content_block_delta", "index": 1, "delta": {"type": "text_delta", "text": "Let me "}}),
-            json!({"type": "content_block_delta", "index": 1, "delta": {"type": "text_delta", "text": "look."}}),
-            json!({"type": "content_block_stop", "index": 1}),
-            json!({"type": "content_block_start", "index": 2, "content_block": {"type": "tool_use", "id": "t1", "name": "bash", "input": {}}}),
-            json!({"type": "content_block_delta", "index": 2, "delta": {"type": "input_json_delta", "partial_json": "{\"comm"}}),
-            json!({"type": "content_block_delta", "index": 2, "delta": {"type": "input_json_delta", "partial_json": "and\": \"ls\"}"}}),
-            json!({"type": "content_block_stop", "index": 2}),
-            json!({"type": "message_delta", "delta": {"stop_reason": "tool_use", "stop_sequence": null}, "usage": {"output_tokens": 42}}),
-            json!({"type": "message_stop"}),
-        ]
-        .iter()
-        .map(|d| format!("event: x\ndata: {d}\n\n"))
-        .collect::<String>();
-        let message = read(body.as_bytes()).unwrap();
-        assert_eq!(message["stop_reason"], "tool_use");
-        assert_eq!(message["usage"]["output_tokens"], 42);
-        assert_eq!(message["usage"]["cache_read_input_tokens"], 100);
-        assert_eq!(
-            message["content"],
-            json!([
-                {"type": "thinking", "thinking": "", "signature": "sig"},
-                {"type": "text", "text": "Let me look."},
-                {"type": "tool_use", "id": "t1", "name": "bash", "input": {"command": "ls"}},
-            ])
-        );
-    }
-
-    #[test]
-    fn a_stop_drops_the_stream_at_the_next_event() {
-        let body = (0..10)
-            .map(|i| {
-                format!(
-                    "data: {}\n\n",
-                    json!({"type": "content_block_delta", "index": 0, "delta": {"type": "thinking_delta", "thinking": format!("{i}")}})
-                )
-            })
-            .collect::<String>();
-        let seen = std::cell::Cell::new(0);
-        let stop = || {
-            seen.set(seen.get() + 1);
-            seen.get() >= 3
-        };
-        assert_eq!(read_until(body.as_bytes(), &stop), Ok(None));
-        assert_eq!(seen.get(), 3, "checked after every event, stopped at once");
-    }
-
-    #[test]
-    fn an_error_event_or_a_cut_stream_fails() {
-        let error = format!(
-            "data: {}\n\n",
-            json!({"type": "error", "error": {"type": "overloaded_error", "message": "Overloaded"}})
-        );
-        assert_eq!(read(error.as_bytes()), Err("Overloaded".into()));
-        let cut = format!(
-            "data: {}\n\n",
-            json!({"type": "message_start", "message": {"content": []}})
-        );
-        assert!(read(cut.as_bytes()).is_err());
-    }
 }

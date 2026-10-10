@@ -12,6 +12,9 @@
 //! The unix socket keeps its behavior: a local turn under `approve-all`
 //! still answers itself.
 
+// Unix only until the Windows port runs the daemon (cmux::local_socket).
+#![cfg(unix)]
+
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;
@@ -55,6 +58,22 @@ fn hub(d: &Path) -> Arc<Hub> {
 struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
 
 impl Client {
+    /// A client that presented the person key (`hub/person.rs`): the person
+    /// at the Mac app, who may allow and widen.
+    async fn person(hub: &Arc<Hub>, origin: Origin) -> Self {
+        const KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let _ = hub.person.install_spawn_key(KEY);
+        let mut c = Self::new(hub, origin);
+        let r = c
+            .call(
+                "initialize",
+                json!({"protocolVersion": 1, "_meta": {"acpmux": {"personKey": KEY}}}),
+            )
+            .await;
+        assert!(r.get("error").is_none(), "{r}");
+        c
+    }
+
     fn new(hub: &Arc<Hub>, origin: Origin) -> Self {
         let (in_tx, in_rx) = mpsc::channel(64);
         let (out_tx, out_rx) = mpsc::channel(4096);
@@ -157,7 +176,7 @@ async fn web_turn_after(tag: &str, change: (&str, Value)) {
     let d = dir(tag);
     let hub = hub(&d);
     let mut web = Client::new(&hub, Origin::Web);
-    let mut local = Client::new(&hub, Origin::Local);
+    let mut local = Client::person(&hub, Origin::Local).await;
     let s = web.new_session(&d).await;
     let fifo = d.join("gate");
     assert!(std::process::Command::new("mkfifo").arg(&fifo).status().unwrap().success());
@@ -203,7 +222,7 @@ async fn a_web_turn_asks_before_an_acp_read_outside_its_folder() {
     let d = dir("read");
     let hub = hub(&d);
     let mut web = Client::new(&hub, Origin::Web);
-    let mut local = Client::new(&hub, Origin::Local);
+    let mut local = Client::person(&hub, Origin::Local).await;
     let s = web.new_session(&d).await;
     std::fs::write(d.join("secret.txt"), "s3cret\n").unwrap();
     std::fs::write(d.join("work/inside.txt"), "inside\n").unwrap();
@@ -245,7 +264,7 @@ async fn a_web_turn_is_cancelled_when_its_harness_leaves_the_asking_modes() {
     let d = dir("drift");
     let hub = hub(&d);
     let mut web = Client::new(&hub, Origin::Web);
-    let mut local = Client::new(&hub, Origin::Local);
+    let mut local = Client::person(&hub, Origin::Local).await;
     let s = web.new_session(&d).await;
     // The harness moves itself to a mode that never asks, then asks once:
     // the request is cancelled at the permission step, not shown.
@@ -262,7 +281,7 @@ async fn a_web_turn_is_cancelled_when_its_harness_leaves_the_asking_modes() {
 async fn a_local_turn_under_approve_all_still_answers_itself() {
     let d = dir("local");
     let hub = hub(&d);
-    let mut local = Client::new(&hub, Origin::Local);
+    let mut local = Client::person(&hub, Origin::Local).await;
     let s = local.new_session(&d).await;
     let r =
         local.call("_acpmux/set_policy", json!({"sessionId": s, "policy": "approve-all"})).await;
@@ -280,7 +299,7 @@ async fn a_web_turn_is_cancelled_when_a_harness_with_no_modes_reports_one_that_n
     let d = dir("nomode");
     let hub = hub(&d);
     let mut web = Client::new(&hub, Origin::Web);
-    let mut local = Client::new(&hub, Origin::Local);
+    let mut local = Client::person(&hub, Origin::Local).await;
     let p = json!({"cwd": d.join("work"), "mcpServers": [], "_meta": {"acpmux": {"harness": "fnomode"}}});
     let r = web.call("session/new", p).await;
     let s = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
@@ -298,7 +317,7 @@ async fn a_turn_records_who_started_it_and_a_web_handoff_prompts_its_target_as_w
     let d = dir("handoff");
     let hub = hub(&d);
     let mut web = Client::new(&hub, Origin::Web);
-    let mut local = Client::new(&hub, Origin::Local);
+    let mut local = Client::person(&hub, Origin::Local).await;
     let src = web.new_session(&d).await;
     let turn = web.send_prompt(&src, "some work").await;
     assert!(web.reply(turn).await.get("error").is_none());
@@ -324,7 +343,7 @@ async fn a_web_turn_never_writes_through_a_symlink() {
     let d = dir("write");
     let hub = hub(&d);
     let mut web = Client::new(&hub, Origin::Web);
-    let mut local = Client::new(&hub, Origin::Local);
+    let mut local = Client::person(&hub, Origin::Local).await;
     let s = web.new_session(&d).await;
     std::fs::write(d.join("secret.txt"), "s3cret\n").unwrap();
     std::os::unix::fs::symlink(d.join("secret.txt"), d.join("work/link.txt")).unwrap();
@@ -343,7 +362,7 @@ async fn a_lasting_grant_the_local_user_gave_ends_web_control_until_the_agent_re
     let d = dir("grant");
     let hub = hub(&d);
     let mut web = Client::new(&hub, Origin::Web);
-    let mut local = Client::new(&hub, Origin::Local);
+    let mut local = Client::person(&hub, Origin::Local).await;
     let s = web.new_session(&d).await;
     // A local turn; the local user allows the tool always.
     let turn = local.send_prompt(&s, "ask-always: make").await;

@@ -61,6 +61,7 @@ public:
     [[nodiscard]] Result<EmptyResult> browser_reload(const BrowserReloadRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_wheel(const BrowserWheelRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_wheel_guarded(const BrowserWheelGuardedRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<ChiefInspectResult> chief_inspect(const ChiefInspectRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> clear_history(const ClearHistoryRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> clear_window_title(const ClearWindowTitleRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<ClientFocusResult> client_focus(const ClientFocusRequest& request, RequestOptions options = {});
@@ -81,6 +82,9 @@ public:
     [[nodiscard]] Result<JsonValue> cloud_inbox_list(const CloudInboxListRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_inbox_subscribe(const CloudInboxSubscribeRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_inbox_unsubscribe(const CloudInboxUnsubscribeRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> cloud_mux_ack(const CloudMuxAckRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> cloud_mux_subscribe(const CloudMuxSubscribeRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> cloud_mux_unsubscribe(const CloudMuxUnsubscribeRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_session_clear(const CloudSessionClearRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_session_set(const CloudSessionSetRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_session_status(const CloudSessionStatusRequest& request = {}, RequestOptions options = {});
@@ -117,6 +121,11 @@ public:
     [[nodiscard]] Result<AttachedViewOutcomeResult> detach_attached_view(const DetachAttachedViewRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> detach_client(const DetachClientRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ExportLayoutResult> export_layout(const ExportLayoutRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> feed_local_handoff_abort(const FeedLocalHandoffAbortRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> feed_local_handoff_begin(const FeedLocalHandoffBeginRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> feed_local_handoff_done(const FeedLocalHandoffDoneRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> feed_local_list(const FeedLocalListRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> feed_local_read(const FeedLocalReadRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<FocusDirectionResult> focus_direction(const FocusDirectionRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> focus_pane(const FocusPaneRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> forget_session(const ForgetSessionRequest& request, RequestOptions options = {});
@@ -125,6 +134,7 @@ public:
     [[nodiscard]] Result<JsonValue> get_frontend_browser_history(const GetFrontendBrowserHistoryRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<FrontendProjection> get_frontend_projection(const GetFrontendProjectionRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<GetSizeStateResult> get_size_state(const GetSizeStateRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<HistorySearchResult> history_search(const HistorySearchRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<IdentifyResult> identify(const IdentifyRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<IdsResult> ids(const IdsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<ImportBookmarksResult> import_bookmarks(const ImportBookmarksRequest& request, RequestOptions options = {});
@@ -168,8 +178,9 @@ public:
     [[nodiscard]] Result<SurfaceResult> new_browser_tab(const NewBrowserTabRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<NewConversationTabResult> new_conversation_tab(const NewConversationTabRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> new_frontend_browser_tab(const NewFrontendBrowserTabRequest& request, RequestOptions options = {});
-    [[nodiscard]] Result<SurfaceResult> new_pane(const NewPaneRequest& request, RequestOptions options = {});
-    [[nodiscard]] Result<SurfaceResult> new_pane_right(const NewPaneRightRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<PaneSurfaceResult> new_pane(const NewPaneRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<PaneSurfaceResult> new_pane_right(const NewPaneRightRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> new_remote_terminal_tab(const NewRemoteTerminalTabRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<NewRowResult> new_row(const NewRowRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<SurfaceResult> new_screen(const NewScreenRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<SurfaceResult> new_tab(const NewTabRequest& request = {}, RequestOptions options = {});
@@ -191,6 +202,7 @@ public:
     [[nodiscard]] Result<AttachedViewOutcomeResult> release_attached_view_size(const ReleaseAttachedViewSizeRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> release_surface_size(const ReleaseSurfaceSizeRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ReloadConfigResult> reload_config(const ReloadConfigRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> remote_terminal_snapshot(const RemoteTerminalSnapshotRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> remove_screens_from_screen_group(const RemoveScreensFromScreenGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<RemoveTabsFromTabGroupResult> remove_tabs_from_tab_group(const RemoveTabsFromTabGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> rename_pane(const RenamePaneRequest& request, RequestOptions options = {});
@@ -235,13 +247,13 @@ public:
     [[nodiscard]] Result<TerminalCommandHistoryResult> set_terminal_command_history(const SetTerminalCommandHistoryRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<SetTerminalIdlePolicyResult> set_terminal_idle_policy(const SetTerminalIdlePolicyRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<SetTerminalKeepResult> set_terminal_keep(const SetTerminalKeepRequest& request, RequestOptions options = {});
-    [[nodiscard]] Result<EmptyResult> set_viewport_pane_width(const SetViewportPaneWidthRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<ViewportPaneWidthResult> set_viewport_pane_width(const SetViewportPaneWidthRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> set_window_title(const SetWindowTitleRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> set_workspace_metadata(const SetWorkspaceMetadataRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<ShutdownDaemonResult> shutdown_daemon(const ShutdownDaemonRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<SidebarPluginResult> sidebar_plugin(const SidebarPluginRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<SnapshotRequestResult> snapshot_request(const SnapshotRequestRequest& request, RequestOptions options = {});
-    [[nodiscard]] Result<SurfaceResult> split(const SplitRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<PaneSurfaceResult> split(const SplitRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EventStream> subscribe(const SubscribeRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EventStream> subscribe_activity(const SubscribeActivityRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> swap_pane(const SwapPaneRequest& request, RequestOptions options = {});
@@ -263,6 +275,7 @@ public:
     [[nodiscard]] Result<JsonValue> update_frontend_browser_tab(const UpdateFrontendBrowserTabRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> update_personal_group(const UpdatePersonalGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> update_profile(const UpdateProfileRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> update_remote_terminal_tab(const UpdateRemoteTerminalTabRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> update_screen_group(const UpdateScreenGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<TabGroupOutcome> update_tab_group(const UpdateTabGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> update_workspace_group(const UpdateWorkspaceGroupRequest& request, RequestOptions options = {});

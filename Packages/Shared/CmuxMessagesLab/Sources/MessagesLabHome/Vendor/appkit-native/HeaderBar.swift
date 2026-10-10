@@ -26,7 +26,9 @@ final class HeaderBar: NSObject, NSToolbarDelegate {
             avatarHolder?.shift = contentLeading / 2
         }
     }
-    private var pillCenter: NSLayoutConstraint!
+    // cmux: built on first use in init, never an IUO (crash program).
+    private let pillHolder = PassThroughView()
+    private(set) lazy var pillCenter: NSLayoutConstraint = pill.centerXAnchor.constraint(equalTo: pillHolder.centerXAnchor)
     /// The accessory spans the window, or (macOS 26 with a sidebar item) only the detail
     /// pane: the pill moves from the accessory's center to the transcript's.
     func centerPill() {
@@ -55,8 +57,12 @@ final class HeaderBar: NSObject, NSToolbarDelegate {
         toolbar.showsBaselineSeparator = false
         toolbar.centeredItemIdentifiers = [Self.avatarID]
 
-        pill.bezelStyle = .glass
-        pill.borderShape = .capsule
+        if #available(macOS 26, *) { // cmux: macOS 14 has no glass bezel
+            pill.bezelStyle = .glass
+            pill.borderShape = .capsule
+        } else {
+            pill.bezelStyle = .push
+        }
         pill.controlSize = .large
         pill.imagePosition = .imageTrailing
         pill.image = HeaderBar.pillImageMode ? nil : HeaderBar.chevronImage()
@@ -64,8 +70,7 @@ final class HeaderBar: NSObject, NSToolbarDelegate {
         pill.font = .systemFont(ofSize: 13, weight: .bold)
         pill.target = self
         pill.action = #selector(contactClicked)
-        let holder = PassThroughView()
-        pillCenter = pill.centerXAnchor.constraint(equalTo: holder.centerXAnchor)
+        let holder = pillHolder
         holder.translatesAutoresizingMaskIntoConstraints = false
         pill.translatesAutoresizingMaskIntoConstraints = false
         holder.addSubview(pill)
@@ -84,6 +89,7 @@ final class HeaderBar: NSObject, NSToolbarDelegate {
             pill.heightAnchor.constraint(equalToConstant: 28),
         ])
         accessory.view = holder
+        holder.onLayout = { [weak self] in self?.centerPill() }
         accessory.layoutAttribute = .bottom
         if #available(macOS 26.1, *) { accessory.preferredScrollEdgeEffectStyle = .soft }
         applyTitle()
@@ -94,7 +100,7 @@ final class HeaderBar: NSObject, NSToolbarDelegate {
     static let accessoryHeight: CGFloat = 28
     static func flag(_ name: String, _ fallback: CGFloat) -> CGFloat {
         let a = ProcessInfo.processInfo.arguments
-        return a.firstIndex(of: name).flatMap { $0 + 1 < a.count ? Double(a[$0 + 1]).map { CGFloat($0) } : nil } ?? fallback
+        return a.firstIndex(of: name).flatMap { a.dropFirst($0 + 1).first }.flatMap { Double($0) }.map { CGFloat($0) } ?? fallback // cmux: no index math
     }
     /// The pill's title and chevron sit 1 pt right of AppKit's centering in
     /// Messages (ink x 262-360.5 pt against 261-359.5).
@@ -108,7 +114,7 @@ final class HeaderBar: NSObject, NSToolbarDelegate {
     static let chevronCompact = flag("--chev-compact", 1) != 0
     static func chevronImage() -> NSImage? {
         guard let sym = NSImage(systemSymbolName: chevronCompact ? "chevron.compact.right" : "chevron.right", accessibilityDescription: nil)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: chevronPoint, weight: [NSFont.Weight.light, .regular, .medium, .semibold, .bold][Int(chevronWeight)])
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: chevronPoint, weight: [NSFont.Weight.light, .regular, .medium, .semibold, .bold][checked: CrashGuard.int(chevronWeight)] ?? .bold) /* cmux: an out-of-range flag is bold, not a trap */
                 .applying(NSImage.SymbolConfiguration(paletteColors: [NSColor(white: chevronWhite, alpha: 1)]))) else { return nil }
         if chevronPad == 0 { return sym }
         let size = NSSize(width: sym.size.width + chevronPad, height: sym.size.height)
@@ -121,7 +127,7 @@ final class HeaderBar: NSObject, NSToolbarDelegate {
     static let avatarTop = flag("--avatar-top", 8)
     static let pillLift: CGFloat = {
         let a = ProcessInfo.processInfo.arguments
-        return a.firstIndex(of: "--pill-lift").flatMap { $0 + 1 < a.count ? Double(a[$0 + 1]).map { CGFloat($0) } : nil } ?? -12
+        return a.firstIndex(of: "--pill-lift").flatMap { a.dropFirst($0 + 1).first }.flatMap { Double($0) }.map { CGFloat($0) } ?? -12 // cmux
     }()
 
     /// Messages' pill width: 77.75 pt for "Instinct", plus the title's extra width.
@@ -265,6 +271,11 @@ private final class AvatarHolder: NSView {
     /// A plain layer view (an NSImageView in the titlebar draws dimmed while the window is
     /// not key; Messages keeps the avatar at full strength).
     let imageView = NSView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+    /// The titlebar strip over the transcript (from HeaderBar.contentLeading to the window's
+    /// right edge): it takes every width change, and the disc stays centred in it, so a window
+    /// resize keeps the disc over the pill (with a sidebar, a disc with a fixed left margin
+    /// stayed where it was while the pill moved).
+    private let lane = AvatarLane(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
     init(image: NSImage) {
         super.init(frame: NSRect(x: 0, y: 0, width: 40, height: 38))
         imageView.wantsLayer = true
@@ -273,34 +284,56 @@ private final class AvatarHolder: NSView {
         imageView.setAccessibilityElement(false)
     }
     required init?(coder: NSCoder) { fatalError() }
-    deinit { imageView.removeFromSuperview() }
+    deinit { imageView.removeFromSuperview(); lane.removeFromSuperview() }
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         place()
     }
     private func place() {
         imageView.removeFromSuperview()
+        lane.removeFromSuperview()
         guard window != nil else { return }
         var v = superview
         while let s = v, !String(describing: type(of: s)).hasSuffix("TitlebarView") { v = s.superview }
         guard let bar = v else {
             imageView.frame = NSRect(x: 0, y: (bounds.height - 40) / 2, width: 40, height: 40)
+            imageView.autoresizingMask = []
             addSubview(imageView)
             return
         }
         let b = bar.bounds
         let y = bar.isFlipped ? HeaderBar.avatarTop : b.height - HeaderBar.avatarTop - 40
-        imageView.frame = NSRect(x: (b.width - 40) / 2 + shift, y: y, width: 40, height: 40)
-        imageView.autoresizingMask = shift == 0 ? [.minXMargin, .maxXMargin, bar.isFlipped ? .maxYMargin : .minYMargin]
-            : [.maxXMargin, bar.isFlipped ? .maxYMargin : .minYMargin]
-        bar.addSubview(imageView)
+        // Centre (b.width + 2 * shift) / 2: the lane starts at the transcript's left edge.
+        let leading = min(2 * shift, max(0, b.width - 40))
+        lane.frame = NSRect(x: leading, y: y, width: b.width - leading, height: 40)
+        let top: NSView.AutoresizingMask = bar.isFlipped ? .maxYMargin : .minYMargin
+        lane.autoresizingMask = [.width, top]
+        imageView.frame = NSRect(x: (lane.bounds.width - 40) / 2, y: 0, width: 40, height: 40)
+        imageView.autoresizingMask = [.minXMargin, .maxXMargin]
+        lane.addSubview(imageView)
+        bar.addSubview(lane)
     }
+}
+
+/// The avatar's lane: never takes the mouse (the titlebar under it keeps its clicks and
+/// window drags).
+private final class AvatarLane: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override var mouseDownCanMoveWindow: Bool { true }
 }
 
 
 /// The contact pill's title and chevron, drawn over the glass button (clicks pass to it).
 private final class PillContentView: NSView {
     var title = "" { didSet { needsDisplay = true } }
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        // Drawn when the title changes, not when the pill moves (it moves at every width of a
+        // live resize; the default policy redrew it in each frame).
+        wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
+    }
+    required init?(coder: NSCoder) { nil }
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func draw(_ dirtyRect: NSRect) { HeaderBar.drawPillContent(title, in: bounds) }
@@ -308,9 +341,22 @@ private final class PillContentView: NSView {
 
 /// The name pill's accessory: only the pill takes clicks (the sidebar's controls sit under
 /// the accessory's empty sides).
+/// Its layout re-centres the pill (`onLayout`): the pill's offset depends on this view's frame in
+/// the window, which AppKit's titlebar can change after the content's own layout reported the
+/// content leading (a sidebar collapse moves the accessory from the detail pane to the window).
 private final class PassThroughView: NSView {
+    var onLayout: (() -> Void)?
     override func hitTest(_ point: NSPoint) -> NSView? {
         let v = super.hitTest(point)
         return v === self ? nil : v
+    }
+    override func setFrameOrigin(_ newOrigin: NSPoint) {
+        let moved = newOrigin != frame.origin
+        super.setFrameOrigin(newOrigin)
+        if moved { needsLayout = true }
+    }
+    override func layout() {
+        onLayout?()
+        super.layout()
     }
 }

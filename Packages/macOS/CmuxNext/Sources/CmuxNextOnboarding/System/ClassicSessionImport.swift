@@ -1,10 +1,23 @@
 public import Foundation
 
+/// Errors produced while reading a classic cmux session snapshot.
+public enum ClassicSessionImportError: Error, LocalizedError, Equatable, Sendable {
+    case snapshotTooLarge(actualBytes: Int, maximumBytes: Int)
+
+    public var errorDescription: String? {
+        switch self {
+        case .snapshotTooLarge:
+            "The classic cmux session snapshot is too large to read."
+        }
+    }
+}
+
 /// Read-only access to classic cmux's saved session file.
 public nonisolated struct ClassicSessionImporter: Sendable {
     public static let stableBundleIdentifier = "com.cmuxterm.app"
-    /// Classic stable and classic NIGHTLY: each saves its own snapshot.
-    static let classicBundleIdentifiers = [stableBundleIdentifier, "com.cmuxterm.app.nightly"]
+    /// Snapshots are topology-only input, so a generous cap prevents a corrupt
+    /// or hostile file from consuming unbounded memory during onboarding.
+    public static let maximumSnapshotBytes = 64 * 1024 * 1024
     public let fileURL: URL
 
     public init(fileURL: URL? = nil, fileManager: FileManager? = nil) {
@@ -24,36 +37,64 @@ public nonisolated struct ClassicSessionImporter: Sendable {
     /// The snapshot classic saved last under `support`, stable's when there
     /// is none.
     static func newestSnapshot(in support: URL) -> URL {
-        let candidates = Self.classicBundleIdentifiers.map { support.appendingPathComponent("cmux/session-\($0).json") }
+        let directory = support.appendingPathComponent("cmux", isDirectory: true)
+        // Enumerate names, then append them to the caller's URL. This keeps
+        // temporary fixture paths stable when `/var` is symlinked to `/private/var`.
+        let candidates = ((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? [])
+            .filter { name in
+                guard name.hasSuffix(".json"), name.hasPrefix("session-") else { return false }
+                let bundle = String(name.dropFirst("session-".count).dropLast(".json".count))
+                return Self.isClassicBundleIdentifier(bundle)
+            }
+            .map { directory.appendingPathComponent($0) }
+        let fallback = directory.appendingPathComponent("session-\(stableBundleIdentifier).json")
         let saved = candidates.compactMap { url -> (URL, Date)? in
             let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
             return date.map { (url, $0) }
         }
-        return saved.max { $0.1 < $1.1 }?.0 ?? candidates[0]
+        return saved.max { $0.1 < $1.1 }?.0 ?? fallback
+    }
+
+    private static func isClassicBundleIdentifier(_ bundleIdentifier: String) -> Bool {
+        let channels = ["com.cmuxterm.app", "com.cmuxterm.app.nightly", "com.cmuxterm.app.rc",
+                        "com.cmuxterm.app.staging", "com.cmuxterm.app.debug"]
+        return channels.contains(bundleIdentifier) || channels.dropFirst().contains { bundleIdentifier.hasPrefix($0 + ".") }
     }
 
     /// Returns the saved workspaces, or an empty list when classic cmux has no snapshot.
     public func read() throws -> [ClassicSessionWorkspace] {
-        guard FileManager.default.fileExists(atPath: fileURL.path) else { return [] }
-        // concurrency-allow: callers hop to a detached utility task; the synchronous API stays fixture-testable.
-        let data = try Data(contentsOf: fileURL, options: [.mappedIfSafe])
+        guard let data = try readData() else { return [] }
         return try decode(data)
+    }
+
+    private func readData() throws -> Data? {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return nil }
+        let attributes = try FileManager.default.attributesOfItem(atPath: fileURL.path)
+        if let size = (attributes[.size] as? NSNumber)?.intValue,
+           size > Self.maximumSnapshotBytes {
+            throw ClassicSessionImportError.snapshotTooLarge(actualBytes: size, maximumBytes: Self.maximumSnapshotBytes)
+        }
+        // concurrency-allow: callers hop to a detached utility task; the synchronous API stays fixture-testable.
+        return try Data(contentsOf: fileURL, options: [.mappedIfSafe])
     }
 
     /// Decodes only topology, names, directories, and titles from a classic snapshot.
     public func decode(_ data: Data) throws -> [ClassicSessionWorkspace] {
         let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
-        let windows = (root["windows"] as? [[String: Any]]) ?? []
-        return windows.flatMap { window in
+        let workspaces = ((root["windows"] as? [[String: Any]]) ?? []).flatMap { window in
             let manager = window["tabManager"] as? [String: Any] ?? window["tab_manager"] as? [String: Any] ?? [:]
-            let workspaces = (manager["workspaces"] as? [[String: Any]]) ?? []
-            return workspaces.compactMap(Self.workspace)
+            return (manager["workspaces"] as? [[String: Any]]) ?? []
         }
+        let names = Self.names(workspaces.map(Self.clues))
+        return zip(workspaces, names).map { Self.workspace($0, name: $1) }
     }
 
-    private static func workspace(_ value: [String: Any]) -> ClassicSessionWorkspace? {
-        let name = (value["customTitle"] as? String) ?? (value["processTitle"] as? String) ?? "Imported workspace"
-        let cwd = (value["currentDirectory"] as? String) ?? (value["current_directory"] as? String) ?? NSHomeDirectory()
+    private static func directory(_ value: [String: Any]) -> String {
+        (value["currentDirectory"] as? String) ?? (value["current_directory"] as? String) ?? NSHomeDirectory()
+    }
+
+    private static func workspace(_ value: [String: Any], name: String) -> ClassicSessionWorkspace {
+        let cwd = Self.directory(value)
         let panels = (value["panels"] as? [[String: Any]]) ?? []
         let panelEntries = panels.compactMap { panel -> (String, ClassicSessionTab)? in
             guard let id = panel["id"] as? String else { return nil }
@@ -73,6 +114,51 @@ public nonisolated struct ClassicSessionImporter: Sendable {
         }
         let layout = Self.layout(layoutValue, panels: panelMap)
         return ClassicSessionWorkspace(name: name, workingDirectory: cwd, layout: layout)
+    }
+
+    /// What can tell a classic workspace apart, most telling first.
+    nonisolated struct NameClues: Equatable {
+        var custom: String?
+        /// Its process and tab titles that are more than a path ("~" for
+        /// every home-folder shell): a running command or a tab's title.
+        var titles: [String]
+        var agent: String?
+        var branch: String?
+        var folder: String
+    }
+
+    static func clues(_ value: [String: Any]) -> NameClues {
+        let panels = (value["panels"] as? [[String: Any]]) ?? []
+        let titles = ([value["processTitle"]] + panels.flatMap { [$0["customTitle"], $0["title"]] })
+            .compactMap { ($0 as? String)?.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && $0 != "~" && !$0.hasPrefix("~/") && !$0.hasPrefix("/") }
+        let agent = panels.lazy
+            .compactMap { (($0["terminal"] as? [String: Any])?["agent"] as? [String: Any])?["kind"] as? String }
+            .first { !$0.isEmpty }
+        let branch = ([value] + panels).lazy
+            .compactMap { ($0["gitBranch"] as? [String: Any])?["branch"] as? String }
+            .first { !$0.isEmpty }
+        let folder = URL(fileURLWithPath: Self.directory(value)).lastPathComponent
+        return NameClues(custom: (value["customTitle"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+                         titles: titles, agent: agent, branch: branch,
+                         folder: folder.isEmpty || folder == "/" ? "Imported workspace" : folder)
+    }
+
+    /// The user's own title; else a running command or tab title, the
+    /// agent it ran, or the folder's name. Names several workspaces share
+    /// take each one's branch, and a number only as the last resort.
+    static func names(_ clues: [NameClues]) -> [String] {
+        var names = clues.map { $0.custom ?? $0.titles.first ?? $0.agent ?? $0.folder }
+        let counts = Dictionary(names.map { ($0, 1) }, uniquingKeysWith: +)
+        for index in names.indices where counts[names[index], default: 0] > 1 && clues[index].custom == nil {
+            if let branch = clues[index].branch, branch != names[index] { names[index] += " · \(branch)" }
+        }
+        var seen: [String: Int] = [:]
+        return names.map { name in
+            seen[name, default: 0] += 1
+            let count = seen[name, default: 1]
+            return count == 1 ? name : "\(name) \(count)"
+        }
     }
 
     private static func layout(_ value: [String: Any], panels: [String: ClassicSessionTab]) -> ClassicSessionLayout {

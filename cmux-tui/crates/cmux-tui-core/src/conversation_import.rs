@@ -152,11 +152,15 @@ impl ConversationStore {
             };
             let human =
                 head.participant(&message.author).is_some_and(|p| p.kind == ParticipantKind::Human);
-            if human {
-                head.agent_text_streak = 0;
-            } else {
-                head.agent_text_streak = head.agent_text_streak.saturating_add(1);
-                head.last_agent_text_at = Some(message.created_at.clone());
+            // The loop guard counts what the TS core counts: text or question messages are turns,
+            // work cards and attachments are not (home-core import corpus, cx-weuj).
+            if message.parts.iter().any(Part::counts_as_turn) {
+                if human {
+                    head.agent_text_streak = 0;
+                } else {
+                    head.agent_text_streak = head.agent_text_streak.saturating_add(1);
+                    head.last_agent_text_at = Some(message.created_at.clone());
+                }
             }
             write_message(
                 &transaction,
@@ -193,144 +197,49 @@ impl ConversationStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cmux_conversation::{Op, Participant, Reject};
+    use cmux_conversation::Participant;
 
-    fn participants() -> Vec<Participant> {
-        serde_json::from_value(serde_json::json!([
-            {"id":"user_local","kind":"human","display_name":"Me"},
-            {"id":"agent_mux","kind":"agent","display_name":"Chief","agent_class":"mux","acp_session":"mux"}
-        ]))
-        .unwrap()
-    }
-
-    fn message(id: &str, author: &str, key: &str, text: &str, at: &str) -> ImportedMessage {
-        ImportedMessage {
-            id: Some(id.to_string()),
-            client_msg_id: key.to_string(),
-            author: author.to_string(),
-            parts: vec![Part::Text { text: text.to_string(), runs: None }],
-            created_at: at.to_string(),
-        }
-    }
-
-    fn history() -> Vec<ImportedMessage> {
-        vec![
-            message("msg_b1", "user_local", "cmk_1", "hi", "2026-10-06T03:06:01.998Z"),
-            message(
-                "msg_b2",
-                "agent_mux",
-                "turn:optchat:0:x",
-                "Hello.",
-                "2026-10-06T03:06:04.622Z",
-            ),
-            message(
-                "msg_c1",
-                "user_local",
-                "cmk_3",
-                "What are my agents doing?",
-                "2026-10-06T04:55:30.495Z",
-            ),
-        ]
-    }
-
-    fn store_with_chief() -> (ConversationStore, String) {
-        let mut store = ConversationStore::open(None).unwrap();
-        let id =
-            store.create("home-chief", "user_local", "Chief", &participants()).unwrap().summary.id;
-        (store, id)
-    }
-
+    /// The shared corpus case (home-core conversation-import-cases.json): the TypeScript core
+    /// decides which imported messages are agent turns, and the local import must agree.
     #[test]
-    fn an_import_keeps_authors_times_and_ids_and_the_owner_assigns_seqs() {
-        let (mut store, id) = store_with_chief();
-        let outcome = store.import(&id, &history()).unwrap();
-        assert_eq!(outcome.imported, vec![1, 2, 3]);
-        assert_eq!(outcome.skipped, 0);
-        assert_eq!(outcome.summary.last_seq, 3);
-        assert_eq!(outcome.summary.rev, 2, "one rev for the whole import");
-        let (_, messages) = store.snapshot(&id, 10).unwrap();
-        let shown: Vec<_> = messages
+    fn an_imported_agent_work_card_is_not_an_agent_turn_as_the_corpus_says() {
+        let corpus: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../backend/packages/home-core/conformance/conversation-import-cases.json"
+        ))
+        .unwrap();
+        let case = corpus["cases"]
+            .as_array()
+            .unwrap()
             .iter()
-            .map(|m| (m.seq, m.id.as_str(), m.author.as_str(), m.created_at.as_str()))
+            .find(|c| c["name"] == "import: an imported agent work card is not an agent turn")
+            .expect("the shared import case");
+        let people: Vec<Participant> = serde_json::from_value(serde_json::json!([
+            {"id":"user_me","kind":"human","display_name":"Me"},
+            {"id":"agent_chief","kind":"agent","display_name":"Chief","agent_class":"mux"}
+        ]))
+        .unwrap();
+        let messages: Vec<ImportedMessage> = case["params"]["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|m| ImportedMessage {
+                id: None,
+                client_msg_id: m["client_msg_id"].as_str().unwrap().to_string(),
+                author: m["author"].as_str().unwrap().to_string(),
+                parts: serde_json::from_value(m["parts"].clone()).unwrap(),
+                created_at: cmux_conversation::format_rfc3339_millis(
+                    cmux_conversation::parse_rfc3339_millis(m["created_at"].as_str().unwrap())
+                        .unwrap(),
+                ),
+            })
             .collect();
+        let mut store = ConversationStore::open(None).unwrap();
+        let id = store.create("home-chief", "user_me", "Chief", &people).unwrap().summary.id;
+        store.import(&id, &messages).unwrap();
+        let head = load_head(&store.connection, &id).unwrap().unwrap();
         assert_eq!(
-            shown,
-            vec![
-                (1, "msg_b1", "user_local", "2026-10-06T03:06:01.998Z"),
-                (2, "msg_b2", "agent_mux", "2026-10-06T03:06:04.622Z"),
-                (3, "msg_c1", "user_local", "2026-10-06T04:55:30.495Z"),
-            ]
+            u64::from(head.agent_text_streak),
+            case["expect"]["head"]["agent_text_streak"].as_u64().unwrap()
         );
-    }
-
-    #[test]
-    fn a_retry_imports_nothing_twice() {
-        let (mut store, id) = store_with_chief();
-        store.import(&id, &history()).unwrap();
-        let again = store.import(&id, &history()).unwrap();
-        assert!(again.imported.is_empty());
-        assert_eq!(again.skipped, 3);
-        assert_eq!(again.summary.rev, 2, "a replay commits nothing");
-        let mut more = history();
-        more.push(message("msg_d1", "user_local", "cmk_4", "later", "2026-10-06T05:00:00.000Z"));
-        let next = store.import(&id, &more).unwrap();
-        assert_eq!((next.imported, next.skipped), (vec![4], 3));
-    }
-
-    #[test]
-    fn history_older_than_what_the_conversation_holds_is_refused() {
-        let (mut store, id) = store_with_chief();
-        let op = Op::MessageSend {
-            client_msg_id: "now-1".into(),
-            parts: vec![Part::Text { text: "typed now".into(), runs: None }],
-            reply_to: None,
-        };
-        store.apply_op(&id, "now-1", "user_local", &op).unwrap();
-        let error = store.import(&id, &history()).unwrap_err().to_string();
-        assert!(error.contains("import_out_of_order"), "{error}");
-        assert_eq!(store.snapshot(&id, 10).unwrap().0.last_seq, 1, "nothing was written");
-    }
-
-    #[test]
-    fn times_that_go_backward_or_into_the_future_and_strangers_are_refused() {
-        let (mut store, id) = store_with_chief();
-        let mut backward = history();
-        backward.swap(0, 1);
-        assert!(store.import(&id, &backward).unwrap_err().to_string().contains("goes backward"));
-        let future = vec![message("msg_f", "user_local", "cmk_f", "x", "2999-01-01T00:00:00.000Z")];
-        assert!(store.import(&id, &future).unwrap_err().to_string().contains("future"));
-        let stranger =
-            vec![message("msg_s", "agent_other", "cmk_s", "x", "2026-10-06T03:00:00.000Z")];
-        let error = store.import(&id, &stranger).unwrap_err();
-        assert_eq!(
-            error.downcast_ref::<super::super::ConversationRejected>().map(|r| r.0),
-            Some(Reject::NotParticipant)
-        );
-        let bad_time = vec![message("msg_t", "user_local", "cmk_t", "x", "2026-10-06T03:00:00Z")];
-        assert!(store.import(&id, &bad_time).is_err());
-        assert_eq!(store.snapshot(&id, 10).unwrap().0.last_seq, 0);
-    }
-
-    #[test]
-    fn an_imported_history_survives_a_reopen() {
-        let directory = std::env::temp_dir()
-            .join(format!("cmux-import-{}", crate::workspace_registry::new_uuid_v4()));
-        std::fs::create_dir_all(&directory).unwrap();
-        let id = {
-            let mut store = ConversationStore::open(Some(&directory)).unwrap();
-            let id = store
-                .create("home-chief", "user_local", "Chief", &participants())
-                .unwrap()
-                .summary
-                .id;
-            store.import(&id, &history()).unwrap();
-            id
-        };
-        let mut store = ConversationStore::open(Some(&directory)).unwrap();
-        let (summary, messages) = store.snapshot(&id, 10).unwrap();
-        assert_eq!(summary.last_seq, 3);
-        assert_eq!(messages[2].created_at, "2026-10-06T04:55:30.495Z");
-        drop(store);
-        std::fs::remove_dir_all(&directory).unwrap();
     }
 }

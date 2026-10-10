@@ -109,13 +109,18 @@ public final class AgentActivitySocketSource: AgentActivitySource {
         }
         directoryWatch?.cancel()
         directoryWatch = nil
-        let connection = AgentActivityLineConnection(path: config.socketPath)
+        let connection = AgentActivityLineConnection(path: config.socketPath, expectedServerUID: geteuid())
         subscription = connection
         connection.start(
             send: AgentActivityWire.requestLine(method: "activity_subscribe", args: ["sessions": true, "events_for": []],
                                                 authToken: config.authToken, hostAuthToken: config.hostAuthToken),
-            onLine: { [weak self] line in Task { @MainActor in self?.handle(line) } },
-            onClose: { [weak self] in Task { @MainActor in self?.lost(connection) } })
+            // One main-actor batch at a time, never a Task per line (MainActorLineBatch).
+            decode: { $0 }) { [weak self, weak connection] drain in
+                guard let self, let connection, subscription === connection else { return }
+                for line in drain.values { handle(line) }
+                if drain.overflowed, !drain.closed { connection.cancel() }
+                if drain.overflowed || drain.closed { lost(connection) }
+            }
     }
 
     private func handle(_ line: Data) {
@@ -171,7 +176,7 @@ public final class AgentActivitySocketSource: AgentActivitySource {
         }
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename, .delete], queue: .main)
         source.setEventHandler { [weak self] in
-            MainActor.assumeIsolated { self?.connect() }
+            MainActor.assumeIsolated { self?.connect() } // main-proof: dispatch source on queue: .main
         }
         source.setCancelHandler { close(fd) }
         directoryWatch = source

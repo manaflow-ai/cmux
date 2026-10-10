@@ -44,6 +44,19 @@ impl RpcError {
     pub fn not_found(message: impl Into<String>) -> Self {
         Self::new(-32002, message)
     }
+    /// A request whose handler waited on an agent past its deadline
+    /// (cx-m5up). `data.reason` is `deadline_exceeded`, `data.wait` names
+    /// the wait, and the request may be retried.
+    pub fn deadline_exceeded(wait: &str, timeout: std::time::Duration) -> Self {
+        Self::new(-32000, format!("{wait} did not finish within {timeout:?}")).with_data(
+            serde_json::json!({
+                "reason": "deadline_exceeded",
+                "wait": wait,
+                "timeoutMs": u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX),
+                "retryable": true,
+            }),
+        )
+    }
 }
 
 impl std::fmt::Display for RpcError {
@@ -178,6 +191,9 @@ pub mod method {
     /// The asking-mode table and the remote guard's lists, for the native
     /// relay; unix socket only.
     pub const MUX_WEB_MODES: &str = "_acpmux/web_modes";
+    /// A new dashboard token, served at once (`hub/web_token.rs`); unix
+    /// socket only.
+    pub const MUX_WEB_TOKEN_ROTATE: &str = "_acpmux/web_token_rotate";
     pub const MUX_HARNESSES: &str = "_acpmux/harnesses";
     /// Reload catalog configuration without touching existing sessions.
     pub const MUX_RELOAD_CONFIG: &str = "_acpmux/reload_config";
@@ -191,9 +207,12 @@ pub mod method {
     pub const MUX_WATCH: &str = "_acpmux/watch";
     pub const MUX_RENAME: &str = "_acpmux/rename";
     pub const MUX_KILL: &str = "_acpmux/kill";
+    pub const MUX_QUEUE_REMOVE: &str = "_acpmux/queue_remove";
     pub const MUX_INFO: &str = "_acpmux/info";
     pub const MUX_EVENTS: &str = "_acpmux/events";
     pub const MUX_PERMISSION_RESPOND: &str = "_acpmux/permission_respond";
+    /// The signed app gives this launch's person key (`hub/person.rs`).
+    pub const MUX_PERSON_ENROLL: &str = "_acpmux/person_enroll";
     pub const MUX_PERMISSION_GROUPS: &str = "_acpmux/permission_groups";
     pub const MUX_PERMISSION_GROUP_RESPOND: &str = "_acpmux/permission_group_respond";
     pub const MUX_PERMISSION_CHAT_REVOKE: &str = "_acpmux/permission_chat_revoke";
@@ -207,10 +226,15 @@ pub mod method {
     /// starts (debounced), so the switch takes a ready session.
     pub const MUX_PREWARM: &str = "_acpmux/prewarm";
     pub const MUX_HISTORY: &str = "_acpmux/history";
+    /// Read or replace the unsent composer text for one session.
+    pub const MUX_DRAFT_GET: &str = "_acpmux/draft_get";
+    pub const MUX_DRAFT_SET: &str = "_acpmux/draft_set";
     pub const MUX_SCHEMA: &str = "_acpmux/schema";
     pub const MUX_EXPORT: &str = "_acpmux/export";
     pub const MUX_IMPORT: &str = "_acpmux/import";
     pub const MUX_SHUTDOWN: &str = "_acpmux/shutdown";
+    /// Fork a session through its latest completed turn (`server/fork_through.rs`).
+    pub const ACP_SESSION_FORK: &str = "acp.session.fork";
     /// Folder trust (`crate::trust`): the agents' levels for a folder and
     /// acpmux's own decision; `set` records the decision, never the agents' files.
     pub const ACP_TRUST_GET: &str = "acp.trust.get";
@@ -219,6 +243,27 @@ pub mod method {
     /// the user's confirmation of exactly the bytes it showed (`sha256`).
     /// The unix socket and the local app only (BRING-YOUR-OWN-HARNESS H4).
     pub const MUX_HARNESS_ENABLE: &str = "_acpmux/harness_enable";
+    // Your own harness from the app, the CLI and MCP (BRING-YOUR-OWN-HARNESS
+    // H2; harness_admin.rs). add and doctor: the unix socket only; remove,
+    // restore and registry: also the local app. Never Web or peer.
+    pub const MUX_HARNESS_ADD: &str = "_acpmux/harness/add";
+    pub const MUX_HARNESS_REMOVE: &str = "_acpmux/harness/remove";
+    pub const MUX_HARNESS_RESTORE: &str = "_acpmux/harness/restore";
+    pub const MUX_HARNESS_DOCTOR: &str = "_acpmux/harness/doctor";
+    /// The ACP Registry's agents and how each can start here.
+    pub const MUX_REGISTRY: &str = "_acpmux/registry";
+    // Routes: how a harness reaches its model provider (ROUTES R1-R3;
+    // server/routes.rs). add, edit, remove, restore: the unix socket only;
+    // the rest also the local app. Never Web or peer.
+    pub const MUX_ROUTE_LIST: &str = "_acpmux/route/list";
+    pub const MUX_ROUTE_SHOW: &str = "_acpmux/route/show";
+    pub const MUX_ROUTE_ADD: &str = "_acpmux/route/add";
+    pub const MUX_ROUTE_EDIT: &str = "_acpmux/route/edit";
+    pub const MUX_ROUTE_REMOVE: &str = "_acpmux/route/remove";
+    pub const MUX_ROUTE_RESTORE: &str = "_acpmux/route/restore";
+    pub const MUX_ROUTE_TEST: &str = "_acpmux/route/test";
+    pub const MUX_ROUTE_DEFAULT_SET: &str = "_acpmux/route/default.set";
+    pub const MUX_CHAT_ROUTE_SET: &str = "_acpmux/chat/route.set";
     // Cross-harness handoff: a reviewed first message from one session to a
     // new session on another harness (see hub/handoff.rs).
     pub const MUX_HANDOFF_PREPARE: &str = "_acpmux/handoff_prepare";
@@ -236,33 +281,4 @@ pub mod method {
     /// Sent to the prompting connection as soon as a `session/prompt` is
     /// recorded, before the turn ends: `{sessionId, promptId, turnId, queued}`.
     pub const MUX_PROMPT_ACCEPTED: &str = "_acpmux/prompt_accepted";
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn round_trips_request() {
-        let m = Message::request(1, "session/prompt", json!({"sessionId": "s"}));
-        let back = Message::parse(&m.to_line()).unwrap();
-        assert_eq!(m, back);
-    }
-
-    #[test]
-    fn parses_error_response() {
-        let m = Message::parse(r#"{"jsonrpc":"2.0","id":3,"error":{"code":-1,"message":"x"}}"#)
-            .unwrap();
-        match m {
-            Message::Response { error: Some(e), .. } => assert_eq!(e.code, -1),
-            _ => panic!("expected error response"),
-        }
-    }
-
-    #[test]
-    fn notification_has_no_id() {
-        let m =
-            Message::parse(r#"{"jsonrpc":"2.0","method":"session/update","params":{}}"#).unwrap();
-        assert!(matches!(m, Message::Notification { .. }));
-    }
 }

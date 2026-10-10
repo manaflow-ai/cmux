@@ -2,9 +2,9 @@
 set -euo pipefail
 
 CMUX_CUA_REPO_URL="${CMUX_CUA_REPO_URL:-https://github.com/manaflow-ai/cmux-cua.git}"
-CMUX_CUA_PINNED_SHA="402d35512ed89af7daa80f2155d625319d3a182f"
-CMUX_CUA_RELEASE_TAG="cmux-cua-v0.8.9"
-CMUX_CUA_DARWIN_UNIVERSAL_UNSIGNED_SHA256="06e733985757b8c894dcebef00d0e95ef9e9ece69dc8c179ac1a8a8d3e0ab382"
+CMUX_CUA_PINNED_SHA="e8a8dbfd45a5d050058e7340f97ffe6f157c3128"
+CMUX_CUA_RELEASE_TAG="cmux-cua-v0.8.12"
+CMUX_CUA_DARWIN_UNIVERSAL_UNSIGNED_SHA256="7f140fe2f75dcb43649297440b7902fd21b938851984de9b018bc29583d72ba4"
 CMUX_CUA_SOURCE_OWNER_FILE=".cmux-cua-managed-source"
 CMUX_CUA_SOURCE_OWNER_VALUE="cmux-cua-cache-v2 $CMUX_CUA_PINNED_SHA"
 CMUX_CUA_HELPER_OWNER_FILE=".cmux-cua-managed-helper"
@@ -354,6 +354,30 @@ TMPDIR_BUILD="$(mktemp -d "${TMPDIR:-/tmp}/cmux-cua-build.XXXXXX")"
 
 mkdir -p "$(dirname "$OUTPUT")"
 
+# Cargo keeps build-script output and compiled C objects in its target dir,
+# and the cmux-cua build scripts emit absolute SDK paths
+# (rustc-link-search=<SDK>/usr/lib/system) without rerun-if-env-changed. A
+# shared target dir therefore replays the first Xcode's SDK into every later
+# build: an Xcode 26.6 link then reads Xcode 27's libdispatch.tbd and ld fails
+# with "unknown architecture" (arm64e.x1). Pin SDKROOT to the selected Xcode's
+# own SDK and give every Xcode/SDK pair its own target dir.
+CUA_DEVELOPER_DIR="${DEVELOPER_DIR:-$(xcode-select -p 2>/dev/null || true)}"
+if [[ -z "${SDKROOT:-}" ]]; then
+  SDKROOT="$(xcrun --sdk macosx --show-sdk-path 2>/dev/null || true)"
+fi
+if [[ -z "$SDKROOT" ]]; then
+  echo "error: cannot resolve the macOS SDK of ${CUA_DEVELOPER_DIR:-the selected Xcode}" >&2
+  exit 1
+fi
+export SDKROOT
+CUA_TOOLCHAIN_KEY="$(
+  {
+    printf 'developer=%s\n' "$(cd "$CUA_DEVELOPER_DIR" 2>/dev/null && pwd -P || printf '%s' "$CUA_DEVELOPER_DIR")"
+    printf 'sdk=%s\n' "$(cd "$SDKROOT" 2>/dev/null && pwd -P || printf '%s' "$SDKROOT")"
+    cat "$CUA_DEVELOPER_DIR/../version.plist" "$SDKROOT/SDKSettings.json" 2>/dev/null || true
+  } | shasum -a 256 | cut -c1-16
+)"
+
 ensure_rust_target() {
   local target="$1"
   if command -v rustup >/dev/null 2>&1; then
@@ -387,8 +411,9 @@ for arch in "${ARCHS[@]}"; do
   # with a shared dir a "fresh" build of pin A can leave pin B's (or a dirty
   # CMUX_CUA_SRC checkout's) binary in place, defeating the SHA gate. Keying
   # by source dir prevents cross-revision reuse. Concurrent builds of one
-  # revision serialize on Cargo's own lock.
-  target_dir="$SRC_ROOT/.cmux-cargo-target"
+  # revision serialize on Cargo's own lock. One subdir per Xcode/SDK pair
+  # (CUA_TOOLCHAIN_KEY above).
+  target_dir="$SRC_ROOT/.cmux-cargo-target/xcode-$CUA_TOOLCHAIN_KEY"
   cargo_status=0
   for cargo_attempt in 1 2 3; do
     if CARGO_TARGET_DIR="$target_dir" \

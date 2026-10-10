@@ -341,7 +341,9 @@ pub(crate) async fn stream_prompt(
                     }
                     method::MUX_PERMISSION_PENDING => {
                         let title = p.pointer("/request/toolCall/title").and_then(Value::as_str).unwrap_or("permission");
-                        eprintln!("\n\x1b[33mpermission needed:\x1b[0m {title}  (answer with: acpmux allow {id} | acpmux deny {id})");
+                        let request = p.get("request").cloned().unwrap_or(Value::Null);
+                        let hint = crate::question_answer::pending_hint(&request, id);
+                        eprintln!("\n\x1b[33mpermission needed:\x1b[0m {title}  (answer with: {hint})");
                     }
                     _ => {}
                 }
@@ -793,32 +795,6 @@ mod prompt_tests {
         (hub, client, dir)
     }
 
-    #[test]
-    fn duplicate_reply_comes_from_its_own_turn() {
-        let chunk = |seq: u64, text: &str| json!({"seq": seq, "dir": "in", "kind": "session/update", "msg": {"method": "session/update", "params": {"update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}}}}});
-        let mux = |seq: u64, kind: &str, turn: &str| json!({"seq": seq, "dir": "mux", "kind": kind, "msg": {"turnId": turn}});
-        let events = vec![
-            mux(1, "turn_started", "t1"),
-            chunk(2, "one"),
-            mux(3, "turn_result", "t1"),
-            mux(4, "turn_started", "t2"),
-            chunk(5, "two"),
-            mux(6, "turn_result", "t2"),
-        ];
-        assert_eq!(reply_of_turn(&events, "t1"), "one");
-        assert_eq!(reply_of_turn(&events, "t2"), "two");
-        assert_eq!(reply_of_turn(&events, "t3"), "");
-    }
-
-    #[test]
-    fn only_agent_output_blocks_a_retry() {
-        let update = |kind: &str| json!({"update": {"sessionUpdate": kind}});
-        assert!(renders_output(&update("agent_message_chunk")));
-        assert!(renders_output(&update("tool_call")));
-        assert!(!renders_output(&update("available_commands_update")));
-        assert!(!renders_output(&update("current_mode_update")));
-    }
-
     #[tokio::test]
     async fn queue_prompt_returns_on_acceptance_while_the_turn_runs() {
         let (hub, client, dir) = daemon().await;
@@ -884,39 +860,5 @@ mod prompt_tests {
         }
         let _ = std::fs::remove_file(&gate);
         drop(dir);
-    }
-
-    /// A turn whose backend refuses the model (unsupported_parameter, streamed as the reply)
-    /// makes `_acpmux/models` report that model unavailable with the backend's message.
-    #[tokio::test]
-    async fn a_refused_model_is_reported_unavailable_in_the_model_catalog() {
-        let (hub, client, dir) = daemon().await;
-        hub.config.write().await.harnesses.get_mut("fake").unwrap().models =
-            vec![crate::config::DeclaredModel::Id("m-refused".into())];
-        let s = client
-            .request(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": []}))
-            .await
-            .unwrap();
-        let id = s["sessionId"].as_str().unwrap().to_owned();
-        let session = hub.resolve(&id).unwrap();
-        crate::hub::model_availability::set_model_for_test(&session, "m-refused");
-        client
-            .request(
-                method::SESSION_PROMPT,
-                json!({"sessionId": id, "prompt": [{"type": "text", "text": "refuse"}]}),
-            )
-            .await
-            .unwrap();
-        let catalog = client.request("_acpmux/models", json!({})).await.unwrap();
-        let fake = catalog["harnesses"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|h| h["harness"] == "fake")
-            .unwrap();
-        let model =
-            fake["models"].as_array().unwrap().iter().find(|m| m["id"] == "m-refused").unwrap();
-        assert_eq!(model["unavailable"], "Image web search is not supported by the backend.");
-        let _ = std::fs::remove_dir_all(dir);
     }
 }

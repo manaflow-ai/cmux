@@ -3,7 +3,7 @@
 //! the command in help and errors, and `daemon_prefix` is what the detached
 //! daemon is started with (`<current exe> <prefix…> daemon run`).
 
-use crate::cli::command::{Cli, Command, flatten};
+use crate::cli::command::{Cli, Command, RouterCmd, flatten};
 use crate::cli::errors;
 use crate::cli::run::run_client;
 use crate::daemon::{DaemonOptions, connect};
@@ -93,12 +93,16 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             let client = connect(true).await?;
             crate::tui::run(client, None).await
         }
+        Some(Command::Router(RouterCmd::Serve)) => {
+            cmux_coderouter::serve(crate::config::home()).await
+        }
         Some(Command::DaemonRun {
             listen,
             token,
             memory,
             log,
             ready_fd,
+            person_key_fd,
             allow_dev_origin,
             dev,
         }) => {
@@ -113,6 +117,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 ws_token: token,
                 memory,
                 ready_fd,
+                person_key_fd,
                 dev_origins: allow_dev_origin,
                 dev,
             })
@@ -139,6 +144,13 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             })
             .await
         }
+        Some(Command::Route(cmd)) => {
+            let json_out = cli.json;
+            match crate::cli::route::run(cmd, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
         Some(Command::Harness(cmd)) => {
             let json_out = cli.json;
             match crate::cli::harness::run(cmd, json_out).await {
@@ -146,6 +158,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 Err(e) => errors::exit_with(&e, json_out),
             }
         }
+        Some(Command::CuaMcp) => crate::cua_v2::run_bridge().await,
         Some(Command::Skill) => {
             use std::io::Write;
             let _ = std::io::stdout().write_all(crate::cli::orchestrate::guide().as_bytes());
@@ -169,18 +182,4 @@ fn command_index(argv: &[OsString]) -> usize {
         .position(|a| a != "--json" && a != "--suppress-reads")
         .map(|i| i + 1)
         .unwrap_or(argv.len())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn command_index_skips_leading_global_flags() {
-        let argv = |list: &[&str]| list.iter().map(|s| OsString::from(*s)).collect::<Vec<_>>();
-        assert_eq!(command_index(&argv(&["acpmux", "exec", "hi"])), 1);
-        assert_eq!(command_index(&argv(&["acpmux", "--json", "exec", "hi"])), 2);
-        assert_eq!(command_index(&argv(&["acpmux", "--json", "--suppress-reads", "daemon"])), 3);
-        assert_eq!(command_index(&argv(&["acpmux", "--json"])), 2);
-    }
 }

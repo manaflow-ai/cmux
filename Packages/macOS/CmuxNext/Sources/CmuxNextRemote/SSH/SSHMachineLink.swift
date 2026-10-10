@@ -82,6 +82,8 @@ public actor SSHMachineLink {
     private let onStatus: @Sendable (SSHConnectionMachine.Status) -> Void
     private var machine = SSHConnectionMachine()
     private var child: ChildProcess?
+    /// The stderr tail of the last link that exited.
+    private var exitedOutput: String?
     private var socket: String?
     private var starting: Task<String, any Error>?
     private var localProtocol: Int?
@@ -102,6 +104,14 @@ public actor SSHMachineLink {
     }
 
     public var status: SSHConnectionMachine.Status { machine.status }
+
+    /// The link's stderr tail (ssh and the machine's cmux-tui write their
+    /// errors there, the daemon's start failure included): the running
+    /// link's, else the last exited one's; nil when empty.
+    public func output() -> String? {
+        let text = child?.stderrText ?? exitedOutput ?? ""
+        return text.isEmpty ? nil : text
+    }
     public var pid: Int32? { child?.pid }
 
     /// Feeds an event to the gate and reports the status.
@@ -214,7 +224,13 @@ public actor SSHMachineLink {
             child.terminate()
             if self.child === child { self.child = nil }
             let stderr = child.stderrText
-            let failure = SSHFailure.classify(status: 255, stderr: stderr) ?? .remoteFailed(String(describing: error))
+            if let refusal = RemoteRefusal.parse(stderr) {
+                // A typed refusal is an install or update state, not a failure (cx-z3zh).
+                logger.error("ssh link for \(self.host.destination.description, privacy: .public) refused: \(stderr, privacy: .public)")
+                handle(.probed(.refused(refusal)))
+                throw SSHLinkError.needsInstall(.refused(refusal))
+            }
+            let failure = SSHFailure.classifyLink(stderr: stderr) ?? .remoteFailed(String(describing: error))
             logger.error("ssh link for \(self.host.destination.description, privacy: .public) failed: \(stderr, privacy: .public)")
             handle(.failed(failure))
             throw SSHLinkError.ssh(failure)
@@ -233,6 +249,7 @@ public actor SSHMachineLink {
 
     private func linkExited(_ exited: ChildProcess) {
         guard child === exited else { return }
+        exitedOutput = exited.stderrText
         child = nil
         socket = nil
         handle(.linkLost)

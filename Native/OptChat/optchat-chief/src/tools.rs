@@ -44,8 +44,21 @@ pub trait Orchestrator: Send + Sync {
     /// answers their ids, each one's workspace (or why it has none) and the
     /// directory they run in.
     fn spawn(&self, tasks: Vec<String>, cwd: Option<String>) -> Result<String, String>;
+    /// `spawn` at `effort` (None: as hard as the calling turn).
+    fn spawn_with_effort(
+        &self,
+        tasks: Vec<String>,
+        cwd: Option<String>,
+        effort: Option<String>,
+    ) -> Result<String, String> {
+        let _ = effort;
+        self.spawn(tasks, cwd)
+    }
     /// Sends `message` to subagent `id`.
     fn tell(&self, id: &str, message: &str) -> Result<String, String>;
+    /// Subagent `id`'s whole chat (`zoom("a<N>")`), one page from
+    /// character `at`.
+    fn agent_chat(&self, id: &str, at: u64) -> Result<String, String>;
 }
 
 /// What `chief zoom|date|spawn|tell WORDS` asks: the tool call, its usage
@@ -64,6 +77,10 @@ pub fn command(tool: &str, args: &[&str]) -> Result<Command, String> {
         return Ok(Command::Help(usage(tool)));
     }
     let call = match (tool, args) {
+        ("zoom", [id]) if agent_id(id) => Call::parse("zoom", &serde_json::json!({"id": id})),
+        ("zoom", [id, at]) if agent_id(id) => {
+            Call::parse("zoom", &serde_json::json!({"id": id, "at": at}))
+        }
         ("zoom", [id, n]) => Call::parse("zoom", &serde_json::json!({"id": id, "n": n})),
         ("date", [id]) => Call::parse("date", &serde_json::json!({"id": id})),
         ("spawn", ["--cwd", dir, tasks @ ..]) if !tasks.is_empty() => {
@@ -86,7 +103,7 @@ pub fn usage(tool: &str) -> String {
     format!(
         "usage: optchat-chief {tool} {}",
         match tool {
-            "zoom" => "ID N",
+            "zoom" => "ID N | SUBAGENT [AT]",
             "date" => "ID",
             "spawn" => "[--cwd DIR] \"task\" [\"task\" ...]",
             _ => "ID \"message\"",
@@ -94,12 +111,25 @@ pub fn usage(tool: &str) -> String {
     )
 }
 
+/// A subagent id (`a<N>`) where zoom takes a message id: it starts with a letter.
+pub fn agent_id(id: &str) -> bool {
+    id.trim().starts_with(|c: char| c.is_ascii_alphabetic())
+}
+
+/// The efforts `spawn` takes (acpmux maps them onto the harness's own).
+pub const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
+
 /// One tool call.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Call {
     Zoom {
         id: u64,
         n: u64,
+    },
+    /// `zoom("a<N>")`: a subagent's whole chat from character `at`.
+    ZoomAgent {
+        id: String,
+        at: u64,
     },
     Date {
         id: u64,
@@ -109,6 +139,8 @@ pub enum Call {
         /// The subagents' working directory on the Chief's host (`~` is
         /// its home); None is the default subagent directory.
         cwd: Option<String>,
+        /// How hard they think; None: as hard as the calling turn.
+        effort: Option<String>,
     },
     Tell {
         id: String,
@@ -128,6 +160,16 @@ impl Call {
                 .ok_or_else(|| format!("{tool}: `{key}` must be a non-negative integer"))
         };
         match tool {
+            "zoom" if args.get("id").and_then(Value::as_str).is_some_and(agent_id) => {
+                Ok(Call::ZoomAgent {
+                    id: args["id"].as_str().unwrap_or_default().trim().to_owned(),
+                    at: if args.get("at").is_some() {
+                        num("at")?
+                    } else {
+                        0
+                    },
+                })
+            }
             "zoom" => Ok(Call::Zoom {
                 id: num("id")?,
                 n: num("n")?,
@@ -154,7 +196,21 @@ impl Call {
                     .map(str::trim)
                     .filter(|d| !d.is_empty())
                     .map(str::to_owned);
-                Ok(Call::Spawn { tasks, cwd })
+                let effort = args
+                    .get("effort")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|e| !e.is_empty())
+                    .map(str::to_owned);
+                if let Some(e) = effort.as_deref()
+                    && !EFFORTS.contains(&e)
+                {
+                    return Err(format!(
+                        "spawn: no effort {e}; one of {}",
+                        EFFORTS.join(", ")
+                    ));
+                }
+                Ok(Call::Spawn { tasks, cwd, effort })
             }
             "tell" => {
                 let text = |key: &str| {
@@ -179,8 +235,8 @@ impl Call {
         match self {
             Call::Zoom { id, n } => memory.zoom(id, n),
             Call::Date { id } => memory.date(id),
-            Call::Spawn { .. } | Call::Tell { .. } => {
-                "spawn and tell are served by the Chief host".to_owned()
+            Call::Spawn { .. } | Call::Tell { .. } | Call::ZoomAgent { .. } => {
+                "spawn, tell and a subagent's zoom are served by the Chief host".to_owned()
             }
         }
     }
@@ -188,12 +244,18 @@ impl Call {
     fn to_json(&self) -> Value {
         match self {
             Call::Zoom { id, n } => json!({"tool": "zoom", "id": id, "n": n}),
+            Call::ZoomAgent { id, at } => json!({"tool": "zoom", "id": id, "at": at}),
             Call::Date { id } => json!({"tool": "date", "id": id}),
-            Call::Spawn { tasks, cwd: None } => json!({"tool": "spawn", "tasks": tasks}),
-            Call::Spawn {
-                tasks,
-                cwd: Some(cwd),
-            } => json!({"tool": "spawn", "tasks": tasks, "cwd": cwd}),
+            Call::Spawn { tasks, cwd, effort } => {
+                let mut v = json!({"tool": "spawn", "tasks": tasks});
+                if let Some(cwd) = cwd {
+                    v["cwd"] = json!(cwd);
+                }
+                if let Some(effort) = effort {
+                    v["effort"] = json!(effort);
+                }
+                v
+            }
             Call::Tell { id, message } => json!({"tool": "tell", "id": id, "message": message}),
         }
     }
@@ -214,6 +276,12 @@ pub enum ControlRequest {
     Set(String, String),
     /// The policy floor for a child spawned now: `ask`, or empty for none.
     SpawnPolicy,
+    /// chief.engine.get / chief.engine.set: answers the brain's JSON value.
+    Engine(crate::brain::EngineRequest),
+    /// chief.stop: answers `{"stopped": bool}`.
+    Stop,
+    /// chief.stop {name}: stops that one subagent.
+    StopSubagent(String),
 }
 
 /// What the tools socket serves: the memory, the subagent tools when the
@@ -223,6 +291,9 @@ pub struct Served {
     pub memory: Arc<dyn Memory>,
     pub orchestrator: Option<Arc<dyn Orchestrator>>,
     pub control: Option<Control>,
+    /// The memory inspector's read-only API (`inspect` tool): a remote
+    /// owner reaches it through the brain's daemon (`chief.inspect`).
+    pub inspector: Option<Arc<crate::inspect::Inspector>>,
 }
 
 /// Serves the tools on `path` until the process ends. The host holds the
@@ -243,6 +314,7 @@ pub fn serve_with(
             memory,
             orchestrator: None,
             control,
+            inspector: None,
         },
     )
 }
@@ -297,6 +369,65 @@ fn connection(conn: UnixStream, served: &Served) {
                     }
                     continue;
                 }
+                // chief.engine.get / chief.engine.set / chief.stop: the
+                // brain's JSON value as the answer line (the daemon's
+                // owner-gated chief-control forwards these lines).
+                if tool == "engine" || tool == "stop" {
+                    let field = |k: &str| req.get(k).and_then(Value::as_str).map(str::to_owned);
+                    let ask = match (tool, field("action").as_deref()) {
+                        ("stop", _) => Some(match field("name").filter(|n| !n.trim().is_empty()) {
+                            Some(name) => ControlRequest::StopSubagent(name.trim().to_owned()),
+                            None => ControlRequest::Stop,
+                        }),
+                        (_, Some("show") | None) => {
+                            Some(ControlRequest::Engine(crate::brain::EngineRequest::Show))
+                        }
+                        (_, Some("set")) => {
+                            Some(ControlRequest::Engine(crate::brain::EngineRequest::Set {
+                                harness: field("harness"),
+                                model: field("model"),
+                                effort: field("effort"),
+                                speed: field("speed"),
+                                compactor_speed: field("compactor_speed"),
+                            }))
+                        }
+                        _ => None,
+                    };
+                    let answer = match (ask, control) {
+                        (None, _) => {
+                            json!({"error": {"code": "bad_request", "message": "engine action is show or set"}})
+                        }
+                        (Some(_), None) => {
+                            json!({"error": {"code": "unavailable", "message": "the engine control is not served here"}})
+                        }
+                        (Some(ask), Some(control)) => match control(ask) {
+                            Ok(text) => serde_json::from_str(&text).unwrap_or_else(
+                                |_| json!({"error": {"code": "internal", "message": text}}),
+                            ),
+                            Err(e) => json!({"error": {"code": "unavailable", "message": e}}),
+                        },
+                    };
+                    if writeln!(out, "{answer}").is_err() {
+                        return;
+                    }
+                    continue;
+                }
+                if tool == "inspect" {
+                    let answer = match &served.inspector {
+                        Some(inspector) => crate::inspect::tool_answer(
+                            inspector,
+                            &req,
+                            crate::inspect::INSPECT_MAX_BYTES,
+                        ),
+                        None => {
+                            json!({"status": 503, "error": "the inspector is off on this host"})
+                        }
+                    };
+                    if writeln!(out, "{answer}").is_err() {
+                        return;
+                    }
+                    continue;
+                }
                 if tool == "browse" {
                     let answer = json!({"text": memory.browse()});
                     if writeln!(out, "{answer}").is_err() {
@@ -311,12 +442,18 @@ fn connection(conn: UnixStream, served: &Served) {
                     Ok(Call::Spawn { .. } | Call::Tell { .. }) if subagent => {
                         Err("subagents have no spawn or tell".to_owned())
                     }
-                    Ok(Call::Spawn { tasks, cwd }) => match &served.orchestrator {
-                        Some(o) => o.spawn(tasks, cwd),
+                    Ok(Call::Spawn { tasks, cwd, effort }) => match &served.orchestrator {
+                        Some(o) => o.spawn_with_effort(tasks, cwd, effort),
                         None => Err("this Chief host runs no subagents".to_owned()),
                     },
                     Ok(Call::Tell { id, message }) => match &served.orchestrator {
                         Some(o) => o.tell(&id, &message),
+                        None => Err("this Chief host runs no subagents".to_owned()),
+                    },
+                    // A subagent may read another's chat too (the reference
+                    // client gives zoom to every agent).
+                    Ok(Call::ZoomAgent { id, at }) => match &served.orchestrator {
+                        Some(o) => o.agent_chat(&id, at),
                         None => Err("this Chief host runs no subagents".to_owned()),
                     },
                     Ok(call) => Ok(call.answer(memory)),
@@ -373,7 +510,8 @@ pub fn ask_browse(path: &Path) -> Result<String, String> {
 fn ask_json(path: &Path, request: &Value) -> Result<String, String> {
     let mut conn = UnixStream::connect(path)
         .map_err(|e| format!("the Chief host is not running ({}: {e})", path.display()))?;
-    // spawn waits for the view to settle (subagents.rs SETTLE_LIMIT).
+    // spawn waits for the view to settle (subagents.rs SETTLE_LIMIT, 10 s)
+    // and for its sessions to start.
     conn.set_read_timeout(Some(Duration::from_secs(300)))
         .map_err(|e| e.to_string())?;
     writeln!(conn, "{request}").map_err(|e| e.to_string())?;

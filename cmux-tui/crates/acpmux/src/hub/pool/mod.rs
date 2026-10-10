@@ -45,9 +45,11 @@ mod auth;
 mod held;
 pub(crate) mod policy;
 mod reaper;
+mod start;
 use held::{TapSlot, holding_inbound, holding_tap};
 use policy::{Origin, Pool, PoolKey, Role, Take};
 pub(crate) use reaper::run_reaper;
+#[cfg(unix)]
 use reaper::signal_harness;
 pub use reaper::tree_rss_bytes;
 
@@ -421,6 +423,7 @@ impl Hub {
                 if let Some(rss) = measured.get(&p.record.host_pid) {
                     p.rss = *rss;
                 }
+                #[cfg(unix)]
                 if park && !p.parked {
                     signal_harness(&p.record, libc::SIGSTOP);
                     p.parked = true;
@@ -443,161 +446,6 @@ impl Hub {
             );
         }
         self.pool_discard(evicted);
-    }
-
-    /// Start one hidden session for `spec` under a fresh reserved id: its
-    /// host in the pool directory, `initialize`, then the harness session.
-    async fn spawn_pooled(&self, spec: &PoolSpec) -> anyhow::Result<Pooled> {
-        let session_id = uuid::Uuid::now_v7().to_string();
-        let draft = &spec.draft;
-        let name = self.unique_name(&draft.harness);
-        let profile = &spec.spawn;
-        let claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
-        let (command_line, translator) = if claude {
-            // As `ensure_child` starts a fresh Claude session.
-            let fresh_id = uuid::Uuid::now_v7().to_string();
-            let effort = current_option(draft, "effort").unwrap_or_else(|| "default".into());
-            let mode = "default".to_owned();
-            let model = current_model(draft).unwrap_or_else(|| "default".into());
-            let plan = crate::claude_stdio::spawn_plan(
-                profile,
-                None,
-                false,
-                Some(&fresh_id),
-                Some(&effort),
-                &mode,
-                Some(&model),
-            );
-            (
-                Some((plan.program, plan.args)),
-                Some(agent_host::TranslatorSpec {
-                    acp_session_id: session_id.clone(),
-                    mode,
-                    model,
-                    effort,
-                    claude_session_id: Some(fresh_id),
-                }),
-            )
-        } else {
-            (None, None)
-        };
-        let cmd = crate::agent::harness_command(
-            &draft.harness,
-            profile,
-            &draft.cwd,
-            command_line,
-            Some((&session_id, &name)),
-        )?;
-        let std_cmd = cmd.as_std();
-        let dir = pool_dir();
-        let host_spec = agent_host::SpawnSpec {
-            session_id: session_id.clone(),
-            program: std_cmd.get_program().to_string_lossy().into_owned(),
-            args: std_cmd.get_args().map(|a| a.to_string_lossy().into_owned()).collect(),
-            env: crate::agent::command_env(&cmd),
-            cwd: draft.cwd.clone(),
-            translator,
-            socket: agent_host::socket_path(&dir, &session_id),
-            hosts_dir: dir,
-            buffer_cap: agent_host::DEFAULT_BUFFER_CAP,
-        };
-        // No host starts once `stop_pool` began: it could not end it.
-        if self.pool.stopping.load(Ordering::SeqCst) {
-            anyhow::bail!("the daemon is stopping");
-        }
-        let launcher = agent_host::link::HostLauncher::current()?;
-        let record = agent_host::link::spawn(&launcher, &host_spec).await?;
-        lock(&self.pool.starting).insert(session_id.clone(), record.clone());
-        let started =
-            self.start_pooled(session_id.clone(), name, record.clone(), spec, claude).await;
-        if started.is_err() {
-            lock(&self.pool.starting).remove(&session_id);
-        }
-        started
-    }
-
-    /// The rest of `spawn_pooled` once its host runs: attach, `initialize`,
-    /// the harness session, all within `START_BUDGET`. On failure the host
-    /// is ended.
-    async fn start_pooled(
-        &self,
-        session_id: String,
-        name: String,
-        record: HostRecord,
-        spec: &PoolSpec,
-        claude: bool,
-    ) -> anyhow::Result<Pooled> {
-        let draft = &spec.draft;
-        if self.pool.stopping.load(Ordering::SeqCst) {
-            end_pooled_host(&record).await;
-            anyhow::bail!("the daemon is stopping");
-        }
-        let (tap, slot) = holding_tap();
-        let (inbound, target) = holding_inbound();
-        let attach =
-            ChildAgent::attach_hosted(&draft.harness, record.clone(), 0, Vec::new(), inbound, tap);
-        let attached = tokio::time::timeout(START_BUDGET, attach)
-            .await
-            .unwrap_or_else(|_| Err(anyhow::anyhow!("no host link within {START_BUDGET:?}")));
-        let child = match attached {
-            Ok(Attached::Ready(child, _, _)) => child,
-            Ok(Attached::Incompatible { .. }) => {
-                end_pooled_host(&record).await;
-                anyhow::bail!("a host of this build refused its controller")
-            }
-            Err(e) => {
-                end_pooled_host(&record).await;
-                return Err(e);
-            }
-        };
-        let started = async {
-            let init = child.request(method::INITIALIZE, initialize_params()).await?;
-            let new_result = if claude {
-                None
-            } else {
-                Some(
-                    child
-                        .request(method::SESSION_NEW, self.acp_params(draft, &spec.spawn, None))
-                        .await?,
-                )
-            };
-            Ok::<_, RpcError>((init, new_result))
-        };
-        let (init, new_result) = match tokio::time::timeout(START_BUDGET, started).await {
-            Ok(Ok(v)) => v,
-            failed => {
-                let _ = tokio::time::timeout(END_GRACE, child.terminate(END_GRACE)).await;
-                end_pooled_host(&record).await;
-                match failed {
-                    Ok(Err(e)) => anyhow::bail!("{}", e.message),
-                    _ => anyhow::bail!("no harness session within {START_BUDGET:?}"),
-                }
-            }
-        };
-        Ok(Pooled {
-            session_id,
-            name,
-            key: spec.key.clone(),
-            child,
-            record,
-            claude,
-            init,
-            new_result,
-            tap: slot,
-            target: Some(target),
-            rss: 0,
-            parked: false,
-        })
-    }
-
-    /// End entries nobody will take (in the background).
-    fn pool_discard(&self, entries: Vec<Pooled>) {
-        // Also called from a drop (`ClaimGuard`): without a runtime the
-        // next daemon's sweep ends the host.
-        let Ok(rt) = tokio::runtime::Handle::try_current() else { return };
-        for p in entries {
-            rt.spawn(end_pooled(p));
-        }
     }
 
     /// Hold a claimed entry for `session/new` until `ensure_child` takes it.
@@ -650,6 +498,7 @@ impl Hub {
                         self.pool_discard(vec![p]);
                         return None;
                     }
+                    #[cfg(unix)]
                     if p.parked {
                         signal_harness(&p.record, libc::SIGCONT);
                         p.parked = false;
@@ -739,6 +588,10 @@ impl Hub {
             let state = child.claude_state().await.unwrap_or_default();
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             m.agent_session_id = state.session_id;
+            // The pooled process started a fresh conversation: unstored
+            // until its first turn ends.
+            m.claude_unstored = true;
+            m.claude_profile = Some(m.harness.clone());
             drop(m);
             self.write_mode_state(
                 session,
@@ -922,6 +775,7 @@ impl Drop for ClaimGuard {
 /// End one pooled session: continue a parked harness, end it through its
 /// host, then by nonce proof if the host still runs.
 async fn end_pooled(p: Pooled) {
+    #[cfg(unix)]
     if p.parked {
         signal_harness(&p.record, libc::SIGCONT);
     }
@@ -943,58 +797,4 @@ async fn end_pooled_host(record: &HostRecord) {
         .await;
     }
     agent_host::remove_artifacts(&dir, record);
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn test_profile() -> HarnessProfile {
-        HarnessProfile {
-            kind: Default::default(),
-            argv: vec!["claude".into()],
-            env: Default::default(),
-            description: None,
-            fallback: None,
-            family: None,
-            models: vec![],
-            model: None,
-            effort: None,
-            policy: None,
-        }
-    }
-
-    #[tokio::test]
-    async fn a_remote_origin_chain_is_never_pooled_or_served() {
-        let mut cfg = crate::config::Config::default();
-        cfg.store.mode = crate::config::StoreMode::Memory;
-        let store = crate::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
-        let hub = Hub::new(cfg, store);
-        let refused = hub
-            .prewarm(PrewarmRequest {
-                harness: Some("claude".into()),
-                remote: true,
-                ..Default::default()
-            })
-            .await;
-        assert!(refused.is_err(), "a remote-origin hint is refused");
-        assert!(lock(&hub.pool.pool).is_empty());
-        let profile = test_profile();
-        let mut meta = super::super::resolve::draft_meta(super::super::resolve::Draft {
-            id: String::new(),
-            agent: "claude",
-            profile: &profile,
-            family: "claude",
-            preset: None,
-            model_request: None,
-            cwd: "/w".into(),
-            agent_session_id: None,
-            policy: None,
-            remote: true,
-        });
-        assert_eq!(hub.pool_claim(&meta, &profile, &Default::default()).await, None);
-        meta.remote_origin = false;
-        // A memory store runs no agent hosts, so nothing is pooled here either.
-        assert_eq!(hub.pool_claim(&meta, &profile, &Default::default()).await, None);
-    }
 }

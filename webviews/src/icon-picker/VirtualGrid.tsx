@@ -2,7 +2,7 @@
 // by their precomputed top. Scrolling re-renders only when the first visible row changes, and the
 // row keys are stable, so React keeps the DOM of rows that stay on screen. The viewport is a tiny
 // external store driven by the scroll and resize events (no effects).
-import { useSyncExternalStore, type ReactNode } from "react";
+import { useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import { rowAt, scrollToReveal, visibleRows, type GridLayout } from "./gridModel";
 
 export class GridViewport {
@@ -45,7 +45,12 @@ export class GridViewport {
   }
 
   scrollToTop() {
-    if (this.element) this.element.scrollTop = 0;
+    this.scrollTo(0);
+  }
+
+  /** Scrolls to offset `top` (a category jump to its section header). */
+  scrollTo(top: number) {
+    if (this.element) this.element.scrollTop = top;
     this.onScroll();
   }
 
@@ -99,12 +104,14 @@ export function VirtualGrid<T>({
   // `top` is at most one row stale (it updates when the first row changes); overscan covers it.
   const { start, end } = visibleRows(layout, view.top, Math.max(view.height, layout.metrics.cell * 12));
   const rows = layout.rows.slice(start, end);
-  const docked = dockedTitle(layout, view.top);
+  const docked = dockedHeader(layout, view.top);
+  const tile = { "--icon-cell": `${layout.metrics.cell}px`, "--icon-header": `${layout.metrics.header}px` };
   return (
-    <div className="icon-grid-frame">
+    <div className="icon-grid-frame" style={tile as CSSProperties} data-docked={docked ? "" : undefined}>
       {docked && (
         <div className="icon-grid-docked" aria-hidden>
-          {docked}
+          <span>{docked.title}</span>
+          <span className="icon-grid-count">{docked.count}</span>
         </div>
       )}
       <div className="icon-grid-scroll" ref={containerRef} aria-label={label} id={id}>
@@ -116,6 +123,7 @@ export function VirtualGrid<T>({
               row.kind === "header" ? (
                 <div key={row.key} className="icon-grid-header" style={{ transform: `translateY(${row.top}px)` }}>
                   <span>{row.title}</span>
+                  <span className="icon-grid-count">{row.count}</span>
                 </div>
               ) : (
                 <div key={row.key} className="icon-grid-row" style={{ transform: `translateY(${row.top}px)` }}>
@@ -150,12 +158,17 @@ export function VirtualGrid<T>({
   );
 }
 
-/** The title of the section at the top of the viewport (the docked header), or null. */
-export function dockedTitle<T>(layout: GridLayout<T>, top: number): string | null {
+/** The header of the section at the top of the viewport (the docked header), or null. */
+export function dockedHeader<T>(layout: GridLayout<T>, top: number): { title: string; count: number } | null {
   if (top <= 0) return null; // the section's own header is in place
   for (let index = rowAt(layout, top); index >= 0; index--) {
     const row = layout.rows[index];
-    if (row.kind === "header") return row.title;
+    if (row.kind === "header") return { title: row.title, count: row.count };
   }
   return null;
+}
+
+/** The docked header's title, or null. */
+export function dockedTitle<T>(layout: GridLayout<T>, top: number): string | null {
+  return dockedHeader(layout, top)?.title ?? null;
 }

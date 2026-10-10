@@ -12,7 +12,7 @@ let package = Package(
     name: "CmuxMessagesLab",
     defaultLocalization: "en",
     platforms: [
-        .macOS(.v26),
+        .macOS(.v14),
     ],
     products: [
         .library(name: "MessagesLabHome", targets: ["MessagesLabHome"]),
@@ -44,6 +44,9 @@ let package = Package(
         ),
         .target(
             name: "MessagesLabSidebar",
+            resources: [
+                .process("Resources/SidebarLocalizable.xcstrings"),
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v5),
                 .define("APPKIT_NATIVE"),

@@ -89,6 +89,7 @@ extension DaemonStore {
         case .disconnected(let reason):
             connectionEpoch += 1
             connectionState = .disconnected(reason)
+            onDisconnected?()
             // Nothing newer will arrive for commands sent on this connection.
             drainAppliedWaiters = true
             flushAppliedWaiters()
@@ -96,6 +97,7 @@ extension DaemonStore {
         case .daemonShutdown:
             connectionEpoch += 1
             connectionState = .disconnected("daemon shut down")
+            onDisconnected?()
             return .none
 
         case .workspaceAdded(let delta):
@@ -118,8 +120,8 @@ extension DaemonStore {
         case .workspaceMoved(let delta):
             return applyWorkspaceDelta(delta) { store, delta in
                 let id = WorkspaceModel.identity(delta.entity)
-                guard let from = store.workspaces.firstIndex(where: { $0.id == id }) else { return }
-                let model = store.workspaces[from]
+                guard let from = store.workspaces.firstIndex(where: { $0.id == id }),
+                      let model = store.workspaces[checked: from] else { return }
                 model.update(delta.entity)
                 let index = min(max(delta.index ?? store.workspaces.count - 1, 0), store.workspaces.count - 1)
                 if index != from {
@@ -232,11 +234,11 @@ extension DaemonStore {
 
         case .sessionState(let item): session.apply(item, to: workspaces); return .none
         case .bookmarksChanged, .conversationChanged, .conversationTyping, .cloudConversations,
-             .terminalClipboardRead, .terminalClipboardReadCancelled, .unknown(AppServerEvent.eventName, _):
+             .terminalClipboardRead, .terminalClipboardReadCancelled, .unknown: // .unknown: the `apps-*` events of apps-v1
             sideEvents.deliver(event)
             return .none
 
-        case .scrollChanged, .bell, .frontendProjectionChanged, .terminalRegistryChanged, .client, .unknown:
+        case .scrollChanged, .bell, .frontendProjectionChanged, .terminalRegistryChanged, .client:
             return .none
         }
     }

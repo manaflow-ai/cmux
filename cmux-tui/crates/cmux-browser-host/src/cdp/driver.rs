@@ -55,14 +55,21 @@ pub(super) struct Inner {
     /// is in the default context, which `Storage.*` names by omission.
     pub(super) proxy_contexts: Mutex<std::collections::HashSet<String>>,
     /// A browser the driver owns (headless, or headful on Xvfb) has no
-    /// person's UI: it intercepts every file chooser (`choosers.rs`) and
-    /// runs Copy, Cut and Paste on the tab's clipboard (`clipboard.rs`). An
-    /// app's CEF tab keeps the app's Open panel and clipboard.
+    /// person's UI: it intercepts every file chooser (`choosers.rs`). An
+    /// app's CEF tab keeps the app's Open panel.
     pub(super) owns_browser: bool,
     /// Every tab intercepts its file choosers (headless); false: only the
     /// tabs a session drives (headful, `choosers.rs`).
     pub(super) intercept_all: std::sync::atomic::AtomicBool,
+    /// Told of each popup (target, opener) while it is still paused, before
+    /// its first request (`set_popup_hook`).
+    popup_hook: Mutex<Option<PopupHook>>,
 }
+
+/// A popup appeared: (popup target, opener target). It runs on a setup
+/// thread while the popup is paused, so it must make no CDP call that
+/// waits on the popup.
+pub type PopupHook = Arc<dyn Fn(&str, &str) + Send + Sync>;
 
 /// The protocol's hidden-tab size (driver-protocol.md: 1280x800).
 pub const HIDDEN_VIEWPORT: (i64, i64) = (1280, 800);
@@ -141,6 +148,7 @@ impl Inner {
             proxy_contexts: Mutex::default(),
             owns_browser,
             intercept_all: std::sync::atomic::AtomicBool::new(true),
+            popup_hook: Mutex::default(),
         });
         let weak: Weak<Inner> = Arc::downgrade(&inner);
         conn.set_event_handler(Arc::new(move |event| {
@@ -211,6 +219,11 @@ impl CdpDriver {
         self.inner.set_tab_overrides(target_id, overrides)
     }
 
+    /// Installs the popup hook ([`PopupHook`]).
+    pub fn set_popup_hook(&self, hook: Option<PopupHook>) {
+        *self.inner.popup_hook.lock().unwrap_or_else(PoisonError::into_inner) = hook;
+    }
+
     /// `tabs.open` with the creating session's options: in browser context
     /// `context` (a proxy store) when set, and with `overrides` set before
     /// the first request.
@@ -244,7 +257,7 @@ impl CdpDriver {
 
     /// Closes a proxy store and every tab in it.
     pub fn dispose_context(&self, context: &str) -> Result<(), DriverError> {
-        self.inner.proxy_contexts.lock().unwrap_or_else(PoisonError::into_inner).remove(context);
+        super::cookies::forget_store(&self.inner, context);
         self.inner
             .conn
             .call(
@@ -313,12 +326,13 @@ impl Driver for CdpDriver {
             "frame.focused" => inner.focused_frame(params),
             "input.mouse" => inner.with_chooser_events(method, params, || inner.mouse(params)),
             "input.drag" => inner.drag(params),
+            // Every driven tab has its own clipboard: never the person's system one.
             "input.key" => match super::clipboard::shortcut(method, params) {
-                Some(kind) if inner.owns_browser => inner.clipboard_key(kind, params),
-                _ => inner.with_chooser_events(method, params, || inner.key(params)),
+                Some(kind) => inner.clipboard_key(kind, params),
+                None => inner.with_chooser_events(method, params, || inner.key(params)),
             },
-            "clipboard.read" if inner.owns_browser => inner.clipboard_read(params),
-            "clipboard.write" if inner.owns_browser => inner.clipboard_write(params),
+            "clipboard.read" => inner.clipboard_read(params),
+            "clipboard.write" => inner.clipboard_write(params),
             "input.setFiles" => inner.set_files(params),
             "filechooser.respond" => inner.chooser_respond(params),
             "input.insertText" => inner.insert_text(params),
@@ -487,7 +501,18 @@ impl Inner {
         let auto_attach =
             json!({"autoAttach": true, "waitForDebuggerOnStart": true, "flatten": true});
         // A fetch shell runs no page agent and needs no focus or viewport.
-        let shell = self.lock().is_hidden(target_id);
+        let (shell, opener) = {
+            let state = self.lock();
+            (state.is_hidden(target_id), state.tabs.get(target_id).and_then(|t| t.opener.clone()))
+        };
+        // A popup is its opener's sessions' before its first request (it
+        // is paused until the batch below resumes it).
+        if let Some(opener) = opener.filter(|_| !shell) {
+            let hook = self.popup_hook.lock().unwrap_or_else(PoisonError::into_inner).clone();
+            if let Some(hook) = hook {
+                hook(target_id, &opener);
+            }
+        }
         let agent = (!shell).then(|| {
             [
                 (
@@ -522,6 +547,7 @@ impl Inner {
         );
         if !shell {
             self.intercept_choosers_on(target_id, session_id);
+            self.seed_load_state(target_id, session_id);
         }
         if let Some(Ok(tree)) = results.get(1) {
             let frame = &tree["frameTree"]["frame"];

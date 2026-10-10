@@ -8,29 +8,44 @@ import { useNt } from "./strings";
 /// automations ops exist (hidden until then, plans/cmux-next/new-tab.md section 4).
 export function ChatCards({
   cards,
+  variant = "cards",
+  title,
   onOpen,
   onShowAll,
 }: {
   cards: ChatCard[];
+  /// Cards in a grid, or one line per chat (the Threads and Console templates).
+  variant?: "cards" | "list";
+  /// The section's name; "Chats" when unset.
+  title?: string;
   onOpen(sessionId: string): void;
-  onShowAll(): void;
+  /// "All Chats >"; omitted when the page shows All chats itself.
+  onShowAll?(): void;
 }) {
   const nt = useNt();
   return (
     <section className="nt-chats" aria-label={nt("sections")}>
       <header className="nt-chats-head">
-        <span className="nt-chats-tab is-selected">{nt("chats")}</span>
-        <button type="button" className="nt-chats-all" onClick={() => onShowAll()}>
-          {nt("allChats")}
-          <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
-            <path d="m6 3.5 4.5 4.5L6 12.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-          </svg>
-        </button>
+        <span className="nt-chats-tab is-selected">{title ?? nt("chats")}</span>
+        {onShowAll && (
+          <button type="button" className="nt-chats-all" onClick={() => onShowAll()}>
+            {nt("allChats")}
+            <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+              <path
+                d="m6 3.5 4.5 4.5L6 12.5"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
+        )}
       </header>
       {cards.length === 0 ? (
         <p className="nt-chats-empty">{nt("noChats")}</p>
       ) : (
-        <div className="nt-cards">
+        <div className="nt-cards" data-variant={variant}>
           {cards.map((card) => (
             <button
               key={card.sessionId}

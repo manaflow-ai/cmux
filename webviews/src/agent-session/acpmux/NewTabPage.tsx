@@ -14,8 +14,9 @@ import {
   type OmnibarContext,
   type OmnibarRow,
 } from "./omnibar";
-import { homePath, projectLabel, sessionEntry, sessionMark, type AcpmuxSessionEntry } from "./sessionList";
+import { homePath, listed, projectLabel, sessionEntry, sessionMark, type AcpmuxSessionEntry } from "./sessionList";
 import { type StringKey, type Translate, translate, useT } from "./i18n";
+import { parseNewTabTemplate, type NewTabTemplate } from "./newtab/templates";
 
 /// The three things a new tab can become (#16620). Order is the switch's order and Tab's cycle.
 export const TAB_KINDS = ["terminal", "browser", "agent"] as const;
@@ -74,6 +75,8 @@ export const NEW_TAB_LABELS = {
 
 /// What the host's handshake says about a tab opened as a new tab page.
 export type NewTabHost = {
+  inputToken?: string;
+  tools?: { id: string; title: string; symbol: string; shortcut?: string; menu: string[] }[];
   hotkeys: Partial<Record<TabKind, string>>;
   initialKind: TabKind;
   cwd?: string;
@@ -86,10 +89,16 @@ export type NewTabHost = {
   /// Which design (Debug Settings `newTab.layout`): "b" the one-input screen (default),
   /// "a" this Terminal | Browser | Agent page, kept until B passes dogfood (decision Q6).
   layout: "a" | "b";
+  /// The saved template (`tabs.newTabTemplate`); unset follows `layout` (newtab/templates.ts).
+  template?: NewTabTemplate;
+  /// Shows the template dots (Debug Settings `newTab.templateSwitcher`, cx-7qqu); off until styled.
+  templateSwitcher?: boolean;
   /// The agent last picked (decision Q3).
   lastAgent?: string;
   /// The home folder, so `~/path` reads as a folder.
   home?: string;
+  /// false: leave the field unfocused (Cmd-L opened the page for the omnibar, cx-e2aa).
+  focusesField?: boolean;
 };
 
 /// Reads `newTab` from the handshake: `true`, or `{hotkeys, kind, cwd, host}`. Nil for a plain chat.
@@ -107,7 +116,25 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
   const cwd =
     typeof object.cwd === "string" ? object.cwd : typeof handshake.cwd === "string" ? handshake.cwd : undefined;
   const omnibar = omnibarContext(object.omnibar);
+  const template = parseNewTabTemplate(object.template);
+  const tools = Array.isArray(object.tools)
+    ? object.tools.flatMap((tool) => {
+        if (typeof tool !== "object" || tool === null) return [];
+        const value = tool as Record<string, unknown>;
+        const id = typeof value.id === "string" ? value.id : "";
+        const title = typeof value.title === "string" ? value.title : "";
+        const symbol = typeof value.symbol === "string" ? value.symbol : "square.grid.2x2";
+        if (!id || !title) return [];
+        const menu = Array.isArray(value.menu)
+          ? value.menu.filter((entry): entry is string => typeof entry === "string")
+          : [];
+        return [
+          { id, title, symbol, ...(typeof value.shortcut === "string" ? { shortcut: value.shortcut } : {}), menu },
+        ];
+      })
+    : [];
   return {
+    ...(tools.length ? { tools } : {}),
     hotkeys,
     initialKind,
     ...(cwd ? { cwd } : {}),
@@ -125,8 +152,12 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
       ? { defaultKind: object.defaultKind as DefaultKind }
       : {}),
     layout: object.layout === "a" ? "a" : "b",
+    ...(template ? { template } : {}),
+    ...(object.templateSwitcher === true ? { templateSwitcher: true } : {}),
     ...(typeof object.lastAgent === "string" && object.lastAgent ? { lastAgent: object.lastAgent } : {}),
     ...(typeof object.home === "string" && object.home.startsWith("/") ? { home: object.home } : {}),
+    ...(typeof object.inputToken === "string" && object.inputToken ? { inputToken: object.inputToken } : {}),
+    ...(object.focusesField === false ? { focusesField: false } : {}),
   };
 }
 
@@ -154,7 +185,9 @@ export function cycleKind(kind: TabKind, step = 1): TabKind {
 
 /// The newest sessions first, the ones waiting on the user ahead of them.
 export function recentSessions(sessions: AcpmuxSnapshot["sessions"], count = RECENT_COUNT): AcpmuxSessionEntry[] {
-  const entries = sessions.map((session) => sessionEntry(session as AcpmuxSessionEntry & Record<string, unknown>));
+  const entries = sessions
+    .map((session) => sessionEntry(session as AcpmuxSessionEntry & Record<string, unknown>))
+    .filter(listed);
   const urgency = (entry: AcpmuxSessionEntry) => (sessionMark(entry, false) === "input" ? 0 : 1);
   return entries.sort((a, b) => urgency(a) - urgency(b) || (b.updatedAt ?? 0) - (a.updatedAt ?? 0)).slice(0, count);
 }
@@ -179,6 +212,9 @@ type Props = {
   cwd?: string;
   /// The machine it runs on (the handshake's `machineName`); "This Mac" when absent.
   host?: string;
+  tools?: NewTabHost["tools"];
+  inputToken?: string;
+  onInputReady?(token: string): void;
   /// The agent's composer chips (model, mode), shown under the field for Agent.
   chips?: React.ComponentType<{ snapshot: AcpmuxSnapshot }>;
   /// Open tabs, workspaces, folders, commands and history the bar suggests.
@@ -198,9 +234,12 @@ type Props = {
   onJump?(target: "tab" | "workspace", id: string): void;
   onOpenSession(sessionId: string): void;
   onShowAll(): void;
+  onRunAction?(id: string): void;
   onEditShortcut?(kind: TabKind): void;
-  onImport?(): void;
-  onBrowseProject?(): void;
+  /// Choose Folder…: the host's folder panel; resolves to the picked folder.
+  onBrowseProject?(): Promise<string | undefined>;
+  /// Opens the host's Integrate a harness flow (`palette.addHarness`).
+  onAddHarness?(): void;
   now?: number;
 };
 
@@ -224,8 +263,10 @@ export function NewTabPage({
   onOpenSession,
   onShowAll,
   onEditShortcut,
-  onImport,
   onBrowseProject,
+  onAddHarness,
+  inputToken,
+  onInputReady,
 }: Props) {
   const t = useT();
   const [kind, setKind] = useState<TabKind>(initialKind);
@@ -275,10 +316,11 @@ export function NewTabPage({
       field.current?.select();
     };
     focus();
+    if (inputToken) onInputReady?.(inputToken);
     const host = field.current?.ownerDocument.defaultView;
     host?.addEventListener(FOCUS_LOCATION_EVENT, focus);
     return () => host?.removeEventListener(FOCUS_LOCATION_EVENT, focus);
-  }, []);
+  }, [inputToken, onInputReady]);
   const choose = (next: TabKind) => {
     setKind(next);
     setBeforePrefix(undefined);
@@ -411,7 +453,13 @@ export function NewTabPage({
                 currentLabel={selectedProject}
                 icon={<FolderIcon />}
                 onPick={setProjectCwd}
-                onBrowse={onBrowseProject}
+                onBrowse={
+                  onBrowseProject &&
+                  (() =>
+                    void onBrowseProject().then((picked) => {
+                      if (picked) setProjectCwd(picked);
+                    }))
+                }
               />
             )}
             {kind === "terminal" && (
@@ -498,9 +546,9 @@ export function NewTabPage({
           {t(NEW_TAB_LABELS.allSessions)}
           <ChevronRight />
         </button>
-        {onImport && (
-          <button type="button" className="acpmux-newtab-all" onClick={onImport}>
-            {t("newtab.importAndSync")}
+        {onAddHarness && (
+          <button type="button" className="acpmux-newtab-all" onClick={onAddHarness}>
+            {t("newtab.addHarness")}
           </button>
         )}
       </div>
@@ -632,7 +680,8 @@ export function KindIcon({ kind }: { kind: TabKind }) {
   }
 }
 
-const FolderIcon = () => (
+/// A folder glyph (the project picker on both New Tab designs).
+export const FolderIcon = () => (
   <Icon>
     <path d="M1.9 4.6c0-.8.6-1.4 1.4-1.4h2.6l1.5 1.6h5.3c.8 0 1.4.6 1.4 1.4v5.6c0 .8-.6 1.4-1.4 1.4H3.3c-.8 0-1.4-.6-1.4-1.4Z" />
   </Icon>

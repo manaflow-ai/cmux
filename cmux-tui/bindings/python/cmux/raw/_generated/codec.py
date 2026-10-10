@@ -69,6 +69,8 @@ MODEL_BY_PATH = {
     'types/GuestUrlClaimResult': models.GuestUrlClaimResult,
     'types/GuestUrlOpenResult': models.GuestUrlOpenResult,
     'types/GuestUrlSubscribeResult': models.GuestUrlSubscribeResult,
+    'types/HistorySearchHit': models.HistorySearchHit,
+    'types/HistorySearchRange': models.HistorySearchRange,
     'types/IdMapping': models.IdMapping,
     'types/IdentifyResult': models.IdentifyResult,
     'types/IdsResult': models.IdsResult,
@@ -92,6 +94,7 @@ MODEL_BY_PATH = {
     'types/NotificationMarker': models.NotificationMarker,
     'types/NotifyResult': models.NotifyResult,
     'types/PaneNeighborResult': models.PaneNeighborResult,
+    'types/PaneSurfaceResult': models.PaneSurfaceResult,
     'types/PingResult': models.PingResult,
     'types/ProcessInfoResult': models.ProcessInfoResult,
     'types/ProviderWorkspaceMutationResult': models.ProviderWorkspaceMutationResult,
@@ -122,7 +125,9 @@ MODEL_BY_PATH = {
     'types/ServerStatsLockSite': models.ServerStatsLockSite,
     'types/ServerStatsLockStall': models.ServerStatsLockStall,
     'types/ServerStatsRegistryLock': models.ServerStatsRegistryLock,
+    'types/ServerStatsResourceProjection': models.ServerStatsResourceProjection,
     'types/ServerStatsResult': models.ServerStatsResult,
+    'types/ServerStatsWritePath': models.ServerStatsWritePath,
     'types/SetCellPixelsResult': models.SetCellPixelsResult,
     'types/SetSizeCountsResult': models.SetSizeCountsResult,
     'types/SetSizePolicyResult': models.SetSizePolicyResult,
@@ -169,6 +174,7 @@ MODEL_BY_PATH = {
     'types/TerminalResources': models.TerminalResources,
     'types/TerminalResourcesResult': models.TerminalResourcesResult,
     'types/Tree': models.Tree,
+    'types/ViewportPaneWidthResult': models.ViewportPaneWidthResult,
     'types/VtStateResult': models.VtStateResult,
     'types/WaitForResult': models.WaitForResult,
     'types/Workspace': models.Workspace,
@@ -195,6 +201,8 @@ MODEL_BY_PATH = {
     'commands/browser-reload/request': models.BrowserReloadRequest,
     'commands/browser-wheel/request': models.BrowserWheelRequest,
     'commands/browser-wheel-guarded/request': models.BrowserWheelGuardedRequest,
+    'commands/chief-inspect/request': models.ChiefInspectRequest,
+    'commands/chief-inspect/result': models.ChiefInspectResult,
     'commands/clear-history/request': models.ClearHistoryRequest,
     'commands/clear-window-title/request': models.ClearWindowTitleRequest,
     'commands/client-focus/request': models.ClientFocusRequest,
@@ -217,6 +225,9 @@ MODEL_BY_PATH = {
     'commands/cloud-inbox-list/request': models.CloudInboxListRequest,
     'commands/cloud-inbox-subscribe/request': models.CloudInboxSubscribeRequest,
     'commands/cloud-inbox-unsubscribe/request': models.CloudInboxUnsubscribeRequest,
+    'commands/cloud-mux-ack/request': models.CloudMuxAckRequest,
+    'commands/cloud-mux-subscribe/request': models.CloudMuxSubscribeRequest,
+    'commands/cloud-mux-unsubscribe/request': models.CloudMuxUnsubscribeRequest,
     'commands/cloud-session-clear/request': models.CloudSessionClearRequest,
     'commands/cloud-session-set/request': models.CloudSessionSetRequest,
     'commands/cloud-session-status/request': models.CloudSessionStatusRequest,
@@ -269,6 +280,11 @@ MODEL_BY_PATH = {
     'commands/detach-attached-view/request': models.DetachAttachedViewRequest,
     'commands/detach-client/request': models.DetachClientRequest,
     'commands/export-layout/request': models.ExportLayoutRequest,
+    'commands/feed-local-handoff-abort/request': models.FeedLocalHandoffAbortRequest,
+    'commands/feed-local-handoff-begin/request': models.FeedLocalHandoffBeginRequest,
+    'commands/feed-local-handoff-done/request': models.FeedLocalHandoffDoneRequest,
+    'commands/feed-local-list/request': models.FeedLocalListRequest,
+    'commands/feed-local-read/request': models.FeedLocalReadRequest,
     'commands/focus-direction/request': models.FocusDirectionRequest,
     'commands/focus-pane/request': models.FocusPaneRequest,
     'commands/forget-session/request': models.ForgetSessionRequest,
@@ -277,6 +293,8 @@ MODEL_BY_PATH = {
     'commands/get-frontend-browser-history/request': models.GetFrontendBrowserHistoryRequest,
     'commands/get-frontend-projection/request': models.GetFrontendProjectionRequest,
     'commands/get-size-state/request': models.GetSizeStateRequest,
+    'commands/history-search/request': models.HistorySearchRequest,
+    'commands/history-search/result': models.HistorySearchResult,
     'commands/identify/request': models.IdentifyRequest,
     'commands/ids/request': models.IdsRequest,
     'commands/import-bookmarks/request': models.ImportBookmarksRequest,
@@ -328,6 +346,7 @@ MODEL_BY_PATH = {
     'commands/new-frontend-browser-tab/request': models.NewFrontendBrowserTabRequest,
     'commands/new-pane/request': models.NewPaneRequest,
     'commands/new-pane-right/request': models.NewPaneRightRequest,
+    'commands/new-remote-terminal-tab/request': models.NewRemoteTerminalTabRequest,
     'commands/new-row/request': models.NewRowRequest,
     'commands/new-screen/request': models.NewScreenRequest,
     'commands/new-tab/request': models.NewTabRequest,
@@ -351,6 +370,7 @@ MODEL_BY_PATH = {
     'commands/release-surface-size/request': models.ReleaseSurfaceSizeRequest,
     'commands/reload-config/request': models.ReloadConfigRequest,
     'commands/reload-config/result': models.ReloadConfigResult,
+    'commands/remote-terminal-snapshot/request': models.RemoteTerminalSnapshotRequest,
     'commands/remove-screens-from-screen-group/request': models.RemoveScreensFromScreenGroupRequest,
     'commands/remove-tabs-from-tab-group/request': models.RemoveTabsFromTabGroupRequest,
     'commands/remove-tabs-from-tab-group/result': models.RemoveTabsFromTabGroupResult,
@@ -427,6 +447,7 @@ MODEL_BY_PATH = {
     'commands/update-frontend-browser-tab/request': models.UpdateFrontendBrowserTabRequest,
     'commands/update-personal-group/request': models.UpdatePersonalGroupRequest,
     'commands/update-profile/request': models.UpdateProfileRequest,
+    'commands/update-remote-terminal-tab/request': models.UpdateRemoteTerminalTabRequest,
     'commands/update-screen-group/request': models.UpdateScreenGroupRequest,
     'commands/update-tab-group/request': models.UpdateTabGroupRequest,
     'commands/update-workspace-group/request': models.UpdateWorkspaceGroupRequest,
@@ -450,6 +471,8 @@ MODEL_BY_PATH = {
     'events/cloud-conversation-resynced/payload': models.CloudConversationResyncedEvent,
     'events/cloud-inbox-changed/payload': models.CloudInboxChangedEvent,
     'events/cloud-inbox-reset/payload': models.CloudInboxResetEvent,
+    'events/cloud-mux-resynced/payload': models.CloudMuxResyncedEvent,
+    'events/cloud-mux-wake/payload': models.CloudMuxWakeEvent,
     'events/cloud-session-needed/payload': models.CloudSessionNeededEvent,
     'events/cloud-subscription-state/payload': models.CloudSubscriptionStateEvent,
     'events/colors-changed/payload': models.ColorsChangedEvent,
@@ -611,7 +634,10 @@ def _decode(expression: Mapping[str, Any], value: Any, path: str) -> Any:
         return value
     if kind == "enum":
         if value not in expression["values"]:
-            raise ProtocolDecodeError(f"unknown enum value {value!r}")
+            # A string value this SDK does not know decodes as the fallback.
+            if "fallback" not in expression or not isinstance(value, str):
+                raise ProtocolDecodeError(f"unknown enum value {value!r}")
+            value = expression["fallback"]
         enum_type = ENUM_BY_PATH.get(path)
         return enum_type(value) if enum_type is not None else value
     if kind == "ref":

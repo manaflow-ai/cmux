@@ -120,7 +120,7 @@ impl Tx<'_> {
             Some(k) if sort_key::is_valid(k) && !self.sort_key_taken(k, &p.id) => k.clone(),
             _ => {
                 let last = self.ordered_ids(&p.id).last().cloned();
-                self.place(&p.id, last.as_deref(), None)
+                self.place(&p.id, last.as_deref(), None)?
             }
         };
         let number = self.state.settings.next_number;
@@ -296,7 +296,8 @@ impl Tx<'_> {
         let from = self.state.statuses[&from_status].category;
         let to = self.state.statuses[status].category;
         let now = self.now;
-        let task = self.state.tasks.get_mut(id).expect("validated task");
+        // Callers validated the task.
+        let Some(task) = self.state.tasks.get_mut(id) else { return };
         if mode == StatusMove::Manual {
             task.manual_status_at = Some(now);
         }
@@ -327,28 +328,49 @@ impl Tx<'_> {
     /// already neighbours in manual order). When the gap is used up (the key
     /// would pass `sort_key::MAX_LEN`), every other live task gets a fresh
     /// evenly spaced key first, in the same commit (owner rebalance).
-    pub(crate) fn place(&mut self, id: &str, after: Option<&str>, before: Option<&str>) -> String {
+    pub(crate) fn place(
+        &mut self,
+        id: &str,
+        after: Option<&str>,
+        before: Option<&str>,
+    ) -> Result<String, Reject> {
         let key_of = |tx: &Self, t: Option<&str>| t.map(|t| tx.state.tasks[t].sort_key.clone());
         let lower = key_of(self, after);
         let upper = key_of(self, before);
         if let Some(key) = sort_key::between(lower.as_deref(), upper.as_deref())
             && !self.sort_key_taken(&key, id)
         {
-            return key;
+            return Ok(key);
         }
-        self.rebalance(id);
-        let lower = key_of(self, after);
-        let upper = key_of(self, before);
-        sort_key::between(lower.as_deref(), upper.as_deref()).expect("a rebalanced gap has room")
-    }
-
-    fn rebalance(&mut self, except: &str) {
-        let order = self.ordered_ids(except);
+        // Plan the rebalance and check the gap before any write, so a
+        // refusal leaves the state unchanged.
+        let order = self.ordered_ids(id);
         // Even keys with room between them: every second key of a sequence.
         let keys = sort_key::sequence(order.len() * 2);
+        let planned = |tx: &Self, t: Option<&str>| match t {
+            None => Some(None),
+            Some(t) => match order.iter().position(|o| o == t) {
+                Some(index) => keys.get(index * 2 + 1).cloned().map(Some),
+                None => tx.state.tasks.get(t).map(|task| Some(task.sort_key.clone())),
+            },
+        };
+        // A full sequence always leaves room; should it not, the op is refused.
+        let refused = || conflict("no free sort key between the neighbours after a rebalance");
+        let (Some(lower), Some(upper)) = (planned(self, after), planned(self, before)) else {
+            return Err(refused());
+        };
+        if keys.len() < order.len() * 2 {
+            return Err(refused());
+        }
+        let key = sort_key::between(lower.as_deref(), upper.as_deref()).ok_or_else(refused)?;
+        self.rebalance(&order, &keys);
+        Ok(key)
+    }
+
+    fn rebalance(&mut self, order: &[String], keys: &[String]) {
         for (index, task_id) in order.iter().enumerate() {
-            let key = keys[index * 2 + 1].clone();
-            let task = self.state.tasks.get_mut(task_id).expect("live task");
+            let Some(key) = keys.get(index * 2 + 1).cloned() else { break };
+            let Some(task) = self.state.tasks.get_mut(task_id) else { continue };
             if task.sort_key != key {
                 task.sort_key = key;
                 let snapshot = task.clone();
@@ -378,27 +400,29 @@ impl Tx<'_> {
         let after = neighbour(self, &p.after)?;
         let before = neighbour(self, &p.before)?;
         let order = self.ordered_ids(&id);
-        let position = |t: &str| order.iter().position(|o| o == t).expect("live task");
+        // Both neighbours are live tasks other than `id`, so both are in `order`.
+        let position = |t: &str| order.iter().position(|o| o == t);
         // Complete the gap: one named neighbour implies the other.
         let (after, before) = match (after, before) {
             (Some(a), Some(b)) => {
-                if position(&a) >= position(&b) {
+                if !matches!((position(&a), position(&b)), (Some(i), Some(j)) if i < j) {
                     return Err(invalid("after must sort before before"));
                 }
                 (Some(a), Some(b))
             }
             (Some(a), None) => {
-                let next = order.get(position(&a) + 1).cloned();
+                let next = position(&a).and_then(|i| order.get(i + 1)).cloned();
                 (Some(a), next)
             }
             (None, Some(b)) => {
-                let previous = position(&b).checked_sub(1).map(|i| order[i].clone());
+                let previous =
+                    position(&b).and_then(|i| i.checked_sub(1)).and_then(|i| order.get(i)).cloned();
                 (previous, Some(b))
             }
             (None, None) => (order.last().cloned(), None),
         };
-        let key = self.place(&id, after.as_deref(), before.as_deref());
-        let task = self.state.tasks.get_mut(&id).expect("validated task");
+        let key = self.place(&id, after.as_deref(), before.as_deref())?;
+        let task = self.state.tasks.get_mut(&id).ok_or_else(|| not_found("task", &id))?;
         task.sort_key = key;
         task.updated_at = self.now;
         let snapshot = task.clone();
@@ -416,7 +440,7 @@ impl Tx<'_> {
         archived: bool,
     ) -> Result<OpResult, Reject> {
         let id = self.task_id(reference)?;
-        let task = self.state.tasks.get_mut(&id).expect("validated task");
+        let task = self.state.tasks.get_mut(&id).ok_or_else(|| not_found("task", &id))?;
         if task.archived != archived {
             task.archived = archived;
             task.updated_at = self.now;
@@ -461,7 +485,7 @@ impl Tx<'_> {
             .map(|t| t.id.clone())
             .collect();
         for child in children {
-            let task = self.state.tasks.get_mut(&child).expect("child exists");
+            let Some(task) = self.state.tasks.get_mut(&child) else { continue };
             task.parent = None;
             task.updated_at = self.now;
             let snapshot = task.clone();
@@ -475,7 +499,8 @@ impl Tx<'_> {
         for session in sessions {
             self.end_session(&session, crate::model::SessionStatus::Canceled);
         }
-        let task = self.state.tasks.get_mut(&id).expect("validated task");
+        // Validated at the top; the cascades above do not remove it.
+        let task = self.state.tasks.get_mut(&id).ok_or_else(|| not_found("task", &id))?;
         task.deleted = true;
         task.delegate = None;
         task.attention = None;

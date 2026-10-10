@@ -30,7 +30,7 @@ final class ChiefConversationOwner {
     /// Runs once on the first connection, before the connection is
     /// published (the move of the old per-tag Chiefs). It never holds the
     /// owner back: Home's availability does not wait for the move.
-    @ObservationIgnored var prepare: ((DaemonConnection) async -> Void)?
+    @ObservationIgnored var prepare: (@concurrent @Sendable (DaemonConnection) async -> Void)?
     /// Conversation events (`conversation-changed`, `conversation-typing`).
     @ObservationIgnored var onEvent: ((DaemonEvent) -> Void)?
     @ObservationIgnored private var runTask: Task<Void, Never>?
@@ -39,6 +39,16 @@ final class ChiefConversationOwner {
 
     init(home: ChiefHome) {
         self.home = home
+    }
+
+    /// The owner's process environment: the app's, plus the brain host's
+    /// tools socket, so `chief.engine.*` and `chief.stop` reach this home's
+    /// brain (cmux-tui forwards them there, as chief-inspect). An owner that
+    /// another build already started keeps its environment until it restarts.
+    static func ownerEnvironment(home: ChiefHome, process: [String: String]) -> [String: String] {
+        var environment = process
+        environment["CMUX_TUI_CHIEF_TOOLS_SOCKET"] = home.muxHome.appendingPathComponent("optchat/tools.sock").path
+        return environment
     }
 
     func supports(_ capability: String) -> Bool {
@@ -56,7 +66,7 @@ final class ChiefConversationOwner {
         let launcher: DaemonLauncher
         do {
             launcher = try DaemonLauncher.forChief(session: home.session, stateDirectory: home.daemonStateDirectory,
-                                                   bundle: bundle, processEnvironment: environment)
+                                                   bundle: bundle, processEnvironment: Self.ownerEnvironment(home: home, process: environment))
         } catch {
             lastError = String(describing: error)
             logger.error("chief owner: \(String(describing: error), privacy: .public)")

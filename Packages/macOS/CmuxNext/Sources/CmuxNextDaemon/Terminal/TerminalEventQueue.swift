@@ -111,8 +111,7 @@ final class TerminalEventQueue: @unchecked Sendable {
     /// otherwise parks the continuation for the next `push`/`finish`.
     private func takeOrWait(_ continuation: CheckedContinuation<TerminalChannelEvent?, Never>) {
         condition.lock()
-        if head < items.count {
-            let event = popMerged()
+        if let event = popMerged() {
             condition.unlock()
             continuation.resume(returning: event)
         } else if finished {
@@ -131,11 +130,12 @@ final class TerminalEventQueue: @unchecked Sendable {
     }
 
     // Caller holds the lock.
-    private func popMerged() -> TerminalChannelEvent {
-        var event = items[head]
+    /// Nil when no event is queued.
+    private func popMerged() -> TerminalChannelEvent? {
+        guard var event = items[checked: head] else { return nil }
         head += 1
         if case .output(var data, nil) = event {
-            while head < items.count, data.count < mergeLimit, case .output(let more, nil) = items[head] {
+            while data.count < mergeLimit, case .output(let more, nil)? = items[checked: head] {
                 data.append(more)
                 head += 1
             }

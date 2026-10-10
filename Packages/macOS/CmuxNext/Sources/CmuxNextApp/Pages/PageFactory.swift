@@ -52,8 +52,8 @@ struct PageFactory {
             guard let router = await MainActor.run(body: { apps?.controlRouter }) else {
                 throw AppHostCapabilityError(code: "unavailable", message: "cmux is still starting", retryable: true)
             }
-            return try await AppOperationRouter.control(router, method, params)
-        })
+            return try await router.appControl(method, params)
+        }, pageShapes: true)
         let registry = services.registry
         let provider = CodeRouterPageProvider(ops: ops, connect: { id in
             registry.perform(ActionID(rawValue: "accounts.connect"), invocation: ActionInvocation(arguments: ["provider": .string(id)], origin: .user))
@@ -93,7 +93,7 @@ struct PageFactory {
     func settingsPage(route: String?) -> PageWebView? {
         guard let settings = services.settings else { return nil }
         let provider = SettingsPageProvider(settings: settings, domains: { [weak services] in
-            ["themes": services?.themes?.catalog.names ?? [], "font_families": SettingsPageDomains.fontFamilies, "sounds": SettingsPageDomains.sounds]
+            ["themes": services?.themes.catalog.names ?? [], "font_families": SettingsPageDomains.fontFamilies, "sounds": SettingsPageDomains.sounds]
         }, hostLists: { [weak services] in services?.settingsWindow.pageHostLists() ?? .null })
         let accounts = services.accounts.model
         provider.accountsState = { (try? JSONValue.parse(JSONEncoder().encode(accounts.pageState))) ?? .null }
@@ -105,8 +105,22 @@ struct PageFactory {
             if let error = await accounts.perform(action) { return ["error": .string(error)] }
             return .object([:])
         }
+        provider.agents = services.agentHarnesses
+        let harnesses = SettingsHarnesses(
+            environment: { [weak services] in services.flatMap(QuitAgents.environment) },
+            openTerminal: { [weak services] line in
+                guard let pane = services?.windows.active?.focusedPane else { return }
+                pane.newTerminalTab(typing: line + "\r")
+            }
+        )
+        provider.harnessesState = { harnesses.state }
+        provider.harnessesRun = { params in try await harnesses.run(params) }
         provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }
         provider.acceptsTheme = { [weak services] text in services?.settingsWindow.acceptsTheme(text) ?? false }
+        provider.themeColors = { [weak services] in
+            guard let catalog = services?.themes.catalog else { return [] }
+            return catalog.names.compactMap { catalog.colors[$0] }
+        }
         let registry = services.registry
         provider.sectionActions = { section in
             .array(SettingsSchema.actions(in: section).compactMap { id in

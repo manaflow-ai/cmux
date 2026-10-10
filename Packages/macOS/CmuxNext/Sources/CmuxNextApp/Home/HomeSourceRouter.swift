@@ -1,6 +1,6 @@
 import CmuxHomeCore
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// One Home inbox over two owners: the local daemon's conversations and the
 /// cloud's (`ConversationSummary.owner`). It routes each read and op to the
@@ -35,9 +35,18 @@ nonisolated final class HomeSourceRouter: HomeSource {
         /// arrived. A change prunes the cloud owners the new inbox does not list.
         var cloudAccount: String?
         var cloudAccountSeen = false
+        /// Every participant of a local conversation (the local user, the
+        /// Chief): a group of only these is a local channel.
+        var localParticipants: Set<ParticipantID> = []
     }
 
     private let state = Mutex(State())
+
+    /// Each owner's last connection as this router applied it (tests and
+    /// diagnostics; the merged connection is the one the store sees).
+    var ownerConnections: (local: HomeConnection, cloud: HomeConnection?) {
+        state.withLock { ($0.localConnection, $0.cloudConnection) }
+    }
     private static let eventBuffer = 1024
     let local: any HomeSource
     let cloud: CloudHomeSource
@@ -95,12 +104,16 @@ nonisolated final class HomeSourceRouter: HomeSource {
     }
 
     /// Ops on a conversation go to its owner. Ops that create or invite name
-    /// no conversation and only the cloud has them; `createChief` stays with
-    /// the local owner, which refuses it as before.
+    /// no conversation and only the cloud has them, except `createGroup` of
+    /// local participants only (none, or the Chief and the local user): a
+    /// local channel. `createChief` stays with the local owner, which
+    /// refuses it as before.
     func submit(_ intent: HomeIntent) async throws -> HomeOpResult {
         let toCloud: Bool
         switch intent.op {
-        case .createGroup, .startConversation, .invite, .openDirect: toCloud = true
+        case .createGroup(_, let ids):
+            toCloud = state.withLock { state in !ids.allSatisfy { state.localParticipants.contains($0) || $0.rawValue == DaemonHomeSource.chief.id } }
+        case .startConversation, .invite, .openDirect: toCloud = true
         case .createChief: toCloud = false
         default:
             if let conversation = intent.op.conversation { toCloud = await owner(of: conversation) == .cloud } else { toCloud = false }
@@ -118,6 +131,17 @@ nonisolated final class HomeSourceRouter: HomeSource {
 
     func resolve(_ contact: ContactAddress) async throws -> ContactResolution {
         try await cloud.resolve(contact)
+    }
+
+    /// Attachments go to the owner of their conversation, like its ops. The
+    /// protocol default refuses ("attachments unsupported"), so without
+    /// these every photo sent to the local Chief failed "Not Delivered".
+    func upload(_ file: AttachmentUpload) async throws -> AttachmentRef {
+        try await source(for: file.conversation).upload(file)
+    }
+
+    func fetch(_ ref: AttachmentRef, at location: AttachmentLocation, variant: AttachmentVariant) async throws -> URL {
+        try await source(for: location.conversation).fetch(ref, at: location, variant: variant)
     }
 
     /// A closed transcript goes to its owner; one no owner reported was
@@ -191,12 +215,19 @@ nonisolated final class HomeSourceRouter: HomeSource {
         publish { state in
             switch event {
             case .connection(let connection):
+                let was = state.localConnection
                 state.localConnection = connection
-                return Self.mergedEvent(&state)
+                if let merged = Self.mergedEvent(&state) { return merged }
+                // The local owner came back while the cloud kept the merged
+                // connection online: a recovery, so the store resends what
+                // the owner did not answer now, not at its next backoff.
+                return connection == .online && was != .online ? .ownerRecovered : nil
             case .inbox(let snapshot):
+                state.localParticipants = Set(snapshot.conversations.flatMap { $0.participants.map(\.id) } + [snapshot.me.id])
                 return .inbox(merged(local: snapshot, cloud: cloud.currentInbox().conversations, &state))
             case .conversationChanged(let summary, _, _):
                 state.owners[summary.id] = summary.owner
+                state.localParticipants.formUnion(summary.participants.map(\.id))
                 return event
             default:
                 return event

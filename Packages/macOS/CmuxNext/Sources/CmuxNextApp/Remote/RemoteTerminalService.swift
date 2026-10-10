@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextCloud
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextTerminal
 import Observation
@@ -45,7 +46,7 @@ final class RemoteTerminalService {
     func start() {
         let machines = services.machines
         observation = Task { [weak self] in
-            let tokens = Observations { () -> [String: String] in
+            let tokens = ObservationStream { () -> [String: String] in
                 var map: [String: String] = [:]
                 for daemon in machines.daemons {
                     guard let session = daemon.identity?.sessionID else { continue }
@@ -180,7 +181,7 @@ final class RemoteTerminalService {
         let machines = services.machines
         if let ssh = machines.sshSession(daemon.machineID) {
             let service = services.ssh
-            return { service?.reconnect(ssh) }
+            return { service.reconnect(ssh) }
         }
         if let cloud = machines.session(daemon.machineID) { return { cloud.connect(origin: .user) } }
         if let server = machines.server(daemon.machineID) { return { server.connect() } }
@@ -226,7 +227,7 @@ final class RemoteTerminalService {
         let tabID = tab.id
         titleTasks[tab.id] = Task { [weak self, weak home] in
             var last = ""
-            for await title in Observations({ model.title }) {
+            for await title in ObservationStream({ model.title }) {
                 guard !title.isEmpty, title != last, let home, let connection = home.connection,
                       let surface = home.store.tab(id: tabID)?.surface else { continue }
                 last = title

@@ -10,11 +10,12 @@ nonisolated enum LayoutActionCatalog: ActionCatalogGroup {
     static func row(
         _ id: ActionID, _ title: String, _ category: ActionCategory, _ symbol: String, cli: String,
         keywords: [String], targets: [ActionTargetKind], arguments: [ActionArgument] = [], startsTerminal: Bool = false,
-        defaultShortcut: Shortcut? = nil
+        defaultShortcut: Shortcut? = nil, surfaces: ActionSurfaces = [.palette], requires: ActionContext = [], mainMenu: ActionMainMenu? = nil
     ) -> ActionDescriptor {
         ActionDescriptor(
             id: id, title: title, keywords: keywords, defaultShortcut: defaultShortcut, category: category, symbol: symbol,
-            surfaces: [.palette], arguments: arguments, targets: targets, cliName: cli, startsTerminal: startsTerminal
+            surfaces: surfaces, requires: requires, arguments: arguments, targets: targets, cliName: cli,
+            mainMenu: mainMenu, startsTerminal: startsTerminal
         )
     }
 
@@ -55,6 +56,15 @@ nonisolated enum LayoutActionCatalog: ActionCatalogGroup {
                 .pane, "arrow.up.arrow.down", cli: "pane swap-down", keywords: ["pane", "move"], targets: [.pane]),
             row("closePane", String(localized: "action.closePane", defaultValue: "Close Pane", table: "LayoutActions", bundle: .module),
                 .pane, "xmark.rectangle", cli: "pane close", keywords: ["pane", "remove"], targets: [.pane]),
+            // Chrome's Close Other Tabs for panes (cx-k9go): no question; each closed
+            // pane's tabs go to the closed history and an undo toast offers them back.
+            ActionDescriptor(
+                id: "pane.closeOthers",
+                title: String(localized: "action.pane.closeOthers", defaultValue: "Close Other Panes", table: "LayoutActions", bundle: .module),
+                keywords: ["pane", "close", "others", "only"], category: .pane, symbol: "xmark.rectangle", surfaces: [.palette, .contextMenu],
+                targets: [.pane], cliName: "pane close-others",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [ActionSurfaceCatalog.p(.pane, .close, 601)])
+            ),
             row("renamePane", String(localized: "action.renamePane", defaultValue: "Rename Pane…", table: "LayoutActions", bundle: .module),
                 .pane, "pencil", cli: "pane rename", keywords: ["pane", "title"], targets: [.pane],
                 arguments: [CatalogArgument.nameString.optional]),
@@ -102,11 +112,14 @@ nonisolated enum LayoutActionCatalog: ActionCatalogGroup {
                 symbol: "clear", surfaces: [.palette, .keyboard], requires: [.terminalFocused], targets: [.tab], cliName: "terminal clear"
             ),
             row("terminal.increaseFontSize", String(localized: "action.terminal.increaseFontSize", defaultValue: "Increase Font Size", table: "LayoutActions", bundle: .module),
-                .terminal, "textformat.size.larger", cli: "terminal increase-font-size", keywords: ["font", "zoom", "bigger"], targets: [.tab]),
+                .terminal, "textformat.size.larger", cli: "terminal increase-font-size", keywords: ["font", "zoom", "bigger"], targets: [.tab],
+                defaultShortcut: Shortcut("=", modifiers: [.command]), surfaces: [.palette, .keyboard, .menu], requires: [.terminalFocused], mainMenu: .view),
             row("terminal.decreaseFontSize", String(localized: "action.terminal.decreaseFontSize", defaultValue: "Decrease Font Size", table: "LayoutActions", bundle: .module),
-                .terminal, "textformat.size.smaller", cli: "terminal decrease-font-size", keywords: ["font", "zoom", "smaller"], targets: [.tab]),
+                .terminal, "textformat.size.smaller", cli: "terminal decrease-font-size", keywords: ["font", "zoom", "smaller"], targets: [.tab],
+                defaultShortcut: Shortcut("-", modifiers: [.command]), surfaces: [.palette, .keyboard, .menu], requires: [.terminalFocused], mainMenu: .view),
             row("terminal.resetFontSize", String(localized: "action.terminal.resetFontSize", defaultValue: "Reset Font Size", table: "LayoutActions", bundle: .module),
-                .terminal, "textformat.size", cli: "terminal reset-font-size", keywords: ["font", "zoom", "default"], targets: [.tab]),
+                .terminal, "textformat.size", cli: "terminal reset-font-size", keywords: ["font", "zoom", "default"], targets: [.tab],
+                defaultShortcut: Shortcut("0", modifiers: [.command]), surfaces: [.palette, .keyboard, .menu], requires: [.terminalFocused], mainMenu: .view),
             row("terminal.sendText", String(localized: "action.terminal.sendText", defaultValue: "Send Text…", table: "LayoutActions", bundle: .module),
                 .terminal, "text.cursor", cli: "terminal send-text", keywords: ["input", "type", "paste"], targets: [.tab],
                 arguments: [CatalogArgument.textString]),

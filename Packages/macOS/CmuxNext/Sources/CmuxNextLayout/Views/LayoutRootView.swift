@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import Observation
 
@@ -24,6 +25,8 @@ public final class LayoutRootView: NSView {
     let driver = DisplayLinkDriver()
     private var observationTask: Task<Void, Never>?
     private var eventMonitor: Any?
+    /// Key-window observers of the current window (`observeKeyWindow()`).
+    var keyWindowObservers: [any NSObjectProtocol] = []
     private var lastSnapshot: Snapshot?
     private var reportedVisible: Set<PaneID> = []
     private var reportedKeepAlive: Set<PaneID> = []
@@ -37,6 +40,9 @@ public final class LayoutRootView: NSView {
     /// The zone hit the drop preview shows now; the next hit test holds it
     /// near its line (`DropZoneGeometry.zone`). Nil while nothing shows.
     var tabDropHit: DropTarget?
+    /// The pane the current drag empties, as the last preview decided the
+    /// split room with it: the drop decides with the same pane (cx-ohle).
+    var tabDragRemoving: PaneID?
     /// Overlay sync observers by id (`observeOverlaySync`).
     var overlaySyncObservers: [Int: () -> Void] = [:]
     var nextOverlaySyncObserver = 0
@@ -84,6 +90,7 @@ public final class LayoutRootView: NSView {
     isolated deinit {
         observationTask?.cancel()
         if let eventMonitor { NSEvent.removeMonitor(eventMonitor) }
+        for token in keyWindowObservers { NotificationCenter.default.removeObserver(token) }
         driver.detach()
     }
 
@@ -145,7 +152,7 @@ public final class LayoutRootView: NSView {
     private func observe() {
         let model = model
         observationTask = Task { [weak self] in
-            for await snapshot in Observations({
+            for await snapshot in ObservationStream({
                 Snapshot(
                     screens: model.screens,
                     activeScreen: model.activeScreenID,
@@ -255,7 +262,7 @@ public final class LayoutRootView: NSView {
             if view.step(dt) { moving = true }
         }
         for id in Array(screenFrames.keys) {
-            if screenFrames[id]!.advance(dt, parameters: Motion.spring(.screen)) { moving = true }
+            if screenFrames[id]?.advance(dt, parameters: Motion.spring(.screen)) == true { moving = true }
         }
         applyScreenFrames()
         if highlight.step(dt) { moving = true }
@@ -345,6 +352,7 @@ public final class LayoutRootView: NSView {
             self.eventMonitor = nil
         }
         driver.detach()
+        observeKeyWindow()
         guard window != nil else {
             updateVisibility()
             return

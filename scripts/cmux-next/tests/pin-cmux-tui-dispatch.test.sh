@@ -23,6 +23,7 @@ cp "$ROOT/scripts/cmux-next/pin-cmux-tui.sh" "$src/scripts/cmux-next/"
 cp "$ROOT/scripts/ci/cmux_tui_tree_key.py" "$src/scripts/ci/"
 cp "$ROOT/scripts/cmux-next/cmux-tui-tree-inputs.txt" "$src/scripts/cmux-next/"
 echo reducer > "$src/scripts/cmux-next/build-layout-reducer-ffi.sh"
+"$ROOT/scripts/cmux-next/tests/lib/tree-inputs-fixture.sh" "$src"
 chmod 755 "$src/scripts/cmux-next/build-layout-reducer-ffi.sh"
 echo one > "$src/cmux-tui/a"
 git_q -C "$src" add -A
@@ -130,5 +131,26 @@ runs runs-active '{"workflow_runs": []}'
 runs "runs-$changed" "{\"workflow_runs\": [{\"id\": 8, \"status\": \"queued\", \"head_sha\": \"$changed\"}]}"
 resolve "$changed" CMUX_TUI_TREE_DISPATCH=1
 [[ "$refs" == 0 && "$dispatches" == 0 ]] || fail "(c) an active run for the commit must start no publisher (refs $refs, dispatches $dispatches):" "$(cat "$TMP/curl.log")"
+
+# (d) A miss is never silent: it names this tree, the nearest published tree
+# (informational only: its source differs) and what happens next.
+runs runs-active '{"workflow_runs": []}'
+rm -f "$api/runs-$changed"
+git -C "$src" checkout -q "$changed"
+echo four > "$src/cmux-tui/a"; four=$(commit "tui four (never published)")
+resolve "$four"
+# History: four -> changed -> old (case (a) checked out old before changed was
+# made). The tip published old's tree, so the nearest commit is old.
+grep -q "no published cmux-tui tree for $(key "$four") (head ${four:0:12}); nearest published tree: $(key "$old") from ${old:0:12} (2 commits back, cmux-tui source differs)" <<<"$err" \
+  || fail "(d) a miss must name the nearest published tree $(key "$old") from ${old:0:12} 2 commits back:" "$err"
+grep -q "next: no dispatch (CMUX_TUI_TREE_DISPATCH unset); waiting up to 1s for a push run, or bundle a local build with CMUX_NEXT_TUI_BIN=<path>" <<<"$err" \
+  || fail "(d) a miss without dispatch must say what happens next:" "$err"
+[[ "$(grep -c 'no published cmux-tui tree for' <<<"$err")" == 1 ]] || fail "(d) the miss block must print once:" "$err"
+resolve "$four" CMUX_TUI_TREE_DISPATCH=1
+grep -q "next: dispatching one cmux-tui-artifacts run for ${four:0:12} (CMUX_TUI_TREE_DISPATCH=1)" <<<"$err" \
+  || fail "(d) a dispatching miss must say so:" "$err"
+resolve "$four" CMUX_TUI_TREE_NEAREST_COMMITS=2
+grep -q "no published cmux-tui tree for $(key "$four") (head ${four:0:12}); nearest published tree: none in the last 2 commits" <<<"$err" \
+  || fail "(d) a history without a published tree must say none in the last 2 commits:" "$err"
 
 echo "PASS: cmux-tui artifacts resolve by source tree key and one publisher is dispatched for a missing tree"

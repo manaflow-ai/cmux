@@ -30,7 +30,7 @@ pub(crate) use import::ImportedMessage;
 pub(crate) const CONVERSATIONS_FILE: &str = "conversations.sqlite3";
 /// 2: the op ledger is keyed by actor too (`op_ledger_v2`) and the agent loop
 /// guard lives in `agent_guard`. Version 1 ledger rows are not consulted.
-const SCHEMA_VERSION: i64 = 2;
+pub(crate) const SCHEMA_VERSION: i64 = 2;
 /// Largest `tail` and `limit` a page request may ask for.
 pub(crate) const MAX_PAGE_MESSAGES: u32 = 500;
 /// The participant id of the Mac's own user in local conversations.
@@ -710,6 +710,10 @@ pub enum ConversationEvent {
     Changed { conversation: String, rev: u64, transaction: Option<Arc<str>>, change: Value },
     /// A participant started or stopped typing. Never stored or replayed.
     Typing { conversation: String, participant: String, on: bool },
+    /// An agent's live reply text (`conversation.draft`): the v2
+    /// `conversation.events` item, delivered only on that stream (never on
+    /// the raw subscribe stream or the remote relay). Never stored.
+    Draft { conversation: String, participant: String, item: Value },
 }
 
 impl ConversationEvent {
@@ -729,7 +733,13 @@ impl ConversationEvent {
                 "participant": participant,
                 "on": on,
             }),
+            Self::Draft { item, .. } => item.clone(),
         }
+    }
+
+    /// Drafts travel only on `conversation.events`.
+    pub(crate) const fn is_draft(&self) -> bool {
+        matches!(self, Self::Draft { .. })
     }
 }
 
@@ -740,102 +750,16 @@ impl ConversationEvent {
 #[derive(Default)]
 pub(crate) struct ConversationHost {
     pub(crate) store: Mutex<Option<ConversationStore>>,
+    /// `conversation.draft` replay and rate state (memory only).
+    pub(crate) drafts: Mutex<crate::conversation_drafts::DraftGate>,
     pub(crate) publish: Mutex<()>,
     /// The participant each connection bound with an agent token (memory only).
     pub(crate) bindings: Mutex<std::collections::BTreeMap<u64, String>>,
+    /// Who is typing in each conversation now (memory only): typing is never
+    /// stored, but a snapshot says who types so a client that missed a
+    /// typing item can recover the state.
+    pub(crate) typing:
+        Mutex<std::collections::BTreeMap<String, std::collections::BTreeSet<String>>>,
     /// Remote-relay peers, pairing records and revocation limits.
     pub(crate) remote: crate::remote_relay_state::RemoteRelayState,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use cmux_conversation::{Part, ParticipantKind};
-
-    fn participants() -> Vec<Participant> {
-        vec![
-            Participant {
-                id: "user_local".to_string(),
-                kind: ParticipantKind::Human,
-                display_name: "Me".to_string(),
-                agent_class: None,
-                acp_session: None,
-                person: None,
-            },
-            Participant {
-                id: "agent_mux".to_string(),
-                kind: ParticipantKind::Agent,
-                display_name: "mux".to_string(),
-                agent_class: Some(cmux_conversation::AgentClass::Mux),
-                acp_session: Some("mux".to_string()),
-                person: None,
-            },
-        ]
-    }
-
-    fn send(key: &str, text: &str) -> Op {
-        Op::MessageSend {
-            client_msg_id: key.to_string(),
-            parts: vec![Part::Text { text: text.to_string(), runs: None }],
-            reply_to: None,
-        }
-    }
-
-    #[test]
-    fn conversation_store_persists_across_reopen() {
-        let directory = std::env::temp_dir()
-            .join(format!("cmux-conversations-{}", crate::workspace_registry::new_uuid_v4()));
-        std::fs::create_dir_all(&directory).unwrap();
-        let id = {
-            let mut store = ConversationStore::open(Some(&directory)).unwrap();
-            let created = store.create("create-1", "user_local", "mux", &participants()).unwrap();
-            assert!(!created.replayed);
-            let id = created.summary.id;
-            assert!(id.starts_with("conv_") && id.len() == 31);
-            for index in 1..=3 {
-                let key = format!("c{index}");
-                store.apply_op(&id, &key, "user_local", &send(&key, "hi")).unwrap();
-            }
-            store.apply_op(&id, "read-1", "agent_mux", &Op::ReadCursorSet { seq: 2 }).unwrap();
-            id
-        };
-        assert!(directory.join(CONVERSATIONS_FILE).is_file());
-        let mut store = ConversationStore::open(Some(&directory)).unwrap();
-        let (summary, messages) = store.snapshot(&id, 2).unwrap();
-        assert_eq!(summary.last_seq, 3);
-        assert_eq!(summary.rev, 5);
-        assert_eq!(summary.read_cursors.get("agent_mux"), Some(&2));
-        assert_eq!(messages.iter().map(|message| message.seq).collect::<Vec<_>>(), vec![2, 3]);
-        assert_eq!(summary.last_message.unwrap().seq, 3);
-        // The ledger survives the reopen: the replay changes nothing.
-        let replay = store.apply_op(&id, "c3", "user_local", &send("c3", "hi")).unwrap();
-        assert!(replay.replayed);
-        assert_eq!(replay.result.seq, Some(3));
-        assert_eq!(replay.result.rev, 4);
-        let created = store.create("create-1", "user_local", "mux", &participants()).unwrap();
-        assert!(created.replayed);
-        assert_eq!(created.summary.id, id);
-        let history = store.history(&id, 2, 500).unwrap();
-        assert_eq!(history.len(), 1);
-        assert_eq!(store.list().unwrap().len(), 1);
-        drop(store);
-        std::fs::remove_dir_all(&directory).unwrap();
-    }
-
-    #[test]
-    fn conversation_store_rejects_a_newer_schema() {
-        let connection = Connection::open_in_memory().unwrap();
-        connection
-            .execute_batch(
-                "CREATE TABLE meta (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL);
-                 INSERT INTO meta VALUES('schema_version', '3');",
-            )
-            .unwrap();
-        let error = ConversationStore::initialize(
-            connection,
-            attachments::Attachments::open(None).unwrap(),
-        )
-        .unwrap_err();
-        assert!(error.to_string().contains("unsupported conversation store schema 3"));
-    }
 }

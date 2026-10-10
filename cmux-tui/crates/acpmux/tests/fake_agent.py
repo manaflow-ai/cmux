@@ -3,9 +3,15 @@
 
 Behaviour per prompt text:
   "ask: <x>"   -> requests permission, then replies with the chosen optionId
+  "xai-question: <q>" / "xai-plan: <p>" -> Grok's x.ai ask / exit-plan requests
+  "cursor-question: <q>" / "cursor-plan: <p>" -> Cursor's ask / create-plan requests
   "slow"       -> streams three chunks with delays, honours session/cancel
   "gate: <p>"  -> streams before-gate, waits for a write to FIFO <p>, then after-gate
   anything     -> echoes the text as one agent_message_chunk
+
+FAKE_CODEX_STEER=1: steering as codex-acp 1.10.0 does it. The agent
+advertises steering; a prompt while a turn runs joins that turn, and when
+the turn ends only the last prompt gets an answer (the earlier ones never).
 """
 import json
 import sys
@@ -47,9 +53,50 @@ def update(sid, upd):
     send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": upd}})
 
 
-def handle_prompt(rid, params):
+# FAKE_CODEX_STEER: the running turn's prompt ids per session.
+codex_turns = {}
+
+
+def codex_prompt(rid, params):
+    """codex-acp: the first prompt runs the turn; a prompt during it joins it.
+    At the turn's end only the last joined prompt is answered."""
     sid = params["sessionId"]
     text = "".join(b.get("text", "") for b in params.get("prompt", []))
+    with lock:
+        running = codex_turns.get(sid)
+        if running is not None:
+            running.append(rid)
+            return
+        codex_turns[sid] = [rid]
+    update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "turn: " + text}})
+    # The turn runs until a joined prompt arrives (bounded), then a moment.
+    for _ in range(300):
+        with lock:
+            joined = len(codex_turns[sid]) > 1
+        if joined:
+            break
+        time.sleep(0.01)
+    time.sleep(0.2)
+    with lock:
+        ids = codex_turns.pop(sid)
+    update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"answered {len(ids)}"}})
+    send({"jsonrpc": "2.0", "id": ids[-1], "result": {"stopReason": "end_turn"}})
+
+
+def handle_prompt(rid, params):
+    sid = params["sessionId"]
+    blocks = params.get("prompt", [])
+    text = "".join(b.get("text", "") for b in blocks)
+    links = [b for b in blocks if isinstance(b, dict) and b.get("type") == "resource_link"]
+    if links:
+        text += " " + " ".join(
+            "resource_link:{name}:{mime}:{uri}".format(
+                name=b.get("name", ""),
+                mime=b.get("mimeType", ""),
+                uri=b.get("uri", "")
+            )
+            for b in links
+        )
     if text.startswith("permission-batch:"):
         with open(os.path.join(os.path.dirname(__file__), "fixtures", "permission-batches.json")) as f:
             fixture = json.load(f)[text.split(":", 1)[1].strip()]
@@ -88,6 +135,71 @@ def handle_prompt(rid, params):
         with open(text[5:].strip()) as gate:
             gate.read()
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "after-gate"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "question: Q" asks Q the way Claude Code's AskUserQuestion does and
+    # echoes the outcome plus the answers acpmux put into the tool input.
+    if text.startswith("question:"):
+        res = request(
+            "session/request_permission",
+            {
+                "sessionId": sid,
+                "toolCall": {"toolCallId": "q1", "title": "Question", "kind": "other", "status": "pending",
+                             "rawInput": {"questions": [{"question": text[9:].strip(), "header": "Pick",
+                                                         "multiSelect": False,
+                                                         "options": [{"label": "A", "description": "first"},
+                                                                     {"label": "B"}]}]},
+                             "_meta": {"claude": {"tool": "AskUserQuestion", "interactive": True}}},
+                "options": [
+                    {"optionId": "allow_once", "name": "Answer", "kind": "allow_once"},
+                    {"optionId": "reject_once", "name": "Reject", "kind": "reject_once"},
+                ],
+            },
+        )
+        res = res or {}
+        chosen = res.get("outcome", {}).get("optionId", res.get("outcome", {}).get("outcome"))
+        answers = res.get("_meta", {}).get("updatedInput", {}).get("answers")
+        update(sid, {"sessionUpdate": "agent_message_chunk",
+                     "content": {"type": "text", "text": f"chose {chosen} {json.dumps(answers, sort_keys=True)}"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "xai-question: Q" asks Q the way Grok does (`_x.ai/ask_user_question`)
+    # and "xai-plan: P" asks to leave plan mode with plan P
+    # (`_x.ai/exit_plan_mode`); both echo the client's JSON reply.
+    if text.startswith("xai-question:"):
+        res = request("_x.ai/ask_user_question", {
+            "sessionId": sid, "toolCallId": "xq1", "mode": "default",
+            "questions": [{"question": text[13:].strip(), "multiSelect": False,
+                           "options": [{"label": "A", "description": "first"}, {"label": "B"}]}],
+        })
+        update(sid, {"sessionUpdate": "agent_message_chunk",
+                     "content": {"type": "text", "text": "xai " + json.dumps(res, sort_keys=True)}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    if text.startswith("xai-plan:"):
+        res = request("x.ai/exit_plan_mode", {"sessionId": sid, "toolCallId": "xp1", "planContent": text[9:].strip()})
+        update(sid, {"sessionUpdate": "agent_message_chunk",
+                     "content": {"type": "text", "text": "xai " + json.dumps(res, sort_keys=True)}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "cursor-question: Q" asks Q the way Cursor does (`cursor/ask_question`,
+    # option ids distinct from labels) and "cursor-plan: P" proposes plan P
+    # (`cursor/create_plan`); both echo the client's JSON reply.
+    if text.startswith("cursor-question:"):
+        res = request("cursor/ask_question", {
+            "toolCallId": "cq1", "title": "Pick one",
+            "questions": [{"id": "which", "prompt": text[16:].strip(), "allowMultiple": True,
+                           "options": [{"id": "opt-a", "label": "A"}, {"id": "opt-b", "label": "B"}]}],
+        })
+        update(sid, {"sessionUpdate": "agent_message_chunk",
+                     "content": {"type": "text", "text": "cursor " + json.dumps(res, sort_keys=True)}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    if text.startswith("cursor-plan:"):
+        res = request("cursor/create_plan", {"toolCallId": "cp1", "name": "Fix", "plan": text[12:].strip(),
+                                             "todos": [{"id": "t1", "content": "read", "status": "pending"}]})
+        update(sid, {"sessionUpdate": "agent_message_chunk",
+                     "content": {"type": "text", "text": "cursor " + json.dumps(res, sort_keys=True)}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "gate-ask: PATH" blocks on the FIFO at PATH (as "gate:"), then asks
@@ -259,6 +371,10 @@ def handle_prompt(rid, params):
 
 def main():
     global LAST_MCP_SERVERS
+    # `--fake-login` (the terminal sign-in): sign in and exit.
+    if "--fake-login" in sys.argv[1:]:
+        open(os.environ["FAKE_AUTH_FILE"], "w").close()
+        return
     # FAKE_IGNORE_TERM=1: behave like an agent that ignores SIGTERM.
     if os.environ.get("FAKE_IGNORE_TERM") == "1":
         import signal
@@ -286,6 +402,22 @@ def main():
         params = msg.get("params") or {}
         if m in ("session/new", "session/load", "session/fork"):
             LAST_MCP_SERVERS = params.get("mcpServers")
+        # FAKE_CWD_LOG=<path>: append the process folder and the session/new cwd.
+        if m == "session/new" and os.environ.get("FAKE_CWD_LOG"):
+            with open(os.environ["FAKE_CWD_LOG"], "a") as log:
+                log.write(json.dumps({"process": os.getcwd(), "session": params.get("cwd")}) + "\n")
+        if m == "authenticate":
+            # FAKE_AUTH_FILE: "fake-login" signs in (writes the file).
+            if params.get("methodId") == "fake-login" and os.environ.get("FAKE_AUTH_FILE"):
+                open(os.environ["FAKE_AUTH_FILE"], "w").close()
+                send({"jsonrpc": "2.0", "id": rid, "result": {}})
+            else:
+                send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32602, "message": "no such auth method"}})
+            continue
+        if (m == "session/new" and os.environ.get("FAKE_AUTH_FILE")
+                and not os.path.exists(os.environ["FAKE_AUTH_FILE"])):
+            send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32000, "message": "Authentication required"}})
+            continue
         if m == "initialize":
             # FAKE_INIT_DELAY_MS / FAKE_NEW_DELAY_MS: an adapter boot and a
             # session start that take time (MCP servers), for pool latency.
@@ -294,9 +426,15 @@ def main():
                 pause.sleep(int(os.environ["FAKE_INIT_DELAY_MS"]) / 1000)
             send({"jsonrpc": "2.0", "id": rid, "result": {
                 "protocolVersion": 1,
+                "_meta": {"steering": {"supported": os.environ.get("FAKE_CODEX_STEER") == "1"}},
                 "agentInfo": {"name": "fake", "version": "0"},
                 "agentCapabilities": {"loadSession": os.environ.get("FAKE_NO_LOAD") != "1", "sessionCapabilities": {"fork": {}}},
-                "authMethods": [],
+                "authMethods": [] if not os.environ.get("FAKE_AUTH_FILE") else [
+                    {"id": "fake-login", "name": "Fake login", "description": "opens a browser"},
+                    {"id": "fake-terminal", "name": "Terminal login", "type": "terminal", "args": ["--fake-login"]},
+                    {"id": "fake-key", "name": "API key", "type": "env_var", "varName": "FAKE_API_KEY"},
+                    {"id": "odd", "type": "carrier-pigeon"},
+                ],
             }})
         elif m == "session/new":
             if os.environ.get("FAKE_NEW_DELAY_MS"):
@@ -342,7 +480,8 @@ def main():
             if os.environ.get("FAKE_LOAD_GATE") and params.get("sessionId") not in known:
                 send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32002, "message": "Session not found"}})
                 continue
-            threading.Thread(target=handle_prompt, args=(rid, params), daemon=True).start()
+            target = codex_prompt if os.environ.get("FAKE_CODEX_STEER") == "1" else handle_prompt
+            threading.Thread(target=target, args=(rid, params), daemon=True).start()
         elif m == "session/cancel":
             cancelled.add(params.get("sessionId"))
         elif rid is not None:

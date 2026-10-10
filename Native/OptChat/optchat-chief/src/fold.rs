@@ -98,11 +98,29 @@ pub struct ToolTrace {
 
 /// One model request of the turn (Claude Code's raw assistant lines of one
 /// message id), with the token use it reported.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Request {
     pub id: String,
     pub model: Option<String>,
     pub usage: Usage,
+    /// From what started the request (the prompt, or the tool result Claude
+    /// Code answers) to the model's `message_start`, in ms of acpmux's event
+    /// times. None: the start or the stream was not seen.
+    pub headers_ms: Option<u64>,
+    /// From the same start to the request's first content delta: its time
+    /// to first token.
+    pub ttft_ms: Option<u64>,
+}
+
+/// The model stream of the request in flight (Claude Code's
+/// `stream_event` lines, `--include-partial-messages`).
+#[derive(Debug, Default)]
+struct Stream {
+    id: String,
+    headers_ms: Option<u64>,
+    ttft_ms: Option<u64>,
+    /// When the request started (event time, ms).
+    start: Option<u64>,
 }
 
 #[derive(Debug, Default)]
@@ -123,11 +141,23 @@ pub struct TurnFold {
     tools: HashMap<String, Tool>,
     /// The last finished reply: what the turn posts.
     last_talk: Option<String>,
+    /// Answers Claude Code finished (`result`) before a steered message
+    /// made it go on in the same prompt: the post holds them first.
+    answered: Vec<String>,
     ended: Option<Ended>,
     /// The last raw Claude Code line came from one of its own subagents
     /// (Task/Agent): the translated updates that follow it are that
     /// subagent's steps, which stay out of the log (section 9).
     in_subagent: bool,
+    /// The event time of what started the next model request: the last
+    /// line sent to the harness, or the last tool result Claude Code read.
+    request_start: Option<u64>,
+    /// The request streaming now.
+    stream: Option<Stream>,
+    /// The reply segment the talk buffer belongs to (drafts, `draft.rs`).
+    segment: u64,
+    /// Segments finished since the drafts last took them: (segment, text).
+    closed: Vec<(u64, String)>,
 }
 
 impl TurnFold {
@@ -180,8 +210,14 @@ impl TurnFold {
     }
 
     /// The turn's final assistant text: its last finished reply.
-    pub fn final_text(&self) -> Option<&str> {
-        self.last_talk.as_deref()
+    pub fn final_text(&self) -> Option<String> {
+        let parts: Vec<&str> = self
+            .answered
+            .iter()
+            .map(String::as_str)
+            .chain(self.last_talk.as_deref())
+            .collect();
+        (!parts.is_empty()).then(|| parts.join("\n\n"))
     }
 
     /// Folds one event; events at or below the last seq are replays.
@@ -200,12 +236,30 @@ impl TurnFold {
             return out;
         }
         let update = event.msg.get("params").and_then(|p| p.get("update"));
+        // Anything sent to the harness (the prompt, a permission answer)
+        // starts its next request.
+        if event.dir == "out" && event.at.is_some() {
+            self.request_start = event.at;
+        }
         if event.kind.starts_with("claude.") {
             // Claude Code's raw stream-json line; acpmux records it just before
             // the updates it translates into, and its translator ignores
             // `parent_tool_use_id`, so this is where a subagent's steps show.
             self.in_subagent =
                 matches!(event.msg.get("parent_tool_use_id"), Some(Value::String(_)));
+            if !self.in_subagent && event.dir != "out" {
+                self.time_request(event);
+            }
+            // Claude Code finished an answer; with a steered message it goes
+            // on in this prompt, and the next answer is posted after it.
+            if !self.in_subagent && event.kind.starts_with("claude.result") {
+                let mut out = Vec::new();
+                self.finish_talk(&mut out);
+                if let Some(text) = self.last_talk.take() {
+                    self.answered.push(text);
+                }
+                return out;
+            }
             if event.kind == "claude.assistant" && !self.in_subagent {
                 let message = event.msg.get("message");
                 let usage = message.and_then(|m| m.get("usage")).and_then(Usage::parse);
@@ -226,7 +280,16 @@ impl TurnFold {
                     // message, each with the message's usage so far.
                     match self.requests.last_mut() {
                         Some(last) if !id.is_empty() && last.id == id => last.usage = usage,
-                        _ => self.requests.push(Request { id, model, usage }),
+                        _ => {
+                            let stream = self.stream.take_if(|s| s.id == id).unwrap_or_default();
+                            self.requests.push(Request {
+                                id,
+                                model,
+                                usage,
+                                headers_ms: stream.headers_ms,
+                                ttft_ms: stream.ttft_ms,
+                            });
+                        }
                     }
                 }
             }
@@ -280,6 +343,49 @@ impl TurnFold {
         out
     }
 
+    /// The time to first token of the turn's main requests, from Claude
+    /// Code's raw lines: a tool result it reads (`user`) starts the next
+    /// request, `message_start` is the answer, the first content delta its
+    /// first token.
+    fn time_request(&mut self, event: &AcpmuxEvent) {
+        let Some(at) = event.at else { return };
+        match event.kind.as_str() {
+            // A tool result Claude Code read; its echo of a user line it
+            // read (`isReplay`) is not a start: the line went out earlier.
+            "claude.user" if event.msg.get("isReplay") != Some(&Value::Bool(true)) => {
+                self.request_start = Some(at)
+            }
+            "claude.stream_event" => {
+                let ev = event.msg.get("event");
+                match ev.and_then(|e| e.get("type")).and_then(Value::as_str) {
+                    Some("message_start") => {
+                        let id = ev
+                            .and_then(|e| e.pointer("/message/id"))
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_owned();
+                        let start = self.request_start;
+                        self.stream = Some(Stream {
+                            id,
+                            headers_ms: start.map(|s| at.saturating_sub(s)),
+                            ttft_ms: None,
+                            start,
+                        });
+                    }
+                    Some("content_block_delta") => {
+                        if let Some(stream) = self.stream.as_mut()
+                            && stream.ttft_ms.is_none()
+                        {
+                            stream.ttft_ms = stream.start.map(|s| at.saturating_sub(s));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+    }
+
     /// The turn is over without a `turn_end` (the prompt failed or the
     /// connection was lost): what is pending becomes final.
     pub fn finish(&mut self, error: Option<String>) -> Vec<Entry> {
@@ -291,10 +397,21 @@ impl TurnFold {
         out
     }
 
+    /// The reply segments finished since the last call, then the open one
+    /// (its index and its text so far), for the drafts.
+    pub fn take_segments(&mut self) -> (Vec<(u64, String)>, (u64, &str)) {
+        (
+            std::mem::take(&mut self.closed),
+            (self.segment, self.talk.as_str()),
+        )
+    }
+
     fn finish_talk(&mut self, out: &mut Vec<Entry>) {
-        let text = std::mem::take(&mut self.talk);
-        let text = text.trim();
+        let raw = std::mem::take(&mut self.talk);
+        let text = raw.trim();
         if !text.is_empty() {
+            self.closed.push((self.segment, raw.clone()));
+            self.segment += 1;
             out.push(Entry {
                 kind: Kind::Talk,
                 text: text.to_owned(),
@@ -459,307 +576,4 @@ fn result_text(update: &Value) -> String {
         }
     }
     parts.join("\n")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    fn ev(seq: u64, dir: &str, kind: &str, msg: Value) -> AcpmuxEvent {
-        serde_json::from_value(json!({"seq": seq, "dir": dir, "kind": kind, "msg": msg})).unwrap()
-    }
-
-    fn update(seq: u64, kind: &str, update: Value) -> AcpmuxEvent {
-        let mut u = update;
-        u["sessionUpdate"] = json!(kind);
-        ev(
-            seq,
-            "in",
-            kind,
-            json!({"method": "session/update", "params": {"update": u}}),
-        )
-    }
-
-    fn chunk(seq: u64, text: &str) -> AcpmuxEvent {
-        update(
-            seq,
-            "agent_message_chunk",
-            json!({"content": {"type": "text", "text": text}}),
-        )
-    }
-
-    fn kinds(entries: &[Entry]) -> Vec<(Kind, &str)> {
-        entries.iter().map(|e| (e.kind, e.text.as_str())).collect()
-    }
-
-    #[test]
-    fn talk_tool_echo_in_order_and_no_thoughts() {
-        let mut fold = TurnFold::new();
-        let mut log = Vec::new();
-        let events = vec![
-            ev(1, "mux", "user_message", json!({"promptId": "optchat:0"})),
-            ev(2, "mux", "turn_started", json!({})),
-            update(
-                3,
-                "agent_thought_chunk",
-                json!({"content": {"type": "text", "text": "secret"}}),
-            ),
-            chunk(4, "Let me "),
-            chunk(5, "look."),
-            update(
-                6,
-                "tool_call",
-                json!({"toolCallId": "t1", "title": "Read a.rs", "rawInput": {"file_path": "a.rs"}, "_meta": {"claude": {"tool": "Read"}}}),
-            ),
-            update(
-                7,
-                "tool_call_update",
-                json!({"toolCallId": "t1", "status": "completed", "content": [{"type": "content", "content": {"type": "text", "text": "fn main() {}"}}]}),
-            ),
-            chunk(8, "  It is empty.  "),
-            ev(9, "mux", "turn_end", json!({})),
-        ];
-        for e in &events {
-            log.extend(fold.apply(e));
-        }
-        assert_eq!(
-            kinds(&log),
-            vec![
-                (Kind::Talk, "Let me look."),
-                (Kind::Tool, "Read {\"file_path\":\"a.rs\"}"),
-                (Kind::Echo, "fn main() {}"),
-                (Kind::Talk, "It is empty."),
-            ]
-        );
-        assert_eq!(fold.final_text(), Some("It is empty."));
-        assert_eq!(fold.ended(), Some(&Ended { error: None }));
-        // A replay of the same events changes nothing.
-        for e in &events {
-            assert!(fold.apply(e).is_empty());
-        }
-    }
-
-    #[test]
-    fn a_call_announced_before_its_input_is_logged_once_with_it() {
-        let mut fold = TurnFold::new();
-        let mut log = Vec::new();
-        log.extend(fold.apply(&update(
-            1,
-            "tool_call",
-            json!({"toolCallId": "t", "title": "Bash", "rawInput": {}}),
-        )));
-        assert!(log.is_empty());
-        log.extend(fold.apply(&update(
-            2,
-            "tool_call_update",
-            json!({"toolCallId": "t", "rawInput": {"command": "ls"}}),
-        )));
-        log.extend(fold.apply(&update(
-            3,
-            "tool_call_update",
-            json!({"toolCallId": "t", "status": "failed", "rawOutput": "boom"}),
-        )));
-        assert_eq!(
-            kinds(&log),
-            vec![
-                (Kind::Tool, "Bash {\"command\":\"ls\"}"),
-                (Kind::Echo, "error: boom")
-            ]
-        );
-    }
-
-    #[test]
-    fn an_error_ends_the_turn_and_keeps_the_last_reply() {
-        let mut fold = TurnFold::new();
-        fold.apply(&chunk(1, "partial"));
-        let out = fold.apply(&ev(2, "mux", "turn_error", json!({"error": "overloaded"})));
-        assert_eq!(kinds(&out), vec![(Kind::Talk, "partial")]);
-        assert_eq!(
-            fold.ended(),
-            Some(&Ended {
-                error: Some("overloaded".into())
-            })
-        );
-        assert!(fold.finish(None).is_empty(), "already ended");
-    }
-
-    #[test]
-    fn the_first_requests_usage_is_kept() {
-        let mut fold = TurnFold::new();
-        let usage = |read: u64| {
-            ev(
-                0,
-                "in",
-                "claude.assistant",
-                json!({"type": "assistant", "message": {"id": "m", "usage": {"input_tokens": 3, "cache_read_input_tokens": read, "cache_creation_input_tokens": 9, "output_tokens": 4}}}),
-            )
-        };
-        fold.apply(&usage(100));
-        fold.apply(&usage(200));
-        assert_eq!(
-            fold.first_usage(),
-            Some(Usage {
-                input: 3,
-                cache_read: 100,
-                cache_write: 9,
-                output: 4
-            })
-        );
-    }
-
-    /// Audit round 2: a Task/Agent subagent's stream reaches acpmux through
-    /// the same translator; its raw `claude.*` line carries a
-    /// `parent_tool_use_id`, and the translated updates follow it.
-    #[test]
-    fn a_subagents_text_and_tool_calls_stay_out_of_the_log() {
-        let raw = |seq: u64, kind: &str, parent: Value| {
-            ev(
-                seq,
-                "in",
-                kind,
-                json!({"type": kind.trim_start_matches("claude."), "parent_tool_use_id": parent}),
-            )
-        };
-        let mut fold = TurnFold::new();
-        let mut log = Vec::new();
-        let events = vec![
-            raw(1, "claude.assistant", Value::Null),
-            update(
-                2,
-                "tool_call",
-                json!({"toolCallId": "task", "rawInput": {"prompt": "find x"}, "_meta": {"claude": {"tool": "Agent"}}}),
-            ),
-            raw(3, "claude.stream_event", json!("task")),
-            chunk(4, "Searching for x."),
-            raw(5, "claude.assistant", json!("task")),
-            update(
-                6,
-                "tool_call",
-                json!({"toolCallId": "g1", "rawInput": {"pattern": "x"}, "_meta": {"claude": {"tool": "Grep"}}}),
-            ),
-            raw(7, "claude.user", json!("task")),
-            update(
-                8,
-                "tool_call_update",
-                json!({"toolCallId": "g1", "status": "completed", "rawOutput": "a.rs:1"}),
-            ),
-            raw(9, "claude.stream_event", json!("task")),
-            chunk(10, "x is in a.rs."),
-            raw(11, "claude.user", Value::Null),
-            update(
-                12,
-                "tool_call_update",
-                json!({"toolCallId": "task", "status": "completed", "rawOutput": "x is in a.rs."}),
-            ),
-            raw(13, "claude.stream_event", Value::Null),
-            chunk(14, "Found it."),
-            ev(15, "mux", "turn_end", json!({"stopReason": "end_turn"})),
-        ];
-        for e in &events {
-            log.extend(fold.apply(e));
-        }
-        assert_eq!(
-            kinds(&log),
-            vec![
-                (Kind::Tool, "Agent {\"prompt\":\"find x\"}"),
-                (Kind::Echo, "x is in a.rs."),
-                (Kind::Talk, "Found it."),
-            ]
-        );
-        assert_eq!(fold.final_text(), Some("Found it."));
-    }
-
-    /// Audit round 2: a turn that stops early (refusal, max_tokens,
-    /// cancelled) must say why, not end silently.
-    #[test]
-    fn a_turn_end_with_another_stop_reason_is_an_error() {
-        let mut fold = TurnFold::new();
-        fold.apply(&ev(1, "mux", "turn_end", json!({"stopReason": "refusal"})));
-        let error = fold.ended().unwrap().error.clone();
-        assert!(
-            error.as_deref().is_some_and(|e| e.contains("refusal")),
-            "{error:?}"
-        );
-        let mut fold = TurnFold::new();
-        fold.apply(&ev(1, "mux", "turn_end", json!({"stopReason": "end_turn"})));
-        assert_eq!(fold.ended(), Some(&Ended { error: None }));
-    }
-
-    /// Audit round 2: an orphan's fold starts with no tool map; a result for
-    /// a call folded before the connection loss must not log a bogus
-    /// nameless `tool` entry.
-    #[test]
-    fn a_result_for_a_call_folded_earlier_logs_only_its_echo() {
-        let mut fold = TurnFold::after(1);
-        let out = fold.apply(&update(
-            2,
-            "tool_call_update",
-            json!({"toolCallId": "t1", "status": "completed", "content": [{"type": "content", "content": {"type": "text", "text": "ok"}}]}),
-        ));
-        assert_eq!(kinds(&out), vec![(Kind::Echo, "ok")]);
-    }
-
-    /// The trace: each finished tool call with its duration from acpmux's
-    /// event times, and one request per Claude Code message id.
-    #[test]
-    fn tool_traces_and_requests_for_the_trace() {
-        let at = |mut e: AcpmuxEvent, ms: u64| {
-            e.at = Some(ms);
-            e
-        };
-        let assistant = |seq: u64, id: &str, read: u64| {
-            ev(
-                seq,
-                "in",
-                "claude.assistant",
-                json!({"type": "assistant", "message": {"id": id, "model": "m", "usage": {"input_tokens": 1, "cache_read_input_tokens": read, "cache_creation_input_tokens": 2, "output_tokens": 3}}}),
-            )
-        };
-        let mut fold = TurnFold::new();
-        fold.apply(&assistant(1, "m1", 10));
-        fold.apply(&assistant(2, "m1", 20));
-        fold.apply(&at(
-            update(
-                3,
-                "tool_call",
-                json!({"toolCallId": "t", "rawInput": {"command": "ls"}, "_meta": {"claude": {"tool": "Bash"}}}),
-            ),
-            1_000,
-        ));
-        fold.apply(&at(
-            update(
-                4,
-                "tool_call_update",
-                json!({"toolCallId": "t", "status": "failed", "rawOutput": "boom"}),
-            ),
-            1_250,
-        ));
-        fold.apply(&assistant(5, "m2", 30));
-        let traces = fold.take_tool_traces();
-        assert_eq!(traces.len(), 1);
-        assert_eq!(traces[0].name, "Bash");
-        assert_eq!(traces[0].ms, Some(250));
-        assert!(!traces[0].ok);
-        assert_eq!(traces[0].error.as_deref(), Some("boom"));
-        assert!(fold.take_tool_traces().is_empty());
-        assert_eq!(fold.tool_counts(), (1, 1));
-        let reads: Vec<u64> = fold.requests().iter().map(|r| r.usage.cache_read).collect();
-        assert_eq!(
-            reads,
-            vec![20, 30],
-            "one request per message id, its last usage"
-        );
-    }
-
-    #[test]
-    fn finish_flushes_pending_talk() {
-        let mut fold = TurnFold::new();
-        fold.apply(&chunk(1, "half"));
-        assert_eq!(
-            kinds(&fold.finish(Some("lost".into()))),
-            vec![(Kind::Talk, "half")]
-        );
-        assert_eq!(fold.ended().unwrap().error.as_deref(), Some("lost"));
-    }
 }

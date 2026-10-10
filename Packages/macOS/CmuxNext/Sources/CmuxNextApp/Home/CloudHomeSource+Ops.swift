@@ -29,10 +29,19 @@ nonisolated extension CloudHomeSource {
             return HomeOpResult(rev: result.rev ?? 0, replayed: result.replayed, conversation: conversation)
         }
         switch intent.op {
-        case .sendMessage(let conversation, let parts):
-            // The owner's message.send key must equal client_msg_id.
-            return try await edit(.send(clientMsgID: key, parts: CloudHomeMapping.parts(parts, identity: identity), replyTo: nil),
+        case .sendMessage(let conversation, let parts, let threadRoot):
+            // The owner's message.send key must equal client_msg_id; a thread reply replies to the root's first part.
+            return try await edit(.send(clientMsgID: key, parts: CloudHomeMapping.parts(parts, identity: identity),
+                                        replyTo: threadRoot.map { ConversationPartRef(messageID: $0.rawValue, partIndex: 0) }),
                                   in: conversation)
+        case .editMessage(let message, let conversation, let parts):
+            return try await edit(.edit(messageID: message.rawValue, parts: CloudHomeMapping.parts(parts, identity: identity)),
+                                  in: conversation)
+        case .retractMessage(let message, let conversation):
+            return try await edit(.retract(messageID: message.rawValue), in: conversation)
+        case .removeReaction(let message, let conversation, let reaction, let partIndex):
+            return try await edit(.removeReaction(messageID: message.rawValue, partIndex: partIndex,
+                                                  kind: CloudHomeMapping.reaction(reaction)), in: conversation)
         case .setReadCursor(let conversation, let seq):
             return try await edit(.setReadCursor(seq: seq), in: conversation)
         case .addReaction(let message, let conversation, let reaction, let partIndex):
@@ -41,8 +50,8 @@ nonisolated extension CloudHomeSource {
         case .setTyping(let conversation, _):
             // Answered by `submit` before binding; nothing to send.
             return HomeOpResult(rev: 0, conversation: conversation)
-        case .setPinned, .setMuted, .createChief:
-            // inbox.pin, inbox.mute and chief.create are not cloud-conversation-op kinds yet
+        case .setPinned, .setMuted, .createChief, .answerQuestion:
+            // inbox.pin, inbox.mute, chief.create and question.answer are not cloud-conversation-op kinds yet
             // (home-cloud-proxy.md section 8); refused here exactly as the daemon would.
             throw HomeRejection.invalid("unsupported_op")
         case .createGroup(let title, let ids):

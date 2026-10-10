@@ -21,7 +21,7 @@ mod fetch;
 mod guards;
 mod private_data;
 mod proxy;
-pub use proxy::NameResolver;
+pub use proxy::{NameResolver, system_resolver};
 mod redirects;
 
 /// Per-session grants decided by the session's opener (user or mux).
@@ -37,10 +37,24 @@ pub struct Grants {
     /// would enter that profile's history (a9 shell-tab condition e, until
     /// cmux.18+ candidate 9).
     pub signed_in_profile: bool,
+    /// The host runs on a Cloud machine (crate::egress_scope): every
+    /// limited range is refused to this session, whatever its origin; the
+    /// host's egress listener enforces it on every connection.
+    pub isolated: Option<Arc<crate::egress_scope::IsolatedEgress>>,
+}
+
+impl Grants {
+    /// Loopback and private ranges are refused to this session.
+    pub fn refuses_private_ranges(&self) -> bool {
+        self.remote || self.isolated.is_some()
+    }
 }
 
 /// Entries the host keeps in its log of blocked requests.
 const MAX_LOG: usize = 1000;
+/// The most characters of a logged URL or reason (a page sets how long a
+/// URL it makes is).
+const MAX_LOG_TEXT: usize = 2048;
 
 pub struct Gate {
     driver: Arc<dyn Driver>,
@@ -101,7 +115,7 @@ impl Gate {
             filter_enforced: std::sync::atomic::AtomicBool::new(true),
             tab_secrets: Arc::default(),
             inputs: None,
-            resolver: proxy::system_resolver(),
+            resolver: system_resolver(),
             proxied: std::sync::atomic::AtomicBool::new(false),
             private_data: Arc::default(),
         }
@@ -199,17 +213,25 @@ impl Gate {
         };
         let fetching = self.fetches.lock().unwrap_or_else(PoisonError::into_inner).running > 0;
         let filter: Option<crate::driver::RequestFilter> = (active || fetching).then(|| {
-            let (policy, filtered, log, remote) =
-                (self.policy.clone(), self.filtered.clone(), self.log.clone(), self.grants.remote);
+            let (policy, filtered, log, remote, isolated) = (
+                self.policy.clone(),
+                self.filtered.clone(),
+                self.log.clone(),
+                self.grants.remote,
+                self.grants.isolated.clone(),
+            );
             // The session's policy is the same for every tab it drives.
             let filter: crate::driver::RequestFilter = Arc::new(move |request| {
                 let url = request.url;
                 let parsed = url::Url::parse(url).ok()?;
                 let reason = {
                     let policy = policy.lock().unwrap_or_else(PoisonError::into_inner);
-                    policy
-                        .subresource_refusal(&parsed)
-                        .or_else(|| policy.egress_refusal(&parsed, remote))
+                    policy.subresource_refusal(&parsed).or_else(|| match &isolated {
+                        // The isolated rule, literal hosts only (the owner
+                        // allow list applies; names go to the listener).
+                        Some(isolated) => isolated.rule().literal_refusal(&parsed),
+                        None => policy.egress_refusal(&parsed, remote),
+                    })
                 }?;
                 let mut filtered = filtered.lock().unwrap_or_else(PoisonError::into_inner);
                 if filtered.len() >= 64 {
@@ -317,15 +339,22 @@ impl Gate {
     /// The domain policy and the range rule for a URL the agent opens or
     /// fetches (navigations and fetch never disagree).
     fn url_refusal(&self, url: &str) -> Option<String> {
+        let isolated = self.grants.isolated.as_ref();
         let refusal = {
             let policy = self.policy.lock().unwrap_or_else(PoisonError::into_inner);
             policy.navigation_refusal(url).or_else(|| {
+                // On a Cloud machine the isolated rule replaces the range
+                // rule (its owner allow list is the machine's, not a session's).
+                isolated.is_none().then_some(())?;
                 let parsed = url::Url::parse(url).ok()?;
                 policy.egress_refusal(&parsed, self.grants.remote)
             })
         };
         // Resolved outside the policy lock (a lookup can take a while).
-        refusal.or_else(|| self.proxied_name_refusal(url))
+        refusal.or_else(|| match isolated {
+            Some(isolated) => isolated.rule().url_refusal(&url::Url::parse(url).ok()?),
+            None => self.proxied_name_refusal(url),
+        })
     }
 
     /// Replaces a `{__secret: name}` handle in `params[field]` with its text.
@@ -670,13 +699,74 @@ fn now_ms() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }
 
-/// Appends to the host's log of blocked requests, keeping the newest.
-fn push_log(log: &Mutex<Vec<Value>>, entry: Value) {
+/// `entry`'s URL, reason and CORS `what` cut at MAX_LOG_TEXT characters.
+fn clip_log_text(entry: &mut Value) {
+    for key in ["url", "reason", "what"] {
+        if let Some(text) = entry.get(key).and_then(Value::as_str) {
+            let length = text.chars().count();
+            if length > MAX_LOG_TEXT {
+                let cut: String = text.chars().take(MAX_LOG_TEXT).collect();
+                entry[key] = json!(format!("{cut}… ({length} characters)"));
+            }
+        }
+    }
+}
+
+/// Appends to the host's CORS log, keeping the newest MAX_LOG entries.
+fn push_cors_log(log: &Mutex<Vec<Value>>, mut entry: Value) {
+    clip_log_text(&mut entry);
     let mut log = log.lock().unwrap_or_else(PoisonError::into_inner);
     if log.len() >= MAX_LOG {
         log.remove(0);
     }
     log.push(entry);
+}
+
+/// Appends to the session's policy log (blocked requests and private-data
+/// entries), keeping the newest MAX_LOG: a page can block without end.
+/// URLs and reasons are cut at MAX_LOG_TEXT characters; a block that
+/// repeats the newest one (same URL, reason, kind and tab) adds to its
+/// `count` and `lastAt`; once older entries are dropped the log starts with
+/// `{blocked: "dropped", count}`.
+fn push_log(log: &Mutex<Vec<Value>>, mut entry: Value) {
+    clip_log_text(&mut entry);
+    let mut log = log.lock().unwrap_or_else(PoisonError::into_inner);
+    let same = |last: &Value| {
+        entry.get("blocked").is_some()
+            && ["url", "reason", "blocked", "targetId"]
+                .iter()
+                .all(|key| last.get(key) == entry.get(key))
+    };
+    if let Some(last) = log.last_mut()
+        && last.get("blocked").and_then(Value::as_str) != Some("dropped")
+        && same(last)
+    {
+        let count = last.get("count").and_then(Value::as_u64).unwrap_or(1) + 1;
+        last["count"] = json!(count);
+        last["lastAt"] = entry.get("at").cloned().unwrap_or(Value::Null);
+        return;
+    }
+    log.push(entry);
+    let dropped_row = log.first().and_then(|first| first.get("blocked")).and_then(Value::as_str)
+        == Some("dropped");
+    if log.len() > MAX_LOG + usize::from(dropped_row) {
+        if dropped_row {
+            log.remove(1);
+            let count = log[0].get("count").and_then(Value::as_u64).unwrap_or(0) + 1;
+            log[0]["count"] = json!(count);
+        } else {
+            log.remove(0);
+            log.insert(
+                0,
+                json!({
+                    "blocked": "dropped",
+                    "count": 1,
+                    "url": "",
+                    "reason": format!("older entries past the newest {MAX_LOG} were dropped"),
+                }),
+            );
+        }
+    }
 }
 
 fn strings(value: &Value) -> Vec<String> {

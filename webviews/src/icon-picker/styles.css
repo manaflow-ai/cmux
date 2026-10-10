@@ -1,111 +1,164 @@
-/* The icon picker. Colors only from the page theme (pageBase.css: --page-*); no blue: hover and
-   the active cell are the foreground at low alpha. The grid cells are fixed 44 px squares
-   (store.ts CELL_SIZE) so the virtual layout never measures the DOM. Big glyphs, a docked
-   section header, and a detail bar for the selected cell. */
+/* The icon picker. Colors only from the page theme (pageBase.css: --page-*, from the Ghostty theme);
+   no blue: tiles, hover and the selected tile are the foreground at low alpha, and the selected
+   tile adds a foreground ring. Tiles are squares whose pitch the store derives from the grid width
+   (store.ts setWidth; --icon-cell on the grid frame), so the virtual layout never measures the DOM.
+   The bottom bar floats over the grid as two pills; the grid keeps its last row clear of them. */
 .icon-picker {
+  position: relative;
   display: flex;
   flex-direction: column;
   width: 100%;
   height: 100%;
   min-height: 0;
+  --icon-tile: color-mix(in srgb, var(--page-text) 6%, transparent);
+  --icon-tile-hover: color-mix(in srgb, var(--page-text) 10%, transparent);
+  --icon-tile-selected: color-mix(in srgb, var(--page-text) 14%, transparent);
+  --icon-ring: color-mix(in srgb, var(--page-text) 72%, transparent);
+  --icon-bar-height: 40px;
 }
 
-.icon-picker-tabs {
+/* Top row: back, search, and the menus. */
+.icon-picker-top {
+  flex: none;
   display: flex;
-  gap: 2px;
-  padding: 8px 8px 0;
   align-items: center;
+  gap: 4px;
+  height: 56px;
+  padding: 0 10px 0 8px;
 }
 
-.icon-picker-tab {
+.icon-picker-back {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
   border: 0;
+  border-radius: 7px;
   background: transparent;
-  border-radius: 6px;
-  padding: 4px 10px;
   color: var(--page-text-2);
 }
 
-.icon-picker-tab:hover {
+.icon-picker-back:hover {
   background: var(--page-hover);
-}
-
-.icon-picker-tab[aria-selected="true"] {
-  background: var(--page-selection);
   color: var(--page-text);
 }
 
-.icon-picker-clear {
-  margin-left: auto;
-  border: 0;
-  background: transparent;
-  color: var(--page-text-2);
-  border-radius: 6px;
-  padding: 4px 8px;
+.icon-chevron {
+  width: 16px;
+  height: 16px;
 }
 
-.icon-picker-clear:hover {
-  background: var(--page-hover);
+.icon-chevron-left {
+  width: 18px;
+  height: 18px;
 }
 
-.icon-picker-search-row {
-  display: flex;
-  gap: 6px;
-  padding: 8px;
-  align-items: center;
+.icon-picker-search,
+.icon-picker-heading {
+  flex: 1;
+  min-width: 0;
+  margin: 0 4px;
+  font-size: 19px;
+  font-weight: 400;
+  color: var(--page-text);
 }
 
 .icon-picker-search {
-  flex: 1;
-  min-width: 0;
-  height: 28px;
-  padding: 0 8px;
-  border-radius: 6px;
-  border: 1px solid var(--page-separator);
-  background: var(--page-hover);
-  outline: none;
-}
-
-.icon-picker-search:focus {
-  border-color: var(--page-text-3);
-}
-
-.icon-tone {
-  position: relative;
-}
-
-.icon-tone-button,
-.icon-tone-menu button {
-  width: 28px;
-  height: 28px;
+  height: 40px;
+  padding: 0;
   border: 0;
-  border-radius: 6px;
   background: transparent;
+  outline: none;
+  caret-color: var(--page-text);
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.icon-picker-search::placeholder {
+  color: var(--page-text-3);
+}
+
+.icon-picker-search::-webkit-search-cancel-button,
+.icon-picker-search::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.icon-picker-control.ui-button {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 7px;
+  color: var(--page-text-2);
+}
+
+.icon-picker-control.ui-button:hover,
+.icon-picker-control.ui-button[data-popup-open] {
+  background: var(--page-hover);
+  color: var(--page-text);
+}
+
+.icon-tone-button.ui-button {
   font-family: "Apple Color Emoji", "Noto Color Emoji", sans-serif;
   font-size: 18px;
-  line-height: 28px;
-  padding: 0;
+  padding: 0 6px;
 }
 
-.icon-tone-button:hover,
-.icon-tone-menu button:hover,
-.icon-tone-menu button[aria-selected="true"] {
-  background: var(--page-hover);
+.icon-category-label {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  color: var(--page-text);
 }
 
-.icon-tone-menu {
-  position: absolute;
-  right: 0;
-  top: 32px;
-  z-index: 5;
-  display: flex;
-  gap: 2px;
-  padding: 4px;
-  border-radius: 8px;
-  background: var(--page-elevated);
-  border: 1px solid var(--page-separator);
-  box-shadow: 0 6px 24px rgb(0 0 0 / 0.18);
+.icon-grid-glyph {
+  width: 17px;
+  height: 17px;
 }
 
+.icon-picker-error {
+  margin: 0 16px 6px;
+  font-size: 12px;
+  color: var(--page-text);
+}
+
+/* Menus (shared ui Menu): emoji and symbol glyphs before the label, counts as the shortcut. */
+.icon-menu-emoji {
+  width: 18px;
+  font-family: "Apple Color Emoji", "Noto Color Emoji", sans-serif;
+  font-size: 14px;
+  line-height: 1;
+  text-align: center;
+}
+
+.icon-menu-symbol {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin: 0 2px;
+  background: currentColor;
+}
+
+.ui-popup.icon-category-menu {
+  min-width: 220px;
+  max-height: min(var(--available-height, 420px), 420px);
+  overflow-y: auto;
+}
+
+.icon-mode-symbol {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+}
+
+/* The grid. */
 .icon-grid-frame {
   position: relative;
   flex: 1;
@@ -113,21 +166,38 @@
   display: flex;
 }
 
+.icon-grid-docked,
+.icon-grid-header {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  height: var(--icon-header, 34px);
+  padding: 0 2px 9px;
+  color: var(--page-text-2);
+  font-size: 13px;
+  font-weight: 500;
+}
+
 .icon-grid-docked {
   position: absolute;
   z-index: 2;
-  left: 8px;
-  right: 8px;
+  left: 12px;
+  right: 12px;
   top: 0;
-  height: 28px;
-  display: flex;
-  align-items: flex-end;
-  padding: 0 4px 4px;
-  color: var(--page-text-3);
-  font-size: 11px;
-  font-weight: 600;
-  background: var(--cmux-surface-background, Canvas);
   pointer-events: none;
+}
+
+/* Rows scrolled under the docked header fade out (the panel's material shows through, so the
+   header has no fill of its own). */
+.icon-grid-frame[data-docked] .icon-grid-scroll {
+  -webkit-mask-image: linear-gradient(to bottom, transparent calc(var(--icon-header, 34px) - 4px), black calc(var(--icon-header, 34px) + 10px));
+  mask-image: linear-gradient(to bottom, transparent calc(var(--icon-header, 34px) - 4px), black calc(var(--icon-header, 34px) + 10px));
+}
+
+.icon-grid-count {
+  color: var(--page-text-3);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
 }
 
 .icon-grid-scroll {
@@ -135,7 +205,7 @@
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 0 8px;
+  padding: 0 12px calc(var(--icon-bar-height) + 16px);
   contain: strict;
   overscroll-behavior: contain;
 }
@@ -154,43 +224,40 @@
   will-change: transform;
 }
 
-.icon-grid-header {
-  height: 28px;
-  display: flex;
-  align-items: flex-end;
-  padding: 0 4px 4px;
-  color: var(--page-text-3);
-  font-size: 11px;
-  font-weight: 600;
-}
-
 .icon-grid-row {
-  height: 44px;
+  height: var(--icon-cell, 72px);
   display: flex;
 }
 
 .icon-cell {
-  width: 44px;
-  height: 44px;
+  --icon-gap: 8px;
+  width: calc(var(--icon-cell, 72px) - var(--icon-gap));
+  height: calc(var(--icon-cell, 72px) - var(--icon-gap));
+  margin-inline-end: var(--icon-gap);
   flex: none;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 6px;
+  border-radius: calc(var(--icon-cell, 72px) * 0.17);
   border: 0;
   padding: 0;
-  background: transparent;
-  color: inherit;
+  background: var(--icon-tile);
+  color: var(--page-text);
   cursor: default;
 }
 
+.icon-cell:hover {
+  background: var(--icon-tile-hover);
+}
+
 .icon-cell[data-active] {
-  background: var(--page-selection);
+  background: var(--icon-tile-selected);
+  box-shadow: inset 0 0 0 2px var(--icon-ring);
 }
 
 .icon-emoji {
   font-family: "Apple Color Emoji", "Noto Color Emoji", sans-serif;
-  font-size: 30px;
+  font-size: calc(var(--icon-cell, 72px) * 0.46);
   line-height: 1;
 }
 
@@ -203,63 +270,164 @@
   mask-position: center;
 }
 
+.icon-cell .icon-symbol {
+  width: calc(var(--icon-cell, 72px) * 0.4);
+  height: calc(var(--icon-cell, 72px) * 0.4);
+}
+
+/* Hierarchical and multicolor symbols are finished images from the host, not masks. */
+.icon-symbol[style*="background-image"] {
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
 .icon-grid-empty {
-  padding: 24px 8px;
+  padding: 32px 8px;
   text-align: center;
   color: var(--page-text-3);
 }
 
-.icon-picker-footer {
-  height: 48px;
-  flex: none;
+/* The bottom bar: the selected icon's name, and the primary action with the Actions menu. */
+.icon-picker-bar {
+  position: absolute;
+  z-index: 3;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.icon-bar-pill {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 12px;
-  border-top: 1px solid var(--page-separator);
-  color: var(--page-text-2);
-  overflow: hidden;
+  height: var(--icon-bar-height);
+  padding: 0 14px;
+  border-radius: calc(var(--icon-bar-height) / 2);
+  border: 1px solid var(--page-separator);
+  background: color-mix(in srgb, var(--page-elevated) 90%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(1.5);
+  backdrop-filter: blur(20px) saturate(1.5);
+  box-shadow: 0 4px 18px color-mix(in srgb, black 16%, transparent);
+  pointer-events: auto;
 }
 
-.icon-footer-glyph {
-  font-family: "Apple Color Emoji", "Noto Color Emoji", sans-serif;
-  font-size: 28px;
-  line-height: 1;
+@media (prefers-reduced-transparency: reduce) {
+  .icon-bar-pill {
+    background: var(--page-elevated);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
 }
 
-.icon-footer-symbol {
-  flex: none;
-}
-
-.icon-footer-text {
-  display: flex;
-  flex-direction: column;
+.icon-bar-item {
+  flex: 0 1 auto;
   min-width: 0;
 }
 
-.icon-footer-name,
-.icon-footer-detail {
+.icon-bar-glyph {
+  flex: none;
+  font-family: "Apple Color Emoji", "Noto Color Emoji", sans-serif;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.icon-bar-symbol {
+  flex: none;
+  width: 18px;
+  height: 18px;
+}
+
+.icon-bar-name,
+.icon-bar-detail {
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.icon-footer-name {
+.icon-bar-name {
+  flex: 0 1 auto;
+  font-size: 14px;
   color: var(--page-text);
 }
 
-.icon-footer-detail {
-  font-size: 11px;
+.icon-bar-title {
+  color: var(--page-text-2);
+}
+
+.icon-bar-detail {
+  flex: 0 1 auto;
+  font-size: 12px;
   color: var(--page-text-3);
   font-family: ui-monospace, "SF Mono", monospace;
 }
 
+.icon-bar-actions {
+  flex: none;
+  gap: 2px;
+  padding: 0 5px;
+}
+
+.icon-bar-button,
+.icon-bar-button.ui-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 15px;
+  background: transparent;
+  color: var(--page-text);
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.icon-bar-button:hover,
+.icon-bar-button.ui-button[data-popup-open] {
+  background: var(--page-hover);
+}
+
+.icon-bar-actions-button.ui-button {
+  color: var(--page-text-2);
+}
+
+.icon-keycap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 5px;
+  border: 1px solid color-mix(in srgb, var(--page-text) 22%, transparent);
+  color: var(--page-text-2);
+  font: 12px -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+}
+
+.icon-keycap + .icon-keycap {
+  margin-inline-start: -2px;
+}
+
+.icon-bar-divider {
+  width: 1px;
+  height: 18px;
+  margin: 0 4px;
+  background: var(--page-separator);
+}
+
+/* The image and SVG sheets. */
 .icon-asset {
   flex: 1;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 12px;
+  padding: 4px 16px calc(var(--icon-bar-height) + 20px);
 }
 
 .icon-asset-drop {
@@ -271,7 +439,7 @@
   justify-content: center;
   gap: 10px;
   border: 1px dashed var(--page-text-3);
-  border-radius: 10px;
+  border-radius: 12px;
   color: var(--page-text-2);
 }
 

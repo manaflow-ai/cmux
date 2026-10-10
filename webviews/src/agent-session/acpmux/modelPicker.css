@@ -6,7 +6,7 @@
   --acpmux-mp-gap: 4px;
 }
 .acpmux-mp .acpmux-menu-search {
-  font-size: 13px;
+  font-size: var(--text-control);
 }
 .acpmux-mp-row:active {
   background: var(--acpmux-mp-press);
@@ -18,7 +18,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--acpmux-composer-dim);
-  font-size: 12px;
+  font-size: var(--text-detail);
 }
 .acpmux-mp-chevron {
   flex: none;
@@ -110,7 +110,7 @@
   min-height: 28px;
   margin-bottom: 4px;
   color: var(--agent-muted);
-  font-size: 12px;
+  font-size: var(--text-detail);
 }
 .acpmux-mp-crumb-step {
   display: inline-flex;
@@ -144,7 +144,7 @@
 .acpmux-mp-back {
   width: 24px;
   padding: 0;
-  font-size: 16px;
+  font-size: var(--text-title);
 }
 
 @media (prefers-reduced-motion: no-preference) {

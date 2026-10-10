@@ -1,14 +1,14 @@
 public import AppKit
 
 /// The App Store tabs (internal page `app-store`): one store model per tab
-/// over one shared registry and host, so each tab keeps its own search,
+/// over one apps client, so each tab keeps its own search,
 /// tab and selection. The App's page provider forwards to this.
 @MainActor
 public final class AppStorePages {
     private let makeModel: () -> AppStoreModel
     private var models: [String: AppStoreModel] = [:]
 
-    /// - Parameter makeModel: a new store model (the owner shares its registry and host).
+    /// - Parameter makeModel: a new store model (the owner shares its apps client).
     public init(makeModel: @escaping () -> AppStoreModel) {
         self.makeModel = makeModel
     }
@@ -28,12 +28,16 @@ public final class AppStorePages {
         models[key]?.present(appID: appID, installed: installed)
     }
 
-    /// Re-reads the catalog in every tab (after the registry scan).
+    /// Lists again in every tab.
     public func refreshAll() {
         for model in models.values { model.refresh() }
     }
 
+    /// Drops tab `key`'s model. A Remove still in its undo window commits: the closed tab has no
+    /// Undo to show, and the user asked for a remove (the task keeps the model until it ends).
     public func tabClosed(_ key: String) {
-        models[key] = nil
+        guard let model = models.removeValue(forKey: key), model.pendingRemoval != nil else { return }
+        // task-owner: one commit of the closed tab's pending Remove; ends when the apps-set reply does
+        Task { await model.commitPendingRemoval() }
     }
 }

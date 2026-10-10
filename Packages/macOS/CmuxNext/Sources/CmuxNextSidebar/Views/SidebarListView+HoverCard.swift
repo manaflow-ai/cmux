@@ -22,7 +22,7 @@ extension SidebarListView {
     /// have a card now: none during a drag or rename, or off the visible rows.
     func hoverCardWorkspace(at point: CGPoint) -> WorkspaceID? {
         guard drag == nil, !inlineRename.isActive, visibleRect.contains(point), !isHiddenOrHasHiddenAncestor,
-              case .workspace(let id)? = displayed.row(at: point.y)?.key, workspaces[id] != nil else { return nil }
+              case .workspace(let id)? = displayed.row(at: point.y)?.key, workspaces[id] != nil, !model.isPlaceholder(id) else { return nil }
         return id
     }
     /// The row's frame on screen, nil when it is not laid out.
@@ -39,5 +39,13 @@ extension SidebarView {
         guard let row = list.displayed.row(for: .workspace(id)) else { return nil }
         list.scrollToVisible(list.frame(for: row))
         return list.hoverCardAnchor(for: id)
+    }
+
+    /// Group `id`'s header row on screen, scrolled into view first; nil when
+    /// the header is not shown (the icon picker anchors its popover here).
+    public func groupRowFrameOnScreen(for id: GroupID) -> CGRect? {
+        guard let row = list.displayed.row(for: .group(id)), let window = list.window else { return nil }
+        list.scrollToVisible(list.frame(for: row))
+        return window.convertToScreen(list.convert(list.frame(for: row), to: nil))
     }
 }

@@ -4,13 +4,21 @@
 use super::*;
 
 /// `identify`'s capabilities: the static set plus `cloud-conversations-v1`
-/// when the binary installed a cloud transport, and
+/// when the binary installed a cloud transport, `history-search-v1` when it
+/// installed the search index, and
 /// `terminal-reaper-active-v1` while the unplaced-terminal reaper runs.
 pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     let mut capabilities = advertised_capabilities(cfg!(unix));
     capabilities.push(activity::CAPABILITY);
     if mux.cloud_conversations().is_some() {
         capabilities.push(cloud_conversations::CAPABILITY);
+    }
+    if mux.history_search().is_some() {
+        capabilities.push(history_search::HISTORY_SEARCH_CAPABILITY);
+    }
+    #[cfg(unix)]
+    if mux.serves_agent_session_attach() {
+        capabilities.push(AGENT_SESSION_ATTACH_CAPABILITY);
     }
     if mux.terminal_reaper_running() {
         capabilities.push(TERMINAL_REAPER_ACTIVE_CAPABILITY);
@@ -24,6 +32,7 @@ pub(super) fn advertised_capabilities(
     let mut capabilities = vec![
         ATTACH_INITIAL_SIZE_CAPABILITY,
         "attach-identity-v1",
+        split_kind::SPLIT_CLIENT_KEYS_CAPABILITY,
         WORKSPACE_REGISTRY_CAPABILITY,
         DAEMON_HANDOFF_FORCE_CAPABILITY,
         GUARDED_BROWSER_POINTER_CAPABILITY,
@@ -31,6 +40,7 @@ pub(super) fn advertised_capabilities(
         VIEWPORT_COLUMN_RESIZE_CAPABILITY,
         DOCK_COLUMNS_CAPABILITY,
         EDGE_DOCKS_CAPABILITY,
+        DOCK_COLUMN_ROLE_CAPABILITY,
         PERMANENT_DOCK_CAPABILITY,
         ROWS_CAPABILITY,
         PANE_BROWSER_KIND_CAPABILITY,
@@ -45,6 +55,7 @@ pub(super) fn advertised_capabilities(
         VIEW_ATTACHMENT_DETACH_CAPABILITY,
         SHARED_SIZING_CAPABILITY,
         SIZING_VIEW_DETACH_CAPABILITY,
+        OPEN_DEVICE_KINDS_CAPABILITY,
         TERMINAL_COLOR_OVERRIDES_CAPABILITY,
         TERMINAL_PENDING_SEQUENCE_CAPABILITY,
         terminal_snapshot::TERMINAL_SNAPSHOT_CAPABILITY,
@@ -87,6 +98,7 @@ pub(super) fn advertised_capabilities(
         PERSONAL_TERMINALS_CAPABILITY,
         BROWSER_PROFILES_CAPABILITY,
         BOOKMARKS_CAPABILITY,
+        crate::mux::feed_local::FEED_LOCAL_OWNER_CAPABILITY,
         conversations::LOCAL_CONVERSATIONS_CAPABILITY,
         conversations::CONVERSATION_SEARCH_CAPABILITY,
         crate::conversation_store::attachments::LOCAL_ATTACHMENTS_CAPABILITY,
@@ -103,12 +115,19 @@ pub(super) fn advertised_capabilities(
         FRONTEND_BROWSER_OWNER_CAPABILITY,
         crate::state::frontend_browser_keys::FRONTEND_BROWSER_TAB_KEYS_CAPABILITY,
         crate::state::home_store::WORKSPACE_KIND_CAPABILITY,
+        crate::state::app_workspaces::APP_SCREENS_CAPABILITY,
         crate::state::agent_folder::CAPABILITY,
         crate::state::personal_order::PERSONAL_MIXED_ORDER_CAPABILITY,
+        crate::state::personal::WORKSPACE_GROUP_ICON_CAPABILITY,
+        crate::state::personal::WORKSPACE_GROUP_PIN_CAPABILITY,
         crate::state::sidebar_layout_store::CAPABILITY,
+        crate::state::projects_store::CAPABILITY,
+        crate::state::palette_usage_store::CAPABILITY,
         crate::state::conversation_tabs_store::CONVERSATION_TABS_CAPABILITY,
         crate::state::conversation_tabs_store::AGENT_SESSION_TABS_CAPABILITY,
         crate::state::conversation_tabs_store::PAGE_TABS_CAPABILITY,
+        crate::state::remote_terminal_tabs_store::REMOTE_TERMINAL_TABS_CAPABILITY,
+        detached_terminals::DETACHED_TERMINALS_CAPABILITY,
         close_tabs_command::CLOSE_REASON_CAPABILITY,
         conversation_tabs_wire::CONVERSATION_TAB_TRANSACTION_CAPABILITY,
         crate::git_ops::CHECKPOINTS_CAPABILITY,
@@ -118,6 +137,7 @@ pub(super) fn advertised_capabilities(
         crate::mux::FRONTEND_BROWSER_ACTIVATE_CAPABILITY,
         crate::mux::FRONTEND_BROWSER_INSERT_AFTER_CAPABILITY,
         clipboard_read::CAPABILITY,
+        chief_inspect::CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
@@ -127,6 +147,8 @@ pub(super) fn advertised_capabilities(
     capabilities.extend(crate::apps::advertised_capabilities());
     #[cfg(unix)]
     capabilities.extend(crate::fs_ops::advertised());
+    #[cfg(unix)]
+    capabilities.push(BROWSER_RUNTIME_CAPABILITY);
     capabilities
 }
 

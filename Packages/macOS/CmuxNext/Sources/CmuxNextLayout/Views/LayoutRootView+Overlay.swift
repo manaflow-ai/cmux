@@ -13,6 +13,16 @@ extension LayoutRootView {
         syncOverlay()
     }
 
+    /// Re-reads the plane's place and every ring's pane frame now. The
+    /// window calls it after its layout pass while the plane lives in the
+    /// overlay panel: an ancestor that moved this view (sidebar width) runs
+    /// no layout of this view, and the panel is another window.
+    /// Ring frames are in this view's coordinates, so only the plane's
+    /// frame can go stale: the rings sync only when it moved.
+    public func resyncOverlay() {
+        if overlayPlane.syncFrame() { syncOverlay() }
+    }
+
     /// Places every displayed pane's ring and dim over its host, in this
     /// view's (= the plane's) coordinates, and reports interactive rects.
     func syncOverlay() {
@@ -71,7 +81,7 @@ extension LayoutRootView {
     /// click-catching panel above a page.
     public func setDividerHovered(_ id: String, _ hovered: Bool) {
         guard let active = model.activeScreenID else { return }
-        screenViews[active]?.setDividerHovered(id, hovered)
+        screenViews[active]?.refreshDividerHover()
     }
 
     private func reportInteractiveRects() {
@@ -105,6 +115,12 @@ extension LayoutRootView {
     public func pinDropHighlightMaterial(_ material: OverlayMaterial?) { highlight.pinMaterial(material) }
     /// The drop overlay style drawing now (`drop.overlay.style`).
     public var dropHighlightStyle: DropOverlayStyle { highlight.style }
+
+    /// Whether the drop highlight is showing, and the outline ring's opacity
+    /// as drawn (nil for another style): a hidden ring that came back after
+    /// a drop shows here (`debug.drop_highlight` `report`).
+    public var dropHighlightShowing: Bool { highlight.isShowing }
+    public var dropRingOpacity: Float? { highlight.outline?.ringOpacity }
 
     /// The drop highlight's target rect in window coordinates while it shows.
     public var dropHighlightFrameInWindow: CGRect? {

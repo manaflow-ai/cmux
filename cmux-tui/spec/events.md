@@ -686,6 +686,8 @@ Meaning: The workspace, screen, pane, tab, active selection, names, split layout
 
 Protocol v7 retains this event in two negotiated roles. A `tree_events:"coarse"` subscription receives the exact protocol-v6 behavior: `tree-changed` is emitted wherever v6 emits it, and no lifecycle deltas are emitted. A `tree_events:"deltas"` subscription receives it only as an authoritative resync fallback under churn, for a mutation not represented by the delta set, or when coalescing makes an exact delta ambiguous. A delta client MUST NOT rely on `tree-changed` for ordinary mutations, but it must handle the fallback by re-fetching the tree and may discard buffered deltas older than the replacement snapshot. The server may emit it after earlier deltas when a later mutation invalidates them.
 
+Resource API v2 content mutations that add or move a tab (`terminal.project`, `terminal.move`) emit it on both subscription kinds once their commit lands (not on an idempotent replay), because the delta set has no entry for them; before, only resource API v2 subscribers learned about the new tab.
+
 Example:
 
 ```json
@@ -1419,7 +1421,9 @@ Meaning: A terminal's shared sizing state changed. The server emits it to
 every subscriber and on every legacy attach stream of each placement of the
 terminal, only for connections that sent `shared-sizing-v1` through
 `set-client-info`. `self_participant` is the receiving connection's own view
-id when that view participates. `generation` increases by one per change;
+id when that view participates. `device_kind` is `linux` or `windows` only for
+connections that sent `open-device-kinds-v1`; others receive `unknown` for
+them. `generation` increases by one per change;
 deliveries on different routes may interleave, so ignore a state whose
 generation is not newer than the last one applied.
 

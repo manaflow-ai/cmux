@@ -8,20 +8,32 @@
 mod action_hint;
 mod agent_message;
 #[cfg(unix)]
+mod agents;
+#[cfg(unix)]
 mod app;
 #[cfg(unix)]
 mod app_focus;
 #[cfg(unix)]
 mod apps_run;
+#[cfg(unix)]
+mod chief;
+mod chief_target;
 mod code_mode;
-mod codex_app_server;
 #[cfg(unix)]
 mod coderouter;
+mod codex_app_server;
 mod command;
 mod docs;
 mod extra_help;
 mod federation;
+#[cfg(unix)]
+mod frontend_browser;
+#[cfg(unix)]
+mod host_mount;
 mod lifecycle;
+#[cfg(unix)]
+#[cfg(unix)]
+pub(crate) use host_mount::early_unix_scope;
 mod machine_server;
 #[cfg(test)]
 use machine_server::ServerRoute;
@@ -32,6 +44,8 @@ mod raw;
 mod resolve;
 mod scope_help;
 mod screen_help;
+#[cfg(unix)]
+mod script;
 mod shorthand;
 mod surface;
 mod topology_help;
@@ -62,6 +76,7 @@ const PUBLIC_SCOPES: &[&str] = &[
     "room",
     "closed",
     "git",
+    "conversation",
     "sidebar",
     "pairing",
     "projection",
@@ -72,8 +87,17 @@ const PUBLIC_SCOPES: &[&str] = &[
 /// Scopes only the `cmux-tui` name accepts. Cloud VM guest scripts
 /// (`raw command`, `session current snapshot`), the app's daemon launcher and
 /// SSH remotes run the binary as `cmux-tui`, so these keep working there.
-const CMUX_TUI_ONLY_SCOPES: &[&str] =
-    &["machine", "session", "client", "sidebar", "pairing", "projection", "provider", "raw"];
+const CMUX_TUI_ONLY_SCOPES: &[&str] = &[
+    "machine",
+    "session",
+    "client",
+    "sidebar",
+    "pairing",
+    "projection",
+    "provider",
+    "raw",
+    "conversation",
+];
 
 const REMOTE_COMMANDS: &[&str] = &[
     "remote",
@@ -220,8 +244,11 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
     };
     #[cfg(unix)]
     if let Some(code) = mcp::run_if_requested(args)
+        .or_else(|| agents::run_if_requested(args))
+        .or_else(|| chief::run_if_requested(args))
         .or_else(|| coderouter::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
+        .or_else(|| script::run_if_requested(args))
     {
         return code;
     }
@@ -696,6 +723,7 @@ fn scope_help_for(
         "room" => Cow::Borrowed(scope_help::ROOM_HELP),
         "closed" => Cow::Borrowed(scope_help::CLOSED_HELP),
         "git" => Cow::Borrowed(scope_help::GIT_HELP),
+        "conversation" => Cow::Borrowed(scope_help::CONVERSATION_HELP),
         "sidebar" => Cow::Borrowed(SIDEBAR_HELP),
         "pairing" => Cow::Borrowed(PAIRING_HELP),
         "projection" => Cow::Borrowed(PROJECTION_HELP),
@@ -867,6 +895,8 @@ const PAIRING_HELP: &str = "\
 USAGE
   cmux pairing request list
   cmux pairing request <selector> respond <accept|reject>
+
+  accept works only from the cmux app or the TUI that runs the daemon.
 ";
 
 const PROJECTION_HELP: &str = "\

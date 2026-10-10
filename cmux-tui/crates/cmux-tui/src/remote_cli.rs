@@ -53,7 +53,7 @@ use crate::remote_runtime::{
 };
 use crate::session::{RemoteSession, Session};
 mod remote_link_mux;
-use remote_link_mux::mux_owner_args;
+use remote_link_mux::{mux_owner_args, socket_for};
 
 const DEFAULT_STARTUP_TIMEOUT: Duration = Duration::from_secs(90);
 const WIREGUARD_HUB_START_TIMEOUT: Duration = Duration::from_secs(10);
@@ -1949,7 +1949,16 @@ fn print_admin_response(action: &str, response: AdminResponse, json: bool) -> an
 /// hosted ingress on branded machine domains requires.
 /// `wireguard-hub`: `remote connect --wireguard-hub` and `wg hub` exist, so the
 /// app may reach private-network machines through a shared in-process tunnel.
-pub const PROBE_CAPABILITIES: &[&str] = &["direct-ws-user-agent", "wireguard-hub", "browser-proxy"];
+/// `remote-link-mux-socket` and `remote-link-strict-flags`: see
+/// `cmux_remote::provider::REMOTE_LINK_MUX_SOCKET_CAPABILITY`; an SSH client
+/// that needs one refuses a remote without it (cx-z3zh).
+pub const PROBE_CAPABILITIES: &[&str] = &[
+    "direct-ws-user-agent",
+    "wireguard-hub",
+    "browser-proxy",
+    cmux_remote::provider::REMOTE_LINK_MUX_SOCKET_CAPABILITY,
+    cmux_remote::provider::REMOTE_LINK_STRICT_FLAGS_CAPABILITY,
+];
 
 fn run_probe(args: &[String]) -> anyhow::Result<()> {
     let value = serde_json::json!({
@@ -2102,16 +2111,78 @@ fn run_install_self(args: &[String]) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn run_remote_link(args: &[String]) -> anyhow::Result<()> {
-    if !args.iter().any(|argument| argument == "--stdio") {
+struct RemoteLinkArgs {
+    session: String,
+    state_dir: Option<PathBuf>,
+    mux_socket: Option<PathBuf>,
+    link_socket: Option<PathBuf>,
+    agent_hooks: Option<String>,
+}
+
+/// Strict: an unknown flag is an error, never skipped. An older remote that
+/// skipped `--mux-socket` attached to its default daemon (cx-z3zh); a flag
+/// this build does not know means the client is newer, so refuse loudly.
+/// A new flag also gets a `remote-probe` capability
+/// (`SshProviderConfig::required_remote_capabilities`).
+fn parse_remote_link_args(args: &[String]) -> anyhow::Result<RemoteLinkArgs> {
+    let mut parsed = RemoteLinkArgs {
+        session: "main".into(),
+        state_dir: None,
+        mux_socket: None,
+        link_socket: None,
+        agent_hooks: None,
+    };
+    let mut stdio = false;
+    let mut seen = BTreeSet::new();
+    let mut index = 0;
+    while index < args.len() {
+        let argument = args[index].as_str();
+        index += 1;
+        match argument {
+            "--stdio" => {
+                require_unique_flag(&mut seen, "--stdio")?;
+                stdio = true;
+            }
+            "--session" => {
+                require_unique_flag(&mut seen, "--session")?;
+                parsed.session = strict_option_value(args, &mut index, "--session")?;
+            }
+            "--state-dir" => {
+                require_unique_flag(&mut seen, "--state-dir")?;
+                parsed.state_dir =
+                    Some(strict_option_value(args, &mut index, "--state-dir")?.into());
+            }
+            "--mux-socket" => {
+                require_unique_flag(&mut seen, "--mux-socket")?;
+                parsed.mux_socket =
+                    Some(strict_option_value(args, &mut index, "--mux-socket")?.into());
+            }
+            "--link-socket" => {
+                require_unique_flag(&mut seen, "--link-socket")?;
+                parsed.link_socket =
+                    Some(strict_option_value(args, &mut index, "--link-socket")?.into());
+            }
+            "--agent-hooks" => {
+                require_unique_flag(&mut seen, "--agent-hooks")?;
+                parsed.agent_hooks = Some(strict_option_value(args, &mut index, "--agent-hooks")?);
+            }
+            other => {
+                return Err(anyhow!(catalog().remote_client.remote_link_unknown_option(other)));
+            }
+        }
+    }
+    if !stdio {
         return Err(anyhow!("remote-link currently requires --stdio"));
     }
-    let session = flag_value(args, "--session").unwrap_or_else(|| "main".into());
-    let state_dir = flag_value(args, "--state-dir").map(PathBuf::from);
-    let mux_socket = flag_value(args, "--mux-socket").map(PathBuf::from);
+    Ok(parsed)
+}
+
+fn run_remote_link(args: &[String]) -> anyhow::Result<()> {
+    let RemoteLinkArgs { session, state_dir, mux_socket, link_socket, agent_hooks } =
+        parse_remote_link_args(args)?;
     let (session_state, default_link, _) = daemon_paths(&session, state_dir.as_deref())?;
-    let link = flag_value(args, "--link-socket").map(PathBuf::from).unwrap_or(default_link);
-    if let Some(providers) = flag_value(args, "--agent-hooks") {
+    let link = link_socket.unwrap_or(default_link);
+    if let Some(providers) = agent_hooks {
         install_agent_hooks(agent_hook_providers(&providers));
     }
     ensure_daemon(&session, state_dir.as_deref(), &session_state, &link, mux_socket.as_deref())?;
@@ -2416,9 +2487,7 @@ fn ensure_daemon(
     // exec'ing a "(deleted)" path, and daemon/client builds never skew.
     let executable = cmux_tui_core::platform::self_exe_for_spawn()?;
     let log_path = session_state.join("daemon.log");
-    let explicit_mux_socket = mux_socket_override
-        .map(Path::to_path_buf)
-        .or_else(|| std::env::var_os("CMUX_MUX_SOCKET").map(PathBuf::from));
+    let explicit_mux_socket = socket_for(mux_socket_override, session, state_root, session_state)?;
     let mux_socket_is_derived = explicit_mux_socket.is_none();
     let attach_only = mux_socket_override.is_some();
     let mux_socket = explicit_mux_socket
@@ -2436,7 +2505,7 @@ fn ensure_daemon(
             .with_context(|| format!("could not open daemon log {}", log_path.display()))?;
         let mut mux_owner = Command::new(&executable);
         mux_owner
-            .args(mux_owner_args(session, &mux_socket, mux_socket_is_derived))
+            .args(mux_owner_args(session, &mux_socket, mux_socket_is_derived, state_root))
             .stdin(Stdio::null())
             .stdout(Stdio::from(log.try_clone()?))
             .stderr(Stdio::from(log));

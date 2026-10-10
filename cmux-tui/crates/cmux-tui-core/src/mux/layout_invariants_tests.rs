@@ -98,7 +98,7 @@ fn daemon_rejects_a_tab_conserving_plan_that_loses_a_tab_before_commit() {
     let durable = mux.workspace_registry.lock().unwrap().resource_topology_snapshot().unwrap();
     let error = mux
         .commit_resource_mutation_plan(
-            &WorkspaceMutation::local("layout-invariants-test"),
+            &WorkspaceMutation::daemon_local("layout-invariants-test"),
             "tab.move",
             &json!({"operation":"tab.move","test":"drop"}),
             None,
@@ -180,7 +180,7 @@ fn terminal_registry_move_keeps_durable_topology_in_step() {
         None,
         None,
         None,
-        &WorkspaceMutation::local("layout-invariants-test"),
+        &WorkspaceMutation::daemon_local("layout-invariants-test"),
     )
     .unwrap();
     // The view followed its terminal home, and the torn-off workspace's
@@ -692,7 +692,7 @@ fn run(
                 destination,
                 index,
                 None,
-                &WorkspaceMutation::local("layout-invariants-test"),
+                &WorkspaceMutation::daemon_local("layout-invariants-test"),
             ))
         }
         Op::TerminalToWorkspace { tab: t, workspace } => {
@@ -720,7 +720,7 @@ fn run(
                 None,
                 None,
                 None,
-                &WorkspaceMutation::local("layout-invariants-test"),
+                &WorkspaceMutation::daemon_local("layout-invariants-test"),
             ) {
                 // An unchanged move answers Ok without a layout change.
                 Ok(_) if mux.with_state(fingerprint) == before => Outcome::Rejected,
@@ -748,7 +748,7 @@ fn run(
                     ("index".into(), json!(u64::try_from(index).unwrap_or(u64::MAX))),
                 ])
             });
-            let mutation = WorkspaceMutation::local("layout-invariants-replay");
+            let mutation = WorkspaceMutation::daemon_local("layout-invariants-replay");
             let first = mux.commit_resource_topology_operation(
                 ResourceOperation::TabMove,
                 selectors.clone(),

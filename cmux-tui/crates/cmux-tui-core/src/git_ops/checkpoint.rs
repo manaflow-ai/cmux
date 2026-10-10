@@ -14,28 +14,15 @@ mod refs;
 mod scan;
 mod store;
 
-/// Test seams for failures a test cannot otherwise time.
-#[cfg(test)]
-pub(super) mod seams {
-    use std::cell::{Cell, RefCell};
-
-    thread_local! {
-        /// Stops a create right after its ref is published, as a crash would.
-        pub static CRASH_AFTER_PUBLISH: Cell<bool> = const { Cell::new(false) };
-        /// Runs after a capture hashed its files and before it verifies them.
-        pub static AFTER_HASHING: RefCell<Option<Box<dyn Fn()>>> = const { RefCell::new(None) };
-    }
-}
-
 use std::sync::Arc;
 
 use serde_json::{Map, Value, json};
 
 use super::Repository;
 use super::write_run::WriteGit;
-use crate::Mux;
 use crate::resource::{ResourceError, ResourceOperation};
 use crate::resource_router::ParsedResourceRequest;
+use crate::{Actor, Mux};
 use capture::{Include, Request, Stamp};
 use ledger::Identity;
 use record::{Checkpoint, Limits, Pin, Stored, now_ms, rfc3339};
@@ -71,6 +58,7 @@ pub(super) fn dispatch(
         ResourceOperation::GitCheckpointPin | ResourceOperation::GitCheckpointUnpin => {
             pin(mux, &store, &request)
         }
+        // crash-allow: pre-existing invariant; hidden from the ratchet behind a test module until the unit-test deletion (cx-034r)
         other => unreachable!("checkpoint does not handle {other:?}"),
     };
     result.map_err(scan::normalized)
@@ -124,6 +112,7 @@ fn resolved(
     request: &ParsedResourceRequest,
     operation: &'static str,
 ) -> Result<Target, ResourceError> {
+    // crash-allow: pre-existing invariant; hidden from the ratchet behind a test module until the unit-test deletion (cx-034r)
     Ok(target(mux, store, request, operation, true)?.expect("minting resolves ids"))
 }
 
@@ -140,6 +129,7 @@ fn fingerprint(request: &ParsedResourceRequest, target: &Target) -> Value {
 }
 
 fn mutation_key(request: &ParsedResourceRequest) -> String {
+    // crash-allow: pre-existing invariant; hidden from the ratchet behind a test module until the unit-test deletion (cx-034r)
     request.envelope.idempotency_key.clone().expect("catalog-validated mutations have a key")
 }
 
@@ -160,7 +150,7 @@ fn create(
         expect_identity(&request.fields, &target)?;
         let hooks = store.hooks();
         let git = writer(&target, &hooks);
-        if let Some(reply) = resume(mux, store, &git, &key, &fingerprint)? {
+        if let Some(reply) = resume(mux, store, &git, &key, &fingerprint, &request.actor)? {
             return Ok(reply);
         }
         refs::sweep(store, &git, &target.repository_id, &target.worktree_id);
@@ -169,11 +159,7 @@ fn create(
         // Journal the intent first: a retry after a crash finds the ref.
         store.journal(&pending).map_err(|error| io_failed(OPERATION, &error))?;
         refs::publish(&git, &stored, OPERATION)?;
-        #[cfg(test)]
-        if seams::CRASH_AFTER_PUBLISH.with(|crash| crash.replace(false)) {
-            return Err(refused(OPERATION, "store_failed", "simulated crash", Value::Null));
-        }
-        let reply = finish(mux, store, &pending, false)?;
+        let reply = finish(mux, store, &pending, false, &request.actor)?;
         refs::prune(store, &git, &target.repository_id);
         Ok(reply)
     })
@@ -187,13 +173,14 @@ fn resume(
     git: &WriteGit<'_>,
     key: &str,
     fingerprint: &Value,
+    actor: &Actor,
 ) -> Result<Option<Value>, ResourceError> {
     const OPERATION: &str = "git.checkpoint.create";
     let Some(pending) = store.pending(key).map_err(|error| io_failed(OPERATION, &error))? else {
         return Ok(None);
     };
     if &pending.fingerprint == fingerprint && refs::published(git, &pending.draft) {
-        return finish(mux, store, &pending, true).map(Some);
+        return finish(mux, store, &pending, true, actor).map(Some);
     }
     store.finish_pending(key).map_err(|error| io_failed(OPERATION, &error))?;
     Ok(None)
@@ -206,12 +193,14 @@ fn finish(
     store: &Store,
     pending: &Pending,
     replayed: bool,
+    actor: &Actor,
 ) -> Result<Value, ResourceError> {
     const OPERATION: &str = "git.checkpoint.create";
     store.save(&pending.draft).map_err(|error| io_failed(OPERATION, &error))?;
+    // crash-allow: pre-existing invariant; hidden from the ratchet behind a test module until the unit-test deletion (cx-034r)
     let value = serde_json::to_value(&pending.draft.record).expect("records serialize");
     let key = &pending.idempotency_key;
-    let reply = ledger::commit(mux, key, OPERATION, &pending.fingerprint, &value, replayed)?;
+    let reply = ledger::commit(mux, key, OPERATION, &pending.fingerprint, &value, replayed, actor)?;
     // A leftover entry only costs a lookup: the ledger now answers the key.
     let _ = store.finish_pending(key);
     Ok(reply)
@@ -387,10 +376,8 @@ fn pin(
             stored.settle();
             store.save(&stored).map_err(|error| io_failed(operation, &error))?;
         }
+        // crash-allow: pre-existing invariant; hidden from the ratchet behind a test module until the unit-test deletion (cx-034r)
         let value = serde_json::to_value(&stored.record).expect("records serialize");
-        ledger::commit(mux, &key, operation, &fingerprint, &value, false)
+        ledger::commit(mux, &key, operation, &fingerprint, &value, false, &request.actor)
     })
 }
-
-#[cfg(test)]
-mod tests;

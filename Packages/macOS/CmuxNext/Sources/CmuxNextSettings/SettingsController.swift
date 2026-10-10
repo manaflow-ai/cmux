@@ -30,6 +30,8 @@ public final class SettingsController {
     /// Keys an MDM profile or the team policy manages (dotted key -> manager).
     public private(set) var managedKeys: [String: ManagedSource] = [:]
     /// Managed policy keys that are not settings (`EnrollmentToken`, `DisabledFeatures`, ...).
+    public private(set) var managedChatRoots: [String] = []
+    /// Managed policy values outside the settings schema.
     public private(set) var managedPolicy: [String: JSONValue] = [:]
     /// The user's own cmux-next.json document; `snapshot.root` is the effective one.
     public private(set) var fileRoot: JSONValue = .object([:])
@@ -327,6 +329,7 @@ public final class SettingsController {
             snapshot = loaded.snapshot
             fileRoot = effective.fileRoot
             managedKeys = effective.managedKeys
+            managedChatRoots = effective.managedChatRoots
             managedPolicy = effective.policy
             let policy = ManagedPreferences.disabledFeatures(in: effective.policy)
             applier.registry.disabledFeatures = policy.features

@@ -24,6 +24,10 @@ pub struct Pending {
     pub request: Value,
     /// The child agent that asked (its name), None for the turn itself.
     pub child: Option<String>,
+    /// The side conversation whose turn asked (None: the main one, which
+    /// also takes every child's request). Only a message in this
+    /// conversation answers it.
+    pub conversation: Option<String>,
 }
 
 /// The tag `chief agents spawn` puts on a child that runs with policy `ask`

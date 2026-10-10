@@ -1,12 +1,15 @@
 import CmuxNextActions
 public import CmuxNextSettings
 import Foundation
+import os
 
 /// `action.run` (plans/cmux-next/state-ownership.md 4).
 ///
 /// Params: `action` (id or CLI name; with `cli: true` only a CLI name of an
 /// action marked for the CLI), `target`, `args`, `wait` (default true),
-/// `idempotency_key`, `confirm` via args, `after` (read barrier).
+/// `idempotency_key`, `confirm` via args, `after` (read barrier), `caller`
+/// (the agent session or terminal that sent it: an agent's browser or diff
+/// with no target opens beside its chat, ControlCaller).
 ///
 /// With `wait`, the reply comes after every daemon command the action sent
 /// has replied, the store applied their echoes, and the control snapshot
@@ -21,8 +24,11 @@ extension ControlRouter {
     func runAction(_ call: ControlCall) async throws -> JSONValue {
         let catalog = call.snapshot.catalog
         let action = try Self.resolveAction(call.params, in: catalog)
-        let given = try Self.validatedRequest(for: action, params: call.params, knownKinds: catalog.targetKinds,
+        var given = try Self.validatedRequest(for: action, params: call.params, knownKinds: catalog.targetKinds,
                                               connection: call.connection)
+        // The caller is part of the fingerprint; where it places is resolved
+        // per run (`execute`), so a retry with the key replays, never conflicts.
+        given.callerAgentSession = try ControlCaller(call.params)?.agentSession
         let key = try Self.idempotencyKey(call.params)
         guard let key else { return try await execute(action, given, key: nil, call: call) }
         switch idempotency.claim(key, fingerprint: given) {
@@ -73,7 +79,9 @@ extension ControlRouter {
     }
 
     private func execute(_ action: ControlActionInfo, _ given: ControlActionRequest, key: String?, call: ControlCall) async throws -> JSONValue {
-        let request = try await resolvedTargets(given, snapshot: call.snapshot, deadline: call.deadline)
+        var placed = given
+        Self.placeBesideCaller(&placed, action: action, topology: call.snapshot.topology)
+        let request = try await resolvedTargets(placed, snapshot: call.snapshot, deadline: call.deadline)
         guard call.snapshot.catalog.isAvailable(action, target: request.target) || action.unavailableReason != nil else {
             throw ControlError(code: "unavailable", message: ControlStrings.format("control.error.actionNotAvailableInContext", "%@ is not available in the current context", action.id), data: [
                 "action": .string(action.id), "requires": .array(action.requires.map(JSONValue.string)),
@@ -90,6 +98,7 @@ extension ControlRouter {
         let run = try await workQueue.run(connection: call.connection, method: call.method, deadline: call.deadline) {
             // The request may have answered `not_run` already: then never run.
             guard progress.begin() else { throw expired }
+            if action.id == "tab.focus" { tabSwitchMark("run") }
             return ControlCommandScope.$current.withValue(scope) { executor.performActionTracked(request) }
         }
         do {
@@ -174,7 +183,7 @@ extension ControlRouter {
         var barrier = ControlSequenceBarrier(home: barriers[ControlCommandScope.localMachine] ?? 0)
         for (machine, sequence) in barriers where machine != ControlCommandScope.localMachine {
             guard let session = topology.sessions.first(where: { $0.machineID == machine && !$0.isHome }) else { continue }
-            barrier.sessions[session.id] = sequence
+            barrier.sessions.updateValue(sequence, forKey: session.id)
         }
         return barrier
     }
@@ -215,8 +224,16 @@ extension ControlRouter {
         var resolved = request
         if let target = request.target { resolved.target = try await resolver(target, deadline) }
         for (name, value) in request.arguments {
-            if case .target(let ref) = value { resolved.arguments[name] = .target(try await resolver(ref, deadline)) }
+            if case .target(let ref) = value { resolved.arguments.updateValue(.target(try await resolver(ref, deadline)), forKey: name) }
         }
         return resolved
     }
+}
+
+/// Tab switch timeline marks (cx-asb1): wall-clock ms, so a bench can line
+/// them up with the page's own clock. Debug level: nothing is written unless
+/// a `log stream --level debug` reads category "tab-switch".
+private let tabSwitchLog = Logger(subsystem: "com.cmuxterm.app.next", category: "tab-switch")
+private func tabSwitchMark(_ name: String) {
+    tabSwitchLog.debug("tab-switch \(name, privacy: .public) \(Date().timeIntervalSince1970 * 1_000, format: .fixed(precision: 3), privacy: .public)")
 }

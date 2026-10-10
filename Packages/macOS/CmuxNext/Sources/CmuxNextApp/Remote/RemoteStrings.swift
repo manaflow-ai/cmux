@@ -7,6 +7,10 @@ enum RemoteStrings {
     static func placeholderReconnecting(_ machine: String) -> String {
         String(format: String(localized: "remote.terminal.reconnecting", defaultValue: "Reconnecting to %@…", table: "Remote", bundle: .module), machine)
     }
+    /// The one-list sidebar's pending row of an SSH machine that is connecting (cx-gaq9).
+    static func sidebarConnecting(_ machine: String) -> String {
+        String(format: String(localized: "remote.sidebar.connecting", defaultValue: "Connecting to %@…", table: "Remote", bundle: .module), machine)
+    }
     static func placeholderOffline(_ machine: String) -> String {
         String(format: String(localized: "remote.terminal.offline", defaultValue: "%@ is offline", table: "Remote", bundle: .module), machine)
     }
@@ -107,6 +111,10 @@ enum RemoteStrings {
             return String(localized: "remote.install.noChecksumTool", defaultValue: "The machine has no sha256sum or shasum, so the download cannot be checked.", table: "Remote", bundle: .module)
         case .downloadFailed(let detail):
             return String(format: String(localized: "remote.install.download", defaultValue: "The download failed: %@", table: "Remote", bundle: .module), detail)
+        case .treeNotPublished(let key):
+            return String(format: String(localized: "remote.install.treeNotPublished",
+                                         defaultValue: "This build's cmux-tui (tree %@) is not published, so it cannot be installed on the machine. Use a build whose cmux-tui is published.",
+                                         table: "Remote", bundle: .module), String(key.prefix(12)))
         case .unrunnable(let detail):
             return String(format: String(localized: "remote.install.unrunnable", defaultValue: "The downloaded cmux-tui does not run on this machine: %@", table: "Remote", bundle: .module), detail)
         case .notWritable(let detail):
@@ -128,6 +136,7 @@ enum RemoteStrings {
         case .offline:
             return String(localized: "remote.status.offline", defaultValue: "Disconnected. Choose Reconnect Machine to connect.", table: "Remote", bundle: .module)
         case .connecting, .connected:
+            if let failure = session.daemonFailure { return daemonFailed(failure) }
             return session.lastError
         case .authFailed(let message):
             return String(format: String(localized: "remote.status.authFailed", defaultValue: "SSH sign-in failed: %@ Check your key or agent, then choose Reconnect Machine.", table: "Remote", bundle: .module), message)
@@ -144,6 +153,47 @@ enum RemoteStrings {
         }
     }
 
+    /// The machine's raw failure (ssh's own words, or the install or link
+    /// error) for Copy SSH Error; nil when it has none.
+    static func sshError(_ session: SSHMachineSession) -> String? {
+        let text: String? = switch session.linkStatus {
+        case .authFailed(let message), .hostKeyUntrusted(let message), .unreachable(let message),
+             .installFailed(let message), .failed(let message): message
+        case .needsInstall(let need): needText(need, session)
+        case .connecting, .connected: session.daemonFailure ?? session.lastError
+        case .offline, .installing: session.lastError
+        }
+        guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
+        return text
+    }
+
+    /// The header detail of a machine whose cmux-tui did not start; `error`
+    /// is the daemon's error and the link's output.
+    static func daemonFailed(_ error: String) -> String {
+        String(format: String(localized: "remote.status.daemonFailed",
+                              defaultValue: "cmux-tui on the machine did not start: %@ Choose Copy SSH Error for the full text.",
+                              table: "Remote", bundle: .module), error)
+    }
+
+    /// The one-time notice of a browser tab opened in another machine's
+    /// workspace: the page renders and runs on this Mac (cx-2cob slice 1a).
+    static func browserRunsOnThisMac(_ machine: String) -> String {
+        String(format: String(localized: "remote.browser.runsOnThisMac",
+                              defaultValue: "This tab runs on this Mac, not on %@.", table: "Remote", bundle: .module), machine)
+    }
+
+    /// The refusal of a new browser tab in a workspace of a machine that is not connected.
+    static func browserMachineNotConnected(_ machine: String) -> String {
+        String(format: String(localized: "remote.browser.notConnected",
+                              defaultValue: "%@ is not connected. Reconnect it to open a browser tab in its workspace.",
+                              table: "Remote", bundle: .module), machine)
+    }
+
+    /// The refusal of Copy SSH Error for a machine without a failure.
+    static func noSSHError(_ machine: String) -> String {
+        String(format: String(localized: "remote.copyError.none", defaultValue: "%@ has no SSH error to copy.", table: "Remote", bundle: .module), machine)
+    }
+
     static func needText(_ need: InstallNeed, _ session: SSHMachineSession) -> String {
         switch need {
         case .none: return ""
@@ -157,6 +207,24 @@ enum RemoteStrings {
             return String(format: String(localized: "remote.need.wrongApp", defaultValue: "%@ is at the cmux-tui path there. Install cmux-tui to replace it.", table: "Remote", bundle: .module), app)
         case .unsupportedPlatform:
             return unsupportedPlatform(session.host.label)
+        case .refused(let refusal):
+            return refusalText(refusal)
+        }
+    }
+
+    /// The one table from the bundled cmux-tui's typed refusal codes to text.
+    static func refusalText(_ refusal: RemoteRefusal) -> String {
+        switch refusal {
+        case .protocolOlder:
+            String(localized: "remote.refusal.protocolOlder", defaultValue: "The cmux-tui there is too old for this connection. Install cmux-tui to update it.", table: "Remote", bundle: .module)
+        case .protocolNewer:
+            String(localized: "remote.refusal.protocolNewer", defaultValue: "The cmux-tui there is newer than this app. Update cmux on this Mac to connect.", table: "Remote", bundle: .module)
+        case .wrongApp:
+            String(localized: "remote.refusal.wrongApp", defaultValue: "Another program is at the cmux-tui path there. Install cmux-tui to replace it.", table: "Remote", bundle: .module)
+        case .distributionMismatch:
+            String(localized: "remote.refusal.distributionMismatch", defaultValue: "The cmux-tui there is a different release than this app uses. Install cmux-tui to replace it.", table: "Remote", bundle: .module)
+        case .buildMismatch:
+            String(localized: "remote.refusal.buildMismatch", defaultValue: "The cmux-tui there is a different build than this app uses. Install cmux-tui to replace it.", table: "Remote", bundle: .module)
         }
     }
 }

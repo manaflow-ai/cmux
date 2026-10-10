@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextWakeups
 
 /// Vertical rubber band only when there is something to scroll to: a list
 /// whose content fits neither scrolls nor bounces, and bounces again once
@@ -23,9 +24,9 @@ public final class ScrollFitElasticity {
         self.scrollView = scrollView
         let clip = scrollView.contentView
         clip.postsFrameChangedNotifications = true
-        // Synchronous (no queue): the elasticity is right before the next event.
+        // Synchronous (no queue): the elasticity is right before the next event (a hop only off main).
         observers.append(NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: clip, queue: nil) {
-            [weak self] _ in MainActor.assumeIsolated { self?.update() }
+            [weak self] _ in MainDelivery().run { self?.update() }
         })
         update()
     }
@@ -50,7 +51,7 @@ public final class ScrollFitElasticity {
         observedDocument = document
         document.postsFrameChangedNotifications = true
         observers.append(NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: document, queue: nil) {
-            [weak self] _ in MainActor.assumeIsolated { self?.update() }
+            [weak self] _ in MainDelivery().run { self?.update() }
         })
     }
 }

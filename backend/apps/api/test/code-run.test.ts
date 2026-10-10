@@ -5,6 +5,7 @@ import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import { testBundles } from "../src/code-run.ts"
 import { fireAlarm } from "./setup/alarm.ts"
+// Route tests: drive the API Worker over HTTP; restored by the unit-test lane (slice 5 deleted them by mistake).
 
 /** Slice 3 (plans/cmux-next/automations-plan.md): Tier 1 code runs in a Dynamic Worker, metered and capped. */
 

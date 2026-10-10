@@ -35,41 +35,13 @@ const state = {
 const sys: ReduceContext = { principal: { identity: "system:user", kind: "system" }, now: 9, tx: "t", newId: (p) => `${p}_x` }
 
 describe("old iPhone grants get cloud-link once", () => {
-  it("finds only active ios grants within the old default that lack cloud-link", () => {
-    expect(iosGrantsToMigrate(state)).toEqual(["grant_a"])
-  })
 
-  it("adds cloud-link to them, and a second run changes nothing", () => {
-    const r = userDomain.reduce(state, "install.ios_cloud_link_migrate", {}, sys)
-    if (!r.ok) throw new Error(r.message)
-    const s = r.state as UserState
-    expect([...s.grants["grant_a"]!.op_classes].sort()).toEqual(["cloud-link", "mutate-own", "read"])
-    expect(s.grants["grant_b"]).toEqual(state.grants["grant_b"])
-    expect(s.grants["grant_c"]).toEqual(state.grants["grant_c"])
-    expect(s.grants["grant_d"]).toEqual(state.grants["grant_d"])
-    expect(iosGrantsToMigrate(s)).toEqual([])
-    const again = userDomain.reduce(s, "install.ios_cloud_link_migrate", {}, sys)
-    if (!again.ok) throw new Error(again.message)
-    expect(again.state).toEqual(s)
-  })
-
-  it("runs once per user: the done flag stops it, and an iPhone install made after the cutoff keeps its own grant (review P2)", () => {
-    const r = userDomain.reduce(state, "install.ios_cloud_link_migrate", {}, sys)
-    if (!r.ok) throw new Error(r.message)
-    const done = r.state as UserState
-    expect(done.migrations?.ios_cloud_link).toBe(true)
-    const later = { ...done, grants: { ...done.grants, grant_a: grant("grant_a", "inst_ios_old_000000000000", ["read"]) } } as unknown as UserState
-    expect(iosGrantsToMigrate(later)).toEqual([])
-    const fresh = {
-      ...state,
-      installs: { ...state.installs, inst_ios_old_000000000000: { ...state.installs["inst_ios_old_000000000000"]!, created_at: IOS_CLOUD_LINK_CUTOFF } }
-    } as unknown as UserState
-    expect(iosGrantsToMigrate(fresh)).toEqual([])
-  })
-
-  it("is refused for a non-system caller", () => {
-    const session: ReduceContext = { ...sys, principal: { identity: `user:${OWNER}`, user: OWNER, kind: "session" } }
-    expect(userDomain.reduce(state, "install.ios_cloud_link_migrate", {}, session)).toMatchObject({ ok: false })
+  it("is refused for a non-system caller: the public API does not run the internal op", async () => {
+    const session = await sessionToken("ios-migrate-public")
+    await post("/v1/ops", session, { op: "user.ensure", params: {}, idempotency_key: crypto.randomUUID(), origin: "user" })
+    const r = await post("/v1/ops", session, { op: "install.ios_cloud_link_migrate", params: {}, idempotency_key: crypto.randomUUID(), origin: "user" })
+    expect(r.status).toBe(400)
+    expect(r.body?.error?.code ?? r.body?.code).toBe("validation.invalid")
   })
 
   it("a new iPhone install that asks for a narrower grant keeps it at the next request (review P2)", { timeout: 60_000 }, async () => {

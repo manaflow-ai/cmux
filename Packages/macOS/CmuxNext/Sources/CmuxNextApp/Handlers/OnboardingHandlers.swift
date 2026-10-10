@@ -2,17 +2,13 @@ import AppKit
 import CmuxNextActions
 import CmuxNextOnboarding
 
-/// Onboarding and default-app actions. The palette, the app menu and the
-/// CLI open the same window (`OnboardingService`); Import Browser Data and
-/// Make cmux the Default Terminal asks macOS directly for each handler. Make cmux the
-/// Default Browser asks macOS directly (macOS shows its confirmation).
+/// Import and default-app actions. Import from Browser opens the tool window
+/// (`OnboardingService`); Make cmux the Default Terminal asks macOS directly
+/// for each handler; Make cmux the Default Browser asks macOS directly
+/// (macOS shows its confirmation).
 enum OnboardingHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
-        registry.bind("palette.welcomeChecklist", run: { _ in services.onboarding.show() })
-        registry.bind("palette.importClassicSessions", run: { _ in services.onboarding.show(step: .classicSessions) })
-        registry.bind("importAndSync.show", run: { _ in services.onboarding.show() })
-        registry.bind("palette.onboardingGallery", run: { _ in services.onboarding.showGallery() })
         registry.bind("importFromBrowser", run: { _ in services.onboarding.show(step: .importData) })
         // No path argument: only the person's own pick in the open panel brings passwords in.
         registry.bind("password.importCSV", run: { invocation in
