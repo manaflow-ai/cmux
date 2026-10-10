@@ -28,6 +28,12 @@ fn harness(cached: bool, preload: usize) -> Harness {
     }
     assert!(h.chat.wait_idle(None, Some(WAIT)), "the compactor settles");
     h.connect();
+    // Connecting may log (the engine note): its node is built before a test
+    // reads the view twice (the API's, then the status's).
+    assert!(
+        h.chat.wait_idle(None, Some(WAIT)),
+        "the compactor settles again"
+    );
     h
 }
 

@@ -57,7 +57,7 @@ extension AgentPaneView {
     func beginLoadingState() {
         guard !model.hasPainted else { return }
         pageContent.alphaValue = 0
-        loadingView.frame = bounds
+        loadingView.frame = topBar.contentFrame(in: bounds)
         addSubview(loadingView, positioned: .above, relativeTo: nil)
         themeLoadingState(themeTokens)
         model.whenPainted { [weak self] in self?.endLoadingState() }

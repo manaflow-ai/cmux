@@ -61,7 +61,9 @@ export const TeamVmView = Schema.Struct({
   /** Set while the current epoch is tainted by a member removal; null otherwise. */
   taint: Schema.NullOr(TeamVmTaint),
   /** VMs replaced by a rebuild that an owner has not deleted yet. */
-  retired: Schema.Array(TeamVmRetired)
+  retired: Schema.Array(TeamVmRetired),
+  /** The team has no owner (Stack demoted the last one): owner actions wait until a Stack team admin promotes one (cx-3bi.4). */
+  no_owner: Schema.optionalKey(Schema.Boolean)
 }).annotate({ identifier: "TeamVmView" })
 
 export const TeamVmStatusRead = def({
@@ -287,8 +289,8 @@ export const TeamVmMemberRemovedParams = Schema.Struct({
   user: Schema.String,
   /** The removal time. */
   at: Schema.Int,
-  /** The latest `valid_before` of any team SSH certificate the member got (ms). */
-  cert_valid_before: Schema.Int
+  /** The latest `valid_before` of any team SSH certificate the member got (ms); absent when they never had one (the notice then only ends their wake leases). */
+  cert_valid_before: Schema.optionalKey(Schema.Int)
 })
 export const TeamVmTaintAcceptedParams = Schema.Struct({ epoch: Schema.Int, users: Schema.Array(Schema.String), by: Schema.String })
 export const TeamVmRebuildRequestedParams = Schema.Struct({ epoch: Schema.Int, by: Schema.String })

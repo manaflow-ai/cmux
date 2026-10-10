@@ -176,7 +176,3 @@ pub fn is_displayable(entry: &HistoryEntry, is_directory: impl Fn(&str) -> bool)
 fn is_directory_url(url: &Url, is_directory: &impl Fn(&str) -> bool) -> bool {
     url.to_file_path().is_ok_and(|path| is_directory(&path.to_string_lossy()))
 }
-
-#[cfg(test)]
-#[path = "query_tests.rs"]
-mod tests;

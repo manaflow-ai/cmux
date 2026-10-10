@@ -80,9 +80,10 @@ impl std::error::Error for ModelError {}
 /// The compactor's model. Called from worker threads, never with the chat's
 /// lock held, so a call may block for as long as the model takes.
 pub trait CompactModel: Send + Sync {
-    /// The next assistant reply in the conversation: `request` (system, then
-    /// one user message of the context and step blocks), then each followup's
-    /// reply and retry text, oldest first. No tools.
+    /// The next reply for `request` (system, then one user message of the
+    /// context and step blocks). With followups (the size loop), a fresh
+    /// call: the same request and the last followup's retry note, never the
+    /// earlier replies. No tools.
     fn call(&self, request: &CompactRequest, followups: &[Followup]) -> Result<Reply, ModelError>;
 
     /// `call`, and `started` once the response has begun (the API's

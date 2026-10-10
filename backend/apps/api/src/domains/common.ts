@@ -1,5 +1,5 @@
 import type { Principal, Reject } from "@cmux/ownership"
-import { cloudInternalOps, cloudOpByName, InstallRegister, MachineId, ServerCapabilities, connectionInternalOps, DisplayName, feedInternalOps, pushInternalOps, userConfirmInternalOps, InstallId, Platform, schedulerInternalOps, teamSshInternalOps, teamVmInternalOps, TeamId, UserId, WgPublicKey, type CloudOpDef } from "@cmux/protocol"
+import { cloudInternalOps, cloudOpByName, InstallRegister, MachineId, ServerCapabilities, connectionInternalOps, DisplayName, feedInternalOps, pushInternalOps, userConfirmInternalOps, InstallId, Platform, schedulerInternalOps, teamMemberInternalOps, teamSshInternalOps, teamVmInternalOps, TeamId, UserId, WgPublicKey, type CloudOpDef } from "@cmux/protocol"
 import { Exit, Schema } from "effect"
 
 export const reject = (code: string, message: string, details?: unknown): { ok: false } & Reject => ({
@@ -259,10 +259,10 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
       risk: "mutate-shared",
       target: "team",
       principals: ["system"],
-      params: Schema.Struct({ user: Schema.String }),
+      params: Schema.Struct({ user: Schema.String, from_stack: Schema.optionalKey(Schema.Literal(true)), by: Schema.optionalKey(Schema.String) }),
       result: Schema.Unknown,
       errors: [],
-      docs: "Internal: removes a member; the outbox revokes their installs bound to the team and ends their pending integration approvals there (cx-44j.47).",
+      docs: "Internal: removes a member (from_stack: Stack removed them from a Stack team, an owner included); the outbox revokes their installs bound to the team and ends their pending integration approvals there (cx-44j.47).",
       cli: { path: "", visible: false },
       mcp: { expose: "never", group: "internal" }
     } as CloudOpDef
@@ -468,7 +468,8 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
   ...userConfirmInternalOps.map((d) => [d.name, d] as const),
   ...teamVmInternalOps.map((d) => [d.name, d] as const),
   ...cloudInternalOps.map((d) => [d.name, d] as const),
-  ...teamSshInternalOps.map((d) => [d.name, d] as const)
+  ...teamSshInternalOps.map((d) => [d.name, d] as const),
+  ...teamMemberInternalOps.map((d) => [d.name, d] as const)
 ])
 
 /**

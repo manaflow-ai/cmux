@@ -365,7 +365,8 @@ impl WorkspaceRegistry {
         &self,
         workspace_public_id: &str,
     ) -> anyhow::Result<Vec<String>> {
-        let mut statement = self.connection.prepare(
+        let db = self.connection.get();
+        let mut statement = db.prepare(
             "SELECT public_id FROM resource_screens
              WHERE workspace_id = ?1 AND deleted_revision IS NULL ORDER BY position ASC",
         )?;
@@ -376,7 +377,8 @@ impl WorkspaceRegistry {
     /// Replace every screen presentation row (metadata-only changes that
     /// leave screen order alone).
     pub fn replace_screen_state(&mut self, state: &ScreenPresentationState) -> anyhow::Result<()> {
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         write_screen_state(&tx, state)?;
         tx.commit()?;
         Ok(())
@@ -391,7 +393,8 @@ impl WorkspaceRegistry {
         validate_workspace_group_id(&record.id)?;
         validate_tab_group_name(&record.name)?;
         validate_tab_group_color(&record.color)?;
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         let position: i64 = tx.query_row(
             "SELECT COALESCE(
                (SELECT position FROM saved_screen_groups WHERE saved_id = ?1),
@@ -431,7 +434,8 @@ impl WorkspaceRegistry {
     /// Delete a saved screen group and unlink its live group. Returns
     /// whether it existed.
     pub fn delete_saved_screen_group(&mut self, saved_id: &str) -> anyhow::Result<bool> {
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         let removed =
             tx.execute("DELETE FROM saved_screen_groups WHERE saved_id = ?1", [saved_id])? > 0;
         if removed {

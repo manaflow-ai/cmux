@@ -89,8 +89,9 @@ export type SwitchView = {
     id: number;
     harness: string;
     /// Starting: acpmux has not started the session yet. Waiting: it has, and the pane waits for
-    /// the next prompt (a turn was streaming at the pick). Failed: it could not start.
-    phase: "starting" | "waiting" | "failed";
+    /// the next prompt (a turn was streaming at the pick). Failed: it could not start. Trust:
+    /// acpmux waits for the folder's trust answer; the switch keeps its prompts until then.
+    phase: "starting" | "waiting" | "failed" | "trust";
     /// The pane draws the new chat (false while the old session's turn still streams).
     shown: boolean;
     sessionId?: string;
@@ -116,7 +117,7 @@ type Intent = {
   harness: string;
   cwd?: string;
   shown: boolean;
-  phase: "starting" | "waiting" | "failed";
+  phase: "starting" | "waiting" | "failed" | "trust";
   sessionId?: string;
   /// The session was the one the pane left (empty, same harness): reused, never discarded.
   reused?: boolean;
@@ -148,6 +149,9 @@ export type SwitchHandlers = {
   /// its params without sessionId and _meta). Called in the pick's own handler, while the gesture
   /// is live; a refusal means there was none, and the pick applies without a ticket.
   gesture?(intent: GestureIntent): Promise<string | undefined>;
+  /// Keeps the send's gesture for a prompt the switch holds behind the folder's trust question,
+  /// so the prompt still goes after Trust (heldPrompt.ts): bound to its `promptId`.
+  holdPrompt?(promptId: string): void;
 };
 
 function deferred<T>() {
@@ -189,7 +193,7 @@ export class HarnessSwitch {
   connect(port: SwitchPort): void {
     this.port = port;
     const intent = this.intent;
-    if (intent && intent.phase !== "failed" && !intent.running) void this.run(intent);
+    if (intent && intent.phase !== "failed" && intent.phase !== "trust" && !intent.running) void this.run(intent);
   }
   /// The connection dropped: whatever was in flight runs again on the next client.
   disconnect(port?: SwitchPort): void {
@@ -200,16 +204,17 @@ export class HarnessSwitch {
 
   /// Picks `harness` for a new chat, in `cwd`, else in the shown chat's folder (the switch keeps
   /// the project). Draws it now; resolves with the session once it opens (undefined when a newer
-  /// pick or a cancel replaced it, or it failed).
-  switchTo(harness: string, folder?: string): Promise<string | undefined> {
+  /// pick or a cancel replaced it, or it failed). `deferred`: the pane stays where it is (the New
+  /// Tab page, cx-e2aa) and the new chat shows with the next prompt, as a pick during a turn does.
+  switchTo(harness: string, folder?: string, options: { deferred?: boolean } = {}): Promise<string | undefined> {
     const previous = this.intent;
     const port = this.port;
     const shownSession = port?.shown();
     const cwd = folder ?? previous?.cwd ?? shownSession?.cwd;
     if (previous && previous.harness === harness && previous.phase !== "failed" && previous.cwd === cwd)
       return previous.done.promise;
-    // While the shown session's turn streams, the pick applies to the next turn.
-    const shown = previous?.shown ?? !(port?.turnRunning() ?? false);
+    // While the shown session's turn streams (or the pane holds a page), the pick applies to the next turn.
+    const shown = options.deferred ? false : (previous?.shown ?? !(port?.turnRunning() ?? false));
     // Back to the harness of the session still on screen: there is nothing left to switch.
     if (!shown && previous && shownSession?.harness === harness) {
       this.cancel();
@@ -223,9 +228,9 @@ export class HarnessSwitch {
       shown,
       phase: "starting",
       queued: previous?.queued ?? [],
-      // A model or mode picked for one harness does not carry to another.
-      config: { options: {} },
-      tickets: new Map(),
+      // A model or mode picked for one harness does not carry to another; to another folder it does.
+      config: previous?.harness === harness ? previous.config : { options: {} },
+      tickets: previous?.harness === harness ? previous.tickets : new Map(),
       done,
     };
     if (previous) this.retire(previous, false);
@@ -253,7 +258,7 @@ export class HarnessSwitch {
     if (!intent) return undefined;
     // After a failure, sending is retrying with this prompt.
     if (intent.phase === "failed") {
-      void this.switchTo(intent.harness, intent.cwd);
+      void this.switchTo(intent.harness, intent.cwd, { deferred: !intent.shown });
       intent = this.intent!;
     }
     const { promise, resolve, reject } = (() => {
@@ -265,10 +270,11 @@ export class HarnessSwitch {
       });
       return { promise, resolve, reject };
     })();
-    intent.queued = [
-      ...intent.queued,
-      { id: crypto.randomUUID(), text, attachments, at: Date.now(), resolve, reject, written },
-    ];
+    const id = crypto.randomUUID();
+    intent.queued = [...intent.queued, { id, text, attachments, at: Date.now(), resolve, reject, written }];
+    // A prompt sent while the switch waits for the trust answer keeps this send's gesture for
+    // after Trust (the first held prompt only: one ticket per send).
+    if (intent.phase === "trust" && intent.queued.length === 1) this.handlers.holdPrompt?.(id);
     if (!intent.shown) {
       // The pick waited for this prompt: the pane moves to the new chat now.
       intent.shown = true;
@@ -342,14 +348,30 @@ export class HarnessSwitch {
     this.changed();
   }
 
+  /// After the folder's Trust answer: the switch that waited for it starts the same harness in the
+  /// same folder now, and sends the prompts it kept, once (the trust route's re-run, direct.ts).
+  resumeAfterTrust(): void {
+    const intent = this.intent;
+    if (intent?.phase !== "trust") return;
+    intent.phase = "starting";
+    this.changed();
+    void this.run(intent);
+  }
+
   /// Retry after a failure: starts the harness again (the prompt stays in the composer).
   retry(): void {
     const intent = this.intent;
-    if (intent?.phase === "failed") void this.switchTo(intent.harness, intent.cwd);
+    if (intent?.phase === "failed") void this.switchTo(intent.harness, intent.cwd, { deferred: !intent.shown });
   }
 
   /// The user went elsewhere (another session, a fork, a default new chat): the switch ends and
   /// its queued prompts go back to the composer.
+  /// The New Tab page closed (cx-e2aa): a switch a pick started behind it, never shown because no
+  /// prompt went, ends and its session is discarded. A shown switch is the chat's own.
+  cancelDeferred(): void {
+    if (this.intent && !this.intent.shown) this.cancel();
+  }
+
   cancel(): void {
     const intent = this.intent;
     if (intent) {
@@ -500,31 +522,33 @@ export class HarnessSwitch {
   }
 
   private fail(intent: Intent, error: unknown): void {
-    // Trust is a separate binary decision in the pane. A pending or denied folder must return the
-    // queued prompt to the composer and let the trust ask own the next action, rather than leaving
-    // a generic "Couldn't start" card with a Retry button beside it.
-    const trustRefusal = isTrustRefusal(error);
+    // Trust is a separate binary decision in the pane: the one trust question owns the next step,
+    // never a generic "Couldn't start" card with Retry. The switch keeps its harness, folder and
+    // prompts and waits; Trust runs it again (`resumeAfterTrust`) and sends them once (cx-nn3e).
+    if (isTrustRefusal(error)) {
+      intent.phase = "trust";
+      intent.error = undefined;
+      // The Trust click's gesture goes to the answer; the prompt keeps its own send's gesture.
+      const first = intent.queued[0];
+      if (first) this.handlers.holdPrompt?.(first.id);
+      this.changed();
+      return;
+    }
     intent.phase = "failed";
     intent.error = errorText(error) || t("switch.unknownError");
     if (intent.queued.length) {
       this.handBack(intent.queued);
-      // The prompts are back in the composer (`handedBack`); acpmux's refusal reason and folder
-      // ride along, so a trust refusal still asks about the folder.
-      const refusal = error as { reason?: unknown; cwd?: unknown } | undefined;
+      // The prompts are back in the composer (`handedBack`); acpmux's refusal reason rides along.
+      const refusal = error as { reason?: unknown } | undefined;
       const reason = Object.assign(new Error(intent.error), {
         handedBack: true,
         ...(typeof refusal?.reason === "string" ? { reason: refusal.reason } : {}),
-        ...(typeof refusal?.cwd === "string" ? { cwd: refusal.cwd } : {}),
       });
       for (const prompt of intent.queued) prompt.reject(reason);
       intent.queued = [];
     }
-    if (trustRefusal && this.intent === intent) {
-      this.intent = undefined;
-      intent.done.resolve(undefined);
-    }
     this.changed();
-    if (!trustRefusal) intent.done.resolve(undefined);
+    intent.done.resolve(undefined);
   }
 
   private changed(): void {
@@ -553,6 +577,17 @@ export class HarnessSwitch {
 /// picked model drawn until the session reports a change). During one, the target harness's
 /// composer comes from the session once it attaches, else from what that harness last reported
 /// (harnessProfiles.ts), else from the catalog; queued prompts draw as the user's messages.
+/// The model a new chat on `harness` starts on before anything is picked: what a session acpmux
+/// last started there reported, else its last session's, else the catalog's first.
+export function defaultModel(
+  harness: string,
+  catalog: Catalog,
+  profiles: HarnessProfiles = harnessProfiles,
+): string | undefined {
+  const profile = profiles.get(harness);
+  return profile?.startModel ?? profile?.model ?? catalog.find((entry) => entry.id === harness)?.models[0]?.id;
+}
+
 export function applySwitch(
   raw: AcpmuxSnapshot,
   view: SwitchView,
@@ -571,12 +606,7 @@ export function applySwitch(
   const live = attached ? raw.summary : undefined;
   const profile = profiles.get(intent.harness);
   const config = intent.config;
-  const predicted =
-    config.model ??
-    live?.model ??
-    profile?.startModel ??
-    profile?.model ??
-    catalog.find((entry) => entry.id === intent.harness)?.models[0]?.id;
+  const predicted = config.model ?? live?.model ?? defaultModel(intent.harness, catalog, profiles);
   const modes = live?.modes ?? profile?.modes;
   const summary: Summary = {
     ...(live ?? { sessionId: "", turnCount: 0, cwd: raw.summary?.cwd ?? intent.cwd }),
