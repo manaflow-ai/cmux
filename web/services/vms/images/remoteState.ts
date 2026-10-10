@@ -52,10 +52,41 @@ function devboxStartSupervisorCommand(): string {
   );
 }
 
-function devboxForkDaemonTimeoutReport(timeoutSeconds: number, boundInstanceFile: string): string {
-  void timeoutSeconds;
-  void boundInstanceFile;
-  return 'echo "cmux fork daemon did not become ready" >&2; exit 1';
+/** The first stderr line of a readiness timeout; `freestyleForkReadinessStage` parses it. */
+export const DEVBOX_FORK_DAEMON_NOT_READY = "cmux fork daemon did not become ready";
+
+/**
+ * The timeout report. Its first line names the stalled stage from a fixed
+ * vocabulary, safe to store and alert on:
+ *   metadata-unavailable  the clone never read its own instance id
+ *   unbound               the supervisor never bound the clone (daemon-instance-id)
+ *   daemon-absent         bound, but no cmux-tui server process runs
+ *   daemon-not-listening  bound and running, but nothing listens on 1337
+ * plus the supervisor unit's state reduced to [a-z-]. The unit's last log
+ * lines follow on later lines for the server log only: they are guest text.
+ */
+function devboxForkDaemonTimeoutReport(boundInstanceFile: string): string {
+  return (
+    `cmux_unit=$(systemctl is-active ${DEVBOX_SUPERVISOR_UNIT} 2>/dev/null | head -n 1 | tr -cd 'a-z-'); [ -n "$cmux_unit" ] || cmux_unit=unknown;` +
+    ' if [ -z "$cmux_id" ]; then cmux_stage=metadata-unavailable;' +
+    ` elif [ "$cmux_id" != "$(cat "${boundInstanceFile}" 2>/dev/null)" ]; then cmux_stage=unbound;` +
+    " elif ! pgrep -f 'cmux-tui server [s]tart' >/dev/null 2>&1; then cmux_stage=daemon-absent;" +
+    " else cmux_stage=daemon-not-listening; fi;" +
+    ` echo "${DEVBOX_FORK_DAEMON_NOT_READY}: stage=$cmux_stage supervisor=$cmux_unit" >&2;` +
+    ` journalctl -u ${DEVBOX_SUPERVISOR_UNIT} -n 5 -o cat --no-pager >&2 2>/dev/null; exit 1`
+  );
+}
+
+const FORK_READINESS_STAGE_LINE = new RegExp(`^${DEVBOX_FORK_DAEMON_NOT_READY}: (stage=[a-z-]{1,32} supervisor=[a-z-]{1,32})$`);
+
+/**
+ * The stage summary from a readiness answer's first stderr line, or
+ * `stage=unknown` when the answer is not the report's shape (an older image
+ * command, an exec failure). Never returns other guest text.
+ */
+export function devboxForkReadinessStage(stderr: string | undefined): string {
+  const first = (stderr ?? "").split("\n", 1)[0]?.trim() ?? "";
+  return FORK_READINESS_STAGE_LINE.exec(first)?.[1] ?? "stage=unknown";
 }
 
 /**
@@ -90,6 +121,6 @@ export function devboxForkDaemonReadyCommand(timeoutSeconds: number, options: De
     ` ${devboxStrandedRemoteSessionRepairCommand(options.homes)};` +
     " if ss -Hltn 2>/dev/null | grep -q ':1337 '; then exit 0; fi;" +
     " fi; sleep 0.5;" +
-    ` done; ${devboxForkDaemonTimeoutReport(timeoutSeconds, boundInstanceFile)}`
+    ` done; ${devboxForkDaemonTimeoutReport(boundInstanceFile)}`
   );
 }

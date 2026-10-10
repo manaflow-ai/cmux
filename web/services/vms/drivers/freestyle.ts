@@ -60,7 +60,7 @@ import {
   DEVBOX_DESKTOP_UNIT,
   devboxDesktopOpenUrl,
 } from "../images/desktop";
-import { devboxForkDaemonReadyCommand } from "../images/remoteState";
+import { devboxForkDaemonReadyCommand, devboxForkReadinessStage } from "../images/remoteState";
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
 import { VM_PROVIDER_CREATE_TIMEOUT_MS } from "../operationTimeouts";
 import { parseSshPublicKey, scpPrepareCommand, SCP_KEY_TTL_SECONDS } from "./scp";
@@ -1724,9 +1724,12 @@ export class FreestyleProvider implements VMProvider {
       (FORK_DAEMON_LISTEN_TIMEOUT_SECONDS * 1000) + EXEC_OVERHEAD_TIMEOUT_MS,
     );
     if (!ready || ready.exitCode !== 0) {
-      const diagnostic = (ready?.stderr || ready?.stdout || "guest command unavailable").trim().slice(0, 500);
+      const diagnostic = (ready?.stderr || ready?.stdout || "guest command unavailable").trim().slice(0, 1000);
       console.error("[freestyle] fork daemon readiness failed", diagnostic);
-      throw new ProviderError("freestyle", "forked machine daemon did not become ready");
+      // Only the fixed-vocabulary stage reaches the stored error; guest log
+      // lines stay in the server log above.
+      const stage = ready ? devboxForkReadinessStage(ready.stderr) : "stage=exec-unavailable";
+      throw new ProviderError("freestyle", `forked machine daemon did not become ready (${stage})`);
     }
   }
 
