@@ -184,26 +184,22 @@ struct CloudPortRoutePlanTests {
         await model.retire()
     }
 
-    @Test("Cloud daemon browsers keep a public origin through the authenticated proxy")
+    @Test("Cloud daemon browsers keep a public origin without machine proxy routing")
     func cloudDaemonBrowserKeepsPublicOrigin() async throws {
-        let endpoint = CloudBrowserProxyEndpoint(
-            host: "127.0.0.1", port: 46_905, username: "fixture", password: "secret"
-        )
         let model = CloudPortAccessModel(
             target: CloudPortForwardTarget(host: "example.com", port: 4312),
             coordinator: nil,
             wake: {},
             startForward: { _ in Issue.record("Daemon browser must not use a local forward"); return 46_906 },
             stopForward: {},
-            route: .browserProxy,
-            startBrowserProxy: { endpoint },
+            route: .direct,
             preservesRemoteHost: true
         )
         let remote = try #require(URL(string: "http://example.com:4312/health"))
         let state = CloudBrowserAccessState()
         state.configure(model: model, url: remote)
         model.connect()
-        #expect(await wait { model.phase == .proxied(endpoint) })
+        #expect(await wait { model.phase == .direct })
         #expect(state.nextURL() == remote)
         await model.retire()
     }

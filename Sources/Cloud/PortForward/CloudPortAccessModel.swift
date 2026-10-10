@@ -140,6 +140,8 @@ final class CloudPortAccessModel {
 
     private func start() {
         switch route {
+        case .direct:
+            run { .direct }
         case .browserProxy:
             guard let startBrowserProxy else { return }
             run { [wake] in
@@ -190,6 +192,7 @@ final class CloudPortAccessModel {
 
     func url(for remoteURL: URL) -> URL? {
         switch phase {
+        case .direct where route == .direct: return remoteURL
         case .direct: return CloudPortRoutePolicy().privateURL(remoteURL.absoluteString, address: target.host)
         case .proxied where preservesRemoteHost: return remoteURL
         case .proxied: return CloudPortRoutePolicy().privateURL(remoteURL.absoluteString, address: target.host)

@@ -128,9 +128,29 @@ extension CmuxTuiSurfaceProvider {
             && resourceID.kind == .browser
             && catalog.resources[resourceID]?.remoteViews?.isEmpty == false
             && !isCloudLoopback
-        let address = isCloudLoopback ? "127.0.0.1" : (isCloudBrowserOrigin ? url.host : info.privateAddress)
+        let isCloudBrowserPrivateOrigin = isCloudBrowserOrigin && {
+            guard let host = url.host else { return false }
+            return host == info.privateAddress
+                || CloudPortRoutePolicy().privateURL(url.absoluteString, address: host) != nil
+        }()
+        let isCloudBrowserPublicOrigin = isCloudBrowserOrigin && !isCloudBrowserPrivateOrigin
+        let address = if isCloudLoopback {
+            "127.0.0.1"
+        } else if isCloudBrowserOrigin {
+            url.host
+        } else {
+            info.privateAddress
+        }
         let isHTTPSLoopback = isCloudLoopback && url.scheme?.lowercased() == "https"
-        let route: CloudPortAccessRoute = isHTTPSLoopback ? .browserProxy : (isCloudLoopback ? .loopback : .browserProxy)
+        let route: CloudPortAccessRoute = if isCloudBrowserPublicOrigin {
+            .direct
+        } else if isHTTPSLoopback {
+            .browserProxy
+        } else if isCloudLoopback {
+            .loopback
+        } else {
+            .browserProxy
+        }
         let routedURL: URL?
         if isCloudBrowserOrigin {
             let validScheme = ["http", "https"].contains(url.scheme?.lowercased() ?? "")
