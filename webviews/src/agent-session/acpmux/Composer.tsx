@@ -1049,7 +1049,13 @@ function AttachmentChip({
     );
   }
   if (attachment.kind === "document" && attachment.data) {
-    return <PdfAttachmentChip attachment={attachment} remove={remove} codex={codex} />;
+    return (
+      <PdfAttachmentChip
+        attachment={{ ...attachment, kind: "document", data: attachment.data }}
+        remove={remove}
+        codex={codex}
+      />
+    );
   }
   return (
     <div className="acpmux-attachment acpmux-attachment-file" title={attachment.name}>

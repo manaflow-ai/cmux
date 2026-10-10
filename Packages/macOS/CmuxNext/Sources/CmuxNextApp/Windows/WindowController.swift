@@ -387,7 +387,29 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     override func layoutIfNeeded() {
         overlayLayer.windowWillLayout()
         super.layoutIfNeeded()
+        // The outermost pass only, and before the overlay layer's own
+        // after-pass work, so an occluder change it causes joins that work.
+        if overlayLayer.layoutDepth == 1 {
+            (contentView as? WindowRootView)?.windowDidLayout()
+            let blocks = pendingAfterLayout
+            pendingAfterLayout.removeAll()
+            for block in blocks { block() }
+        }
         overlayLayer.windowDidLayout()
+    }
+
+    /// Inside `layoutIfNeeded` (views defer cross-window work to its end).
+    /// The overlay layer's depth resets itself on the next event cycle if an
+    /// exception AppKit caught skipped the end of a pass.
+    var isInLayoutPass: Bool { overlayLayer.layoutDepth > 0 }
+
+    private var pendingAfterLayout: [() -> Void] = []
+
+    /// Runs `block` after the window's current layout pass, or now when no
+    /// pass runs: for a view that must ask an ancestor for another layout
+    /// from inside its own `layout()`.
+    func afterLayoutPass(_ block: @escaping () -> Void) {
+        if isInLayoutPass { pendingAfterLayout.append(block) } else { block() }
     }
 
     // MARK: OverlayPlaneHosting

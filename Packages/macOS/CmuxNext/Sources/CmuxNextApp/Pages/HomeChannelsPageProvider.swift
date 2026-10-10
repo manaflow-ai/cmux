@@ -46,18 +46,33 @@ final class HomeChannelsPageProvider: PageProvider {
             try Self.requireGesture(context)
             guard let text = params["text"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !text.isEmpty, text.count <= HomeChannelsWire.maxText else { throw PageError.invalidParams("text") }
-            // The Home op vocabulary has no thread reply yet (backend request on cx-59n8).
-            if params["threadRoot"]?.stringValue != nil {
-                throw PageError(code: "cmux.home.threads_unavailable", message: "thread replies are not available yet")
-            }
-            let op = HomeOp.sendMessage(conversation: try Self.conversation(params), parts: [.text(text)])
+            let root = try Self.optionalMessage(params["threadRoot"])
+            let op = HomeOp.sendMessage(conversation: try Self.conversation(params), parts: [.text(text)], threadRoot: root)
             return try await HomeChannelsWire.submit(source, HomeIntent(key: try Self.key(params, context), op: op))
         case "cmux.home.react":
             try Self.requireGesture(context)
             guard let value = params["value"]?.stringValue, !value.isEmpty, value.count <= 8,
                   let message = params["message"]?.stringValue, !message.isEmpty else { throw PageError.invalidParams("value") }
-            let op = HomeOp.addReaction(message: MessageID(message), conversation: try Self.conversation(params),
-                                        reaction: .emoji(value), partIndex: max(0, params["partIndex"]?.intValue ?? 0))
+            // A tapback comes back by its name, so the page can take back the reaction it shows.
+            let kind: Reaction.Kind = params["tapback"]?.stringValue.flatMap(Reaction.Tapback.init(rawValue:)).map { .tapback($0) }
+                ?? .emoji(value)
+            let conversation = try Self.conversation(params)
+            let partIndex = max(0, params["partIndex"]?.intValue ?? 0)
+            let op: HomeOp = params["remove"]?.boolValue == true
+                ? .removeReaction(message: MessageID(message), conversation: conversation, reaction: kind, partIndex: partIndex)
+                : .addReaction(message: MessageID(message), conversation: conversation, reaction: kind, partIndex: partIndex)
+            return try await HomeChannelsWire.submit(source, HomeIntent(key: try Self.key(params, context), op: op))
+        case "cmux.home.edit":
+            try Self.requireGesture(context)
+            guard let text = params["text"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !text.isEmpty, text.count <= HomeChannelsWire.maxText else { throw PageError.invalidParams("text") }
+            guard let message = try Self.optionalMessage(params["message"]) else { throw PageError.invalidParams("message") }
+            let op = HomeOp.editMessage(message: message, conversation: try Self.conversation(params), parts: [.text(text)])
+            return try await HomeChannelsWire.submit(source, HomeIntent(key: try Self.key(params, context), op: op))
+        case "cmux.home.retract":
+            try Self.requireGesture(context)
+            guard let message = try Self.optionalMessage(params["message"]) else { throw PageError.invalidParams("message") }
+            let op = HomeOp.retractMessage(message: message, conversation: try Self.conversation(params))
             return try await HomeChannelsWire.submit(source, HomeIntent(key: try Self.key(params, context), op: op))
         default:
             throw PageError.unknownOp(op)
@@ -87,6 +102,13 @@ final class HomeChannelsPageProvider: PageProvider {
             pump.cancel()
             self?.pumps.removeValue(forKey: id)
         }
+    }
+
+    /// A message id param: nil when absent, refused when present but not a short string.
+    private static func optionalMessage(_ value: JSONValue?) throws -> MessageID? {
+        guard let value, !value.isNull else { return nil }
+        guard let id = value.stringValue, !id.isEmpty, id.count <= 256 else { throw PageError.invalidParams("message") }
+        return MessageID(id)
     }
 
     private static func conversation(_ params: JSONValue) throws -> ConversationID {
