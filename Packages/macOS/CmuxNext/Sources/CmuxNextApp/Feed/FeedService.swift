@@ -29,6 +29,9 @@ final class FeedService {
     /// Owner-confirmed state of each item (never the overlay).
     private var confirmed: [String: FeedItemState] = [:]
     private var waiters: [String: [CheckedContinuation<Void, Never>]] = [:]
+    /// Told every owner-confirmed item (snapshot and events), never the overlay
+    /// (the agent permission feed bridge reads answers here).
+    var onConfirmedItems: (@MainActor ([FeedItem]) -> Void)?
 
     /// The API Worker for this build: `CMUX_NEXT_FEED_API_URL`, else staging
     /// for development auth and production for production auth.
@@ -169,9 +172,12 @@ final class FeedService {
         case let .snapshot(snapshot):
             confirmed = Dictionary(snapshot.items.map { ($0.id, $0.state) }, uniquingKeysWith: { a, _ in a })
             resumeClosed()
+            onConfirmedItems?(snapshot.items)
         case let .event(event):
             switch event.change {
-            case let .items(items): for item in items { confirmed[item.id] = item.state }
+            case let .items(items):
+                for item in items { confirmed[item.id] = item.state }
+                onConfirmedItems?(items)
             case let .remove(ids): for id in ids { confirmed[id] = nil }
             }
             resumeClosed()
