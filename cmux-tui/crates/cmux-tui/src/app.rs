@@ -95,6 +95,8 @@ mod presentation_snapshot;
 mod rail_selection;
 mod render_pacing;
 
+mod menu_action;
+
 #[cfg(test)]
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -106,10 +108,8 @@ use std::time::{Duration, Instant};
 #[cfg(test)]
 use cmux_tui_core::GuardedMouseEncode;
 use cmux_tui_core::resource::FrontendProjectionPublicId;
-use cmux_tui_core::sizing_policy::TerminalSizingMode;
 use cmux_tui_core::{
-    GraphicsStatus, MachineUsage, Mux, MuxEvent, PairingChallenge, PaneId, Rect, ScreenId,
-    SurfaceId, VirtualRect, WorkspaceId,
+    MachineUsage, Mux, MuxEvent, PairingChallenge, PaneId, Rect, ScreenId, SurfaceId, VirtualRect,
 };
 use crossbeam_channel::Sender as SyncSender;
 use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
@@ -177,9 +177,10 @@ pub(crate) use self::menu::MenuItem;
 pub(crate) use self::menu::context_menu::ContextMenu;
 #[cfg(test)]
 use self::menu::context_menu::pane_context_menu_groups;
+use self::menu::items::participant_key;
 #[cfg(test)]
 use self::menu::items::{client_menu_item, size_menu_item};
-use self::menu::items::{participant_key, size_mode_label};
+use self::menu_action::{MenuAction, keyboard_action_for_menu};
 #[cfg(test)]
 use self::mux_ingress::{
     ForwardMuxOutcome, forward_mux_event, forward_mux_events, prepare_ordered_session,
@@ -245,15 +246,15 @@ pub(crate) use self::status_segments::StatusSegmentView;
 use self::status_segments::{ResolvedStatusSegments, StatusWorkerStop};
 #[cfg(test)]
 use self::status_segments::{StatusTemplateValues, expand_status_tokens, run_status_command};
-#[cfg(test)]
-use self::surface_sync::SurfaceAttachAfterObsoleteCheckHook;
 use self::surface_sync::{
     RemoteRefreshClaim, SidebarPluginSyncClaim, SidebarPluginSyncState, SurfaceAttachClaim,
-    SurfaceAttachClaimState, SurfaceAttachOutcome, SurfaceResizeClaim, SurfaceResizeClaimState,
-    SurfaceResizeDecision, SurfaceResizeFailure, SurfaceResizeOwnership, SurfaceSyncFailureState,
+    SurfaceAttachClaimState, SurfaceResizeClaim, SurfaceResizeClaimState, SurfaceResizeDecision,
+    SurfaceResizeFailure, SurfaceResizeOwnership, SurfaceSyncFailureState,
     next_surface_sync_failure, record_surface_resize_dispatch_result,
     sidebar_plugin_status_settles_passive_claim, surface_sync_failure_blocks,
 };
+#[cfg(test)]
+use self::surface_sync::{SurfaceAttachAfterObsoleteCheckHook, SurfaceAttachOutcome};
 #[cfg(test)]
 use self::terminal_guard::{
     HOST_KEYBOARD_QUERY_TIMEOUT, HostKeyboardProtocolOwnership, catch_renderer_panic,
@@ -268,13 +269,12 @@ use self::viewport::{
 use crate::browser_input::BrowserInputDispatcher;
 #[cfg(test)]
 use crate::browser_input::BrowserResizeFailure;
-use crate::config::{Action, ChromeTheme, Config, SidebarView};
+use crate::config::{ChromeTheme, Config, SidebarView};
 use crate::localization;
 #[cfg(test)]
 use crate::machine::MachineConnectRoute;
 use crate::machine::{
     DurableNoticeDelivery, DurableProviderNotice, MachineKey, MachineRequest, MachineUiState,
-    MachineUpdate,
 };
 use crate::pty_input::PtyInputDispatcher;
 #[cfg(test)]
@@ -308,230 +308,6 @@ const DURABLE_NOTICE_RECENT_CAPACITY: usize = 64;
 const DURABLE_NOTICE_QUEUE_CAPACITY: usize = 64;
 const DURABLE_NOTICE_DISPLAY_DURATION: Duration = Duration::from_secs(4);
 const DURABLE_NOTICE_ACK_MAX_BACKOFF_EXPONENT: u8 = 5;
-
-/// A context-menu entry: what activating it does (the label is derived).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MenuAction {
-    RenameClientMachine(MachineKey),
-    RenameManagedMachine(MachineKey),
-    DeleteManagedMachine(MachineKey),
-    RestoreManagedMachine(MachineKey),
-    PurgeManagedMachine(MachineKey),
-    RenameWorkspace(WorkspaceId),
-    RenameManagedWorkspace(WorkspaceId),
-    CopyWorkspaceId(WorkspaceId),
-    CloseWorkspace(WorkspaceId),
-    DeleteManagedWorkspace(WorkspaceId),
-    RestoreManagedWorkspace(usize),
-    PurgeManagedWorkspace(usize),
-    RenameScreen(ScreenId),
-    CloseScreen(ScreenId),
-    BrowserBack(PaneId),
-    BrowserForward(PaneId),
-    BrowserReload(PaneId),
-    BrowserEditUrl(PaneId),
-    BrowserCopyUrl(PaneId),
-    BrowserActivate(PaneId),
-    RenameTab(PaneId),
-    RenameSurface(SurfaceId),
-    MoveTabToWorkspace {
-        surface: SurfaceId,
-        workspace: Option<WorkspaceId>,
-    },
-    CopyTabId(PaneId),
-    CopyPaneId(PaneId),
-    CopyStatusMessage,
-    NewPaneSmart(PaneId),
-    NewTab(PaneId),
-    NewBrowserTab(PaneId),
-    SplitRight(PaneId),
-    SplitDown(PaneId),
-    CloseTab(PaneId),
-    ClosePane(PaneId),
-    TogglePaneZoom {
-        pane: PaneId,
-        zoomed: bool,
-    },
-    ToggleSidebar {
-        visible: bool,
-    },
-    ToggleSidebarCompact {
-        compact: bool,
-    },
-    FocusSidebar,
-    ActivateSidebarProfile(usize),
-    SetSidebarViewVisible {
-        view: usize,
-        visible: bool,
-    },
-    ShowShortcuts,
-    SetClientSizing {
-        surface: SurfaceId,
-        client: u64,
-        enabled: bool,
-    },
-    UseClientSize {
-        surface: SurfaceId,
-        client: u64,
-    },
-    RestoreAllClientSizing(SurfaceId),
-    DisconnectClient(u64),
-    /// Shared sizing (docs/shared-terminal-sizing.md): the terminal's mode.
-    SetSizeMode {
-        surface: SurfaceId,
-        mode: TerminalSizingMode,
-    },
-    /// Toggle one participant's counts-toward-size choice. `participant`
-    /// indexes the size state of `generation`, the one the menu showed.
-    SetSizeCounts {
-        surface: SurfaceId,
-        generation: u64,
-        participant: usize,
-        counts: bool,
-    },
-    /// Disconnect one participant of the size state of `generation`.
-    DisconnectSizeParticipant {
-        surface: SurfaceId,
-        generation: u64,
-        participant: usize,
-    },
-    SelectProviderScope(usize),
-    InvokeProviderAction(usize),
-    CreateMachineFrom(usize),
-    ConnectMachineTarget(usize),
-    ConnectOtherMachine,
-    /// A configured action from a customizable menu (for example a `+`
-    /// button's right-click menu), targeting an optional pane.
-    RunConfigured {
-        action: Action,
-        pane: Option<PaneId>,
-    },
-}
-
-impl MenuAction {
-    pub fn label(&self) -> &'static str {
-        let menu = &localization::catalog().menu;
-        match self {
-            // Menus always wrap this variant in a labeled item; the catalog
-            // label is the keyboard-help fallback only.
-            MenuAction::RunConfigured { action, .. } => {
-                localization::catalog().action_label(*action)
-            }
-            MenuAction::RenameClientMachine(_) | MenuAction::RenameManagedMachine(_) => {
-                localization::catalog().sidebar.rename_machine
-            }
-            MenuAction::DeleteManagedMachine(_) => localization::catalog().sidebar.delete_machine,
-            MenuAction::RestoreManagedMachine(_) => localization::catalog().sidebar.restore_machine,
-            MenuAction::PurgeManagedMachine(_) => localization::catalog().sidebar.purge_machine,
-            MenuAction::RenameWorkspace(_) => {
-                localization::catalog().action_label(Action::RenameWorkspace)
-            }
-            MenuAction::RenameManagedWorkspace(_) => {
-                localization::catalog().sidebar.rename_workspace
-            }
-            MenuAction::CopyWorkspaceId(_) => menu.copy_workspace_id,
-            MenuAction::CloseWorkspace(_) => {
-                localization::catalog().action_label(Action::CloseWorkspace)
-            }
-            MenuAction::DeleteManagedWorkspace(_) => {
-                localization::catalog().sidebar.delete_workspace
-            }
-            MenuAction::RestoreManagedWorkspace(_) => {
-                localization::catalog().sidebar.restore_workspace
-            }
-            MenuAction::PurgeManagedWorkspace(_) => localization::catalog().sidebar.purge_workspace,
-            MenuAction::RenameScreen(_) => {
-                localization::catalog().action_label(Action::RenameScreen)
-            }
-            MenuAction::CloseScreen(_) => localization::catalog().action_label(Action::CloseScreen),
-            MenuAction::BrowserBack(_) => localization::catalog().action_label(Action::BrowserBack),
-            MenuAction::BrowserForward(_) => {
-                localization::catalog().action_label(Action::BrowserForward)
-            }
-            MenuAction::BrowserReload(_) => {
-                localization::catalog().action_label(Action::BrowserReload)
-            }
-            MenuAction::BrowserEditUrl(_) => {
-                localization::catalog().action_label(Action::BrowserEditUrl)
-            }
-            MenuAction::BrowserCopyUrl(_) => menu.copy_url,
-            MenuAction::BrowserActivate(_) => menu.show_in_chrome,
-            MenuAction::RenameTab(_) | MenuAction::RenameSurface(_) => {
-                localization::catalog().action_label(Action::RenameTab)
-            }
-            MenuAction::MoveTabToWorkspace { workspace: None, .. } => menu.move_tab_new_workspace,
-            MenuAction::MoveTabToWorkspace { .. } => menu.move_tab_workspace,
-            MenuAction::CopyTabId(_) => menu.copy_tab_id,
-            MenuAction::CopyPaneId(_) => menu.copy_pane_id,
-            MenuAction::CopyStatusMessage => menu.copy_message,
-            MenuAction::NewPaneSmart(_) => {
-                localization::catalog().action_label(Action::NewPaneSmart)
-            }
-            MenuAction::NewTab(_) => localization::catalog().action_label(Action::NewTab),
-            MenuAction::NewBrowserTab(_) => {
-                localization::catalog().action_label(Action::NewBrowserTab)
-            }
-            MenuAction::SplitRight(_) => localization::catalog().action_label(Action::SplitRight),
-            MenuAction::SplitDown(_) => localization::catalog().action_label(Action::SplitDown),
-            MenuAction::CloseTab(_) => localization::catalog().action_label(Action::CloseTab),
-            MenuAction::ClosePane(_) => localization::catalog().action_label(Action::ClosePane),
-            MenuAction::TogglePaneZoom { zoomed: false, .. } => menu.maximize_pane,
-            MenuAction::TogglePaneZoom { zoomed: true, .. } => menu.restore_pane_layout,
-            MenuAction::ToggleSidebar { visible: false } => menu.show_sidebar,
-            MenuAction::ToggleSidebar { visible: true } => menu.hide_sidebar,
-            MenuAction::ToggleSidebarCompact { compact: false } => menu.compact_sidebar,
-            MenuAction::ToggleSidebarCompact { compact: true } => menu.full_sidebar,
-            MenuAction::FocusSidebar => menu.focus_sidebar,
-            MenuAction::ActivateSidebarProfile(_) => menu.sidebar_profiles,
-            MenuAction::SetSidebarViewVisible { visible: true, .. } => menu.show_sidebar_view,
-            MenuAction::SetSidebarViewVisible { visible: false, .. } => menu.hide_sidebar_view,
-            MenuAction::ShowShortcuts => {
-                localization::catalog().action_label(Action::ShowShortcuts)
-            }
-            MenuAction::SetClientSizing { enabled: true, .. } => menu.include_client_size,
-            MenuAction::SetClientSizing { enabled: false, .. } => menu.excluded,
-            MenuAction::UseClientSize { .. } => menu.use_only_client_size,
-            MenuAction::RestoreAllClientSizing(_) => menu.restore_all_client_sizing,
-            MenuAction::DisconnectClient(_) => menu.disconnect_client,
-            MenuAction::SetSizeMode { mode, .. } => size_mode_label(*mode),
-            MenuAction::SetSizeCounts { .. } => menu.size_counts,
-            MenuAction::DisconnectSizeParticipant { .. } => menu.size_disconnect,
-            MenuAction::SelectProviderScope(_) | MenuAction::InvokeProviderAction(_) => {
-                localization::catalog().sidebar.provider_actions
-            }
-            MenuAction::CreateMachineFrom(_) => localization::catalog().sidebar.new_machine,
-            MenuAction::ConnectMachineTarget(_) => localization::catalog().sidebar.connect_machine,
-            MenuAction::ConnectOtherMachine => localization::catalog().sidebar.other_host,
-        }
-    }
-}
-
-fn keyboard_action_for_menu(action: MenuAction) -> Option<Action> {
-    match action {
-        MenuAction::RenameWorkspace(_) => Some(Action::RenameWorkspace),
-        MenuAction::CloseWorkspace(_) => Some(Action::CloseWorkspace),
-        MenuAction::RenameScreen(_) => Some(Action::RenameScreen),
-        MenuAction::CloseScreen(_) => Some(Action::CloseScreen),
-        MenuAction::BrowserBack(_) => Some(Action::BrowserBack),
-        MenuAction::BrowserForward(_) => Some(Action::BrowserForward),
-        MenuAction::BrowserReload(_) => Some(Action::BrowserReload),
-        MenuAction::BrowserEditUrl(_) => Some(Action::BrowserEditUrl),
-        MenuAction::RenameTab(_) => Some(Action::RenameTab),
-        MenuAction::NewPaneSmart(_) => Some(Action::NewPaneSmart),
-        MenuAction::NewTab(_) => Some(Action::NewTab),
-        MenuAction::NewBrowserTab(_) => Some(Action::NewBrowserTab),
-        MenuAction::SplitRight(_) => Some(Action::SplitRight),
-        MenuAction::SplitDown(_) => Some(Action::SplitDown),
-        MenuAction::CloseTab(_) => Some(Action::CloseTab),
-        MenuAction::ClosePane(_) => Some(Action::ClosePane),
-        MenuAction::TogglePaneZoom { .. } => Some(Action::ZoomPane),
-        MenuAction::ToggleSidebar { .. } => Some(Action::ToggleSidebar),
-        MenuAction::ToggleSidebarCompact { .. } => Some(Action::ToggleSidebarCompact),
-        MenuAction::FocusSidebar => Some(Action::FocusSidebar),
-        MenuAction::ShowShortcuts => Some(Action::ShowShortcuts),
-        _ => None,
-    }
-}
 
 impl Prompt {
     fn new(label: impl Into<String>, buffer: String, target: PromptTarget) -> Self {
