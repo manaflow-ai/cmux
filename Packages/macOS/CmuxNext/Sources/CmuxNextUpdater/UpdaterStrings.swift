@@ -112,6 +112,13 @@ nonisolated enum UpdaterStrings {
     static var noticeAvailable: String { text("updater.notice.available", "Update Available") }
     static var noticeCheckFailed: String { text("updater.notice.checkFailed", "Update Check Failed") }
     static func foundVersion(_ version: String) -> String { format("updater.notice.foundVersion", "Version %@", version) }
+    // The update changelog (cx-lntk)
+    static func versionDate(_ version: String, _ date: String) -> String {
+        format("updater.changelog.versionDate", "%1$@ · %2$@", version, date)
+    }
+    static var changelogNew: String { text("updater.changelog.new", "New") }
+    static var changelogFixed: String { text("updater.changelog.fixed", "Fixed") }
+    static var changelogChanged: String { text("updater.changelog.changed", "Changed") }
     static func needsMacOSDetail(_ version: String, _ required: String) -> String {
         format("updater.notice.needsMacOS", "Needs macOS %1$@ for %2$@", required, version)
     }
