@@ -185,6 +185,7 @@ extension CmuxSettingsFileStore {
                     "showCustomMetadata": SidebarWorkspaceDetailDefaults.showCustomMetadata,
                     "compactAgentStatus": SidebarWorkspaceDetailDefaults.compactAgentStatus,
                     "compactStatusIcons": [String: String](),
+                    "showJumpToUnreadButton": SettingCatalog().sidebar.showJumpToUnreadButton.defaultValue,
                 ],
             ],
             [

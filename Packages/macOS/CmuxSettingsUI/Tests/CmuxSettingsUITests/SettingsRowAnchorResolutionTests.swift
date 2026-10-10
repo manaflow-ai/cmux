@@ -137,6 +137,7 @@ struct SettingsRowAnchorResolutionTests {
         "sidebar.showCloudDeviceIcons",
         "sidebar.showCustomMetadata",
         "sidebar.compactAgentStatus",
+        "sidebar.showJumpToUnreadButton",
         "sidebar.showLog",
         "sidebar.showNotificationMessage",
         "sidebar.notificationMessageLineLimit",

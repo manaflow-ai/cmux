@@ -37,6 +37,7 @@ public struct SidebarSection: View {
     @State var notificationBadgePosition: DefaultsValueModel<SidebarIndicatorPosition>
     @State var showMetadata: DefaultsValueModel<Bool>
     @State private var compactAgentStatus: DefaultsValueModel<Bool>
+    @State var showJumpToUnreadButton: DefaultsValueModel<Bool>
     @State private var rightMaxWidth: DefaultsValueModel<Double>
     @State private var rememberedRightMaxWidth: DefaultsValueModel<Double>
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog, hostActions: SettingsHostActions) {
@@ -71,6 +72,7 @@ public struct SidebarSection: View {
         _notificationBadgePosition = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.notificationBadgePosition))
         _showMetadata = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showCustomMetadata))
         _compactAgentStatus = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.compactAgentStatus))
+        _showJumpToUnreadButton = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showJumpToUnreadButton))
         _rightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rightMaxWidth))
         _rememberedRightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rememberedRightMaxWidth))
     }
@@ -102,17 +104,14 @@ public struct SidebarSection: View {
             showCloudDeviceIcons,
             showPR,
             watchGit,
-            prClickable,
-            prLinks,
-            portLinks,
+            prClickable, prLinks, portLinks,
             showSSH, showPorts, showLog,
             showProgress, showAgentActivity, showAgentUsage,
             loadingSpinnerPosition,
             notificationBadgePosition,
             showMetadata,
-            compactAgentStatus,
-            rightMaxWidth,
-            rememberedRightMaxWidth,
+            compactAgentStatus, showJumpToUnreadButton,
+            rightMaxWidth, rememberedRightMaxWidth,
         ]
         models.forEach { $0.startObserving() }
     }
@@ -538,6 +537,7 @@ public struct SidebarSection: View {
                     .labelsHidden()
                     .controlSize(.small)
             }
+            jumpToUnreadButtonRow
         }
     }
 
