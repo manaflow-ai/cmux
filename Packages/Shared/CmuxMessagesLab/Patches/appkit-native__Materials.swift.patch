@@ -1,6 +1,15 @@
 --- a/Sources/MessagesLabHome/Vendor/appkit-native/Materials.swift
 +++ b/Sources/MessagesLabHome/Vendor/appkit-native/Materials.swift
-@@ -204,7 +204,7 @@
+@@ -125,7 +125,7 @@
+     private let pressLightLayer: CALayer = {
+         let l = CALayer()
+         let w = 256, s = Double(w) / 8
+-        let px = (0..<w).map { i -> UInt8 in let x = (Double(i) + 0.5 - Double(w) / 2) / s; return UInt8((exp(-x * x / 2) * 255).rounded()) }
++        let px = (0..<w).map { i -> UInt8 in let x = (Double(i) + 0.5 - Double(w) / 2) / s; return UInt8(clamping: CrashGuard.int((exp(-x * x / 2) * 255).rounded(), in: 0...255)) } // cmux: no trap
+         let data = px.flatMap { [UInt8(255), UInt8(255), UInt8(255), $0] }
+         if let p = CGDataProvider(data: Data(data) as CFData) {
+             l.contents = CGImage(width: w, height: 1, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: w * 4, space: CGColorSpaceCreateDeviceRGB(),
+@@ -301,7 +301,7 @@
  
      static let mode: FieldAnimation = {
          let a = ProcessInfo.processInfo.arguments

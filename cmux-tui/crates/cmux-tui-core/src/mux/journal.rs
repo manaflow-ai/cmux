@@ -338,11 +338,6 @@ impl Mux {
         self.journal_event_epoch()
     }
 
-    #[cfg(test)]
-    pub(crate) fn wait_for_resource_event(&self, epoch: u64, timeout: Duration) -> u64 {
-        self.wait_for_journal_event(epoch, timeout)
-    }
-
     pub(crate) fn resource_events_after(
         &self,
         revision: u64,

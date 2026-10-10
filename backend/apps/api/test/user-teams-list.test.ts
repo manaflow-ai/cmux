@@ -4,6 +4,7 @@ import { clearSignInRules } from "../src/policy-gate.ts"
 import { fireAlarm } from "./setup/alarm.ts"
 import { call, deliver, mirroredTeam, teamIdOf, teamStub } from "./team-stack-support.ts"
 import { inDO, sessionToken, testEnv } from "./team-ssh-support.ts"
+// Route tests: drive the API Worker over HTTP; restored by the unit-test lane (slice 5 deleted them by mistake).
 
 const userStub = (user: string) => testEnv.USER_DO.get(testEnv.USER_DO.idFromName(user))
 
@@ -110,4 +111,12 @@ describe("user.teams.list (cx-5xew)", { timeout: 60_000 }, () => {
     expect(member.body?.code ?? member.body?.error?.code).toBe("auth.forbidden")
   })
 
+  it("answers the personal team for a new person before user.ensure", async () => {
+    const stackUser = crypto.randomUUID()
+    const token = await sessionToken(stackUser, "New")
+    const r = await listTeams(token)
+    expect(r.status, JSON.stringify(r.body)).toBe(200)
+    expect(r.body.value.teams).toHaveLength(1)
+    expect(r.body.value.teams[0]).toMatchObject({ kind: "personal", role: "owner" })
+  })
 })
