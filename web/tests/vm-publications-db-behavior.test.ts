@@ -16,6 +16,12 @@ import postgres, { type Sql } from "postgres";
 import { closeCloudDbForTests, cloudDb } from "../db/client";
 import { deleteVmPublicationRowsForAccountDeletion } from "../services/vm-publications/accountDeletion";
 import {
+  VmPublicationProvider,
+  VmPublicationProviderError,
+  type VmPublicationProviderShape,
+} from "../services/vm-publications/provider";
+import { createPublication, verifyPublication } from "../services/vm-publications/workflows";
+import {
   AUTH_ARTIFACT_SWEEP_LIMIT,
   AUTH_TRANSACTION_ABANDONED_AFTER_MS,
   CloudVmPublicationRepository,
@@ -174,6 +180,156 @@ afterAll(async () => {
 });
 
 describe("Cloud VM publication persistence", () => {
+  // The provisioning state machine end to end: real repository updates, a
+  // provider that fails at one point. See PUBLICATION_PROVISIONING_STATES.
+  type ProviderStep = "verifyDomain" | "reconcile" | "certificate";
+  const refused = (operation: string, cause: unknown) => new VmPublicationProviderError({ operation: operation as never, cause });
+  const tlsCap = Object.assign(new Error("conflict: TLS rule limit reached (2000)"), { status: 409, code: "CONFLICT" });
+  function stateMachineProvider(fail: { readonly step?: ProviderStep; readonly cause?: unknown }, certificateReady: boolean): VmPublicationProviderShape {
+    const failing = (step: ProviderStep) => fail.step === step;
+    return new Proxy({
+      createDomainVerification: () => failing("verifyDomain")
+        ? Effect.fail(refused("createDomainVerification", fail.cause))
+        : Effect.die(new Error("unused")),
+      getDomainVerification: () => failing("verifyDomain")
+        ? Effect.fail(refused("getDomainVerification", fail.cause))
+        : Effect.succeed(null),
+      reconcileTlsRule: (_ruleId: unknown, spec: { hostname: string; providerVmId: string; port: number }) => failing("reconcile")
+        ? Effect.fail(refused("reconcileTlsRule", fail.cause))
+        : Effect.succeed({
+          disposition: "created",
+          rule: { tlsRuleId: `tls-${spec.hostname}`, hostname: spec.hostname, providerVmId: spec.providerVmId, port: spec.port, forwardAuthId: null },
+        }),
+      getCertificateStatus: () => failing("certificate")
+        ? Effect.fail(refused("getCertificateStatus", fail.cause))
+        : Effect.succeed({ state: certificateReady ? "active" : "pending", ready: certificateReady }),
+    } as Record<string, unknown>, {
+      get: (target, property) => property in target ? target[property as string] : () => Effect.die(new Error(`unexpected provider call ${String(property)}`)),
+    }) as unknown as VmPublicationProviderShape;
+  }
+  async function runWith<A>(program: Effect.Effect<A, unknown, CloudVmPublicationRepository | VmPublicationProvider>, provider: VmPublicationProviderShape) {
+    return Effect.runPromise(Effect.either(program.pipe(
+      Effect.provideService(CloudVmPublicationRepository, requiredRepository()),
+      Effect.provideService(VmPublicationProvider, provider),
+    )));
+  }
+  async function reserveGenerated(suffix: string) {
+    const ownerUserId = `owner-${suffix}`;
+    await insertVm(ownerUserId, `provider-vm-${suffix}`);
+    const hostname = `${suffix}.preview.example.test`;
+    return runRepository(requiredRepository().reservePublicationWithNewDomain({
+      ownerUserId, provider: "freestyle", providerVmId: `provider-vm-${suffix}`,
+      domainHostname: hostname, hostname, kind: "generated", port: 3_000, accessMode: "public", now: NOW,
+    }));
+  }
+  async function stateOf(id: string) {
+    const [row] = await requiredSql()<{ state: string; provider_tls_rule_id: string | null }[]>`
+      select state, provider_tls_rule_id from cloud_vm_publications where id = ${id}
+    `;
+    return { state: row!.state, hasRule: row!.provider_tls_rule_id !== null };
+  }
+  const verify = (reserved: { publication: { id: string; ownerUserId: string } }, provider: VmPublicationProviderShape) =>
+    runWith(verifyPublication({
+      principal: { userId: reserved.publication.ownerUserId, teamIds: [] },
+      publicationId: reserved.publication.id,
+      now: NOW,
+    }), provider);
+
+  const cases: Array<{ name: string; failure: { step?: ProviderStep; cause?: unknown }; expected: { state: string; hasRule: boolean } }> = [
+    { name: "rule create refused at the TLS cap", failure: { step: "reconcile", cause: tlsCap }, expected: { state: "unavailable", hasRule: false } },
+    { name: "rule create fails transiently", failure: { step: "reconcile", cause: new Error("socket hang up") }, expected: { state: "unavailable", hasRule: false } },
+    { name: "certificate status fails after the rule is recorded", failure: { step: "certificate", cause: new Error("timeout") }, expected: { state: "provisioning", hasRule: true } },
+  ];
+  for (const testCase of cases) {
+    dbTest(`provisioning state machine: ${testCase.name}`, async () => {
+      const reserved = await reserveGenerated(`sm-${cases.indexOf(testCase)}`);
+      const result = await verify(reserved, stateMachineProvider(testCase.failure, false));
+      expect(result._tag).toBe("Left");
+      expect(await stateOf(reserved.publication.id)).toEqual(testCase.expected);
+    });
+  }
+
+  dbTest("provisioning state machine: a retry from unavailable records the rule, then activates", async () => {
+    const reserved = await reserveGenerated("sm-retry");
+    await verify(reserved, stateMachineProvider({ step: "reconcile", cause: tlsCap }, false));
+    expect(await stateOf(reserved.publication.id)).toEqual({ state: "unavailable", hasRule: false });
+    const pending = await verify(reserved, stateMachineProvider({}, false));
+    expect(pending._tag).toBe("Right");
+    expect(await stateOf(reserved.publication.id)).toEqual({ state: "provisioning", hasRule: true });
+
+    const again = await reserveGenerated("sm-retry-active");
+    await verify(again, stateMachineProvider({ step: "reconcile", cause: tlsCap }, false));
+    const active = await verify(again, stateMachineProvider({}, true));
+    expect(active._tag).toBe("Right");
+    expect(await stateOf(again.publication.id)).toEqual({ state: "active", hasRule: true });
+  });
+
+  dbTest("provisioning state machine: custom-domain verification failure on create", async () => {
+    const ownerUserId = "owner-sm-custom";
+    await insertVm(ownerUserId, "provider-vm-sm-custom");
+    const result = await runWith(createPublication({
+      principal: { userId: ownerUserId, teamIds: [] },
+      providerVmId: "provider-vm-sm-custom",
+      port: 3_000,
+      hostname: "app.sm-custom.example.test",
+      accessMode: "public",
+      now: NOW,
+    }), stateMachineProvider({ step: "verifyDomain", cause: new Error("provider refused") }, false));
+    expect(result._tag).toBe("Left");
+    const [row] = await requiredSql()<{ id: string }[]>`select id from cloud_vm_publications where owner_user_id = ${ownerUserId}`;
+    expect(await stateOf(row!.id)).toEqual({ state: "unavailable", hasRule: false });
+  });
+
+  dbTest("marks only a provisioning publication unavailable, bumping its routing revision", async () => {
+    const repo = requiredRepository();
+    const ownerUserId = "owner-mark";
+    await insertVm(ownerUserId, "provider-vm-mark");
+    const reserved = await runRepository(repo.reservePublicationWithNewDomain({
+      ownerUserId,
+      provider: "freestyle",
+      providerVmId: "provider-vm-mark",
+      domainHostname: "mark.preview.example.test",
+      hostname: "mark.preview.example.test",
+      kind: "generated",
+      port: 3_000,
+      accessMode: "public",
+      now: NOW,
+    }));
+    expect(reserved.publication.state).toBe("provisioning");
+
+    const marked = await runRepository(repo.markPublicationUnavailable({
+      id: reserved.publication.id,
+      expectedRoutingRevision: reserved.publication.routingRevision,
+      now: NOW,
+    }));
+    expect(marked.state).toBe("unavailable");
+    expect(marked.routingRevision).toBe(reserved.publication.routingRevision + 1);
+
+    // Already unavailable: unchanged, revision kept.
+    const again = await runRepository(repo.markPublicationUnavailable({
+      id: reserved.publication.id,
+      expectedRoutingRevision: marked.routingRevision,
+      now: NOW,
+    }));
+    expect(again).toMatchObject({ state: "unavailable", routingRevision: marked.routingRevision });
+
+    // A stale revision is refused.
+    await expectRepositoryError(runRepository(repo.markPublicationUnavailable({
+      id: reserved.publication.id,
+      expectedRoutingRevision: reserved.publication.routingRevision,
+      now: NOW,
+    })), { _tag: "PublicationConflictError", reason: "publication_revision_changed" });
+
+    // An active publication is never downgraded.
+    const active = await createActivePublication({ suffix: "mark-active" });
+    const kept = await runRepository(repo.markPublicationUnavailable({
+      id: active.publication.id,
+      expectedRoutingRevision: active.publication.routingRevision,
+      now: NOW,
+    }));
+    expect(kept).toMatchObject({ state: "active", routingRevision: active.publication.routingRevision });
+  });
+
   dbTest("account deletion targets report hostnameClaimed as a boolean and the VM's provider id", async () => {
     const active = await createActivePublication({ suffix: "claimed-flag" });
     const targets = await runRepository(requiredRepository().listPublicationsForAccountDeletion(active.publication.ownerUserId));
