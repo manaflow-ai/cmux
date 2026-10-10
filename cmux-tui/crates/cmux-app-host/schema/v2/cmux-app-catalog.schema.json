@@ -12,6 +12,13 @@
     "family": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,31}(\\.[a-z][a-z0-9_]{0,63}){0,2}$", "description": "First-party: a bare family. Third-party: the app namespace <publisher>.<name> ('-' -> '_')." },
     "owner": { "$ref": "#/$defs/owner" },
     "trigger_events": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/opName" } },
+    "consumes": {
+      "type": "array",
+      "maxItems": 256,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/opName" },
+      "description": "Backend ops this app's server serves (D-ROUTE): the generator types and scopes them from this fragment's operations, never from the backend row. Each must be a backend op apps may reach, declared in operations, served by one app only."
+    },
     "operations": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/operation" } }
   },
   "$defs": {
@@ -47,7 +54,7 @@
         "name": { "$ref": "#/$defs/opName" },
         "owner": { "$ref": "#/$defs/owner" },
         "class": { "enum": ["read", "mutation"] },
-        "risk": { "enum": ["read", "mutate-own", "mutate-shared", "execute", "send-external", "destructive"] },
+        "risk": { "enum": ["read", "mutate-own", "mutate-shared", "execute", "send-external", "destructive", "money"] },
         "idempotency": { "enum": ["required", "forbidden"] },
         "focuses": { "type": "boolean" },
         "queue_offline": { "type": "boolean" },

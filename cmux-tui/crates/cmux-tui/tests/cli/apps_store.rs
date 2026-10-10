@@ -394,7 +394,11 @@ fn person_only_and_money_ops_never_reach_an_app() {
     ok(&agent.rpc(json!({ "cmd": "apps-mount", "app": "cmux/probe", "interface": "cmux.status/1", "mount_id": "m1", "context": {} })));
 
     let resolved = apps.lines("resolved.jsonl", calls.len());
-    for (call, reply) in calls.iter().zip(&resolved) {
+    for call in &calls {
+        let reply = resolved
+            .iter()
+            .find(|reply| reply["cb"] == call["cb"])
+            .unwrap_or_else(|| panic!("no resolve for {call}: {resolved:?}"));
         assert_eq!(
             (
                 reply["cb"].clone(),
