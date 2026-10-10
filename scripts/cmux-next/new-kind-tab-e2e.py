@@ -2,21 +2,24 @@
 """Live check of New <Kind> Tab (cmuxterm-hq#1829, cx-9r5w) on a running tagged cmux-next build.
 
 `newTab.ofKind` opens a tab of the selected tab's kind whatever `tabs.newTabKind` says: on a
-browser tab it opens a browser tab, while Cmd-T (`newTab.default`, the New Tab page by default
-when the user presses it) does not. The old id `newTab.sameKind` still runs Cmd-T's action, so
-keybindings and scripts keep working. A browser tab's menu titles the action by its kind ("New Browser Tab").
+browser tab it opens a browser tab on that tab's engine, while Cmd-T (`newTab.default`) opens the
+New Tab page under the default setting. The old id `newTab.sameKind` still runs Cmd-T's action,
+so keybindings and scripts keep working. A browser tab's menu titles the action by its kind
+("New Browser Tab").
 
 The script attaches to an app already running (a capture slot's `capture-host launch`, or a
-tagged build) through its debug socket, runs the actions the way the palette and keybindings do
-(`action.run`, with `focus` so a run may select what it opens) and presses Cmd-T as the user
-does (`debug.key`; a script's `newTab.default` takes the selected tab's kind), counts browser
-tabs through the daemon socket's `list-workspaces`, and reads the browser tab row's menu (`debug.sidebar_rows` `menu_x`/`menu_y`, with Show Tabs Under Workspaces
-on). It never launches or quits the app.
+tagged build) through its debug socket. It runs actions the way the palette does (`action.run`,
+with `focus` so a run may select what it opens), presses Cmd-T as the user does (`debug.key`; a
+script's `newTab.default` takes the selected tab's kind), reads tabs through the daemon socket's
+`list-workspaces`, asks the app whether the focused tab is the New Tab page (`debug.new_tab`
+`field`: the New Tab page and agent chats are daemon browser tabs too), and reads the browser tab
+row's menu (`debug.sidebar_rows` `menu_x`/`menu_y`, with Show Tabs Under Workspaces on). It never
+launches or quits the app.
 
 Usage: new-kind-tab-e2e.py --socket /tmp/cmux-debug-<tag>[-capslot<N>].sock [--daemon-socket PATH] [--out DIR]
 Exit status 0 when every check passes.
 """
-import argparse, json, os, re, socket, subprocess, sys, time
+import argparse, json, os, socket, subprocess, sys, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--socket", required=True, help="the tagged app's debug socket")
@@ -51,8 +54,11 @@ def rpc(method, params=None, timeout=30):
         return {"error": str(error)}
 
 
-def action(name, args=None, focus=False):
-    return rpc("action.run", {"action": name, "args": args or {}, "focus": focus})
+def action(name, args=None, focus=False, target=None):
+    params = {"action": name, "args": args or {}, "focus": focus}
+    if target:
+        params["target"] = target
+    return rpc("action.run", params)
 
 
 def daemon_socket():
@@ -71,14 +77,18 @@ def daemon_tabs():
             for tab in pane.get("tabs") or []]
 
 
-def is_browser(tab):
-    """A web page tab. The New Tab page and agent tabs are daemon browser tabs too, with a conversation."""
-    kind = str(tab.get("kind") or tab.get("type") or "").lower()
-    return ("browser" in kind or bool(tab.get("url"))) and not tab.get("conversation")
+def tab(tab_id):
+    return next((t for t in daemon_tabs() if t.get("tab_resource_id") == tab_id), None)
 
 
-def browsers():
-    return sum(1 for tab in daemon_tabs() if is_browser(tab))
+def created(reply):
+    ids = (reply or {}).get("created") or []
+    return ids[0] if ids else None
+
+
+def shows_new_tab_page():
+    """The focused pane shows the New Tab page (or an agent chat), not a web page or terminal."""
+    return "error" not in (rpc("debug.new_tab", {"action": "field"}) or {"error": True})
 
 
 def wait(check, seconds, step=0.5):
@@ -113,36 +123,44 @@ def main():
         sys.exit("the app does not answer on " + opts.socket)
     print("newTab (workspace):", action("newTab", focus=True), flush=True)
     time.sleep(1)  # test harness: the workspace mounts
-    start = browsers()
-    print("openBrowser:", action("openBrowser", {"url": "about:blank"}, focus=True), flush=True)
-    if not wait(lambda: browsers() > start, 20):
-        sys.exit(f"no browser tab opened; a daemon tab: {json.dumps((daemon_tabs() or [{}])[-1])[:600]}")
+    reply = action("openBrowser", {"url": "about:blank"}, focus=True)
+    print("openBrowser:", reply, flush=True)
+    browser_id = created(reply)
+    browser = wait(lambda: tab(browser_id), 20)
+    if not browser:
+        sys.exit("no browser tab opened")
     time.sleep(1)  # test harness: the browser tab is selected
-    print("a daemon browser tab:", json.dumps(next(t for t in daemon_tabs() if is_browser(t)))[:400], flush=True)
+    print("browser tab:", browser.get("kind"), browser.get("browser_engine"), browser.get("url"), flush=True)
 
-    before = browsers()
-    reply = action("newTab.ofKind")
-    grew = wait(lambda: browsers() > before, 15)
-    row("New <Kind> Tab on a browser tab opens a browser tab", f"browser tabs {before} -> {before + 1}",
-        f"reply {reply}; browser tabs {before} -> {browsers()}", bool(grew))
+    reply = action("newTab.ofKind", focus=True)
+    opened = wait(lambda: tab(created(reply)), 15)
+    time.sleep(1)  # test harness: the new tab is selected
+    page = shows_new_tab_page()
+    row("New <Kind> Tab on a browser tab opens a browser tab on its engine",
+        f"a browser tab on {browser.get('browser_engine')}, not the New Tab page",
+        f"reply {reply}; opened {opened and (opened.get('kind'), opened.get('browser_engine'), opened.get('url'))}; New Tab page {page}",
+        bool(opened) and opened.get("kind") == "browser" and opened.get("browser_engine") == browser.get("browser_engine") and not page)
 
-    # Cmd-T as the user presses it (debug.key: the key router, user origin) on that browser
-    # tab opens the New Tab page under tabs.newTabKind's default ("page"), not a browser tab.
-    # The slot's config may name another kind, so the check sets the default and restores it.
+    # Cmd-T as the user presses it (debug.key: the key router, user origin) on a browser tab
+    # opens the New Tab page under tabs.newTabKind's default ("page"). The slot's config may
+    # name another kind, so the check sets the default and restores it.
     saved = rpc("settings.get", {"path": "tabs.newTabKind"})
     print("tabs.newTabKind was:", saved, "set:", rpc("settings.set", {"path": "tabs.newTabKind", "value": "page"}), flush=True)
     time.sleep(1)  # test harness: the config reloads
-    before_tabs, before = len(daemon_tabs()), browsers()
+    print("select the browser tab:", action("tab.focus", focus=True, target="tab:" + browser_id), flush=True)
+    time.sleep(1)  # test harness
+    before = {t.get("tab_resource_id") for t in daemon_tabs()}
     print("Cmd-T:", rpc("debug.key", {"key": "t", "modifiers": ["command"]}), flush=True)
-    opened = wait(lambda: len(daemon_tabs()) > before_tabs, 15)
-    time.sleep(2)  # test harness: give a wrong browser tab time to appear
+    new = wait(lambda: [t for t in daemon_tabs() if t.get("tab_resource_id") not in before], 15)
+    page = wait(shows_new_tab_page, 10)
+    row("Cmd-T on a browser tab still opens the New Tab page", "one new tab; the focused pane shows the New Tab page",
+        f"new {[(t.get('kind'), t.get('browser_engine'), t.get('url')) for t in new or []]}; New Tab page {page}",
+        bool(new) and len(new) == 1 and bool(page))
     previous = (saved or {}).get("value")
     if isinstance(previous, str) and previous != "page":
         rpc("settings.set", {"path": "tabs.newTabKind", "value": previous})
     elif previous is None:
         rpc("settings.unset", {"path": "tabs.newTabKind"})
-    row("Cmd-T on a browser tab still opens the New Tab page", f"one more tab; browser tabs stay {before}",
-        f"tabs {before_tabs} -> {len(daemon_tabs())}; browser tabs {browsers()}", bool(opened) and browsers() == before)
 
     reply = action("newTab.sameKind")
     row("the old id newTab.sameKind runs Cmd-T's action", "no error; runs newTab.default",
@@ -152,8 +170,7 @@ def main():
         print("workspace tabs toggle:", action("sidebar.workspaceTabs.toggle"), flush=True)
     wait(tab_rows, 15)
     time.sleep(1)  # test harness: the list settles
-    ids = {t.get("tab_resource_id") for t in daemon_tabs() if is_browser(t)}
-    browser_row = next((r for r in tab_rows() if any(i and i in str(r.get("key")) for i in ids)), None)
+    browser_row = next((r for r in tab_rows() if browser_id in str(r.get("key"))), None)
     menu = None
     if browser_row:
         frame = browser_row.get("window_frame") or {}
