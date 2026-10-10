@@ -12,6 +12,7 @@ import { RECEIVE_NAME } from "../shared/pageClient";
 import { MARKDOWN_CHANGES, MARKDOWN_LOOK } from "./host";
 import { devOp, showDevPicker } from "../../viewer-empty/dev";
 import { MARKDOWN_CHOOSE_FILE_OP, MARKDOWN_OPEN_OP, MARKDOWN_RECENTS_OP } from "../../viewer-empty/ops";
+import { viteHot } from "../../viteHot";
 
 type Envelope = { t: string; id?: number; op?: string; params?: unknown; stream?: string; sub?: number };
 
@@ -97,10 +98,11 @@ addEventListener(
 );
 
 // The file watcher: the server reports a change of a watched file; the page gets its new text.
-if (import.meta.hot) {
+const hot = viteHot();
+if (hot) {
   // The settings watcher: cmux.json's `markdown` section or markdown/theme.css changed.
-  import.meta.hot.on("cmux-markdown:look", (look: unknown) => emit(MARKDOWN_LOOK, look));
-  import.meta.hot.on("cmux-markdown:content", async (changed: { file: string }) => {
+  hot.on("cmux-markdown:look", (look: unknown) => emit(MARKDOWN_LOOK, look));
+  hot.on("cmux-markdown:content", async (changed: { file: string }) => {
     const { body } = await op("cmux.markdown.read", {});
     if (!file || !changed.file.endsWith(file.replace(/^.*\//, ""))) return;
     emit(

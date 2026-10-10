@@ -14,6 +14,7 @@ import table from "./generated/strings.json";
 import { EDITOR_CHANGES, EDITOR_CHOOSE_FILE_OP, EDITOR_LOOK, EDITOR_OPEN_OP, EDITOR_RECENTS_OP } from "./host";
 import { DEV_DISPATCHER } from "./devKeys";
 import { EMPTY } from "./strings";
+import { viteHot } from "../../viteHot";
 
 type Envelope = {
   t: string;
@@ -128,9 +129,10 @@ addEventListener(
 );
 
 // The file watcher: the server reports a change of a watched file; the page gets its new text.
-if (import.meta.hot) {
-  import.meta.hot.on("cmux-editor:look", (look: unknown) => emit(EDITOR_LOOK, look));
-  import.meta.hot.on("cmux-editor:content", async (changed: { file: string }) => {
+const hot = viteHot();
+if (hot) {
+  hot.on("cmux-editor:look", (look: unknown) => emit(EDITOR_LOOK, look));
+  hot.on("cmux-editor:content", async (changed: { file: string }) => {
     if (!file || changed.file !== file) return;
     const { body } = await op("cmux.editor.read", {});
     emit(EDITOR_CHANGES, body.deleted ? { path: file, hash: null, deleted: true } : { path: file, ...body });
