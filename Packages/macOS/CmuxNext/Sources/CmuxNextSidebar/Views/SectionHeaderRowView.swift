@@ -137,7 +137,8 @@ final class SectionHeaderRowView: SidebarRowView {
         }
         status.isHidden = statusTone == nil
         CATransaction.commit()
-        layer?.backgroundColor = nil
+        // A click folds the section: hover shows the row's hover fill, like a workspace row (cx-qno.17).
+        performWithTheme { paintFill(isHovered ? Palette.hoverFill : nil) }
     }
 
     // theme-scoped: called only inside performWithTheme

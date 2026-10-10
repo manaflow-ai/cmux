@@ -46,6 +46,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var browserOmnibar = BrowserOmnibarSetting.fallback
     /// `agentPane.editedFiles.*`: the agent pane's edited-files card.
     public var agentPaneEditedFiles = AgentPaneEditedFilesSetting.fallback
+    public var agentPaneZoom: Double = AgentPaneZoomSetting.fallback
     public var agentPaneComposer = AgentPaneComposerSetting.fallback
     /// `browser.remoteLocalhost` and `browser.remoteLocalhostWorkspaces`.
     public var remoteLocalhost: RemoteLocalhostSetting = .fallback
@@ -55,7 +56,6 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var centerFocusedColumn: CenterFocusedColumn = CenterFocusedColumnSetting.fallback
     /// `layout.stripScrollbar`; "auto" when unset or invalid.
     public var stripScrollbar: StripScrollbarMode = StripScrollbarSetting.fallback
-    /// `sidebar.*` section settings; defaults when unset or invalid.
     public var sidebarSections = SidebarSectionsPreferences.defaults
     /// `layout.splitSizing`, `layout.newColumnWidth`, docked defaults and the
     /// minimum pane size (`ColumnLayoutSettings`).
@@ -245,6 +245,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         ChatSettings.validate(root, diagnostics: &snapshot.diagnostics)
         snapshot.browserOmnibar = BrowserOmnibarSetting.parse(root, diagnostics: &snapshot.diagnostics)
         CmuxConfigSnapshot.parseAgentPane(root, into: &snapshot)
+        snapshot.agentPaneZoom = AgentPaneZoomSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusBehavior = StatusIndicatorConfigParser.behavior(root, diagnostics: &snapshot.diagnostics)
         let (borders, bordersDiagnostic) = BordersSetting.parse(root)
         snapshot.borders = borders
