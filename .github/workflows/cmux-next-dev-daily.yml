@@ -173,11 +173,24 @@ jobs:
           This channel is Developer ID signed and intentionally not notarized; download with curl or gh so macOS does not add quarantine.
           EOF
           )"
+          assert_current_tip() {
+            current_tip="$(gh api "repos/$GH_REPO/git/ref/heads/feat-cmux-next" --jq '.object.sha')"
+            if [[ "$current_tip" != "$SOURCE_SHA" ]]; then
+              echo "::notice::Skipping stale cmux NEXT DEV source $SOURCE_SHA; feat-cmux-next is now $current_tip"
+              return 1
+            fi
+          }
+          # A slower source build must not roll the channel back after a newer
+          # feat-cmux-next tip has already been selected by the dispatcher.
+          assert_current_tip || exit 0
           if ! gh release view "$RELEASE_TAG" --repo "$GH_REPO" >/dev/null 2>&1; then
+            assert_current_tip || exit 0
             gh release create "$RELEASE_TAG" --repo "$GH_REPO" --target "$SOURCE_SHA" --title 'cmux NEXT DEV' --notes "$notes" --prerelease --latest=false
           else
+            assert_current_tip || exit 0
             gh release edit "$RELEASE_TAG" --repo "$GH_REPO" --target "$SOURCE_SHA" --title 'cmux NEXT DEV' --notes "$notes" --prerelease --latest=false
           fi
+          assert_current_tip || exit 0
           gh release upload "$RELEASE_TAG" --repo "$GH_REPO" "$archive" "$archive.sha256" --clobber
           echo "Published $RELEASE_TAG for $SOURCE_SHA"
 
