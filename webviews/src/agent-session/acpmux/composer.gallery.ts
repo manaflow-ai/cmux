@@ -476,7 +476,7 @@ export default agentPaneEntry({
       },
     },
     "reasoning-codex": {
-      note: "Play: Codex's reasoning menu: Low to Ultra (Xhigh reads Extra High), then Service Tier Standard and Fast with Codex's own line.",
+      note: "Play: open Codex's reasoning menu, choose Service Tier Fast, and close it; the snapshot shows Low to Ultra (Xhigh reads Extra High) plus Standard (Default) and Fast.",
       snapshot: withSummary(chat(finished, { harness: "codex", model: "gpt-6-astra", title: "Codex reasoning" }), {
         configOptions: [
           {
@@ -497,13 +497,6 @@ export default agentPaneEntry({
         ],
       }),
       play: async (ctx) => {
-        await ctx.click({ selector: ".acpmux-effort .acpmux-picker-button" });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-effort-menu"));
-        await ctx.click({ role: "menuitemradio", name: /^Low/ });
-        await ctx.waitFor(
-          () =>
-            ctx.document.querySelector(".acpmux-effort .acpmux-picker-button")?.textContent?.includes("Low") ?? false,
-        );
         await ctx.click({ selector: ".acpmux-effort .acpmux-picker-button" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-effort-menu"));
         await ctx.click({ role: "menuitemradio", name: /^Fast/ });
