@@ -309,8 +309,17 @@ def ask(text, wait_reply=True):
         if not (isinstance(reply, dict) and reply.get("ok")):
             return f"(drive {action} failed: {reply})"
     # Its index + 1 (index 0 is a found message, and wait() takes only a truthy value).
-    found = wait(lambda: next((i + 1 for i, m in enumerate(log_items()) if i >= before and m["kind"] == "user"
-                               and text[:40] in m["text"]), None), opts.turn_timeout)
+    def logged():
+        return next((i + 1 for i, m in enumerate(log_items()) if i >= before and m["kind"] == "user"
+                     and text[:40] in m["text"]), None)
+    found = wait(logged, 90)
+    if found is None:
+        # A send before Home's owner connection took it stays a draft: show Home and send again.
+        print(f"ask: not logged after 90 s ({json.dumps(rpc('debug.home') or {})[:300]}); sending again", flush=True)
+        show_home()
+        for action, extra in (("focus", {}), ("type", {"text": text}), ("send", {})):
+            rpc("debug.home.drive", {"action": action, **extra})
+        found = wait(logged, opts.turn_timeout)
     mine = None if found is None else found - 1
     if mine is None:
         return "(my message never reached the Chief's log)"
@@ -627,58 +636,6 @@ def restart_mid_run():
 
 
 @flow
-def stale_tab_never_shows_another_session():
-    """P1 2026-10-09: a subagent tab whose session is gone, while the Chief home's acpmux has a
-    new session of the same name, says "This chat isn't available" and never shows that session:
-    live (the session is deleted while its tab shows) and after an app restart (the handshake)."""
-    answer = spawn(["Reply with only the word stale-probe."])
-    ids = ids_in(answer)
-    wait_done(ids, 300)
-    sub = subs().get(ids[0], {}) if ids else {}
-    old = sub.get("session_id")
-    ws = wait(lambda: next((w for w in workspaces() if ws_name(w).lstrip("✓ ").startswith(ids[0] + " ")), None) if ids else None, 60)
-    if not (old and ws):
-        row("stale subagent tab", "a subagent with a session and a workspace", f"session {old}; ws {ws}", False)
-        return
-    focus_workspace(ws.get("id"), f"stale-{ids[0]}-before")
-    before = rpc("debug.agent_pane", {"action": "chat_state"}) or {}
-    # The recreated home: the old session goes, a new one takes its name (a compactor's in the bug).
-    name = next((r.get("name") for r in (acpmux_rpc("_acpmux/sessions", {}) or {}).get("sessions", [])
-                 if r.get("sessionId") == old), f"optchat-sub-x-{ids[0]}")
-    deleted = acpmux_rpc("session/delete", {"sessionId": old})
-    made = acpmux_rpc("session/new", {"cwd": WORK, "mcpServers": [],
-                                      "_meta": {"acpmux": {"name": name, "harness": os.environ.get("MUX_HARNESS", "claude-sr")}}})
-    new = (made or {}).get("sessionId")
-    live = wait(lambda: (lambda st: st if st.get("missingSession") else None)(
-        rpc("debug.agent_pane", {"action": "chat_state"}) or {}), 30) or rpc("debug.agent_pane", {"action": "chat_state"}) or {}
-    snapshot(f"stale-{ids[0]}-live")
-    row("stale subagent tab, live", "the pane says the chat is gone; it never attaches the new same-named session",
-        f"old {old} ({'stale-probe' in pane_text(before)}); name {name}; delete {json.dumps(deleted)[:60]}; new {new}; "
-        f"pane session {live.get('sessionId')}, missing {live.get('missingSession')}",
-        live.get("missingSession") == old and live.get("sessionId") in (None, old) and new is not None
-        and live.get("sessionId") != new and "stale-probe" in pane_text(before))
-    rpc("action.run", {"action": "quitKeepSessions"}, timeout=10)
-    try:
-        app.wait(timeout=60)
-    except subprocess.TimeoutExpired:
-        pass
-    launch_app()
-    show_home()
-    ws = wait(lambda: next((w for w in workspaces() if ws_name(w).lstrip("✓ ").startswith(ids[0] + " ")), None), 120)
-    if ws:
-        focus_workspace(ws.get("id"), f"stale-{ids[0]}-restored")
-    restored = wait(lambda: (lambda st: st if st.get("missingSession") else None)(
-        rpc("debug.agent_pane", {"action": "chat_state"}) or {}), 60) or rpc("debug.agent_pane", {"action": "chat_state"}) or {}
-    row("stale subagent tab, after restart", "the restored tab says the chat is gone; never the new same-named session",
-        f"ws {ws_name(ws or {})!r}; pane session {restored.get('sessionId')}, missing {restored.get('missingSession')}; "
-        f"text {pane_text(restored)[:60]!r}",
-        bool(ws) and restored.get("missingSession") == old and restored.get("sessionId") != new and not pane_text(restored))
-    if new:
-        acpmux_rpc("session/delete", {"sessionId": new})
-    show_home()
-
-
-@flow
 def subagent_link_opens_its_chat():
     """Lawrence 2026-10-09: "you need to be able to link to a subagent so I can just click here to
     get to it". The Chief names its new subagent as a link, Home renders it as a link, and a click
@@ -784,6 +741,58 @@ def harness_follows_chief():
     ok = all(v and harness.split("-")[0] in (v[0] or "") + (v[1] or "") for harness, v in seen.items())
     row("subagents use the Chief's harness", "codex turn -> codex subagent; claude turn -> claude subagent",
         f"{seen}", ok)
+
+
+@flow
+def stale_tab_never_shows_another_session():
+    """P1 2026-10-09: a subagent tab whose session is gone, while the Chief home's acpmux has a
+    new session of the same name, says "This chat isn't available" and never shows that session:
+    live (the session is deleted while its tab shows) and after an app restart (the handshake)."""
+    answer = spawn(["Reply with only the word stale-probe."])
+    ids = ids_in(answer)
+    wait_done(ids, 300)
+    sub = subs().get(ids[0], {}) if ids else {}
+    old = sub.get("session_id")
+    ws = wait(lambda: next((w for w in workspaces() if ws_name(w).lstrip("✓ ").startswith(ids[0] + " ")), None) if ids else None, 60)
+    if not (old and ws):
+        row("stale subagent tab", "a subagent with a session and a workspace", f"session {old}; ws {ws}", False)
+        return
+    focus_workspace(ws.get("id"), f"stale-{ids[0]}-before")
+    before = rpc("debug.agent_pane", {"action": "chat_state"}) or {}
+    # The recreated home: the old session goes, a new one takes its name (a compactor's in the bug).
+    name = next((r.get("name") for r in (acpmux_rpc("_acpmux/sessions", {}) or {}).get("sessions", [])
+                 if r.get("sessionId") == old), f"optchat-sub-x-{ids[0]}")
+    deleted = acpmux_rpc("session/delete", {"sessionId": old})
+    made = acpmux_rpc("session/new", {"cwd": WORK, "mcpServers": [],
+                                      "_meta": {"acpmux": {"name": name, "harness": os.environ.get("MUX_HARNESS", "claude-sr")}}})
+    new = (made or {}).get("sessionId")
+    live = wait(lambda: (lambda st: st if st.get("missingSession") else None)(
+        rpc("debug.agent_pane", {"action": "chat_state"}) or {}), 30) or rpc("debug.agent_pane", {"action": "chat_state"}) or {}
+    snapshot(f"stale-{ids[0]}-live")
+    row("stale subagent tab, live", "the pane says the chat is gone; it never attaches the new same-named session",
+        f"old {old} ({'stale-probe' in pane_text(before)}); name {name}; delete {json.dumps(deleted)[:60]}; new {new}; "
+        f"pane session {live.get('sessionId')}, missing {live.get('missingSession')}",
+        live.get("missingSession") == old and live.get("sessionId") in (None, old) and new is not None
+        and live.get("sessionId") != new and "stale-probe" in pane_text(before))
+    rpc("action.run", {"action": "quitKeepSessions"}, timeout=10)
+    try:
+        app.wait(timeout=60)
+    except subprocess.TimeoutExpired:
+        pass
+    launch_app()
+    show_home()
+    ws = wait(lambda: next((w for w in workspaces() if ws_name(w).lstrip("✓ ").startswith(ids[0] + " ")), None), 120)
+    if ws:
+        focus_workspace(ws.get("id"), f"stale-{ids[0]}-restored")
+    restored = wait(lambda: (lambda st: st if st.get("missingSession") else None)(
+        rpc("debug.agent_pane", {"action": "chat_state"}) or {}), 60) or rpc("debug.agent_pane", {"action": "chat_state"}) or {}
+    row("stale subagent tab, after restart", "the restored tab says the chat is gone; never the new same-named session",
+        f"ws {ws_name(ws or {})!r}; pane session {restored.get('sessionId')}, missing {restored.get('missingSession')}; "
+        f"text {pane_text(restored)[:60]!r}",
+        bool(ws) and restored.get("missingSession") == old and restored.get("sessionId") != new and not pane_text(restored))
+    if new:
+        acpmux_rpc("session/delete", {"sessionId": new})
+    show_home()
 
 
 def unix_call(path, request, timeout=30):

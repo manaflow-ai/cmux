@@ -367,12 +367,9 @@ impl Spawner {
                     "subagent.workspace",
                     json!({"id": id, "spawn": spawn, "workspace": key, "name": name, "place": place}),
                 );
-                // The deeplink the app opens (Home renders it as a link; a click shows this
-                // subagent's workspace and tab), when the tag names the Chief home.
-                let link = crate::workspaces::subagent_link(&s.parent, id, &session)
-                    .map(|l| format!("; its link {l}"))
-                    .unwrap_or_default();
-                let note = format!("workspace \"{name}\" in {place}{link}");
+                // No link here: the posted reply links every mention (link_subagents), so
+                // the memory keeps the plain id, not a 70-character URL per mention.
+                let note = format!("workspace \"{name}\" in {place}");
                 let _ = self.send(Input::SubagentWorkspace {
                     id: id.to_owned(),
                     key,
@@ -732,7 +729,7 @@ impl Orchestrator for Spawner {
             .map(|n| format!("\nDirectory: {n}."))
             .unwrap_or_default();
         Ok(format!(
-            "{head}{dir_note}\n{}\nTell the user only what these lines say about workspaces. When you name a subagent to the user, write its link from these lines (for example [a1](...)), so a click opens its chat. Each one's report reaches you as a message, \"[id] report\", when it finishes; never wait or poll for them. tell(id, message) sends one more instructions.",
+            "{head}{dir_note}\n{}\nTell the user only what these lines say about workspaces. Name a subagent by its id (a1): the user's app shows each id as a link to its chat. Each one's report reaches you as a message, \"[id] report\", when it finishes; never wait or poll for them. tell(id, message) sends one more instructions.",
             lines.join("\n")
         ))
     }

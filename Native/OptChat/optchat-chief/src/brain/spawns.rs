@@ -324,7 +324,7 @@ impl Brain {
             .filter(|s| s.status == SubStatus::Done)
             .map(|s| {
                 let report = s.report.as_deref().unwrap_or("");
-                let footer = self.with_link(&s.id, crate::agent_chat::footer(&s.id));
+                let footer = crate::agent_chat::footer(&s.id);
                 (
                     s.id.clone(),
                     format!("[{}] {report}\n{footer}", s.id),
@@ -458,7 +458,7 @@ impl Brain {
                 "sent to {id}; it reads it after its current step, and its report comes back as a \"[{id}] ...\" message"
             )
         };
-        Ok(self.with_link(id, answer))
+        Ok(answer)
     }
 
     /// After a reconnect: subagents that finished or vanished meanwhile.
@@ -541,16 +541,6 @@ impl Brain {
             }
             self.save();
             (self.log)(&format!("subagent {id}: a slot is free, starting it"));
-        }
-    }
-
-    /// `text` with a line naming subagent `id`'s link, when it has a session in this home.
-    pub(super) fn with_link(&self, id: &str, text: String) -> String {
-        let session = self.state.sub(id).and_then(|(_, s)| s.session_id.clone());
-        match session.and_then(|s| crate::workspaces::subagent_link(&self.settings.parent, id, &s))
-        {
-            Some(link) => format!("{text}\nIts link: {link}"),
-            None => text,
         }
     }
 
