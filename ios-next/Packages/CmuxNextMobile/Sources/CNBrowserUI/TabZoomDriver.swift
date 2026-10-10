@@ -2,6 +2,7 @@
 import Observation
 import QuartzCore
 import UIKit
+import os
 
 /// Runs `TabZoomState` on the display's frame clock. Views read `state`
 /// (progress drives every frame of the zoom); actions mutate it through the
@@ -14,6 +15,9 @@ final class TabZoomDriver {
     @ObservationIgnored private var link: CADisplayLink?
     @ObservationIgnored private var lastTimestamp: CFTimeInterval?
     #if DEBUG
+    /// DEBUG (`CMUX_NEXT_BROWSER_ZOOM_TRACE=1`): log progress per frame.
+    @ObservationIgnored private static let trace = ProcessInfo.processInfo.environment["CMUX_NEXT_BROWSER_ZOOM_TRACE"] == "1"
+    @ObservationIgnored private static let traceLog = Logger(subsystem: "dev.cmux.next", category: "browser.zoom")
     /// DEBUG (`CMUX_NEXT_BROWSER_REVERSE_MS=<ms>`): reverse a zoom toward the
     /// grid this long after it starts, like a second tap, for frame-exact
     /// comparison with the reversal reference recording.
@@ -91,6 +95,9 @@ final class TabZoomDriver {
         }
         #endif
         let settled = state.step(dt)
+        #if DEBUG
+        if Self.trace { Self.traceLog.notice("zoom t=\(now, format: .fixed(precision: 4)) p=\(self.state.progress, format: .fixed(precision: 5)) target=\(self.state.target)") }
+        #endif
         if settled || state.phase != .animating {
             stopLink()
             onSettle?(state.phase)

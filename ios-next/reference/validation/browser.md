@@ -522,3 +522,46 @@ The back control is now one glass capsule:
 There is no Safari capture of this morph, so it is not frame-matched.
 `back-forward-morph.png` (frames 163–182 appear, 373–395 disappear) shows it
 settling in about 17 frames with no pop.
+
+## Round 6b: spring constants from `browser-springs-verify.md`
+
+Applied in 63854ab308b. `ZoomSpring` is now the only source for the tab zoom;
+the dead `overviewOpen`, `overviewClose` and `newTab` tokens are removed.
+
+| Constant | Before | Now (verifier) |
+|---|---|---|
+| toOverview (open) | 0.33 / 0.91 | **0.37 / 0.875** |
+| toPage (close, Done, card, new tab) | 0.335 / 1.0 from rest | **0.39 / 0.99**, launched at **8.5 progress/s** toward the page |
+| Reversal | 0.39 / 0.88, keeps 1/5 of the velocity | **One-frame jump** toward the new target (20 pt of card width toward the page, 10 pt toward the grid), then the destination's spring from rest: **0.32 / 1.03** toward the page, **0.36 / 0.86** toward the grid |
+| reflow | 0.38 / 0.85 | **0.43 / 0.89** |
+| expandScroll / expandTap | 0.41 / 0.87, 0.37 / 0.90 | **0.385 / 0.88**, **0.39 / 0.88** |
+| sideOut / sideIn | linear 0.14 / linear 0.18 after 0.12 | **linear 0.10** / **easeOut 0.23 after 0.09** |
+
+**Pinch velocity bug (item 8).** The bug was in the old `PageSurface.pinch`,
+which divided the scale by 0.94 but not the velocity. That code was replaced
+by the round-6 pinch, which uses the raw `UIPinchGestureRecognizer` scale and
+velocity windows from the tracked rect, so it no longer applies.
+
+**Our app re-measured.** I logged the zoom progress per display frame from the
+app (`CMUX_NEXT_BROWSER_ZOOM_TRACE=1`, Pro Max simulator, real display
+timestamps). I could not reuse the verifier's video pipeline on our
+recordings: the simulator recorder's variable frame stamps gave 4–6 pt RMS on
+any spring fit, as the verifier also found for simulator footage.
+
+| Transition | Safari (verifier) | Ours | |
+|---|---|---|---|
+| Open, settle to 0.5 pt | 440–470 ms | 433 ms (29 frames; one 67 ms simulator stall) | Within 1 frame |
+| Close, settle to 0.5 pt | 480–500 ms | 467 ms (34 frames) | Within 1–2 frames |
+| Close, first frame | Covers 1850–2700 pt/s | 0.139 progress (34 pt) in the first 16.7 ms frame = 2040 pt/s | Matches |
+
+The reversal is covered by unit tests:
+`reversalJumpsTowardTheNewTargetThenStartsFromRest` and `closeStartsFast`.
+The DEBUG timed reversal did not fire in this trace run, so it has no
+on-device frame comparison yet.
+
+**Open y lead (item 9, not changed).** The verifier saw the content's y run
+ahead of the width on open and overshoot by about 4 pt, but could not separate
+the card frame from the content offset inside it. Our rect drives x, y, width
+and height from one progress value. A separate y spring would only be
+justified by a device recording of the frame edges. I have left it open until
+such a capture exists.
