@@ -1170,6 +1170,9 @@
       const { targetIds } = await storeTabs(page);
       const origins = new Map();
       const budget = { left: READ_NODES, sizeLeft: READ_SIZE, frames: STORAGE_FRAMES };
+      // localStorage is per origin: a frame whose origin is already read,
+      // or out of the call's scope, is not read (and not counted).
+      const wanted = (origin) => origin && origin !== "null" && !origins.has(origin) && !(urls && !urls.some((u) => new core.URL(u).origin === origin)) && inScope(new core.URL(origin).hostname);
       const cutFail = (cut) => {
         throw new Error(`session.storageState: ${core.readCutNote("localStorage", cut)}; pass { urls } to save fewer origins`);
       };
@@ -1177,6 +1180,11 @@
         if (page._closed || !targetIds.has(page._targetId)) continue;
         for (const frame of [page._mainFrame, ...page._frames.values()]) {
           if (frame._detached) continue;
+          let known = null;
+          try {
+            known = new core.URL(String(frame.url())).origin;
+          } catch {}
+          if (known && known !== "null" && !wanted(known)) continue;
           if (budget.frames < 1) cutFail({ truncated: "frames", frames: STORAGE_FRAMES });
           if (budget.left < 1 || budget.sizeLeft < 1) cutFail({ truncated: budget.left < 1 ? "nodes" : "size", maxNodes: READ_NODES, maxSize: READ_SIZE });
           budget.frames -= 1;

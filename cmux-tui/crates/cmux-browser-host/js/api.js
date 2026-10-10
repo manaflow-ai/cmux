@@ -385,8 +385,11 @@
     } else content = document.body ? B.innerText(document.body) : "";
     return { content, truncated: B.truncated || null, report: B.report() };
   }
+  // Cut as plain text: a reply settles a cut marker a margin before it,
+  // which would leave nothing of a short value.
   function readTitle(opts) {
-    return globalThis[Symbol.for("cmux.browserRepl.agent")].budget({ maxSize: opts.maxSize }).fit(document.title);
+    const title = String(document.title);
+    return title.length > opts.maxSize ? title.slice(0, opts.maxSize - 1) + "…" : title;
   }
 
   function createExporter({ fetch, fs, path, host, Buffer }) {
@@ -650,19 +653,28 @@
             if (format === "snapshot") {
               const snap = await ns.snapshot.takeSnapshot(page, undefined, { maxChars: Infinity, _maxSize: share });
               content = String(snap.tree);
-              cut = /^# the page is too large to read whole/m.test(content);
+              const note = /^# the page is too large to read whole: the snapshot stopped ([^;]*)/m.exec(content);
+              cut = !!note;
+              if (note) reason = `the page is too large to read whole: tabs.content stopped ${note[1]}`;
             } else if (format === "markdown") {
               content = await page.markdown({ _maxSize: share });
               cut = /<!-- the page is too large to read whole/.test(content);
+            } else if (format === "html") {
+              // Through frame.observe (page.content's read), which hides
+              // sensitive field values.
+              const r = await page._mainFrame._agent("documentHTML", { maxSize: share });
+              content = r.value;
+              cut = !!r.cut;
+              if (cut) reason = r.cut;
             } else {
-              const r = await page._mainFrame._call("agent", core.functionSource(readContent), [{ html: format === "html", maxSize: share }]);
+              const r = await page._mainFrame._call("agent", core.functionSource(readContent), [{ html: false, maxSize: share }]);
               content = r.content;
               cut = !!r.truncated;
               if (cut) reason = r.report;
             }
             const title = await page._mainFrame._call("agent", core.functionSource(readTitle), [{ maxSize: 1000 }]);
             const row = { url: page.url(), title, status: response ? response.status() : null, content };
-            if (cut) row.truncated = reason ? core.readCutNote("tabs.content", reason) : cutNote(share);
+            if (cut) row.truncated = typeof reason === "string" ? reason : reason ? core.readCutNote("tabs.content", reason) : cutNote(share);
             return row;
           } catch (e) {
             return { url, title: null, status: null, content: null, error: String((e && e.message) || e) };

@@ -2016,9 +2016,10 @@
     return { values, cut: b.truncated ? { truncated: b.truncated, maxNodes: b.nodes, maxSize: b.size } : null };
   }
   // The document's HTML (doctype and outerHTML of its root) within one
-  // page-read budget, for page.content().
-  function documentHTML() {
-    const b = readBudget();
+  // page-read budget, for page.content() (`maxSize` lowers its characters:
+  // tabs.content splits its budget over URLs).
+  function documentHTML(opts) {
+    const b = readBudget({ maxSize: opts && opts.maxSize });
     const doctype = document.doctype ? fit(b, new global.XMLSerializer().serializeToString(document.doctype)) : "";
     const value = doctype + (document.documentElement ? boundedHTML(document.documentElement, b, true) : "");
     return { value, cut: b.truncated ? { truncated: b.truncated, maxNodes: b.nodes, maxSize: b.size } : null };
