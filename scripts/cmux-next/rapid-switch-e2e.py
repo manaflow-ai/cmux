@@ -98,9 +98,10 @@ def setup():
         print("newTab:", action("newTab"), flush=True)
     if not wait(lambda: len(workspace_rows()) >= before + 2, 30):
         sys.exit(f"no new workspaces: {json.dumps(sidebar())[:800]}")
-    # Show the first workspace with the keyboard in it: every new workspace holds one tab.
-    action("selectWorkspaceByNumber", {"index": 1})
-    wait(lambda: selected() and focused_pane().get("selected_tab"), 15)
+    # Show the first workspace (off Home) with the keyboard in it: each holds one tab.
+    action("workspace.selectFirst")
+    if not wait(lambda: selected() and not selected()[0].startswith("itm_") and focused_pane().get("selected_tab"), 15):
+        sys.exit(f"no workspace shown: {selected()} {focused_pane()}")
     time.sleep(1)  # test harness: focus lands in the shown pane
 
 
@@ -127,7 +128,7 @@ def main():
         row("2-tab pane: Cmd-Shift-] stays in the pane", "navigate.next; same row, the pane's other tab",
             f"action={reply.get('action')} row {workspace} -> {selected()} tab {tabs[-2]} -> {tabs[-1]}",
             reply.get("action") == "navigate.next" and selected() == workspace and tabs[-1] != tabs[-2])
-    row("2-tab pane: Next wraps inside the pane", "two presses come back to the first tab", f"tabs {tabs}", tabs[2] == tabs[0])
+    row("2-tab pane: Next wraps inside the pane", "two presses come back to the first tab", f"tabs {tabs}", tabs[0] is not None and tabs[2] == tabs[0])
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "rapid-switch.png")})
 
 
