@@ -5726,6 +5726,7 @@ def test_compile_admission_retry_executes_safely() -> None:
         ("busy-worker", 65, ["canonical-build"]),
         ("pgrep-error", 65, ["canonical-build"]),
         ("module-log", 0, ["canonical-build", "clear", "canonical-resolve", "canonical-build"]),
+        ("poisoned-cache", 0, ["canonical-build", "clear", "canonical-resolve", "canonical-build"]),
         ("recover", 0, ["canonical-build", "clear", "canonical-resolve", "canonical-build"]),
     ):
         with tempfile.TemporaryDirectory() as temporary:
@@ -5736,12 +5737,20 @@ def test_compile_admission_retry_executes_safely() -> None:
                 "scripts/ci/compile-app-host-test-product.sh": r'''#!/bin/bash
 printf '%s\n' "$1" >> "$CALLS"
 if [ "$1" = canonical-resolve ]; then exit 0; fi
-if [ -e "$RUNNER_TEMP/attempt" ]; then exit 0; fi
+if [ -e "$RUNNER_TEMP/attempt" ]; then
+  if [ "$SCENARIO" = poisoned-cache ] && [ "${CMUX_CI_DISABLE_FLEET_CAS:-}" != 1 ]; then
+    echo 'fleet CAS was not disabled for the retry' >&2
+    exit 70
+  fi
+  exit 0
+fi
 touch "$RUNNER_TEMP/attempt"
 if [ "$SCENARIO" = stale-log ]; then
   echo 'real compiler error' >> "$5"
 elif [ "$SCENARIO" = module-log ]; then
   echo "error: unable to resolve module dependency: 'Sparkle'" >> "$5"
+elif [ "$SCENARIO" = poisoned-cache ]; then
+  echo 'error: failed to update cache: cache poisoned' >> "$5"
 else
   echo 'unable to open dependencies file' >> "$5"
 fi
