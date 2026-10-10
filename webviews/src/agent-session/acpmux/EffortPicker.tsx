@@ -39,7 +39,11 @@ export function EffortPicker({
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  // The agent's implicit level is represented by the chip, not a second "Default" row. Keep the
+  // real levels in the menu so the first arrow lands on an actionable choice.
+  const visibleEfforts = efforts.filter((choice) => !isDefaultChoice(choice));
   const selected = efforts.find((choice) => choice.id === current) ?? efforts[0];
+  const selectedVisible = visibleEfforts.find((choice) => choice.id === current);
   const level = !selected || isDefaultChoice(selected) ? t("picker.reasoning") : selected.name;
   const fast = speed !== undefined && speed.current === speed.on;
   // Automation opens the menu by its label as a click does (see pickerOpeners.ts).
@@ -50,9 +54,11 @@ export function EffortPicker({
   useEffect(() => {
     if (!open) return;
     const frame = requestAnimationFrame(() => {
-      document
-        .querySelector<HTMLElement>('.acpmux-effort-menu [role="menuitemradio"][aria-checked="true"]')
-        ?.focus({ preventScroll: true });
+      const reasoningGroup = document.querySelector<HTMLElement>('.acpmux-effort-menu [role="group"]');
+      const selectedReasoning =
+        reasoningGroup?.querySelector<HTMLElement>('[role="menuitemradio"][aria-checked="true"]') ??
+        reasoningGroup?.querySelector<HTMLElement>('[role="menuitemradio"]');
+      selectedReasoning?.focus({ preventScroll: true });
     });
     return () => cancelAnimationFrame(frame);
   }, [open]);
@@ -77,17 +83,19 @@ export function EffortPicker({
           {chevron}
         </MenuButton>
         <MenuPopup side="top" align="start" className="acpmux-effort-menu">
-          <MenuGroup label={t("picker.reasoning")}>
-            <MenuRadioGroup
-              value={selected?.id ?? ""}
-              onValueChange={(next) => {
-                onPick(next);
-                setOpen(false);
-              }}
-            >
-              {efforts.map(row)}
-            </MenuRadioGroup>
-          </MenuGroup>
+          {visibleEfforts.length > 0 && (
+            <MenuGroup label={t("picker.reasoning")}>
+              <MenuRadioGroup
+                value={selectedVisible?.id ?? ""}
+                onValueChange={(next) => {
+                  onPick(next);
+                  setOpen(false);
+                }}
+              >
+                {visibleEfforts.map(row)}
+              </MenuRadioGroup>
+            </MenuGroup>
+          )}
           {speed && (
             <>
               <MenuSeparator />
