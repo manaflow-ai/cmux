@@ -13,8 +13,8 @@ use serde_json::{Map, Number, Value};
 
 use super::{
     CommandPlan, Flags, Resolve, Selectors, UsageError, ZoomStep, group_collapse, group_number,
-    insert_optional_clearable_string, insert_optional_string, insert_u32, parse_bool,
-    parse_tab_group_private, request, usage, validate_one_of, validate_prefixed_id,
+    group_raw_plan, insert_optional_clearable_string, insert_optional_string, insert_u32,
+    parse_bool, parse_tab_group_private, request, usage, validate_one_of, validate_prefixed_id,
 };
 
 const GROUP_COLORS: &[&str] =
@@ -413,7 +413,30 @@ pub(super) fn parse_workspace_group(
 
 // tab
 
-/// `tab <selector> pin|unpin|zoom <n>|reset|in|out|update`.
+/// `tab <tab_…|surface id> restart`: the private `restart-tab`
+/// (`tab-restart-v1`), which restarts a terminal tab whose shell ended under
+/// the same terminal id. One request, like the tab group commands, so it
+/// works against a headless daemon with no app running.
+fn tab_restart(rest: &[&str], selectors: &Selectors) -> Result<CommandPlan, UsageError> {
+    if !rest.is_empty() {
+        return usage("tab restart");
+    }
+    let tab = selectors.values.get("tab").map(String::as_str).unwrap_or_default();
+    let surface = match tab.parse::<u64>() {
+        Ok(surface) => Value::from(surface),
+        Err(_) if tab.starts_with("tab_") => Value::String(tab.to_string()),
+        Err(_) => {
+            return Err(UsageError::new(
+                "tab restart needs a tab id (tab_… or the numeric surface id)",
+            ));
+        }
+    };
+    let mut request = Map::new();
+    request.insert("surface".into(), surface);
+    Ok(group_raw_plan("restart-tab", request))
+}
+
+/// `tab <selector> pin|unpin|zoom <n>|reset|in|out|update|restart`.
 ///
 /// `update --icon <value>|--clear-icon` sets or clears the tab's user icon
 /// (`tab.update {icon}`), which the daemon owns for every tab kind.
@@ -429,6 +452,9 @@ pub(super) fn tab_change(
     selectors: &Selectors,
     flags: &mut Flags,
 ) -> Result<CommandPlan, UsageError> {
+    if action == "restart" {
+        return tab_restart(rest, selectors);
+    }
     let mut params = Params::default();
     let operation = match (action, rest) {
         ("pin", []) => Op::TabPin,

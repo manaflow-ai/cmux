@@ -2,11 +2,11 @@
 //! columns, docks), workspaces and screen groups, unread counts, short ids,
 //! tree entities and tree deltas.
 
+use super::cmd_workspaces::workspace_groups_json;
 use super::home;
 use super::pane_tab_group_json;
 use super::raw_tab;
 use super::screen_json;
-use super::workspace_groups_json;
 use crate::SurfaceKind;
 use crate::resource::ContentPublicId;
 

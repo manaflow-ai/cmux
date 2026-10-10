@@ -52,21 +52,23 @@ fn next_revision(revision: u64, what: &str) -> anyhow::Result<(u64, i64)> {
 
 impl WorkspaceRegistry {
     /// Step 1: reopen an exited terminal for a new launch. Only a host-loss
-    /// receipt of `old_incarnation` qualifies; returns the terminal revision,
-    /// or `None` when the terminal was closed, relaunched or ended otherwise.
+    /// receipt of `old_incarnation` qualifies, or any receipt of it for an
+    /// explicit user restart (`any_end`, `restart-tab`); returns the terminal
+    /// revision, or `None` when the terminal was closed, relaunched or ended
+    /// otherwise.
     pub(crate) fn begin_terminal_respawn(
         &mut self,
         terminal_id: &str,
         old_incarnation: &str,
+        any_end: bool,
     ) -> anyhow::Result<Option<u64>> {
         let tx = self.connection.transaction()?;
         let Some(terminal) = read_terminal(&tx, terminal_id)? else { return Ok(None) };
+        let host_lost =
+            matches!(TerminalEnd::from_receipt(terminal.exit.as_ref()), TerminalEnd::HostLost(_));
         if terminal.lifecycle != TerminalLifecycle::Exited
             || terminal.incarnation.as_deref() != Some(old_incarnation)
-            || !matches!(
-                TerminalEnd::from_receipt(terminal.exit.as_ref()),
-                TerminalEnd::HostLost(_)
-            )
+            || !(host_lost || any_end)
         {
             return Ok(None);
         }

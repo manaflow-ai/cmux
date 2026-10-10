@@ -180,6 +180,7 @@ mod session_stream;
 mod split_kind;
 mod split_respawn;
 mod tab_column;
+mod tab_restart;
 mod websocket_listener;
 #[cfg(test)]
 use cmd_subscribe::subscribed_event_json;
@@ -999,6 +1000,8 @@ enum Command {
     BindConversationTabSession(conversation_tabs_wire::BindSessionParams),
     /// New browser tab whose page the frontend renders (WebKit or CEF).
     NewFrontendBrowserTab(frontend_browser_history::NewTabParams),
+    /// Restart a dead terminal tab under the same terminal id (`tab-restart-v1`).
+    RestartTab(tab_restart::Params),
     UpdateFrontendBrowserTab(frontend_browser_history::UpdateTabParams),
     SetFrontendBrowserHistory(frontend_browser_history::SetParams),
     GetFrontendBrowserHistory(frontend_browser_history::GetParams),
@@ -2191,30 +2194,6 @@ where
     Option::<T>::deserialize(deserializer).map(Some)
 }
 
-fn workspace_group_json(
-    group: &crate::workspace_registry::WorkspaceGroupRecord,
-    index: usize,
-) -> Value {
-    json!({
-        "id": group.id,
-        "name": group.name,
-        "color": group.color,
-        "collapsed": group.collapsed,
-        "index": index,
-    })
-}
-
-fn workspace_groups_json(presentation: &crate::workspace_registry::PresentationSnapshot) -> Value {
-    json!(
-        presentation
-            .groups
-            .iter()
-            .enumerate()
-            .map(|(index, group)| workspace_group_json(group, index))
-            .collect::<Vec<_>>()
-    )
-}
-
 #[derive(Debug, Default, Deserialize)]
 struct MutationRequest {
     #[serde(default)]
@@ -3189,6 +3168,7 @@ fn handle_command_with_cancellation(
         Command::BindConversationTabSession(params) => {
             cmd_tabs::bind_conversation_tab_session(mux, actor, params)
         }
+        Command::RestartTab(params) => tab_restart::restart(mux, params),
         Command::NewFrontendBrowserTab(params) => {
             cmd_tabs::new_frontend_browser_tab(mux, client, params)
         }

@@ -20,10 +20,13 @@
 //!
 //! The launch and seed (`terminal_respawn/launch.rs`) and the pre-fill
 //! (`terminal_respawn/prefill.rs`): an agent resume command or the terminal's
-//! command line is typed on the new prompt without a newline.
+//! command line is typed on the new prompt without a newline. The manual
+//! restart of a tab this path leaves dead (`terminal_respawn/manual.rs`,
+//! `restart-tab`) runs the same worker.
 
 #[cfg(unix)]
 pub(super) mod launch;
+pub(crate) mod manual;
 #[cfg(unix)]
 mod prefill;
 
@@ -180,6 +183,9 @@ pub(super) struct RespawnPlan {
     pub(super) identity: TabResourceIdentity,
     /// The dead runtime taken out of the tabs, for its geometry and budget.
     pub(super) old_runtime: Option<Arc<Surface>>,
+    /// An explicit user restart (`restart-tab`, `manual.rs`): any end of
+    /// the incarnation reopens, not only a host loss.
+    pub(super) user_restart: bool,
 }
 
 impl Mux {
@@ -280,6 +286,7 @@ impl Mux {
             slot,
             identity: TabResourceIdentity::new(tab_id, content),
             old_runtime,
+            user_restart: false,
         })
     }
 
@@ -361,8 +368,11 @@ impl Mux {
         let workspace_key = {
             let mut registry =
                 self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
-            let Some(revision) =
-                registry.begin_terminal_respawn(&plan.terminal_id, &plan.old_incarnation)?
+            let Some(revision) = registry.begin_terminal_respawn(
+                &plan.terminal_id,
+                &plan.old_incarnation,
+                plan.user_restart,
+            )?
             else {
                 return Ok(None);
             };

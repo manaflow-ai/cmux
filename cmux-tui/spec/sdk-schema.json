@@ -15747,6 +15747,33 @@
     "See spec/commands.md for the result object."
    ]
   },
+  "restart-tab": {
+   "authority": "control",
+   "since": 12,
+   "capability": "tab-restart-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "TabRef"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "See spec/commands.md for the result object."
+   ]
+  },
   "set-frontend-browser-history": {
    "authority": "control",
    "since": 12,

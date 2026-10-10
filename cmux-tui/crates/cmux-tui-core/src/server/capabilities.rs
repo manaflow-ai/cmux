@@ -13,6 +13,8 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(cloud_conversations::CAPABILITY);
     }
     #[cfg(unix)]
+    capabilities.push(tab_restart::CAPABILITY);
+    #[cfg(unix)]
     if mux.serves_agent_session_attach() {
         capabilities.push(AGENT_SESSION_ATTACH_CAPABILITY);
     }

@@ -843,7 +843,7 @@ fn parse_tab_strings(
             selectors.insert("tab", "tab", selector)?;
             request(ResourceOperation::TabFocus, selectors, flags, Map::new())
         }
-        [selector, action @ ("pin" | "unpin" | "update" | "zoom"), rest @ ..] => {
+        [selector, action @ ("pin" | "unpin" | "update" | "zoom" | "restart"), rest @ ..] => {
             selectors.insert("tab", "tab", selector)?;
             state::tab_change(action, rest, selectors, flags)
         }

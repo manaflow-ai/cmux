@@ -243,7 +243,7 @@ mod terminal_reap;
 #[cfg(unix)]
 mod terminal_rehost;
 mod terminal_relaunch;
-mod terminal_respawn;
+pub(crate) mod terminal_respawn;
 mod terminal_sizing;
 mod terminal_work;
 mod topology_result;

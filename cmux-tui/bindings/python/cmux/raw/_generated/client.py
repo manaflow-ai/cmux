@@ -516,6 +516,9 @@ class GeneratedClientMixin:
     def resolve_terminal(self, terminal_id: str) -> ResolveTerminalResult:
         return self._invoke_command('resolve-terminal', ResolveTerminalRequest(terminal_id=terminal_id))
 
+    def restart_tab(self, surface: TabRef) -> JsonValue:
+        return self._invoke_command('restart-tab', RestartTabRequest(surface=surface))
+
     def run(self, pane: Union[Id, None, MissingType] = MISSING, *, argv: Union[List[str], None, MissingType] = MISSING, command: Union[str, None, MissingType] = MISSING, cwd: Union[str, None, MissingType] = MISSING, new_workspace: Union[bool, MissingType] = MISSING, key: Union[str, None, MissingType] = MISSING, name: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> RunResult:
         return self._invoke_command('run', RunRequest(pane=pane, argv=argv, command=command, cwd=cwd, new_workspace=new_workspace, key=key, name=name, cols=cols, rows=rows))
 
@@ -889,6 +892,7 @@ GeneratedClientMixin.report_focus.__cmux_command__ = COMMANDS['report-focus']
 GeneratedClientMixin.resize_attached_view.__cmux_command__ = COMMANDS['resize-attached-view']
 GeneratedClientMixin.resize_surface.__cmux_command__ = COMMANDS['resize-surface']
 GeneratedClientMixin.resolve_terminal.__cmux_command__ = COMMANDS['resolve-terminal']
+GeneratedClientMixin.restart_tab.__cmux_command__ = COMMANDS['restart-tab']
 GeneratedClientMixin.run.__cmux_command__ = COMMANDS['run']
 GeneratedClientMixin.save_screen_group.__cmux_command__ = COMMANDS['save-screen-group']
 GeneratedClientMixin.save_tab_group.__cmux_command__ = COMMANDS['save-tab-group']

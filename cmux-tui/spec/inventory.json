@@ -336,6 +336,7 @@
       "report-focus",
       "resize-surface",
       "resolve-terminal",
+      "restart-tab",
       "run",
       "save-screen-group",
       "save-tab-group",
