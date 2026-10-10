@@ -114,7 +114,10 @@ fn every_catalog_operation_has_one_concrete_owner() {
             OperationOwner::Auxiliary => assert!(auxiliary::handles(operation)),
             OperationOwner::State => assert!(crate::state::router::handles(operation)),
             OperationOwner::Git => assert!(crate::git_ops::handles(operation)),
-            OperationOwner::Machine | OperationOwner::Snapshot | OperationOwner::Connection => {}
+            OperationOwner::Machine
+            | OperationOwner::Snapshot
+            | OperationOwner::Connection
+            | OperationOwner::Config => {}
         }
     }
 }

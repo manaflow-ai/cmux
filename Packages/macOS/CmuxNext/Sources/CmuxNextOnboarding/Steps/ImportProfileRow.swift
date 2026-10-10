@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBrowserImport
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// Counts as "Bookmarks 1,204 · History 8,311 · Passwords 412", using the
 /// kind names the checkboxes show (no per-language plural rules needed).
@@ -59,7 +60,6 @@ final class ImportProfileRow: NSView {
         spinner.style = .spinning
         spinner.controlSize = .small
         spinner.isDisplayedWhenStopped = false
-        mark.symbolConfiguration = .init(pointSize: 13, weight: .medium)
         detail.alignment = .right
         let spinnerSlot = Self.slot(width: 18, containing: spinner)
         let markSlot = Self.slot(width: 18, containing: mark)
@@ -163,7 +163,7 @@ final class ImportProfileRow: NSView {
         if FileManager.default.fileExists(atPath: conventionalURL.path) {
             return NSWorkspace.shared.icon(forFile: conventionalURL.path)
         }
-        return NSImage(systemSymbolName: "globe", accessibilityDescription: nil) ?? NSImage()
+        return NSImage.icon(.browser, size: 16)
     }
 
     @objc private func boxPressed() { toggle?() }
@@ -210,7 +210,7 @@ final class ImportProfileRow: NSView {
         accessButton.alphaValue = showsAccess ? 1 : 0
         var showsBox = false
         var spins = false
-        var symbol: String?
+        var markIcon: IconName?
         detail.toolTip = nil
         switch state {
         case .idle:
@@ -223,19 +223,19 @@ final class ImportProfileRow: NSView {
             let running = ImportCountsText.line(counts)
             detail.stringValue = running.isEmpty ? kind.map(OnboardingStrings.kind) ?? "" : running
         case .done(let counts):
-            symbol = "checkmark.circle.fill"
+            markIcon = .statusComplete
             detail.stringValue = ImportCountsText.line(counts)
         case .failed(let reason):
-            symbol = "exclamationmark.triangle.fill"
+            markIcon = .statusError
             detail.stringValue = OnboardingStrings.importRowFailed
             detail.toolTip = reason
         }
         box.alphaValue = showsBox ? 1 : 0
         if spins { spinner.startAnimation(nil) } else { spinner.stopAnimation(nil) }
         spinner.alphaValue = spins ? 1 : 0
-        mark.image = symbol.flatMap { NSImage(systemSymbolName: $0, accessibilityDescription: nil) }
+        mark.image = markIcon.map { NSImage.icon($0, size: 14) }
         mark.contentTintColor = Palette.textSecondary
-        mark.alphaValue = symbol == nil ? 0 : 1
+        mark.alphaValue = markIcon == nil ? 0 : 1
         alphaValue = showsBox && !checked ? 0.55 : 1
     }
 }
