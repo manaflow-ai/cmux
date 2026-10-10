@@ -341,7 +341,10 @@ public final class ConversationViewController: UIViewController {
     /// the header. When the bottom inset changes (keyboard, composer growth)
     /// the visible content moves with it, unless the finger is driving.
     func updateInsets() {
-        let top = header.frame.maxY + 4
+        // Messages' transcript starts at its navigation bar's bottom, 157.33
+        // pt on a Dynamic Island iPhone: 8 pt under the name pill, 3.33 under
+        // the bottom of our header (iOS 26.5 and 27.0).
+        let top = header.frame.maxY + 10.0 / 3.0
         // The last body rests 16.71 pt above the field (ChatKit's send
         // lands it there on iOS 26 and 27): the field sits 4 pt into the
         // container and the content ends 6 pt below the last row.
@@ -1144,7 +1147,18 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
                let typer = store.typingParticipantIDs.first, previous.message.senderID == typer {
                 return ConversationTheme.groupedSpacing
             }
-            return index > 0 && isMessage(index - 1) ? 10 : 0
+            switch rows[index] {
+            case .timestamp, .notice:
+                // Body to separator line as in Messages; the tail above hangs
+                // into the gap and our row's line sits below its top.
+                if index > 0, case let .message(previous) = rows[index - 1] {
+                    let overhang = layoutCache.layout(for: previous, width: collectionView.bounds.width, margin: layoutMargin).tailOverhang
+                    return TimestampCell.gapAfterBody - overhang - TimestampCell.lineTop
+                }
+                return 0
+            default:
+                return index > 0 && isMessage(index - 1) ? 10 : 0
+            }
         }
         guard index > 0, case let .message(previous) = rows[index - 1] else { return 4 }
         // Gaps run body to body; the previous row's tail hangs into this one.

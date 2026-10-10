@@ -273,7 +273,11 @@ edit without `textRuns` clears the formatting.
   participant types briefly, then sends one message (all params optional).
   Receiver-side effect testing. With a JSON body `{conversation, senderId,
   text, effect}` instead, the message posts at once and the sender may be me
-  (deterministic link, data detector and layout fixtures).
+  (deterministic link, data detector and layout fixtures). Fixture-only JSON
+  fields: `ageSeconds` backdates the message, `replyToIndex` replies to the
+  message that many back from the newest (0 = newest), `edited: true` marks it
+  edited, `reactions` pre-loads tapbacks, and `quiet: true` skips my message's
+  receipts and bot reactions.
 - `POST /admin/typing?conversation=<id>&sender=<id>&on=1|0`: a participant
   starts or stops typing now, without sending (the sender defaults to a random
   bot). Pair with `/admin/say` for the typing-to-message hand-off.

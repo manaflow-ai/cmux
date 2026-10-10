@@ -30,4 +30,10 @@ import Testing
         // Already on the grid: unchanged.
         #expect(abs(ceil3(278) - 278) < 0.0001)
     }
+
+    @Test func outgoingGradientEndsAtTheRestingEntryView() {
+        // CKChatController.gradientBottomPlaceholderHeight is 69 on both phones.
+        #expect(ConversationTranscriptMetrics.gradientSpan(windowHeight: 874, bottomSafeInset: 34) == 805)
+        #expect(ConversationTranscriptMetrics.gradientSpan(windowHeight: 956, bottomSafeInset: 34) == 887)
+    }
 }
