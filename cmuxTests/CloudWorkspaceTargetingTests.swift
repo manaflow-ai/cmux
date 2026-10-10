@@ -151,6 +151,19 @@ struct CloudWorkspaceTargetingTests {
         #expect(fixture.manager.rememberedCloudWorkspaceSelection?.workspaceID == nil)
     }
 
+    @Test("A later materialized Cloud selection replaces an older provisional click")
+    func materializedCloudSelectionReplacesProvisionalClick() throws {
+        let fixture = CloudWorkspaceTargetingFixture()
+        defer { fixture.close() }
+        let local = try #require(fixture.manager.selectedWorkspace)
+        fixture.manager.recordCloudWorkspaceSelection(machineID: .cloud("pending"))
+        let materialized = try fixture.workspace(machineID: "materialized")
+        fixture.manager.selectWorkspace(materialized)
+        fixture.manager.selectWorkspace(local)
+        #expect(fixture.manager.rememberedCloudWorkspaceSelection?.machineID == "materialized")
+        #expect(fixture.manager.rememberedCloudWorkspaceSelection?.workspaceID == materialized.id)
+    }
+
     @Test("Cmd-Y preserves a clicked Cloud machine while its row is still opening")
     func shortcutUsesClickedMachineBeforeProjection() async throws {
         let fixture = CloudWorkspaceTargetingFixture()

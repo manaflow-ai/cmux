@@ -10,6 +10,11 @@ public final class CloudWorkspaceSelectionState {
     /// Changes on navigation so asynchronous creation cannot replace a newer selection.
     public private(set) var revision: UInt64 = 0
 
+    /// The workspace identity associated with the last committed navigation.
+    /// A provisional machine click intentionally leaves this unchanged until
+    /// its local Cloud workspace projection is selected.
+    public var trackedWorkspaceID: UUID? { selectedWorkspaceID }
+
     /// Creates window-owned selection state using the app's authenticated scope.
     /// - Parameter scopeProvider: The same account/team source used by the machine sidebar.
     public init(scopeProvider: @escaping @MainActor () -> String?) {

@@ -6,10 +6,15 @@ extension TabManager {
     func recordCloudWorkspaceSelection() {
         // A Cloud row can be clicked before its local projection is admitted.
         // Preserve that explicit machine context while Cmd-Y refreshes the
-        // current selection; the eventual concrete selection replaces it.
+        // current selection; the eventual concrete selection replaces it. The
+        // willChange callback still sees the old workspace, so only preserve
+        // the provisional click while the tracked selection is also that old
+        // workspace. Once didChange observes a different workspace, this
+        // method records the user's newer Cloud selection.
         if let provisional = cloudWorkspaceSelection.lastCloudSelection,
            provisional.workspaceID == nil,
-           provisional.machineID != selectedWorkspace?.cloudVMID {
+           provisional.machineID != selectedWorkspace?.cloudVMID,
+           cloudWorkspaceSelection.trackedWorkspaceID == selectedTabId {
             return
         }
         cloudWorkspaceSelection.select(workspaceID: selectedTabId, machineID: selectedWorkspace?.cloudVMID)
