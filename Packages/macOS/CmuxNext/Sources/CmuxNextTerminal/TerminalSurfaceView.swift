@@ -90,15 +90,19 @@ public final class TerminalSurfaceView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
-    isolated deinit {
-        for observer in windowObservers { NotificationCenter.default.removeObserver(observer) }
-        TerminalSecureInput.release(self)
-        if let surface {
-            lane?.close()
-            ghostty_surface_free(surface)
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            for observer in windowObservers { NotificationCenter.default.removeObserver(observer) }
+            TerminalSecureInput.release(self)
+            if let surface {
+                lane?.close()
+                ghostty_surface_free(surface)
+            }
+            // Released after free: free joins the IO thread that reads the bridge.
+            bridge.release()
         }
-        // Released after free: free joins the IO thread that reads the bridge.
-        bridge.release()
     }
 
     /// `ghostty_surface_new` with embedder-owned IO (ghostty.h:548-559,

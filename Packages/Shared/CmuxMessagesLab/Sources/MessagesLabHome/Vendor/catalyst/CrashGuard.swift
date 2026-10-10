@@ -2,8 +2,8 @@ import CoreGraphics
 import Foundation
 import os
 
-// cmux (crash program, plans/cmux-next/crash-elimination.md): the same accessors as
-// CmuxHomeRender's CrashGuard, for the vendored MessagesLab code (internal to this module).
+// Crash safety (cx-3cb): checked indexing and conversions for the shared transcript and the
+// sidebar. cmux-next vendors these sources and runs the same crash ratchet over them.
 
 /// Checked indexing and integer conversion for the render code. Layout state
 /// can be stale (a row index from a previous model, a pixel size computed
@@ -12,7 +12,7 @@ import os
 /// log a fault once per call site, so a wrong index stays visible in the log
 /// without flooding it from a render loop.
 enum CrashGuard {
-    static let log = Logger(subsystem: "ai.manaflow.cmux", category: "messageslab-home-crash-guard")
+    static let log = Logger(subsystem: "com.cmux.prototype.messageslab", category: "crash-guard")
     private static let reported = OSAllocatedUnfairLock(initialState: Set<String>())
 
     /// Logs `message` as a fault the first time `site` reports.
@@ -76,6 +76,9 @@ extension CrashGuard {
     /// Line, row and tile counts and positions: clamped far from Int overflow when a
     /// caller adds a margin to them.
     static let countRange: ClosedRange<Int> = -(1 << 31)...((1 << 31) - 1)
+    /// Row and tile positions (the sidebar's RowList keeps rows as Int32): a clamped position
+    /// stays far from Int overflow when the list adds a margin or a screen to it.
+    static let rowRange: ClosedRange<Int> = -(1 << 31)...((1 << 31) - 1)
 }
 
 extension Dictionary {

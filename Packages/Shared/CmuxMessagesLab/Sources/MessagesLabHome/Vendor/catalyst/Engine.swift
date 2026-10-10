@@ -103,7 +103,7 @@ enum Reducer {
         case let .react(ref, kind, by):
             guard let i = s.conversation.messages.firstIndex(where: { $0.id == ref.messageId }) else { break }
             let actor = by ?? s.me
-            // cmux: in-place checked update (crash program).
+            // in-place checked update.
             s.conversation.messages.update(at: i) { m in
                 var rs = m.reactions
                 let mine = rs.firstIndex { $0.senderId == actor && $0.partIndex == ref.partIndex }
@@ -123,7 +123,7 @@ enum Reducer {
             s.ui.openThread = nil
             s.ui.draft.replyTo = nil
         case let .edit(id, text):
-            // cmux: checked reads and an in-place update; an edit that yields no part changes nothing (no trap).
+            // checked reads and an in-place update; an edit that yields no part changes nothing (no trap).
             guard let i = s.conversation.messages.firstIndex(where: { $0.id == id }),
                   let parts = s.conversation.messages[checked: i]?.parts,
                   let pi = parts.firstIndex(where: { $0.plainText != nil }),
@@ -135,10 +135,10 @@ enum Reducer {
             }
         case let .unsend(id):
             guard let i = s.conversation.messages.firstIndex(where: { $0.id == id }) else { break }
-            s.conversation.messages.update(at: i) { $0.parts = []; $0.reactions = []; $0.retractedAt = stamp } // cmux: checked
+            s.conversation.messages.update(at: i) { $0.parts = []; $0.reactions = []; $0.retractedAt = stamp } // checked
         case let .delete(id):
             guard let i = s.conversation.messages.firstIndex(where: { $0.id == id }) else { break }
-            s.conversation.messages.update(at: i) { $0.deletedAt = stamp; $0.reactions = [] } // cmux: checked
+            s.conversation.messages.update(at: i) { $0.deletedAt = stamp; $0.reactions = [] } // checked
             if s.ui.openThread?.messageId == id { s.ui.openThread = nil }
         case let .attach(a):
             s.ui.draft.attachments.append(a)
@@ -152,15 +152,15 @@ enum Reducer {
             if s.atNewest { s.conversation.messages.append(m) }
             s.total += 1
         case let .status(id, st):
-            if let i = s.conversation.messages.firstIndex(where: { $0.id == id }) { s.conversation.messages.update(at: i) { $0.status = st } } // cmux
+            if let i = s.conversation.messages.firstIndex(where: { $0.id == id }) { s.conversation.messages.update(at: i) { $0.status = st } }
         case let .appendText(id, more):
             guard let i = s.conversation.messages.lastIndex(where: { $0.id == id }),
-                  let parts = s.conversation.messages[checked: i]?.parts, // cmux: checked
+                  let parts = s.conversation.messages[checked: i]?.parts, // checked
                   let pi = parts.lastIndex(where: { if case .text = $0 { return true }; return false }),
                   case let .text(t, runs)? = parts[checked: pi] else { break }
             s.conversation.messages.update(at: i) { $0.parts.update(at: pi) { $0 = .text(t + more, runs: runs) } }
         case let .linkMetadata(url, title, site, image):
-            // cmux: no index math (crash program).
+            // no index math.
             s.conversation.messages = s.conversation.messages.map { m in
                 var m = m
                 m.parts = m.parts.map { p in
@@ -178,7 +178,7 @@ enum Reducer {
             s.conversation.messages.append(contentsOf: page)
         case let .evict(top, bottom):
             let n = s.conversation.messages.count
-            let t = min(max(0, top), n), b = min(max(0, bottom), n - t) // cmux: a negative count does not trap
+            let t = min(max(0, top), n), b = min(max(0, bottom), n - t) // a negative count does not trap
             s.conversation.messages.removeFirst(t)
             s.conversation.messages.removeLast(b)
             s.windowStart += t
@@ -188,7 +188,7 @@ enum Reducer {
             s.ui.scroll = .init(pinnedToBottom: false, offset: 0)
         case let .setCustomPart(id, pi, part):
             guard let i = s.conversation.messages.lastIndex(where: { $0.id == id }),
-                  case .custom? = s.conversation.messages[checked: i]?.parts[checked: pi] else { break } // cmux: checked
+                  case .custom? = s.conversation.messages[checked: i]?.parts[checked: pi] else { break } // checked
             s.conversation.messages.update(at: i) { $0.parts.update(at: pi) { $0 = .custom(part) } }
         case .remeasureCustom:
             break
@@ -213,7 +213,7 @@ enum Reducer {
 /// grey placeholder square, 137.5 x 103.5 pt) until LinkPreviews fills it or,
 /// without metadata, the domain card (title = site = host) replaces it.
 enum TextParts {
-    // cmux: optional, no try! (crash program); without it no link is detected.
+    // optional, no try! ; without it no link is detected.
     static let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
     static func host(_ url: URL) -> String {
         url.host.map { $0.hasPrefix("www.") ? String($0.dropFirst(4)) : $0 } ?? url.absoluteString
@@ -448,7 +448,7 @@ struct SeededRandom {
     mutating func unit() -> Double { Double(next() >> 11) / Double(UInt64(1) << 53) }
     mutating func range(_ lo: Double, _ hi: Double) -> Double { lo + (hi - lo) * unit() }
     mutating func chance(_ p: Double) -> Bool { unit() < p }
-    /// cmux: the fixture lists are non-empty literals; an empty list still traps at `xs[0]`.
+    /// the fixture lists are non-empty literals; an empty list still traps at `xs[0]`.
     mutating func pick<T>(_ xs: [T]) -> T { xs[checked: Int(truncatingIfNeeded: next() % UInt64(clamping: max(1, xs.count)))] ?? xs[0] }
 }
 
@@ -628,7 +628,7 @@ final class DefaultResponder: Responder {
         // I wrote it inside a thread: answer in that thread (a reply stores the root).
         if let root = target.replyTo { return root }
         guard let i = log.firstIndex(where: { $0.id == target.id }) else { return nil }
-        let newer = log.dropFirst(i + 1).contains { e in // cmux: no range subscript
+        let newer = log.dropFirst(i + 1).contains { e in // no range subscript
             e.mine && !e.filler && s.message(e.id)?.retractedAt == nil
         }
         guard newer else { return nil }
@@ -877,7 +877,7 @@ final class BenchResponder: Responder {
         guard pending > 0 else { replying = false; return }
         pending -= 1
         let who = store.state.conversation.participants.first { !$0.isMe }?.id ?? "instinct"
-        guard let text = lines[checked: cycle % max(1, lines.count)] else { replying = false; return } // cmux: checked
+        guard let text = lines[checked: cycle % max(1, lines.count)] else { replying = false; return } // checked
         cycle += 1
         store.dispatch(.typing(who, true))
         let typed = 0.4 + 0.025 * Double(text.count)
@@ -894,7 +894,7 @@ enum Responders {
     /// `--responder bench|realistic`; without it, `--bench` runs use the bench
     /// responder and every other run the realistic one.
     static func make(arguments: [String] = ProcessInfo.processInfo.arguments, seed: UInt64 = 1) -> Responder {
-        let choice = arguments.firstIndex(of: "--responder").flatMap { arguments.dropFirst($0 + 1).first } // cmux: no index math
+        let choice = arguments.firstIndex(of: "--responder").flatMap { arguments.dropFirst($0 + 1).first } // no index math
         if choice == "bench" || choice == nil && arguments.contains("--bench") { return BenchResponder() }
         return DefaultResponder(seed: seed)
     }

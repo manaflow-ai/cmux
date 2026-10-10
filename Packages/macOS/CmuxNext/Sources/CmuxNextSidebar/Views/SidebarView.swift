@@ -89,9 +89,13 @@ public final class SidebarView: NSView {
     }
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
-    isolated deinit {
-        observation?.cancel()
-        for token in clipObservers { NotificationCenter.default.removeObserver(token) }
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            observation?.cancel()
+            for token in clipObservers { NotificationCenter.default.removeObserver(token) }
+        }
     }
     override public var isFlipped: Bool { true }
     // MARK: Public API

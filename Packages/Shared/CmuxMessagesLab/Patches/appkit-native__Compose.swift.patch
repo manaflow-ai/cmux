@@ -10,22 +10,7 @@
      /// Marked (IME) text changed. UITextView reports marked text through
      /// `textViewDidChange`, so the draft (and the field height) follows the
      /// composition; NSTextView does not post a text change for it.
-@@ -27,6 +30,14 @@
-     /// than Catalyst's (measured by the text probe's first baseline).
-     override var textContainerOrigin: NSPoint { NSPoint(x: textContainerInset.width, y: textContainerInset.height) }
- 
-+    /// cmux: the caret's NSTextInsertionIndicator shows no effects view. Its
-+    /// glass bubble (input source, dictation, caps lock) sits just left of the
-+    /// caret, which is 7 pt into the field, so it covered the "+" glass. The
-+    /// text view adds (and rebuilds) its indicators as subviews.
-+    override func didAddSubview(_ subview: NSView) {
-+        super.didAddSubview(subview)
-+        (subview as? NSTextInsertionIndicator)?.automaticModeOptions.remove(.showEffectsView)
-+    }
-     /// The layer's scale is the scale of the window it draws into, or `DisplayScale.current` when
-     /// it has no window (the offscreen harness and captures). AppKit sets it again on each backing
-     /// change and window move, so this runs after AppKit does (and from `ComposeView.rescale`).
-@@ -164,17 +175,21 @@
+@@ -190,17 +193,21 @@
          DispatchQueue.main.async { [weak self] in self?.updateCaret(reset: false) }
          return ok
      }
@@ -50,9 +35,9 @@
      }
 -    @objc private func keyChanged() { updateCaret() }
      override func setFrameSize(_ newSize: NSSize) {
+         let heightChanged = newSize.height != frame.height
          super.setFrameSize(newSize)
-         updateCaret(reset: false)
-@@ -185,6 +200,7 @@
+@@ -225,6 +232,7 @@
  
      override func paste(_ sender: Any?) {
          let pb = pasteboard
@@ -60,89 +45,7 @@
          if pb.string(forType: .string) == nil, let img = NSImage(pasteboard: pb) { onPasteImage(img); return }
          super.paste(sender)
      }
-@@ -199,7 +215,8 @@
- /// layer (the shared code removes animations from it).
- final class ComposeTextView {
-     let view: FieldTextView
--    var layer: CALayer { view.layer! }
-+    // cmux: init sets wantsLayer, so the layer exists; a detached layer stands in otherwise (crash program).
-+    var layer: CALayer { view.layer ?? CALayer() }
-     var onSend: () -> Void { get { view.onSend } set { view.onSend = newValue } }
-     var onEscape: () -> Void { get { view.onEscape } set { view.onEscape = newValue } }
-     var text: String { view.string }
-@@ -281,32 +298,35 @@
-     var onSendPulse: ((CFTimeInterval) -> Void)?
- 
-     static func height(lines: Int, chips: Bool) -> CGFloat { ComposeMetrics.height(lines: lines, chips: chips) }
--    static var textWidth: CGFloat { fieldWidth(Metrics.current.width) - 24 }
-+    /// cmux: per view (several Home tabs), from this compose bar's width.
-+    var textWidth: CGFloat { ComposeView.fieldWidth(bounds.width) - 24 }
-     static func fieldWidth(_ windowWidth: CGFloat) -> CGFloat { 526 + windowWidth - Fixture.windowWidth }
-     static let font = Fixture.bodyFont
-     static let maxLines = 8
-+    @available(macOS 15, *) // cmux: macOS 14
-     static let writingTools: NSWritingToolsBehavior = {
-         let a = ProcessInfo.processInfo.arguments
--        switch a.firstIndex(of: "--writing-tools").flatMap({ $0 + 1 < a.count ? a[$0 + 1] : nil }) {
-+        switch a.firstIndex(of: "--writing-tools").flatMap({ a.dropFirst($0 + 1).first }) /* cmux: no index math */ {
-         case "none": return .none
-         case "complete": return .complete
-         case "default": return .default
-         default: return .limited
-         }
-     }()
--    static func lines(_ text: String) -> Int {
-+    /// cmux: per view (several Home tabs): this compose bar's width and its own memo.
-+    func lines(_ text: String) -> Int {
-         // One-entry memo: every compose update asks again for the same draft (a send asks for "").
-         let w = textWidth
-         // The empty field (every send and every commit after it) has its own entry: the one-entry
-         // memo held the last typed draft, so each send typeset " " again.
-         if text.isEmpty, let e = emptyLinesMemo, e.0 == w { return e.1 }
-         if let m = linesMemo, m.0 == text, m.1 == w { return m.2 }
--        let n = min(maxLines, TextLayout.make(text.isEmpty ? " " : text, runs: [], maxWidth: w, font: font).lines.count)
-+        let n = min(ComposeView.maxLines, TextLayout.make(text.isEmpty ? " " : text, runs: [], maxWidth: w, font: ComposeView.font).lines.count)
-         if text.isEmpty { emptyLinesMemo = (w, n) } else { linesMemo = (text, w, n) }
-         return n
-     }
--    private static var linesMemo: (String, CGFloat, Int)?
--    private static var emptyLinesMemo: (CGFloat, Int)?
-+    private var linesMemo: (String, CGFloat, Int)?
-+    private var emptyLinesMemo: (CGFloat, Int)?
-     /// The placeholders, localized once (each `Strings` read is a bundle table lookup; every
-     /// commit asked for one).
-     private static let placeholders = (field: Strings.placeholder, reply: Strings.replyPlaceholder)
-@@ -333,7 +353,8 @@
-             l.actions = none; l.contentsScale = DisplayScale.current
-         }
-         buttons.isUserInteractionEnabled = false
--        buttons.drawer = { [unowned self] ctx, _ in self.drawButtons(ctx) }
-+        // cmux: weak capture, not unowned (crash program: no trap after the view is freed).
-+        buttons.drawer = { [weak self] ctx, _ in self?.drawButtons(ctx) }
-         addSubview(buttons)
-         glass.anchorPoint = CGPoint(x: 0.5, y: 1)
-         layer.addSublayer(glass)
-@@ -390,7 +411,7 @@
-         tv.isAutomaticTextReplacementEnabled = NSSpellChecker.isAutomaticTextReplacementEnabled
-         tv.isAutomaticQuoteSubstitutionEnabled = NSSpellChecker.isAutomaticQuoteSubstitutionEnabled
-         tv.isAutomaticDashSubstitutionEnabled = NSSpellChecker.isAutomaticDashSubstitutionEnabled
--        tv.writingToolsBehavior = ComposeView.writingTools
-+        if #available(macOS 15, *) { tv.writingToolsBehavior = ComposeView.writingTools } // cmux: macOS 14
-         tv.setAccessibilityLabel(Strings.placeholder)
- 
-         caret.backgroundColor = Fixture.caret.cgColor
-@@ -503,8 +524,9 @@
-             let grey = NSColor(white: 55 / 255, alpha: 1)
-             let space = CGColorSpace(name: CGColorSpace.sRGB)
-             for (stops, fromTop) in [(top, true), (bottom, false)] {
-+                // cmux: an optional gradient draws nothing when it fails (CrashSafeGraphics).
-                 let g = CGGradient(colorsSpace: space, colors: stops.map { grey.withAlphaComponent($0.1).cgColor } as CFArray,
--                                   locations: stops.map { $0.0 / cap })!
-+                                   locations: stops.map { $0.0 / cap })
-                 c.drawLinearGradient(g, start: CGPoint(x: 0, y: fromTop ? 0 : h), end: CGPoint(x: 0, y: fromTop ? cap : h - cap), options: [])
-             }
-             c.restoreGState()
-@@ -521,11 +543,11 @@
+@@ -638,11 +646,11 @@
          fmt.opaque = false
          let ph = placeholder
          placeholderLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 30), format: fmt).image { ctx in
@@ -156,47 +59,3 @@
              // Messages' glyph is ChatKit's AudioMessageEntryViewButton waveform at 20 pt
              // (fitted to the lossless stills): 5 capsules 1.818 pt wide, 3.636 pt apart,
              // 3.613 / 7.25 / 14.522 pt tall; centre 557.5 pt from the left of a 628 pt window.
-@@ -586,7 +608,7 @@
-         placeholderLayer.opacity = text.isEmpty && chips.isEmpty ? 1 : 0
-         waveLayer.opacity = text.isEmpty && chips.isEmpty ? 1 : 0
-         CATransaction.commit()
--        let h = ComposeView.height(lines: ComposeView.lines(d.text), chips: false) + strip.height
-+        let h = ComposeView.height(lines: lines(d.text), chips: false) + strip.height  // cmux: per view
-         let old = fieldHeight
-         fieldHeight = h
-         if attachmentsChanged || placed.map({ $0.0 != h || $0.1 != text.isEmpty || $0.2 != strip.height || $0.3 != bounds.size }) ?? true {
-@@ -625,10 +647,11 @@
-     /// faded (catalyst's `tintOverBubble`).
-     func tintOverBubble(begin: CFTimeInterval, exit: CFTimeInterval) {
-         let e = Springs.fieldOpacity
--        let n = max(2, Int((exit - begin) * 240) + 1)
--        var values: [Double] = (0...n).map { min(1, max(0, e.value(Double($0) / 240, from: 1, to: 1))) }
--        let low = values.indices.min { values[$0] < values[$1] } ?? n
--        for i in 0...n { values[i] = i < low || i == n ? 0 : 1 - values[i] }
-+        let n = max(2, CrashGuard.int((exit - begin) * 240, in: 0...14_400) + 1) // cmux: at most 60 s, no trap on NaN
-+        let samples: [Double] = (0...n).map { min(1, max(0, e.value(Double($0) / 240, from: 1, to: 1))) }
-+        // cmux: no index math.
-+        let low = samples.enumerated().min { $0.element < $1.element }?.offset ?? n
-+        let values = samples.enumerated().map { $0.offset < low || $0.offset == n ? 0 : 1 - $0.element }
-         let a = CAKeyframeAnimation(keyPath: "opacity")
-         a.values = values.map { NSNumber(value: $0) }
-         a.keyTimes = (0...n).map { NSNumber(value: Double($0) / Double(n)) }
-@@ -651,7 +674,8 @@
-         // AppKit sizes the cache for the main screen when the view has no window (1x on a Mac
-         // whose main display is 1x); the snapshot is drawn at the scale of the tree it goes into.
-         let scale = tv.window?.backingScaleFactor ?? DisplayScale.current
--        let wide = Int((size.width * scale).rounded(.up)), high = Int((size.height * scale).rounded(.up))
-+        // cmux: no trap on a NaN or huge size (crash ratchet)
-+        let wide = CrashGuard.int((size.width * scale).rounded(.up), in: 0...1 << 16), high = CrashGuard.int((size.height * scale).rounded(.up), in: 0...1 << 16)
-         if rep.pixelsWide != wide || rep.pixelsHigh != high,
-            let scaled = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: wide, pixelsHigh: high,
-                                          bitsPerSample: rep.bitsPerSample, samplesPerPixel: rep.samplesPerPixel,
-@@ -679,7 +703,7 @@
-             alpha = p < 0.6 ? 1 : p < 0.65 ? 1 - (p - 0.6) / 0.05 : p < 0.95 ? 0 : (p - 0.95) / 0.05
-         }
-         let f = fieldRect
--        let tl = TextLayout.make(text.isEmpty ? " " : text, runs: [], maxWidth: ComposeView.textWidth, font: ComposeView.font)
-+        let tl = TextLayout.make(text.isEmpty ? " " : text, runs: [], maxWidth: textWidth, font: ComposeView.font)
-         let row = CGFloat(max(0, tl.lines.count - 1))
-         let last = text.isEmpty ? "" : (text.components(separatedBy: "\n").last ?? "")
-         let cx = f.minX + 12 + TextDraw.width(last, font: ComposeView.font, kern: Fixture.bodyKern)

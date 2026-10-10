@@ -1,11 +1,11 @@
 import AppKit
 
-// cmux: Liquid Glass with a macOS 14 and 15 fallback (cmux-next supports
-// macOS 14; plans/cmux-next/macos-floor.md). On macOS 26 and newer every
-// surface is the system NSGlassEffectView / NSGlassEffectContainerView,
-// configured exactly as before, so 26 and 27 draw the same pixels. Below 26
-// the surface is an NSVisualEffectView with the same corner radius and content
-// view, and the container is a plain view (glass shapes do not merge there).
+// Liquid Glass with a macOS 14 and 15 fallback (cmux-next vendors these files
+// and supports macOS 14; cx-3cb). On macOS 26 and newer every surface is the
+// system NSGlassEffectView / NSGlassEffectContainerView, configured exactly as
+// before, so 26 and 27 draw the same pixels. Below 26 the surface is an
+// NSVisualEffectView with the same corner radius and content view, and the
+// container is a plain view (glass shapes do not merge there).
 
 /// A glass surface: the system glass view on macOS 26, a visual-effect
 /// stand-in below. Same names as NSGlassEffectView, so call sites do not change.

@@ -69,15 +69,19 @@ pub(super) fn projection_difference(
             return Ok(Some(format!("the scoped projection omits the delete of {resource} {id}")));
         }
         // An upsert the scoped walk left out must be one the journal states
-        // already (when the fold can tell).
+        // already (when the fold can tell). The journal states the value as
+        // its last restatement decorated it: with today's state rows (a
+        // grouped tab, cx-d0d.61), or from before a state mutation that
+        // restates nothing (a screen pinned after it was stated), so either
+        // form matches.
         if let Some(stated) = registry.stated_topology_value(resource, id) {
             let stated =
                 stated.map(|value| stable_value(&json!({"resource":resource,"value":value})));
-            let value = decorated_values.get(change_key).unwrap_or(value);
-            if stated.as_ref() != Some(value) {
+            let decorated = decorated_values.get(change_key).unwrap_or(value);
+            if stated.as_ref() != Some(decorated) && stated.as_ref() != Some(value) {
                 return Ok(Some(format!(
                     "the scoped projection omits a changed {resource} {id}: the journal states \
-                     {stated:?}, the full projection {value}"
+                     {stated:?}, the full projection {decorated}"
                 )));
             }
         }
