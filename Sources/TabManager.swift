@@ -225,6 +225,9 @@ class TabManager: ObservableObject {
     }
     let workspaceSwitchCoordinator = WorkspaceSwitchCoordinator()
     let cloudWorkspaceSelection: CloudWorkspaceSelectionState
+    /// Shared by the inline Cloud sidebar and any Cloud tool pane in this
+    /// window so CodeRouter reads and removals never overlap.
+    let coderouterAccountStore = CoderouterAccountStore()
 
     var tabs: [Workspace] {
         get { workspaces.tabs }
