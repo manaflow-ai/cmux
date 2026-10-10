@@ -20,6 +20,7 @@ called out explicitly. Missing or stale current-head captures remain pending.
 | [#19055](https://github.com/manaflow-ai/cmux/pull/19055) | `b3a1695660341c932bc49d40d627b22f707ad908` | `agent-pane.shell-rows`: `running`, `stop-receipt`, `collapsed`, `expanded`, `expand-output`, `succeeded`, `failed`, `stopped`, `keyboard-open`, `moved` | 390 / 640 / 860 px | [Artifacts](https://github.com/manaflow-ai/cmux/actions/runs/38064083786#artifacts); current head |
 | [#19058](https://github.com/manaflow-ai/cmux/pull/19058) | `9d208eaa7ca8eba7c4fcd08819bfb2e1c6e5e336` | `agent-pane.folder-choice`: `offered`, `keyboard`, `error` | 360 / 560 / 760 px | [Artifacts](https://github.com/manaflow-ai/cmux/actions/runs/38058201464#artifacts); current head |
 | [#19061](https://github.com/manaflow-ai/cmux/pull/19061) | `ef891faf92b5c644d2acd4238581495f95742359` | Gallery report code stacked on #19048; no component entry | N/A; report-only fixture | Pending; no current-head artifact recorded |
+| [#19072](https://github.com/manaflow-ai/cmux/pull/19072) | `b1cac282d993e445176d5ba4ba52ce5b0dc5c37f` | Gallery browse shell stale-variant recovery (`BrowseView` / `browseModel`); no component entry | N/A; shell-browse behavior | Pending; no hosted capture ID recorded |
 
 The component entries use the following interaction receipts and checks:
 
