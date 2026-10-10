@@ -88,6 +88,16 @@ struct HeaderSplitOrderTests {
         #expect(row.order == ["chat", "terminal", "browser"])
     }
 
+    /// Terminal asks for a terminal: a person's Split Right from a chat opens the New Tab page
+    /// (cx-jfo7), which the header's Terminal must not (cx-00n1).
+    @Test func terminalAsksForATerminal() {
+        let row = Row(), toggles = AgentChatSplitToggles()
+        row.click("splitRight", toggles: toggles)
+        #expect(row.invocations["splitRight"]?.opensTerminal == true)
+        row.click("splitBrowserRight", toggles: toggles)
+        #expect(row.invocations["splitBrowserRight"]?.opensTerminal == false)
+    }
+
     @Test func eachButtonClosesItsOwnPaneAndReopensAtTheEnd() {
         let row = Row(), toggles = AgentChatSplitToggles()
         row.click("splitBrowserRight", toggles: toggles)
