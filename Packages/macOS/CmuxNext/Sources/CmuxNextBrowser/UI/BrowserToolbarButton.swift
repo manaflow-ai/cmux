@@ -1,11 +1,17 @@
 public import CmuxNextIcons
 import Foundation
 
-/// The five buttons at the trailing end of the browser toolbar, in order
-/// (the classic browser pane's design mode, profile, theme, DevTools and
-/// More). Each press runs one catalog action (`BrowserToolbarRouter` in
-/// the App), so the palette, the CLI, the socket and the menus share it.
+/// The buttons at the trailing end of the browser toolbar, in order, after
+/// the pinned extensions (Edge's right side, cx-6qwm): the zoom level while
+/// the page is not at 100 %, Favorites, then the classic browser pane's
+/// design mode, profile, theme, DevTools and More. Each press runs one
+/// catalog action (`BrowserToolbarHandlers` in the App), so the palette,
+/// the CLI, the socket and the menus share it.
 public nonisolated enum BrowserToolbarButton: String, CaseIterable, Hashable, Sendable {
+    /// The page's zoom level; a press returns to Actual Size. Shown only
+    /// while the page is zoomed, as Edge's address bar does.
+    case zoom
+    case favorites
     case designMode
     case profile
     case theme
@@ -16,18 +22,23 @@ public nonisolated enum BrowserToolbarButton: String, CaseIterable, Hashable, Se
     public var identifier: String { "browser.toolbar.\(rawValue)" }
 
     /// How early the button hides as the pane narrows (`BrowserToolbarButtonsView.collapse`):
-    /// design mode and DevTools at level 1, profile and theme at level 2;
-    /// More always stays and lists the hidden ones.
+    /// design mode and DevTools at level 1, the rest at level 2; More always
+    /// stays and lists the hidden ones.
     public var collapseLevel: Int? {
         switch self {
         case .designMode, .devTools: 1
-        case .profile, .theme: 2
+        case .zoom, .favorites, .profile, .theme: 2
         case .overflow: nil
         }
     }
 
     /// Whether the button is hidden at collapse `level`.
     public func isCollapsed(at level: Int) -> Bool { collapseLevel.map { $0 <= level } ?? false }
+
+    /// Whether the button shows at collapse `level` for a page at `zoom`.
+    public func isShown(at level: Int, zoom: Double) -> Bool {
+        !isCollapsed(at: level) && (self != .zoom || BrowserZoom.percent(zoom) != 100)
+    }
 }
 
 /// What one toolbar button shows.
@@ -58,14 +69,17 @@ public nonisolated struct BrowserToolbarFacts: Hashable, Sendable {
     public var colorScheme: BrowserColorScheme
     /// The tab's browser profile name, when known.
     public var profileName: String?
+    /// The page's zoom factor, 1.0 = 100 %.
+    public var zoom: Double
 
     public init(engine: BrowserEngineKind, hostsDevTools: Bool, devToolsOpen: Bool = false, designMode: Bool = false,
-                colorScheme: BrowserColorScheme = .system, profileName: String? = nil) {
+                colorScheme: BrowserColorScheme = .system, profileName: String? = nil, zoom: Double = 1) {
         self.engine = engine
         self.hostsDevTools = hostsDevTools
         self.devToolsOpen = devToolsOpen
         self.designMode = designMode
         self.colorScheme = colorScheme
         self.profileName = profileName
+        self.zoom = zoom
     }
 }
