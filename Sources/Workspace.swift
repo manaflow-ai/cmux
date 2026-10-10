@@ -12697,6 +12697,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return !browserPortalReady(for: browserPanel)
     }
 
+    /// Runs one scheduled follow-up, flushing only when the pending state
+    /// requires fresh AppKit geometry before readiness can be checked.
     private func attemptEventDrivenLayoutFollowUp() {
         guard layoutFollowUpTimeoutScheduler.isScheduled, !isAttemptingLayoutFollowUp else { return }
         guard portalRenderingEnabled else {

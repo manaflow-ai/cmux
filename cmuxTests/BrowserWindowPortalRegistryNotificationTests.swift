@@ -174,6 +174,7 @@ struct BrowserWindowPortalRegistryNotificationTests {
         )
     }
 
+    /// A split-zoom retry flushes its host window without touching peers.
     @Test func browserSplitZoomRetriesFlushOnlyOwningWindow() throws {
         let contentView = CountingContentView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
         let window = VisibleLayoutWindow(
@@ -232,6 +233,7 @@ struct BrowserWindowPortalRegistryNotificationTests {
         )
     }
 
+    /// A browser visibility retry still flushes after terminal geometry settles.
     @Test func browserVisibilityRetryAfterGeometryPassFlushesOwningWindow() throws {
         let contentView = CountingContentView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
         let window = VisibleLayoutWindow(
