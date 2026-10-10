@@ -1402,41 +1402,22 @@ cmux_claude_sideload_flags_disabled_uncached() {
     fi
 
     # MDM preferences domain: disableSideloadFlags reading as 1, or any
-    # configured policyHelper, disqualifies. This used to be two per-key
-    # `defaults read <domain> <key>` calls; one whole-domain read answers both.
-    # Both forms read the same preferences source. The dump prints every
-    # top-level key on its own line indented by exactly four spaces (nested
-    # entries use eight; a newline inside a string prints as `\\n`), so the
-    # anchored matches below see only top-level keys.
+    # configured policyHelper, disqualifies. Read the flag through defaults'
+    # per-key representation so escaped newlines and literal backslash-n
+    # values retain the same semantics as Claude's settings lookup. Use the
+    # whole-domain dump only for the policyHelper presence check, where the
+    # top-level indentation keeps nested settings out.
     defaults_bin=/usr/bin/defaults
     if [[ "${CMUX_CLAUDE_SKIP_DEFAULTS:-0}" != "1" && -x "$defaults_bin" ]]; then
-        local domain_dump flag_value
-        local newline=$'\n'
-        local flag_prefix=$'\n    disableSideloadFlags = '
-        local escaped_newline='\\n'
+        local flag_value domain_dump
+        if flag_value="$("$defaults_bin" read "$plist_domain" disableSideloadFlags 2>/dev/null)" &&
+           [[ "$flag_value" == "1" ]]; then
+            return 0
+        fi
         if domain_dump="$("$defaults_bin" read "$plist_domain" 2>/dev/null)"; then
+            local newline=$'\n'
             domain_dump="$newline$domain_dump$newline"
             [[ "$domain_dump" == *"$newline    policyHelper = "* ]] && return 0
-            flag_value="${domain_dump#*"$flag_prefix"}"
-            if [[ "$flag_value" != "$domain_dump" ]]; then
-                flag_value="${flag_value%%"$newline"*}"
-                # The per-key read printed `1` for true, 1, 1.0 and "1", which
-                # all dump as `1;`. It also printed `1` for "1" followed by
-                # newlines, because $(...) strips them; that dumps as
-                # `"1\\n";`, `"1\\n\\n";` and so on.
-                [[ "$flag_value" == "1;" ]] && return 0
-                local flag_length=${#flag_value}
-                if (( flag_length >= 4 )) &&
-                   [[ "${flag_value:0:2}" == '"1' ]] &&
-                   [[ "${flag_value:$((flag_length - 2)):2}" == '";' ]]; then
-                    local escaped_body="${flag_value:2:$((flag_length - 4))}"
-                    while (( ${#escaped_body} >= ${#escaped_newline} )) &&
-                          [[ "${escaped_body:0:${#escaped_newline}}" == "$escaped_newline" ]]; do
-                        escaped_body="${escaped_body:${#escaped_newline}}"
-                    done
-                    [[ -z "$escaped_body" ]] && return 0
-                fi
-            fi
         fi
     fi
 
