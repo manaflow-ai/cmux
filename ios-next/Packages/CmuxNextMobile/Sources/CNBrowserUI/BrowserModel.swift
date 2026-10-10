@@ -6,6 +6,7 @@ import Foundation
 import ImageIO
 import Observation
 import UIKit
+import os
 
 /// The last decoded frame of a tab.
 struct PageFrame {
@@ -77,6 +78,7 @@ final class BrowserModel {
     /// Next attach follows a Request Mobile/Desktop Website tap.
     @ObservationIgnored private var explicitModeChange = false
 
+    @ObservationIgnored private var perf = FramePerf()
     @ObservationIgnored lazy var input = BrowserInputPump { [weak self] in self?.connection.client }
 
     init(connection: HostConnection) {
@@ -228,7 +230,10 @@ final class BrowserModel {
                     Task { try? await client.ackFrame(streamId: sid, seq: frame.seq) }
                     let decoded = await Self.decode(frame)
                     guard let self, self.streamId == sid else { return }
-                    if let decoded { self.frames[tabId] = decoded }
+                    if let decoded {
+                        self.frames[tabId] = decoded
+                        self.perf.frameShown(scrollY: decoded.scroll?.y, bytes: frame.image.count)
+                    }
                 }
             }
             // The size may have changed while attaching.
@@ -476,6 +481,7 @@ final class BrowserModel {
 
     func sendTouch(_ type: TouchEventType, points: [TouchPoint]) {
         guard let id = streamTabId else { return }
+        perf.touch(type, scrollY: activeFrame?.scroll?.y)
         input.send(.touch(BrowserTouchParams(tabId: id, type: type, points: points)))
     }
 
@@ -488,6 +494,51 @@ final class BrowserModel {
     func sendText(_ text: String) {
         guard let id = streamTabId, !text.isEmpty else { return }
         input.send(.text(BrowserTextParams(tabId: id, text: text)))
+    }
+}
+
+/// Measures what the phone sees while a finger drags the page: frames shown
+/// per second and the time from the first touch move to the first frame that
+/// shows the page scrolled. Logged as `dev.cmux.next` / `browser.perf`.
+struct FramePerf {
+    private static let log = Logger(subsystem: "dev.cmux.next", category: "browser.perf")
+    private var dragStart: CFTimeInterval?
+    private var firstMove: CFTimeInterval?
+    private var scrollAtMove: CGFloat?
+    private var latency: Double?
+    private var frames: [CFTimeInterval] = []
+    private var bytes = 0
+
+    mutating func touch(_ type: TouchEventType, scrollY: CGFloat?) {
+        let now = CACurrentMediaTime()
+        switch type {
+        case .start:
+            dragStart = now; firstMove = nil; latency = nil; frames = []; bytes = 0; scrollAtMove = scrollY
+        case .move:
+            if firstMove == nil { firstMove = now; scrollAtMove = scrollY }
+        case .end, .cancel:
+            guard let start = dragStart, firstMove != nil else { dragStart = nil; return }
+            // Frames until 300 ms after release still belong to the drag.
+            let window = max(0.001, (frames.last ?? now) - start)
+            let gaps = zip(frames.dropFirst(), frames).map { $0 - $1 }
+            let fps = Double(frames.count) / window
+            let count = frames.count
+            let maxGap = Int((gaps.max() ?? 0) * 1000)
+            let ms = Int(window * 1000)
+            let fpsText = String(format: "%.1f", fps)
+            let latencyText = latency.map { String(Int($0 * 1000)) } ?? "-"
+            let kb = count > 0 ? bytes / count / 1024 : 0
+            Self.log.notice("drag: \(count) frames in \(ms) ms = \(fpsText) fps, max gap \(maxGap) ms, first scroll frame after \(latencyText) ms, \(kb) KB/frame")
+            dragStart = nil
+        }
+    }
+
+    mutating func frameShown(scrollY: CGFloat?, bytes frameBytes: Int) {
+        guard dragStart != nil else { return }
+        let now = CACurrentMediaTime()
+        frames.append(now)
+        bytes += frameBytes
+        if latency == nil, let t = firstMove, let y = scrollY, let y0 = scrollAtMove, abs(y - y0) > 0.5 { latency = now - t }
     }
 }
 

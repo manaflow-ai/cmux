@@ -164,10 +164,11 @@ describe("BrowserProvider with a fake CDP endpoint", () => {
     expect(frames.length).toBe(MAX_UNACKED);
     expect(frames[0]!.header).toEqual({ seq: 1, cssW: 390, cssH: 844, pxW: 1170, pxH: 2532, format: 0 });
     const acks = () => cdp.calls.filter((c) => c.method === "Page.screencastFrameAck").map((c) => c.params.sessionId);
-    expect(acks()).toEqual([101, 102, 103]);
+    const firstAcks = Array.from({ length: MAX_UNACKED - 1 }, (_, i) => 101 + i);
+    expect(acks()).toEqual(firstAcks);
     await client.request("browser.ack", { streamId, seq: 1 });
     await waitFor(() => frames.length === MAX_UNACKED + 1);
-    expect(acks()).toEqual([101, 102, 103, 104]);
+    expect(acks()).toEqual([...firstAcks, 101 + MAX_UNACKED - 1]);
 
     await client.request("browser.touch", { tabId: "T1", type: "start", points: [{ x: 10, y: 20, id: 0 }] });
     await client.request("browser.pointer", { tabId: "T1", type: "down", x: 5, y: 6, button: "left", clickCount: 1 });

@@ -151,11 +151,11 @@ Tab `{id, url, title, loading, progress, canGoBack, canGoForward, faviconUrl?, a
   agent and metrics for new navigations; the loaded page keeps its layout. `frameMeta:true` adds the
   document scroll offset to every frame (§3). Input for one tab reaches Chrome in arrival order. A streamed
   tab that went to the background is brought to the front when the phone's input starts on it (with an
-  explicit `--cdp` browser, only for input from the phone that owns the stream). The host keeps at most 4
-  frames unacked; JPEG quality is fixed.
+  explicit `--cdp` browser, only for input from the phone that owns the stream). The host keeps at most 3
+  frames unacked (`CMUX_NEXT_SCREENCAST_UNACKED`); JPEG quality is fixed (50, `CMUX_NEXT_SCREENCAST_QUALITY`).
 - `browser.detach {streamId}` / `browser.close {tabId}` / `browser.activate {tabId}` -> `{}`
 - `browser.viewport {tabId, width, height, scale}` -> `{}`
-- `browser.ack {streamId, seq}` -> `{}` (acks every frame up to seq; host keeps at most 4 unacked frames)
+- `browser.ack {streamId, seq}` -> `{}` (acks every frame up to seq; host keeps at most 3 unacked frames)
 - `browser.navigate {tabId, url}` / `browser.back {tabId}` / `browser.forward {tabId}` / `browser.reload {tabId}` / `browser.stop {tabId}` -> `{}`
 - `browser.pointer {tabId, type:"down"|"up"|"move", x, y, button:"left"|"none", clickCount}` -> `{}` (CSS px)
 - `browser.touch {tabId, type:"start"|"move"|"end"|"cancel", points:[{x,y,id}]}` -> `{}`
