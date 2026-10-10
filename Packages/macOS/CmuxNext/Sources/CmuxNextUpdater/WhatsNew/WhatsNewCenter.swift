@@ -73,6 +73,7 @@ public final class WhatsNewCenter {
             isUpdated = lastUpdate != nil
             if let lastUpdate { unseen = [lastUpdate.document] }
             isLoaded = true
+            markLoadedForHarness()
             let done = Task<Void, Never> {}
             loadTask = done
             return done
@@ -103,6 +104,7 @@ public final class WhatsNewCenter {
                 self.unseen.insert(document, at: 0)
             }
             self.isLoaded = true
+            self.markLoadedForHarness()
         }
         loadTask = task
         return task
@@ -157,5 +159,17 @@ public final class WhatsNewCenter {
         unseen = tracker.unseen(known)
         isUpdated = true
         return true
+    }
+}
+
+extension WhatsNewCenter {
+    /// The update harness's evidence (DEV only; no-op without a harness).
+    func markLoadedForHarness() {
+        #if DEBUG
+        UpdateHarness.mark("whats_new.loaded.updated_\(isUpdated).unseen_\(unseen.count)")
+        if let lastUpdate {
+            UpdateHarness.mark("whats_new.last_update.\(lastUpdate.fromBuild)_to_\(lastUpdate.toBuild).lines_\(lastUpdate.changelog.lines.count)")
+        }
+        #endif
     }
 }
