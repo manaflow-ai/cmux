@@ -68,7 +68,7 @@ mod windows_stubs {
     use std::io;
     use std::path::Path;
 
-    use super::HostStream;
+    use super::{AcceptWaker, HostStream};
 
     fn unsupported() -> io::Error {
         io::Error::new(
@@ -107,11 +107,6 @@ mod windows_stubs {
         pub(crate) fn spawn() -> anyhow::Result<Self> {
             Err(unsupported().into())
         }
-    }
-
-    /// No endpoint is ever named on Windows yet (`FileOwner` has no value).
-    pub(crate) fn endpoint_dir(owner: FileOwner) -> PathBuf {
-        match owner {}
     }
 
     pub(crate) fn reserve_terminal_host_publication(
@@ -168,12 +163,14 @@ mod windows_stubs {
         pub(crate) enum AdoptSpec {}
         pub(crate) enum PtyOwnershipLock {}
 
+        /// Windows v1 never adopts a PTY: `--bootstrap-stdio` starts a new
+        /// terminal.
         pub(crate) fn adopt_pty_fd(_args: &[String]) -> anyhow::Result<Option<AdoptFd>> {
-            Err(unsupported().into())
+            Ok(None)
         }
 
         pub(crate) fn max_payload(_adopt_fd: Option<AdoptFd>) -> usize {
-            0
+            crate::terminal_host_runtime::MAX_LAUNCH_PAYLOAD
         }
 
         pub(crate) fn decode(

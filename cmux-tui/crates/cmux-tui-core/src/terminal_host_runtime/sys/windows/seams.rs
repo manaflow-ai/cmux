@@ -71,6 +71,11 @@ pub(crate) fn has_single_link(_metadata: &fs::Metadata) -> bool {
     true
 }
 
+/// This user's endpoint directory (`endpoint.rs`).
+pub(crate) fn endpoint_dir(_owner: FileOwner) -> PathBuf {
+    endpoint::endpoint_dir()
+}
+
 /// The only endpoint a record of ours may name: this user's endpoint
 /// directory (`endpoint.rs`).
 pub(crate) fn canonical_endpoint(_owner: FileOwner, terminal_id: &str) -> PathBuf {
@@ -325,7 +330,3 @@ impl AcceptWaker {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "seams_tests.rs"]
-mod tests;

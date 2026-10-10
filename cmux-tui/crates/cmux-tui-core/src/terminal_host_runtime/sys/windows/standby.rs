@@ -515,7 +515,3 @@ fn quote_arg(arg: &str) -> String {
     quoted.push('"');
     quoted
 }
-
-#[cfg(test)]
-#[path = "standby_tests.rs"]
-mod tests;

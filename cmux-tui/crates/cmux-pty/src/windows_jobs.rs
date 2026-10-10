@@ -121,26 +121,3 @@ impl Child for JobChild {
         self.child.as_raw_handle()
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Ending the jobs ends the child and the process it started (the whole
-    /// tree), with the given exit code.
-    #[test]
-    fn terminating_every_job_ends_the_child_tree() {
-        let child = std::process::Command::new("cmd.exe")
-            .args(["/d", "/c", "ping -n 60 127.0.0.1 >nul"])
-            .spawn()
-            .unwrap();
-        let pid = child.id();
-        let mut child = JobChild::new(Box::new(child));
-        assert!(child._job.is_some(), "the child is in a job");
-        assert!(terminate_every_job(7) >= 1);
-        let started = std::time::Instant::now();
-        let status = child.wait().unwrap();
-        assert!(started.elapsed() < std::time::Duration::from_secs(10));
-        assert_eq!(status.exit_code(), 7, "child {pid}");
-    }
-}

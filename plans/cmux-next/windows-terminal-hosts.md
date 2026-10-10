@@ -316,3 +316,25 @@ Open:
   branch already moved the layer to `sys/windows/` (declared in `sys.rs`),
   which needs no line in `terminal_host_runtime.rs`; open point for the
   coordinator.
+
+## State after the split finished (2026-10-10, B3-B18 on feat-cmux-next)
+
+- New rule (Lawrence via chief): no unit tests. The branch's new unit tests
+  (sys/windows liveness, endpoint, jobs, standby, seams; cmux-pty
+  windows_jobs; server wire_commands tab test) are dropped. Behavior tests
+  stay: `tests/windows_terminal_hosts.rs` (restart survival, kill-on-close
+  notice, no notice for a normal terminal), through the daemon socket.
+- `adopt_pty_fd` returns Ok(None) on Windows (`--bootstrap-stdio` starts a
+  new terminal); `max_payload` is MAX_LAUNCH_PAYLOAD.
+- `signal_terminal_process_groups` (seams.rs) ends the terminal's Job Object
+  on Kill (`cmux_pty::windows_jobs::terminate_every_job`).
+- Still stubs (the Windows host runtime): StandbyTerminalHost::spawn (wire to
+  `standby::spawn_host_process`; note the struct expects std pipes and a
+  `SpawnedHostProcess` over `std::process::Child`, while the spawn returns a
+  raw process handle and named-pipe Files: the struct must change on
+  Windows), HostListener (local_socket listen, WSAEventSelect + the waker
+  event for `wait`), publication lock (LockFileEx shared on
+  `.publication.lock`), adopt_launch decode/start (ConPTY child through
+  cmux-pty, HostShared), HostChild, PtyPollHandle and the readiness wait
+  (PeekNamedPipe on the ConPTY output), the `__terminal-host` entry in
+  main.rs (open_bootstrap_pipes), and the mux/surface hooks.

@@ -846,30 +846,3 @@ fn client_sizing_command_updates_list_clients() {
     let listed = handle_command(&mux, client, Command::ListClients, &writer).unwrap();
     assert_eq!(listed[0]["sizes"][0]["size_participating"], false);
 }
-
-/// A terminal that runs in the daemon process although hosts are on says why
-/// in every tree (cx-ko2e), so a client that connects later sees it too; a
-/// terminal without a fallback reports null.
-#[test]
-fn tab_json_reports_why_a_terminal_has_no_host_of_its_own() {
-    let mux = test_mux();
-    let first = mux.new_workspace(None, None).unwrap();
-    let second = mux.new_workspace(None, None).unwrap();
-    second.mark_terminal_host_fallback(crate::surface::TerminalHostFallback::BreakawayDenied);
-    let tree = run_json_command(&mux, json!({"cmd":"list-workspaces"})).unwrap();
-    let tab = |surface: SurfaceId| {
-        tree["workspaces"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .flat_map(|workspace| workspace["screens"].as_array().unwrap())
-            .flat_map(|screen| screen["panes"].as_array().unwrap())
-            .flat_map(|pane| pane["tabs"].as_array().unwrap())
-            .find(|tab| tab["surface"] == json!(surface))
-            .cloned()
-            .unwrap()
-    };
-    assert_eq!(tab(second.id)["terminal_host_fallback"], "breakaway_denied");
-    let plain = tab(first.id);
-    assert!(plain.get("terminal_host_fallback").is_some_and(Value::is_null), "{plain}");
-}
