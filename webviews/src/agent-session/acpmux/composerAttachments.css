@@ -130,14 +130,15 @@
   left: 4px;
   top: 7px;
   color: var(--agent-accent, var(--agent-text));
-  font-size: 6px;
+  /* Part of the sheet drawing: it scales with the sheet, from the body step. */
+  font-size: calc(var(--text-body) * 6 / 13);
   font-weight: 700;
   letter-spacing: 0.03em;
 }
 .acpmux-pdf-sheet.is-large .acpmux-pdf-sheet-mark {
   left: 24px;
   top: 38px;
-  font-size: 24px;
+  font-size: calc(var(--text-body) * 24 / 13);
 }
 .acpmux-pdf-sheet-lines {
   position: absolute;
@@ -213,7 +214,7 @@
 }
 .acpmux-attachment-document-meta > svg { grid-row: 1 / span 2; align-self: center; }
 .acpmux-attachment-document-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.acpmux-attachment-document-pages { color: var(--agent-muted); font-size: 11px; }
+.acpmux-attachment-document-pages { color: var(--agent-muted); font-size: var(--text-caption); }
 .acpmux-attachment-document .acpmux-attachment-remove { top: 20px; }
 .acpmux-composer .acpmux-attachment-remove {
   position: absolute;
@@ -250,7 +251,7 @@
 }
 .acpmux-attachment-note {
   color: var(--agent-muted);
-  font-size: 12px;
+  font-size: var(--text-detail);
   white-space: nowrap;
 }
 /* The prompt's context menu host wraps the field without a box of its own. */
