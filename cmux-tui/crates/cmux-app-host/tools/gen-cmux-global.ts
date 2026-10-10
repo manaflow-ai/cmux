@@ -136,8 +136,9 @@ export function generate(): Record<string, string> {
     "net.fetch": { scope: "net:<host>", class: "runtime" },
     "clipboard.write": { scope: "clipboard:write", class: "mutation" },
     "integration.request": { scope: "integration:<provider>", class: "runtime" },
-    // Mac-side app ops (AppHostCapabilities in CmuxNextApp; APP-R1 provider channel later).
+    // Mac-side app ops (AppHostCapabilities in CmuxNextApp, served over the provider channel).
     "coderouter.status": { scope: "coderouter:read", class: "read" },
+    "coderouter.detect": { scope: "coderouter:read", class: "read" },
     "coderouter.accounts.list": { scope: "coderouter:read", class: "read" },
     "coderouter.usage.get": { scope: "coderouter:read", class: "read" }
   }

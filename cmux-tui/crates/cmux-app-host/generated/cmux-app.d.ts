@@ -399,6 +399,14 @@ interface CmuxGlobal {
   agent: {
     /** `agent.list` (read, scope `agent:read`) */
     list: CmuxOp<{ machine?: string; session?: string; terminal_id?: string /* terminal_… */; state?: Cmux.AgentState }, Array<Cmux.AgentSnapshot>>
+    message: {
+      /** `agent.message.list` (read, scope `agent:read`) */
+      list: CmuxOp<{ machine?: string; session?: string; recipient?: string; sender?: string; thread_id?: string; state?: Cmux.AgentMessageState; limit?: number; oldest_first?: boolean }, Array<Cmux.AgentMessageSnapshot>>
+      /** `agent.message.mark` (mutation, scope `agent:write`) */
+      mark: CmuxOp<{ machine?: string; session?: string; ids: Array<string>; recipient: string; state: "delivered" | "acknowledged" | "failed"; via?: string; error?: string; expected_revision?: string }, Cmux.MutationResult<Array<Cmux.AgentMessageSnapshot>>>
+      /** `agent.message.send` (mutation, scope `agent:write`) */
+      send: CmuxOp<{ machine?: string; session?: string; recipients?: Array<string>; body: string; sender?: string; sender_name?: string; thread_id?: string; in_reply_to?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.AgentMessageSnapshot>>
+    }
     /** `agent.report` (mutation, scope `agent:write`) */
     report: CmuxOp<{ machine?: string; session?: string; terminal_id: string /* terminal_… */; state: Cmux.AgentState; source: "hook" | "socket"; source_session?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.AgentSnapshot>>
   }
