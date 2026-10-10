@@ -173,6 +173,31 @@ impl ProviderDriver {
     }
 }
 
+impl ProviderDriver {
+    /// The undo of a clear on an app CEF tab: the host kept the backup
+    /// (`host:` id) and it names the tab's CDP target, so the restore runs
+    /// on that tab's relay, in that tab's profile and nowhere else. None
+    /// when the id is no relayed tab's backup.
+    fn restore_relayed(&self, params: &Value) -> Option<Result<Value, DriverError>> {
+        let id = params.get("restoreId").and_then(Value::as_str)?;
+        let record = crate::cookie_backups::shared().ok()?.load(id).ok()?;
+        let target = record["relayTarget"].as_str()?.to_owned();
+        let tab = self
+            .cef_tabs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .values()
+            .find(|tab| tab.cdp_id == target)
+            .cloned();
+        Some(match tab {
+            Some(tab) => tab.driver.call("cookies.restore", params),
+            None => Err(DriverError::invalid(
+                "cookies.restore: the tab whose cookies were cleared is closed, so their store cannot be named",
+            )),
+        })
+    }
+}
+
 /// Replaces `"targetId": from` (at any depth) with `to`.
 pub(crate) fn rename_target(value: &mut Value, from: &str, to: &str) {
     match value {
@@ -280,6 +305,7 @@ impl TabSource for ProviderSource {
             {
                 Some(Driver::call(&*self.0, method, params))
             }
+            "cookies.restore" => self.0.restore_relayed(params),
             _ => None,
         }
     }
