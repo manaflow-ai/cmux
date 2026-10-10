@@ -65,7 +65,10 @@ extension AppDelegate {
     /// Previous/Next from a key (``TabManager/stepTabOrWorkspace(forward:dock:)``), with the Dock
     /// that owns keyboard focus, if any.
     func stepTabOrWorkspace(forward: Bool, tabManager: TabManager?, event: NSEvent) {
-        let dock = focusedDockStoreForShortcut(action: forward ? .nextSurface : .prevSurface, preferredWindow: event.window)
+        // Each action is named at its own gate call (tests/test_dock_shortcut_routing_guard.py).
+        let dock = forward
+            ? focusedDockStoreForShortcut(action: .nextSurface, preferredWindow: event.window)
+            : focusedDockStoreForShortcut(action: .prevSurface, preferredWindow: event.window)
         tabManager?.stepTabOrWorkspace(forward: forward, dock: dock)
     }
 
