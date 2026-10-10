@@ -56,6 +56,9 @@ mod unix {
         /// Listening sockets the daemon bound and keeps (socket activation:
         /// it starts the host again on the next agent connect).
         agent_listen_fd: Option<i32>,
+        /// The daemon's history link (one end of a socketpair; five page
+        /// history operations only; made close-on-exec when taken).
+        history_fd: Option<i32>,
         provider_listen_fd: Option<i32>,
         /// With `--supervised`: exit after this long with no session and no
         /// provider (the idle stop).
@@ -73,6 +76,7 @@ mod unix {
             provider_secret_fd: None,
             supervised: false,
             agent_listen_fd: None,
+            history_fd: None,
             provider_listen_fd: None,
             idle_exit_ms: None,
         };
@@ -106,6 +110,13 @@ mod unix {
                     );
                 }
                 "--supervised" => options.supervised = true,
+                "--history-fd" => {
+                    options.history_fd = Some(
+                        value("--history-fd")?
+                            .parse()
+                            .map_err(|_| "--history-fd: expected a file descriptor")?,
+                    );
+                }
                 "--agent-listen-fd" => {
                     options.agent_listen_fd = Some(
                         value("--agent-listen-fd")?
@@ -270,7 +281,17 @@ mod unix {
             eprintln!("cmux-browser-host: {warning}");
         }
         let engines = Arc::new(HostEngines::new(agent_bundle()).with_egress(egress.clone()));
-        let host = Arc::new(Host::new(engines.clone(), cwd).with_egress(egress));
+        let mut host = Host::new(engines.clone(), cwd).with_egress(egress);
+        if let Some(fd) = options.history_fd {
+            match cmux_browser_host::history_link::inherited_link(fd) {
+                Ok(link) => host = host.with_history_link(link),
+                Err(error) => {
+                    eprintln!("cmux-browser-host: --history-fd: {error}");
+                    return 1;
+                }
+            }
+        }
+        let host = Arc::new(host);
         let idle = options.idle_exit_ms.filter(|_| options.supervised).map(|ms| {
             let (probe_host, slot) = (Arc::downgrade(&host), engines.provider_slot());
             let busy = move || {

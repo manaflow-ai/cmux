@@ -12,7 +12,7 @@ Implemented event lines can appear on subscribe, attach, or control lifecycle st
 
 | Stream | How to start | Event names |
 | --- | --- | --- |
-| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `cloud-conversation-changed`, `cloud-conversation-resynced`, `cloud-inbox-changed`, `cloud-inbox-reset`, `cloud-subscription-state`, `cloud-session-needed`, `bookmarks-changed`, `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `bell`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
+| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `cloud-conversation-changed`, `cloud-conversation-resynced`, `cloud-inbox-changed`, `cloud-inbox-reset`, `cloud-subscription-state`, `cloud-session-needed`, `bookmarks-changed`, `history-changed`, `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `bell`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
 | Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached`, `overflow` |
 | Attach stream v6 PTY | `attach-surface` command | `vt-state`, `resized`, `output`, `colors-changed`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Attach stream v7 render mode | `attach-surface` command | `render-state`, `render-delta`, `scroll-changed`, `detached`, `overflow` |
@@ -39,6 +39,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `frontend-projection-changed` | subscribe | projection subject | protocol 7 |
 | `personal-changed` | subscribe | session | protocol 12; capability `profiles-v1` |
 | `bookmarks-changed` | subscribe | `browser_profile_id` | protocol 12; capability `bookmarks-v1` |
+| `history-changed` | subscribe | none | protocol 12; capability `history-v1` |
 | `conversation-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `local-conversations-v1` |
 | `conversation-typing` | subscribe | `conversation` | protocol 12 additive extension; capability `local-conversations-v1` |
 | `cloud-conversation-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `cloud-conversations-v1` |
@@ -396,6 +397,26 @@ commits a change. The payload is
 interested frontends refetch `list-bookmarks` for that browser profile. An
 unchanged retry publishes nothing. Bookmarks advance neither
 `personal_revision` nor `workspace_revision`.
+### history-changed
+
+| Field | Value |
+| --- | --- |
+| event | `history-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `history-v1` |
+
+Published by the session's history module when the merged history changes:
+a committed `history.entries.remove`, `history.site.remove`, `history.clear`,
+`history.restore`, `history.visit.record`, `history.visit.title` or
+`history.visit.remove` that changed something, or agent and command journal
+records the module newly folded. The payload is
+`{event:"history-changed", revision:uint64, kinds:[string]}`, where `kinds`
+names the entry kinds that changed (`page`, `command`, `agent`); interested
+frontends re-read `history.entries.list`. A replayed mutation publishes
+nothing. Changes of closed items and of the app's location trail are
+announced by their owners' events, not by this one. Page visits are shared
+by the sessions of a machine; the event goes to the session that served the
+change.
 ### conversation-changed
 
 | Field | Value |

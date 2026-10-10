@@ -153,6 +153,7 @@ ghostty-vt-sys = { path = "crates/ghostty-vt-sys" }
 ghostty-vt = { path = "crates/ghostty-vt" }
 cmux-tui-core = { path = "crates/cmux-tui-core" }
 cmux-feed-core = { path = "crates/cmux-feed-core" }
+cmux-history = { path = "crates/cmux-history" }
 cmux-layout-reducer = { path = "crates/cmux-layout-reducer" }
 cmux-unix-socket = { path = "crates/cmux-unix-socket" }
 cmux-chat-index = { path = "crates/cmux-chat-index" }

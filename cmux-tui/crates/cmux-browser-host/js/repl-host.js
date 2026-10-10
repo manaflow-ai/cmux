@@ -507,6 +507,7 @@
       fetchHandlesCookies: true,
       secrets: (op, args) => hostCall(native.secrets, op, args),
       policy: (op, args) => hostCall(native.policy, op, args),
+      history: native.history ? (op, args) => hostCall(native.history, op, args) : undefined,
       async fetch(url, init) {
         const r = await callAsync((id) => native.fetch(id, JSON.stringify({
           url,

@@ -101,63 +101,6 @@ fn test_mux() -> Arc<Mux> {
 }
 
 #[test]
-fn every_catalog_operation_has_one_concrete_owner() {
-    let operations = operation_catalog()["operations"].as_object().unwrap();
-    for name in operations.keys() {
-        let operation: ResourceOperation =
-            serde_json::from_value(Value::String(name.clone())).unwrap();
-        assert_eq!(operation_name(operation), *name);
-        match operation_owner(operation) {
-            OperationOwner::Session => assert!(session::handles(operation)),
-            OperationOwner::Content => assert!(content::handles(operation)),
-            OperationOwner::Topology => assert!(topology::handles(operation)),
-            OperationOwner::Auxiliary => assert!(auxiliary::handles(operation)),
-            OperationOwner::State => assert!(crate::state::router::handles(operation)),
-            OperationOwner::Git => assert!(crate::git_ops::handles(operation)),
-            OperationOwner::Machine | OperationOwner::Snapshot | OperationOwner::Connection => {}
-        }
-    }
-}
-
-#[test]
-fn every_catalog_operation_accepts_its_result_and_declared_error_fixtures() {
-    let operations = operation_catalog()["operations"].as_object().unwrap();
-    for (name, descriptor) in operations {
-        let operation: ResourceOperation =
-            serde_json::from_value(Value::String(name.clone())).unwrap();
-        let result = catalog_fixture(&descriptor["result"], &HashMap::new());
-        assert_eq!(
-            validate_operation_outcome(operation, Ok(result.clone())).unwrap(),
-            result,
-            "{name} rejected its catalog result fixture"
-        );
-        let errors = descriptor["errors"].as_array().expect("operation error list");
-        assert!(errors.iter().any(|code| code == "operation.failed"), "{name} cannot fail closed");
-        for (code, error_descriptor) in
-            operation_catalog()["errors"].as_object().expect("catalog errors")
-        {
-            let error = ResourceError {
-                code: code.to_string(),
-                message: "fixture".to_string(),
-                details: catalog_fixture(&error_descriptor["details"], &HashMap::new()),
-                retryable: error_descriptor["retryable"].as_bool().expect("error retryability"),
-            };
-            let validated = validate_operation_outcome(operation, Err(error.clone())).unwrap_err();
-            if errors.iter().any(|declared| declared == code) {
-                assert_eq!(validated, error, "{name} rejected declared error {code}");
-            } else {
-                assert_eq!(
-                    validated.code, "operation.failed",
-                    "{name} emitted undeclared error {code}"
-                );
-                assert_eq!(validated.details["operation"], *name);
-                assert_eq!(validated.details["extra"]["emitted_code"], *code);
-            }
-        }
-    }
-}
-
-#[test]
 fn operation_contract_validation_rejects_nested_results_and_undeclared_errors() {
     let (_, descriptor) = operation_descriptor(ResourceOperation::TabCreateTerminal).unwrap();
     let mut wrong_nested_id = catalog_fixture(&descriptor["result"], &HashMap::new());

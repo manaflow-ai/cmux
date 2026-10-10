@@ -109,6 +109,18 @@ const fn access(operation: Op) -> Access {
         | Op::ProjectUpdate
         | Op::ProjectRemove
         | Op::ProjectSync => Access::Denied(Denied::FileSystem),
+        // A browser profile's visited pages: never a page's to read or delete.
+        Op::HistoryEntriesList
+        | Op::HistoryEntriesRemove
+        | Op::HistorySiteRemove
+        | Op::HistoryClear
+        | Op::HistoryRestore
+        | Op::HistoryBackupsPurge
+        | Op::HistoryVisitRecord
+        | Op::HistoryVisitTitle
+        | Op::HistoryVisitRemove
+        | Op::HistoryVisitSummaries
+        | Op::HistoryVisitImport => Access::Denied(Denied::NotAllowed),
         Op::PaneCreate | Op::PaneSplit | Op::TabCreateTerminal => Access::DeniedWithCwd,
         Op::MachineList
         | Op::MachineGet

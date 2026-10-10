@@ -41,6 +41,13 @@ impl Gate {
         if let Some(target) = target {
             entry["targetId"] = json!(target);
         }
+        self.record_private_data(entry, target);
+    }
+
+    /// Writes one private-data entry (op, site, counts, restore id; never a
+    /// value) to the session's policy log, the host log and the session's
+    /// event path (`browser.privateData`).
+    pub(super) fn record_private_data(&self, mut entry: Value, target: Option<&str>) {
         entry["at"] = json!(now_ms());
         let entry = self.mask_for_target(target, &entry);
         push_log(&self.log, entry.clone());

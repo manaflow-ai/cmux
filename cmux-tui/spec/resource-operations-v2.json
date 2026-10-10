@@ -8619,6 +8619,339 @@
       },
       "extra": false
     },
+    "HistoryEntry": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "Qualified id: page:<profile>:<visit>, agent:<machine>/<provider>/<session>, command:<machine>/<terminal>/<start ms>, closed:daemon:<id> or location:<machine>:<tab>:<index>."
+        },
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "HistoryKind"
+          }
+        },
+        "at_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "Visit, last activity, start or close time in Unix milliseconds."
+        },
+        "title": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The page title (else its URL), the command, or an English title the pages localize."
+        },
+        "detail": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The line shown under the title: URL, directory or workspace."
+        },
+        "machine": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The machine name; absent for this machine."
+        },
+        "workspace": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "available": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "False while the owning machine is not connected."
+        },
+        "current": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "Location: the trail cursor."
+        },
+        "running": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "Agent: the session has not ended."
+        },
+        "url": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "profile": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "Page: the browser profile the visit belongs to."
+        },
+        "closed_kind": {
+          "required": false,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "terminal_tab",
+              "browser_tab",
+              "screen",
+              "workspace"
+            ]
+          }
+        },
+        "cwd": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "command": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "Command: the command line."
+        },
+        "exit_code": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "int32"
+          }
+        },
+        "session_id": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "Agent: the provider's own session id."
+        },
+        "provider": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "Agent: the hook adapter id, for the localized title."
+        }
+      },
+      "extra": false
+    },
+    "HistoryEntriesListResult": {
+      "kind": "object",
+      "fields": {
+        "entries": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "HistoryEntry"
+            },
+            "max_items": 5000
+          },
+          "description": "Newest first by at_ms, then id; at most limit."
+        },
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "The history revision that history-changed carries."
+        }
+      },
+      "extra": false
+    },
+    "HistoryRemovalResult": {
+      "kind": "object",
+      "fields": {
+        "removed": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "How many visits were removed, plus the agent and command entries hidden."
+        },
+        "restore_id": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 40,
+              "max_length": 40
+            }
+          },
+          "description": "history:<32 hex>: history.restore puts the removed visits back. Null when no visit was removed."
+        }
+      },
+      "extra": false
+    },
+    "HistoryRestoreResult": {
+      "kind": "object",
+      "fields": {
+        "restored": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32",
+            "minimum": 1
+          },
+          "description": "How many visits came back."
+        }
+      },
+      "extra": false
+    },
+    "HistoryPurgeResult": {
+      "kind": "object",
+      "fields": {
+        "purged": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "How many backed-up visits were deleted for good."
+        }
+      },
+      "extra": false
+    },
+    "HistoryVisitRecordResult": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The visit's entry id, page:<profile>:<visit>."
+        }
+      },
+      "extra": false
+    },
+    "HistoryVisitTitleResult": {
+      "kind": "object",
+      "fields": {
+        "updated": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Visits whose title changed: 0 or 1."
+        }
+      },
+      "extra": false
+    },
+    "HistoryVisitImportResult": {
+      "kind": "object",
+      "fields": {
+        "imported": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "How many visits came in."
+        }
+      },
+      "extra": false
+    },
+    "HistoryVisitSummary": {
+      "kind": "object",
+      "fields": {
+        "url": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "title": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The newest title of the URL, or null."
+        },
+        "visit_count": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "last_visit_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        }
+      },
+      "extra": false
+    },
+    "HistoryRange": {
+      "kind": "enum",
+      "values": [
+        "hour",
+        "today",
+        "week",
+        "month",
+        "all"
+      ]
+    },
+    "HistoryKind": {
+      "kind": "enum",
+      "values": [
+        "page",
+        "location",
+        "closed",
+        "command",
+        "agent"
+      ]
+    },
     "ProjectSourceSeen": {
       "kind": "object",
       "fields": {
@@ -14058,6 +14391,726 @@
         "selector.not_found",
         "selector.wrong_parent",
         "validation.invalid"
+      ]
+    },
+    "history.backups.purge": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "restore_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 40,
+              "max_length": 40
+            },
+            "description": "A history:<32 hex> restore id from a removal."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "HistoryPurgeResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Only origin user (a verified cmux app connection, gate A2) may send it: a backup is the undo of a removal, so no agent deletes it. Any other origin is refused with origin.forbidden."
+      ]
+    },
+    "history.clear": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "range": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "HistoryRange"
+            },
+            "description": "hour, today (from the local start of today), week (7 days), month (28 days) or all. Entries at or after the range's start are cleared."
+          },
+          "kinds": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "HistoryKind"
+              },
+              "max_items": 5
+            },
+            "description": "Entry kinds (page, location, closed, command, agent); empty or omitted: every kind."
+          },
+          "profile": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "One browser profile; it narrows the clear to that profile's page visits."
+          },
+          "local_day_start_ms": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "The local start of today in Unix milliseconds, from the caller's time zone, for range today. Omitted: the daemon's local midnight."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "HistoryRemovalResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Every removal of page visits moves them to a backup and answers its restore_id (recoverable by default); the backup ends at history.restore, history.backups.purge (origin user) or the 90-day retention.",
+        "Page visits in the range are removed; agent and command entries are hidden by range (not with a profile); closed and location entries are never touched; removed counts visits."
+      ]
+    },
+    "history.entries.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "profile": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "One browser profile; it narrows the list to that profile's page visits."
+          },
+          "kinds": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "HistoryKind"
+              },
+              "max_items": 5
+            },
+            "description": "Entry kinds (page, location, closed, command, agent); empty or omitted: every kind."
+          },
+          "text": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 1024
+            },
+            "description": "Every whitespace-separated token must appear in the entry, folded for case, diacritics and width, in any order."
+          },
+          "range": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "HistoryRange"
+            },
+            "description": "hour, today (from the local start of today), week (7 days), month (28 days) or all.",
+            "default": "all"
+          },
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1,
+              "maximum": 5000
+            },
+            "description": "At most this many entries.",
+            "default": 500
+          },
+          "local_day_start_ms": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "The local start of today in Unix milliseconds, from the caller's time zone, for range today. Omitted: the daemon's local midnight."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "HistoryEntriesListResult"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "The merged history, newest first: page visits of every browser profile (shared by the machine's sessions), agent sessions and finished commands folded from the session journal minus the hidden ones, closed items, and the app's location trail."
+      ]
+    },
+    "history.entries.remove": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "ids": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 1024
+              },
+              "min_items": 1,
+              "max_items": 1000
+            },
+            "description": "Entry ids from history.entries.list."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "HistoryRemovalResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Every removal of page visits moves them to a backup and answers its restore_id (recoverable by default); the backup ends at history.restore, history.backups.purge (origin user) or the 90-day retention.",
+        "Page visits are removed; agent and command entries are hidden; closed entries are left to age out; any location id refuses the whole request with operation.failed reason history.location_client_owned (the app owns its trail)."
+      ]
+    },
+    "history.restore": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "restore_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 40,
+              "max_length": 40
+            },
+            "description": "A history:<32 hex> restore id from a removal."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "HistoryRestoreResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Puts a removal's visits back, once; a backup that was restored, purged or expired is operation.failed."
+      ]
+    },
+    "history.site.remove": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "host": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 253
+            },
+            "description": "A host name such as example.com: its visits and those of its subdomains are removed."
+          },
+          "profile": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "One browser profile; omitted: every profile."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "HistoryRemovalResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Every removal moves the visits to a backup and answers its restore_id (recoverable by default); the backup ends at history.restore, history.backups.purge (origin user) or the 90-day retention."
+      ]
+    },
+    "history.visit.import": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "profile": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The browser profile's wire id."
+          },
+          "path": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 4096
+            },
+            "description": "The absolute path of the app's own History.sqlite visit log of the profile."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "HistoryVisitImportResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Only origin user (the verified cmux app connection, gate A2) may send it: it makes the daemon read a file by path. Any other origin is refused with origin.forbidden.",
+        "Copies every visit of the app's own log from before the daemon owned page history into the profile, in one transaction; the file is read, never changed. A retry with the same idempotency key imports nothing again."
+      ]
+    },
+    "history.visit.record": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "profile": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The browser profile's wire id."
+          },
+          "url": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 8192
+            },
+            "description": "The URL of the finished main-frame navigation."
+          },
+          "title": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 1024
+            },
+            "description": "The page title, when the load already has one."
+          },
+          "tab": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The tab that visited it, <machine>/<tab id>, when the reporter knows it."
+          },
+          "at_ms": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "The visit's time in Unix milliseconds."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "HistoryVisitRecordResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Only origin user (the verified cmux app connection, gate A2) may send it: the app that hosts the browser reports what the person visited, so no agent adds a visit. Any other origin is refused with origin.forbidden.",
+        "Visits older than 90 days and beyond 100,000 per profile are pruned."
+      ]
+    },
+    "history.visit.remove": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "profile": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "One browser profile; omitted: every profile."
+          },
+          "urls": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 8192
+              },
+              "min_items": 1,
+              "max_items": 1000
+            },
+            "description": "Every visit of exactly one of these URLs is removed."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "HistoryRemovalResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Every removal of page visits moves them to a backup and answers its restore_id (recoverable by default); the backup ends at history.restore, history.backups.purge (origin user) or the 90-day retention.",
+        "The omnibox's Remove suggestion and the browser REPL's delete {urls}: exact URLs, one removal with one restore id."
+      ]
+    },
+    "history.visit.summaries": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "profile": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The browser profile's wire id."
+          },
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1,
+              "maximum": 5000
+            },
+            "description": "At most this many URLs.",
+            "default": 5000
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "array",
+        "items": {
+          "kind": "ref",
+          "name": "HistoryVisitSummary"
+        },
+        "max_items": 5000
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "One row per URL of the profile, most recent first: the omnibox seed."
+      ]
+    },
+    "history.visit.title": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "profile": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The browser profile's wire id."
+          },
+          "url": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 8192
+            },
+            "description": "The visited URL."
+          },
+          "title": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 1024
+            },
+            "description": "The page title that arrived after the navigation."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "HistoryVisitTitleResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Only origin user (the verified cmux app connection, gate A2) may send it: the app that hosts the browser reports what the person visited, so no agent adds a visit. Any other origin is refused with origin.forbidden.",
+        "Sets the title of the newest visit of the URL in the profile."
       ]
     },
     "machine.get": {

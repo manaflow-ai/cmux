@@ -269,6 +269,7 @@ impl SurfaceSessionScope {
             | MuxEvent::FrontendProjectionChanged { .. }
             | MuxEvent::PersonalChanged { .. }
             | MuxEvent::BookmarksChanged(_)
+            | MuxEvent::HistoryChanged { .. }
             | MuxEvent::Conversation(_)
             | MuxEvent::CloudConversation(_)
             | MuxEvent::TerminalRegistryChanged { .. }

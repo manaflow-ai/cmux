@@ -10,7 +10,7 @@ use cmux_tui_core::resource::{
 use serde_json::{Map, Number, Value, json};
 
 use super::{GlobalArgs, UsageError};
-use flags::{BOOLEAN_FLAGS, usage};
+use flags::{BOOLEAN_FLAGS, usage, validate_one_of};
 
 mod browser;
 #[cfg(test)]
@@ -18,6 +18,8 @@ pub(in crate::cli) mod cases;
 mod conversation;
 mod flags;
 mod git;
+mod history;
+pub(super) use history::DAEMON_VERBS as HISTORY_DAEMON_VERBS;
 mod plan;
 mod screen;
 mod server_ensure;
@@ -165,6 +167,7 @@ pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandP
         "room" => state::parse_room(&strs(&tokens.words[1..]), &mut tokens.flags)?,
         "closed" => state::parse_closed(&strs(&tokens.words[1..]), &mut tokens.flags)?,
         "git" => git::parse_git(&strs(&tokens.words[1..]), &mut tokens.flags)?,
+        "history" => history::parse_history(&strs(&tokens.words[1..]), &mut tokens.flags)?,
         "conversation" => {
             conversation::parse_conversation(&strs(&tokens.words[1..]), &mut tokens.flags)?
         }
@@ -1927,14 +1930,6 @@ fn supports_expected_revision(operation: ResourceOperation) -> bool {
         )
 }
 
-fn validate_one_of(flag: &str, value: &str, allowed: &[&str]) -> Result<(), UsageError> {
-    if allowed.contains(&value) {
-        Ok(())
-    } else {
-        Err(UsageError::new(format!("{flag} must be one of {}", allowed.join(", "))))
-    }
-}
-
 fn parse_bool(flag: &str, value: &str) -> Result<bool, UsageError> {
     match value {
         "true" => Ok(true),
@@ -3221,65 +3216,6 @@ mod tests {
         .expect("canonical operation catalog")
     }
 
-    fn assert_plan_matches_catalog(plan: &RequestPlan, expected: &str, catalog: &Value) {
-        let descriptor = &catalog["operations"][expected];
-        assert!(descriptor.is_object(), "catalog omitted {expected}");
-        let params = plan.params.as_object().expect("CLI params object");
-        let selectors = descriptor["params"]["selectors"].as_object().expect("catalog selectors");
-        let fields = descriptor["params"]["fields"].as_object().expect("catalog fields");
-
-        for key in params.keys() {
-            assert!(
-                selectors.contains_key(key) || fields.contains_key(key),
-                "{expected} emitted forbidden catalog parameter {key:?}: {params:?}"
-            );
-        }
-        for (key, requiredness) in selectors {
-            if requiredness == "required" {
-                assert!(
-                    params.contains_key(key),
-                    "{expected} omitted required selector {key:?}: {params:?}"
-                );
-            }
-        }
-        for (key, field) in fields {
-            if field["required"] == true {
-                assert!(
-                    params.contains_key(key),
-                    "{expected} omitted required field {key:?}: {params:?}"
-                );
-            }
-        }
-        if let Some(alternatives) = descriptor["params"]["one_of"].as_array() {
-            assert!(
-                alternatives.iter().any(|alternative| {
-                    alternative["required"].as_array().is_none_or(|required| {
-                        required
-                            .iter()
-                            .filter_map(Value::as_str)
-                            .all(|key| params.contains_key(key))
-                    }) && alternative["forbidden"].as_array().is_none_or(|forbidden| {
-                        forbidden
-                            .iter()
-                            .filter_map(Value::as_str)
-                            .all(|key| !params.contains_key(key))
-                    })
-                }),
-                "{expected} violates its catalog one_of: {params:?}"
-            );
-        }
-
-        let class = match plan.operation.class() {
-            OperationClass::Read => "read",
-            OperationClass::Mutation => "mutation",
-            OperationClass::StreamOpen => "stream_open",
-            OperationClass::ConnectionControl => "connection_control",
-            OperationClass::Local => "local",
-        };
-        assert_eq!(descriptor["class"], class, "{expected} class drift");
-        assert_eq!(plan.stream, class == "stream_open", "{expected} stream drift");
-    }
-
     #[test]
     fn direct_and_nested_paths_share_operations_and_flat_ancestors() {
         let direct = protocol(&["pane", "pane_33333333333333333333333333333333", "show"]);
@@ -4302,24 +4238,6 @@ mod tests {
             };
             assert_eq!(plan.kind, crate::plugin_manager::PluginKind::Agent);
             assert_eq!(plan.builtin, builtin);
-        }
-    }
-
-    mod transport_path_coverage_tests;
-
-    fn record_covered_fields<'a>(
-        plan: &RequestPlan,
-        operation: &'a str,
-        catalog: &Value,
-        covered: &mut BTreeMap<&'a str, std::collections::BTreeSet<String>>,
-    ) {
-        let catalog_fields =
-            catalog["operations"][operation]["params"]["fields"].as_object().unwrap();
-        let entry = covered.entry(operation).or_default();
-        for key in plan.params.as_object().unwrap().keys() {
-            if catalog_fields.contains_key(key) {
-                entry.insert(key.clone());
-            }
         }
     }
 }

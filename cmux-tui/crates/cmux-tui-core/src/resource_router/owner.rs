@@ -12,6 +12,8 @@ pub(super) enum OperationOwner {
     Auxiliary,
     State,
     Git,
+    /// The daemon history module (history_ops.rs).
+    History,
     Connection,
 }
 
@@ -122,6 +124,17 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::GitDiff
         | ResourceOperation::GitFilesSearch
         | ResourceOperation::GitStatus => OperationOwner::Git,
+        ResourceOperation::HistoryEntriesList
+        | ResourceOperation::HistoryEntriesRemove
+        | ResourceOperation::HistorySiteRemove
+        | ResourceOperation::HistoryClear
+        | ResourceOperation::HistoryRestore
+        | ResourceOperation::HistoryBackupsPurge
+        | ResourceOperation::HistoryVisitRecord
+        | ResourceOperation::HistoryVisitTitle
+        | ResourceOperation::HistoryVisitRemove
+        | ResourceOperation::HistoryVisitSummaries
+        | ResourceOperation::HistoryVisitImport => OperationOwner::History,
         ResourceOperation::WorkspaceUpdate
         | ResourceOperation::WorkspaceAgentFolderSet
         | ResourceOperation::TabPin

@@ -12,8 +12,8 @@ broker protocol.
 
 | Class | Count | Semantics |
 | --- | ---: | --- |
-| `read` | 65 | Reads state and forbids an idempotency key |
-| `mutation` | 124 | Requires an idempotency key and returns a mutation result |
+| `read` | 70 | Reads state and forbids an idempotency key |
+| `mutation` | 144 | Requires an idempotency key and returns a mutation result |
 | `stream_open` | 6 | Opens a connection-owned typed stream |
 | `connection_control` | 13 | Changes only connection-local state |
 
@@ -36,6 +36,7 @@ correlation, and idempotency metadata.
 | `conversation` | 8 | `conversation.draft`, `conversation.events`, `conversation.get`, `conversation.history`, `conversation.list`, `conversation.search`, `conversation.send`, `conversation.typing` |
 | `frontend_projection` | 2 | `frontend_projection.get`, `frontend_projection.put` |
 | `git` | 9 | `git.checkpoint.create`, `git.checkpoint.diff`, `git.checkpoint.get`, `git.checkpoint.list`, `git.checkpoint.pin`, `git.checkpoint.unpin`, `git.diff`, `git.files.search`, `git.status` |
+| `history` | 11 | `history.backups.purge`, `history.clear`, `history.entries.list`, `history.entries.remove`, `history.restore`, `history.site.remove`, `history.visit.import`, `history.visit.record`, `history.visit.remove`, `history.visit.summaries`, `history.visit.title` |
 | `machine` | 2 | `machine.get`, `machine.list` |
 | `notification` | 4 | `notification.ack`, `notification.clear`, `notification.create`, `notification.list` |
 | `pairing_request` | 2 | `pairing_request.list`, `pairing_request.resolve` |

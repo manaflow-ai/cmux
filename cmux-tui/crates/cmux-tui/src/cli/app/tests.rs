@@ -20,27 +20,6 @@ fn non_app_scopes_are_left_to_the_resource_grammar() {
 }
 
 #[test]
-fn history_and_bookmark_reads_call_the_app_and_other_words_run_actions() {
-    let (method, params) = call(
-        parse(&args(&["history", "search", "cmux", "--kind", "page", "--limit", "5"]))
-            .unwrap()
-            .unwrap(),
-    );
-    assert_eq!(method, "history.list");
-    assert_eq!(params, json!({ "text": "cmux", "kind": "page", "limit": 5 }));
-    let (method, params) =
-        call(parse(&args(&["bookmark", "list", "--folder", "Work"])).unwrap().unwrap());
-    assert_eq!(method, "bookmark.list");
-    assert_eq!(params, json!({ "folder": "Work" }));
-    assert!(parse(&args(&["history", "search"])).is_err());
-    assert!(parse(&args(&["bookmark", "list", "--limit", "0"])).is_err());
-    assert_eq!(call(parse(&args(&["accounts", "list"])).unwrap().unwrap()).0, "accounts.list");
-    let (method, params) = call(parse(&args(&["history", "reopen"])).unwrap().unwrap());
-    assert_eq!(method, "action.run");
-    assert_eq!(params["action"], "history reopen");
-}
-
-#[test]
 fn focus_asks_the_app_to_move_the_view() {
     let (_, params) = call(
         parse(&args(&["tab", "move-to-new-workspace", "--target", "tab_1", "--focus"]))

@@ -105,8 +105,15 @@ usage: cmux events [--after <seq>] [--name <name>]... [--category <category>]...
 Prints one JSON line per app event until interrupted.";
 
 const HISTORY_HELP: &str = "\
-usage: cmux history list [--kind <kind>] [--range <range>] [--limit <n>]
-       cmux history search <text> [--kind <kind>] [--range <range>] [--limit <n>]";
+usage: cmux history list [--kind <kind,...>] [--range <range>] [--profile <profile>] [--limit <n>]
+       cmux history search <text> [--kind <kind,...>] [--range <range>] [--profile <profile>] [--limit <n>]
+       cmux history remove <entry id>...
+       cmux history remove-site <host> [--profile <profile>]
+       cmux history clear-range --range <range> [--kind <kind,...>] [--profile <profile>]
+       cmux history restore <restore id>
+       cmux history <verb...>   (an app action: show, back, forward, reopen, clear, ...)
+The session daemon keeps history, so these work while the app is closed.
+Every removal of page visits answers a restore id.";
 
 const BOOKMARK_HELP: &str = "\
 usage: cmux bookmark list [--folder <folder>] [--profile <profile>] [--limit <n>]

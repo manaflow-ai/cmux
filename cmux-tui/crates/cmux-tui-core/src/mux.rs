@@ -194,6 +194,7 @@ mod journal_plugin_host;
 mod journal_retention;
 mod kitty_budget;
 mod kitty_reservation;
+mod workspace_name;
 use kitty_reservation::{kitty_image_limits_exceed, kitty_image_limits_within};
 mod agent_types;
 pub use agent_types::{AgentRecord, AgentSource, AgentState};
@@ -697,6 +698,8 @@ pub struct Mux {
     prelaunched_terminals: Mutex<HashMap<String, terminal_work::PrelaunchedTerminal>>,
     #[cfg(unix)]
     pub(crate) image_pastes: crate::image_paste::ImagePasteStore,
+    /// The history module's session state: journal folds and revision.
+    pub(crate) history: crate::history_ops::HistoryHost,
     pub(crate) surface_operation_admission: Arc<crate::server::ServerSurfaceOperationAdmission>,
     pairing: PairingBroker,
     #[cfg(test)]
@@ -725,25 +728,6 @@ struct RestoredTerminalBinding {
 }
 
 impl Mux {
-    fn default_workspace_name(state: &State) -> String {
-        // Provider-created workspaces use a stable, human-readable sequence.
-        // Existing names (including user-renamed workspaces) are left untouched;
-        // only the next automatically generated name is derived here. The
-        // sequence never restarts below the number of workspaces that exist:
-        // renaming `workspace-1` to `shell` and creating another one yields
-        // `workspace-2` (the second workspace), not a second `workspace-1`.
-        let highest = state
-            .workspaces
-            .iter()
-            .filter_map(|workspace| {
-                workspace.name.strip_prefix("workspace-")?.parse::<usize>().ok()
-            })
-            .max()
-            .unwrap_or(0);
-        let next = highest.max(state.workspaces.len()).saturating_add(1);
-        format!("workspace-{next}")
-    }
-
     /// Resolve one public resource path from a single live-state snapshot.
     /// Direct content IDs use the reverse resource indexes and never trigger
     /// a registry snapshot or process query.

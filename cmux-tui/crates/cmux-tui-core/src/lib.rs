@@ -16,6 +16,7 @@ mod apps;
 pub use cmux_tui_util::backoff;
 mod browser;
 pub mod browser_host;
+mod browser_host_history;
 mod browser_provider;
 mod lock_rank;
 /// The cloud conversations proxy; its own crate, re-exported at the old path.
@@ -30,6 +31,7 @@ mod event_bus;
 #[cfg(unix)]
 pub mod fs_ops;
 mod git_ops;
+mod history_ops;
 /// The image paste spool; the cmux-tui-image-paste crate, re-exported at the old path.
 #[cfg(unix)]
 use cmux_tui_image_paste::image_paste;

@@ -111,6 +111,22 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("palette_usage.forget", PALETTE_USAGE_REASON),
     ("workspace.ensure_home", HOME_REASON),
     ("workspace.agent_folder.set", AGENT_FOLDER_REASON),
+    ("history.backups.purge", HISTORY_PURGE_REASON),
+    ("history.visit.record", HISTORY_VISIT_REASON),
+    ("history.visit.title", HISTORY_VISIT_REASON),
+    ("history.visit.import", HISTORY_VISIT_REASON),
+    ("history.visit.summaries", HISTORY_OMNIBOX_REASON),
+    ("history.visit.remove", HISTORY_OMNIBOX_REASON),
+];
+
+/// Operations the curated `cmux` CLI offers but MCP does not, with the
+/// reason. Unlike [`EXCLUDED`], the parity test lets `cmux` reach these.
+pub(super) const CLI_ONLY: &[(&str, &str)] = &[
+    ("history.entries.list", HISTORY_MCP_PENDING_REASON),
+    ("history.entries.remove", HISTORY_MCP_PENDING_REASON),
+    ("history.site.remove", HISTORY_MCP_PENDING_REASON),
+    ("history.clear", HISTORY_MCP_PENDING_REASON),
+    ("history.restore", HISTORY_MCP_PENDING_REASON),
 ];
 
 const PROJECT_REASON: &str = "The user's folders (project-list-v1) stay with the app and its importers; an MCP client never reads or edits them.";
@@ -134,6 +150,16 @@ const PALETTE_USAGE_REASON: &str = "The user's own palette usage history: the ap
 const SIDEBAR_REASON: &str = "TUI sidebar plugin views in the cmux-tui-only scope.";
 const HOME_REASON: &str = "The hosting app creates its one home workspace on connect; the CLI \
      never offers it (workspace-kind-v1).";
+const HISTORY_VISIT_REASON: &str = "Page visits, their titles and the app's older visit logs come \
+     from the verified app that hosts the browser (gate A2); agents read history, they never add a \
+     visit.";
+const HISTORY_OMNIBOX_REASON: &str = "The omnibox's own seed and Remove suggestion: `cmux history` \
+     lists history and removes entries by id or site.";
+const HISTORY_MCP_PENDING_REASON: &str = "The person's page, command and agent history: MCP \
+     clients act as the local user, and the policy for history reads and deletes over MCP is \
+     still open (bead cx-ncc.32); `cmux history` offers them meanwhile.";
+const HISTORY_PURGE_REASON: &str = "Deletes the undo of a history delete: only the user does it, \
+     through the verified app (gate A2); an agent never does.";
 const AGENT_FOLDER_REASON: &str = "Where a workspace's agents run: only the user sets it, through \
      the verified app after a gesture (gate A2); an agent never does.";
 
@@ -209,7 +235,7 @@ pub(super) fn tool_name(wire: &str) -> String {
 }
 
 fn excluded_reason(wire: &str) -> Option<&'static str> {
-    EXCLUDED.iter().find(|(name, _)| *name == wire).map(|(_, reason)| *reason)
+    EXCLUDED.iter().chain(CLI_ONLY).find(|(name, _)| *name == wire).map(|(_, reason)| *reason)
 }
 
 /// Every catalog operation that is not a tool, with the reason.

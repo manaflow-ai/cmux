@@ -35,6 +35,8 @@ pub mod headless_linger;
 pub mod headless_routes;
 #[cfg(unix)]
 pub mod headless_source;
+#[cfg(unix)]
+pub mod history_link;
 pub mod host;
 pub mod idle_exit;
 pub mod lease;

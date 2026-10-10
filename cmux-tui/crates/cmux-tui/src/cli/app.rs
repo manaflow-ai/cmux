@@ -108,8 +108,17 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
     if !APP_SCOPES.contains(&scope.as_str()) {
         return Ok(None);
     }
-    let messages = &crate::localization::catalog().app_control;
     let rest = &args[1..];
+    // The session host owns history reads and edits (`history.*`), so they
+    // work with the app quit; the other `history` words are app actions.
+    if scope == "history"
+        && rest
+            .first()
+            .is_some_and(|verb| super::command::HISTORY_DAEMON_VERBS.contains(&verb.as_str()))
+    {
+        return Ok(None);
+    }
+    let messages = &crate::localization::catalog().app_control;
     let call = |method, params| AppCommand::Call {
         method,
         params,
@@ -153,17 +162,6 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             run_action(id, tail, ActionName::Any)?
         }
         ("settings", Some("get" | "set" | "reset" | "unset")) => settings::parse(rest)?,
-        // The app's durable page, location, closed and agent history
-        // (plans/cmux-next/history.md): `history list|search`.
-        ("history", Some(verb @ ("list" | "search"))) => {
-            let (text, tail) = read_text(verb, &rest[1..], scope)?;
-            let options = Options::parse(tail, &["kind", "range", "limit"], &[])?;
-            let mut params = read_query(&options, text, &["kind", "range"]);
-            if let Some(limit) = options.value("limit") {
-                params.insert("limit".into(), json!(parse_limit(limit, scope)?));
-            }
-            call("history.list", Value::Object(params))
-        }
         // The app's AI provider accounts, no secrets (`accounts.list`); the
         // other `accounts` verbs are app actions.
         ("accounts", Some("list")) => {

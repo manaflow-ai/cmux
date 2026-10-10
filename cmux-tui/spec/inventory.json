@@ -56,6 +56,17 @@
     "git.diff",
     "git.files.search",
     "git.status",
+    "history.backups.purge",
+    "history.clear",
+    "history.entries.list",
+    "history.entries.remove",
+    "history.restore",
+    "history.site.remove",
+    "history.visit.import",
+    "history.visit.record",
+    "history.visit.remove",
+    "history.visit.summaries",
+    "history.visit.title",
     "machine.get",
     "machine.list",
     "notification.ack",
@@ -498,6 +509,12 @@
     },
     {
       "name": "bookmarks-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "history-changed",
       "streams": [
         "subscribe"
       ]

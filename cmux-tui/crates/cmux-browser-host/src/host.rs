@@ -126,6 +126,9 @@ pub struct Host {
     /// Which destinations this host's browsers may reach (a Cloud machine
     /// is isolated, crate::egress_scope).
     egress: crate::egress_scope::EgressScope,
+    /// The daemon's history link (`--history-fd`), shared by every session.
+    #[cfg(unix)]
+    history_link: Option<Arc<crate::history_link::HistoryLink>>,
 }
 
 impl Host {
@@ -144,6 +147,8 @@ impl Host {
             purge_pending: Mutex::new(None),
             private_data: Arc::default(),
             egress: crate::egress_scope::EgressScope::Machine,
+            #[cfg(unix)]
+            history_link: None,
         }
     }
 
@@ -151,6 +156,13 @@ impl Host {
     /// same scope, so their browsers use its listener).
     pub fn with_egress(mut self, egress: crate::egress_scope::EgressScope) -> Host {
         self.egress = egress;
+        self
+    }
+
+    /// Gives every session's `history` global the daemon's history link.
+    #[cfg(unix)]
+    pub fn with_history_link(mut self, link: crate::history_link::HistoryLink) -> Host {
+        self.history_link = Some(Arc::new(link));
         self
     }
 
@@ -313,23 +325,27 @@ impl Host {
         if !capabilities.iter().any(|c| c == "secret.insert") {
             capabilities.push("secret.insert".into());
         }
-        let gate = Arc::new(
-            // A remote caller (CALLER-LOCALITY, from the transport) is
-            // refused loopback and private ranges.
-            Gate::new(
-                driver,
-                Grants {
-                    raw_cdp,
-                    remote: caller.locality.refuses_private_ranges(),
-                    signed_in_profile: profile != AGENT_PROFILE,
-                    isolated: self.egress.isolated().cloned(),
-                },
-            )
-            .with_tab_secrets(self.tab_secrets.clone())
-            .with_private_data_log(self.private_data.clone())
-            // The session name is the lease session (LeaseCaller.session).
-            .with_input_events(&name, sink),
-        );
+        // A remote caller (CALLER-LOCALITY, from the transport) is refused
+        // loopback and private ranges.
+        let gate = Gate::new(
+            driver,
+            Grants {
+                raw_cdp,
+                remote: caller.locality.refuses_private_ranges(),
+                signed_in_profile: profile != AGENT_PROFILE,
+                isolated: self.egress.isolated().cloned(),
+            },
+        )
+        .with_tab_secrets(self.tab_secrets.clone())
+        .with_private_data_log(self.private_data.clone())
+        // The session name is the lease session (LeaseCaller.session).
+        .with_input_events(&name, sink);
+        #[cfg(unix)]
+        let gate = match &self.history_link {
+            Some(link) => gate.with_history_link(link.clone()),
+            None => gate,
+        };
+        let gate = Arc::new(gate);
         let config = VmConfig {
             session_id: name.clone(),
             cwd: session_root(params.get("cwd").and_then(Value::as_str), &self.cwd, &name),
