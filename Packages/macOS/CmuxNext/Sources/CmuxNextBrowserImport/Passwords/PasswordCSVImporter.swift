@@ -40,10 +40,11 @@ public struct PasswordCSVImporter: Sendable {
         guard size <= maximumSize else { throw .unreadable }
         var failed = false
         let bytes = SecretBytes(capacity: size) { out in
+            guard let base = out.baseAddress else { return 0 }  // an empty buffer reads nothing
             var done = 0
             // Each read returns at least one byte until the end, so this ends within size + 1 steps.
             for _ in 0...size where done < size && !failed {
-                let count = Darwin.read(descriptor, out.baseAddress! + done, size - done) // concurrency-allow: called only from Task.detached in run(file:intoProfile:)
+                let count = Darwin.read(descriptor, base + done, size - done) // concurrency-allow: called only from Task.detached in run(file:intoProfile:)
                 if count > 0 { done += count } else if count == 0 || errno != EINTR { failed = count < 0; break }
             }
             return done

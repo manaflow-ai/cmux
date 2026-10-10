@@ -81,7 +81,7 @@ public struct ControlSessionNaming: Sendable {
         }
         out = String(out.prefix(48))
         while out.hasSuffix("-") || out.hasSuffix(".") { out.removeLast() }
-        return out.isEmpty || Int(out) != nil ? nil : out
+        return out.isEmpty || Int(out, radix: 10) != nil ? nil : out
     }
 
     /// The first 8 hex digits of a session id (`machine:` ids hash to hex).
@@ -89,7 +89,7 @@ public struct ControlSessionNaming: Sendable {
         let hex = id.lowercased().filter(\.isHexDigit)
         if id.hasPrefix("machine:") || hex.count < 8 {
             var hash: UInt32 = 2_166_136_261
-            for byte in id.utf8 { hash = (hash ^ UInt32(byte)) &* 16_777_619 }
+            for byte in id.utf8 { hash = (hash ^ UInt32(clamping: byte)) &* 16_777_619 }
             let hex = String(hash, radix: 16)
             return String(repeating: "0", count: 8 - hex.count) + hex
         }

@@ -12,7 +12,7 @@ public struct CmxIrohLANSystemClock: CmxIrohLANClock {
 
     public func sleep(for interval: TimeInterval) async throws {
         guard interval.isFinite, interval > 0 else { return }
-        let milliseconds = Int64(min(interval, 10 * 60) * 1_000)
+        let milliseconds = (min(interval, 10 * 60) * 1_000).saturatedInteger(Int64.self) ?? 0
         try await ContinuousClock().sleep(for: .milliseconds(milliseconds))
     }
 }

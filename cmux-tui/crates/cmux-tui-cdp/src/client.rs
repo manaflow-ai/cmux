@@ -7,7 +7,7 @@ use std::sync::mpsc::{
     Receiver, Sender, SyncSender, TryRecvError, TrySendError, channel,
     sync_channel as bounded_channel,
 };
-use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::sync::{Arc, Condvar, Mutex, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
@@ -18,6 +18,8 @@ use tungstenite::http::header::AUTHORIZATION;
 use tungstenite::protocol::WebSocketConfig;
 use tungstenite::{Error as WsError, Message, WebSocket, client};
 
+mod locks;
+use locks::{close_inner, frame_sessions, frame_state_error, pending_calls};
 /// Maximum number of pending events in each bounded CDP event queue.
 ///
 /// Downstream queue implementations use the same limit so moving an event
@@ -51,9 +53,6 @@ const MAX_DECODED_FRAME_BYTES: usize = 12 * 1024 * 1024;
 const TIMESTAMPLESS_CAPTURE_INTERVAL: Duration = Duration::from_secs(1);
 const SCREENCAST_CLOCK_RECOVERY_BUDGET: Duration = Duration::from_secs(1);
 
-#[cfg(test)]
-static RETAINED_SIZE_CALLS: AtomicU64 = AtomicU64::new(0);
-
 /// Monotonic browser-frame generation shared by CDP ingress and one surface.
 ///
 /// Navigation events and successful capture restarts advance the generation
@@ -74,14 +73,14 @@ impl FrameEpoch {
     }
 
     pub fn advance(&self) -> u64 {
-        let _guard = self.wait_lock.lock().unwrap();
+        let _guard = self.wait_lock.lock().unwrap_or_else(PoisonError::into_inner);
         let epoch = self.current.fetch_add(1, Ordering::AcqRel).wrapping_add(1);
         self.changed.notify_all();
         epoch
     }
 
     pub fn advance_navigation(&self) -> u64 {
-        let _guard = self.wait_lock.lock().unwrap();
+        let _guard = self.wait_lock.lock().unwrap_or_else(PoisonError::into_inner);
         let epoch = self.current.fetch_add(1, Ordering::AcqRel).wrapping_add(1);
         self.latest_navigation.store(epoch, Ordering::Release);
         self.changed.notify_all();
@@ -89,7 +88,7 @@ impl FrameEpoch {
     }
 
     pub fn advance_same_document(&self) -> u64 {
-        let _guard = self.wait_lock.lock().unwrap();
+        let _guard = self.wait_lock.lock().unwrap_or_else(PoisonError::into_inner);
         // Odd values mark the ingress transition itself. Captured motion sees
         // the mismatch immediately, while new presses reject the unstable
         // token until the frame epoch has advanced.
@@ -118,7 +117,7 @@ impl FrameEpoch {
             return true;
         }
         let deadline = Instant::now() + timeout;
-        let mut guard = self.wait_lock.lock().unwrap();
+        let mut guard = self.wait_lock.lock().unwrap_or_else(PoisonError::into_inner);
         loop {
             if self.current() >= expected {
                 return true;
@@ -127,7 +126,8 @@ impl FrameEpoch {
             if remaining.is_zero() {
                 return false;
             }
-            let (next_guard, wait) = self.changed.wait_timeout(guard, remaining).unwrap();
+            let (next_guard, wait) =
+                self.changed.wait_timeout(guard, remaining).unwrap_or_else(PoisonError::into_inner);
             guard = next_guard;
             if wait.timed_out() && self.current() < expected {
                 return false;
@@ -299,8 +299,6 @@ struct Inner {
     next_screencast_capture_request_id: AtomicU64,
     closed: AtomicBool,
     timeout: Duration,
-    #[cfg(test)]
-    reader_stopped: Arc<AtomicBool>,
 }
 
 struct PendingCall {
@@ -378,7 +376,7 @@ impl EventQueue {
     }
 
     fn push(&self, event: CdpEvent) -> Result<(), ()> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.lock_state();
         if state.closed {
             return Err(());
         }
@@ -412,7 +410,7 @@ impl EventQueue {
     }
 
     fn drain_into(&self, output: &SyncSender<CdpEvent>) -> Result<(), ()> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.lock_state();
         while let Some(queued) = state.events.pop_front() {
             state.retained_bytes = state.retained_bytes.saturating_sub(queued.retained_bytes);
             match output.try_send(queued.event) {
@@ -432,7 +430,7 @@ impl EventQueue {
     }
 
     fn close(&self, reason: &str) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.lock_state();
         if state.closed {
             return;
         }
@@ -467,8 +465,6 @@ fn same_replaceable(queued: &CdpEvent, incoming: &CdpEvent) -> bool {
 /// container size, using saturating arithmetic. Callers should compare it with
 /// [`CDP_EVENT_QUEUE_MAX_BYTES`], not treat it as exact allocator usage.
 pub fn event_retained_bytes(event: &CdpEvent) -> usize {
-    #[cfg(test)]
-    RETAINED_SIZE_CALLS.fetch_add(1, Ordering::Relaxed);
     match event {
         CdpEvent::ScreencastFrame(frame) => frame
             .data_b64
@@ -597,8 +593,6 @@ impl CdpClient {
                 next_screencast_capture_request_id: AtomicU64::new(1),
                 closed: AtomicBool::new(false),
                 timeout: Duration::from_secs(30),
-                #[cfg(test)]
-                reader_stopped: Arc::new(AtomicBool::new(false)),
             }),
         };
         client.spawn_reader(ws, outbound_rx, events)?;
@@ -612,12 +606,8 @@ impl CdpClient {
         event_output: SyncSender<CdpEvent>,
     ) -> anyhow::Result<()> {
         let weak = Arc::downgrade(&self.inner);
-        #[cfg(test)]
-        let reader_stopped = self.inner.reader_stopped.clone();
         std::thread::Builder::new().name("cmux-tui-cdp-reader".into()).spawn(move || {
             reader_loop(&weak, ws, &outbound, &event_output);
-            #[cfg(test)]
-            reader_stopped.store(true, Ordering::Release);
         })?;
         Ok(())
     }
@@ -686,7 +676,7 @@ impl CdpClient {
         }
         let id = self.inner.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = channel();
-        self.inner.pending.lock().unwrap().insert(id, PendingCall { response: tx, frame_barrier });
+        pending_calls(&self.inner).insert(id, PendingCall { response: tx, frame_barrier });
 
         let mut msg = json!({
             "id": id,
@@ -698,7 +688,7 @@ impl CdpClient {
             msg["sessionId"] = json!(session_id);
         }
         if let Err(e) = self.send_value(&msg) {
-            self.inner.pending.lock().unwrap().remove(&id);
+            pending_calls(&self.inner).remove(&id);
             return Err(e);
         }
 
@@ -706,14 +696,15 @@ impl CdpClient {
             Ok(Ok(value)) => Ok(value),
             Ok(Err(e)) => anyhow::bail!("{e}"),
             Err(_) => {
-                self.inner.pending.lock().unwrap().remove(&id);
+                pending_calls(&self.inner).remove(&id);
                 anyhow::bail!("CDP call {method} timed out")
             }
         }
     }
 
     pub fn register_frame_epoch(&self, session_id: &str, frame_epoch: Arc<FrameEpoch>) {
-        self.inner.frame_epochs.lock().unwrap().insert(
+        let Some(mut frame_sessions) = frame_sessions(&self.inner) else { return };
+        frame_sessions.insert(
             session_id.to_string(),
             FrameSession {
                 epoch: frame_epoch,
@@ -729,7 +720,7 @@ impl CdpClient {
     }
 
     pub fn unregister_frame_epoch(&self, session_id: &str) {
-        self.inner.frame_epochs.lock().unwrap().remove(session_id);
+        frame_sessions(&self.inner).map(|mut sessions| sessions.remove(session_id));
     }
 
     pub fn set_discover_targets(&self, discover: bool) -> anyhow::Result<()> {
@@ -838,7 +829,7 @@ impl CdpClient {
 
     pub fn snapshot_main_frame(&self, session_id: &str) -> anyhow::Result<MainFrameSnapshot> {
         let (frame_epoch, observed_epoch, observed_same_document_navigation_epoch) = {
-            let frame_epochs = self.inner.frame_epochs.lock().unwrap();
+            let frame_epochs = frame_sessions(&self.inner).ok_or_else(frame_state_error)?;
             let frame_session = frame_epochs.get(session_id).ok_or_else(|| {
                 anyhow::anyhow!("missing frame epoch for CDP session {session_id}")
             })?;
@@ -938,7 +929,7 @@ impl CdpClient {
         deadline: Option<Instant>,
     ) -> anyhow::Result<u64> {
         let (frame_epoch, main_frame_id) = {
-            let frame_sessions = self.inner.frame_epochs.lock().unwrap();
+            let frame_sessions = frame_sessions(&self.inner).ok_or_else(frame_state_error)?;
             let frame_session = frame_sessions.get(session_id).ok_or_else(|| {
                 anyhow::anyhow!("missing frame epoch for CDP session {session_id}")
             })?;
@@ -951,7 +942,7 @@ impl CdpClient {
             .chrome_wall_time_upper_bound(session_id, &main_frame_id, deadline)
             .map_or(ScreencastBarrier::LoaderVerifiedCapture, ScreencastBarrier::Timestamp);
         {
-            let mut frame_sessions = self.inner.frame_epochs.lock().unwrap();
+            let mut frame_sessions = frame_sessions(&self.inner).ok_or_else(frame_state_error)?;
             let frame_session = frame_sessions.get_mut(session_id).ok_or_else(|| {
                 anyhow::anyhow!("missing frame epoch for CDP session {session_id}")
             })?;
@@ -1009,7 +1000,7 @@ impl CdpClient {
     ) -> bool {
         let expected = PendingTimestamplessCapture { request_id, frame_epoch, navigation_epoch };
         let recovery_frame = {
-            let frame_sessions = self.inner.frame_epochs.lock().unwrap();
+            let Some(frame_sessions) = frame_sessions(&self.inner) else { return false };
             let Some(frame_session) = frame_sessions.get(session_id) else {
                 return false;
             };
@@ -1034,7 +1025,7 @@ impl CdpClient {
             .ok()
             .map(ScreencastBarrier::Timestamp)
         });
-        let mut frame_sessions = self.inner.frame_epochs.lock().unwrap();
+        let Some(mut frame_sessions) = frame_sessions(&self.inner) else { return false };
         let Some(frame_session) = frame_sessions.get_mut(session_id) else {
             return false;
         };
@@ -1061,7 +1052,7 @@ impl CdpClient {
         frame_epoch: u64,
         navigation_epoch: u64,
     ) -> bool {
-        let mut frame_sessions = self.inner.frame_epochs.lock().unwrap();
+        let Some(mut frame_sessions) = frame_sessions(&self.inner) else { return false };
         let Some(frame_session) = frame_sessions.get_mut(session_id) else {
             return false;
         };
@@ -1084,7 +1075,7 @@ impl CdpClient {
         frame_epoch: u64,
         navigation_epoch: u64,
     ) -> bool {
-        let mut frame_sessions = self.inner.frame_epochs.lock().unwrap();
+        let Some(mut frame_sessions) = frame_sessions(&self.inner) else { return false };
         let Some(frame_session) = frame_sessions.get_mut(session_id) else {
             return false;
         };
@@ -1564,7 +1555,7 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
     }
     let Ok(value) = serde_json::from_str::<Value>(text) else { return };
     if let Some(id) = value.get("id").and_then(|v| v.as_u64()) {
-        if let Some(pending) = inner.pending.lock().unwrap().remove(&id) {
+        if let Some(pending) = pending_calls(inner).remove(&id) {
             let response = if let Some(error) = value.get("error") {
                 Err(error.to_string())
             } else {
@@ -1592,22 +1583,21 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
                 ack_screencast_frame(inner, target_session, ack_id, |message| {
                     eprintln!("{message}");
                 });
+                let Some(sessions) = frame_sessions(inner) else { return };
                 let (
                     frame_epoch,
                     navigation_epoch,
                     screencast_barrier,
                     suppressed_timestampless_epoch,
-                ) = inner.frame_epochs.lock().unwrap().get(target_session).map_or(
-                    (0, 0, None, None),
-                    |frame_session| {
-                        (
-                            frame_session.epoch.current(),
-                            frame_session.epoch.latest_navigation(),
-                            frame_session.screencast_barrier,
-                            frame_session.suppressed_timestampless_epoch,
-                        )
-                    },
-                );
+                ) = sessions.get(target_session).map_or((0, 0, None, None), |frame_session| {
+                    (
+                        frame_session.epoch.current(),
+                        frame_session.epoch.latest_navigation(),
+                        frame_session.screencast_barrier,
+                        frame_session.suppressed_timestampless_epoch,
+                    )
+                });
+                drop(sessions);
                 let capture_timestamp = params
                     .get("metadata")
                     .and_then(|metadata| metadata.get("timestamp"))
@@ -1626,7 +1616,7 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
                     if suppressed_timestampless_epoch == Some(frame_epoch) {
                         return;
                     }
-                    let mut frame_sessions = inner.frame_epochs.lock().unwrap();
+                    let Some(mut frame_sessions) = frame_sessions(inner) else { return };
                     let Some(frame_session) = frame_sessions.get_mut(target_session) else {
                         return;
                     };
@@ -1683,8 +1673,8 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
                     return;
                 };
                 if capture_timestamp.is_some()
-                    && let Some(frame_session) =
-                        inner.frame_epochs.lock().unwrap().get_mut(target_session)
+                    && let Some(mut frame_sessions) = frame_sessions(inner)
+                    && let Some(frame_session) = frame_sessions.get_mut(target_session)
                     && frame_session.epoch.current() == frame_epoch
                 {
                     // A timestamped post-barrier frame can reopen bounded
@@ -1708,7 +1698,7 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
             }
         }
         "Page.frameNavigated" if session_id.is_some() => {
-            let session_id = session_id.expect("guarded above");
+            let Some(session_id) = session_id else { return };
             if let Some((frame_epoch, restored_document)) =
                 main_frame_navigation_epoch(inner, params, &session_id)
             {
@@ -1726,13 +1716,13 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
             }
         }
         "Page.lifecycleEvent" if session_id.is_some() => {
-            let session_id = session_id.expect("guarded above");
+            let Some(session_id) = session_id else { return };
             if let Some(event) = main_frame_document_paint(inner, params, &session_id) {
                 dispatch_event(inner, event);
             }
         }
         "Page.navigatedWithinDocument" if session_id.is_some() => {
-            let session_id = session_id.expect("guarded above");
+            let Some(session_id) = session_id else { return };
             if let Some(event) =
                 main_frame_same_document_navigation(inner, params.clone(), session_id)
             {
@@ -1756,7 +1746,7 @@ fn commit_main_frame_snapshot(
     frame_id: &str,
     loader_id: &str,
 ) -> bool {
-    let mut frame_epochs = inner.frame_epochs.lock().unwrap();
+    let Some(mut frame_epochs) = frame_sessions(inner) else { return false };
     let Some(frame_session) = frame_epochs.get_mut(session_id) else {
         return false;
     };
@@ -1775,7 +1765,7 @@ fn main_frame_navigation_epoch(
     params: &Value,
     session_id: &str,
 ) -> Option<(u64, Option<CdpEvent>)> {
-    let mut frame_epochs = inner.frame_epochs.lock().unwrap();
+    let mut frame_epochs = frame_sessions(inner)?;
     let frame_session = frame_epochs.get_mut(session_id)?;
     let frame = params.get("frame")?;
     if frame.get("parentId").is_some() {
@@ -1809,7 +1799,7 @@ fn main_frame_document_paint(inner: &Inner, params: &Value, session_id: &str) ->
     }
     let frame_id = params.get("frameId")?.as_str()?;
     let lifecycle_loader_id = params.get("loaderId").and_then(Value::as_str).unwrap_or_default();
-    let frame_epochs = inner.frame_epochs.lock().unwrap();
+    let frame_epochs = frame_sessions(inner)?;
     let pending = frame_epochs.get(session_id)?.pending_document.as_ref()?;
     if pending.frame_id != frame_id
         || !lifecycle_loader_id.is_empty() && pending.loader_id != lifecycle_loader_id
@@ -1834,7 +1824,7 @@ fn main_frame_same_document_navigation(
     session_id: String,
 ) -> Option<CdpEvent> {
     let frame_id = params.get("frameId")?.as_str()?.to_string();
-    let frame_epochs = inner.frame_epochs.lock().unwrap();
+    let frame_epochs = frame_sessions(inner)?;
     let frame_session = frame_epochs.get(&session_id)?;
     if frame_session.main_frame_id.as_deref() != Some(frame_id.as_str()) {
         return None;
@@ -1998,16 +1988,6 @@ fn target_created(params: &Value) -> Option<TargetCreated> {
     })
 }
 
-fn close_inner(inner: &Arc<Inner>, why: &str) {
-    if inner.closed.swap(true, Ordering::AcqRel) {
-        return;
-    }
-    for (_, pending) in inner.pending.lock().unwrap().drain() {
-        let _ = pending.response.send(Err(why.to_string()));
-    }
-    inner.events.close(why);
-}
-
 struct WsEndpoint {
     host: String,
     port: u16,
@@ -2161,151 +2141,6 @@ mod tests {
 
     use super::*;
 
-    fn test_inner() -> (Arc<Inner>, Receiver<Outbound>) {
-        test_inner_with_limits(256, CDP_OUTBOUND_QUEUE_MAX_BYTES)
-    }
-
-    fn test_inner_with_capacity(capacity: usize) -> (Arc<Inner>, Receiver<Outbound>) {
-        test_inner_with_limits(capacity, CDP_OUTBOUND_QUEUE_MAX_BYTES)
-    }
-
-    fn test_inner_with_limits(
-        capacity: usize,
-        outbound_byte_budget: usize,
-    ) -> (Arc<Inner>, Receiver<Outbound>) {
-        let (outbound, outbound_rx) = sync_channel(capacity);
-        (
-            Arc::new(Inner {
-                outbound,
-                outbound_bytes: AtomicU64::new(0),
-                outbound_byte_budget,
-                pending: Mutex::new(HashMap::new()),
-                events: Arc::new(EventQueue::new()),
-                frame_epochs: Mutex::new(HashMap::new()),
-                next_id: AtomicU64::new(1),
-                next_screencast_capture_request_id: AtomicU64::new(1),
-                closed: AtomicBool::new(false),
-                timeout: Duration::from_secs(1),
-                reader_stopped: Arc::new(AtomicBool::new(false)),
-            }),
-            outbound_rx,
-        )
-    }
-
-    #[test]
-    fn outbound_commands_fail_fast_at_the_byte_bound() {
-        let (inner, _outbound_rx) = test_inner_with_limits(8, 16);
-        let client = CdpClient { inner };
-
-        let error = client.send_value(&json!({"payload": "0123456789"})).unwrap_err();
-        let public = error.to_string();
-        assert_eq!(public, "browser connection unavailable; retry the command");
-        assert!(!public.contains("ws://"));
-        assert!(!public.contains("CDP outbound queue byte budget exceeded"));
-        assert!(format!("{error:#}").contains("CDP outbound queue byte budget exceeded"));
-        assert!(is_connection_unavailable(&error));
-    }
-
-    #[test]
-    fn websocket_write_buffer_is_bounded_to_the_outbound_budget() {
-        let config = cdp_websocket_config();
-
-        assert!(config.max_write_buffer_size < usize::MAX);
-        assert!(config.max_write_buffer_size >= CDP_OUTBOUND_QUEUE_MAX_BYTES);
-    }
-
-    #[test]
-    fn protocol_errors_are_not_classified_as_connection_failures() {
-        let error = anyhow::anyhow!("browser failed: invalid target");
-        assert!(!is_connection_unavailable(&error));
-    }
-
-    struct BlockingOutboundWriter {
-        started: Arc<Barrier>,
-        release: Arc<Barrier>,
-    }
-
-    impl OutboundWriter for BlockingOutboundWriter {
-        fn send_text(&mut self, _text: String) -> anyhow::Result<()> {
-            self.started.wait();
-            self.release.wait();
-            Ok(())
-        }
-    }
-
-    #[test]
-    fn outbound_bytes_remain_reserved_while_write_is_in_flight() {
-        let value = json!({"payload": "0123456789"});
-        let message_bytes = serde_json::to_string(&value).unwrap().len();
-        let (inner, outbound_rx) = test_inner_with_limits(2, message_bytes);
-        let client = CdpClient { inner: inner.clone() };
-        client.send_value(&value).unwrap();
-
-        let started = Arc::new(Barrier::new(2));
-        let release = Arc::new(Barrier::new(2));
-        let writer = BlockingOutboundWriter { started: started.clone(), release: release.clone() };
-        let drain_inner = inner;
-        let drain = thread::spawn(move || {
-            let mut writer = writer;
-            drain_outbound(&drain_inner, &mut writer, &outbound_rx).unwrap();
-        });
-
-        started.wait();
-        let error = client.send_value(&value).unwrap_err();
-        assert_eq!(error.to_string(), "browser connection unavailable; retry the command");
-        assert!(format!("{error:#}").contains("CDP outbound queue byte budget exceeded"));
-        release.wait();
-        drain.join().unwrap();
-    }
-
-    #[test]
-    fn screencast_ack_byte_budget_closure_hides_internal_reason() {
-        let (inner, _outbound_rx) = test_inner_with_limits(1, 1);
-        let mut diagnostics = Vec::new();
-        ack_screencast_frame(&inner, "session-1", 7, |message| {
-            diagnostics.push(message.to_string());
-        });
-
-        let (event_tx, event_rx) = sync_channel(1);
-        inner.events.drain_into(&event_tx).unwrap();
-        let CdpEvent::Closed(reason) = event_rx.recv().unwrap() else {
-            panic!("expected a close event");
-        };
-        assert_eq!(reason, "browser connection unavailable; retry the command");
-        assert!(!reason.contains("CDP"));
-        assert_eq!(diagnostics, vec![CDP_ACK_REJECTED_DIAGNOSTIC.to_string()]);
-        assert!(!diagnostics[0].contains("ws://"));
-        assert!(!diagnostics[0].contains("queue byte budget"));
-    }
-
-    #[test]
-    fn outbound_commands_fail_fast_at_the_queue_bound() {
-        let (inner, _outbound_rx) = test_inner_with_capacity(1);
-        let client = CdpClient { inner };
-
-        client.send_value(&json!({"id": 1})).unwrap();
-        let error = client.send_value(&json!({"id": 2})).unwrap_err();
-        assert!(error.to_string().contains("outbound queue is full"));
-    }
-
-    #[test]
-    fn call_queue_overflow_removes_pending_call() {
-        let (inner, _outbound_rx) = test_inner_with_capacity(0);
-        let client = CdpClient { inner: inner.clone() };
-
-        let error = client.call("Test.method", json!({}), None).unwrap_err();
-
-        assert!(error.to_string().contains("outbound queue is full"));
-        assert!(inner.pending.lock().unwrap().is_empty());
-    }
-
-    #[test]
-    fn screencast_ack_queue_overflow_closes_the_connection() {
-        let (inner, _outbound_rx) = test_inner_with_capacity(0);
-        ack_screencast_frame(&inner, "session-1", 7, |_| {});
-        assert!(inner.closed.load(Ordering::Acquire));
-    }
-
     #[test]
     #[allow(clippy::result_large_err)]
     fn bearer_auth_is_sent_on_the_websocket_upgrade() {
@@ -2343,308 +2178,6 @@ mod tests {
             Some("Bearer test-secret")
         );
         server.join().unwrap();
-    }
-
-    #[test]
-    fn wheel_event_preserves_horizontal_and_vertical_deltas() {
-        assert_eq!(
-            wheel_event_params(12.5, 9.25, -3.75, 8.5),
-            json!({
-                "type": "mouseWheel",
-                "x": 12.5,
-                "y": 9.25,
-                "deltaX": -3.75,
-                "deltaY": 8.5,
-            })
-        );
-    }
-
-    #[test]
-    fn key_event_params_omit_unavailable_physical_identity() {
-        let params = key_event_params(CdpKeyEvent {
-            event_type: "keyDown",
-            key: "a",
-            code: "",
-            windows_virtual_key_code: 0,
-            modifiers: 2,
-            text: None,
-        });
-
-        assert_eq!(params["type"], "keyDown");
-        assert_eq!(params["key"], "a");
-        assert_eq!(params["modifiers"], 2);
-        assert!(params.get("code").is_none());
-        assert!(params.get("windowsVirtualKeyCode").is_none());
-        assert!(params.get("nativeVirtualKeyCode").is_none());
-    }
-
-    #[test]
-    fn screencast_frame_rejects_terminal_control_bytes() {
-        let params = json!({
-            "data": "AAAA\u{1b}_Ga=T,f=100;AAAA\u{1b}\\",
-            "sessionId": 7,
-            "metadata": {"deviceWidth": 80, "deviceHeight": 24}
-        });
-
-        assert!(screencast_frame(&params, "session-1", 0).is_none());
-    }
-
-    #[test]
-    fn screencast_frame_preserves_valid_canonical_base64() {
-        let params = json!({
-            "data": "aGk=",
-            "sessionId": 7,
-            "metadata": {"deviceWidth": 80, "deviceHeight": 24}
-        });
-
-        let frame = screencast_frame(&params, "session-1", 0).unwrap();
-        assert_eq!(frame.data_b64, "aGk=");
-        assert_eq!((frame.image_width, frame.image_height), (80, 24));
-    }
-
-    #[test]
-    fn screencast_frame_preserves_encoded_png_dimensions_separately_from_css_dimensions() {
-        let params = json!({
-            "data": "iVBORw0KGgoAAAANSUhEUgAAAAMAAAAC",
-            "sessionId": 7,
-            "metadata": {"deviceWidth": 80, "deviceHeight": 24}
-        });
-
-        let frame = screencast_frame(&params, "session-1", 0).unwrap();
-        assert_eq!((frame.css_width, frame.css_height), (80, 24));
-        assert_eq!((frame.image_width, frame.image_height), (3, 2));
-    }
-
-    #[test]
-    fn screencast_frame_rejects_noncanonical_padding_bits() {
-        let params = json!({
-            "data": "aGl=",
-            "sessionId": 7,
-            "metadata": {"deviceWidth": 80, "deviceHeight": 24}
-        });
-
-        assert!(screencast_frame(&params, "session-1", 0).is_none());
-    }
-
-    #[test]
-    fn json_queue_budget_charges_container_allocations() {
-        let value = Value::Array(vec![Value::Null; 128]);
-        assert!(
-            json_retained_bytes(&value) >= 128 * size_of::<Value>(),
-            "null container storage was not charged"
-        );
-    }
-
-    #[test]
-    fn backpressured_event_reuses_its_cached_retained_size() {
-        RETAINED_SIZE_CALLS.store(0, Ordering::Relaxed);
-        let queue = EventQueue::new();
-        queue
-            .push(CdpEvent::Other {
-                method: "Test.large".to_string(),
-                params: json!({"payload": "x".repeat(1024 * 1024)}),
-                session_id: Some("session-1".to_string()),
-            })
-            .unwrap();
-        let (event_tx, _event_rx) = sync_channel(0);
-
-        queue.drain_into(&event_tx).unwrap();
-        let calls_after_first_retry = RETAINED_SIZE_CALLS.load(Ordering::Relaxed);
-        queue.drain_into(&event_tx).unwrap();
-
-        assert_eq!(
-            RETAINED_SIZE_CALLS.load(Ordering::Relaxed),
-            calls_after_first_retry,
-            "retry rescanned the retained JSON event"
-        );
-    }
-
-    #[test]
-    fn coalesced_event_keeps_chronological_order() {
-        let queue = EventQueue::new();
-        let target = |title: &str| {
-            CdpEvent::TargetInfoChanged(TargetInfo {
-                session_id: Some("session-1".to_string()),
-                target_id: "target-1".to_string(),
-                title: title.to_string(),
-                url: "https://example.test".to_string(),
-            })
-        };
-        queue.push(target("old")).unwrap();
-        queue
-            .push(CdpEvent::Other {
-                method: "Page.frameNavigated".to_string(),
-                params: Value::Null,
-                session_id: Some("session-1".to_string()),
-            })
-            .unwrap();
-        queue.push(target("new")).unwrap();
-        let (event_tx, event_rx) = sync_channel(2);
-
-        queue.drain_into(&event_tx).unwrap();
-
-        assert!(matches!(event_rx.recv().unwrap(), CdpEvent::Other { .. }));
-        assert!(matches!(
-            event_rx.recv().unwrap(),
-            CdpEvent::TargetInfoChanged(TargetInfo { title, .. }) if title == "new"
-        ));
-    }
-
-    #[test]
-    fn rejected_screencast_frame_is_acknowledged() {
-        let (inner, outbound_rx) = test_inner();
-        handle_text(
-            &inner,
-            &json!({
-                "method": "Page.screencastFrame",
-                "sessionId": "session-1",
-                "params": {
-                    "data": "not base64",
-                    "sessionId": 77,
-                    "metadata": {"deviceWidth": 80, "deviceHeight": 24}
-                }
-            })
-            .to_string(),
-        );
-
-        let Outbound::Message(ack) = outbound_rx.try_recv().expect("rejected frame ack") else {
-            panic!("expected a CDP message");
-        };
-        let ack: Value = serde_json::from_str(&ack).unwrap();
-        assert_eq!(ack["method"], "Page.screencastFrameAck");
-        assert_eq!(ack["params"]["sessionId"], 77);
-    }
-
-    #[test]
-    fn frame_navigation_advances_epoch_before_following_frame_enters_the_queue() {
-        let (inner, _outbound_rx) = test_inner();
-        let frame_epoch = Arc::new(FrameEpoch::default());
-        inner.frame_epochs.lock().unwrap().insert(
-            "session-1".to_string(),
-            FrameSession {
-                epoch: frame_epoch.clone(),
-                main_frame_id: None,
-                main_loader_id: None,
-                pending_document: None,
-                screencast_barrier: None,
-                pending_timestampless_capture: None,
-                timestampless_capture_throttle: None,
-                suppressed_timestampless_epoch: None,
-            },
-        );
-
-        handle_text(
-            &inner,
-            &json!({
-                "method": "Page.frameNavigated",
-                "sessionId": "session-1",
-                "params": {
-                    "frame": {
-                        "id": "frame-1",
-                        "loaderId": "loader-1",
-                        "url": "https://example.test"
-                    }
-                }
-            })
-            .to_string(),
-        );
-        handle_text(
-            &inner,
-            &json!({
-                "method": "Page.screencastFrame",
-                "sessionId": "session-1",
-                "params": {
-                    "data": "AAAA",
-                    "sessionId": 8,
-                    "metadata": {"deviceWidth": 80, "deviceHeight": 24}
-                }
-            })
-            .to_string(),
-        );
-        handle_text(
-            &inner,
-            &json!({
-                "method": "Page.lifecycleEvent",
-                "sessionId": "session-1",
-                "params": {
-                    "frameId": "frame-1",
-                    "loaderId": "loader-1",
-                    "name": "firstPaint",
-                    "timestamp": 1.0
-                }
-            })
-            .to_string(),
-        );
-
-        let (event_tx, event_rx) = sync_channel(3);
-        inner.events.drain_into(&event_tx).unwrap();
-        assert!(matches!(
-            event_rx.recv().unwrap(),
-            CdpEvent::FrameNavigated { frame_epoch: 1, .. }
-        ));
-        assert!(matches!(
-            event_rx.recv().unwrap(),
-            CdpEvent::ScreencastFrame(ScreencastFrame { frame_epoch: 1, .. })
-        ));
-        assert!(matches!(
-            event_rx.recv().unwrap(),
-            CdpEvent::DocumentPainted {
-                frame_id,
-                loader_id,
-                navigation_epoch: 1,
-                ..
-            } if frame_id == "frame-1" && loader_id == "loader-1"
-        ));
-        assert_eq!(frame_epoch.current(), 1);
-    }
-
-    #[test]
-    fn stale_frame_tree_snapshot_cannot_overwrite_newer_navigation() {
-        let (inner, _outbound_rx) = test_inner();
-        let frame_epoch = Arc::new(FrameEpoch::default());
-        inner.frame_epochs.lock().unwrap().insert(
-            "session-1".to_string(),
-            FrameSession {
-                epoch: frame_epoch.clone(),
-                main_frame_id: None,
-                main_loader_id: None,
-                pending_document: None,
-                screencast_barrier: None,
-                pending_timestampless_capture: None,
-                timestampless_capture_throttle: None,
-                suppressed_timestampless_epoch: None,
-            },
-        );
-        let observed_epoch = frame_epoch.current();
-
-        handle_text(
-            &inner,
-            &json!({
-                "method": "Page.frameNavigated",
-                "sessionId": "session-1",
-                "params": {
-                    "frame": {
-                        "id": "new-frame",
-                        "loaderId": "new-loader",
-                        "url": "https://new.example.test"
-                    }
-                }
-            })
-            .to_string(),
-        );
-
-        assert!(!commit_main_frame_snapshot(
-            &inner,
-            "session-1",
-            &frame_epoch,
-            observed_epoch,
-            "stale-frame",
-            "stale-loader",
-        ));
-        let frame_sessions = inner.frame_epochs.lock().unwrap();
-        let frame_session = frame_sessions.get("session-1").unwrap();
-        assert_eq!(frame_session.main_frame_id.as_deref(), Some("new-frame"));
-        assert_eq!(frame_session.main_loader_id.as_deref(), Some("new-loader"));
     }
 
     #[test]
@@ -2834,205 +2367,6 @@ mod tests {
     }
 
     #[test]
-    fn replayed_load_lifecycle_reconciles_pending_document_authority() {
-        let (inner, _outbound_rx) = test_inner();
-        inner.frame_epochs.lock().unwrap().insert(
-            "session-1".to_string(),
-            FrameSession {
-                epoch: Arc::new(FrameEpoch::default()),
-                main_frame_id: None,
-                main_loader_id: None,
-                pending_document: None,
-                screencast_barrier: None,
-                pending_timestampless_capture: None,
-                timestampless_capture_throttle: None,
-                suppressed_timestampless_epoch: None,
-            },
-        );
-
-        handle_text(
-            &inner,
-            &json!({
-                "method": "Page.frameNavigated",
-                "sessionId": "session-1",
-                "params": {
-                    "frame": {
-                        "id": "frame-1",
-                        "loaderId": "loader-1",
-                        "url": "https://example.test"
-                    }
-                }
-            })
-            .to_string(),
-        );
-        handle_text(
-            &inner,
-            &json!({
-                "method": "Page.lifecycleEvent",
-                "sessionId": "session-1",
-                "params": {
-                    "frameId": "frame-1",
-                    "loaderId": "loader-1",
-                    "name": "load",
-                    "timestamp": 1.0
-                }
-            })
-            .to_string(),
-        );
-
-        let (event_tx, event_rx) = sync_channel(2);
-        inner.events.drain_into(&event_tx).unwrap();
-        assert!(matches!(
-            event_rx.recv().unwrap(),
-            CdpEvent::FrameNavigated { frame_epoch: 1, .. }
-        ));
-        assert!(matches!(
-            event_rx.recv_timeout(Duration::from_millis(100)).unwrap(),
-            CdpEvent::DocumentPainted {
-                frame_id,
-                loader_id,
-                navigation_epoch: 1,
-                ..
-            } if frame_id == "frame-1" && loader_id == "loader-1"
-        ));
-    }
-
-    #[test]
-    fn back_forward_cache_restore_requests_document_capture_without_new_paint() {
-        let (inner, _outbound_rx) = test_inner();
-        inner.frame_epochs.lock().unwrap().insert(
-            "session-1".to_string(),
-            FrameSession {
-                epoch: Arc::new(FrameEpoch::default()),
-                main_frame_id: None,
-                main_loader_id: None,
-                pending_document: None,
-                screencast_barrier: None,
-                pending_timestampless_capture: None,
-                timestampless_capture_throttle: None,
-                suppressed_timestampless_epoch: None,
-            },
-        );
-
-        handle_text(
-            &inner,
-            &json!({
-                "method": "Page.frameNavigated",
-                "sessionId": "session-1",
-                "params": {
-                    "type": "BackForwardCacheRestore",
-                    "frame": {
-                        "id": "main-frame",
-                        "loaderId": "restored-loader",
-                        "url": "https://example.test/restored"
-                    }
-                }
-            })
-            .to_string(),
-        );
-
-        let (event_tx, event_rx) = sync_channel(2);
-        inner.events.drain_into(&event_tx).unwrap();
-        assert!(matches!(
-            event_rx.recv().unwrap(),
-            CdpEvent::FrameNavigated { frame_epoch: 1, .. }
-        ));
-        assert!(matches!(
-            event_rx.recv_timeout(Duration::from_millis(100)).unwrap(),
-            CdpEvent::DocumentPainted {
-                frame_id,
-                loader_id,
-                navigation_epoch: 1,
-                ..
-            } if frame_id == "main-frame" && loader_id == "restored-loader"
-        ));
-    }
-
-    #[test]
-    fn same_document_navigation_advances_only_the_main_frame_epoch() {
-        let (inner, _outbound_rx) = test_inner();
-        let frame_epoch = Arc::new(FrameEpoch::default());
-        inner.frame_epochs.lock().unwrap().insert(
-            "session-1".to_string(),
-            FrameSession {
-                epoch: frame_epoch.clone(),
-                main_frame_id: None,
-                main_loader_id: None,
-                pending_document: None,
-                screencast_barrier: None,
-                pending_timestampless_capture: None,
-                timestampless_capture_throttle: None,
-                suppressed_timestampless_epoch: None,
-            },
-        );
-        handle_text(
-            &inner,
-            &json!({
-                "method": "Page.frameNavigated",
-                "sessionId": "session-1",
-                "params": {
-                    "frame": {
-                        "id": "main-frame",
-                        "loaderId": "loader-1",
-                        "url": "https://example.test"
-                    }
-                }
-            })
-            .to_string(),
-        );
-        assert_eq!(frame_epoch.current(), 1);
-
-        handle_text(
-            &inner,
-            &json!({
-                "method": "Page.navigatedWithinDocument",
-                "sessionId": "session-1",
-                "params": {"frameId": "child-frame", "url": "https://iframe.test/#next"}
-            })
-            .to_string(),
-        );
-
-        assert_eq!(
-            frame_epoch.current(),
-            1,
-            "an iframe navigation must not advance top-level pointer authority"
-        );
-        assert_eq!(frame_epoch.pointer_motion_generation(), 0);
-
-        handle_text(
-            &inner,
-            &json!({
-                "method": "Page.navigatedWithinDocument",
-                "sessionId": "session-1",
-                "params": {"frameId": "main-frame", "url": "https://example.test/#next"}
-            })
-            .to_string(),
-        );
-        assert_eq!(
-            frame_epoch.current(),
-            2,
-            "a top-level same-document navigation must invalidate stale bitmap pointer authority"
-        );
-        assert_eq!(
-            frame_epoch.pointer_motion_generation(),
-            2,
-            "captured motion must be blocked at ingress before surface event handling"
-        );
-        let (event_tx, event_rx) = sync_channel(2);
-        inner.events.drain_into(&event_tx).unwrap();
-        assert!(matches!(event_rx.recv().unwrap(), CdpEvent::FrameNavigated { .. }));
-        assert!(matches!(
-            event_rx.recv().unwrap(),
-            CdpEvent::NavigatedWithinDocument {
-                frame_id,
-                loader_id,
-                frame_epoch: 2,
-                ..
-            } if frame_id == "main-frame" && loader_id == "loader-1"
-        ));
-    }
-
-    #[test]
     fn screenshot_authority_is_bracketed_by_the_committed_loader() {
         const ONE_PIXEL_PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -3096,263 +2430,6 @@ mod tests {
 
         drop(client);
         server.join().unwrap();
-    }
-
-    #[test]
-    fn missing_optional_screencast_timestamp_requests_safe_capture_before_parsing_png() {
-        let (inner, _outbound_rx) = test_inner();
-        inner.frame_epochs.lock().unwrap().insert(
-            "session-1".to_string(),
-            FrameSession {
-                epoch: Arc::new(FrameEpoch::default()),
-                main_frame_id: Some("main-frame".to_string()),
-                main_loader_id: Some("loader-1".to_string()),
-                pending_document: None,
-                screencast_barrier: Some(ScreencastBarrier::Timestamp(1.0)),
-                pending_timestampless_capture: None,
-                timestampless_capture_throttle: None,
-                suppressed_timestampless_epoch: None,
-            },
-        );
-
-        handle_text(
-            &inner,
-            &json!({
-                "method": "Page.screencastFrame",
-                "sessionId": "session-1",
-                "params": {
-                    "data": "not-base64",
-                    "sessionId": 7,
-                    "metadata": {"deviceWidth": 80, "deviceHeight": 24}
-                }
-            })
-            .to_string(),
-        );
-
-        let (event_tx, event_rx) = sync_channel(1);
-        inner.events.drain_into(&event_tx).unwrap();
-        let recovery = event_rx
-            .try_recv()
-            .expect("a timestamp-less frame must request a loader-verified replacement");
-        assert!(matches!(
-            recovery,
-            CdpEvent::ScreencastFrameCaptureRequested {
-                session_id,
-                frame_id,
-                loader_id,
-                request_id: _,
-                frame_epoch: 0,
-                navigation_epoch: 0,
-            } if session_id == "session-1"
-                && frame_id == "main-frame"
-                && loader_id == "loader-1"
-        ));
-    }
-
-    #[test]
-    fn timestamped_frame_proof_is_not_reused_for_later_timestampless_pixels() {
-        let (inner, _outbound_rx) = test_inner();
-        inner.frame_epochs.lock().unwrap().insert(
-            "session-1".to_string(),
-            FrameSession {
-                epoch: Arc::new(FrameEpoch::default()),
-                main_frame_id: Some("main-frame".to_string()),
-                main_loader_id: Some("loader-1".to_string()),
-                pending_document: None,
-                screencast_barrier: Some(ScreencastBarrier::Timestamp(1.0)),
-                pending_timestampless_capture: None,
-                timestampless_capture_throttle: None,
-                suppressed_timestampless_epoch: None,
-            },
-        );
-
-        handle_text(
-            &inner,
-            &json!({
-                "method": "Page.screencastFrame",
-                "sessionId": "session-1",
-                "params": {
-                    "data": "AAAA",
-                    "sessionId": 7,
-                    "metadata": {
-                        "deviceWidth": 80,
-                        "deviceHeight": 24,
-                        "timestamp": 2.0
-                    }
-                }
-            })
-            .to_string(),
-        );
-        handle_text(
-            &inner,
-            &json!({
-                "method": "Page.screencastFrame",
-                "sessionId": "session-1",
-                "params": {
-                    "data": "BBBB",
-                    "sessionId": 8,
-                    "metadata": {"deviceWidth": 80, "deviceHeight": 24}
-                }
-            })
-            .to_string(),
-        );
-
-        let (event_tx, event_rx) = sync_channel(2);
-        inner.events.drain_into(&event_tx).unwrap();
-        let events = event_rx.try_iter().collect::<Vec<_>>();
-        assert!(
-            matches!(
-                events.as_slice(),
-                [
-                    CdpEvent::ScreencastFrame(ScreencastFrame { ack_id: 7, .. }),
-                    CdpEvent::ScreencastFrameCaptureRequested {
-                        session_id,
-                        frame_id,
-                        loader_id,
-                        request_id: _,
-                        frame_epoch: 0,
-                        navigation_epoch: 0,
-                    },
-                ] if session_id == "session-1"
-                    && frame_id == "main-frame"
-                    && loader_id == "loader-1"
-            ),
-            "proof for one timestamped frame authorized unrelated pixels: {events:?}"
-        );
-    }
-
-    #[test]
-    fn settled_timestampless_capture_does_not_recapture_the_next_frame() {
-        let (inner, _outbound_rx) = test_inner();
-        inner.frame_epochs.lock().unwrap().insert(
-            "session-1".to_string(),
-            FrameSession {
-                epoch: Arc::new(FrameEpoch::default()),
-                main_frame_id: Some("main-frame".to_string()),
-                main_loader_id: Some("loader-1".to_string()),
-                pending_document: None,
-                screencast_barrier: Some(ScreencastBarrier::Timestamp(1.0)),
-                pending_timestampless_capture: None,
-                timestampless_capture_throttle: None,
-                suppressed_timestampless_epoch: None,
-            },
-        );
-        let client = CdpClient { inner: inner.clone() };
-        let missing_frame = |ack_id| {
-            json!({
-                "method": "Page.screencastFrame",
-                "sessionId": "session-1",
-                "params": {
-                    "data": "AAAA",
-                    "sessionId": ack_id,
-                    "metadata": {"deviceWidth": 80, "deviceHeight": 24}
-                }
-            })
-            .to_string()
-        };
-
-        handle_text(&inner, &missing_frame(7));
-        let (event_tx, event_rx) = sync_channel(1);
-        inner.events.drain_into(&event_tx).unwrap();
-        let CdpEvent::ScreencastFrameCaptureRequested {
-            request_id,
-            frame_epoch,
-            navigation_epoch,
-            ..
-        } = event_rx.try_recv().expect("first bounded recovery")
-        else {
-            panic!("timestamp-less frame did not request bounded recovery");
-        };
-        assert!(client.settle_timestampless_screencast_capture(
-            "session-1",
-            request_id,
-            frame_epoch,
-            navigation_epoch,
-        ));
-
-        handle_text(&inner, &missing_frame(8));
-        inner.events.drain_into(&event_tx).unwrap();
-        assert!(
-            event_rx.try_recv().is_err(),
-            "a continuous timestamp-less stream must not capture every incoming frame"
-        );
-
-        inner
-            .frame_epochs
-            .lock()
-            .unwrap()
-            .get_mut("session-1")
-            .and_then(|session| session.timestampless_capture_throttle.as_mut())
-            .expect("same-epoch recovery throttle")
-            .retry_at = Instant::now();
-        handle_text(&inner, &missing_frame(9));
-        inner.events.drain_into(&event_tx).unwrap();
-        assert!(
-            matches!(event_rx.try_recv(), Ok(CdpEvent::ScreencastFrameCaptureRequested { .. })),
-            "timestamp-less recovery must resume after its bounded interval"
-        );
-    }
-
-    #[test]
-    fn rejected_timestampless_epoch_stops_recovery_at_ingress() {
-        let (inner, _outbound_rx) = test_inner();
-        inner.frame_epochs.lock().unwrap().insert(
-            "session-1".to_string(),
-            FrameSession {
-                epoch: Arc::new(FrameEpoch::default()),
-                main_frame_id: Some("main-frame".to_string()),
-                main_loader_id: Some("loader-1".to_string()),
-                pending_document: None,
-                screencast_barrier: Some(ScreencastBarrier::Timestamp(1.0)),
-                pending_timestampless_capture: Some(PendingTimestamplessCapture {
-                    request_id: 7,
-                    frame_epoch: 0,
-                    navigation_epoch: 0,
-                }),
-                timestampless_capture_throttle: None,
-                suppressed_timestampless_epoch: None,
-            },
-        );
-        let client = CdpClient { inner: inner.clone() };
-        assert!(client.suppress_timestampless_screencast_capture("session-1", 7, 0, 0));
-
-        handle_text(
-            &inner,
-            &json!({
-                "method": "Page.screencastFrame",
-                "sessionId": "session-1",
-                "params": {
-                    "data": "AAAA",
-                    "sessionId": 8,
-                    "metadata": {"deviceWidth": 80, "deviceHeight": 24}
-                }
-            })
-            .to_string(),
-        );
-
-        let (event_tx, event_rx) = sync_channel(1);
-        inner.events.drain_into(&event_tx).unwrap();
-        assert!(
-            event_rx.try_recv().is_err(),
-            "a rejected epoch must not materialize or route another recovery request"
-        );
-    }
-
-    #[test]
-    fn successful_response_advances_frame_barrier_before_waking_caller() {
-        let (inner, _outbound_rx) = test_inner();
-        let frame_epoch = Arc::new(FrameEpoch::default());
-        let (response, received) = channel();
-        inner
-            .pending
-            .lock()
-            .unwrap()
-            .insert(7, PendingCall { response, frame_barrier: Some(frame_epoch.clone()) });
-
-        handle_text(&inner, &json!({"id": 7, "result": {}}).to_string());
-
-        assert!(received.recv().unwrap().is_ok());
-        assert_eq!(frame_epoch.current(), 1);
     }
 
     #[test]
@@ -3910,43 +2987,6 @@ mod tests {
         assert!(
             matches!(retained_event, Ok(CdpEvent::Other { .. })),
             "critical event was lost: {retained_event:?}"
-        );
-    }
-
-    #[test]
-    fn socket_shutdown_disconnects_a_backpressured_event_receiver() {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr = listener.local_addr().unwrap();
-        let server = thread::spawn(move || {
-            let (stream, _) = listener.accept().unwrap();
-            let mut ws = accept(stream).unwrap();
-            ws.close(None).unwrap();
-        });
-        let (event_tx, event_rx) = sync_channel(1);
-        event_tx
-            .send(CdpEvent::Other {
-                method: "Test.blocked".to_string(),
-                params: Value::Null,
-                session_id: None,
-            })
-            .unwrap();
-        let client =
-            CdpClient::connect(&format!("ws://{addr}/devtools/browser/fake"), event_tx).unwrap();
-        server.join().unwrap();
-
-        let deadline = Instant::now() + Duration::from_millis(500);
-        while !client.inner.reader_stopped.load(Ordering::Acquire) {
-            assert!(Instant::now() < deadline, "CDP reader did not stop");
-            thread::yield_now();
-        }
-        assert!(matches!(event_rx.recv(), Ok(CdpEvent::Other { .. })));
-
-        let shutdown = event_rx.recv_timeout(Duration::from_millis(500));
-        drop(client);
-
-        assert!(
-            matches!(shutdown, Err(std::sync::mpsc::RecvTimeoutError::Disconnected)),
-            "reader exit left the event channel live: {shutdown:?}"
         );
     }
 }

@@ -25,9 +25,13 @@ export interface AuditRecord {
   readonly at: number
   readonly summary: string
   readonly detail: unknown
+  /** `billing`: a seat or billing change, the only records the billing role reads (spec H12 b); else `admin`. Absent on records before cx-3bi.4. */
+  readonly category?: AuditCategory
   readonly prev_hash: string
   readonly hash: string
 }
+
+export type AuditCategory = "admin" | "billing"
 
 export const GENESIS = "0".repeat(43)
 
@@ -40,7 +44,8 @@ export const appendAudit = <S extends AuditState>(
   ctx: ReduceContext,
   op: string,
   summary: string,
-  detail: unknown
+  detail: unknown,
+  category: AuditCategory = "admin"
 ): { state: S; outbox: OutboxItem } => {
   const prev = state.audit_head ?? GENESIS
   const n = (state.audit_count ?? 0) + 1
@@ -55,6 +60,7 @@ export const appendAudit = <S extends AuditState>(
     // Cleaned before hashing: the projection stores exactly this record (review P3).
     summary: pgSafe(summary) as string,
     detail: pgSafe(detail),
+    category,
     prev_hash: prev
   }
   const hash = createHash("sha256").update(prev).update(canonicalJson(body)).digest("base64url")

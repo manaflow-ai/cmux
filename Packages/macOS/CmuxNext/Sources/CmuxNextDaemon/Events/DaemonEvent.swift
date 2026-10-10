@@ -76,13 +76,15 @@ public enum DaemonEvent: Sendable, Hashable {
 
 extension DaemonEvent {
     /// Applies even when a tree snapshot covers its sequence: connection
-    /// lifecycle, and `session.events` items, which `list-workspaces` does
-    /// not carry.
+    /// lifecycle, `session.events` items and the app supervisor's events,
+    /// which `list-workspaces` does not carry.
     var outlivesSnapshot: Bool {
         switch self {
         case .connected, .disconnected, .daemonShutdown, .sessionState: true
         // Transient questions to this connection; a snapshot never holds them.
         case .terminalClipboardRead, .terminalClipboardReadCancelled: true
+        // The app supervisor's events (apps-v1): scene batches, changes and provider calls.
+        case .unknown(let name, _): DaemonSideEvents.isAppsEvent(name)
         default: false
         }
     }

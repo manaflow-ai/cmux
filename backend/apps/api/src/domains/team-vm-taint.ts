@@ -9,7 +9,8 @@ import type { TeamVmState } from "./team-vm.ts"
  * may have left something running that no certificate revocation ends. A removal of a member who
  * held a team SSH certificate valid after the current VM was created taints that VM's epoch; an
  * owner or admin then accepts the risk or rebuilds (a new VM at the next epoch). A rebuilt VM is
- * paused and kept in `retired` until an owner deletes it (its files can be copied off first).
+ * paused with its run budget spent, so no inbound traffic resumes it (cx-009a), and kept in
+ * `retired` until an owner deletes it (its files can be copied off first).
  */
 export interface TeamVmTaint {
   readonly epoch: number
@@ -30,6 +31,12 @@ export interface TeamVmRetired {
   /** While `pausing`: failed pause attempts and when the alarm tries again (backoff). */
   readonly pause_attempts?: number
   readonly pause_retry_at?: number
+  /**
+   * The provider confirmed the retire: run budget spent, then paused, so no inbound traffic
+   * resumes it (cx-009a). A `paused` row without it was paused before the fence existed; the
+   * alarm retires it again.
+   */
+  readonly fenced?: boolean
 }
 
 /** A rebuild keeps at most this many replaced VMs until an owner deletes some. */
@@ -56,9 +63,12 @@ export const pausingRetired = (s: TeamVmState): TeamVmRetired | null => (s.retir
 /** Installs of epochs below this are revoked: a rebuilt epoch's install goes before its replacement exists. */
 export const staleBelow = (s: TeamVmState): number => ((s.retired ?? []).some((r) => r.epoch === s.epoch) ? s.epoch + 1 : s.epoch)
 
+/** A retired VM the alarm still retires: not yet paused, or paused before the fence (cx-009a). */
+export const retireDue = (r: TeamVmRetired): boolean => r.state === "pausing" || r.fenced !== true
+
 /** The next pause retry of a retired VM, for the alarm. */
 export const pauseWakeAt = (s: TeamVmState): number | null => {
-  const times = (s.retired ?? []).filter((r) => r.state === "pausing").map((r) => r.pause_retry_at ?? r.at)
+  const times = (s.retired ?? []).filter(retireDue).map((r) => r.pause_retry_at ?? r.at)
   return times.length ? Math.min(...times) : null
 }
 
@@ -75,11 +85,17 @@ export const reduceMemberRemoved = (state: TeamVmState, params: unknown, ctx: Re
   if (!d.ok) return d
   // A forged or misrouted notice (another team's TeamDO, or any other system source) changes nothing.
   if (state.team === null || ctx.principal.identity !== `system:team:${state.team}`) return same(state)
-  // No VM, or the member's certificates all ended before this VM existed: nothing they could have touched.
-  if (state.vm === null || d.value.cert_valid_before <= (state.vm_created_at ?? 0)) return same(state)
+  // The removed member's wake leases end now (cx-3bi.43): they no longer keep the VM awake.
+  const kept = Object.fromEntries(Object.entries(state.leases).filter(([, l]) => l.user !== d.value.user && l.holder !== `session:${d.value.user}`))
+  const dropped = Object.keys(kept).length !== Object.keys(state.leases).length
+  const leased: TeamVmState = dropped ? { ...state, leases: kept, updated_at: ctx.now } : state
+  const untainted = (): ReduceResult<TeamVmState> => (dropped ? { ok: true, state: leased, value: { applied: true, leases_dropped: true } } : same(state))
+  // No certificate, no VM, or the member's certificates all ended before this VM existed: nothing they could have touched.
+  if (d.value.cert_valid_before === undefined || state.vm === null || d.value.cert_valid_before <= (state.vm_created_at ?? 0)) return untainted()
+  state = leased
   const cur = currentTaint(state)
   // The same removal again (a redelivery), or one the owner already accepted, changes nothing.
-  if (cur?.users.includes(d.value.user) && (cur.accepted_at === null || d.value.at <= cur.accepted_at)) return same(state)
+  if (cur?.users.includes(d.value.user) && (cur.accepted_at === null || d.value.at <= cur.accepted_at)) return untainted()
   // A new removal after an acceptance (another member, or the same one re-joined and removed again)
   // needs a new decision: the acceptance covered the removals made before it.
   const taint: TeamVmTaint = cur
@@ -135,14 +151,14 @@ export const reduceRetired = (state: TeamVmState, op: "team_vm.retired_paused" |
   const row = list.find((r) => r.vm === d.value.vm)
   if (!row) return op === "team_vm.retired_deleted" ? reject("selector.not_found", "no retired VM with this id") : same(state)
   if (op === "team_vm.retired_pause_failed") {
-    if (row.state === "paused") return same(state)
+    if (!retireDue(row)) return same(state)
     const attempts = (row.pause_attempts ?? 0) + 1
     const retiredList = list.map((r) => (r.vm === row.vm ? { ...r, pause_attempts: attempts, pause_retry_at: ctx.now + pauseDelayMs(attempts) } : r))
     return { ok: true, state: { ...state, retired: retiredList, updated_at: ctx.now }, value: { vm: row.vm, attempts } }
   }
   if (op === "team_vm.retired_paused") {
-    if (row.state === "paused") return same(state)
-    return { ok: true, state: { ...state, retired: list.map((r) => (r.vm === row.vm ? { ...r, state: "paused" as const } : r)), updated_at: ctx.now }, value: { vm: row.vm, state: "paused" } }
+    if (!retireDue(row)) return same(state)
+    return { ok: true, state: { ...state, retired: list.map((r) => (r.vm === row.vm ? { ...r, state: "paused" as const, fenced: true } : r)), updated_at: ctx.now }, value: { vm: row.vm, state: "paused" } }
   }
   return { ok: true, state: { ...state, retired: list.filter((r) => r.vm !== row.vm), updated_at: ctx.now }, value: { vm: row.vm, deleted: true } }
 }

@@ -185,6 +185,9 @@ nonisolated extension ActionSurfaceCatalog {
         "swapPaneDown": [p(.pane, .move, 304, folder: .move)],
         "closePane": [p(.pane, .close, 600)],
         "renamePane": [p(.pane, .identity, 103)],
+        "agentPaneZoomIn": [p(.pane, .layout, 510, folder: .layout), p(.agentChat, .layout, 3)],
+        "agentPaneZoomOut": [p(.pane, .layout, 511, folder: .layout), p(.agentChat, .layout, 4)],
+        "agentPaneZoomReset": [p(.pane, .layout, 512, folder: .layout), p(.agentChat, .layout, 5)],
         "column.moveLeft": [p(.pane, .move, 310, folder: .move)],
         "column.moveRight": [p(.pane, .move, 311, folder: .move)],
         "column.center": [p(.pane, .layout, 504, folder: .layout)],
@@ -213,5 +216,9 @@ nonisolated extension ActionSurfaceCatalog {
         "bookmark.remove": [p(.bookmark, .close, 101)],
         "bookmark.toggleBar": [p(.bookmark, .view, 300), p(.bookmarksBar, .view, 100)],
         "bookmark.manager": [p(.bookmark, .view, 301), p(.bookmarksBar, .view, 101)],
+        // An agent chat's empty space (Change Background leads, from its own plan).
+        "appearance.interfaceSize.increase": [p(.agentChat, .layout, 0)],
+        "appearance.interfaceSize.decrease": [p(.agentChat, .layout, 1)],
+        "appearance.interfaceSize.reset": [p(.agentChat, .layout, 2)],
     ]
 }

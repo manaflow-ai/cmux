@@ -37,7 +37,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     public init(_ tokens: ThemeTokens, reduceTransparency: Bool = false, surface surfaceKind: SurfaceKind? = nil,
                 backgrounds: SurfaceBackgrounds = ThemeScope.app.surfaceBackgrounds, scrollers: String? = nil,
                 app: AppTheme? = nil) {
-        let pageOpaque = WindowBackdrop(tokens, reduceTransparency: reduceTransparency).panesPaintBackground
+        let pageOpaque = WindowBackdrop.current(tokens, reduceTransparency: reduceTransparency).panesPaintBackground
         let surface = tokens.surfaceBackground
         let page = surfaceKind.flatMap { backgrounds.fill(for: $0, tokens: tokens) }
             ?? (pageOpaque ? surface.withAlpha(1) : surface.withAlpha(0))
@@ -51,6 +51,8 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             "--cmux-separator": Borders.drawsLines ? Self.css(tokens.separator) : "transparent",
             "--cmux-hover": Self.css(tokens.hoverFill),
             "--cmux-selection": Self.css(tokens.selectionFill),
+            // The modal scrim (`Scrim`), the same as native dialogs'.
+            "--cmux-scrim": Self.css(tokens.scrim),
         ].merging((app ?? ThemeStore.shared.appTheme ?? tokens.app).cssVariables) { own, _ in own }
         colorScheme = tokens.isDark ? "dark" : "light"
         self.scrollers = scrollers ?? SystemScrollers.pageValue

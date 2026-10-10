@@ -22,6 +22,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/harnesses": (["cwd"], []),
         "_acpmux/models": ([], []),
         "_acpmux/status": ([], []),
+        "_acpmux/draft_get": (["sessionId"], []),
+        "_acpmux/draft_set": (["sessionId", "text"], []),
         "_acpmux/permission_respond": (["sessionId", "permissionId", "optionId", "answers"], []),
         "_acpmux/handoff_prepare": (["sessionId", "harness", "handoffKey"], []),
         "_acpmux/handoff_get": (["sessionId", "handoffId"], []),

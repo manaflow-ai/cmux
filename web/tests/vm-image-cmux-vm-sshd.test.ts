@@ -67,6 +67,11 @@ describe("team VM login groups (cx-embr)", () => {
     expect(bake).toContain("groupadd --system cmux-ssh");
     expect(bake).toContain("groupadd --system cmux-agents");
     expect(bake).toContain("usermod --append --groups cmux-ssh 'cmux'");
+    // Ubuntu's stack ships pam_env user_readenv=1, which the PAM policy refuses; the bake turns it off first.
+    const steps = bake.split(" && ");
+    const off = steps.indexOf("sed -i 's/user_readenv=1/user_readenv=0/g' /etc/pam.d/sshd");
+    expect(off).toBeGreaterThanOrEqual(0);
+    expect(off).toBeLessThan(steps.findIndex((step) => step.includes("pam_exec.so")));
   });
 });
 

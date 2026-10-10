@@ -90,6 +90,27 @@ final class PageState {
                                                   sectionIndex: sectionIndex))
             }
         }
+        // The empty query's Suggested section (rows with a suggestion rank);
+        // appended after the item sections, like the typing section.
+        if page.showsRecent, entries.contains(where: { $0.suggestedRank != nil }) {
+            let suggestedIndex = sections.count
+            sections.append(.suggested)
+            for position in entries.indices where entries[position].suggestedRank != nil {
+                entries[position].suggestedSectionIndex = suggestedIndex
+            }
+        }
+        // One ranked list while typing (`mergesSectionsWhenTyping`); appended
+        // last, so a row's own section index never moves.
+        if page.mergesSectionsWhenTyping, !entries.isEmpty {
+            let merged: Int
+            if let existing = sectionIndexByID[PaletteSection.results.id] {
+                merged = existing
+            } else {
+                merged = sections.count
+                sections.append(.results)
+            }
+            for position in entries.indices { entries[position].typingSectionIndex = merged }
+        }
         self.items = items
         self.entries = entries
         self.sections = sections

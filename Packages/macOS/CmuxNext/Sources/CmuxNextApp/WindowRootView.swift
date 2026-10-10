@@ -39,6 +39,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     private var placementObservation: Task<Void, Never>?
     private var titleHeight: NSLayoutConstraint?
     private var tokenObservation: Task<Void, Never>?
+    private var displayOptionsObserver: (any NSObjectProtocol)?
     private(set) weak var content: NSView?
     /// Empties AppKit's titlebar drag region: the window moves only through
     /// `TitlebarDragPolicy` (`ShellWindow.sendEvent`).
@@ -60,21 +61,29 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// Held while the pointer is over the sidebar (its chrome reveal).
     var sidebarHoverHold: HoverReveal.Hold?
     /// The sidebar is hidden (WindowController follows the sidebar model).
-    /// The traffic lights and the toggle stay shown either way, so the
-    /// toggle is one fixed target (Leo, T3 Code ref); its glyph follows.
+    /// The toggle's glyph follows; the band's width follows the sidebar's
+    /// on-screen width instead (`toolbarBandPresence`).
     var sidebarHidden = false {
-        didSet { toolbarBand.showSidebarState(hidden: sidebarHidden) }
+        didSet {
+            toolbarBand.showSidebarState(hidden: sidebarHidden)
+            collapsedBand.setSidebarHidden(sidebarHidden)
+        }
     }
+    /// Opens the collapsed band while the top-left corner is hovered.
+    let collapsedBand: CollapsedBandReveal
 
     /// - Parameter sidebar: The window's sidebar.
     /// - Parameter reduceTransparency: The user's Reduce Transparency
     ///   setting, read on every theme and display-options change.
     /// - Parameter applyWindowBlur: Sets the window's behind-window blur
     ///   radius (the backdrop's ``WindowBackdrop/windowBlurRadius``).
+    /// - Parameter revealClock: Times the collapsed band's close delay.
     init(sidebar: SidebarContainerView,
          reduceTransparency: @escaping @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency },
-         applyWindowBlur: @escaping @MainActor (NSWindow, Int) -> Void = { $0.setBackgroundBlurRadius($1) }) {
+         applyWindowBlur: @escaping @MainActor (NSWindow, Int) -> Void = { $0.setBackgroundBlurRadius($1) },
+         revealClock: any Clock<Duration> = ContinuousClock()) {
         self.sidebar = sidebar
+        collapsedBand = CollapsedBandReveal(clock: revealClock)
         self.reduceTransparency = reduceTransparency
         self.applyWindowBlur = applyWindowBlur
         super.init(frame: NSRect(x: 0, y: 0, width: 1100, height: 720))
@@ -113,6 +122,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         self.titleHeight = titleHeight
         applyTokens()
         setUpTitlebarReveal()
+        setUpCollapsedBandReveal()
         tokenObservation = Task { [weak self] in
             for await _ in Observations({ [Metrics.titlebarHeight, Metrics.tabStripHeight, DesignSettings.shared.titlebar == .minimal ? 1 : 0,
                                            DesignSettings.shared.titlebarButtons == .hover ? 1 : 0] }) {
@@ -121,12 +131,13 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             }
         }
         placementObservation = observePlacement()
-        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(displayOptionsChanged),
-                                                          name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
-        themeDidChange()
-    }
-
-    @objc private func displayOptionsChanged() {
+        // queue: .main: the workspace center may post off main; a selector
+        // into this main-actor view trapped there.
+        displayOptionsObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.themeDidChange() } // main-proof: observer on queue: .main
+        }
         themeDidChange()
     }
 
@@ -136,6 +147,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     isolated deinit {
         tokenObservation?.cancel()
         placementObservation?.cancel()
+        if let displayOptionsObserver { NSWorkspace.shared.notificationCenter.removeObserver(displayOptionsObserver) }
     }
 
     var titlebarStyle: TitlebarStyle { DesignSettings.shared.titlebar }
@@ -206,6 +218,9 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     }
 
     var onHintGeometryChange: (() -> Void)?
+    /// Called from layout when the band's presence changed, so strips under
+    /// the top row recompute their inset in the same layout pass.
+    var onToolbarBandPresenceChange: (() -> Void)?
 
     override func layout() {
         defer { onHintGeometryChange?() }
@@ -218,21 +233,31 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             WindowOverlayHost.existingHost(for: window)?.setOccluder(id: "sidebar", rect: shows ? sidebar.convert(sidebar.bounds, to: nil) : nil)
         }
         TitlebarDragPolicy.layoutBandBlocker(titlebarBandBlocker, in: self)
-        // The band depends only on the window's traffic lights and top row,
-        // never on the sidebar, so the toggle keeps one frame (R68).
+        // The band starts after the traffic lights (which never move) and is
+        // as wide as the sidebar's on-screen share: 0 wide, with no gap
+        // after the lights, while the sidebar is hidden (cx-uxdr).
         let rowHeight = titlebarStyle == .minimal ? Metrics.tabStripHeight : Metrics.titlebarHeight
-        var x = Metrics.space3
+        var lightsMaxX: CGFloat = 0
         var midY = bounds.maxY - rowHeight / 2
         if let window, let lights = WindowTitlebar.trafficLightsFrame(in: window) {
             let local = convert(lights, from: nil)
-            x = local.maxX + Metrics.space3
+            lightsMaxX = local.maxX
             midY = local.midY
         }
+        let presence = toolbarBandPresence
         let bandHeight = TitlebarBandButton.side
-        toolbarBand.frame = CGRect(x: x, y: (midY - bandHeight / 2).rounded(), width: TitlebarToolbarBand.width, height: bandHeight)
+        let bandWidth = (TitlebarToolbarBand.width * presence * 2).rounded() / 2
+        let presenceChanged = toolbarBand.presence != presence
+        toolbarBand.presence = presence
+        toolbarBand.frame = CGRect(x: lightsMaxX + Metrics.space3 * presence, y: (midY - bandHeight / 2).rounded(),
+                                   width: bandWidth, height: bandHeight)
         // A right sidebar's header is clear of the traffic lights and the band.
+        // The reserve is the full band, so the header does not reflow while
+        // the sidebar slides out.
+        let fullBandMaxX = lightsMaxX + Metrics.space3 + TitlebarToolbarBand.width
         sidebar.sidebarView.headerHasWindowControls = sidebarSide == .left
-        sidebar.sidebarView.titlebarLeadingReserve = sidebarSide == .left ? toolbarBand.frame.maxX + Metrics.space2 : Metrics.space3
+        sidebar.sidebarView.titlebarLeadingReserve = sidebarSide == .left ? fullBandMaxX + Metrics.space2 : Metrics.space3
+        if presenceChanged { onToolbarBandPresenceChange?() }
         layoutTitlebarReveal(rowHeight: rowHeight)
         guard let badge = titlebarBadge else { return }
         badge.isHidden = !showsTitlebarBadge

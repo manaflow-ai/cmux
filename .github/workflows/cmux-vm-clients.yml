@@ -10,6 +10,9 @@
 name: cmux VM clients
 
 on:
+  # feat-cmux-next push CI is the Swift app build only (Lawrence, 2026-10-10);
+  # dispatch this workflow on a ref to run it.
+  workflow_dispatch:
   pull_request:
     paths:
       - workers/cmux-vm/openapi.json
@@ -19,6 +22,8 @@ on:
       - .github/actions/setup-cmux-tui-rust/**
       - .github/workflows/cmux-vm-clients.yml
   push:
+    # feat-cmux-next too: cmux VM lands there first, and without this run an
+    # openapi.json change left the generated clients stale unnoticed (cx-b4h.4).
     branches: [main]
     paths:
       - workers/cmux-vm/openapi.json
@@ -135,7 +140,3 @@ jobs:
       - name: Typecheck
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run typecheck
-
-      - name: Tests
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: bun test

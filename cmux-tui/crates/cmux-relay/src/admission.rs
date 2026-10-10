@@ -43,12 +43,12 @@ impl Listener for AdmissionListener {
     async fn accept(&mut self) -> (Self::Io, Self::Addr) {
         let mut retry_attempt = 0u32;
         loop {
-            let permit = self
-                .permits
-                .clone()
-                .acquire_owned()
-                .await
-                .expect("relay admission semaphore cannot close while its listener exists");
+            // The semaphore is private and nothing closes it, so acquire
+            // fails only if that changes; then this listener admits no one.
+            let Ok(permit) = self.permits.clone().acquire_owned().await else {
+                eprintln!("cmux-relay: admission semaphore closed; accepting no connections");
+                return std::future::pending().await;
+            };
             match self.inner.accept().await {
                 Ok((stream, address)) => {
                     let _ = stream.set_nodelay(true);

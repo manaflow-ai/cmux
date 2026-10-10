@@ -19,6 +19,18 @@ export interface PaletteRankEntry {
   sectionIndex?: number;
   /** The row enters a palette scope (`PaletteItem.enters`). */
   entersScope?: boolean;
+  /** The section the row joins while the user types (the root merges all rows into one list). */
+  typingSectionIndex?: number | null;
+  /** The catalog's first-use suggestion order (`ActionDescriptor.paletteSuggestionRank`), if any. */
+  suggestedRank?: number | null;
+  /** The section a suggested row shows in on the empty query (Suggested). */
+  suggestedSectionIndex?: number | null;
+  /** The registry action id; found only by a query that is the id or starts it (4+ letters). */
+  actionID?: string | null;
+  /** A row of a secondary kind (a setting): one tier lower than a command with the same match. */
+  demoted?: boolean;
+  /** The row has a keyboard shortcut: a core command, first among equal matches. */
+  hasShortcut?: boolean;
 }
 
 export interface PaletteFrecencyEntry {
@@ -26,10 +38,25 @@ export interface PaletteFrecencyEntry {
   lastUsed: number;
 }
 
+/** A learned pick: the row the user ran for a normalized query start (palette-usage-v1). */
+export interface PaletteLearnedPick {
+  prefix: string;
+  key: string;
+  /** Decayed pick count as of `lastUsed`; halves every `pickHalfLife`. */
+  score: number;
+  lastUsed: number;
+  /** The latest row picked for `prefix`. */
+  last: boolean;
+}
+
 export interface PaletteFrecency {
   entries?: Record<string, PaletteFrecencyEntry>;
   halfLife?: number;
   capacity?: number;
+  picks?: PaletteLearnedPick[];
+  pickHalfLife?: number;
+  /** Usage keys of rows the user hid: gone from the palette except for a whole-title query. */
+  hidden?: string[];
 }
 
 export interface PaletteRankedRow {
@@ -60,20 +87,18 @@ export interface PaletteRankRequest {
   highlightLimit?: number;
 }
 
-const disabledPenalty = 1_000;
+/** Below every enabled row of any tier. */
+const disabledPenalty = 100_000;
 const titleWeight = 100;
 const keywordWeight = 80;
 const subtitleWeight = 65;
 const accessoryWeight = 50;
 const maximumBoost = 60;
-/** A row whose whole title is the query comes first (above any frecency boost or keyword match). */
-const wholeTitleBonus = 500;
-/** A scope row with a keyword that is the whole query ("settings" for the settings scope) comes next. */
-const wholeKeywordBonus = 250;
 const defaultHalfLife = 3 * 24 * 60 * 60;
 
 let cachedVersion: number | undefined;
 let cachedFields: Field[][] = [];
+let cachedIDs: Array<string[] | null> = [];
 
 type CharClass = "lower" | "upper" | "digit" | "delimiter" | "ideograph" | "other";
 
@@ -83,6 +108,8 @@ interface FoldedText {
   bonus: number[];
   initials: string[];
   mask: bigint;
+  /** Folded words split at delimiters, built on first use and kept with the cached fields. */
+  words?: string[][];
 }
 
 interface Field {
@@ -341,67 +368,318 @@ function fieldsFor(entry: PaletteRankEntry): Field[] {
   return fields;
 }
 
-function fieldsForEntries(entries: readonly PaletteRankEntry[], version: number | undefined): Field[][] {
-  if (version !== undefined && cachedVersion === version && cachedFields.length === entries.length) return cachedFields;
+function fieldsForEntries(
+  entries: readonly PaletteRankEntry[],
+  version: number | undefined,
+): { fields: Field[][]; ids: Array<string[] | null> } {
+  if (version !== undefined && cachedVersion === version && cachedFields.length === entries.length)
+    return { fields: cachedFields, ids: cachedIDs };
   const fields = entries.map(fieldsFor);
+  const ids = entries.map((entry) => (entry.actionID ? Array.from(entry.actionID).map(foldScalar) : null));
   if (version !== undefined) {
     cachedVersion = version;
     cachedFields = fields;
+    cachedIDs = ids;
   }
-  return fields;
+  return { fields, ids };
 }
 
-function scoreEntry(
+/**
+ * Match classes, best first (plans/cmux-next/palette-ranking.md section 5). A row's class
+ * decides its order before any quality, usage or bias: usage lifts a row inside its class,
+ * never over a clearly better match.
+ */
+export const matchTier = {
+  /** The whole title is the query. */
+  wholeTitle: 12,
+  /** A scope row whose keyword is the whole query ("settings" for the settings scope). */
+  scopeKeyword: 11,
+  /** The title starts with the query, in whole words ("split" for Split Right). */
+  titlePrefix: 10,
+  /** Every token is a whole title word ("chat" for New Agent Chat). */
+  wholeWords: 9,
+  /** The title starts with the query, the last word cut ("brows" for Browser Profiles). */
+  titlePartialPrefix: 8,
+  /** Every token starts a title word ("brows" for New Browser Tab). */
+  titleWords: 7,
+  /** The query is the start of the title's word initials ("sr", "nac"). */
+  acronym: 6,
+  /** Every token is a title substring, or starts a keyword word. */
+  substring: 4,
+  /** Every token is one edit from a title word, or matches strictly ("spilt", "sttings"). */
+  typo: 3,
+  /** Every token matches in order from a title word start, or is a keyword, subtitle or accessory substring. */
+  fuzzy: 2,
+} as const;
+
+/** Points per tier: above the largest quality, usage and bias sum, so the class always decides first. */
+const tierScale = 1_000;
+const maximumQuality = 880;
+/** The typo pass runs only when the strict pass found fewer rows than this at the substring tier or better. */
+const typoPassThreshold = 3;
+
+/** How well one token matches one field: 3 starts a word, 2 contiguous, 1 in order from a word start, 0 none. */
+function tokenLevel(token: readonly string[], tokenMask: bigint, text: FoldedText): number {
+  if (!token.length) return 3;
+  if ((text.mask & tokenMask) !== tokenMask) return 0;
+  if (substringStart(token, text.folded, text.bonus, true) !== null) return 3;
+  if (substringStart(token, text.folded, text.bonus, false) !== null) return 2;
+  for (let index = 0; index < text.folded.length; index++) {
+    if (text.folded[index] !== token[0] || text.bonus[index] < 7) continue;
+    if (forwardWindowEnd(token, text.folded, index) !== null) return 1;
+  }
+  return 0;
+}
+
+/** The tier one token reaches through its best field; -1 when no field matches. */
+function tokenTier(token: readonly string[], tokenMask: bigint, fields: readonly Field[]): number {
+  let best = -1;
+  for (const field of fields) {
+    const level = tokenLevel(token, tokenMask, field.text);
+    if (!level) continue;
+    let tier: number;
+    if (field.weight === titleWeight) tier = level >= 2 ? matchTier.substring : matchTier.fuzzy;
+    else if (field.weight === keywordWeight)
+      tier = level === 3 ? matchTier.substring : level === 2 ? matchTier.fuzzy : -1;
+    else tier = level >= 2 ? matchTier.fuzzy : -1;
+    best = Math.max(best, tier);
+  }
+  return best;
+}
+
+function wordsOf(text: FoldedText): string[][] {
+  if (text.words) return text.words;
+  const words: string[][] = [];
+  let current: string[] = [];
+  text.original.forEach((scalar, index) => {
+    if (charClass(scalar) === "delimiter") {
+      if (current.length) words.push(current);
+      current = [];
+    } else current.push(text.folded[index]);
+  });
+  if (current.length) words.push(current);
+  text.words = words;
+  return words;
+}
+
+/** At most one insert, delete, substitute or adjacent swap turns `a` into `b`. Linear time. */
+function withinOneEdit(a: readonly string[], b: readonly string[]): boolean {
+  if (Math.abs(a.length - b.length) > 1) return false;
+  let i = 0;
+  while (i < a.length && i < b.length && a[i] === b[i]) i++;
+  if (i === a.length && i === b.length) return true;
+  const restEqual = (x: number, y: number) => {
+    if (a.length - x !== b.length - y) return false;
+    for (let k = 0; x + k < a.length; k++) if (a[x + k] !== b[y + k]) return false;
+    return true;
+  };
+  if (a.length === b.length) {
+    if (restEqual(i + 1, i + 1)) return true; // substitute
+    return i + 1 < a.length && a[i] === b[i + 1] && a[i + 1] === b[i] && restEqual(i + 2, i + 2); // swap
+  }
+  return a.length > b.length ? restEqual(i + 1, i) : restEqual(i, i + 1); // delete or insert
+}
+
+/** One adjacent swap and nothing else ("tba" for "tab"). */
+function isTransposition(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  const diff: number[] = [];
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) diff.push(i);
+  return diff.length === 2 && diff[1] === diff[0] + 1 && a[diff[0]] === b[diff[1]] && a[diff[1]] === b[diff[0]];
+}
+
+/**
+ * The query with each mistyped token replaced by the title word it is one edit from, or null.
+ * Tokens of 4 or more letters allow any one edit against a word or the word's start; 3-letter
+ * tokens only an adjacent swap. At least one token must be a typo.
+ */
+function typoCorrection(query: Query, title: FoldedText): Query | null {
+  const words = wordsOf(title);
+  let typos = 0;
+  const corrected: string[] = [];
+  for (let tokenIndex = 0; tokenIndex < query.tokens.length; tokenIndex++) {
+    const token = query.tokens[tokenIndex];
+    if (tokenLevel(token, query.tokenMasks[tokenIndex], title) >= 2) {
+      corrected.push(token.join(""));
+      continue;
+    }
+    if (token.length < 3) return null;
+    const close = words.find((word) => {
+      if (word.length < token.length - 1) return false;
+      if (token.length === 3) return isTransposition(token, word.slice(0, 3));
+      return (
+        withinOneEdit(token, word) ||
+        withinOneEdit(token, word.slice(0, token.length)) ||
+        withinOneEdit(token, word.slice(0, token.length + 1))
+      );
+    });
+    if (!close) return null;
+    corrected.push(close.join(""));
+    typos++;
+  }
+  return typos > 0 ? makeQuery(corrected.join(" ")) : null;
+}
+
+/** Whether `token` occurs in the title as a whole word. */
+function isWholeWord(token: readonly string[], text: FoldedText): boolean {
+  return wordsOf(text).some((word) => word.length === token.length && hasPrefix(word, token));
+}
+
+/** Whether the title starts with the query phrase and the phrase ends at a word end. */
+function startsWithWholeWords(query: Query, text: FoldedText): boolean {
+  if (!hasPrefix(text.folded, query.phrase)) return false;
+  const next = text.original[query.phrase.length];
+  return next === undefined || charClass(next) === "delimiter" || text.bonus[query.phrase.length] >= 7;
+}
+
+/**
+ * A one-word query that names the action id: the whole id ("newsurface"), or a start of it
+ * written like an id, with a dot or a capital ("palette.new", "newSur"). A plain word such as
+ * "palette" or "work" never matches ids, so it cannot lift a whole id namespace.
+ */
+function actionIDTier(id: readonly string[] | null, query: Query): number | null {
+  if (!id || query.tokens.length !== 1 || query.joined.length < 4 || !hasPrefix(id, query.joined)) return null;
+  if (id.length === query.joined.length) return matchTier.titlePrefix;
+  const raw = query.raw.trim();
+  return raw.includes(".") || /\p{Lu}/u.test(raw) ? matchTier.substring : null;
+}
+
+interface TierMatch {
+  tier: number;
+  /** The query the quality is measured with (a typo row: the corrected one). */
+  query: Query;
+}
+
+function textTier(
   entry: PaletteRankEntry,
   query: Query,
-  fields: Field[],
-): { score: number; highlights: number[] } | null {
-  if (queryIsEmpty(query)) return { score: 0, highlights: [] };
+  fields: readonly Field[],
+  allowsTypo: boolean,
+): TierMatch | null {
+  const title = fields[0].text;
+  const tiered = (tier: number) => ({ tier, query });
+  const titleHasLetters = (title.mask & query.mask) === query.mask;
+  if (titleHasLetters && titleIsQuery(entry.title, query.raw)) return tiered(matchTier.wholeTitle);
+  if (entry.entersScope && entry.keywords?.some((keyword) => titleIsQuery(keyword, query.raw)))
+    return tiered(matchTier.scopeKeyword);
+  if (titleHasLetters) {
+    if (startsWithWholeWords(query, title)) return tiered(matchTier.titlePrefix);
+    if (query.tokens.every((token) => isWholeWord(token, title))) return tiered(matchTier.wholeWords);
+    if (hasPrefix(title.folded, query.phrase)) return tiered(matchTier.titlePartialPrefix);
+    if (query.tokens.every((token, index) => tokenLevel(token, query.tokenMasks[index], title) === 3))
+      return tiered(matchTier.titleWords);
+  }
+  if (query.tokens.length === 1 && query.joined.length >= 2 && hasPrefix(title.initials, query.joined))
+    return tiered(matchTier.acronym);
+  let tier: number = matchTier.substring;
+  for (let index = 0; index < query.tokens.length; index++) {
+    const reached = tokenTier(query.tokens[index], query.tokenMasks[index], fields);
+    if (reached < 0) {
+      tier = -1;
+      break;
+    }
+    tier = Math.min(tier, reached);
+  }
+  // One edit away from a real title word is a better answer than letters spread over the title.
+  if (allowsTypo && tier < matchTier.typo) {
+    const corrected = typoCorrection(query, title);
+    if (corrected) return { tier: matchTier.typo, query: corrected };
+  }
+  return tier < 0 ? null : tiered(tier);
+}
+
+/** A demoted row (a setting) drops this many tier units: a setting that starts with the query
+ * ties a command one match class weaker ("Color" ties "Set Workspace Color…"), and the
+ * command wins the tie. */
+const demotion = 3;
+
+/** The row's tier: its text, or its action id when that is better; a demoted row 3 units lower. */
+function entryTier(
+  entry: PaletteRankEntry,
+  id: readonly string[] | null,
+  query: Query,
+  fields: readonly Field[],
+  allowsTypo: boolean,
+): TierMatch | null {
+  const byText = textTier(entry, query, fields, allowsTypo);
+  const byID = actionIDTier(id, query);
+  let match = byText;
+  if (byID !== null && (!match || byID > match.tier)) match = { tier: byID, query };
+  if (match && entry.demoted) match = { tier: match.tier - demotion, query: match.query };
+  return match;
+}
+
+function highlightsFor(query: Query, title: FoldedText): number[] {
+  const phraseStart = substringStart(query.phrase, title.folded, title.bonus, false);
+  if (phraseStart !== null) {
+    return Array.from({ length: query.phrase.length }, (_, offset) => phraseStart + offset).filter(
+      (index) => title.folded[index] !== " ",
+    );
+  }
+  const positions = new Set<number>();
+  for (const token of query.tokens) {
+    const match = tokenScore(token, title);
+    if (!match) continue;
+    let matched = 0;
+    for (let index = match.start; index <= match.end && matched < token.length; index++) {
+      if (title.folded[index] === token[matched]) {
+        positions.add(index);
+        matched++;
+      }
+    }
+  }
+  return [...positions].sort((a, b) => a - b);
+}
+
+/** The match quality inside a tier: contiguity and word-start bonuses per token, a phrase bonus, shorter titles first. */
+function matchQuality(query: Query, fields: readonly Field[]): number {
   let total = 0;
   for (let tokenIndex = 0; tokenIndex < query.tokens.length; tokenIndex++) {
     const token = query.tokens[tokenIndex];
     const tokenMask = query.tokenMasks[tokenIndex];
-    let best = Number.NEGATIVE_INFINITY;
+    let best = 0;
     for (const field of fields) {
       if ((field.text.mask & tokenMask) !== tokenMask) continue;
       const match = tokenScore(token, field.text);
-      if (!match) continue;
-      best = Math.max(best, Math.trunc((match.score * field.weight) / 100));
+      if (match) best = Math.max(best, Math.trunc((match.score * field.weight) / 100));
     }
-    if (best === Number.NEGATIVE_INFINITY) return null;
     total += best;
   }
   let bonus = 0;
-  let shortest = Number.POSITIVE_INFINITY;
   for (const field of fields) {
     if ((field.text.mask & query.mask) === query.mask)
       bonus = Math.max(bonus, Math.trunc((phraseBonus(query, field.text) * field.weight) / 100));
-    if (field.weight === 100) shortest = Math.min(shortest, field.text.folded.length);
   }
-  const lengthPenalty = Number.isFinite(shortest) ? Math.floor(shortest / 6) : 0;
   const title = fields[0].text;
-  const phraseStart = substringStart(query.phrase, title.folded, title.bonus, false);
-  let highlights: number[] = [];
-  if (phraseStart !== null) {
-    highlights = Array.from({ length: query.phrase.length }, (_, offset) => phraseStart + offset).filter(
-      (index) => title.folded[index] !== " ",
-    );
-  } else {
-    const positions = new Set<number>();
-    for (let tokenIndex = 0; tokenIndex < query.tokens.length; tokenIndex++) {
-      const match = tokenScore(query.tokens[tokenIndex], title);
-      if (!match) continue;
-      let matched = 0;
-      for (let index = match.start; index <= match.end && matched < query.tokens[tokenIndex].length; index++) {
-        if (title.folded[index] === query.tokens[tokenIndex][matched]) {
-          positions.add(index);
-          matched++;
-        }
-      }
-    }
-    highlights = [...positions].sort((a, b) => a - b);
-  }
-  return { score: total + bonus - lengthPenalty, highlights };
+  // A query that is the title's whole initials ("sr" for Split Right) beats a longer title.
+  const initialsBonus =
+    query.joined.length >= 2 && title.initials.length === query.joined.length && hasPrefix(title.initials, query.joined)
+      ? 40
+      : 0;
+  const quality = total + bonus + initialsBonus - Math.floor(title.folded.length / 6);
+  return Math.max(0, Math.min(maximumQuality, quality));
+}
+
+function scoreEntry(
+  entry: PaletteRankEntry,
+  id: readonly string[] | null,
+  query: Query,
+  fields: Field[],
+  allowsTypo: boolean,
+): { score: number; tier: number; highlights: number[] } | null {
+  if (queryIsEmpty(query)) return { score: 0, tier: 0, highlights: [] };
+  const match = entryTier(entry, id, query, fields, allowsTypo);
+  if (!match) return null;
+  // Whole-title rows tie on quality ("Settings" and "Settings…"), so the provider order decides.
+  const quality =
+    match.tier >= matchTier.wholeTitle - 1 && titleIsQuery(entry.title, query.raw)
+      ? maximumQuality
+      : matchQuality(match.query, fields);
+  return {
+    score: Math.round(match.tier * tierScale) + quality,
+    tier: match.tier,
+    highlights: highlightsFor(match.query, fields[0].text),
+  };
 }
 
 function frecencyScore(store: PaletteFrecency | undefined, key: string | null | undefined, now: number): number {
@@ -411,6 +689,43 @@ function frecencyScore(store: PaletteFrecency | undefined, key: string | null | 
   const halfLife = store.halfLife ?? defaultHalfLife;
   const elapsed = Math.max(0, now - entry.lastUsed);
   return entry.score * 2 ** (-elapsed / halfLife);
+}
+
+/** Learned picks lift a row to the top (plans/cmux-next/palette-ranking.md 5.2, the Raycast model):
+ * a row picked at least this often (decayed) for the query's longest known start, */
+const liftPicks = 2;
+/** or the latest pick for that start while at least this much of it is left (about a week). */
+const liftLatestPick = 0.5;
+/** Learned picks are kept for query starts of at most this many characters (the daemon's bound). */
+const pickPrefixChars = 8;
+const defaultPickHalfLife = 7 * 24 * 60 * 60;
+
+/** The query as learned picks key it: lowercased, white space collapsed (the daemon's rule). */
+function normalizedQuery(raw: string): string {
+  return raw.trim().split(/\s+/u).filter(Boolean).join(" ").toLowerCase();
+}
+
+/**
+ * The rows that may lift for `raw`, strongest first: the picks of the longest start of the
+ * normalized query that has picks, each qualified by `liftPicks` or `liftLatestPick`. The
+ * caller lifts the first one that still matches the query.
+ */
+function liftCandidates(store: PaletteFrecency | undefined, raw: string, now: number): string[] {
+  const picks = store?.picks;
+  if (!picks?.length) return [];
+  const chars = Array.from(normalizedQuery(raw));
+  const halfLife = store?.pickHalfLife ?? defaultPickHalfLife;
+  for (let length = Math.min(chars.length, pickPrefixChars); length >= 1; length--) {
+    const prefix = chars.slice(0, length).join("").trimEnd();
+    const rows = picks.filter((pick) => pick.prefix === prefix);
+    if (!rows.length) continue;
+    return rows
+      .map((pick) => ({ pick, score: pick.score * 2 ** (-Math.max(0, now - pick.lastUsed) / halfLife) }))
+      .filter(({ pick, score }) => score >= liftPicks || (pick.last && score >= liftLatestPick))
+      .sort((a, b) => b.score - a.score || (a.pick.key < b.pick.key ? -1 : a.pick.key > b.pick.key ? 1 : 0))
+      .map(({ pick }) => pick.key);
+  }
+  return [];
 }
 
 function frecencyBoost(store: PaletteFrecency | undefined, key: string | null | undefined, now: number): number {
@@ -437,8 +752,13 @@ function sectionOrder(sections: number[], orders: readonly number[]): void {
   });
 }
 
+/** Suggested rows the empty query shows at most. */
+const suggestionLimit = 5;
+
 export function rankPaletteEmpty(request: Omit<PaletteRankRequest, "operation">): PaletteRankedSection[] {
   const entries = request.entries;
+  const hidden = new Set(request.frecency?.hidden ?? []);
+  const isHidden = (entry: PaletteRankEntry) => entry.frecencyKey != null && hidden.has(entry.frecencyKey);
   const orders = request.sectionOrders ?? [];
   const store = request.frecency;
   const now = request.now ?? 0;
@@ -448,9 +768,12 @@ export function rankPaletteEmpty(request: Omit<PaletteRankRequest, "operation">)
   if (request.showsRecent && recentLimit > 0 && store?.entries && Object.keys(store.entries).length > 0) {
     const positionByKey = new Map<string, number>();
     entries.forEach((entry, index) => {
+      // Any row kind the user ran may be Recent (a workspace, tab or setting shows its section
+      // only while typing); a row that matches only behind a query prefix never is.
       if (
         (entry.isEnabled ?? true) &&
-        (entry.isVisibleWhenQueryEmpty ?? true) &&
+        entry.queryPrefix == null &&
+        !isHidden(entry) &&
         entry.frecencyKey &&
         !positionByKey.has(entry.frecencyKey)
       )
@@ -466,10 +789,32 @@ export function rankPaletteEmpty(request: Omit<PaletteRankRequest, "operation">)
       sections.push({ sectionIndex: null, rows });
     }
   }
+  // Suggested: the catalog's first-use commands in its order, after Recent and never
+  // repeating a Recent row (palette-ranking.md 5.2: favorites, recents, suggestions).
+  const suggested = entries
+    .map((entry, index) => ({ entry, index }))
+    .filter(
+      ({ entry, index }) =>
+        entry.suggestedRank != null &&
+        entry.suggestedSectionIndex != null &&
+        (entry.isEnabled ?? true) &&
+        (entry.isVisibleWhenQueryEmpty ?? true) &&
+        !recent.has(index) &&
+        !isHidden(entry),
+    )
+    .sort((a, b) => (a.entry.suggestedRank ?? 0) - (b.entry.suggestedRank ?? 0) || a.index - b.index)
+    .slice(0, suggestionLimit);
+  if (request.showsRecent && suggested.length) {
+    sections.push({
+      sectionIndex: suggested[0].entry.suggestedSectionIndex ?? null,
+      rows: suggested.map(({ index }) => ({ index, score: 0, highlights: [] })),
+    });
+    suggested.forEach(({ index }) => recent.add(index));
+  }
   const order: number[] = [];
   const rowsBySection = new Map<number, PaletteRankedRow[]>();
   entries.forEach((entry, index) => {
-    if (!(entry.isVisibleWhenQueryEmpty ?? true) || recent.has(index)) return;
+    if (!(entry.isVisibleWhenQueryEmpty ?? true) || recent.has(index) || isHidden(entry)) return;
     const section = entry.sectionIndex ?? 0;
     if (!rowsBySection.has(section)) order.push(section);
     rowsBySection.set(section, [...(rowsBySection.get(section) ?? []), { index, score: 0, highlights: [] }]);
@@ -487,19 +832,72 @@ export function rankPalette(request: Omit<PaletteRankRequest, "operation">): Pal
   const now = request.now ?? 0;
   const gated = entries.some((entry) => entry.queryPrefix != null || entry.hidesWhenTyping === true);
   const prepared = fieldsForEntries(entries, request.version);
-  const scored: Array<{ index: number; score: number; highlights: number[] }> = [];
-  entries.forEach((entry, index) => {
-    if (gated && entry.hidesWhenTyping) return;
-    if (gated && entry.queryPrefix != null && !query.raw.startsWith(entry.queryPrefix)) return;
-    const match = scoreEntry(entry, query, prepared[index]);
-    if (!match) return;
-    let score = match.score + (entry.rankBias ?? 0) + frecencyBoost(store, entry.frecencyKey, now);
-    if (titleIsQuery(entry.title, query.raw)) score += wholeTitleBonus;
-    else if (entry.entersScope && entry.keywords?.some((keyword) => titleIsQuery(keyword, query.raw)))
-      score += wholeKeywordBonus;
-    if (entry.isEnabled === false) score -= disabledPenalty;
-    scored.push({ index, score, highlights: match.highlights });
-  });
+  const hidden = new Set(store?.hidden ?? []);
+  const scored: Array<{
+    index: number;
+    score: number;
+    tier: number;
+    enabled: boolean;
+    demoted: boolean;
+    /** A demoted row whose whole title is the query. */
+    exactName: boolean;
+    shortcut: boolean;
+    lifted: boolean;
+    highlights: number[];
+  }> = [];
+  const rank = (allowsTypo: boolean) => {
+    let strong = 0;
+    entries.forEach((entry, index) => {
+      if (gated && entry.hidesWhenTyping) return;
+      if (gated && entry.queryPrefix != null && !query.raw.startsWith(entry.queryPrefix)) return;
+      const match = scoreEntry(entry, prepared.ids[index], query, prepared.fields[index], allowsTypo);
+      if (!match) return;
+      // A hidden row shows only for a query that is its whole title (so it can be shown again).
+      if (entry.frecencyKey && hidden.has(entry.frecencyKey) && !titleIsQuery(entry.title, query.raw)) return;
+      if (match.tier >= matchTier.substring) strong++;
+      let score = match.score + (entry.rankBias ?? 0) + frecencyBoost(store, entry.frecencyKey, now);
+      if (entry.isEnabled === false) score -= disabledPenalty;
+      scored.push({
+        index,
+        score,
+        tier: match.tier,
+        enabled: entry.isEnabled !== false,
+        demoted: entry.demoted === true,
+        exactName: entry.demoted === true && titleIsQuery(entry.title, query.raw),
+        shortcut: entry.hasShortcut === true,
+        lifted: false,
+        highlights: match.highlights,
+      });
+    });
+    return strong;
+  };
+  // Typos are looked for only when the strict pass found little: they cost per row, and a real
+  // match is always the better answer.
+  if (rank(false) < typoPassThreshold) {
+    // Strict tiers do not change with typos allowed, so the second pass replaces the first.
+    scored.length = 0;
+    rank(true);
+  }
+  // A setting whose whole title is the query, and the only one, is an exact name ("theme" for
+  // Theme): it keeps the whole-title tier (a command with the same title still wins the tie).
+  // Several settings with that title ("Color" x10) stay demoted below the commands.
+  // The strongest learned pick for this query that still matches it goes first, over any
+  // match class: muscle memory beats text quality (the Raycast model).
+  const candidates = liftCandidates(store, query.raw, now);
+  if (candidates.length) {
+    const byKey = new Map<string, (typeof scored)[number]>();
+    for (const item of scored) {
+      const key = entries[item.index].frecencyKey;
+      if (key && item.enabled && !byKey.has(key)) byKey.set(key, item);
+    }
+    const lifted = candidates.map((key) => byKey.get(key)).find((item) => item !== undefined);
+    if (lifted) lifted.lifted = true;
+  }
+  const exactNames = scored.filter((item) => item.exactName);
+  if (exactNames.length === 1) {
+    exactNames[0].tier += demotion;
+    exactNames[0].score += demotion * tierScale;
+  }
   if (request.ranksPrefixFirst) {
     const prefix = query.raw.trim().toLocaleLowerCase();
     const starts = new Set(
@@ -515,24 +913,35 @@ export function rankPalette(request: Omit<PaletteRankRequest, "operation">): Pal
       return right.score - left.score || left.index - right.index;
     });
   } else {
-    scored.sort((left, right) => right.score - left.score || left.index - right.index);
+    // Equal scores keep the provider order (the catalog lists the common command of a family first).
+    // Enabled rows first, then the match tier. Inside a tier a command comes before a demoted row
+    // (a setting) whatever their quality, then the score; equal scores prefer a row with a
+    // shortcut (Split Right over Split Up), then the provider order.
+    scored.sort(
+      (left, right) =>
+        Number(right.enabled) - Number(left.enabled) ||
+        Number(right.lifted) - Number(left.lifted) ||
+        right.tier - left.tier ||
+        Number(left.demoted) - Number(right.demoted) ||
+        right.score - left.score ||
+        Number(right.shortcut) - Number(left.shortcut) ||
+        left.index - right.index,
+    );
   }
   const rowLimit = request.rowLimit ?? 400;
   const highlightLimit = request.highlightLimit ?? 60;
-  const rows = scored.slice(0, rowLimit);
   const order: number[] = [];
   const rowsBySection = new Map<number, PaletteRankedRow[]>();
-  rows.forEach((item, rank) => {
-    const section = entries[item.index].sectionIndex ?? 0;
-    if (!rowsBySection.has(section)) order.push(section);
-    rowsBySection.set(section, [
-      ...(rowsBySection.get(section) ?? []),
-      {
-        index: item.index,
-        score: item.score,
-        highlights: rank < highlightLimit ? item.highlights : [],
-      },
-    ]);
+  scored.slice(0, rowLimit).forEach((item, rank) => {
+    const entry = entries[item.index];
+    const section = entry.typingSectionIndex ?? entry.sectionIndex ?? 0;
+    let rows = rowsBySection.get(section);
+    if (!rows) {
+      rows = [];
+      rowsBySection.set(section, rows);
+      order.push(section);
+    }
+    rows.push({ index: item.index, score: item.score, highlights: rank < highlightLimit ? item.highlights : [] });
   });
   if (request.keepsSectionOrder) sectionOrder(order, request.sectionOrders ?? []);
   return order.map((sectionIndex) => ({ sectionIndex, rows: rowsBySection.get(sectionIndex) ?? [] }));

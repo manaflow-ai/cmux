@@ -1,8 +1,17 @@
 {
-  "catalog_sha256": "0c2bfc3b760b05875aca019d0040fe74961f164990de6a22b4cafc4b1096461c",
+  "catalog_sha256": "3e57c3e9e793b2873bdaf1ae32324a1652e82bcb5df6b75417706abfc61db470",
   "operations": {
     "agent.list": {
       "class": "read"
+    },
+    "agent.message.list": {
+      "class": "read"
+    },
+    "agent.message.mark": {
+      "class": "mutation"
+    },
+    "agent.message.send": {
+      "class": "mutation"
     },
     "agent.report": {
       "class": "mutation"
@@ -52,6 +61,15 @@
     "browser.viewer.resize": {
       "class": "connection_control"
     },
+    "chief.engine.get": {
+      "class": "read"
+    },
+    "chief.engine.set": {
+      "class": "mutation"
+    },
+    "chief.stop": {
+      "class": "mutation"
+    },
     "client.cell_pixels.set": {
       "class": "connection_control"
     },
@@ -73,6 +91,9 @@
     "client.sizing.set": {
       "class": "connection_control"
     },
+    "closed.delete": {
+      "class": "mutation"
+    },
     "closed.list": {
       "class": "read"
     },
@@ -80,6 +101,30 @@
       "class": "mutation"
     },
     "column.update": {
+      "class": "mutation"
+    },
+    "conversation.draft": {
+      "class": "mutation"
+    },
+    "conversation.events": {
+      "class": "stream_open"
+    },
+    "conversation.get": {
+      "class": "read"
+    },
+    "conversation.history": {
+      "class": "read"
+    },
+    "conversation.list": {
+      "class": "read"
+    },
+    "conversation.search": {
+      "class": "read"
+    },
+    "conversation.send": {
+      "class": "mutation"
+    },
+    "conversation.typing": {
       "class": "mutation"
     },
     "frontend_projection.get": {
@@ -142,6 +187,21 @@
     "pairing_request.resolve": {
       "class": "mutation"
     },
+    "palette_usage.forget": {
+      "class": "mutation"
+    },
+    "palette_usage.get": {
+      "class": "read"
+    },
+    "palette_usage.hide": {
+      "class": "mutation"
+    },
+    "palette_usage.import": {
+      "class": "mutation"
+    },
+    "palette_usage.record": {
+      "class": "mutation"
+    },
     "pane.close": {
       "class": "mutation"
     },
@@ -182,6 +242,24 @@
       "class": "mutation"
     },
     "pane.zoom": {
+      "class": "mutation"
+    },
+    "project.add": {
+      "class": "mutation"
+    },
+    "project.list": {
+      "class": "read"
+    },
+    "project.observe": {
+      "class": "mutation"
+    },
+    "project.remove": {
+      "class": "mutation"
+    },
+    "project.sync": {
+      "class": "mutation"
+    },
+    "project.update": {
       "class": "mutation"
     },
     "request.cancel": {

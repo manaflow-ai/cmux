@@ -4,7 +4,7 @@ The cmux-next markdown page (`cmux-page://cmux.markdown/`, entry `webviews/markd
 
 ## Saving never rewrites what you did not edit
 
-A save is a minimal-change write (`sourceMap.ts`). The editor keeps each top-level block's exact source; a block the user did not change is written back byte for byte, and only edited blocks go through the serializer. Front matter, link definitions and HTML blocks are raw blocks kept verbatim; reference links stay references when their paragraph is edited. `test/markdown-roundtrip.test.ts` loads a corpus of real repo files into the real editor and fails on any change without an edit. Stock Milkdown serialization kept 2 of the 35 real files.
+A save is a minimal-change write (`sourceMap.ts`). The editor keeps each top-level block's exact source; a block the user did not change is written back byte for byte, and only edited blocks go through the serializer. Front matter, link definitions and HTML blocks are raw blocks kept verbatim; reference links stay references when their paragraph is edited. Stock Milkdown serialization kept 2 of the 35 real files.
 
 ## Host contract
 

@@ -6,12 +6,18 @@
 
 #[cfg(unix)]
 mod action_hint;
+mod agent_message;
+#[cfg(unix)]
+mod agents;
 #[cfg(unix)]
 mod app;
 #[cfg(unix)]
 mod app_focus;
 #[cfg(unix)]
 mod apps_run;
+#[cfg(unix)]
+mod chief;
+mod chief_target;
 mod code_mode;
 #[cfg(unix)]
 mod coderouter;
@@ -37,6 +43,8 @@ mod raw;
 mod resolve;
 mod scope_help;
 mod screen_help;
+#[cfg(unix)]
+mod script;
 mod shorthand;
 mod surface;
 mod topology_help;
@@ -67,6 +75,7 @@ const PUBLIC_SCOPES: &[&str] = &[
     "room",
     "closed",
     "git",
+    "conversation",
     "sidebar",
     "pairing",
     "projection",
@@ -77,8 +86,17 @@ const PUBLIC_SCOPES: &[&str] = &[
 /// Scopes only the `cmux-tui` name accepts. Cloud VM guest scripts
 /// (`raw command`, `session current snapshot`), the app's daemon launcher and
 /// SSH remotes run the binary as `cmux-tui`, so these keep working there.
-const CMUX_TUI_ONLY_SCOPES: &[&str] =
-    &["machine", "session", "client", "sidebar", "pairing", "projection", "provider", "raw"];
+const CMUX_TUI_ONLY_SCOPES: &[&str] = &[
+    "machine",
+    "session",
+    "client",
+    "sidebar",
+    "pairing",
+    "projection",
+    "provider",
+    "raw",
+    "conversation",
+];
 
 const REMOTE_COMMANDS: &[&str] = &[
     "remote",
@@ -225,8 +243,11 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
     };
     #[cfg(unix)]
     if let Some(code) = mcp::run_if_requested(args)
+        .or_else(|| agents::run_if_requested(args))
+        .or_else(|| chief::run_if_requested(args))
         .or_else(|| coderouter::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
+        .or_else(|| script::run_if_requested(args))
     {
         return code;
     }
@@ -260,6 +281,8 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
                 command::run_provider_authority(global, authority)
             }
             CommandPlan::RawCommand(command) => raw::run(global, command),
+            CommandPlan::AgentMessage(plan) => agent_message::run_message(global, *plan),
+            CommandPlan::AgentInbox(plan) => agent_message::run_inbox(global, plan),
         },
         Err(failure) => {
             // Words the mux grammar does not know may name an app action
@@ -624,6 +647,10 @@ fn apply_idempotency_key(plan: &mut CommandPlan, key: Option<&str>) -> Result<()
             request.idempotency_key = Some(key.to_owned());
             Ok(())
         }
+        CommandPlan::AgentMessage(message) => {
+            message.idempotency_key = Some(key.to_owned());
+            Ok(())
+        }
         _ => Err(UsageError::new("--idempotency-key is accepted only for mutations")),
     }
 }
@@ -695,6 +722,7 @@ fn scope_help_for(
         "room" => Cow::Borrowed(scope_help::ROOM_HELP),
         "closed" => Cow::Borrowed(scope_help::CLOSED_HELP),
         "git" => Cow::Borrowed(scope_help::GIT_HELP),
+        "conversation" => Cow::Borrowed(scope_help::CONVERSATION_HELP),
         "sidebar" => Cow::Borrowed(SIDEBAR_HELP),
         "pairing" => Cow::Borrowed(PAIRING_HELP),
         "projection" => Cow::Borrowed(PROJECTION_HELP),
@@ -838,6 +866,9 @@ USAGE
 
 const AGENT_HELP: &str = "\
 USAGE
+  cmux agent message <agent> [--from <name>] [--thread <id>] [--] <text...|->
+  cmux agent message --reply-to <message-id> [--from <name>] [--] <text...|->
+  cmux agent inbox [<agent>] [--state queued|delivered|acknowledged|failed] [--limit <n>] [--ack]
   cmux agent list [OPTIONS]
   cmux agent report --terminal <selector> --state <value> --source <value>
   cmux agent hook install|uninstall|status [provider...]

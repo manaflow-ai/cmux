@@ -13,17 +13,20 @@
 # ever points at an FFI tag. scripts/cmux-next/check-app-ffi-pin.sh fails CI
 # when the FFI sources change without a new pin.
 #
-# UNPROVEN (2026-10-05): GITHUB_TOKEN got HTTP 403 creating the first tag
-# (run 37272232472). The publish job therefore does not try when workflow
-# files changed since the last FFI tag, and a person publishes from the
-# artifact. Whether the token can create the tag after a source-only change
-# has not been seen yet; the first real FFI source change proves or disproves it.
+# TOKEN: GITHUB_TOKEN may not create a cmux-app-ffi-* tag (run 37272232472,
+# HTTP 403): ruleset 24624526 admits only admins and the FFI release App
+# (manaflow-cmux-ffi-release, used for nothing else). The publish job runs in
+# the `ffi-release` environment (deployment policy: feat-cmux-next only),
+# which holds the App's CMUX_FFI_RELEASE_APP_ID and CMUX_FFI_RELEASE_APP_KEY. It mints a token for this
+# repository only, with contents:write, plus workflows:write only when workflow
+# files changed since the last FFI tag, and only the release create uses it.
+# Ruleset 24624527 keeps the tags immutable for everyone, the App included.
 #
 # FAIL-LOUD: the publish job never reports success without the release. When
-# it cannot create it (workflow files changed, an HTTP 403, or a create that
-# publishes nothing, as in run 37556534995), it fails with "Publish by hand"
-# and the exact commands (HAND_PUBLISH). Publishing by hand, with its checks,
-# is the only other path: docs/ci/app-ffi-release.md is the runbook.
+# it cannot create it (no App token, an HTTP 403, or a create that publishes
+# nothing, as in run 37556534995), it fails with "Publish by hand" and the
+# exact commands (HAND_PUBLISH). Publishing by hand, with its checks, is the
+# only other path: docs/ci/app-ffi-release.md is the runbook.
 #
 # The push paths are the FFI inputs that scripts/cmux-next/check-app-ffi-pin.sh
 # derives from the Cargo path dependencies of cmux-app-ffi (--list-inputs);
@@ -70,10 +73,9 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
-      # GITHUB_TOKEN may not create a tag whose commit range carries
-      # workflow-file changes (run 37272232472: HTTP 403 with contents:write).
-      # Measure the range from the last published FFI tag; the publish job
-      # skips with a notice when it touches .github/workflows.
+      # A tag whose commit range carries workflow-file changes needs a token
+      # with workflows:write. Measure the range from the last published FFI
+      # tag; the publish job asks the App for workflows:write only then.
       - name: Workflow files changed since the last FFI release
         id: workflow-delta
         shell: bash
@@ -155,8 +157,10 @@ jobs:
           "$smoke/smoke-arm64"
           dist="$RUNNER_TEMP/dist"
           rm -rf "$dist"; mkdir -p "$dist"
-          # Stable zip bytes for a rerun of the same build.
-          find "$xcf" -exec touch -t 198001010000 {} +
+          # Source commit time on every file and directory: stable zip bytes
+          # for a rerun of the same commit, and new header mtimes after a pin
+          # change so a warm tree rebuilds the Clang module (cx-vqwl).
+          bash scripts/cmux-next/stamp-app-ffi-mtimes.sh "$xcf" "$GITHUB_SHA"
           (cd "$OUT" && ditto -c -k --keepParent CCmuxAppFFI.xcframework "$dist/CCmuxAppFFI.xcframework.zip")
           archive="$dist/CCmuxAppFFI.xcframework.zip"
           checksum="$(shasum -a 256 "$archive" | awk '{print $1}')"
@@ -300,8 +304,12 @@ jobs:
     if: github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
+    # Holds the FFI release App credentials; its deployment policy admits only
+    # feat-cmux-next. GITHUB_TOKEN stays read-only: the release create uses
+    # the App token below and nothing else does.
+    environment: ffi-release
     permissions:
-      contents: write
+      contents: read
     env:
       # What a maintainer runs when this job cannot publish: download this
       # run's artifact, check it, create the prerelease (never latest), then
@@ -322,19 +330,33 @@ jobs:
           name: CCmuxAppFFI.xcframework
           path: assets
 
-      - name: Workflow files changed, so publish by hand
+      # Exactly one of these two runs. The token is for this repository only.
+      - name: Mint release App token
+        id: app-token
+        if: needs.build.outputs.workflow_changed != 'true'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_FFI_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CMUX_FFI_RELEASE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+
+      - name: Mint release App token (workflow files changed)
+        id: app-token-workflows
         if: needs.build.outputs.workflow_changed == 'true'
-        env:
-          TAG: ${{ needs.build.outputs.tag }}
-        shell: bash
-        run: |
-          echo "::error title=Publish by hand::Workflow files changed since the last FFI release, and GITHUB_TOKEN cannot create tag $TAG over them. Publish by hand: $HAND_PUBLISH"
-          exit 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_FFI_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CMUX_FFI_RELEASE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-workflows: write
 
       - name: Create the release (never overwrite)
-        if: needs.build.outputs.workflow_changed != 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || steps.app-token-workflows.outputs.token }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.build.outputs.tag }}
           CHECKSUM: ${{ needs.build.outputs.checksum }}
@@ -358,13 +380,12 @@ jobs:
               assets/CCmuxAppFFI.xcframework.zip.sha256 \
               assets/SHA256SUMS assets/SOURCE_SHA \
               --target "$GITHUB_SHA" --title "$TAG" --notes "$notes" --prerelease --latest=false; then
-            echo "::error title=Publish by hand::GITHUB_TOKEN could not create release $TAG (see the gh error above, for example HTTP 403). Publish by hand: $HAND_PUBLISH"
+            echo "::error title=Publish by hand::the release App token could not create release $TAG (see the gh error above, for example HTTP 403). Publish by hand: $HAND_PUBLISH"
             exit 1
           fi
           echo "release: https://github.com/$GH_REPO/releases/tag/$TAG"
 
       - name: The latest release is not an FFI tag
-        if: needs.build.outputs.workflow_changed != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -379,7 +400,6 @@ jobs:
           fi
 
       - name: Anonymous download matches the checksum
-        if: needs.build.outputs.workflow_changed != 'true'
         env:
           GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.build.outputs.tag }}
@@ -421,3 +441,83 @@ jobs:
             exit 1
           fi
           echo "release $TAG exists with checksum $CHECKSUM"
+
+  repin:
+    name: open the re-pin pull request
+    needs: [build, publish]
+    if: needs.publish.result == 'success' && github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    environment: ffi-release
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    concurrency:
+      group: app-ffi-repin
+      cancel-in-progress: false
+    steps:
+      - name: Mint the release App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_FFI_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CMUX_FFI_RELEASE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+
+      # A separate token, because a mint that asks for a permission the App
+      # lacks fails whole: manaflow-cmux-release had contents, metadata and
+      # workflows only on 2026-10-07. Without it the branch is still pushed
+      # (and CI runs on it) and the job prints the link to open the PR.
+      - name: Mint the release App token for the pull request
+        id: pr-token
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_FFI_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CMUX_FFI_RELEASE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-pull-requests: write
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: feat-cmux-next
+          token: ${{ steps.app-token.outputs.token }}
+          persist-credentials: true
+
+      - name: Pin the new release and open or update the pull request
+        env:
+          GH_TOKEN: ${{ steps.pr-token.outputs.token }}
+          TAG: ${{ needs.build.outputs.tag }}
+          CHECKSUM: ${{ needs.build.outputs.checksum }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch=app-ffi-repin
+          scripts/cmux-next/repin-app-ffi.sh "$GITHUB_SHA" "$CHECKSUM"
+          if git diff --quiet -- Packages/macOS/CmuxNext/Package.swift; then
+            echo "feat-cmux-next already pins $TAG"
+            exit 0
+          fi
+          git config user.name "cmux-release[bot]"
+          git config user.email "cmux-release[bot]@users.noreply.github.com"
+          git checkout -B "$branch"
+          git commit -q -m "cmux-next: pin CCmuxAppFFI to $TAG" -- Packages/macOS/CmuxNext/Package.swift
+          git push --force origin "HEAD:refs/heads/$branch"
+          body="Pins CCmuxAppFFI to [$TAG]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$TAG) (checksum \`$CHECKSUM\`), published by run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID. A newer publish updates this branch.
+
+          ## Changelog
+
+          none"
+          if [[ -z "$GH_TOKEN" ]]; then
+            echo "::warning title=Open the re-pin pull request::the release App has no pull-requests permission; open $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/feat-cmux-next...$branch?expand=1"
+            exit 0
+          fi
+          pr_number="$(gh pr list --head "$branch" --base feat-cmux-next --state open --json number --jq '.[0].number // empty')"
+          if [[ -n "$pr_number" ]]; then
+            gh pr edit "$pr_number" --title "cmux-next: pin CCmuxAppFFI to $TAG" --body "$body"
+            echo "updated the open re-pin pull request #$pr_number"
+          else
+            gh pr create --base feat-cmux-next --head "$branch" --title "cmux-next: pin CCmuxAppFFI to $TAG" --body "$body"
+          fi

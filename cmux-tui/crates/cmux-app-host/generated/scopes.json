@@ -181,9 +181,21 @@
       "scope": "chief:write",
       "class": "mutation"
     },
+    "chief.engine.get": {
+      "scope": "chief:read",
+      "class": "read"
+    },
+    "chief.engine.set": {
+      "scope": "chief:write",
+      "class": "mutation"
+    },
     "chief.list": {
       "scope": "chief:read",
       "class": "read"
+    },
+    "chief.stop": {
+      "scope": "chief:write",
+      "class": "mutation"
     },
     "chief.update": {
       "scope": "chief:write",
@@ -191,6 +203,10 @@
     },
     "clipboard.write": {
       "scope": "clipboard:write",
+      "class": "mutation"
+    },
+    "closed.delete": {
+      "scope": "closed:write",
       "class": "mutation"
     },
     "closed.list": {
@@ -397,6 +413,14 @@
       "scope": "conversation:write",
       "class": "mutation"
     },
+    "conversation.draft": {
+      "scope": "conversation:write",
+      "class": "mutation"
+    },
+    "conversation.get": {
+      "scope": "conversation:read",
+      "class": "read"
+    },
     "conversation.history": {
       "scope": "conversation:read",
       "class": "read"
@@ -409,6 +433,18 @@
       "scope": "conversation:write",
       "class": "mutation"
     },
+    "conversation.list": {
+      "scope": "conversation:read",
+      "class": "read"
+    },
+    "conversation.search": {
+      "scope": "conversation:read",
+      "class": "read"
+    },
+    "conversation.send": {
+      "scope": "conversation:write",
+      "class": "mutation"
+    },
     "conversation.settings.set": {
       "scope": "conversation:write",
       "class": "mutation"
@@ -416,6 +452,10 @@
     "conversation.snapshot": {
       "scope": "conversation:read",
       "class": "read"
+    },
+    "conversation.typing": {
+      "scope": "conversation:write",
+      "class": "mutation"
     },
     "diffs.cycle_variant": {
       "scope": "diffs:write",
@@ -869,6 +909,26 @@
       "scope": "notification:read",
       "class": "read"
     },
+    "palette_usage.forget": {
+      "scope": "palette_usage:write",
+      "class": "mutation"
+    },
+    "palette_usage.get": {
+      "scope": "palette_usage:read",
+      "class": "read"
+    },
+    "palette_usage.hide": {
+      "scope": "palette_usage:write",
+      "class": "mutation"
+    },
+    "palette_usage.import": {
+      "scope": "palette_usage:write",
+      "class": "mutation"
+    },
+    "palette_usage.record": {
+      "scope": "palette_usage:write",
+      "class": "mutation"
+    },
     "pane.create": {
       "scope": "workspace:write",
       "class": "mutation"
@@ -923,6 +983,30 @@
     },
     "participants.add": {
       "scope": "participants:write",
+      "class": "mutation"
+    },
+    "project.add": {
+      "scope": "project:write",
+      "class": "mutation"
+    },
+    "project.list": {
+      "scope": "project:read",
+      "class": "read"
+    },
+    "project.observe": {
+      "scope": "project:write",
+      "class": "mutation"
+    },
+    "project.remove": {
+      "scope": "project:write",
+      "class": "mutation"
+    },
+    "project.sync": {
+      "scope": "project:write",
+      "class": "mutation"
+    },
+    "project.update": {
+      "scope": "project:write",
       "class": "mutation"
     },
     "push.target.register": {
@@ -1028,6 +1112,14 @@
     "room.update": {
       "scope": "room:write",
       "class": "mutation"
+    },
+    "run.get": {
+      "scope": "run:read",
+      "class": "read"
+    },
+    "run.list": {
+      "scope": "run:read",
+      "class": "read"
     },
     "saved_tab_group.delete": {
       "scope": "saved_tab_group:write",
@@ -1677,6 +1769,7 @@
     "cloud.snapshot.create",
     "cloud.snapshot.delete",
     "cloud.snapshot.restore",
+    "conversation.events",
     "domain.release",
     "firewall.delete",
     "frontend_projection.get",
@@ -1708,9 +1801,12 @@
     "stream.cancel",
     "tab.close",
     "tab_group.close",
+    "team.audit.list",
     "team.enrollment_token.revoke",
+    "team.members.remove",
     "team_vm.rebuild",
     "team_vm.retired.delete",
+    "team_vm.retired.export",
     "team_vm.ssh_ca.rotate",
     "team_vm.taint.accept",
     "terminal.close",
@@ -1721,6 +1817,7 @@
     "usage.cap.set",
     "user.ensure",
     "user.presence_key.revoke",
+    "user.teams.list",
     "user.text_confirm.get",
     "user.text_confirm.level.set",
     "user.text_confirm.lower",

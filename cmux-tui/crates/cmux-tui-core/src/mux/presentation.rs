@@ -13,6 +13,7 @@ use crate::workspace_registry::{
     FrontendBrowserRecord, PresentationSnapshot, WorkspaceGroupRecord, WorkspacePresentationUpdate,
     new_workspace_group_id, validate_workspace_group_id,
 };
+use std::ops::Deref;
 
 mod frontend_browser_history;
 
@@ -571,7 +572,7 @@ impl Mux {
             return workspace_mutation_result(&commit);
         }
         let (delta, result) = {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.lock_state_pinned(&registry).unwrap();
             Self::require_workspace_revision(&state, expected_revision)?;
             let old_idx = resolve_workspace_index(&state, workspace, requested_key)?;
             let workspace_id = state.workspaces[old_idx].id;
@@ -717,7 +718,7 @@ impl Mux {
             return workspace_mutation_result(&commit);
         }
         let (delta, result) = {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.lock_state_pinned(&registry).unwrap();
             Self::require_workspace_revision(&state, expected_revision)?;
             let index = resolve_workspace_index(&state, workspace, requested_key)?;
             let workspace_id = state.workspaces[index].id;
@@ -884,6 +885,9 @@ pub struct TabNotificationAck {
     pub cleared: bool,
     /// Retained notifications of the tab's content now acknowledged.
     pub acknowledged: Vec<NotificationPublicId>,
+    /// Unread local feed items of the tab that another owner holds; they
+    /// stay unread here (B5: `feed.moving` or `owner.unreachable`, retryable).
+    pub refused: Vec<cmux_feed_core::FeedError>,
 }
 
 impl Mux {
@@ -911,28 +915,23 @@ impl Mux {
             };
             (terminal, placements)
         };
-        let cleared = match &terminal {
-            Some(terminal) => {
-                self.terminal_notifications.lock().unwrap().remove(terminal).is_some()
-            }
-            None => self.placement_notifications.lock().unwrap().remove(&surface).is_some(),
-        };
-        let acknowledged = self.persist_notification_acks(terminal.as_ref(), surface)?;
-        if cleared {
+        let ack = self.persist_notification_acks(terminal.as_ref(), surface)?;
+        if ack.cleared {
             for placement in placements {
                 self.emit_tab_changed(placement);
             }
         }
-        Ok(TabNotificationAck { cleared, acknowledged })
+        Ok(ack)
     }
 
     /// Durably acknowledge the retained notifications of one terminal, or
-    /// of one non-terminal placement.
+    /// of one non-terminal placement, read the tab's local feed items in the
+    /// same transaction, and clear its unread marker under the feed lock.
     pub(crate) fn persist_notification_acks(
         &self,
         terminal: Option<&TerminalPublicId>,
         surface: SurfaceId,
-    ) -> anyhow::Result<Vec<NotificationPublicId>> {
+    ) -> anyhow::Result<TabNotificationAck> {
         let ids = self
             .notification_ledger
             .lock()
@@ -944,9 +943,6 @@ impl Mux {
             })
             .map(|entry| entry.id.clone())
             .collect::<Vec<_>>();
-        if ids.is_empty() {
-            return Ok(ids);
-        }
         let strings = ids.iter().map(|id| id.as_str().to_string()).collect::<Vec<_>>();
         let subjects = terminal
             .map(|terminal| crate::JournalSubject {
@@ -955,13 +951,11 @@ impl Mux {
             })
             .into_iter()
             .collect();
-        self.workspace_registry.lock().unwrap().ack_notifications_durable(
-            &strings,
-            now_ms(),
-            subjects,
-        )?;
+        let (cleared, acked, refused) =
+            self.ack_notifications_and_feed(&strings, terminal, surface, subjects)?;
         self.publish_journal_event();
-        Ok(ids)
+        let acknowledged = if acked { ids } else { Vec::new() };
+        Ok(TabNotificationAck { cleared, acknowledged, refused })
     }
 
     /// Retained notifications, newest first, with whether each was

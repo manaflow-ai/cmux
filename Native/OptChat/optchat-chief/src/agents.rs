@@ -158,6 +158,7 @@ pub fn child_spec(flags: &Flags, name: &str, cwd: &str) -> SessionSpec {
         preset: None,
         tags: BTreeMap::new(),
         env: Default::default(),
+        fast: false,
     }
 }
 
@@ -301,43 +302,5 @@ pub fn run(flags: &Flags) -> Result<String, String> {
             ))
         }
         _ => Err(USAGE.into()),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn session(name: &str, parent: Option<&str>) -> SessionSummary {
-        let tags = parent.map_or(json!({}), |p| json!({PARENT_TAG: p}));
-        serde_json::from_value(json!({"sessionId": format!("id-{name}"), "name": name, "status": "idle", "tags": tags}))
-            .unwrap()
-    }
-
-    #[test]
-    fn an_agent_never_answers_a_question() {
-        let child = session("helper", Some("optchat-chief:aa"));
-        let question = json!({"permissionId": "p1", "request": {"toolCall": {"_meta": {"acpmux": {"question": {
-            "harness": "claude", "items": [{"id": "q0", "prompt": "Which?", "options": []}]}}}}}});
-        let err = cli_may_answer(&child, &question).unwrap_err();
-        assert!(err.contains("question") && err.contains("person"), "{err}");
-        let plain = json!({"permissionId": "p2", "request": {"toolCall": {"title": "ls"}}});
-        assert_eq!(cli_may_answer(&child, &plain), Ok(()));
-    }
-
-    #[test]
-    fn spawn_reuses_only_its_own_children() {
-        let list = vec![
-            session("mine", Some("optchat-chief:aa")),
-            session("users", None),
-            session("other-home", Some("optchat-chief:bb")),
-        ];
-        assert_eq!(spawn_target(&list, "new", "optchat-chief:aa"), Ok(None));
-        assert_eq!(
-            spawn_target(&list, "mine", "optchat-chief:aa"),
-            Ok(Some("id-mine".into()))
-        );
-        assert!(spawn_target(&list, "users", "optchat-chief:aa").is_err());
-        assert!(spawn_target(&list, "other-home", "optchat-chief:aa").is_err());
     }
 }

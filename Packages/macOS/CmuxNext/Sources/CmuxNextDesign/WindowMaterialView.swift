@@ -3,7 +3,7 @@ public import AppKit
 /// The one material behind a window's content (``WindowMaterial``) and the
 /// one theme tint, as the window root's bottom subview.
 ///
-/// It hosts at most one material view: an `NSGlassEffectView` for
+/// It hosts at most one material view: a Liquid Glass `GlassPanelView` for
 /// ``WindowMaterial/glass(_:)``, and none for ``WindowMaterial/frosted``
 /// or ``WindowMaterial/translucent`` (only the tint; the window's CGS
 /// blur radius frosts what shows through) or ``WindowMaterial/opaque``,
@@ -24,6 +24,11 @@ public final class WindowMaterialView: NSView {
     /// The view drawing ``material``; nil while opaque.
     public private(set) var materialView: NSView?
     private let tintView = NSView()
+    private let inactiveTintView = NSView()
+    private var keyObservers: [NSObjectProtocol] = []
+    /// The window gave up the keyboard. Only then does glass go grey; a window
+    /// that was never key (opening, tests, snapshots) shows the glass alone.
+    private var resignedKey = false
     private let artView = NSView()
     private var loadedSelection: BackdropSelection?
     private var loadedArt: BackdropArt?
@@ -62,6 +67,11 @@ public final class WindowMaterialView: NSView {
         tintView.autoresizingMask = [.width, .height]
         tintView.isHidden = true
         addSubview(tintView)
+        inactiveTintView.wantsLayer = true
+        inactiveTintView.frame = bounds
+        inactiveTintView.autoresizingMask = [.width, .height]
+        inactiveTintView.isHidden = true
+        addSubview(inactiveTintView)
         setAccessibilityElement(false)
     }
 
@@ -80,8 +90,50 @@ public final class WindowMaterialView: NSView {
     /// tint for glass, otherwise the color laid over the desktop; nil while
     /// opaque.
     public var tintColor: CGColor? {
-        if let glass = materialView as? NSGlassEffectView { return glass.tintColor?.cgColor }
+        if let glass = materialView as? GlassPanelView { return glass.tintColor?.cgColor }
         return tintView.isHidden ? nil : tintView.layer?.backgroundColor
+    }
+
+    /// The theme tint laid over glass while the window is not key: Liquid
+    /// Glass drops its `tintColor` then and draws the system's grey, so the
+    /// tint comes back over it, as cmux classic does (dogfood 2026-10-08, C3).
+    var inactiveTintAlpha: CGFloat { inactiveTintView.isHidden ? 0 : inactiveTintView.alphaValue }
+    var inactiveTintColor: CGColor? { inactiveTintView.isHidden ? nil : inactiveTintView.layer?.backgroundColor }
+
+    /// Classic's wash over inactive glass: strong over a dark theme, light
+    /// over a light one, none while the window is key or for other materials.
+    static func inactiveTintAlpha(isGlass: Bool, isKeyWindow: Bool, tint: NSColor) -> CGFloat {
+        guard isGlass, !isKeyWindow else { return 0 }
+        guard let rgb = tint.usingColorSpace(.sRGB) else { return 0.85 }
+        let luminance = 0.2126 * rgb.redComponent + 0.7152 * rgb.greenComponent + 0.0722 * rgb.blueComponent
+        return luminance > 0.5 ? 0.35 : 0.85
+    }
+
+    override public func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        for observer in keyObservers { NotificationCenter.default.removeObserver(observer) }
+        keyObservers = []
+        resignedKey = false
+        guard let window else { return updateInactiveTint() }
+        keyObservers = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification].map { name in
+            NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] note in
+                let resigned = note.name == NSWindow.didResignKeyNotification
+                // main-proof: the observer runs on the main queue (queue: .main)
+                MainActor.assumeIsolated {
+                    self?.resignedKey = resigned
+                    self?.updateInactiveTint()
+                }
+            }
+        }
+        updateInactiveTint()
+    }
+
+    private func updateInactiveTint() {
+        let glass = materialView as? GlassPanelView
+        let alpha = glass?.tintColor.map { Self.inactiveTintAlpha(isGlass: true, isKeyWindow: !resignedKey, tint: $0) } ?? 0
+        inactiveTintView.layer?.backgroundColor = alpha > 0 ? glass?.tintColor?.cgColor : nil
+        inactiveTintView.alphaValue = alpha
+        inactiveTintView.isHidden = alpha == 0
     }
 
     /// Decoration only: clicks reach the views above or the window.
@@ -127,14 +179,16 @@ public final class WindowMaterialView: NSView {
                 addSubview(materialView, positioned: .below, relativeTo: tintView)
             }
         }
-        let alpha = backdrop.tintOpacity * (1 - backdrop.tuning.glassTransparency)
+        // Over art the tuner thins the glass only down to the legible tint.
+        let alpha = max(backdrop.tintOpacity * (1 - backdrop.tuning.glassTransparency), backdrop.legibleTintOpacity)
         let color = tunedTint(tint, tuning: backdrop.tuning).withAlphaComponent(alpha)
-        let glass = materialView as? NSGlassEffectView
+        let glass = materialView as? GlassPanelView
         glass?.tintColor = color
         // Glass tints itself; a tint view over it would dim the desktop twice.
         let shows = material != .opaque && glass == nil
         tintView.isHidden = !shows
         tintView.layer?.backgroundColor = shows ? color.cgColor : nil
+        updateInactiveTint()
     }
 
     private func showArt(_ source: NSImage?, id: String?, texture: BackdropTexture) {
@@ -191,13 +245,11 @@ public final class WindowMaterialView: NSView {
         case .opaque, .translucent, .frosted:
             return nil
         case .glass(let style):
-            let glass = NSGlassEffectView()
-            glass.cornerRadius = 0
+            // WindowBackdrop frosts the window instead where Liquid Glass is missing.
             switch style {
-            case .regular: glass.style = .regular
-            case .clear: glass.style = .clear
+            case .regular: return GlassPanelView(style: .regular)
+            case .clear: return GlassPanelView(style: .clear)
             }
-            return glass
         }
     }
 }

@@ -4,7 +4,7 @@
  *
  * Usage (from web/):
  *   bun ../images/cmux-vm/bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>]
- *       [--update-lock] [--keep-builder] [--promotion] [--agent-tools]
+ *       [--update-lock] [--keep-builder] [--promotion] [--agent-tools] [--team-vm]
  *
  * - L0: refuses a base whose fingerprint (kernel release, sha256 of the sorted
  *   dpkg list) differs from the lock, unless --update-lock rewrites it (a base
@@ -30,6 +30,10 @@
  *   and computer-use units (on demand) and the tool dir acpmux reads, so agent sessions on the
  *   machine get the cmux browser and computer-use tools (agent-tools.ts).
  *
+ * - --team-vm (TEAM_VM_SNAPSHOT images, bead cx-cemg): the team files root /srv/team
+ *   (root:cmux-ssh 2750, teamVmDirsCommand).
+ * - The full daemon handshake (identify.ts) goes into the result as daemonIdentify.
+ *
  * Every VM and snapshot is named cmuxnp-dev-vmimg-<tag> unless --promotion
  * (unused for now) and is recorded in <out-dir>/resources.tsv the moment it
  * exists. The builder is deleted whatever happens.
@@ -53,7 +57,8 @@ import {
   devboxWaitForDaemonCommand,
 } from "../devbox-image-common";
 import { AGENT_TOOLS_PROFILE, agentToolsDaemonEnv, agentToolsFiles, agentToolsLinkCommand, browserRoleBakePhases, daemonEnvLines } from "./agent-tools";
-import { argValue, createVm, deleteVm, firstExec, freestyleClient, hasFlag, Ledger, StepLog, type Vm } from "./guest";
+import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
+import { argValue, createVm, deleteVm, firstExec, freestyleClient, hasFlag, Ledger, run, StepLog, type Vm } from "./guest";
 import { HOST_CLI, HOST_CONFIG_PATH, HOST_UNIT, hostConfig, hostUnit } from "./host-agent";
 import {
   METADATA_GUARD_FILE,
@@ -63,7 +68,7 @@ import {
   metadataGuardRules,
   metadataGuardUnit,
 } from "../../services/vms/images/metadataGuard";
-import { cronAtAllowCommand, cronAtAllowProblems, SSH_SYNC_UNIT, SSHD_DROP_IN, sshdBakeCommand, sshdDropIn, sshdListenProblems, sshdPamProblems, sshdPolicyProblems, splitSshdBakeOutput, sshSyncUnit } from "./sshd";
+import { cronAtAllowCommand, cronAtAllowProblems, SSH_LOGIN_GROUP, SSH_SYNC_UNIT, SSHD_DROP_IN, sshdBakeCommand, sshdDropIn, sshdListenProblems, sshdPamProblems, sshdPolicyProblems, splitSshdBakeOutput, sshSyncUnit } from "./sshd";
 import {
   aptClosureProblems,
   bakedPrograms,
@@ -110,7 +115,28 @@ export type BakeOptions = {
   promotion: boolean;
   /** Bake the agent tools (agent-tools.ts); off by default. */
   agentTools?: boolean;
+  /** Team VM image (TEAM_VM_SNAPSHOT): adds the team files root /srv/team (teamVmDirsCommand). */
+  teamVm?: boolean;
 };
+
+/** The team files root (team-vm-plan.md section 2; backend team-vm-export.ts EXPORT_ROOT). */
+export const TEAM_FILES_ROOT = "/srv/team";
+
+/**
+ * /srv/team, owned root:cmux-ssh, mode 2750 (cx-cemg). Only root writes the root itself: the
+ * team-host reconciler (S4, root) creates the node directories under it with their own
+ * n-<node>-{r,w,a} groups and ACLs. Team accounts and their agent accounts are in cmux-ssh
+ * (team_ssh/accounts.rs LOGIN_GROUP), so they can traverse it; any other local user cannot.
+ * setgid keeps cmux-ssh on entries a tool creates directly under the root.
+ */
+export function teamVmDirsCommand(): string {
+  return [
+    `getent group ${SSH_LOGIN_GROUP} >/dev/null`,
+    `install -d -o root -g ${SSH_LOGIN_GROUP} -m 2750 ${TEAM_FILES_ROOT}`,
+    `test "$(stat -c '%U:%G %a' ${TEAM_FILES_ROOT})" = "root:${SSH_LOGIN_GROUP} 2750"`,
+    `stat -c '%n %U:%G %a' ${TEAM_FILES_ROOT}`,
+  ].join(" && ");
+}
 
 export type BakeResult = Record<string, unknown> & { name: string; snapshotId?: string; error?: string; sbomFile?: string; manifestFile?: string };
 
@@ -214,8 +240,14 @@ function warmBindPathCommand(): string {
   ].join(" && ");
 }
 
+/**
+ * Every baked file is a system file: the provider's file API writes as the work user, so the file is handed
+ * to root right after (a work-user-owned unit or sshd drop-in would let that user change what root runs).
+ */
 async function writeGuestFile(vm: Vm, target: string, bytes: string | Uint8Array, mode: number): Promise<void> {
   await vm.fs.writeFile(target, bytes, { mode });
+  const r = await run(vm, `chown root:root ${sq(target)}`);
+  if (r.code !== 0) throw new Error(`chown root:root ${target}: ${r.stderr.slice(-300)}`);
 }
 
 async function readGuestText(vm: Vm, file: string): Promise<string> {
@@ -340,7 +372,9 @@ async function configureSshd(ctx: Ctx): Promise<void> {
   const cronAt = cronAtAllowProblems(await L.step(vm, "cron-at-allow", cronAtAllowCommand(DEVBOX_WORK_USER)), DEVBOX_WORK_USER);
   if (cronAt.length > 0) throw new Error(`cron/at policy:\n${cronAt.join("\n")}`);
   await writeGuestFile(vm, `/etc/systemd/system/${SSH_SYNC_UNIT}`, sshSyncUnit(), 0o644);
-  await L.step(vm, "team-ssh-sync", `systemctl daemon-reload && systemctl enable --quiet ${SSH_SYNC_UNIT}`);
+  // --now: a clone resumes this running system (no boot), so an enabled-only unit would never run. Until a team
+  // bind it blocks on inotify (no wakeups).
+  await L.step(vm, "team-ssh-sync", `systemctl daemon-reload && systemctl enable --now --quiet ${SSH_SYNC_UNIT} && systemctl is-active ${SSH_SYNC_UNIT}`);
 }
 
 /** The roles file for `cmux host`; baked role packages stay off (no unit, no process), first-use closures stay uninstalled. */
@@ -394,6 +428,9 @@ async function recordDaemonInfo(ctx: Ctx): Promise<void> {
     throw new Error(`daemon.json is not a real identify answer: ${out.trim().slice(0, 300)}`);
   }
   ctx.result.daemonInfo = info;
+  // The full handshake (every capability), recorded so the channel history can name the image's
+  // capability list and image-staleness.ts can compare it with the tip without a VM.
+  ctx.result.daemonIdentify = parseDaemonIdentify(await L.step(vm, "daemon-identify-full", daemonIdentifyCommand()));
   // Coordinator condition for the activity pin: the daemon serves vm-activity-v1 and the agent's
   // own activity stream connects to it. A bake without both fails.
   const probe = await L.step(vm, "daemon-activity-probe", `${HOST_CLI} cloud probe-activity`);
@@ -493,6 +530,7 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
     await configureSystem(ctx);
     await installMetadataGuard(ctx);
     await configureSshd(ctx);
+    if (options.teamVm) ctx.result.teamFilesRoot = (await L.step(ctx.vm, "team-files-root", teamVmDirsCommand())).trim();
     await configureRoles(ctx);
     if (options.agentTools) await installAgentTools(ctx);
     await installHostConfig(ctx);
@@ -521,7 +559,7 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
 
 export function bakeOptionsFromArgv(argv = process.argv): BakeOptions {
   const tag = argValue("--tag", argv);
-  if (!tag) throw new Error("usage: bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>] [--update-lock] [--keep-builder] [--promotion] [--agent-tools]");
+  if (!tag) throw new Error("usage: bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>] [--update-lock] [--keep-builder] [--promotion] [--agent-tools] [--team-vm]");
   if (hasFlag("--agent-tools", argv) && hasFlag("--promotion", argv)) throw new Error("--agent-tools is for dev snapshots only; it cannot be combined with --promotion");
   return {
     tag,
@@ -531,6 +569,7 @@ export function bakeOptionsFromArgv(argv = process.argv): BakeOptions {
     keepBuilder: hasFlag("--keep-builder", argv),
     promotion: hasFlag("--promotion", argv),
     agentTools: hasFlag("--agent-tools", argv),
+    teamVm: hasFlag("--team-vm", argv),
   };
 }
 

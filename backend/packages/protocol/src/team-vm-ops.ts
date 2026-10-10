@@ -61,7 +61,9 @@ export const TeamVmView = Schema.Struct({
   /** Set while the current epoch is tainted by a member removal; null otherwise. */
   taint: Schema.NullOr(TeamVmTaint),
   /** VMs replaced by a rebuild that an owner has not deleted yet. */
-  retired: Schema.Array(TeamVmRetired)
+  retired: Schema.Array(TeamVmRetired),
+  /** The team has no owner (Stack demoted the last one): owner actions wait until a Stack team admin promotes one (cx-3bi.4). */
+  no_owner: Schema.optionalKey(Schema.Boolean)
 }).annotate({ identifier: "TeamVmView" })
 
 export const TeamVmStatusRead = def({
@@ -205,7 +207,7 @@ export const TeamVmRebuild = def({
   params: Schema.Struct({ epoch: Schema.Int }),
   result: Schema.Struct({ retired: Schema.String, epoch: Schema.Int }),
   errors: [...adminErrors],
-  docs: "Replace the team VM (epoch) with a new VM from the base snapshot at the next epoch. The old VM is paused and kept, and its install revoked, until an owner deletes it with team_vm.retired.delete (copy its files off first); members get no team SSH certificate until the provider confirmed the pause. At most 3 replaced VMs are kept. Owners and admins only, in a person's session; audited.",
+  docs: "Replace the team VM (epoch) with a new VM from the base snapshot at the next epoch. The old VM is paused and kept, and its install revoked, until an owner deletes it with team_vm.retired.delete (download its files first with team_vm.retired.export); members get no team SSH certificate until the provider confirmed the pause. At most 3 replaced VMs are kept. Owners and admins only, in a person's session; audited.",
   cli: { path: "team vm rebuild", visible: true },
   mcp: { expose: "never", group: "team" }
 })
@@ -217,15 +219,47 @@ export const TeamVmRetiredDelete = def({
   risk: "destructive",
   target: "team",
   principals: ["session"],
-  params: Schema.Struct({ vm: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(128)) }),
+  params: Schema.Struct({
+    vm: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(128)),
+    /** The owner or admin attests that the team files (/srv/team) were copied off the paused VM; a rebuild does not carry them (cx-zr9i). */
+    files_copied: Schema.Literal(true)
+  }),
   result: Schema.Struct({ vm: Schema.String, deleted: Schema.Boolean }),
-  errors: [...adminErrors],
-  docs: "Delete a VM that a rebuild replaced (team_vm.status `retired`), by its exact id. Its files are gone for good. Owners and admins only, in a person's session; audited.",
+  errors: [...adminErrors, "team_vm.retired_files_unconfirmed"],
+  docs: "Delete a VM that a rebuild replaced (team_vm.status `retired`), by its exact id. Its files are gone for good: a rebuild does not carry /srv/team, so the caller sets files_copied: true to attest the files were copied off the paused VM; without it the op answers team_vm.retired_files_unconfirmed and changes nothing. Owners and admins only, in a person's session; audited.",
   cli: { path: "team vm retired delete", visible: true },
   mcp: { expose: "never", group: "team" }
 })
 
-export const teamVmAdminOps = [TeamVmTaintAccept, TeamVmRebuild, TeamVmRetiredDelete] as const satisfies readonly CloudOpDef[]
+export const TeamVmRetiredExport = def({
+  name: "team_vm.retired.export",
+  owner: "cloud:TeamDO",
+  class: "mutation",
+  risk: "mutate-shared",
+  target: "team",
+  principals: ["session"],
+  params: Schema.Struct({ vm: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(128)) }),
+  result: Schema.Struct({
+    vm: Schema.String,
+    /** GET this path on the API origin within 5 minutes, once, for the tar (no bearer). */
+    path: Schema.String,
+    expires_at: Schema.Int,
+    files: Schema.Int,
+    /** Bytes of file data; the limit is 2 GiB. */
+    bytes: Schema.Int,
+    /** The exact length of the tar download. */
+    archive_bytes: Schema.Int,
+    /** Entries not in the archive (symlinks, special files, unsafe names): the first 50 paths, relative to /srv/team. */
+    skipped: Schema.Array(Schema.String),
+    skipped_count: Schema.Int
+  }),
+  errors: [...adminErrors, "team_vm.retired_not_fenced", "team_vm.export_too_large", "team_vm.export_no_files", "team_vm.export_timeout", "team_vm.provider_failed", "team_vm.provider_refused", "team_vm.vm_missing"],
+  docs: "Download the team files (/srv/team) of a VM that a rebuild replaced (team_vm.status `retired`) as one tar, without starting it: only a paused retired VM whose run budget is spent (fenced) is read, through the provider's file API. Answers a single-use download path valid for 5 minutes; refuses more than 2 GiB of files or 5000 entries (team_vm.export_too_large) and a VM not fenced yet (team_vm.retired_not_fenced). Symlinks and special files are skipped and listed. Owners and admins only, in a person's session; audited.",
+  cli: { path: "team vm retired export", visible: true },
+  mcp: { expose: "never", group: "team" }
+})
+
+export const teamVmAdminOps = [TeamVmTaintAccept, TeamVmRebuild, TeamVmRetiredDelete, TeamVmRetiredExport] as const satisfies readonly CloudOpDef[]
 
 export const teamVmOps = [TeamVmStatusRead, TeamVmEnsureAwake, TeamVmLeaseRelease, TeamVmJournalAppend, TeamVmJournalHighWater, TeamVmJournalRead, ...teamVmAdminOps] as const satisfies readonly CloudOpDef[]
 
@@ -255,8 +289,8 @@ export const TeamVmMemberRemovedParams = Schema.Struct({
   user: Schema.String,
   /** The removal time. */
   at: Schema.Int,
-  /** The latest `valid_before` of any team SSH certificate the member got (ms). */
-  cert_valid_before: Schema.Int
+  /** The latest `valid_before` of any team SSH certificate the member got (ms); absent when they never had one (the notice then only ends their wake leases). */
+  cert_valid_before: Schema.optionalKey(Schema.Int)
 })
 export const TeamVmTaintAcceptedParams = Schema.Struct({ epoch: Schema.Int, users: Schema.Array(Schema.String), by: Schema.String })
 export const TeamVmRebuildRequestedParams = Schema.Struct({ epoch: Schema.Int, by: Schema.String })

@@ -37,7 +37,7 @@ final class ControlSnapshotPublisher {
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification, NSWindow.willCloseNotification,
                      NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.invalidate() }
+                MainActor.assumeIsolated { self?.invalidate() } // main-proof: observer on queue: .main
             })
         }
         publishNow()
@@ -83,7 +83,6 @@ final class ControlSnapshotPublisher {
             snapshot.settings = settings
             snapshot.tabSearch = tabSearch
         }
-        services.apps.topologyPublished(topology)
         let elapsed = ContinuousClock.now - started
         if elapsed > .milliseconds(2) {
             logger.debug("control snapshot took \(elapsed.components.attoseconds / 1_000_000_000_000_000) ms for \(topology.tabCount) tabs")
