@@ -140,7 +140,8 @@ def main():
     sx, sy = center(strip["tabs"][1]["frame"])
     ex, ey = edge_point(strip)
     mouse(action="drag", x=sx, y=sy, to_x=ex, to_y=ey, steps=12, release=False)
-    early = winner()
+    # The posted events reach the drag shortly after debug.mouse answers: the first preview.
+    early = str(wait(lambda: (lambda w: w if w != "None" else None)(winner()), 2, step=0.02))
     time.sleep(DWELL + 0.5)  # test harness: rest past the dwell
     late = winner()
     print("release:", mouse(action="drag", x=ex, y=ey, to_x=ex, to_y=ey, steps=1, press=False), flush=True)
