@@ -130,7 +130,7 @@ final class SidebarToggleSlideSession {
             layer.removeAnimation(forKey: animationKey)
             layer.mask = nil
         }
-        glides.forEach { $0.layer.removeAnimation(forKey: animationKey) }
+        glides.forEach { $0.layer.removeAnimation(forKey: $0.animationKey(animationKey)) }
         paneGlide?.tearDown(animationKey: animationKey)
         clipped.forEach { $0.mask = nil }
         tabRowOverlay?.removeFromSuperview()

@@ -29,6 +29,11 @@ enum SidebarSlideGlide {
         let keyPath: String
         let factor: Double
         var base: Double = 0
+
+        /// One key per animated property: a layer can carry more than one
+        /// glide (a divider strip moves and widens), and a shared key would
+        /// let the last one added replace the others.
+        func animationKey(_ slideKey: String) -> String { slideKey + "." + keyPath }
     }
 }
 

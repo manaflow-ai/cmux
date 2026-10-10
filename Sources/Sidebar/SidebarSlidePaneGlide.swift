@@ -136,6 +136,12 @@ final class SidebarSlidePaneGlide {
             view.effectiveAppearance.performAsCurrentDrawingAppearance { color = view.dividerColor.cgColor }
             let strip = CALayer()
             strip.backgroundColor = color
+#if DEBUG
+            if ProcessInfo.processInfo.environment["CMUX_SIDEBAR_SLIDE_STRIP_DEBUG"] != nil {
+                strip.backgroundColor = NSColor.systemRed.cgColor
+                SidebarNavigationTimings.record("slide.strip vertical=\(split.isVertical) hidden=\(split.rect) docked=\(dockedSplit.rect) gap=\(Self.divider(split))")
+            }
+#endif
             let gap = Self.divider(split)
             addLayer(strip, at: gap)
             if split.isVertical {
@@ -375,7 +381,7 @@ final class SidebarSlidePaneGlide {
 
     func tearDown(animationKey: String) {
         holdTabBars(false)
-        animations.forEach { $0.layer.removeAnimation(forKey: animationKey) }
+        animations.forEach { $0.layer.removeAnimation(forKey: $0.animationKey(animationKey)) }
         masked.forEach { $0.mask = nil }
         hidden.forEach { $0.layer.mask = $0.mask }
         pictures.forEach { $0.removeFromSuperlayer() }

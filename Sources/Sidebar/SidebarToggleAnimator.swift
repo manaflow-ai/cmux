@@ -317,7 +317,7 @@ final class SidebarToggleAnimator: ObservableObject {
         // content root's motion, by the same spring scaled (`SidebarSlideGlide`).
         for glide in session.glides {
             let animation = slideSpring(from: glide.base + slide.from * glide.factor, to: glide.base + slide.to * glide.factor, velocity: velocity, duration: slide.duration, keyPath: glide.keyPath)
-            glide.layer.add(animation, forKey: Self.animationKey)
+            glide.layer.add(animation, forKey: glide.animationKey(Self.animationKey))
         }
     }
 
