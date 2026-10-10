@@ -210,12 +210,15 @@ extension BrowserPanel {
             .usesSSHTui ?? false
     }
 
-    /// Whether `url` loads from this Mac while a remote workspace has no proxy.
-    /// Managed SSH loads public and private-network pages locally. Its loopback
-    /// URLs wait for the owning machine's forward, so they never reach a
-    /// same-port service on this Mac.
-    static func loadsWithoutRemoteWorkspaceProxy(_ url: URL, routesThroughSSHTui: Bool) -> Bool {
-        routesThroughSSHTui && !PrivateNetworkHostPolicy().isLoopback(host: url.host ?? "")
+    /// The SSH service a loopback URL in a managed SSH workspace names, or `nil`
+    /// when the URL loads from this Mac as is: a non-loopback page, or this
+    /// pane's own forward listener. A listener URL copied from another pane
+    /// maps back to the service it forwards.
+    func sshLoopbackServiceURL(for url: URL) -> URL? {
+        guard PrivateNetworkHostPolicy().isLoopback(host: url.host ?? "") else { return nil }
+        if let listener = cloudAccess.model?.localAddress, url.host == "127.0.0.1",
+           url.port.map({ "127.0.0.1:\($0)" }) == listener { return nil }
+        return privateAddressRouteProvider(for: url)?.sshServiceURL(forForwardListener: url) ?? url
     }
 
     /// The machine this browser belongs to: its current cloud route, or the
