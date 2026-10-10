@@ -13,6 +13,9 @@ name: cmux-next base autofix
 # (their fix edits cmux-tui-artifacts.yml); the app FFI pin stays with
 # app-ffi-release.yml's app-ffi-repin pull request. The action contracts need a
 # Mac swift test and are frozen, so pull requests keep carrying them.
+# A separate job pins scripts/ghosttykit-checksums.txt when the ghostty
+# gitlink moves, from our own published GhosttyKit release (waiting for
+# build-ghosttykit.yml when there is none yet).
 #
 # Its own push trigger: feat-cmux-next push CI is the Swift app build only
 # (cx-g34i), so cmux-next's push run no longer regenerates anything, and its
@@ -41,17 +44,23 @@ on:
       - scripts/ci/check_cmux_tui_tree_inputs.py
       - scripts/cmux-next/cmux-tui-tree-inputs.txt
       - .github/workflows/cmux-next-base-autofix.yml
+      # The GhosttyKit checksum pin (ghosttykit-checksum below).
+      - ghostty
+      - scripts/ghosttykit-checksums.txt
+      - scripts/cmux-next/ghosttykit-checksum.sh
+      - scripts/download-prebuilt-ghosttykit.sh
 
 permissions: {}
-
-concurrency:
-  group: cmux-next-base-autofix
-  cancel-in-progress: true
 
 jobs:
   autofix:
     name: autofix feat-cmux-next
     if: github.repository == 'manaflow-ai/cmux'
+    # A newer push supersedes this run's repairs (the next run diffs from the
+    # last successful one).
+    concurrency:
+      group: cmux-next-base-autofix
+      cancel-in-progress: true
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
     timeout-minutes: 20
     permissions:
@@ -173,3 +182,109 @@ jobs:
             exit 1
           fi
           echo "Pushed $(git rev-parse --short HEAD) to feat-cmux-next." | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # When the ghostty gitlink moves, pins its GhosttyKit checksum
+  # (scripts/ghosttykit-checksums.txt) from our own published release only
+  # (scripts/cmux-next/ghosttykit-checksum.sh), never from a local build. With no
+  # release yet for that commit it dispatches build-ghosttykit.yml on
+  # feat-cmux-next and waits for the publish. Its own concurrency group never
+  # cancels a wait in progress; a queued run is replaced by the newest push.
+  ghosttykit-checksum:
+    name: pin the GhosttyKit checksum
+    if: github.repository == 'manaflow-ai/cmux'
+    concurrency:
+      group: cmux-next-ghosttykit-checksum
+      cancel-in-progress: false
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
+    timeout-minutes: 100
+    permissions:
+      actions: write # dispatch build-ghosttykit.yml and read its runs
+      contents: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Wait for the GhosttyKit release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Look the release up without writing; the push step pins it.
+          check() { scripts/cmux-next/ghosttykit-checksum.sh "$GITHUB_WORKSPACE" > "$RUNNER_TEMP/pin.txt"; }
+          rc=0; check || rc=$?
+          git checkout --quiet -- scripts/ghosttykit-checksums.txt
+          cat "$RUNNER_TEMP/pin.txt"
+          case "$rc" in
+            0) grep -q '^ok:' "$RUNNER_TEMP/pin.txt" && { echo "pin=false" >> "$GITHUB_OUTPUT"; exit 0; }
+               echo "pin=true" >> "$GITHUB_OUTPUT"; exit 0 ;;
+            3) ;;
+            *) exit "$rc" ;;
+          esac
+          active="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow build-ghosttykit.yml --branch feat-cmux-next \
+            --json status --jq '[.[] | select(.status != "completed")] | length')"
+          if [[ "$active" == 0 ]]; then
+            gh workflow run build-ghosttykit.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next
+            echo "Dispatched build-ghosttykit.yml on feat-cmux-next." | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "A build-ghosttykit.yml run on feat-cmux-next is already active; waiting for it." | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+          for _ in $(seq 1 45); do
+            sleep 120
+            rc=0; check || rc=$?
+            git checkout --quiet -- scripts/ghosttykit-checksums.txt
+            case "$rc" in
+              0) cat "$RUNNER_TEMP/pin.txt"; echo "pin=true" >> "$GITHUB_OUTPUT"; exit 0 ;;
+              3) ;;
+              *) cat "$RUNNER_TEMP/pin.txt"; exit "$rc" ;;
+            esac
+          done
+          echo "::error::no GhosttyKit release for this ghostty commit after 90 minutes; see build-ghosttykit.yml"
+          exit 1
+
+      - name: Pin and push the checksum
+        if: steps.release.outputs.pin == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TOKEN: ${{ github.token }}
+          ENABLED: ${{ vars.CMUX_NEXT_BASE_AUTOFIX == '1' }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          auth="$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)"
+          echo "::add-mask::$auth"
+          remote="https://github.com/$GITHUB_REPOSITORY.git"
+          with_auth=(env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth")
+          # The line only appends, so a moved feat-cmux-next is re-read and the
+          # pin re-applied on top of it.
+          for attempt in 1 2 3 4 5; do
+            git fetch --quiet --depth=1 origin feat-cmux-next
+            git reset --quiet --hard FETCH_HEAD
+            rc=0; out="$(scripts/cmux-next/ghosttykit-checksum.sh "$GITHUB_WORKSPACE")" || rc=$?
+            if [[ "$rc" == 3 ]]; then
+              echo "feat-cmux-next now points ghostty elsewhere, with no release yet; that push's run pins it." | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            (( rc == 0 )) || { echo "$out"; exit "$rc"; }
+            echo "$out"
+            if [[ "$out" == ok:* ]]; then
+              echo "Already pinned on feat-cmux-next $(git rev-parse --short HEAD)." | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            git commit --quiet -am "chore(next): pin GhosttyKit for ghostty $(git ls-tree HEAD ghostty | awk '{print substr($3, 1, 12)}')" \
+              -m "${out#fixed: }" -m "scripts/cmux-next/ghosttykit-checksum.sh: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            git show --stat --oneline HEAD | sed -n '1,10p' >> "$GITHUB_STEP_SUMMARY"
+            if [[ "$ENABLED" != true ]]; then
+              echo "Dry run (CMUX_NEXT_BASE_AUTOFIX is not 1): would push $(git rev-parse --short HEAD) to feat-cmux-next." | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            if "${with_auth[@]}" git push --quiet "$remote" HEAD:refs/heads/feat-cmux-next; then
+              echo "Pushed $(git rev-parse --short HEAD) to feat-cmux-next." | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            echo "feat-cmux-next moved (attempt $attempt); re-applying on the new tip."
+          done
+          echo "::error::feat-cmux-next kept moving; the next run pins it."
+          exit 1
