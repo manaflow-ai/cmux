@@ -39,6 +39,8 @@ parser.add_argument("--keep", action="store_true")
 parser.add_argument("--cloud", action="store_true", help="also prove a server brain's subagent (staging pairing, cleaned up)")
 parser.add_argument("--creds", default="", help="the cloud flow signs the app in with this credentials file (never read here)")
 parser.add_argument("--account", default="lawrence@manaflow.ai")
+parser.add_argument("--no-home-workarounds", action="store_true",
+                    help="no Home cache removal and no resend after 90 s: a lost first send fails its row (cx-ebm.55 fix)")
 parser.add_argument("--cli-first", action="store_true",
                     help="before the app: `cmux chief -p` (no app) spawns a subagent; the app must then show its live chat")
 opts = parser.parse_args()
@@ -312,8 +314,10 @@ def ask(text, wait_reply=True):
     def logged():
         return next((i + 1 for i, m in enumerate(log_items()) if i >= before and m["kind"] == "user"
                      and text[:40] in m["text"]), None)
-    found = wait(logged, 90)
-    if found is None:
+    found = wait(logged, opts.turn_timeout if opts.no_home_workarounds else 90)
+    if found is None and opts.no_home_workarounds:
+        print(f"home send lost: {text[:60]!r} not logged ({json.dumps(rpc('debug.home') or {})[:400]})", flush=True)
+    elif found is None:
         # A send before Home's owner connection took it stays a draft: show Home and send again.
         print(f"ask: not logged after 90 s ({json.dumps(rpc('debug.home') or {})[:300]}); sending again", flush=True)
         show_home()
@@ -695,6 +699,70 @@ def subagent_mentions_are_links():
         f"pane session {state.get('sessionId')} (want {session})",
         bool(session) and (clicked.get("url") or "").endswith(f"/session/{session}")
         and state.get("sessionId") == session and "mention-two" in pane_text(state))
+    show_home()
+
+
+def pane_grid(pane):
+    """The terminal pane's viewport text and grid (`debug.surfaces`): cell size and grid origin in
+    window points from the top-left, as `debug.mouse` takes them."""
+    report = rpc("debug.surfaces", {"text": True}) or {}
+    for window in report.get("windows", []):
+        for p in window.get("panes", []):
+            if p.get("pane") == pane:
+                return p.get("text") or "", p.get("grid")
+    return "", None
+
+
+@flow
+def cli_osc8_link_opens_the_subagent():
+    """Lawrence 2026-10-10: a Cmd-click on a subagent's name in any terminal opens it. `cmux chief
+    -p` in a cmux terminal spawns a subagent and prints its name as an OSC 8 hyperlink; a REAL
+    Cmd-click (`debug.mouse`) on that cell goes through Ghostty's own hyperlink hit path and the
+    app's link.open, and shows the subagent's workspace and chat."""
+    os.makedirs(WORK, exist_ok=True)
+    rpc("action.run", {"action": "newWorkspace"})
+    term = wait(lambda: next((p for w in (rpc("debug.surfaces") or {}).get("windows", []) for p in w.get("panes", [])
+                              if p.get("kind") == "terminal" and p.get("focused") and p.get("selected_tab")), None), 60)
+    if not term:
+        row("terminal OSC 8 link opens the subagent", "a focused terminal", "none", False)
+        return
+    prompt = (f"Use spawn to start exactly one subagent with cwd {WORK} whose task is: reply with only the word "
+              "osc8-probe. Then name it in one short sentence.")
+    command = f"CMUX_NEXT_CHIEF_ISOLATED=1 CMUX_TAG={TAG} {CLI!r} chief -p {json.dumps(prompt)}\r"
+    sent = rpc("action.run", {"action": "terminal.sendText", "target": f"tab:{term['selected_tab']}", "args": {"text": command}})
+    print("send-text:", json.dumps(sent)[:200], flush=True)
+    sub = wait(lambda: next((i for i, v in subs().items() if v.get("session_id") and "osc8-probe" in (v.get("title") or "")), None), 300)
+    session = (subs().get(sub) or {}).get("session_id")
+    # The reply printed: the id's label in the viewport, after the command line.
+    def label_cell():
+        text, grid = pane_grid(term["pane"])
+        lines = text.split("\n")
+        for r in range(len(lines) - 1, -1, -1):
+            m = re.search(rf"(?<![\w/]){sub}(?!\w)", lines[r]) if sub else None
+            if m and "chief -p" not in lines[r] and grid:
+                return r, m.start(), grid, text
+        return None
+    found = wait(label_cell, 300)
+    snapshot("osc8-terminal")
+    if not (session and found):
+        row("terminal OSC 8 link opens the subagent", "the reply names the subagent in the terminal",
+            f"sub {sub}; session {session}; grid {pane_grid(term['pane'])[1]}", False)
+        return
+    r, c, grid, text = found
+    x = grid["origin_x"] + (c + 0.5) * grid["cell_width"]
+    y = grid["origin_y"] + (r + 0.5) * grid["cell_height"]
+    clicked = rpc("debug.mouse", {"window": grid["window"], "x": x, "y": y, "action": "click", "modifiers": ["cmd"]})
+    print("cmd-click:", json.dumps(clicked)[:200], f"cell r{r} c{c}", flush=True)
+    state = wait(lambda: (lambda st: st if st.get("sessionId") == session else None)(
+        rpc("debug.agent_pane", {"action": "chat_state"}) or {}), 30) or rpc("debug.agent_pane", {"action": "chat_state"}) or {}
+    topo = (rpc("snapshot.get") or {}).get("topology") or {}
+    time.sleep(3)  # test harness: let the agent pane render its transcript
+    snapshot("osc8-opened")
+    json.dump({"sub": sub, "session": session, "cell": [r, c], "grid": grid, "click": clicked, "chat_state": state,
+               "topology": topo, "viewport": text}, open(os.path.join(opts.out, "osc8-proof.json"), "w"), indent=1)
+    row("terminal OSC 8 link opens the subagent", "a Cmd-click on the subagent's name in the terminal shows its chat",
+        f"sub {sub} at r{r} c{c}; pane session {state.get('sessionId')} (want {session}); task in pane={'osc8-probe' in pane_text(state)}",
+        state.get("sessionId") == session and "osc8-probe" in pane_text(state))
     show_home()
 
 
@@ -1108,7 +1176,7 @@ def main():
     # an earlier run's conversation: the run deletes the home, the new host makes a new
     # conversation, and Home sent to the old one (no turn ever came; cx-ebm.55).
     cache = os.path.expanduser(f"~/Library/Caches/cmux-home/cmux-chief-{HOME_ID}")
-    if os.path.isdir(cache):
+    if os.path.isdir(cache) and not opts.no_home_workarounds:
         print(f"removing the stale Home cache {cache}", flush=True)
         shutil.rmtree(cache)
     os.makedirs(WORK, exist_ok=True)
