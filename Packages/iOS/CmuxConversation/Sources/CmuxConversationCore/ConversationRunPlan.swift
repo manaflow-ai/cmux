@@ -92,6 +92,10 @@ public struct ConversationRunPlan: Sendable, Equatable {
         // An unsent message or a group status row renders as a centered
         // notice, which ends the run above it (that bubble regains its tail)
         // and starts a new one below (sender name and all).
+        // A tapback makes its message a run of its own in Messages (iOS 26.5
+        // and 27.0): the bubble above regains its tail, the reacted bubble
+        // keeps one, and the next starts a new run 10 pt down.
         !a.isUnsent && !b.isUnsent && !a.isSystemEvent && !b.isSystemEvent && a.senderID == b.senderID && b.sentAt.timeIntervalSince(a.sentAt) < runGap && b.replyToID == nil
+            && a.reactions.isEmpty && b.reactions.isEmpty
     }
 }

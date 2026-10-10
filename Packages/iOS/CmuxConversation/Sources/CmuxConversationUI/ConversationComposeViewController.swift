@@ -92,23 +92,25 @@ public final class ConversationComposeViewController: UIViewController {
 
         for label in [serviceTitle, serviceSubtitle] {
             label.textAlignment = .center
-            label.textColor = ConversationTheme.secondaryText
+            // Messages draws the service line in the system secondary label
+            // (60,60,67 / 235,235,245 at 60%), like the transcript header.
+            label.textColor = ConversationTheme.timestampText
             label.translatesAutoresizingMaskIntoConstraints = false
             label.isHidden = true
             view.addSubview(label)
         }
-        serviceTitle.font = .systemFont(ofSize: 11, weight: .semibold)
+        serviceTitle.font = .systemFont(ofSize: 11, weight: .medium)
         serviceTitle.accessibilityIdentifier = "conversation.compose.service"
         serviceSubtitle.isAccessibilityElement = false
         let lockImage = UIImage(systemName: "lock.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 8, weight: .semibold))!
-            .withTintColor(ConversationTheme.secondaryText, renderingMode: .alwaysOriginal)
+            .withTintColor(ConversationTheme.timestampText, renderingMode: .alwaysOriginal)
         let lock = NSTextAttachment(image: lockImage)
         // Measured: a ~7 x 9 pt lock sitting on the baseline.
         lock.bounds = CGRect(x: 0, y: -0.5, width: 7, height: 9)
         let encrypted = NSMutableAttributedString(attachment: lock)
         encrypted.append(NSAttributedString(
             string: " " + String(localized: "conversation.start.encrypted", defaultValue: "Encrypted", bundle: .module),
-            attributes: [.font: UIFont.systemFont(ofSize: 11), .foregroundColor: ConversationTheme.secondaryText]
+            attributes: [.font: UIFont.systemFont(ofSize: 11), .foregroundColor: ConversationTheme.timestampText]
         ))
         serviceSubtitle.attributedText = encrypted
 

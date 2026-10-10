@@ -146,9 +146,8 @@ enum ConversationTheme {
     /// A timestamp separates messages this far apart.
     static let timestampGap: TimeInterval = 60 * 60
     static let reactionBadgeSize: CGFloat = 32
-    /// A row grows this much when its first tapback lands (measured on iOS
-    /// 26 Messages); the badge sits in that space above the bubble.
-    static let reactionRowGrowth: CGFloat = 33
+    /// A reacted bubble sits this much lower (ConversationTapbackGeometry.rowGrowth).
+    static let reactionRowGrowth: CGFloat = ConversationTapbackGeometry.rowGrowth
     /// A lone emoji shows at 72 pt, two or three at 48 pt.
     static let singleEmojiFontSize: CGFloat = 72
     static let emojiOnlyFontSize: CGFloat = 48
@@ -321,12 +320,11 @@ enum ConversationTheme {
     static let background = UIColor.systemBackground
     static let secondaryText = UIColor { traits in
         if traits.isOverConversationBackdrop { return backdropCaption(traits) }
-        // Increase Contrast: Messages' captions use the system's high-contrast
-        // secondary label (99,99,105 on white, measured).
-        if traits.accessibilityContrast == .high { return UIColor.secondaryLabel.resolvedColor(with: traits) }
-        return traits.userInterfaceStyle == .dark
-            ? UIColor(red: 133 / 255, green: 132 / 255, blue: 136 / 255, alpha: 1)
-            : UIColor(red: 124 / 255, green: 124 / 255, blue: 128 / 255, alpha: 1)
+        // Every transcript caption attribute set in ChatKit (status, notices,
+        // availability, translation; iOS 26.5 and 27.0) uses the system
+        // secondary label: 60,60,67 / 235,235,245 at 60%, and its
+        // high-contrast variant with Increase Contrast.
+        return UIColor.secondaryLabel.resolvedColor(with: traits)
     }
     static let tertiaryText = UIColor.tertiaryLabel
     static let notDelivered = UIColor.systemRed
@@ -340,12 +338,6 @@ enum ConversationTheme {
         traits.userInterfaceStyle == .dark
             ? UIColor(white: 1, alpha: 0.30)
             : UIColor(white: 0, alpha: 0.22)
-    }
-
-    static let badgeFill = UIColor { traits in
-        traits.userInterfaceStyle == .dark
-            ? UIColor(red: 34 / 255, green: 33 / 255, blue: 30 / 255, alpha: 1)
-            : UIColor(red: 0.90, green: 0.90, blue: 0.92, alpha: 1)
     }
 
     /// Body paragraph with the measured 24 pt pitch, glyphs vertically centered in the line.

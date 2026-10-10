@@ -1,5 +1,7 @@
 #if canImport(UIKit)
 import CmuxConversationCore
+import CmuxConversationGeometry
+import CoreImage
 import UIKit
 
 /// Contact avatar: monogram on the Contacts periwinkle gradient, or the participant tint.
@@ -101,8 +103,14 @@ final class ConversationMonogramLayer: CALayer {
     }
 }
 
-/// How a tapback glyph draws: iOS 18+ renders the classic tapbacks as color
-/// emoji, with HA HA, !! and ? as tinted lettering.
+/// How a tapback glyph draws. Messages uses ChatKit's own artwork, the last
+/// frame of each tapback's animation in its asset catalog (`heart_108`,
+/// `thumbsup_073`, `thumbsdown_069`, `haha-ENG_114`, `exclamation_103`,
+/// `question_080`; the same names on iOS 26.5 and 27.0), drawn at 32 pt.
+/// The images are read by name from the system ChatKit bundle with public
+/// API only, as the + menu reads its art; when that bundle or image is
+/// missing, color emoji and tinted lettering stand in.
+@MainActor
 enum TapbackGlyph {
     static func emoji(for reaction: ConversationReaction) -> String? {
         switch reaction {
@@ -115,6 +123,99 @@ enum TapbackGlyph {
         }
     }
 
+    private static let chatKit: Bundle? = {
+        var path = "/System/Library/PrivateFrameworks/ChatKit.framework"
+        #if targetEnvironment(simulator)
+        if let root = ProcessInfo.processInfo.environment["IPHONE_SIMULATOR_ROOT"] { path = root + path }
+        #endif
+        return Bundle(path: path)
+    }()
+
+    /// ChatKit's HA HA comes per script; Japanese gets its own, others English.
+    private static var hahaVariant: String {
+        let language = Locale.preferredLanguages.first.map { Locale(identifier: $0).language.languageCode?.identifier ?? "" } ?? ""
+        switch language {
+        case "ja": return "JPN"
+        case "ar": return "ARA"
+        case "zh": return "CHN"
+        case "ru", "uk", "be", "bg", "sr", "kk": return "CYR"
+        case "es": return "ESP"
+        case "he": return "HEB"
+        case "hi": return "HIN"
+        case "it": return "ITA"
+        case "ko": return "KOR"
+        case "th": return "THA"
+        default: return "ENG"
+        }
+    }
+
+    static func chatKitImageName(for reaction: ConversationReaction) -> String? {
+        switch reaction {
+        case .heart: return "heart_108"
+        case .thumbsup: return "thumbsup_073"
+        case .thumbsdown: return "thumbsdown_069"
+        case .haha: return "haha-\(hahaVariant)_114"
+        case .exclamation: return "exclamation_103"
+        case .question: return "question_080"
+        case .emoji: return nil
+        }
+    }
+
+    static func chatKitImage(for reaction: ConversationReaction) -> UIImage? {
+        guard let chatKit, let name = chatKitImageName(for: reaction) else { return nil }
+        return UIImage(named: name, in: chatKit, compatibleWith: nil)
+    }
+
+    /// A transcript badge's glyph: ChatKit's art, or the drawn fallback. On
+    /// my own tapback (the blue platter) Messages recolors the art with a
+    /// color matrix on the image view (`CKTapbackClassicView`, selected):
+    /// the heart a touch brighter, the others to a white-to-blue ramp of
+    /// their luminance. The matrices are ChatKit's, read from the layer.
+    static func badgeView(for reaction: ConversationReaction, size: CGFloat, selected: Bool = false) -> UIView {
+        if let image = chatKitImage(for: reaction) {
+            let view = UIImageView(image: selected ? (selectedImage(for: reaction, base: image) ?? image) : image)
+            view.contentMode = .scaleAspectFit
+            return view
+        }
+        return view(for: reaction, size: size)
+    }
+
+    /// CAFilter `colorMatrix` rows (r, g, b, a, bias) on a selected tapback,
+    /// iOS 27.0 Messages.
+    static func selectedMatrix(for reaction: ConversationReaction) -> [CGFloat]? {
+        switch reaction {
+        case .heart: return [0.988, 0, 0, 0, 0.089, 0, 0.988, 0, 0, 0.089, 0, 0, 0.988, 0, 0.089, 0, 0, 0, 1, 0]
+        case .thumbsup: return [0.482, 1.621, 0.164, 0, -0.881, 0.244, 0.822, 0.083, 0, 0.046, 0.120, 0.405, 0.041, 0, 0.530, 0, 0, 0, 1, 0]
+        case .thumbsdown: return [0.481, 1.618, 0.163, 0, -0.724, 0.240, 0.808, 0.082, 0, 0.142, 0.117, 0.393, 0.040, 0, 0.585, 0, 0, 0, 1, 0]
+        case .haha: return [0.205, 0.690, 0.070, 0, 0.197, 0.115, 0.386, 0.039, 0, 0.595, 0, 0, 0, 0, 1.095, 0, 0, 0, 1, 0]
+        case .exclamation: return [0.216, 0.726, 0.073, 0, 0.205, 0.120, 0.404, 0.041, 0, 0.595, 0, 0, 0, 0, 1.080, 0, 0, 0, 1, 0]
+        case .question: return [0.216, 0.726, 0.073, 0, 0.216, 0.120, 0.404, 0.041, 0, 0.599, 0, 0, 0, 0, 1.075, 0, 0, 0, 1, 0]
+        case .emoji: return nil
+        }
+    }
+
+    private static var selectedCache: [String: UIImage] = [:]
+
+    private static func selectedImage(for reaction: ConversationReaction, base: UIImage) -> UIImage? {
+        guard let name = chatKitImageName(for: reaction), let m = selectedMatrix(for: reaction) else { return nil }
+        if let cached = selectedCache[name] { return cached }
+        guard let cg = base.cgImage else { return nil }
+        let filter = CIFilter(name: "CIColorMatrix")
+        filter?.setValue(CIImage(cgImage: cg), forKey: kCIInputImageKey)
+        filter?.setValue(CIVector(x: m[0], y: m[1], z: m[2], w: m[3]), forKey: "inputRVector")
+        filter?.setValue(CIVector(x: m[5], y: m[6], z: m[7], w: m[8]), forKey: "inputGVector")
+        filter?.setValue(CIVector(x: m[10], y: m[11], z: m[12], w: m[13]), forKey: "inputBVector")
+        filter?.setValue(CIVector(x: m[15], y: m[16], z: m[17], w: m[18]), forKey: "inputAVector")
+        filter?.setValue(CIVector(x: m[4], y: m[9], z: m[14], w: m[19]), forKey: "inputBiasVector")
+        guard let output = filter?.outputImage,
+              let rendered = CIContext(options: [.workingColorSpace: CGColorSpace(name: CGColorSpace.sRGB) as Any])
+                .createCGImage(output, from: CIImage(cgImage: cg).extent) else { return nil }
+        let image = UIImage(cgImage: rendered, scale: base.scale, orientation: base.imageOrientation)
+        selectedCache[name] = image
+        return image
+    }
+
+    /// Drawn glyph (color emoji, tinted lettering).
     static func view(for reaction: ConversationReaction, size: CGFloat) -> UIView {
         if let emoji = emoji(for: reaction) {
             let label = UILabel()
@@ -147,25 +248,40 @@ enum TapbackGlyph {
     }
 }
 
-/// The tapback badge that hangs off a bubble's top corner, with its two
-/// trailing bubble dots.
+/// The tapback badge on a bubble's top corner, as ChatKit's
+/// `CKTapbackPlatterView` (iOS 26.5 and 27.0): a 34 pt disc and two dots
+/// trailing away from the bubble, each ringed 0.5 pt in the page color so the
+/// badge stands off the bubble, holding the 32 pt glyph. Mine sit on the
+/// iMessage blue gradient; others' on the received-bubble gray. Geometry in
+/// `ConversationTapbackGeometry`. With several kinds, the platters pile up
+/// behind the first, each shifted toward the dots.
 final class ReactionBadgeView: UIView {
-    private let bubble = UIView()
-    private let dotLarge = UIView()
-    private let dotSmall = UIView()
+    private var outlines: [UIView] = []
+    private var fills: [UIView] = []
+    private let fillContainer = UIView()
+    private let fillMask = CAShapeLayer()
+    private let gradient = CAGradientLayer()
     private var glyphViews: [UIView] = []
     private(set) var reactions: [ConversationReaction] = []
-    var pointsLeft = false
+    private var mine = false
+    /// Dots trail left (a sent bubble's top-left corner) unless mirrored.
+    var pointsLeft = false { didSet { if oldValue != pointsLeft { setNeedsLayout() } } }
+
+    /// Each extra kind in the pile sits this far toward the dots.
+    static let pileStep: CGFloat = 12
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         isUserInteractionEnabled = false
-        for view in [dotSmall, dotLarge, bubble] { addSubview(view) }
-        bubble.layer.cornerCurve = .continuous
-        layer.shadowColor = UIColor.black.cgColor
-        layer.shadowOpacity = 0.12
-        layer.shadowRadius = 2
-        layer.shadowOffset = CGSize(width: 0, height: 1)
+        for _ in 0..<3 {
+            let outline = UIView()
+            outline.layer.cornerCurve = .continuous
+            outlines.append(outline)
+            addSubview(outline)
+        }
+        fillContainer.layer.mask = fillMask
+        fillContainer.layer.addSublayer(gradient)
+        addSubview(fillContainer)
     }
 
     @available(*, unavailable)
@@ -173,44 +289,91 @@ final class ReactionBadgeView: UIView {
 
     func configure(reactions: [ConversationReaction], mine: Bool) {
         self.reactions = reactions
+        self.mine = mine
         glyphViews.forEach { $0.removeFromSuperview() }
-        glyphViews = reactions.prefix(3).map { TapbackGlyph.view(for: $0, size: ConversationTheme.reactionBadgeSize) }
-        glyphViews.forEach { bubble.addSubview($0) }
-        // A tapback I gave sits on blue; others' on the badge gray.
-        let fill = mine ? UIColor.systemBlue : ConversationTheme.badgeFill
-        for view in [bubble, dotLarge, dotSmall] { view.backgroundColor = fill }
-        // Separate the badge from the bubble it overlaps with the page color.
-        bubble.layer.borderWidth = 2
-        bubble.layer.borderColor = ConversationTheme.background.resolvedColor(with: traitCollection).cgColor
+        glyphViews = reactions.prefix(3).map { TapbackGlyph.badgeView(for: $0, size: ConversationTapbackGeometry.glyphSize, selected: mine) }
+        for glyph in glyphViews.reversed() { addSubview(glyph) }
+        updateColors()
         setNeedsLayout()
     }
 
-    /// Room beside the circle for the trailing dots.
-    static let dotInset: CGFloat = 6
+    /// Frame for a badge of `count` kinds whose first platter is `platter`.
+    static func frame(count: Int, platter: CGRect, pointsLeft: Bool) -> CGRect {
+        let extra = CGFloat(max(0, min(count, 3) - 1)) * pileStep
+        return CGRect(x: platter.minX - (pointsLeft ? extra : 0), y: platter.minY, width: platter.width + extra, height: platter.height)
+    }
 
-    static func size(count: Int) -> CGSize {
-        let s = ConversationTheme.reactionBadgeSize
-        return CGSize(width: s + CGFloat(max(0, min(count, 3) - 1)) * s * 0.55 + dotInset, height: s + 10)
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        updateColors()
+    }
+
+    private func updateColors() {
+        let traits = traitCollection
+        for outline in outlines { outline.backgroundColor = ConversationTheme.background.resolvedColor(with: traits) }
+        fillContainer.backgroundColor = mine ? nil : ConversationTheme.incomingBubble.resolvedColor(with: traits)
+        gradient.isHidden = !mine
+        updateScreenGradient()
+    }
+
+    /// Mine fill: the iMessage gradient at the badge's place on screen, as
+    /// ChatKit's `CKAggregateAcknowledgmentGradientBalloonView` fills it
+    /// against the same gradient reference view as the bubbles. (Right after
+    /// reacting, Messages keeps the colors it sampled in the context menu's
+    /// lifted preview until the cell is configured again; we always use the
+    /// in-place colors.)
+    func updateScreenGradient() {
+        guard mine, let window, window.bounds.height > 0 else { return }
+        let frame = convert(bounds, to: window)
+        let span = ConversationTranscriptMetrics.gradientSpan(windowHeight: window.bounds.height, bottomSafeInset: window.safeAreaInsets.bottom)
+        let sample = ConversationTheme.iMessageGradient.samples(
+            from: frame.minY / span,
+            to: frame.maxY / span,
+            traits: traitCollection
+        )
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        gradient.colors = sample.colors
+        gradient.locations = sample.locations.map { NSNumber(value: Double($0)) }
+        CATransaction.commit()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        updateScreenGradient()
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let s = ConversationTheme.reactionBadgeSize
-        let width = s + CGFloat(max(0, glyphViews.count - 1)) * s * 0.55
-        bubble.frame = CGRect(x: pointsLeft ? 6 : 0, y: 0, width: width, height: s)
-        bubble.layer.cornerRadius = s / 2
-        for (index, glyph) in glyphViews.enumerated() {
-            glyph.frame = CGRect(x: CGFloat(index) * s * 0.55, y: 0, width: s, height: s).insetBy(dx: 3, dy: 3)
+        let g = ConversationTapbackGeometry.self
+        let circles = g.circles(mirrored: !pointsLeft)
+        let extra = bounds.width - g.platterSize.width
+        // The first platter sits at the bubble end of the box; the pile
+        // extends toward the dots.
+        let first = CGPoint(x: pointsLeft ? extra : 0, y: 0)
+        let path = UIBezierPath()
+        for (index, circle) in circles.enumerated() {
+            let frame = circle.offsetBy(dx: first.x, dy: first.y)
+            outlines[index].frame = frame
+            outlines[index].layer.cornerRadius = frame.width / 2
+            path.append(UIBezierPath(ovalIn: frame.insetBy(dx: g.outlineWidth, dy: g.outlineWidth)))
         }
-        // Measured on Messages (d34 badge): large dot d8.5 at center
-        // offset (12, 14.5), small d4.5 at (17.7, 23.3), toward the outside.
-        let large: CGFloat = 9, small: CGFloat = 4.5
-        let side: CGFloat = pointsLeft ? -1 : 1
-        let edge = pointsLeft ? bubble.frame.minX + s / 2 : bubble.frame.maxX - s / 2
-        dotLarge.frame = CGRect(x: edge + side * 12 - large / 2, y: s / 2 + 14.5 - large / 2, width: large, height: large)
-        dotSmall.frame = CGRect(x: edge + side * 17.7 - small / 2, y: s / 2 + 23.3 - small / 2, width: small, height: small)
-        dotLarge.layer.cornerRadius = large / 2
-        dotSmall.layer.cornerRadius = small / 2
+        // Extra kinds: a disc each behind the first, stepped toward the dots.
+        let disc = circles[0].offsetBy(dx: first.x, dy: first.y)
+        for index in 1..<max(1, glyphViews.count) {
+            let step = CGFloat(index) * Self.pileStep * (pointsLeft ? -1 : 1)
+            path.append(UIBezierPath(ovalIn: disc.offsetBy(dx: step, dy: 0).insetBy(dx: g.outlineWidth, dy: g.outlineWidth)))
+        }
+        fillContainer.frame = bounds
+        gradient.frame = bounds
+        fillMask.frame = bounds
+        fillMask.path = path.cgPath
+        for (index, glyph) in glyphViews.enumerated() {
+            let step = CGFloat(index) * Self.pileStep * (pointsLeft ? -1 : 1)
+            let center = CGPoint(x: disc.midX + step, y: disc.midY)
+            glyph.frame = CGRect(x: center.x - g.glyphSize / 2, y: center.y - g.glyphSize / 2, width: g.glyphSize, height: g.glyphSize)
+        }
+        updateScreenGradient()
     }
 }
 
