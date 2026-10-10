@@ -37,7 +37,7 @@ public final class OverlaySurfaceView: NSView {
         isInteractive = interactive
         self.cornerRadius = cornerRadius
         self.reduceTransparency = reduceTransparency
-        self.material = material ?? OverlayMaterial.current(in: reduceTransparency)
+        self.material = material ?? Self.systemMaterial(reduceTransparency)
         super.init(frame: .zero)
         wantsLayer = true
         contentView.translatesAutoresizingMaskIntoConstraints = true
@@ -49,7 +49,7 @@ public final class OverlaySurfaceView: NSView {
     @available(*, unavailable)
     public required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    /// The view that draws the material (an `NSGlassEffectView`,
+    /// The view that draws the material (a Liquid Glass `GlassPanelView`,
     /// `NSVisualEffectView` or a plain layer-backed view).
     public var materialDrawingView: NSView? { materialView }
 
@@ -69,10 +69,17 @@ public final class OverlaySurfaceView: NSView {
 
     /// Re-reads the material from this Mac's settings (Reduce Transparency).
     public func refreshMaterial() {
-        let next = materialOverride ?? OverlayMaterial.current(in: reduceTransparency)
+        let next = materialOverride ?? Self.systemMaterial(reduceTransparency)
         guard next != material else { return }
         material = next
         rebuild()
+    }
+
+    /// This Mac's material; `Glass.isLiquidGlassAvailable` also carries the
+    /// Debug legacy-material switch.
+    private static func systemMaterial(_ reduceTransparency: ReduceTransparency) -> OverlayMaterial {
+        OverlayMaterial.select(liquidGlassAvailable: Glass.isLiquidGlassAvailable,
+                               reduceTransparency: reduceTransparency.isEnabled)
     }
 
     private func rebuild() {
@@ -107,7 +114,7 @@ public final class OverlaySurfaceView: NSView {
         }
         view.frame = bounds
         view.autoresizingMask = [.width, .height]
-        // NSGlassEffectView lays its contentView out with constraints; out
+        // The glass panel lays its contentView out with constraints; out
         // of the glass it must size by its frame again.
         if material != .liquidGlass {
             contentView.translatesAutoresizingMaskIntoConstraints = true
@@ -125,7 +132,7 @@ public final class OverlaySurfaceView: NSView {
     }
 
     private func applyShape() {
-        if let glass = materialView as? NSGlassEffectView {
+        if let glass = materialView as? GlassPanelView {
             glass.cornerRadius = cornerRadius
         } else if let layer = materialView?.layer {
             layer.cornerRadius = cornerRadius
@@ -141,7 +148,7 @@ public final class OverlaySurfaceView: NSView {
         performWithTheme {
             switch material {
             case .liquidGlass:
-                (materialView as? NSGlassEffectView)?.tintColor = overlayTint
+                (materialView as? GlassPanelView)?.tintColor = overlayTint
             case .vibrancy:
                 tintView?.layer?.backgroundColor = overlayTint.cgColor
                 materialView?.layer?.borderColor = Palette.separator.cgColor

@@ -2,9 +2,8 @@ import CmuxNextApps
 import Foundation
 
 /// One app op that the Mac app owns (plans/cmux-next/app-platform.md
-/// section 14, APP-R1): the in-app prototype engine calls these handlers
-/// today; the daemon's provider channel (`apps-provider-request`) calls the
-/// same handlers once routing lands. Only the caller changes.
+/// section 14, APP-R1): the daemon's app supervisor routes it here through
+/// the provider channel (`apps-provider-request`, ``AppsProviderChannel``).
 nonisolated struct AppHostCapabilityRequest: Sendable {
     /// The calling app (`cmux/coderouter`).
     var app: String

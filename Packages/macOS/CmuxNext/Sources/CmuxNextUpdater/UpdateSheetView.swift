@@ -69,7 +69,7 @@ struct UpdateSheetView: View {
                 ForEach(Array(content.buttons.enumerated()), id: \.element) { index, button in
                     let isDefault = index == content.buttons.count - 1
                     Button(button.title) { press(button) }
-                        .buttonStyle(.glass)
+                        .glassButtonStyle()
                         .font(Font(isDefault ? Typography.bodyEmphasized : Typography.body))
                         .keyboardShortcut(isDefault ? .defaultAction : (button.dismisses ? .cancelAction : nil))
                 }

@@ -4,6 +4,7 @@ import CmuxNextBrowser
 import CmuxNextBrowserImport
 import CmuxNextDesign
 import CmuxNextOnboarding
+import os
 
 /// Owns the tool window (Import from Browser, Computer Use setup), the
 /// browser-data import offer, the default-app registry and the imported
@@ -42,17 +43,25 @@ final class OnboardingService {
                 var scan = AgentProjectScan.live()
                 scan.filesPerApp = 200
                 let agent = scan.run().map(\.id)
+                let classic: [ClassicSessionWorkspace]
+                do {
+                    classic = try ClassicSessionImporter().read()
+                } catch {
+                    Logger(subsystem: "com.cmuxterm.app.next", category: "onboarding")
+                        .error("classic session snapshot could not be read: \(String(describing: error), privacy: .public)")
+                    classic = []
+                }
                 func classicDirectories(_ layout: ClassicSessionLayout) -> [String] {
                     switch layout {
                     case .pane(let pane): pane.tabs.compactMap(\.workingDirectory)
                     case .split(_, _, let first, let second): classicDirectories(first) + classicDirectories(second)
                     }
                 }
-                let classic = (try? ClassicSessionImporter().read())?.flatMap { workspace in
+                let classicFolders = classic.flatMap { workspace in
                     [workspace.workingDirectory] + classicDirectories(workspace.layout)
-                } ?? []
+                }
                 var seen = Set<String>()
-                return (agent + classic).compactMap { path in
+                return (agent + classicFolders).compactMap { path in
                     let normalized = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL.path
                     return seen.insert(normalized).inserted ? normalized : nil
                 }
